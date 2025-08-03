@@ -7,5 +7,12 @@
     {
       "path": "./tsconfig.app.json"
     }
-  ]
+  ],
+  "compilerOptions": {
+    "baseUrl": ".", // обязательно
+    "paths": {
+      "@/*": [ "src/*" ] // алиас для TS/IDE
+    }
+  },
+  "include": [ "src/**/*.ts", "src/**/*.vue" ]
 }

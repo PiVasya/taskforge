@@ -1,10 +1,17 @@
-import { defineConfig } from 'vite';
-import plugin from '@vitejs/plugin-vue';
+import { fileURLToPath, URL } from 'node:url'   // ⬅️ для вычисления абсолютного пути
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'            // можно сразу ‘vue’, а не generic “plugin”
 
 // https://vitejs.dev/config/
 export default defineConfig({
-    plugins: [plugin()],
-    server: {
-        port: 80,
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      // "@/…" → "src/…"
+      '@': fileURLToPath(new URL('./src', import.meta.url))
     }
+  },
+  server: {
+    port: 80          // ▸ dev-сервер слушает 80-й порт
+  }
 })
