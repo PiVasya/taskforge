@@ -1,3 +1,4 @@
+using TaskForge.Services;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Data;
 
@@ -15,6 +16,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     ));
 
 builder.Services.AddControllers();
+builder.Services.AddSingleton<PasswordHasher>();
+
 
 var app = builder.Build();
 
