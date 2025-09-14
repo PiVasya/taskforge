@@ -1,7 +1,4 @@
-<script setup lang="ts">
-  import RegisterForm from '@/components/RegisterForm.vue'
-</script>
-
 <template>
-  <RegisterForm />
+  <!-- здесь отображаются все маршруты -->
+  <router-view />
 </template>
