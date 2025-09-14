@@ -1,20 +1,11 @@
 import { ref, computed } from 'vue'
 
-export function useRegisterForm() {
-  const form = ref({
-    email: '',
-    firstName: '',
-    lastName: '',
-    password: '',
-    phoneNumber: '',
-    dateOfBirth: ''
-  })
-  const errors = ref({ email: null, firstName: null, lastName: null, password: null } as Record<string, string | null>)
+export function useLoginForm() {
+  const form = ref({ email: '', password: '' })
+  const errors = ref({ email: null, password: null } as Record<string, string | null>)
 
   const validate = () => {
     errors.value.email = /^[\w.+-]+@\w+\.\w{2,}$/.test(form.value.email) ? null : 'Неверный email'
-    errors.value.firstName = form.value.firstName.length >= 3 ? null : 'Имя ≥ 3 символов'
-    errors.value.lastName = form.value.lastName.length >= 3 ? null : 'Фамилия ≥ 3 символов'
     errors.value.password = form.value.password.length >= 6 ? null : 'Пароль ≥ 6 символов'
     return Object.values(errors.value).every(e => e === null)
   }
@@ -24,16 +15,17 @@ export function useRegisterForm() {
     if (!validate()) return
     submitting.value = true
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form.value)
       })
       const data = await res.json()
       if (!res.ok) {
-        alert('❌ ' + (data.message ?? 'Ошибка регистрации'))
+        alert('❌ ' + (data.message ?? 'Ошибка входа'))
         return
       }
+      // сохраните токен/куки, если сервер выдаёт их в ответ
       alert('✅ ' + data.message)
     } finally {
       submitting.value = false

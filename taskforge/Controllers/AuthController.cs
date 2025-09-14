@@ -1,7 +1,12 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using System;
+using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
 using TaskForge.Data;
@@ -19,14 +24,16 @@ namespace TaskForge.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly PasswordHasher _passwordHasher;
+        private readonly IConfiguration _configuration;
 
         /// <summary>
-        /// Конструктор с внедрением контекста БД и сервиса хэширования паролей.
+        /// Конструктор с внедрением контекста БД, хэш‑сервиса и конфигурации (для JWT).
         /// </summary>
-        public AuthController(ApplicationDbContext context, PasswordHasher passwordHasher)
+        public AuthController(ApplicationDbContext context, PasswordHasher passwordHasher, IConfiguration configuration)
         {
             _context = context;
             _passwordHasher = passwordHasher;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -34,6 +41,7 @@ namespace TaskForge.Controllers
         /// </summary>
         /// <param name="dto">Данные регистрации (email, имя, фамилия, пароль, телефон и дата рождения).</param>
         /// <returns>Результат регистрации.</returns>
+        [AllowAnonymous]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterUserDto dto)
         {
@@ -42,7 +50,7 @@ namespace TaskForge.Controllers
                 return BadRequest(new { message = "Email уже используется." });
             }
 
-            // Хэшируем пароль с использованием Argon2id
+            // Хэшируем пароль (Argon2id используется внутри PasswordHasher)
             var (salt, hash) = _passwordHasher.HashPassword(dto.Password);
 
             var user = new User
@@ -62,6 +70,7 @@ namespace TaskForge.Controllers
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
+            // Можно автоматически выдать токен после регистрации, но пока вернём лишь сообщение
             return Ok(new { message = "Регистрация успешна." });
         }
 
@@ -69,7 +78,8 @@ namespace TaskForge.Controllers
         /// Авторизация пользователя.
         /// </summary>
         /// <param name="dto">Данные для входа (email и пароль).</param>
-        /// <returns>Результат авторизации.</returns>
+        /// <returns>JWT‑токен либо сообщение об ошибке.</returns>
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
@@ -79,7 +89,7 @@ namespace TaskForge.Controllers
                 return Unauthorized(new { message = "Неверные учетные данные." });
             }
 
-            // Проверяем пароль с использованием Argon2id
+            // Проверяем пароль
             bool isValid = _passwordHasher.VerifyPassword(dto.Password, user.PasswordSalt, user.PasswordHash);
             if (!isValid)
             {
@@ -88,12 +98,39 @@ namespace TaskForge.Controllers
                 return Unauthorized(new { message = "Неверные учетные данные." });
             }
 
-            // При успешном входе обновляем дату последнего входа
+            // При успешном входе обновляем дату последнего входа и обнуляем счётчик ошибок
             user.LastLoginAt = DateTime.UtcNow;
             user.AccessFailedCount = 0;
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Вход выполнен успешно." });
+            // Формируем список claims
+            var claims = new List<Claim>
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+                new Claim(JwtRegisteredClaimNames.Email, user.Email),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            // Подготовка ключа и параметров
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            // Задаём время жизни токена
+            var expires = DateTime.UtcNow.AddMinutes(
+                double.Parse(_configuration["Jwt:ExpireMinutes"] ?? "60"));
+
+            // Создание токена
+            var token = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
+                expires: expires,
+                signingCredentials: creds
+            );
+
+            string tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+            return Ok(new { token = tokenString });
         }
     }
 }
