@@ -1,0 +1,103 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Простая регистрация и вход</title>
+</head>
+<body>
+    <h1>Регистрация</h1>
+    <form id="registerForm">
+        <label>
+            Email:
+            <input type="email" id="regEmail" required>
+        </label><br>
+        <label>
+            Имя:
+            <input type="text" id="regFirstName" required>
+        </label><br>
+        <label>
+            Фамилия:
+            <input type="text" id="regLastName" required>
+        </label><br>
+        <label>
+            Пароль:
+            <input type="password" id="regPassword" required>
+        </label><br>
+        <label>
+            Телефон:
+            <input type="text" id="regPhone">
+        </label><br>
+        <label>
+            Дата рождения:
+            <input type="date" id="regDOB">
+        </label><br>
+        <button type="submit">Зарегистрироваться</button>
+    </form>
+
+    <h1>Вход</h1>
+    <form id="loginForm">
+        <label>
+            Email:
+            <input type="email" id="loginEmail" required>
+        </label><br>
+        <label>
+            Пароль:
+            <input type="password" id="loginPassword" required>
+        </label><br>
+        <button type="submit">Войти</button>
+    </form>
+
+    <script>
+    // Обработчик регистрации
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const data = {
+        email: document.getElementById('regEmail').value,
+        firstName: document.getElementById('regFirstName').value,
+        lastName: document.getElementById('regLastName').value,
+        password: document.getElementById('regPassword').value,
+        phoneNumber: document.getElementById('regPhone').value,
+        dateOfBirth: document.getElementById('regDOB').value || null
+      };
+        const baseUrl = 'http://localhost:5097';
+
+      try {
+          const response = await fetch(`${baseUrl}/api/auth/register`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data)
+          });
+        const result = await response.json();
+        alert(result.message || 'Регистрация прошла успешно');
+      } catch (err) {
+        console.error(err);
+        alert('Ошибка при регистрации');
+      }
+    });
+
+    // Обработчик входа
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const data = {
+        email: document.getElementById('loginEmail').value,
+        password: document.getElementById('loginPassword').value
+      };
+        const baseUrl = 'http://localhost:5097';
+      try {
+          const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        alert(result.message || 'Вход выполнен');
+      } catch (err) {
+        console.error(err);
+        alert('Ошибка при входе');
+      }
+    });
+    </script>
+</body>
+</html>
