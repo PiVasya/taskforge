@@ -21,24 +21,9 @@ function TestRunnerPage() {
     };
 
     const handleRunTests = async () => {
-        setResults(null);
-        setError('');
         try {
-            const response = await fetch(`${API_URL}/api/tests/run-tests`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    language,
-                    code,
-                    testCases: tests
-                })
-            });
-            const data = await response.json();
-            if (response.ok) {
-                setResults(data.results);
-            } else {
-                setError(data.error || 'Ошибка при выполнении тестов');
-            }
+            const res = await runTests({ language, code, testCases: tests });
+            setResults(res.results);
         } catch (err) {
             setError(err.message);
         }

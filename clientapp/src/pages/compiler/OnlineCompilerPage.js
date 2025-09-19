@@ -1,7 +1,5 @@
-﻿// clientapp/src/pages/OnlineCompilerPage.js
-import React, { useState } from 'react';
-
-const API_URL = process.env.REACT_APP_API_URL;
+﻿import React, { useState } from 'react';
+import { compileRun } from '../../api/compiler';
 
 function OnlineCompilerPage() {
     const [language, setLanguage] = useState('csharp');
@@ -11,21 +9,12 @@ function OnlineCompilerPage() {
     const [error, setError] = useState('');
 
     const handleRun = async () => {
-        setOutput('');
         setError('');
+        setOutput('');
         try {
-            const response = await fetch(`${API_URL}/api/compiler/compile-run`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ language, code, input })
-            });
-            const result = await response.json();
-            if (response.ok) {
-                setOutput(result.output || '');
-                setError(result.error || '');
-            } else {
-                setError(result.error || 'Ошибка выполнения');
-            }
+            const res = await compileRun({ language, code, input });
+            setOutput(res.output || '');
+            setError(res.error || '');
         } catch (err) {
             setError(err.message);
         }
