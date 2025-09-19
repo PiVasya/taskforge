@@ -1,12 +1,14 @@
 ﻿// clientapp/src/api/auth.js
 
+const API_URL = process.env.REACT_APP_API_URL; // берём адрес из .env
+
 /**
  * Регистрация пользователя.
  * @param {Object} data объект с полями: email, firstName, lastName, password, phoneNumber?, dateOfBirth?
  * @returns {Promise<Object>} ответ сервера { message: string }
  */
 export async function registerUser(data) {
-    const response = await fetch('/api/auth/register', {
+    const response = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -23,7 +25,7 @@ export async function registerUser(data) {
     if (!response.ok) {
         throw new Error(result.message || 'Ошибка регистрации');
     }
-    return result; // { message: 'Регистрация успешна.' }
+    return result;
 }
 
 /**
@@ -32,7 +34,7 @@ export async function registerUser(data) {
  * @returns {Promise<string>} токен из ответа сервера
  */
 export async function loginUser(data) {
-    const response = await fetch('/api/auth/login', {
+    const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -45,5 +47,5 @@ export async function loginUser(data) {
     if (!response.ok) {
         throw new Error(result.message || 'Ошибка авторизации');
     }
-    return result.token; // JWT‑токен
+    return result.token;
 }

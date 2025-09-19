@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using taskforge.Services.Interfaces;
 using TaskForge.Data;
 using TaskForge.Services;
 
@@ -15,6 +16,8 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
+builder.Services.AddScoped<ICompilerService, CompilerService>();
+
 
 // Контекст базы данных
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
