@@ -1,7 +1,7 @@
 ﻿// clientapp/src/api/compiler.js
 
 // базовый адрес API (пустая строка означает относительный путь)
-const API_URL = process.env.REACT_APP_API_URL || "";
+const API_URL = process.env.REACT_APP_API_URL;
 
 /**
  * Возвращает заголовок Authorization, если в localStorage есть токен.

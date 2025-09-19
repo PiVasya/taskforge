@@ -131,6 +131,8 @@ namespace TaskForge.Controllers
 
             string tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
+            Console.WriteLine($"Выдан токен: {tokenString}");
+
             return Ok(new { token = tokenString });
         }
     }

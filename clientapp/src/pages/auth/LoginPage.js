@@ -15,6 +15,7 @@ function LoginPage() {
         setError(null);
         try {
             const token = await loginUser({ email, password });
+            console.log("Полученный токен:", token);
             localStorage.setItem('token', token);
             navigate('/home');
         } catch (err) {
