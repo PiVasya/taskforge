@@ -1,17 +1,39 @@
-﻿// clientapp/src/pages/TestRunnerPage.js
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { runTests } from '../../api/compiler';
 
-const API_URL = process.env.REACT_APP_API_URL;
-
+/**
+ * Страница для запуска тестов на пользовательском коде.
+ * Перед выполнением проверяет наличие токена и ведёт журнал отладки.
+ */
 function TestRunnerPage() {
+    const navigate = useNavigate();
     const [language, setLanguage] = useState('csharp');
     const [code, setCode] = useState('');
     const [tests, setTests] = useState([{ input: '', expectedOutput: '' }]);
     const [results, setResults] = useState(null);
     const [error, setError] = useState('');
+    const [debugLog, setDebugLog] = useState([]);
+
+    const logDebug = (msg) => {
+        console.log(msg);
+        setDebugLog((prev) => [...prev, msg]);
+    };
+
+    useEffect(() => {
+        logDebug('TestRunnerPage mounted.');
+        const token = localStorage.getItem('token');
+        if (!token) {
+            logDebug('No token found, redirecting to /login');
+            navigate('/login');
+        } else {
+            logDebug('Token found');
+        }
+    }, [navigate]);
 
     const handleAddTest = () => {
         setTests([...tests, { input: '', expectedOutput: '' }]);
+        logDebug('Added new test case');
     };
 
     const handleTestChange = (index, field, value) => {
@@ -21,10 +43,15 @@ function TestRunnerPage() {
     };
 
     const handleRunTests = async () => {
+        setError('');
+        setResults(null);
+        logDebug(`Running tests: ${JSON.stringify(tests)}`);
         try {
             const res = await runTests({ language, code, testCases: tests });
+            logDebug('Received response from runTests');
             setResults(res.results);
         } catch (err) {
+            logDebug(`Exception during runTests: ${err.message}`);
             setError(err.message);
         }
     };
@@ -33,7 +60,8 @@ function TestRunnerPage() {
         <div style={{ padding: '1rem' }}>
             <h2>Тестер программ</h2>
             <div>
-                <label>Язык:&nbsp;
+                <label>
+                    Язык:&nbsp;
                     <select value={language} onChange={(e) => setLanguage(e.target.value)}>
                         <option value="csharp">C#</option>
                         <option value="cpp">C++</option>
@@ -47,11 +75,12 @@ function TestRunnerPage() {
                 cols={80}
                 placeholder="Введите код..."
             />
-            <h4>Тест-кейсы</h4>
+            <h4>Тест‑кейсы</h4>
             {tests.map((t, idx) => (
                 <div key={idx} style={{ marginBottom: '0.5rem' }}>
                     <div>
-                        <label>Вход {idx + 1}:&nbsp;
+                        <label>
+                            Вход {idx + 1}:&nbsp;
                             <input
                                 type="text"
                                 value={t.input}
@@ -60,7 +89,8 @@ function TestRunnerPage() {
                         </label>
                     </div>
                     <div>
-                        <label>Ожидаемый выход {idx + 1}:&nbsp;
+                        <label>
+                            Ожидаемый выход {idx + 1}:&nbsp;
                             <input
                                 type="text"
                                 value={t.expectedOutput}
@@ -99,6 +129,14 @@ function TestRunnerPage() {
                     </tbody>
                 </table>
             )}
+            <div>
+                <h4>Debug Log:</h4>
+                <ul>
+                    {debugLog.map((msg, idx) => (
+                        <li key={idx}>{msg}</li>
+                    ))}
+                </ul>
+            </div>
         </div>
     );
 }
