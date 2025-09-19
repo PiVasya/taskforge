@@ -20,6 +20,7 @@ namespace TaskForge.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
+    [AllowAnonymous]
     public class AuthController : ControllerBase
     {
         private readonly ApplicationDbContext _context;

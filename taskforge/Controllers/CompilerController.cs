@@ -1,4 +1,5 @@
 ﻿// Controllers/CompilerController.cs
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
@@ -8,6 +9,7 @@ namespace TaskForge.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class CompilerController : ControllerBase
     {
         private readonly ICompilerService _service;
