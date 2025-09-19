@@ -1,12 +1,20 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Logging;
 using System.Text;
 using taskforge.Services.Interfaces;
 using TaskForge.Data;
 using TaskForge.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Включаем консольное логирование и задаём минимальный уровень
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+
+builder.Services.AddScoped<ICompilerService, CompilerService>();
 
 // Конфигурация CORS
 builder.Services.AddCors(options =>
@@ -16,8 +24,6 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
-builder.Services.AddScoped<ICompilerService, CompilerService>();
-
 
 // Контекст базы данных
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -59,15 +65,23 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.Logger.LogInformation("Application starting...");
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    app.Logger.LogInformation("Applying pending migrations...");
     db.Database.Migrate();
 }
+
 // Подключаем CORS, аутентификацию и авторизацию
 app.UseCors("AllowAll");
+
+app.Logger.LogInformation("Configuring authentication and authorization middleware");
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.Logger.LogInformation("Ready to accept requests");
 app.Run();

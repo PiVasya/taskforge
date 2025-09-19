@@ -16,20 +16,22 @@ function OnlineCompilerPage() {
     const [debugLog, setDebugLog] = useState([]);
 
     // добавляет сообщение в консоль и в локальный лог
-    const logDebug = (msg) => {
-        console.log(msg);
-        setDebugLog((prev) => [...prev, msg]);
+    const logDebug = (msg, data) => {
+        const timestamp = new Date().toISOString();
+        const entry = data ? `${timestamp} - ${msg}: ${JSON.stringify(data)}` : `${timestamp} - ${msg}`;
+        console.log(entry);
+        setDebugLog((prev) => [...prev, entry]);
     };
 
     // при первом рендере проверяем токен и переходим на /login, если его нет
     useEffect(() => {
-        logDebug('OnlineCompilerPage mounted.');
+        logDebug('OnlineCompilerPage mounted');
         const token = localStorage.getItem('token');
         if (!token) {
             logDebug('No token found, redirecting to /login');
             navigate('/login');
         } else {
-            logDebug('Token found');
+            logDebug('Token found', { tokenSnippet: token.substring(0, 10) + '...' });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navigate]);
@@ -38,17 +40,19 @@ function OnlineCompilerPage() {
     const handleRun = async () => {
         setError('');
         setOutput('');
-        logDebug(`Running code for language ${language}`);
+        logDebug('handleRun invoked', { language, codeLength: code.length, inputLength: input.length });
         try {
-            const res = await compileRun({ language, code, input });
-            logDebug('Received response from compileRun');
+            const payload = { language, code, input };
+            logDebug('Sending compileRun request', payload);
+            const res = await compileRun(payload);
+            logDebug('Received response from compileRun', res);
             setOutput(res.output || '');
             if (res.error) {
-                logDebug(`Error from compileRun: ${res.error}`);
+                logDebug('Error returned from compileRun', { error: res.error });
                 setError(res.error);
             }
         } catch (err) {
-            logDebug(`Exception during compileRun: ${err.message}`);
+            logDebug('Exception during compileRun', { message: err.message });
             setError(err.message);
         }
     };
@@ -99,8 +103,8 @@ function OnlineCompilerPage() {
             <div>
                 <h4>Debug Log:</h4>
                 <ul>
-                    {debugLog.map((msg, idx) => (
-                        <li key={idx}>{msg}</li>
+                    {debugLog.map((entry, idx) => (
+                        <li key={idx}>{entry}</li>
                     ))}
                 </ul>
             </div>
