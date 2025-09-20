@@ -1,16 +1,17 @@
-﻿using System.Security.Cryptography;
+﻿using Konscious.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
-using Konscious.Security.Cryptography;
+using taskforge.Services.Interfaces;
 
-namespace TaskForge.Services
+namespace taskForge.Services
 {
-    public class PasswordHasher
+    public class PasswordHasher : IPasswordHasher
     {
-        private const int SaltSize = 16;    // 16 байт
-        private const int HashSize = 32;    // 32 байта
+        private const int SaltSize = 16;
+        private const int HashSize = 32;
         private const int DegreeOfParallelism = 1;
         private const int Iterations = 2;
-        private const int MemorySize = 19 * 1024; // 19 MiB в КиБ
+        private const int MemorySize = 19 * 1024;
 
         public (byte[] Salt, byte[] Hash) HashPassword(string password)
         {

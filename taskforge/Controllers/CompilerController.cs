@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 
-namespace TaskForge.Controllers
+namespace taskforge.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]

@@ -9,11 +9,11 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
-using TaskForge.Data;
-using TaskForge.Data.Models;
-using TaskForge.Services;
+using taskforge.Data;
+using taskforge.Data.Models;
+using taskForge.Services;
 
-namespace TaskForge.Controllers
+namespace taskforge.Controllers
 {
     /// <summary>
     /// Контроллер для регистрации и авторизации пользователей.
@@ -130,8 +130,6 @@ namespace TaskForge.Controllers
             );
 
             string tokenString = new JwtSecurityTokenHandler().WriteToken(token);
-
-            Console.WriteLine($"Выдан токен: {tokenString}");
 
             return Ok(new { token = tokenString });
         }

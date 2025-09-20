@@ -50,9 +50,9 @@ async function postJson(url, payload) {
  */
 export async function compileRun({ language, code, input }) {
     return await postJson(
-        `${API_URL}/api/compiler/compile-run`,
-        { language, code, input }
-    );
+            `${API_URL}/api/compiler/compile-run`,
+            { language, code, input }
+        );
 }
 
 /**

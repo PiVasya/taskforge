@@ -44,6 +44,7 @@ function OnlineCompilerPage() {
         try {
             const payload = { language, code, input };
             logDebug('Sending compileRun request', payload);
+            console.log("Token from localStorage:", localStorage.getItem("token"));
             const res = await compileRun(payload);
             logDebug('Received response from compileRun', res);
             setOutput(res.output || '');
