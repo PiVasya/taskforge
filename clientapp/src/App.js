@@ -5,7 +5,8 @@ import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import OnlineCompilerPage from './pages/compiler/OnlineCompilerPage';
 import TestRunnerPage from './pages/tester/TestRunnerPage';
-
+import CoursesPage from './pages/courses/CoursesPage';
+import CoursePage from "./pages/courses/CoursePage";
 
 function App() {
     return (
@@ -16,6 +17,8 @@ function App() {
             <Route path="/home" element={<HomePage />} />
             <Route path="/compiler" element={<OnlineCompilerPage />} />
             <Route path="/tester" element={<TestRunnerPage />} />
+            <Route path="/courses" element={<CoursesPage />} />
+            <Route path="/course/:courseId" element={<CoursePage />} />
         </Routes>
     );
 }

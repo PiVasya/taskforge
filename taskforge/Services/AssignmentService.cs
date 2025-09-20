@@ -61,6 +61,7 @@ namespace taskforge.Services
                 {
                     Id = a.Id,
                     Title = a.Title,
+                    Description = a.Description,
                     Difficulty = a.Difficulty,
                     Tags = a.Tags,
                     CreatedAt = a.CreatedAt,

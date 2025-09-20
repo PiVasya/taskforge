@@ -24,6 +24,9 @@ function HomePage() {
                 <button onClick={() => navigate('/tester')}>
                     Тестер решений
                 </button>
+                <button onClick={() => navigate('/courses')}>
+                    Курсы
+                </button>
             </div>
             <button onClick={handleLogout}>Выйти</button>
         </div>

@@ -15,6 +15,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
+// current user access
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+// app services
+builder.Services.AddScoped<ICourseService, CourseService>();
+builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<ISolutionService, SolutionService>();
+
+// уже есть:
+builder.Services.AddScoped<ICompilerService, CompilerService>();
 // Сервисы
 builder.Services.AddScoped<ICompiler, CSharpCompiler>();
 builder.Services.AddScoped<ICompiler, CppCompiler>();
