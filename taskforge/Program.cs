@@ -1,13 +1,38 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+п»їusing Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using TaskForge.Data;
-using TaskForge.Services;
+using taskforge.Services;
+using taskforge.Services.Compilers;
+using taskforge.Services.Interfaces;
+using taskforge.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Конфигурация CORS
+// Р‘Р°Р·РѕРІРѕРµ Р»РѕРіРёСЂРѕРІР°РЅРёРµ (Р±РµР· РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹С… РІС‹РІРѕРґРѕРІ)
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+
+// current user access
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+// app services
+builder.Services.AddScoped<ICourseService, CourseService>();
+builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<ISolutionService, SolutionService>();
+
+// СѓР¶Рµ РµСЃС‚СЊ:
+builder.Services.AddScoped<ICompilerService, CompilerService>();
+// РЎРµСЂРІРёСЃС‹
+builder.Services.AddScoped<ICompiler, CSharpCompiler>();
+builder.Services.AddScoped<ICompiler, CppCompiler>();
+builder.Services.AddScoped<ICompiler, PythonCompiler>();
+builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -15,16 +40,16 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
-
-// Контекст базы данных
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-// Контроллеры и сервис хэширования паролей
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    });
 builder.Services.AddSingleton<PasswordHasher>();
 
-// Получаем секцию Jwt и проверяем наличие ключа
+// JWT-РєРѕРЅС„РёРі
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection.GetValue<string>("Key");
 if (string.IsNullOrWhiteSpace(jwtKey))
@@ -32,25 +57,36 @@ if (string.IsNullOrWhiteSpace(jwtKey))
     throw new InvalidOperationException("Jwt:Key is not configured");
 }
 
-// Настройка аутентификации (JWT)
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+// РђСѓС‚РµРЅС‚РёС„РёРєР°С†РёСЏ (JWT)
+builder.Services
+    .AddAuthentication(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtSection["Issuer"],
-        ValidAudience = jwtSection["Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
-    };
-});
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        // РџСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ РёСЃРїРѕР»СЊР·СѓРµРј РєР»Р°СЃСЃРёС‡РµСЃРєРёР№ РѕР±СЂР°Р±РѕС‚С‡РёРє С‚РѕРєРµРЅРѕРІ
+        options.TokenHandlers.Clear();
+        options.TokenHandlers.Add(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler());
+
+        // РќРµ РјР°РїРїРёРј РєР»РµР№РјС‹ РІ СѓСЃС‚Р°СЂРµРІС€РёРµ С‚РёРїС‹
+        options.MapInboundClaims = false;
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSection["Issuer"],
+            ValidAudience = jwtSection["Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ClockSkew = TimeSpan.FromMinutes(2)
+        };
+
+        // РќРёРєР°РєРёС… РєР°СЃС‚РѕРјРЅС‹С… СЃРѕР±С‹С‚РёР№ вЂ” С‚РѕРєРµРЅ Р±РµСЂС‘С‚СЃСЏ СЃС‚Р°РЅРґР°СЂС‚РЅРѕ РёР· Authorization: Bearer <jwt>
+    });
 
 builder.Services.AddAuthorization();
 
@@ -61,10 +97,12 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
 }
-// Подключаем CORS, аутентификацию и авторизацию
+
+// РџР°Р№РїР»Р°Р№РЅ
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
 app.Run();

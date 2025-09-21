@@ -9,17 +9,19 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
-using TaskForge.Data;
-using TaskForge.Data.Models;
-using TaskForge.Services;
+using taskforge.Data;
+using taskforge.Data.Models;
+using taskforge.Services;
+using taskforge.Data.Models.Entities;
 
-namespace TaskForge.Controllers
+namespace taskforge.Controllers
 {
     /// <summary>
     /// Контроллер для регистрации и авторизации пользователей.
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
+    [AllowAnonymous]
     public class AuthController : ControllerBase
     {
         private readonly ApplicationDbContext _context;

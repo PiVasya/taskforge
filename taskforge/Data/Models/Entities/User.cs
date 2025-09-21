@@ -1,7 +1,7 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace TaskForge.Data.Models
+namespace taskforge.Data.Models.Entities
 {
     public class User
     {

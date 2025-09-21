@@ -1,0 +1,11 @@
+[
+  {
+    "Name": "Новый профиль (1)",
+    "Projects": [
+      {
+        "Path": "clientapp\\clientapp.esproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]

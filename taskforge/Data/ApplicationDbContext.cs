@@ -1,51 +1,69 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using TaskForge.Data.Models;
+using taskforge.Data.Models;
+using taskforge.Data.Models.Entities;
 
-namespace TaskForge.Data
+namespace taskforge.Data
 {
     public class ApplicationDbContext : DbContext
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
-            : base(options)
-        {
-        }
+            : base(options) { }
 
-        // DbSet для сущности User – EF Core создаст таблицу Users.
         public DbSet<User> Users { get; set; } = null!;
+        public DbSet<Course> Courses { get; set; } = null!;
+        public DbSet<TaskAssignment> TaskAssignments { get; set; } = null!;
+        public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
+        public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
+            // 🔹 User
             modelBuilder.Entity<User>()
-                        .HasIndex(u => u.Email)
-                        .IsUnique();
+                .HasIndex(u => u.Email).IsUnique();
+            modelBuilder.Entity<User>()
+                .Property(u => u.AdditionalDataJson)
+                .HasColumnType("jsonb");
+            modelBuilder.Entity<User>()
+                .Property(u => u.DateOfBirth)
+                .HasColumnType("date");
+            modelBuilder.Entity<User>()
+                .Property(u => u.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<User>()
+                .Property(u => u.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<User>()
+                .Property(u => u.LastLoginAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<User>()
+                .Property(u => u.ResetPasswordExpiration)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<User>()
+                .Property(u => u.LockoutEnd)
+                .HasColumnType("timestamp with time zone");
 
-            modelBuilder.Entity<User>()
-                        .Property(u => u.AdditionalDataJson)
-                        .HasColumnType("jsonb");
+            // 🔹 Course
+            modelBuilder.Entity<Course>()
+                .Property(c => c.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<Course>()
+                .Property(c => c.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
 
-            // Дата рождения — тип date
-            modelBuilder.Entity<User>()
-                        .Property(u => u.DateOfBirth)
-                        .HasColumnType("date");
+            // 🔹 TaskAssignment
+            modelBuilder.Entity<TaskAssignment>()
+                .Property(t => t.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<TaskAssignment>()
+                .Property(t => t.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
 
-            // UTC‑метки времени — тип timestamptz
-            modelBuilder.Entity<User>()
-                        .Property(u => u.CreatedAt)
-                        .HasColumnType("timestamp with time zone");
-            modelBuilder.Entity<User>()
-                        .Property(u => u.UpdatedAt)
-                        .HasColumnType("timestamp with time zone");
-            modelBuilder.Entity<User>()
-                        .Property(u => u.LastLoginAt)
-                        .HasColumnType("timestamp with time zone");
-            modelBuilder.Entity<User>()
-                        .Property(u => u.ResetPasswordExpiration)
-                        .HasColumnType("timestamp with time zone");
-            modelBuilder.Entity<User>()
-                        .Property(u => u.LockoutEnd)
-                        .HasColumnType("timestamp with time zone");
+            // 🔹 UserTaskSolution
+            modelBuilder.Entity<UserTaskSolution>()
+                .Property(s => s.SubmittedAt)
+                .HasColumnType("timestamp with time zone");
         }
     }
 }
