@@ -1,51 +1,28 @@
-﻿// clientapp/src/api/auth.js
-
-const API_URL = process.env.REACT_APP_API_URL; // берём адрес из .env
+﻿import { api } from "./http";
 
 /**
- * Регистрация пользователя.
- * @param {Object} data объект с полями: email, firstName, lastName, password, phoneNumber?, dateOfBirth?
- * @returns {Promise<Object>} ответ сервера { message: string }
+ * Унифицированные функции, которые ждёт фронт
  */
-export async function registerUser(data) {
-    const response = await fetch(`${API_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            email: data.email,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            password: data.password,
-            phoneNumber: data.phoneNumber || null,
-            dateOfBirth: data.dateOfBirth || null
-        })
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-        throw new Error(result.message || 'Ошибка регистрации');
-    }
-    return result;
+export async function login({ email, password }) {
+    const { data } = await api.post("/api/auth/login", { email, password }, { withCredentials: true });
+    return data; // { accessToken }
+}
+export async function refresh() {
+    const { data } = await api.post("/api/auth/refresh", null, { withCredentials: true });
+    return data; // { accessToken }
+}
+export async function logout() {
+    await api.post("/api/auth/logout", null, { withCredentials: true });
 }
 
 /**
- * Авторизация пользователя.
- * @param {Object} data объект с полями: email, password
- * @returns {Promise<string>} токен из ответа сервера
+ * Алиасы под твои старые импорты (чтобы не искать все использования):
+ * loginUser/registerUser уже были в проекте
  */
-export async function loginUser(data) {
-    const response = await fetch(`${API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            email: data.email,
-            password: data.password
-        })
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-        throw new Error(result.message || 'Ошибка авторизации');
-    }
-    return result.token;
+export async function loginUser(dto) {
+    return login(dto);
+}
+export async function registerUser(dto) {
+    const { data } = await api.post("/api/auth/register", dto, { withCredentials: true });
+    return data;
 }

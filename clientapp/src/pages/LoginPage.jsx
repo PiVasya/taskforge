@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+п»їimport React, { useState } from "react";
 import Layout from "../components/Layout";
 import { Field, Input, Button, Card } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
@@ -19,7 +19,7 @@ export default function LoginPage() {
         e.preventDefault();
         setBusy(true); setErr("");
         try { await login(email, password); nav(from, { replace: true }); }
-        catch (e) { setErr(e?.response?.data || e.message || "Ошибка входа"); }
+        catch (e) { setErr(e?.response?.data || e.message || "РћС€РёР±РєР° РІС…РѕРґР°"); }
         finally { setBusy(false); }
     };
 
@@ -27,12 +27,12 @@ export default function LoginPage() {
         <Layout>
             <div className="max-w-md mx-auto">
                 <Card>
-                    <h1 className="text-2xl font-semibold mb-4">Вход</h1>
+                    <h1 className="text-2xl font-semibold mb-4">Р’С…РѕРґ</h1>
                     {err && <div className="text-red-500 mb-3">{String(err)}</div>}
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <Field label="Email"><Input type="email" value={email} onChange={e => setEmail(e.target.value)} required /></Field>
-                        <Field label="Пароль"><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></Field>
-                        <Button disabled={busy} className="w-full">{busy ? "Входим…" : (<><LogIn size={16} /> Войти</>)}</Button>
+                        <Field label="РџР°СЂРѕР»СЊ"><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></Field>
+                        <Button disabled={busy} className="w-full">{busy ? "Р’С…РѕРґРёРјвЂ¦" : (<><LogIn size={16} /> Р’РѕР№С‚Рё</>)}</Button>
                     </form>
                 </Card>
             </div>

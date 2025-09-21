@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback, useEffect, useState } from "react";
+ï»¿import React, { createContext, useContext, useCallback, useEffect, useState } from "react";
 import { setAccessToken, setRefreshHandler } from "../api/http";
 import * as Auth from "../api/auth";
 
@@ -6,7 +6,7 @@ const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
 export default function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);     // ìîæíî äîïîëíèòü, êîãäà áýê íà÷í¸ò ïðèñûëàòü ïðîôèëü
+    const [user, setUser] = useState(null);     // Ð¼Ð¾Ð¶Ð½Ð¾ Ð´Ð¾Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ, ÐºÐ¾Ð³Ð´Ð° Ð±ÑÐº Ð½Ð°Ñ‡Ð½Ñ‘Ñ‚ Ð¿Ñ€Ð¸ÑÑ‹Ð»Ð°Ñ‚ÑŒ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»ÑŒ
     const [access, _setAccess] = useState(null);
     const [ready, setReady] = useState(false);
 
@@ -15,7 +15,7 @@ export default function AuthProvider({ children }) {
     const doLogin = async (email, password) => {
         const { accessToken } = await Auth.login({ email, password });
         applyAccess(accessToken);
-        // îïöèîíàëüíî: çàïðîñèòü /api/auth/me è ïîëîæèòü ïðîôèëü â user
+        // Ð¾Ð¿Ñ†Ð¸Ð¾Ð½Ð°Ð»ÑŒÐ½Ð¾: Ð·Ð°Ð¿Ñ€Ð¾ÑÐ¸Ñ‚ÑŒ /api/auth/me Ð¸ Ð¿Ð¾Ð»Ð¾Ð¶Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»ÑŒ Ð² user
     };
 
     const doRefresh = useCallback(async () => {
@@ -34,10 +34,10 @@ export default function AuthProvider({ children }) {
         try { await Auth.logout(); } finally { applyAccess(null); setUser(null); }
     };
 
-    // îäèí îáùèé refresh äëÿ axios
+    // Ð¾Ð´Ð¸Ð½ Ð¾Ð±Ñ‰Ð¸Ð¹ refresh Ð´Ð»Ñ axios
     useEffect(() => { setRefreshHandler(() => doRefresh); }, [doRefresh]);
 
-    // àâòî-àâòîðèçàöèÿ ïðè ïåðâîé çàãðóçêå (åñëè æèâà refresh-cookie)
+    // Ð°Ð²Ñ‚Ð¾-Ð°Ð²Ñ‚Ð¾Ñ€Ð¸Ð·Ð°Ñ†Ð¸Ñ Ð¿Ñ€Ð¸ Ð¿ÐµÑ€Ð²Ð¾Ð¹ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐµ (ÐµÑÐ»Ð¸ Ð¶Ð¸Ð²Ð° refresh-cookie)
     useEffect(() => { (async () => { await doRefresh(); setReady(true); })(); }, [doRefresh]);
 
     return (

@@ -1,55 +1,44 @@
-﻿const API_URL = process.env.REACT_APP_API_URL;
+﻿import { api } from "./http";
 
-function auth() {
-    const token = localStorage.getItem('token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
+// Список курсов
 export async function getCourses() {
-    const res = await fetch(`${API_URL}/api/courses`, { headers: { ...auth() } });
-    if (!res.ok) throw new Error('Ошибка загрузки курсов');
-    return await res.json();
+    const { data } = await api.get("/api/courses");
+    return data;
 }
 
-export async function createCourse(data) {
-    const res = await fetch(`${API_URL}/api/courses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error('Ошибка создания курса');
-    return await res.json();
+// Детали курса (современное имя)
+export async function getCourse(id) {
+    const { data } = await api.get(`/api/courses/${id}`);
+    return data;
 }
 
-export async function getCourseById(courseId) {
-    const res = await fetch(`${API_URL}/api/courses/${courseId}`, { headers: { ...auth() } });
-    if (!res.ok) throw new Error('Курс не найден');
-    return await res.json();
+// Алиас под старое имя в проекте
+export async function getCourseById(id) {
+    return getCourse(id);
 }
 
-export async function updateCourse(courseId, data) {
-    const res = await fetch(`${API_URL}/api/courses/${courseId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error('Ошибка обновления курса');
-    return true;
+// Создать курс
+export async function createCourse(payload) {
+    const { data } = await api.post("/api/courses", payload);
+    return data; // { id }
 }
 
-// assignments внутри курса
+// Обновить курс
+export async function updateCourse(id, payload) {
+    await api.put(`/api/courses/${id}`, payload);
+}
+
+// Удалить курс (могло не быть — добавляем)
+export async function deleteCourse(id) {
+    await api.delete(`/api/courses/${id}`);
+}
+
+/* Доп. алиасы, если где-то используются: */
 export async function getAssignments(courseId) {
-    const res = await fetch(`${API_URL}/api/courses/${courseId}/assignments`, { headers: { ...auth() } });
-    if (!res.ok) throw new Error('Ошибка загрузки заданий');
-    return await res.json();
+    const { data } = await api.get(`/api/courses/${courseId}/assignments`);
+    return data;
 }
-
-export async function createAssignment(courseId, data) {
-    const res = await fetch(`${API_URL}/api/courses/${courseId}/assignments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error('Ошибка создания задания');
-    return await res.json();
+export async function createAssignment(courseId, payload) {
+    const { data } = await api.post(`/api/courses/${courseId}/assignments`, payload);
+    return data;
 }

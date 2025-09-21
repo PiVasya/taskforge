@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+п»їimport React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 
-// Если у тебя уже есть эти компоненты — оставь импорт.
-// Если нет — временно убери их и верни обычные <div>/<input> (я показал классы tailwind).
+// Р•СЃР»Рё Сѓ С‚РµР±СЏ СѓР¶Рµ РµСЃС‚СЊ СЌС‚Рё РєРѕРјРїРѕРЅРµРЅС‚С‹ вЂ” РѕСЃС‚Р°РІСЊ РёРјРїРѕСЂС‚.
+// Р•СЃР»Рё РЅРµС‚ вЂ” РІСЂРµРјРµРЅРЅРѕ СѓР±РµСЂРё РёС… Рё РІРµСЂРЅРё РѕР±С‹С‡РЅС‹Рµ <div>/<input> (СЏ РїРѕРєР°Р·Р°Р» РєР»Р°СЃСЃС‹ tailwind).
 import Layout from '../components/Layout';
 import { Field, Input, Textarea, Select, Button, Card } from '../components/ui';
 
@@ -44,7 +44,7 @@ export default function AssignmentEditPage() {
                 })));
                 setCourseId(a.courseId || null);
             } catch (e) {
-                setError(e.message || 'Ошибка загрузки задания');
+                setError(e.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р·Р°РґР°РЅРёСЏ');
             } finally {
                 setLoading(false);
             }
@@ -72,7 +72,7 @@ export default function AssignmentEditPage() {
                 tags,
                 difficulty: Number(difficulty),
                 testCases: testCases.map(t => ({
-                    id: t.id, // игнорится на бэке при replace-all — ок
+                    id: t.id, // РёРіРЅРѕСЂРёС‚СЃСЏ РЅР° Р±СЌРєРµ РїСЂРё replace-all вЂ” РѕРє
                     input: t.input,
                     expectedOutput: t.expectedOutput,
                     isHidden: !!t.isHidden
@@ -80,30 +80,30 @@ export default function AssignmentEditPage() {
             });
             if (courseId) nav(`/course/${courseId}`);
         } catch (e) {
-            setError(e.message || 'Ошибка обновления задания');
+            setError(e.message || 'РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ Р·Р°РґР°РЅРёСЏ');
         } finally {
             setSaving(false);
         }
     };
 
     const handleDelete = async () => {
-        if (!window.confirm('Удалить задание?')) return;
+        if (!window.confirm('РЈРґР°Р»РёС‚СЊ Р·Р°РґР°РЅРёРµ?')) return;
         try {
             await deleteAssignment(assignmentId);
             if (courseId) nav(`/course/${courseId}`);
             else nav('/courses');
         } catch (e) {
-            setError(e.message || 'Ошибка удаления задания');
+            setError(e.message || 'РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ Р·Р°РґР°РЅРёСЏ');
         }
     };
 
-    if (loading) return <Layout><div className="text-slate-500">Загрузка…</div></Layout>;
+    if (loading) return <Layout><div className="text-slate-500">Р—Р°РіСЂСѓР·РєР°вЂ¦</div></Layout>;
 
     return (
         <Layout>
             {courseId && (
                 <Link to={`/course/${courseId}`} className="inline-flex items-center gap-2 text-brand-600 hover:underline mb-5">
-                    <ArrowLeft size={16} /> к заданиям курса
+                    <ArrowLeft size={16} /> Рє Р·Р°РґР°РЅРёСЏРј РєСѓСЂСЃР°
                 </Link>
             )}
 
@@ -112,25 +112,25 @@ export default function AssignmentEditPage() {
             <div className="grid lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-5">
                     <Card>
-                        <h2 className="text-xl font-semibold mb-4">Основное</h2>
+                        <h2 className="text-xl font-semibold mb-4">РћСЃРЅРѕРІРЅРѕРµ</h2>
                         <div className="grid sm:grid-cols-2 gap-4">
-                            <Field label="Название"><Input value={title} onChange={e => setTitle(e.target.value)} /></Field>
-                            <Field label="Тип">
+                            <Field label="РќР°Р·РІР°РЅРёРµ"><Input value={title} onChange={e => setTitle(e.target.value)} /></Field>
+                            <Field label="РўРёРї">
                                 <Select value={type} onChange={e => setType(e.target.value)}>
                                     <option value="code-test">code-test</option>
-                                    <option value="quiz" disabled>quiz (скоро)</option>
+                                    <option value="quiz" disabled>quiz (СЃРєРѕСЂРѕ)</option>
                                 </Select>
                             </Field>
-                            <Field label="Сложность">
+                            <Field label="РЎР»РѕР¶РЅРѕСЃС‚СЊ">
                                 <Select value={difficulty} onChange={e => setDifficulty(e.target.value)}>
-                                    <option value={1}>легко</option>
-                                    <option value={2}>средне</option>
-                                    <option value={3}>сложно</option>
+                                    <option value={1}>Р»РµРіРєРѕ</option>
+                                    <option value={2}>СЃСЂРµРґРЅРµ</option>
+                                    <option value={3}>СЃР»РѕР¶РЅРѕ</option>
                                 </Select>
                             </Field>
-                            <Field label="Теги (через запятую)"><Input value={tags} onChange={e => setTags(e.target.value)} /></Field>
+                            <Field label="РўРµРіРё (С‡РµСЂРµР· Р·Р°РїСЏС‚СѓСЋ)"><Input value={tags} onChange={e => setTags(e.target.value)} /></Field>
                             <div className="sm:col-span-2">
-                                <Field label="Описание (markdown/html)">
+                                <Field label="РћРїРёСЃР°РЅРёРµ (markdown/html)">
                                     <Textarea rows={10} value={description} onChange={e => setDescription(e.target.value)} />
                                 </Field>
                             </div>
@@ -139,8 +139,8 @@ export default function AssignmentEditPage() {
 
                     <Card>
                         <div className="flex items-center justify-between mb-3">
-                            <h2 className="text-xl font-semibold">Тест-кейсы</h2>
-                            <Button className="btn-outline" onClick={addTest}><PlusCircle size={16} /> Добавить тест</Button>
+                            <h2 className="text-xl font-semibold">РўРµСЃС‚-РєРµР№СЃС‹</h2>
+                            <Button className="btn-outline" onClick={addTest}><PlusCircle size={16} /> Р”РѕР±Р°РІРёС‚СЊ С‚РµСЃС‚</Button>
                         </div>
 
                         <div className="space-y-4">
@@ -155,12 +155,12 @@ export default function AssignmentEditPage() {
                                         </Field>
                                         <label className="flex items-center gap-2 text-sm sm:col-span-2">
                                             <input type="checkbox" checked={t.isHidden} onChange={e => changeTest(idx, 'isHidden', e.target.checked)} />
-                                            Скрытый
+                                            РЎРєСЂС‹С‚С‹Р№
                                         </label>
                                     </div>
                                     <div className="mt-3 flex justify-end">
                                         <Button variant="outline" className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => removeTest(idx)}>
-                                            <Trash2 size={16} /> Удалить тест
+                                            <Trash2 size={16} /> РЈРґР°Р»РёС‚СЊ С‚РµСЃС‚
                                         </Button>
                                     </div>
                                 </div>
@@ -173,16 +173,16 @@ export default function AssignmentEditPage() {
                     <Card>
                         <div className="flex gap-2">
                             <Button onClick={handleSave} disabled={saving} className="flex-1">
-                                <Save size={16} /> {saving ? 'Сохраняю…' : 'Сохранить'}
+                                <Save size={16} /> {saving ? 'РЎРѕС…СЂР°РЅСЏСЋвЂ¦' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
                             </Button>
                             <Button variant="outline" onClick={handleDelete} className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                <Trash2 size={16} /> Удалить
+                                <Trash2 size={16} /> РЈРґР°Р»РёС‚СЊ
                             </Button>
                         </div>
                     </Card>
 
                     <Card>
-                        <div className="text-sm text-slate-500">Подсказка: используйте публичные и скрытые тесты, чтобы проверки были надёжными.</div>
+                        <div className="text-sm text-slate-500">РџРѕРґСЃРєР°Р·РєР°: РёСЃРїРѕР»СЊР·СѓР№С‚Рµ РїСѓР±Р»РёС‡РЅС‹Рµ Рё СЃРєСЂС‹С‚С‹Рµ С‚РµСЃС‚С‹, С‡С‚РѕР±С‹ РїСЂРѕРІРµСЂРєРё Р±С‹Р»Рё РЅР°РґС‘Р¶РЅС‹РјРё.</div>
                     </Card>
                 </div>
             </div>
