@@ -1,28 +1,36 @@
-﻿import { api } from "./http";
+﻿// clientapp/src/api/auth.js
+const API_URL = process.env.REACT_APP_API_URL ?? "";
 
-/**
- * Унифицированные функции, которые ждёт фронт
- */
+/** ЛОГИН — как в старой версии: без credentials, ждём { token } */
 export async function login({ email, password }) {
-    const { data } = await api.post("/api/auth/login", { email, password }, { withCredentials: true });
-    return data; // { accessToken }
-}
-export async function refresh() {
-    const { data } = await api.post("/api/auth/refresh", null, { withCredentials: true });
-    return data; // { accessToken }
-}
-export async function logout() {
-    await api.post("/api/auth/logout", null, { withCredentials: true });
+    const res = await fetch(`/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.message || 'Ошибка авторизации');
+    const token = data?.token ?? data?.accessToken;
+    if (!token) throw new Error('Токен не получен');
+    return { token };
 }
 
-/**
- * Алиасы под твои старые импорты (чтобы не искать все использования):
- * loginUser/registerUser уже были в проекте
- */
-export async function loginUser(dto) {
-    return login(dto);
-}
+
+/** РЕГИСТРАЦИЯ — как раньше, без credentials */
 export async function registerUser(dto) {
-    const { data } = await api.post("/api/auth/register", dto, { withCredentials: true });
+    const res = await fetch(`${API_URL}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dto),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.message || "Ошибка регистрации");
     return data;
 }
+
+/** В старой схеме refresh/logout не нужны — заглушки */
+export async function refresh() { throw new Error("refresh недоступен в этой конфигурации"); }
+export async function logout() { /* ничего не делаем */ }
+
+/** Совместимость со старым импортом */
+export const loginUser = login;

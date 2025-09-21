@@ -1,10 +1,11 @@
-﻿import axios from "axios";
+﻿// clientapp/src/api/http.js
+import axios from "axios";
 
 const API_URL = process.env.REACT_APP_API_URL ?? "";
 
 export const api = axios.create({
     baseURL: API_URL,
-    withCredentials: false,
+    withCredentials: false, // ← оставляем выключенным
 });
 
 let _accessToken = null;
@@ -15,21 +16,5 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
-let refreshing = null;
-export const setRefreshHandler = (fn) => { refreshing = fn; };
-
-api.interceptors.response.use(
-    r => r,
-    async (error) => {
-        const { response, config } = error || {};
-        if (response?.status === 401 && !config._retry && refreshing) {
-            config._retry = true;
-            const newAccess = await refreshing();
-            if (newAccess) {
-                config.headers.Authorization = `Bearer ${newAccess}`;
-                return api(config);
-            }
-        }
-        throw error;
-    }
-);
+// ↓↓↓ УБИРАЕМ всю логику response-интерцептора с auto-refresh.
+// Если хочешь оставить — делай его no-op (ничего не делает):
