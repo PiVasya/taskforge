@@ -35,15 +35,10 @@ builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("Client", cors =>
-        cors.WithOrigins(
-                "http://127.0.0.1:81",
-                "http://localhost:81"           // на всякий случай
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials()               // ОБЯЗАТЕЛЬНО для куков
-    );
+    options.AddPolicy("AllowAll", policy =>
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod());
 });
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
