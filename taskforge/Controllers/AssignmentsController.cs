@@ -40,5 +40,19 @@ namespace taskforge.Controllers
             if (dto == null) return NotFound();
             return Ok(dto);
         }
+
+        [HttpPut("assignments/{assignmentId:guid}")]
+        public async Task<IActionResult> Update([FromRoute] Guid assignmentId, [FromBody] UpdateAssignmentRequest req)
+        {
+            await _assignments.UpdateAsync(assignmentId, _current.GetUserId(), req);
+            return NoContent();
+        }
+
+        [HttpDelete("assignments/{assignmentId:guid}")]
+        public async Task<IActionResult> Delete([FromRoute] Guid assignmentId)
+        {
+            await _assignments.DeleteAsync(assignmentId, _current.GetUserId());
+            return NoContent();
+        }
     }
 }

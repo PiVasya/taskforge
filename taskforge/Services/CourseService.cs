@@ -76,5 +76,36 @@ namespace taskforge.Services
 
             return dto;
         }
+
+        public async Task UpdateAsync(Guid courseId, Guid currentUserId, UpdateCourseRequest request)
+        {
+            var course = await _db.Set<Course>().FirstOrDefaultAsync(c => c.Id == courseId)
+                         ?? throw new KeyNotFoundException("Course not found");
+
+            if (course.OwnerId != currentUserId)
+                throw new UnauthorizedAccessException("Only owner can edit the course.");
+
+            course.Title = request.Title.Trim();
+            course.Description = request.Description?.Trim();
+            course.IsPublic = request.IsPublic;
+            course.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task DeleteAsync(Guid courseId, Guid currentUserId)
+        {
+            var course = await _db.Set<Course>()
+                                  .Include(c => c.Assignments)
+                                  .ThenInclude(a => a.TestCases)
+                                  .FirstOrDefaultAsync(c => c.Id == courseId)
+                         ?? throw new KeyNotFoundException("Course not found");
+
+            if (course.OwnerId != currentUserId)
+                throw new UnauthorizedAccessException("Only owner can delete the course.");
+
+            _db.Remove(course);
+            await _db.SaveChangesAsync();
+        }
     }
 }

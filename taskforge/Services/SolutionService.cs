@@ -1,83 +1,80 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
+using taskforge.Data.Models;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 
-namespace taskforge.Services
+public sealed class SolutionService : ISolutionService
 {
-    public sealed class SolutionService : ISolutionService
+    private readonly ApplicationDbContext _db;
+    private readonly ICompilerService _compiler;
+
+    public SolutionService(ApplicationDbContext db, ICompilerService compiler)
     {
-        private readonly ApplicationDbContext _db;
-        private readonly ICompilerService _compiler;
+        _db = db;
+        _compiler = compiler;
+    }
 
-        public SolutionService(ApplicationDbContext db, ICompilerService compiler)
+    public async Task<SubmitSolutionResultDto> SubmitAsync(Guid assignmentId, Guid currentUserId, SubmitSolutionRequest req)
+    {
+        var a = await _db.TaskAssignments
+            .Include(x => x.TestCases)
+            .FirstOrDefaultAsync(x => x.Id == assignmentId);
+
+        if (a == null) throw new InvalidOperationException("Задание не найдено");
+
+        // прогоняем ВСЕ тесты (и публичные, и скрытые)
+        var testReq = new TestRunRequestDto
         {
-            _db = db;
-            _compiler = compiler;
-        }
+            Language = req.Language,
+            Code = req.Code,
+            TestCases = a.TestCases.Select(tc => new TestCaseDto
+            {
+                Input = tc.Input,
+                ExpectedOutput = tc.ExpectedOutput
+            }).ToList()
+        };
 
-        public async Task<SubmitSolutionResponse> SubmitAsync(Guid assignmentId, Guid userId, SubmitSolutionRequest req)
+        var results = await _compiler.RunTestsAsync(testReq);
+
+        // собираем DTO для ответа (но скрытые тесты «маскируем» на фронте по флагу)
+        var full = new SubmitSolutionResultDto();
+        for (int i = 0; i < a.TestCases.Count; i++)
         {
-            var assignment = await _db.TaskAssignments
-                .Include(a => a.Course)
-                .Include(a => a.TestCases)
-                .SingleOrDefaultAsync(a => a.Id == assignmentId);
+            var tc = a.TestCases.ElementAt(i);
+            var r = results.ElementAt(i);
 
-            if (assignment == null) throw new KeyNotFoundException("Assignment not found");
-            if (!(assignment.Course.IsPublic || assignment.Course.OwnerId == userId))
-                throw new UnauthorizedAccessException();
-
-            if (!string.Equals(assignment.Type, "code-test", StringComparison.OrdinalIgnoreCase))
-                throw new NotSupportedException("Only 'code-test' assignments are supported right now");
-
-            // Готовим тесты для компилятора
-            var testReq = new TestRunRequestDto
+            full.Cases.Add(new SolutionCaseResultDto
             {
-                Language = req.Language,
-                Code = req.Code,
-                TestCases = assignment.TestCases.Select(t => new TestCaseDto
-                {
-                    Input = t.Input,
-                    ExpectedOutput = t.ExpectedOutput
-                }).ToList()
-            };
-
-            var results = await _compiler.RunTestsAsync(testReq);
-
-            var passed = results.Count(r => r.Passed);
-            var failed = results.Count - passed;
-
-            // Сохраняем решение (последнее состояние)
-            _db.UserTaskSolutions.Add(new UserTaskSolution
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                TaskAssignmentId = assignmentId,
-                SubmittedCode = req.Code,
-                Language = req.Language,
-                PassedAllTests = failed == 0 && results.Count > 0,
-                PassedCount = passed,
-                FailedCount = failed,
-                SubmittedAt = DateTime.UtcNow
+                Input = tc.Input,
+                Expected = tc.ExpectedOutput,
+                Actual = r.ActualOutput,
+                Passed = r.Passed,
+                Hidden = tc.IsHidden
             });
-            await _db.SaveChangesAsync();
-
-            // Отдаём пользователю без ExpectedOutput и без фактов о hidden-тестах (только флаг)
-            var response = new SubmitSolutionResponse
-            {
-                PassedAllTests = failed == 0 && results.Count > 0,
-                PassedCount = passed,
-                FailedCount = failed,
-                Results = results.Zip(assignment.TestCases, (r, t) => new TestRunResultDto
-                {
-                    Input = t.IsHidden ? "(hidden)" : t.Input,
-                    ActualOutput = r.Passed ? null : r.ActualOutput, // можно вернуть при фейле
-                    Passed = r.Passed,
-                    IsHidden = t.IsHidden
-                }).ToList()
-            };
-
-            return response;
         }
+
+        full.Passed = full.Cases.Count(c => c.Passed);
+        full.Failed = full.Cases.Count(c => !c.Passed);
+        full.PassedAll = full.Failed == 0;
+
+        // записываем решение
+        var solution = new UserTaskSolution
+        {
+            Id = Guid.NewGuid(),
+            UserId = currentUserId,
+            TaskAssignmentId = assignmentId,
+            SubmittedCode = req.Code,
+            Language = req.Language,
+            PassedAllTests = full.PassedAll,
+            PassedCount = full.Passed,
+            FailedCount = full.Failed,
+            SubmittedAt = DateTime.UtcNow
+        };
+
+        _db.UserTaskSolutions.Add(solution);
+        await _db.SaveChangesAsync();
+
+        return full;
     }
 }

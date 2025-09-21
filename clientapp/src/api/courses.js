@@ -5,45 +5,51 @@ function auth() {
     return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// список курсов; scope: 'mine' | 'public' | 'all'
-export async function getCourses(scope = 'mine') {
-    const res = await fetch(`${API_URL}/api/courses?scope=${encodeURIComponent(scope)}`, {
-        headers: { ...auth() }
-    });
-    if (!res.ok) throw new Error('Не удалось загрузить курсы');
+export async function getCourses() {
+    const res = await fetch(`${API_URL}/api/courses`, { headers: { ...auth() } });
+    if (!res.ok) throw new Error('Ошибка загрузки курсов');
     return await res.json();
 }
 
-// создать курс
-export async function createCourse({ title, description, isPublic }) {
+export async function createCourse(data) {
     const res = await fetch(`${API_URL}/api/courses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify({ title, description, isPublic: !!isPublic })
+        body: JSON.stringify(data)
     });
-    if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || 'Не удалось создать курс');
-    }
-    return await res.json(); // { id } или весь объект — как у тебя сделано
+    if (!res.ok) throw new Error('Ошибка создания курса');
+    return await res.json();
 }
 
-// получить один курс
 export async function getCourseById(courseId) {
-    const res = await fetch(`${API_URL}/api/courses/${courseId}`, {
-        headers: { ...auth() }
-    });
+    const res = await fetch(`${API_URL}/api/courses/${courseId}`, { headers: { ...auth() } });
     if (!res.ok) throw new Error('Курс не найден');
     return await res.json();
 }
 
-// обновить курс (для будущего редактирования)
-export async function updateCourse(courseId, patch) {
+export async function updateCourse(courseId, data) {
     const res = await fetch(`${API_URL}/api/courses/${courseId}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify(patch)
+        body: JSON.stringify(data)
     });
-    if (!res.ok) throw new Error('Не удалось обновить курс');
+    if (!res.ok) throw new Error('Ошибка обновления курса');
+    return true;
+}
+
+// assignments внутри курса
+export async function getAssignments(courseId) {
+    const res = await fetch(`${API_URL}/api/courses/${courseId}/assignments`, { headers: { ...auth() } });
+    if (!res.ok) throw new Error('Ошибка загрузки заданий');
+    return await res.json();
+}
+
+export async function createAssignment(courseId, data) {
+    const res = await fetch(`${API_URL}/api/courses/${courseId}/assignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth() },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Ошибка создания задания');
     return await res.json();
 }
