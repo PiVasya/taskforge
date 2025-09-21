@@ -11,7 +11,8 @@ using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
 using taskforge.Data;
 using taskforge.Data.Models;
-using taskForge.Services;
+using taskforge.Services;
+using taskforge.Data.Models.Entities;
 
 namespace taskforge.Controllers
 {

@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using taskforge.Data.Models;
+using taskforge.Data.Models.Entities;
 
 namespace taskforge.Data
 {

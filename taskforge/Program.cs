@@ -7,7 +7,6 @@ using taskforge.Services;
 using taskforge.Services.Compilers;
 using taskforge.Services.Interfaces;
 using taskforge.Data;
-using taskForge.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,7 +31,6 @@ builder.Services.AddScoped<ICompiler, CppCompiler>();
 builder.Services.AddScoped<ICompiler, PythonCompiler>();
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
-builder.Services.AddScoped<ICompilerService, CompilerService>();
 
 
 builder.Services.AddCors(options =>
@@ -44,7 +42,11 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    });
 builder.Services.AddSingleton<PasswordHasher>();
 
 // JWT-конфиг

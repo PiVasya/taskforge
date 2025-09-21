@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
+using taskforge.Data.Models.Entities;
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Services

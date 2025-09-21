@@ -22,7 +22,7 @@ function AssignmentEditPage() {
     useEffect(() => {
         (async () => {
             try {
-                const a = await getAssignmentById(assignmentId);
+                const a = await getAssignment(assignmentId);
                 setTitle(a.title || '');
                 setDescription(a.description || '');
                 setType(a.type || 'code-test');

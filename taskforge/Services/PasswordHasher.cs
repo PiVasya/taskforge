@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using taskforge.Services.Interfaces;
 
-namespace taskForge.Services
+namespace taskforge.Services
 {
     public class PasswordHasher : IPasswordHasher
     {

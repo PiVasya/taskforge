@@ -8,14 +8,18 @@ namespace taskforge.Data.Models.DTO
         public string Title { get; set; } = string.Empty;
 
         [Required]
-        public string Description { get; set; } = string.Empty; // markdown/html — как храните
+        public string Description { get; set; } = string.Empty; // markdown/html
+
+        // "code-test" — текущий поддерживаемый тип
+        [Required, MaxLength(30)]
+        public string Type { get; set; } = "code-test";
 
         [Range(1, 3)]
         public int Difficulty { get; set; } = 1;
 
-        public string? Tags { get; set; } // "strings,comma,separated"
+        public string? Tags { get; set; } // "строки,через,запятую"
 
-        // Публичные + скрытые тесты (с флагом)
+        // Публичные и скрытые тесты
         [MinLength(1)]
         public IList<CreateTestCaseDto> TestCases { get; set; } = new List<CreateTestCaseDto>();
     }
@@ -28,6 +32,7 @@ namespace taskforge.Data.Models.DTO
         [Required]
         public string ExpectedOutput { get; set; } = string.Empty;
 
-        public bool IsHidden { get; set; } = false; // скрытый тест (не показываем юзеру)
+        public bool IsHidden { get; set; } = false;
     }
+
 }
