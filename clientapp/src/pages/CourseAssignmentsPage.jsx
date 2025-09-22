@@ -6,6 +6,7 @@ import { Card, Button, Input, Badge } from '../components/ui';
 
 import { getAssignmentsByCourse, createAssignment } from '../api/assignments';
 import { Plus, Search, Layers } from 'lucide-react';
+import IfEditor from '../components/IfEditor';
 
 export default function CourseAssignmentsPage() {
     const { courseId } = useParams();
@@ -44,10 +45,17 @@ export default function CourseAssignmentsPage() {
     const handleCreate = async () => {
         const payload = {
             title: 'Новая задача',
-            description: '',
+            description: 'Опишите постановку задачи…',   // не пусто
             type: 'code-test',
             difficulty: 1,
-            testCases: [{ input: '', expectedOutput: '', isHidden: false }],
+            testCases: [
+                {
+                    input: '2 4',             // пример входа (не пусто)
+                    expectedOutput: '6',      // пример выхода (не пусто)
+                    isHidden: false
+                }
+            ],
+            tags: ''
         };
         const res = await createAssignment(courseId, payload);
         const id = res?.id;
@@ -60,9 +68,13 @@ export default function CourseAssignmentsPage() {
                 <h1 className="text-2xl font-semibold flex items-center gap-2">
                     <Layers size={22} /> Задания курса
                 </h1>
-                <Button onClick={handleCreate}>
-                    <Plus size={16} /> Создать
-                </Button>
+
+                {/* кнопка «Создать» есть только в редакторском режиме */}
+                <IfEditor>
+                    <Button onClick={handleCreate}>
+                        <Plus size={16} /> Создать
+                    </Button>
+                </IfEditor>
             </div>
 
             <Card className="mb-6">
@@ -87,19 +99,26 @@ export default function CourseAssignmentsPage() {
                     <Card key={a.id} className="hover:shadow-lg transition">
                         <div className="flex items-start justify-between gap-3">
                             <div>
-                                <Link to={`/assignment/${a.id}/edit`} className="text-lg font-semibold hover:underline">
-                                    {a.title}
-                                </Link>
+                                {/* в viewer режиме заголовок без ссылки; в editor — ссылка на редактирование */}
+                                <IfEditor
+                                    otherwise={
+                                        <Link to={`/assignment/${a.id}`} className="text-lg font-semibold hover:underline">
+                                            {a.title}
+                                        </Link>
+                                    }>
+                                    <Link to={`/assignment/${a.id}/edit`} className="text-lg font-semibold hover:underline">
+                                        {a.title}
+                                    </Link>
+                                </IfEditor>
+
                                 {a.description && (
                                     <p className="text-sm text-slate-500 line-clamp-2 mt-1">{a.description}</p>
                                 )}
+
                                 <div className="mt-3 flex flex-wrap gap-2">
-                                    {a.tags
-                                        ?.split(',')
-                                        .filter(Boolean)
-                                        .map((t) => (
-                                            <Badge key={t.trim()}>{t.trim()}</Badge>
-                                        ))}
+                                    {a.tags?.split(',').filter(Boolean).map((t) => (
+                                        <Badge key={t.trim()}>{t.trim()}</Badge>
+                                    ))}
                                 </div>
                             </div>
                             <div className="text-right">

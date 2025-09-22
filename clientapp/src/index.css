@@ -75,3 +75,18 @@ body {
 .field {
     @apply space-y-1;
 }
+
+@-moz-document url-prefix() {
+    .input {
+        -moz-appearance: none;
+        appearance: none;
+        background-clip: padding-box;
+        outline: none;
+        line-height: 1.2;
+        min-height: 40px;
+    }
+
+        .input::placeholder {
+            opacity: .7;
+        }
+}
