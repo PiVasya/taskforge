@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using taskforge.Data;
 using taskforge.Data.Models;
 using taskforge.Data.Models.DTO;
@@ -10,6 +11,26 @@ namespace taskforge.Services
     {
         private readonly ApplicationDbContext _db;
         private readonly ICompilerService _compiler;
+        private readonly IHttpContextAccessor _http;
+        private bool CanRevealHidden()
+        {
+            // _http или контекст может быть null (тесты, фоновые вызовы, некорректная регистрация) — в таком случае просто не раскрываем.
+            var user = _http?.HttpContext?.User;
+            if (user == null || !(user.Identity?.IsAuthenticated ?? false))
+                return false;
+
+            // Основная проверка ролей
+            if (user.IsInRole("Admin") || user.IsInRole("Teacher") || user.IsInRole("Editor"))
+                return true;
+
+            // На случай, если роли приходят не в ClaimTypes.Role, а в "role"/"roles"
+            var roles = user.Claims
+                .Where(c => c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "roles")
+                .Select(c => c.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return roles.Contains("Admin") || roles.Contains("Teacher") || roles.Contains("Editor");
+        }
 
         public SolutionService(ApplicationDbContext db, ICompilerService compiler)
         {
@@ -25,12 +46,17 @@ namespace taskforge.Services
 
             if (a == null) throw new InvalidOperationException("Задание не найдено");
 
-            // прогоняем ВСЕ тесты (и публичные, и скрытые)
+            // Детерминированный порядок тестов: по Id
+            var orderedCases = a.TestCases
+                .OrderBy(tc => tc.Id)
+                .ToList();
+
+            // Прогоняем ВСЕ тесты
             var testReq = new TestRunRequestDto
             {
                 Language = req.Language,
                 Code = req.Code,
-                TestCases = a.TestCases.Select(tc => new TestCaseDto
+                TestCases = orderedCases.Select(tc => new TestCaseDto
                 {
                     Input = tc.Input,
                     ExpectedOutput = tc.ExpectedOutput
@@ -39,18 +65,24 @@ namespace taskforge.Services
 
             var results = await _compiler.RunTestsAsync(testReq);
 
-            // собираем DTO для ответа (но скрытые тесты «маскируем» на фронте по флагу)
+            // Кому можно показывать содержимое скрытых тестов
+            var canReveal = CanRevealHidden(); // ваш хелпер из прошлого сообщения
+
+            // Собираем DTO ответа
             var full = new SubmitSolutionResultDto();
-            for (int i = 0; i < a.TestCases.Count; i++)
+
+            for (int i = 0; i < orderedCases.Count; i++)
             {
-                var tc = a.TestCases.ElementAt(i);
-                var r = results.ElementAt(i);
+                var tc = orderedCases[i];
+                var r = results[i];
+
+                var isHiddenForUser = tc.IsHidden && !canReveal;
 
                 full.Cases.Add(new SolutionCaseResultDto
                 {
-                    Input = tc.Input,
-                    Expected = tc.ExpectedOutput,
-                    Actual = r.ActualOutput,
+                    Input = isHiddenForUser ? null : tc.Input,
+                    Expected = isHiddenForUser ? null : tc.ExpectedOutput,
+                    Actual = isHiddenForUser ? null : r.ActualOutput,
                     Passed = r.Passed,
                     Hidden = tc.IsHidden
                 });
@@ -60,7 +92,7 @@ namespace taskforge.Services
             full.Failed = full.Cases.Count(c => !c.Passed);
             full.PassedAll = full.Failed == 0;
 
-            // записываем решение
+            // Сохранение решения
             var solution = new UserTaskSolution
             {
                 Id = Guid.NewGuid(),
@@ -79,5 +111,6 @@ namespace taskforge.Services
 
             return full;
         }
+
     }
 }

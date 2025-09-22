@@ -9,6 +9,7 @@ using taskforge.Services.Interfaces;
 using taskforge.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHttpContextAccessor();
 
 // Базовое логирование (без дополнительных выводов)
 builder.Logging.ClearProviders();
