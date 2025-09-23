@@ -14,14 +14,16 @@ public class RunController : ControllerBase
 
     public RunController(ICompilationService compiler, IExecutionService exec)
     {
-        _compiler = compiler; _exec = exec;
+        _compiler = compiler;
+        _exec = exec;
     }
 
     [HttpPost("run")]
     public ActionResult<RunResponse> Run([FromBody] RunRequest req)
     {
         var (ok, asm, err) = _compiler.CompileToAssembly(req.Code);
-        if (!ok) return new RunResponse { Error = err, ExitCode = 1 };
+        if (!ok)
+            return new RunResponse { Error = err, ExitCode = 1 };
 
         var (ran, stdout, ex) = _exec.Run(asm!, req.Input ?? "", RunTimeout);
         return ran
@@ -37,9 +39,10 @@ public class RunController : ControllerBase
         {
             return new TestResultsResponse
             {
-                Results = new[] {
-                new TestResult { ActualOutput = err, Passed = false }
-            }
+                Results = new[]
+                {
+                    new TestResult { ActualOutput = err, Passed = false }
+                }
             };
         }
 
@@ -55,11 +58,7 @@ public class RunController : ControllerBase
                 Passed = ran && stdout == (t.ExpectedOutput ?? "")
             });
         }
-        return new TestResultsResponse { Results = list };
-    }
 
-    public sealed class RunRequestWithTests : RunRequest
-    {
-        public List<TestCase>? Tests { get; init; }
+        return new TestResultsResponse { Results = list };
     }
 }
