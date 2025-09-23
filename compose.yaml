@@ -1,0 +1,94 @@
+version: "3.9"
+
+services:
+  nginx:
+    build: ./nginx
+    depends_on: [front, api]
+    ports:
+      - "8080:80"
+    networks: [net]
+    restart: unless-stopped
+
+  front:
+    build: ./front
+    expose:
+      - "80"
+    networks: [net]
+    restart: unless-stopped
+    # front — только статика, ничего наружу не открываем
+
+  api:
+    build: ./api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=taskforge;Username=postgres;Password=postgres
+      Compilers__cpp__Url:    http://cpp-runner:8080/run
+      Compilers__csharp__Url: http://csharp-runner:8080/run
+      Compilers__python__Url: http://python-runner:8080/run
+    expose:
+      - "8080"
+    depends_on: [db, cpp-runner, csharp-runner, python-runner]
+    networks: [net]
+    restart: unless-stopped
+
+  cpp-runner:
+    build: ./cpp-runner
+    expose: ["8080"]
+    networks: [net]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: "0.5"
+    restart: unless-stopped
+
+  python-runner:
+    build: ./python-runner
+    expose: ["8080"]
+    networks: [net]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: "0.5"
+    restart: unless-stopped
+
+  csharp-runner:
+    build: ./csharp-runner
+    expose: ["8080"]
+    networks: [net]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "0.75"
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: taskforge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    networks: [net]
+    restart: unless-stopped
+
+networks:
+  net:
+
+volumes:
+  pgdata:
