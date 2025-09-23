@@ -1,94 +1,164 @@
+# compose.yaml
 version: "3.9"
 
+x-common-labels: &common_labels
+  com.centurylinklabs.watchtower.enable: "true"
+
+x-runner-security: &runner_security
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ "ALL" ]
+  pids_limit: 128
+  mem_limit: 256m
+
+networks:
+  appnet:
+
+volumes:
+  pgdata:
+
 services:
+  # ==== Внешняя точка входа ====
   nginx:
     build: ./nginx
-    depends_on: [front, api]
+    depends_on:
+      - front
+      - api
     ports:
-      - "8080:80"
-    networks: [net]
+      - "8080:80"             # заходишь с ПК/телефона: http://<IP>:8080
+    networks: [appnet]
     restart: unless-stopped
+    labels: *common_labels
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
+      interval: 20s
+      timeout: 3s
+      retries: 5
 
+  # ==== Фронт (SPA, статика) ====
   front:
-    build: ./front
+    build: ./front            # твой Dockerfile (Node build -> Caddy или Nginx runtime)
     expose:
-      - "80"
-    networks: [net]
+      - "80"                  # доступен только внутри сети для nginx
+    networks: [appnet]
     restart: unless-stopped
-    # front � ������ �������, ������ ������ �� ���������
+    labels: *common_labels
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
 
+  # ==== API (.NET) ====
   api:
     build: ./api
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=taskforge;Username=postgres;Password=postgres
-      Compilers__cpp__Url:    http://cpp-runner:8080/run
-      Compilers__csharp__Url: http://csharp-runner:8080/run
-      Compilers__python__Url: http://python-runner:8080/run
+      # строка подключения в Postgres (внутренняя сеть)
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=taskforge;Username=postgres;Password=postgres"
+      # адреса раннеров (внутренние DNS-имена сервисов)
+      Compilers__cpp__Url: "http://cpp-runner:8080/run"
+      Compilers__csharp__Url: "http://csharp-runner:8080/run"
+      Compilers__python__Url: "http://python-runner:8080/run"
+      Compilers__cpp__TimeoutMs: "12000"
+      Compilers__csharp__TimeoutMs: "12000"
+      Compilers__python__TimeoutMs: "8000"
+    depends_on:
+      - db
+      - cpp-runner
+      - csharp-runner
+      - python-runner
     expose:
-      - "8080"
-    depends_on: [db, cpp-runner, csharp-runner, python-runner]
-    networks: [net]
+      - "8080"                # только для nginx
+    networks: [appnet]
     restart: unless-stopped
+    labels: *common_labels
+    healthcheck:
+      # Если нет /health — простой TCP-чек
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET / HTTP/1.0\r\n\r\n' >&3 && cat <&3 | head -n 1 | grep -q 'HTTP/'"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
 
+  # ==== C++ runner (gcc:latest + FastAPI) ====
   cpp-runner:
     build: ./cpp-runner
     expose: ["8080"]
-    networks: [net]
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=128m
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    pids_limit: 128
-    mem_limit: 256m
-    cpus: "0.5"
+    networks: [appnet]
     restart: unless-stopped
+    labels: *common_labels
+    <<: *runner_security
+    # C++ компилятор иногда требует чуть больше памяти при линковке:
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
 
-  python-runner:
-    build: ./python-runner
-    expose: ["8080"]
-    networks: [net]
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    pids_limit: 128
-    mem_limit: 256m
-    cpus: "0.5"
-    restart: unless-stopped
-
+  # ==== C# runner (ASP.NET Core + Roslyn) ====
   csharp-runner:
     build: ./csharp-runner
     expose: ["8080"]
-    networks: [net]
+    networks: [appnet]
+    restart: unless-stopped
+    labels: *common_labels
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=128m
     security_opt:
       - no-new-privileges:true
-    cap_drop: [ALL]
+    cap_drop: [ "ALL" ]
     pids_limit: 128
-    mem_limit: 512m
+    mem_limit: 512m          # Roslyn + JIT — дайте побольше, чем Python/C++
     cpus: "0.75"
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
 
+  # ==== Python runner (FastAPI) ====
+  python-runner:
+    build: ./python-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels: *common_labels
+    <<: *runner_security
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+
+  # ==== Postgres ====
   db:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: taskforge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
-    networks: [net]
+      # если есть скрипты инициализации:
+      # - ./db/init:/docker-entrypoint-initdb.d
+    networks: [appnet]
     restart: unless-stopped
+    labels: *common_labels
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d taskforge"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
 
-networks:
-  net:
-
-volumes:
-  pgdata:
+  # ==== Watchtower ====
+  watchtower:
+    image: containrrr/watchtower
+    command: --interval 300 --cleanup --label-enable
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [appnet]
+    restart: unless-stopped
+    # Если образы собираешь локально, watchtower не “обновит” их сам,
+    # он нужен когда сервисы тянут теги из реестра (Docker Hub/GHCR).
+    labels: *common_labels
