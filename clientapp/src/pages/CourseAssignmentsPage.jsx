@@ -5,7 +5,7 @@ import Layout from '../components/Layout';
 import { Card, Button, Input, Badge } from '../components/ui';
 
 import { getAssignmentsByCourse, createAssignment } from '../api/assignments';
-import { Plus, Search, Layers } from 'lucide-react';
+import { Plus, Layers, CheckCircle2 } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
 
 export default function CourseAssignmentsPage() {
@@ -45,17 +45,11 @@ export default function CourseAssignmentsPage() {
     const handleCreate = async () => {
         const payload = {
             title: 'Новая задача',
-            description: 'Опишите постановку задачи…',   // не пусто
+            description: 'Опишите постановку задачи…',
             type: 'code-test',
             difficulty: 1,
-            testCases: [
-                {
-                    input: '2 4',             // пример входа (не пусто)
-                    expectedOutput: '6',      // пример выхода (не пусто)
-                    isHidden: false
-                }
-            ],
-            tags: ''
+            testCases: [{ input: '2 4', expectedOutput: '6', isHidden: false }],
+            tags: '',
         };
         const res = await createAssignment(courseId, payload);
         const id = res?.id;
@@ -69,7 +63,6 @@ export default function CourseAssignmentsPage() {
                     <Layers size={22} /> Задания курса
                 </h1>
 
-                {/* кнопка «Создать» есть только в редакторском режиме */}
                 <IfEditor>
                     <Button onClick={handleCreate}>
                         <Plus size={16} /> Создать
@@ -80,12 +73,10 @@ export default function CourseAssignmentsPage() {
             <Card className="mb-6">
                 <div className="flex items-center gap-3">
                     <div className="relative flex-1">
-                        {/*<Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />*/}
                         <Input
                             placeholder="Поиск по названию или тегам"
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
-                            className="pl-9"
                         />
                     </div>
                 </div>
@@ -95,41 +86,80 @@ export default function CourseAssignmentsPage() {
             {loading && <div className="text-slate-500">Загрузка…</div>}
 
             <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
-                {filtered.map((a) => (
-                    <Card key={a.id} className="hover:shadow-lg transition">
-                        <div className="flex items-start justify-between gap-3">
-                            <div>
-                                {/* в viewer режиме заголовок без ссылки; в editor — ссылка на редактирование */}
-                                <IfEditor
-                                    otherwise={
-                                        <Link to={`/assignment/${a.id}`} className="text-lg font-semibold hover:underline">
+                {filtered.map((a) => {
+                    const solved = !!a.solvedByCurrentUser;
+
+                    // ССЫЛКА НА ВСЮ КАРТОЧКУ:
+                    const ViewWrap = ({ children }) => (
+                        <Link to={`/assignment/${a.id}`} className="block group">
+                            {children}
+                        </Link>
+                    );
+                    const EditWrap = ({ children }) => (
+                        <Link to={`/assignment/${a.id}/edit`} className="block group">
+                            {children}
+                        </Link>
+                    );
+
+                    const CardInner = (
+                        <Card
+                            className={
+                                'transition hover:shadow-lg ' +
+                                (solved ? 'border-emerald-400/40 bg-emerald-500/5' : '')
+                            }
+                        >
+                            {/* Верхняя строка: заголовок + бейдж слева, «Сложность» справа */}
+                            <div className="flex items-start justify-between gap-4">
+                                {/* Левая колонка — текст, не даём ей «налезать» на правую */}
+                                <div className="min-w-0 grow">
+                                    <div className="flex items-center gap-2">
+                                        <div
+                                            className={
+                                                'text-lg font-semibold truncate ' +
+                                                (solved ? 'text-emerald-600' : '')
+                                            }
+                                            title={a.title}
+                                        >
                                             {a.title}
-                                        </Link>
-                                    }>
-                                    <Link to={`/assignment/${a.id}/edit`} className="text-lg font-semibold hover:underline">
-                                        {a.title}
-                                    </Link>
-                                </IfEditor>
+                                        </div>
+                                        {solved && (
+                                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 text-xs">
+                                                <CheckCircle2 size={14} />
+                                                Решено
+                                            </span>
+                                        )}
+                                    </div>
 
-                                {a.description && (
-                                    <p className="text-sm text-slate-500 line-clamp-2 mt-1">{a.description}</p>
-                                )}
+                                    {a.description && (
+                                        <p className="text-sm text-slate-500 line-clamp-2 mt-1">
+                                            {a.description}
+                                        </p>
+                                    )}
 
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                    {a.tags?.split(',').filter(Boolean).map((t) => (
-                                        <Badge key={t.trim()}>{t.trim()}</Badge>
-                                    ))}
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {a.tags?.split(',').filter(Boolean).map((t) => (
+                                            <Badge key={t.trim()}>{t.trim()}</Badge>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Правая колонка фиксированной ширины — не даём ей схлопываться */}
+                                <div className="shrink-0 w-28 text-right">
+                                    <div className="text-xs text-slate-500">Сложность</div>
+                                    <div className="text-sm font-semibold">
+                                        {['легко', 'средне', 'сложно'][a.difficulty - 1] || '—'}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <div className="text-xs text-slate-500">Сложность</div>
-                                <div className="text-sm font-semibold">
-                                    {['легко', 'средне', 'сложно'][a.difficulty - 1] || '—'}
-                                </div>
-                            </div>
-                        </div>
-                    </Card>
-                ))}
+                        </Card>
+                    );
+
+                    return (
+                        <IfEditor key={a.id} otherwise={<ViewWrap>{CardInner}</ViewWrap>}>
+                            <EditWrap>{CardInner}</EditWrap>
+                        </IfEditor>
+                    );
+                })}
             </div>
 
             {!loading && filtered.length === 0 && (

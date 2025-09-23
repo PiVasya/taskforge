@@ -2,7 +2,7 @@
 import Layout from "../components/Layout";
 import { Field, Input, Button, Card } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
@@ -35,6 +35,12 @@ export default function LoginPage() {
                         <Button disabled={busy} className="w-full">{busy ? "Входим…" : (<><LogIn size={16} /> Войти</>)}</Button>
                     </form>
                 </Card>
+                <div className="mt-4 text-sm text-slate-500">
+                    Нет аккаунта?{" "}
+                    <Link to="/register" className="text-brand-600 hover:underline">
+                        Зарегистрироваться
+                    </Link>
+                </div>
             </div>
         </Layout>
     );

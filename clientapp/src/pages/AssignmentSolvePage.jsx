@@ -20,7 +20,7 @@ export default function AssignmentSolvePage() {
     const [error, setError] = useState('');
     const [a, setA] = useState(null);
 
-    const [language, setLanguage] = useState('python'); // подставь нужные дефолты
+    const [language, setLanguage] = useState('cpp'); // подставь нужные дефолты
     const [code, setCode] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [result, setResult] = useState(null);
