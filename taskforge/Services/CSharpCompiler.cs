@@ -54,7 +54,7 @@ namespace taskforge.Services.Compilers
             foreach (var test in testCases)
             {
                 using var inputReader = new StringReader(test.Input ?? "");
-                using var outputWriter = new StringWriter();
+                using var outputWriter = new StringWriter(); // пишем как есть, без Trim()
                 var originalIn = Console.In;
                 var originalOut = Console.Out;
 
@@ -68,7 +68,13 @@ namespace taskforge.Services.Compilers
                 }
                 catch (Exception ex)
                 {
-                    results.Add(new TestResultDto { Input = test.Input, ExpectedOutput = test.ExpectedOutput, ActualOutput = ex.Message, Passed = false });
+                    results.Add(new TestResultDto
+                    {
+                        Input = test.Input,
+                        ExpectedOutput = test.ExpectedOutput,
+                        ActualOutput = ex.Message,
+                        Passed = false
+                    });
                     continue;
                 }
                 finally
@@ -77,18 +83,28 @@ namespace taskforge.Services.Compilers
                     Console.SetOut(originalOut);
                 }
 
-                var actual = outputWriter.ToString().Trim();
+                // сырой вывод пользователя (сохраняем без Trim, чтобы фронт мог показать \r\n)
+                var actualRaw = outputWriter.ToString();
+
+                // «умное» сравнение: нормализация переводов строк/хвостовых пробелов + числа с допуском
+                bool passed = OutputComparer.EqualsSmart(
+                    expectedRaw: test.ExpectedOutput ?? string.Empty,
+                    actualRaw: actualRaw,
+                    eps: 1e-6
+                );
+
                 results.Add(new TestResultDto
                 {
                     Input = test.Input,
                     ExpectedOutput = test.ExpectedOutput,
-                    ActualOutput = actual,
-                    Passed = actual == (test.ExpectedOutput?.Trim() ?? "")
+                    ActualOutput = actualRaw,
+                    Passed = passed
                 });
             }
 
             return results;
         }
+
 
         private (bool Success, Assembly? Assembly, string? Error) CompileCSharp(string code)
         {

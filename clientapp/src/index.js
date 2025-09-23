@@ -1,11 +1,18 @@
-﻿import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import App from './App';
+﻿import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import AuthProvider from "./auth/AuthContext";
+import EditorModeProvider from "./contexts/EditorModeContext";
+import App from "./App";
+import "./index.css";
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
+ReactDOM.createRoot(document.getElementById("root")).render(
     <BrowserRouter>
-        <App />
+        <AuthProvider>
+            {/* пока backend не даёт статус — считаем canEdit=true */}
+            <EditorModeProvider canEdit={true}>
+                <App />
+            </EditorModeProvider>
+        </AuthProvider>
     </BrowserRouter>
 );

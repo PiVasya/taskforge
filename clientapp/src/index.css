@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+:root {
+    --card: 255 255 255;
+    --muted: 244 247 252;
+}
+
+
+.dark {
+    --card: 15 23 42; /* slate-900 */
+    --muted: 30 41 59; /* slate-800 */
+}
+
+
+html, body, #root {
+    height: 100%;
+}
+
+body {
+    @apply bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100;
+}
+
+
+.container-app {
+    @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8;
+}
+
+.card {
+    @apply rounded-2xl shadow-soft bg-[rgb(var(--card))] border border-slate-200/60 dark:border-slate-800/60;
+}
+
+.card-muted {
+    @apply rounded-2xl bg-[rgb(var(--muted))] dark:bg-slate-800/70;
+}
+
+.input {
+    @apply w-full rounded-xl border border-slate-300 bg-white/90 dark:bg-slate-900/60 dark:border-slate-700 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-600/40;
+}
+
+.textarea {
+    @apply input min-h-[120px];
+}
+
+.select {
+    @apply input;
+}
+
+.btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-medium transition;
+}
+
+.btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99];
+}
+
+.btn-ghost {
+    @apply btn bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800;
+}
+
+.btn-outline {
+    @apply btn border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800;
+}
+
+.badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700;
+}
+
+.label {
+    @apply block text-sm font-medium mb-1 text-slate-600 dark:text-slate-300;
+}
+
+.field {
+    @apply space-y-1;
+}
+
+@-moz-document url-prefix() {
+    .input {
+        -moz-appearance: none;
+        appearance: none;
+        background-clip: padding-box;
+        outline: none;
+        line-height: 1.2;
+        min-height: 40px;
+    }
+
+        .input::placeholder {
+            opacity: .7;
+        }
+}
