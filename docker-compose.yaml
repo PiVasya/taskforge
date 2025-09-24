@@ -1,107 +1,77 @@
-x-common-labels: &common_labels
-  com.centurylinklabs.watchtower.enable: "true"
-
-x-runner-security: &runner_security
-  read_only: true
-  security_opt: [ "no-new-privileges:true" ]
-  cap_drop: [ "ALL" ]
-  pids_limit: 128
-  mem_limit: 256m
-
-networks:
-  appnet:
-
-volumes:
-  pgdata:
-
+version: "3.8"
 services:
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    depends_on: [front, api]
-    ports: ["8080:80"]
-    networks: [appnet]
-    restart: unless-stopped
-    labels: *common_labels
-
-  front:
-    build:
-      context: ./taskforge/clientapp      # <-- папка фронта
-      dockerfile: Dockerfile
-    expose: ["80"]
-    networks: [appnet]
-    restart: unless-stopped
-    labels: *common_labels
-
-  api:
-    build:
-      context: ./taskforge/taskforge       # <-- папка API-проекта
-      dockerfile: Dockerfile
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=taskforge;Username=postgres;Password=postgres"
-      Compilers__cpp__Url: "http://cpp-runner:8080/run"
-      Compilers__csharp__Url: "http://csharp-runner:8080/run"
-      Compilers__python__Url: "http://python-runner:8080/run"
-      Compilers__cpp__TimeoutMs: "12000"
-      Compilers__csharp__TimeoutMs: "12000"
-      Compilers__python__TimeoutMs: "8000"
-    depends_on: [db, cpp-runner, csharp-runner, python-runner]
-    expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-    labels: *common_labels
-
-  cpp-runner:
-    build:
-      context: ./runners/cpp               # <-- своя папка
-      dockerfile: Dockerfile
-    expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-    labels: *common_labels
-    <<: *runner_security
-    mem_limit: 512m
-
-  csharp-runner:
-    build:
-      context: ./runners/csharp            # <-- своя папка
-      dockerfile: Dockerfile
-    expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-    labels: *common_labels
-    read_only: true
-    security_opt: [ "no-new-privileges:true" ]
-    cap_drop: [ "ALL" ]
-    pids_limit: 128
-    mem_limit: 512m
-    cpus: "0.75"
-
-  python-runner:
-    build:
-      context: ./runners/python            # <-- своя папка
-      dockerfile: Dockerfile
-    expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-    labels: *common_labels
-    <<: *runner_security
-
   db:
-    image: postgres:16
+    image: postgres:17
+    container_name: taskforge-db
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: taskforge
+      POSTGRES_DB: taskforge_dev
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # - ./db/init:/docker-entrypoint-initdb.d
+    networks: [appnet]
+
+  api:
+    build:
+      context: ./taskforge             # каталог с проектом ASP.NET
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # строка подключения указывает на сервис db
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=taskforge_dev;Username=postgres;Password=postgres"
+      # настройки таймаутов и URL‑ов для runner‑ов
+      Compilers__cpp__Url: "http://cpp-runner:8080/run"
+      Compilers__cpp__TimeoutMs: "12000"
+      Compilers__csharp__Url: "http://csharp-runner:8080/run"
+      Compilers__csharp__TimeoutMs: "12000"
+      Compilers__python__Url: "http://python-runner:8080/run"
+      Compilers__python__TimeoutMs: "8000"
+    depends_on: [db, cpp-runner, csharp-runner, python-runner]
+    expose:
+      - "8080"
     networks: [appnet]
     restart: unless-stopped
-    labels: *common_labels
 
+  # фронтенд React; контекст указывает на корневую clientapp
+  front:
+    build:
+      context: ./clientapp
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_BASE: "/api"
+    expose:
+      - "80"
+    networks: [appnet]
+    restart: unless-stopped
+
+  # nginx проксирует "/" на front и "/api" на API
+  nginx:
+    build:
+      context: ./nginx
+    depends_on: [front, api]
+    ports:
+      - "8080:80"
+    networks: [appnet]
+    restart: unless-stopped
+
+  # сервис компиляции C++ (пример: Python‑сервер внутри runner‑контейнера)
+  cpp-runner:
+    build:
+      context: ./cpp-runner      # реальный каталог с C++‑runner
+      dockerfile: Dockerfile
+
+  csharp-runner:
+    build:
+      context: ./csharp-runner   # реальный каталог с C#‑runner
+      dockerfile: Dockerfile
+
+  python-runner:
+    build:
+      context: ./python-runner   # реальный каталог с Python‑runner
+      dockerfile: Dockerfile
+
+  # watchtower — по желанию
   watchtower:
     image: containrrr/watchtower
     command: --interval 300 --cleanup --label-enable
@@ -109,4 +79,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [appnet]
     restart: unless-stopped
-    labels: *common_labels
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+networks:
+  appnet:
+
+volumes:
+  pgdata:

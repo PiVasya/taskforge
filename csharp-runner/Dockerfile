@@ -9,4 +9,4 @@ COPY --from=build /out ./
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 USER 65534
-ENTRYPOINT ["dotnet","Runner.dll"]
+ENTRYPOINT ["dotnet","csharp-runner.dll"]
