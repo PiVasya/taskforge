@@ -1,16 +1,30 @@
-﻿import axios from "axios";
-
-const API_URL = process.env.REACT_APP_API_URL; // без ?? ""
+﻿import axios from 'axios';
 
 export const api = axios.create({
-    baseURL: API_URL,        // ← абсолютный базовый адрес
-    withCredentials: false,  // ← никаких кук
+  baseURL: '',           // same-origin
+  timeout: 15000,
+  headers: { Accept: 'application/json' },
 });
-
-let _accessToken = null;
-export const setAccessToken = (t) => { _accessToken = t || null; };
 
 api.interceptors.request.use((config) => {
-    if (_accessToken) config.headers.Authorization = `Bearer ${_accessToken}`;
-    return config;
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const r = err.response;
+    const message =
+      r?.data?.message ||
+      r?.data?.error ||
+      r?.statusText ||
+      err.message ||
+      'Ошибка запроса';
+    return Promise.reject(new Error(message));
+  }
+);

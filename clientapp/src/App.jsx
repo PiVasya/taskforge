@@ -10,7 +10,7 @@ import AssignmentEditPage from "./pages/AssignmentEditPage";
 import AssignmentSolvePage from "./pages/AssignmentSolvePage";
 import RegisterPage from "./pages/RegisterPage";
 
-function Home() { return <Navigate to="/courses" replace />; }
+function Home() { return <Navigate to="/login" replace />; }
 function NotFound() { return <div className="container-app py-10">Страница не найдена</div>; }
 
 export default function App() {
