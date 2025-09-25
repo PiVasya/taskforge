@@ -1,7 +1,8 @@
-﻿import axios from 'axios';
+﻿// clientapp/src/api/http.js
+import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: '',           // same-origin
+  baseURL: '',
   timeout: 15000,
   headers: { Accept: 'application/json' },
 });
@@ -28,3 +29,16 @@ api.interceptors.response.use(
     return Promise.reject(new Error(message));
   }
 );
+
+// >>> добавить это:
+export function setAccessToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem('token', token);
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+    } else {
+      localStorage.removeItem('token');
+      delete api.defaults.headers.common.Authorization;
+    }
+  } catch {}
+}
