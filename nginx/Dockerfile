@@ -1,12 +1,11 @@
 FROM nginx:alpine
 
-# Установим envsubst
+# envsubst для подстановки ${DOMAIN}
 RUN apk add --no-cache gettext
 
-# Шаблоны
-COPY bootstrap.conf /etc/nginx/templates/bootstrap.conf
-COPY https.conf     /etc/nginx/templates/https.conf
+# Кладём шаблоны и скрипт выбора конфига
+COPY templates/bootstrap.conf /etc/nginx/templates/bootstrap.conf
+COPY templates/https.conf     /etc/nginx/templates/https.conf
+COPY 99-select-config.sh      /docker-entrypoint.d/99-select-config.sh
 
-# Стартовый скрипт
-COPY docker-entrypoint.sh /docker-entrypoint.d/99-select-config.sh
 RUN chmod +x /docker-entrypoint.d/99-select-config.sh
