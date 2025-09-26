@@ -3,9 +3,13 @@ set -e
 
 DOMAIN="${DOMAIN:-taskforge.example.com}"
 
-# Если есть сертификат — используем HTTPS-конфиг, иначе — bootstrap (только :80 + challenge)
+render_conf () {
+  # подставим переменные окружения в шаблон
+  envsubst '${DOMAIN}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
+}
+
 if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
-  cp /etc/nginx/templates/https.conf /etc/nginx/conf.d/default.conf
+  render_conf https.conf
 else
-  cp /etc/nginx/templates/bootstrap.conf /etc/nginx/conf.d/default.conf
+  render_conf bootstrap.conf
 fi

@@ -64,34 +64,38 @@ services:
     depends_on:
       nginx:
         condition: service_started
+    networks: [appnet]
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    entrypoint: []
-    command:
-      - sh
-      - -lc
-      - 'if [ -z "$DOMAIN" ]; then echo "ERROR: DOMAIN is empty. Put DOMAIN=... in .env"; exit 2; fi; if [ ! -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then echo "No cert found. Requesting..."; certbot certonly --non-interactive --agree-tos --email "$LETSENCRYPT_EMAIL" --webroot -w /var/www/certbot -d "$DOMAIN" || exit 1; echo "Issue done."; else echo "Cert already exists. Skipping issue."; fi'
+    entrypoint: ["/bin/sh","-lc"]
+    command: >
+      until getent hosts nginx >/dev/null 2>&1; do echo "Waiting for DNS (nginx)..."; sleep 1; done
+      && until nc -z nginx 80 >/dev/null 2>&1; do echo "Waiting for nginx:80..."; sleep 1; done
+      && certbot certonly --non-interactive --agree-tos --email "$LETSENCRYPT_EMAIL" --webroot -w /var/www/certbot -d "$DOMAIN"
+      && echo "Cert issued."
+    restart: "no"
+
 
   certbot-renew:
     image: certbot/certbot:latest
-    environment:
-      DOMAIN: ${DOMAIN}
     depends_on:
       nginx:
         condition: service_started
-      certbot-init:
-        condition: service_completed_successfully
+    networks: [appnet]
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    entrypoint: []
+    entrypoint: ["/bin/sh","-lc"]
     command:
-      - sh
-      - -lc
-      - 'if [ -z "$DOMAIN" ]; then echo "ERROR: DOMAIN is empty"; sleep 600; fi; while [ ! -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; do echo "Waiting for certificate..."; sleep 10; done; while :; do certbot renew --webroot -w /var/www/certbot --quiet || true; sleep 12h; done'
+      - >
+        while :; do
+          certbot renew --webroot -w /var/www/certbot --quiet || true;
+          # NOTE: внутри этого контейнера nginx не установлен — эта команда почти ничего не делает.
+          # Перезагрузка nginx нужна только, чтобы подхватить НОВЫЙ сертификат; можно решить отдельно.
+          sleep 12h;
+        done
     restart: unless-stopped
-
 
 
 
