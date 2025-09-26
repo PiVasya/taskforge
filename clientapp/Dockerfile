@@ -1,16 +1,23 @@
-# build
-FROM node:20 AS build
+# ---------- build ----------
+FROM node:20-alpine AS build
 WORKDIR /app
+
+# РЎС‚Р°РІРёРј Р·Р°РІРёСЃРёРјРѕСЃС‚Рё
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
+
+# РЎР±РѕСЂРєР°
 COPY . .
-# важно: пускай фронт ходит к /api, а не к абсолютному домену
-ENV REACT_APP_API_BASE=/api
+# Р‘Р°Р·Р° РґР»СЏ API РІ СЂР°РЅС‚Р°Р№РјРµ РѕСЃС‚Р°С‘С‚СЃСЏ /api (Р·Р° РїСЂРѕРєСЃРё РѕС‚РІРµС‡Р°РµС‚ nginx РёР»Рё Caddy)
+ARG REACT_APP_API_BASE=/api
+ENV REACT_APP_API_BASE=$REACT_APP_API_BASE
 RUN npm run build
 
-# runtime
+# ---------- runtime ----------
 FROM caddy:2-alpine
-# Caddy сам отдаёт всё из /usr/share/caddy
+# РЎС‚Р°С‚РёРєР° CRA РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ Р»РµР¶РёС‚ РІ /usr/share/caddy
 COPY --from=build /app/build /usr/share/caddy
-# базовый Caddyfile подходит по умолчанию (root=/usr/share/caddy, index index.html)
+# РљРѕРЅС„РёРі Caddy
+COPY Caddyfile /etc/caddy/Caddyfile
+
 EXPOSE 80

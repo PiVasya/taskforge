@@ -1,0 +1,92 @@
+version: "3.9"
+
+networks:
+  appnet:
+    name: tasktask_appnet
+
+volumes:
+  db_data:
+
+services:
+  # === База данных (пример: PostgreSQL) ===
+  db:
+    image: postgres:16
+    container_name: taskforge-db
+    environment:
+      - POSTGRES_USER=taskforge
+      - POSTGRES_PASSWORD=taskforge
+      - POSTGRES_DB=taskforge
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks: [appnet]
+    restart: unless-stopped
+    # Порт наружу не пробрасываем — только внутренняя сеть
+
+  # === API (.NET) ===
+  api:
+    build:
+      context: ./api          # путь к твоему API
+      dockerfile: Dockerfile  # твой Dockerfile
+    image: tasktask-api:latest
+    container_name: tasktask-api-1
+    depends_on: [db]
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      # Если проект читает строку подключения из переменной:
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=taskforge;Username=taskforge;Password=taskforge
+      # Добавь при необходимости прочие ENV твоего API
+    networks: [appnet]
+    restart: unless-stopped
+
+  # === Фронтенд (Node -> Caddy) ===
+  front:
+    build:
+      context: ./front         # путь к твоему фронту (Create React App и т.п.)
+      dockerfile: Dockerfile   # твой Dockerfile (stage build -> caddy)
+    image: tasktask-front:latest
+    container_name: tasktask-front-1
+    networks: [appnet]
+    restart: unless-stopped
+
+  # === Python-runner ===
+  python-runner:
+    build:
+      context: ./python-runner
+      dockerfile: Dockerfile
+    image: tasktask-python-runner:latest
+    container_name: tasktask-python-runner-1
+    networks: [appnet]
+    restart: unless-stopped
+
+  # === C++-runner ===
+  cpp-runner:
+    build:
+      context: ./cpp-runner
+      dockerfile: Dockerfile
+    image: tasktask-cpp-runner:latest
+    container_name: tasktask-cpp-runner-1
+    networks: [appnet]
+    restart: unless-stopped
+
+  # === C#-runner ===
+  csharp-runner:
+    build:
+      context: ./csharp-runner
+      dockerfile: Dockerfile
+    image: tasktask-csharp-runner:latest
+    container_name: tasktask-csharp-runner-1
+    networks: [appnet]
+    restart: unless-stopped
+
+  # === Локальный Nginx-прокси (HTTP только для LAN) ===
+  nginx-local:
+    image: nginx:alpine
+    container_name: taskforge-nginx-local
+    depends_on: [front, api]
+    volumes:
+      - ./nginx/local.conf:/etc/nginx/conf.d/default.conf:ro
+    # Слушаем 8080 на хосте (можешь поменять на "80:80")
+    ports:
+      - "8080:80"
+    networks: [appnet]
+    restart: unless-stopped
