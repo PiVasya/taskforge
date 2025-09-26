@@ -42,69 +42,63 @@ services:
   nginx:
     build:
       context: ./nginx
+    container_name: taskforge-nginx
     environment:
-      DOMAIN: ${DOMAIN}
-    depends_on: [front, api]
+      - DOMAIN=${DOMAIN}
+    depends_on:
+      - clientapp
+      - api
+    volumes:
+      - certbot-www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
     ports:
       - "80:80"
       - "443:443"
     networks: [appnet]
     restart: unless-stopped
-    volumes:
-      - certbot-www:/var/www/certbot
-      - letsencrypt:/etc/letsencrypt
 
-  # Одноразовая выдача: если файла серта нет — получаем и просим nginx перейти на https
-    # Одноразовая выдача серта при старте
+  # Одноразовая первичная выдача сертификата (идемпотентно)
   certbot-init:
     image: certbot/certbot:latest
+    container_name: taskforge-certbot-init
     environment:
-      DOMAIN: ${DOMAIN}
-      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
-    depends_on:
-      nginx:
-        condition: service_started
-    networks: [appnet]             # обязательно та же сеть, что и nginx
+      - DOMAIN=${DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    entrypoint: ["/bin/sh","-lc"]
-    command: |
-      set -e
-      # ждём DNS имени 'nginx' внутри docker-сети
-      while ! getent hosts nginx >/dev/null 2>&1; do
-        echo "Waiting for DNS (nginx)..."; sleep 1;
-      done
-      # ждём, пока nginx отдаёт HTTP
-      while ! wget -q --spider http://nginx/.well-known/ 2>/dev/null; do
-        echo "Waiting for nginx HTTP..."; sleep 1;
-      done
-      # ПЕРВИЧНАЯ выдача сертификата (при желании добавь --test-cert на время отладки)
-      certbot certonly --non-interactive --agree-tos \
-        --email "$LETSENCRYPT_EMAIL" \
-        --webroot -w /var/www/certbot \
-        -d "$DOMAIN"
-      echo "Cert issued."
-
+    depends_on:
+      - nginx
+    entrypoint: >
+      sh -c 'if [ -f /etc/letsencrypt/live/"$${DOMAIN}"/fullchain.pem ];
+             then echo "[certbot-init] Certificate already exists for $${DOMAIN} — skipping";
+             else certbot certonly --webroot -w /var/www/certbot
+                                   -d "$${DOMAIN}"
+                                   --email "$${LETSENCRYPT_EMAIL}"
+                                   --rsa-key-size 4096
+                                   --agree-tos --no-eff-email --non-interactive;
+             fi'
     restart: "no"
+    networks: [appnet]
 
+  # Периодическое продление (каждые ~12h, без внешних .sh)
   certbot-renew:
     image: certbot/certbot:latest
-    depends_on:
-      nginx:
-        condition: service_started
-    networks: [appnet]
+    container_name: taskforge-certbot-renew
+    environment:
+      - DOMAIN=${DOMAIN}
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    entrypoint: ["/bin/sh","-lc"]
-    command: |
-      while :; do
-        certbot renew --webroot -w /var/www/certbot --quiet || true
-        # здесь нет nginx; reload решим позже отдельным сайдкаром/скриптом
-        sleep 12h
-      done
+    entrypoint: >
+      sh -c 'trap : TERM INT; while :; do
+               certbot renew --webroot -w /var/www/certbot --quiet;
+               sleep 12h;
+             done'
+    depends_on:
+      - nginx
     restart: unless-stopped
+    networks: [appnet]
 
 
 
