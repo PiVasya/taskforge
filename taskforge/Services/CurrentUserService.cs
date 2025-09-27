@@ -7,7 +7,6 @@ namespace taskforge.Services
     public sealed class CurrentUserService : ICurrentUserService
     {
         private readonly IHttpContextAccessor _http;
-
         public CurrentUserService(IHttpContextAccessor http) => _http = http;
 
         public Guid GetUserId()
@@ -20,5 +19,14 @@ namespace taskforge.Services
 
             return id;
         }
+
+        public string? GetRole()
+        {
+            // стандартный и “простой” варианты
+            return _http.HttpContext?.User?.FindFirstValue(ClaimTypes.Role)
+                   ?? _http.HttpContext?.User?.FindFirstValue("role");
+        }
+
+        public bool IsAdmin() => string.Equals(GetRole(), "Admin", StringComparison.OrdinalIgnoreCase);
     }
 }

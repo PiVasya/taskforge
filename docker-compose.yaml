@@ -114,6 +114,16 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: taskforge-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "8081:80"        # открываешь http://localhost:8081
+    networks: [appnet]
 
 networks:
   appnet:

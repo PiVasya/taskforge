@@ -29,11 +29,9 @@ namespace taskforge.Services
             return course.Id;
         }
 
-        public async Task<IReadOnlyList<CourseListItemDto>> GetListAsync(Guid currentUserId)
+        public async Task<IReadOnlyList<CourseListItemDto>> GetListAsync(Guid currentUserId, bool isAdmin)
         {
-            // видны public + свои
-            var query = _db.Courses
-                .AsNoTracking()
+            var query = _db.Courses.AsNoTracking()
                 .Select(c => new CourseListItemDto
                 {
                     Id = c.Id,
@@ -45,14 +43,15 @@ namespace taskforge.Services
                     AssignmentCount = c.Assignments.Count,
                     SolvedCountForCurrentUser = c.Assignments.Count(a =>
                         a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests))
-                })
-                .Where(x => x.IsPublic || x.OwnerId == currentUserId)
-                .OrderByDescending(x => x.CreatedAt);
+                });
 
-            return await query.ToListAsync();
+            if (!isAdmin)
+                query = query.Where(x => x.IsPublic || x.OwnerId == currentUserId);
+
+            return await query.OrderByDescending(x => x.CreatedAt).ToListAsync();
         }
 
-        public async Task<CourseDetailsDto?> GetDetailsAsync(Guid courseId, Guid currentUserId)
+        public async Task<CourseDetailsDto?> GetDetailsAsync(Guid courseId, Guid currentUserId, bool isAdmin)
         {
             var dto = await _db.Courses.AsNoTracking()
                 .Where(c => c.Id == courseId)
@@ -60,7 +59,7 @@ namespace taskforge.Services
                 {
                     Id = c.Id,
                     Title = c.Title,
-                    Description = c.Description,
+                    Description = c.Description ?? string.Empty,
                     IsPublic = c.IsPublic,
                     OwnerId = c.OwnerId,
                     CreatedAt = c.CreatedAt,
@@ -71,20 +70,19 @@ namespace taskforge.Services
                 })
                 .SingleOrDefaultAsync();
 
-            // доступ: публичный или владелец
-            if (dto != null && !(dto.IsPublic || dto.OwnerId == currentUserId))
+            if (dto != null && !isAdmin && !(dto.IsPublic || dto.OwnerId == currentUserId))
                 return null;
 
             return dto;
         }
 
-        public async Task UpdateAsync(Guid courseId, Guid currentUserId, UpdateCourseRequest request)
+        public async Task UpdateAsync(Guid courseId, Guid currentUserId, bool isAdmin, UpdateCourseRequest request)
         {
             var course = await _db.Set<Course>().FirstOrDefaultAsync(c => c.Id == courseId)
-                         ?? throw new KeyNotFoundException("Course not found");
+                        ?? throw new KeyNotFoundException("Course not found");
 
-            if (course.OwnerId != currentUserId)
-                throw new UnauthorizedAccessException("Only owner can edit the course.");
+            if (!isAdmin && course.OwnerId != currentUserId)
+                throw new UnauthorizedAccessException("Only owner or admin can edit the course.");
 
             course.Title = request.Title.Trim();
             course.Description = request.Description?.Trim();
@@ -94,16 +92,15 @@ namespace taskforge.Services
             await _db.SaveChangesAsync();
         }
 
-        public async Task DeleteAsync(Guid courseId, Guid currentUserId)
+        public async Task DeleteAsync(Guid courseId, Guid currentUserId, bool isAdmin)
         {
             var course = await _db.Set<Course>()
-                                  .Include(c => c.Assignments)
-                                  .ThenInclude(a => a.TestCases)
-                                  .FirstOrDefaultAsync(c => c.Id == courseId)
-                         ?? throw new KeyNotFoundException("Course not found");
+                                .Include(c => c.Assignments).ThenInclude(a => a.TestCases)
+                                .FirstOrDefaultAsync(c => c.Id == courseId)
+                        ?? throw new KeyNotFoundException("Course not found");
 
-            if (course.OwnerId != currentUserId)
-                throw new UnauthorizedAccessException("Only owner can delete the course.");
+            if (!isAdmin && course.OwnerId != currentUserId)
+                throw new UnauthorizedAccessException("Only owner or admin can delete the course.");
 
             _db.Remove(course);
             await _db.SaveChangesAsync();
