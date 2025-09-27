@@ -12,6 +12,7 @@ namespace taskforge.Data.Models.DTO
         public string? Tags { get; set; }
         public DateTime CreatedAt { get; set; }
         public bool SolvedByCurrentUser { get; set; }
+        public int Sort { get; set; } 
     }
 
     public sealed class AssignmentDetailsDto
@@ -30,9 +31,8 @@ namespace taskforge.Data.Models.DTO
         public int PublicTestCount { get; set; }
         public int HiddenTestCount { get; set; }
         public bool SolvedByCurrentUser { get; set; }
-
-        // <-- ключевое: отдать тесты на фронт
         public List<AssignmentTestCaseDto> TestCases { get; set; } = new();
+        public int Sort { get; set; } 
     }
 
     public sealed class AssignmentTestCaseDto

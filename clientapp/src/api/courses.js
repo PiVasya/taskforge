@@ -14,7 +14,7 @@ export async function getCourse(id) {
 }
 export const getCourseById = getCourse;
 
-// создать курс (ВАЖНО: description обязателен)
+// создать курс
 export async function createCourse(payload) {
   // payload: { title, description, isPublic }
   const { data } = await api.post('/api/courses', payload);

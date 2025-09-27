@@ -38,5 +38,7 @@ namespace taskforge.Services.Interfaces
 
         /// <summary>Удалить задание (только владелец курса).</summary>
         Task DeleteAsync(Guid assignmentId, Guid currentUserId);
+
+        Task UpdateSortAsync(Guid assignmentId, Guid currentUserId, int sort);
     }
 }

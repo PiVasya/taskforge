@@ -87,9 +87,6 @@ services:
     restart: unless-stopped
     networks: [appnet]
 
-
-
-
   cpp-runner:
     build:
       context: ./cpp-runner

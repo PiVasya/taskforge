@@ -23,6 +23,8 @@ namespace taskforge.Data.Models.DTO
 
         public string? Tags { get; set; }
 
+        public int? Sort { get; set; }
+
         // В UI мы делаем replace-all, поэтому Id можно игнорировать, но оставим для совместимости
         public IList<UpdateTestCaseDto> TestCases { get; set; } = new List<UpdateTestCaseDto>();
     }
@@ -38,5 +40,10 @@ namespace taskforge.Data.Models.DTO
         public string ExpectedOutput { get; set; } = string.Empty;
 
         public bool IsHidden { get; set; } = false;
+    }
+
+    public sealed class UpdateAssignmentSortRequest
+    {
+        public int Sort { get; set; }
     }
 }
