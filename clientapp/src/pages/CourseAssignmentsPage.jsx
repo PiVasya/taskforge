@@ -110,10 +110,15 @@ export default function CourseAssignmentsPage() {
 
   const handleCreate = async () => {
     const payload = {
-      title: 'Новое задание',
-      description: 'Добавьте описание',
-      tags: 'ОАИП',
-      sort: items.length,
+        title: 'Новое задание',
+        description: 'Опишите постановку задачи…',   // не пусто
+        type: 'code-test',                           // [Required]
+        difficulty: 1,                               // [Range(1,3)]
+        testCases: [                                 // [MinLength(1)]
+        { input: '2 4', expectedOutput: '6', isHidden: false }
+        ],
+        tags: 'ОАИП',
+        sort: items.length,
     };
     const res = await createAssignment(courseId, payload);
     const id = res?.id;
