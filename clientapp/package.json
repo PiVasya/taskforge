@@ -2,6 +2,7 @@
   "name": "taskforge-frontend",
   "version": "0.1.0",
   "private": true,
+  "proxy": "http://localhost:8080",
   "scripts": {
     "start": "set WDS_ALLOWED_HOSTS=all&& react-scripts start",
     "build": "react-scripts build",

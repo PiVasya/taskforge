@@ -31,36 +31,44 @@ namespace taskforge.Controllers
         [HttpGet]
         public async Task<IActionResult> List()
         {
-            var list = await _courses.GetListAsync(_current.GetUserId());
+            var list = await _courses.GetListAsync(_current.GetUserId(), _current.IsAdmin());
             return Ok(list);
         }
 
-        // GET /api/courses/{courseId} — карточка курса
         [HttpGet("{courseId:guid}")]
         public async Task<IActionResult> GetById([FromRoute] Guid courseId)
         {
-            // Если у тебя в сервисе метод называется GetDetailsAsync — раскомментируй строку ниже и закомментируй текущую.
-            // var dto = await _courses.GetDetailsAsync(courseId, _current.GetUserId());
-
-            var dto = await _courses.GetDetailsAsync(courseId, _current.GetUserId());
+            var dto = await _courses.GetDetailsAsync(courseId, _current.GetUserId(), _current.IsAdmin());
             if (dto == null) return NotFound();
             return Ok(dto);
         }
 
-        // PUT /api/courses/{courseId} — редактирование курса
         [HttpPut("{courseId:guid}")]
         public async Task<IActionResult> Update([FromRoute] Guid courseId, [FromBody] UpdateCourseRequest req)
         {
-            await _courses.UpdateAsync(courseId, _current.GetUserId(), req);
-            return NoContent();
+            try
+            {
+                await _courses.UpdateAsync(courseId, _current.GetUserId(), _current.IsAdmin(), req);
+                return NoContent();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { message = ex.Message });
+            }
         }
 
-        // DELETE /api/courses/{courseId} — удаление курса (опционально)
         [HttpDelete("{courseId:guid}")]
         public async Task<IActionResult> Delete([FromRoute] Guid courseId)
         {
-            await _courses.DeleteAsync(courseId, _current.GetUserId());
-            return NoContent();
+            try
+            {
+                await _courses.DeleteAsync(courseId, _current.GetUserId(), _current.IsAdmin());
+                return NoContent();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { message = ex.Message });
+            }
         }
     }
 }

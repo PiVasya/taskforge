@@ -1,63 +1,62 @@
-﻿const API_URL = process.env.REACT_APP_API_URL;
+﻿import { api } from './http';
 
-function auth() {
-    const t = localStorage.getItem('token');
-    return t ? { Authorization: `Bearer ${t}` } : {};
+function authHeaders() {
+  const t = localStorage.getItem('token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
 // список заданий по курсу
 export async function getAssignmentsByCourse(courseId) {
-    const r = await fetch(`${API_URL}/api/courses/${courseId}/assignments`, { headers: { ...auth() } });
-    if (!r.ok) throw new Error('Не удалось загрузить задания');
-    return await r.json();
+  const { data } = await api.get(`/api/courses/${courseId}/assignments`, {
+    headers: authHeaders(),
+  });
+  return data;
 }
 
 // создать задание
 export async function createAssignment(courseId, payload) {
-    const r = await fetch(`${API_URL}/api/courses/${courseId}/assignments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify(payload)
-    });
-    const t = await r.text();
-    if (!r.ok) throw new Error(t || 'Не удалось создать задание');
-    return t ? JSON.parse(t) : null; // сервер может вернуть { id }
+  const res = await api.post(`/api/courses/${courseId}/assignments`, payload, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    transformResponse: [(d) => d], // сырой текст
+  });
+  const txt = res.data ?? '';
+  return txt ? JSON.parse(txt) : null; // сервер может вернуть { id }
 }
 
 // детальная инфа по заданию
 export async function getAssignment(assignmentId) {
-    const r = await fetch(`${API_URL}/api/assignments/${assignmentId}`, { headers: { ...auth() } });
-    if (!r.ok) throw new Error('Задание не найдено');
-    return await r.json();
+  const { data } = await api.get(`/api/assignments/${assignmentId}`, {
+    headers: authHeaders(),
+  });
+  return data;
 }
 
 // отправка решения
 export async function submitSolution(assignmentId, { language, code }) {
-    const r = await fetch(`${API_URL}/api/assignments/${assignmentId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify({ language, code })
-    });
-    const t = await r.text();
-    if (!r.ok) throw new Error(t || 'Не удалось отправить решение');
-    return t ? JSON.parse(t) : null; // SubmitSolutionResultDto
+  const res = await api.post(
+    `/api/assignments/${assignmentId}/submit`,
+    { language, code },
+    {
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      transformResponse: [(d) => d],
+    }
+  );
+  const txt = res.data ?? '';
+  return txt ? JSON.parse(txt) : null; // SubmitSolutionResultDto
 }
 
-export async function updateAssignment(assignmentId, data) {
-    const res = await fetch(`${API_URL}/api/assignments/${assignmentId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error('Ошибка обновления задания');
-    return true;
+// обновить задание
+export async function updateAssignment(assignmentId, payload) {
+  await api.put(`/api/assignments/${assignmentId}`, payload, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  });
+  return true;
 }
 
+// удалить задание
 export async function deleteAssignment(assignmentId) {
-    const res = await fetch(`${API_URL}/api/assignments/${assignmentId}`, {
-        method: 'DELETE',
-        headers: { ...auth() }
-    });
-    if (!res.ok) throw new Error('Ошибка удаления задания');
-    return true;
+  await api.delete(`/api/assignments/${assignmentId}`, {
+    headers: authHeaders(),
+  });
+  return true;
 }

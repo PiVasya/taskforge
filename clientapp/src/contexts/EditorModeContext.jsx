@@ -1,37 +1,51 @@
 ﻿import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
 
-/**
- * canEdit — право аккаунта быть редактором.
- * Пока бэкенд не отдаёт статус — считаем true (но режим по умолчанию выключен).
- */
-const DEFAULT_CAN_EDIT = true;
+// простейший декодер JWT без зависимостей
+function parseJwt(token) {
+  try {
+    const [, payload] = token.split(".");
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(decodeURIComponent(escape(json)));
+  } catch { return null; }
+}
 
 const Ctx = createContext(null);
 export const useEditorMode = () => useContext(Ctx);
 
 const STORAGE_KEY = "editorMode.v1";
 
-export default function EditorModeProvider({ children, canEdit = DEFAULT_CAN_EDIT }) {
-    const [isEditorMode, setIsEditorMode] = useState(false);
+export default function EditorModeProvider({ children }) {
+  const { access } = useAuth();                 // токен из AuthContext
+  const [isEditorMode, setIsEditorMode] = useState(false);
 
-    // грузим сохранённый режим только если у юзера вообще есть право редактировать
-    useEffect(() => {
-        if (!canEdit) { setIsEditorMode(false); return; }
-        const saved = localStorage.getItem(STORAGE_KEY);
-        setIsEditorMode(saved === "1");
-    }, [canEdit]);
+  // роль из токена
+  const role = React.useMemo(() => {
+    if (!access) return null;
+    const p = parseJwt(access);
+    // стандартный и нестандартный варианты claim
+    return p?.role || p?.roles || p?.["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"] || null;
+  }, [access]);
 
-    // сохраняем
-    useEffect(() => {
-        if (canEdit) localStorage.setItem(STORAGE_KEY, isEditorMode ? "1" : "0");
-    }, [isEditorMode, canEdit]);
+  const canEdit = String(role || "").toLowerCase() === "admin";
 
-    const value = useMemo(() => ({
-        canEdit,
-        isEditorMode,
-        toggle: () => canEdit && setIsEditorMode(v => !v),
-        set: (v) => canEdit && setIsEditorMode(!!v),
-    }), [canEdit, isEditorMode]);
+  // восстановление переключателя (только если аккаунт может редактировать)
+  useEffect(() => {
+    if (!canEdit) { setIsEditorMode(false); return; }
+    try { setIsEditorMode(localStorage.getItem(STORAGE_KEY) === "1"); } catch {}
+  }, [canEdit]);
 
-    return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  // сохраняем
+  useEffect(() => {
+    if (canEdit) try { localStorage.setItem(STORAGE_KEY, isEditorMode ? "1" : "0"); } catch {}
+  }, [isEditorMode, canEdit]);
+
+  const value = useMemo(() => ({
+    canEdit,
+    isEditorMode,
+    toggle: () => canEdit && setIsEditorMode(v => !v),
+    set: (v) => canEdit && setIsEditorMode(!!v),
+  }), [canEdit, isEditorMode]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
