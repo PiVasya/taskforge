@@ -1,12 +1,14 @@
 using System.Net.Http.Json;
+using System.Collections.Generic;              // ВАЖНО: иначе будет CS0535 по IList<...>
 using Microsoft.Extensions.Configuration;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
+
 namespace taskforge.Services.Remote
 {
-    /// Общая реализация ICompiler, которая бьёт в http-раннер вида:
-    ///  POST {baseUrl}/run        { code, input }
-    ///  POST {baseUrl}/run-tests  { code, tests: [{input, expectedOutput}] }
+    /// Общая реализация ICompiler, бьёт в http-раннер:
+    ///   POST {base}/run        { code, input }
+    ///   POST {base}/run-tests  { code, tests: [{input, expectedOutput}] }
     public abstract class HttpRunnerCompilerBase : ICompiler
     {
         private readonly IHttpClientFactory _http;
@@ -17,10 +19,10 @@ namespace taskforge.Services.Remote
         {
             _http = http;
 
-            // читаем Compilers:<langKey> из конфигурации (env/compose тоже попадут сюда)
+            // Compilers:<langKey> из appsettings / переменных окружения
             var section = cfg.GetSection($"Compilers:{langKey}");
-            _baseUrl = section.GetValue<string>("Url")?.TrimEnd('/') 
-                       ?? throw new InvalidOperationException($"Compilers:{langKey}:Url is not set");
+            _baseUrl = section.GetValue<string>("Url")?.TrimEnd('/')
+                      ?? throw new InvalidOperationException($"Compilers:{langKey}:Url is not set");
             var ms = section.GetValue<int?>("TimeoutMs") ?? 10000;
             _timeout = TimeSpan.FromMilliseconds(ms);
         }
@@ -30,30 +32,29 @@ namespace taskforge.Services.Remote
             var client = _http.CreateClient();
             client.Timeout = _timeout;
 
-            var res = await client.PostAsJsonAsync($"{_baseUrl}", new { code, input });
-            // раннеры слушают /run — но compose кладёт полный URL; поддержим оба варианта:
+            // поддерживаем как base=/run, так и base (на случай, если Url уже с /run)
+            var res = await client.PostAsJsonAsync($"{_baseUrl}/run", new { code, input });
             if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
-                res = await client.PostAsJsonAsync($"{_baseUrl}/run", new { code, input });
+                res = await client.PostAsJsonAsync($"{_baseUrl}", new { code, input });
 
             if (!res.IsSuccessStatusCode)
-                return new CompilerRunResponseDto { Error = $"Runner HTTP { (int)res.StatusCode }" };
+                return new CompilerRunResponseDto { Error = $"Runner HTTP {(int)res.StatusCode}" };
 
-            // ожидаем { output?, error? } либо { ExitCode, Stdout, Error } — сведём к общему виду
-            var json = await res.Content.ReadFromJsonAsync<Dictionary<string, object?>>();
-            var outText = json?.GetValueOrDefault("output")?.ToString()
-                       ?? json?.GetValueOrDefault("Stdout")?.ToString();
-            var errText = json?.GetValueOrDefault("error")?.ToString()
-                       ?? json?.GetValueOrDefault("Error")?.ToString();
+            // у раннеров разный кейс полей → нормализуем
+            var dict = await res.Content.ReadFromJsonAsync<Dictionary<string, object?>>();
+            var output = dict?.GetValueOrDefault("output")?.ToString()
+                      ?? dict?.GetValueOrDefault("Stdout")?.ToString();
+            var error  = dict?.GetValueOrDefault("error")?.ToString()
+                      ?? dict?.GetValueOrDefault("Error")?.ToString();
 
-            return new CompilerRunResponseDto { Output = outText, Error = errText };
+            return new CompilerRunResponseDto { Output = output, Error = error };
         }
 
-        public async Task<IList[TestResultDto>> RunTestsAsync(string code, IList<TestCaseDto> testCases)
+        public async Task<IList<TestResultDto>> RunTestsAsync(string code, IList<TestCaseDto> testCases)
         {
             var client = _http.CreateClient();
             client.Timeout = _timeout;
 
-            // нашим раннерам нужен ключ "tests"
             var payload = new
             {
                 code,
@@ -63,31 +64,34 @@ namespace taskforge.Services.Remote
             var res = await client.PostAsJsonAsync($"{_baseUrl}/run-tests", payload);
             if (!res.IsSuccessStatusCode)
                 return new List<TestResultDto> {
-                    new() { Passed = false, ActualOutput = $"Runner HTTP { (int)res.StatusCode }" }
+                    new() { Passed = false, ActualOutput = $"Runner HTTP {(int)res.StatusCode}" }
                 };
 
-            // python/cpp раннеры отдают массив [{input, expectedOutput, actualOutput, passed}]
-            // csharp отдаёт { results: [...] }
-            var dict = await res.Content.ReadFromJsonAsync<Dictionary<string, object>>();
-            if (dict != null && dict.TryGetValue("results", out var boxed) && boxed is System.Text.Json.JsonElement el && el.ValueKind == System.Text.Json.JsonValueKind.Array)
+            // csharp-runner возвращает { results: [...] }, python/cpp — сразу массив
+            try
             {
-                var list = new List<TestResultDto>();
-                foreach (var i in el.EnumerateArray())
+                var wrap = await res.Content.ReadFromJsonAsync<Dictionary<string, object>>();
+                if (wrap != null && wrap.TryGetValue("results", out var boxed)
+                    && boxed is System.Text.Json.JsonElement el && el.ValueKind == System.Text.Json.JsonValueKind.Array)
                 {
-                    list.Add(new TestResultDto
+                    var list = new List<TestResultDto>();
+                    foreach (var i in el.EnumerateArray())
                     {
-                        Input = i.GetProperty("input").GetString(),
-                        ExpectedOutput = i.GetProperty("expectedOutput").GetString(),
-                        ActualOutput = i.GetProperty("actualOutput").GetString(),
-                        Passed = i.GetProperty("passed").GetBoolean()
-                    });
+                        list.Add(new TestResultDto
+                        {
+                            Input          = i.GetProperty("input").GetString(),
+                            ExpectedOutput = i.GetProperty("expectedOutput").GetString(),
+                            ActualOutput   = i.GetProperty("actualOutput").GetString(),
+                            Passed         = i.GetProperty("passed").GetBoolean()
+                        });
+                    }
+                    return list;
                 }
-                return list;
             }
+            catch { /* упадём на прямой разбор ниже */ }
 
-            // иначе — считаем, что вернулся сразу массив
-            var arr = await res.Content.ReadFromJsonAsync<List<TestResultDto>>();
-            return arr ?? new List<TestResultDto>();
+            var direct = await res.Content.ReadFromJsonAsync<List<TestResultDto>>();
+            return direct ?? new List<TestResultDto>();
         }
     }
 }
