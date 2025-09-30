@@ -119,7 +119,7 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin123
     ports:
-      - "8081:80"        # открываешь http://localhost:8081
+      - "8081:80"
     networks: [appnet]
 
 networks:
