@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import subprocess, tempfile, os, resource
+import subprocess, tempfile, os, resource, sys  # ← добавили sys
 
 app = FastAPI()
 
 CPU_TIME_SEC = 3
 MEM_BYTES = 256 * 1024 * 1024
+MAX_OUT_LEN = 1_000_000  # защита от лавины вывода (необязательно, но полезно)
 
 class RunReq(BaseModel):
     code: str
@@ -21,12 +22,15 @@ def _limits():
 
 def run_py(pyfile, input_txt, cwd, timeout):
     p = subprocess.Popen(
-        ["python", pyfile],
+        [sys.executable, pyfile],  # ← вместо "python"
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         cwd=cwd, text=True, preexec_fn=_limits
     )
     try:
         out, err = p.communicate(input_txt or "", timeout=timeout)
+        # нормализуем перевод строк и ограничим размер
+        out = out.replace("\r\n", "\n")[:MAX_OUT_LEN]
+        err = err.replace("\r\n", "\n")[:MAX_OUT_LEN]
         return p.returncode, out, err
     except subprocess.TimeoutExpired:
         p.kill()
@@ -52,6 +56,11 @@ def run_tests(req: TestsReq):
                 "input": t.get("input"),
                 "expectedOutput": t.get("expectedOutput"),
                 "actualOutput": out,
-                "passed": (out == t.get("expectedOutput"))
+                "passed": (out == t.get("expectedOutput")) and rc == 0
             })
-        return results
+        return {"results": results}  # ← ВАЖНО: обёртка
+
+# алиас на старый маршрут (если API где-то дернёт /run-tests)
+@app.post("/run-tests")
+def run_tests_alias(req: TestsReq):
+    return run_tests(req)

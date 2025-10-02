@@ -8,7 +8,7 @@ namespace taskforge.Services.Remote
 {
     /// Общая реализация ICompiler, бьёт в http-раннер:
     ///   POST {base}/run        { code, input }
-    ///   POST {base}/run-tests  { code, tests: [{input, expectedOutput}] }
+    ///   POST {base}/run/tests  { code, tests: [{input, expectedOutput}] }
     public abstract class HttpRunnerCompilerBase : ICompiler
     {
         private readonly IHttpClientFactory _http;
@@ -61,7 +61,7 @@ namespace taskforge.Services.Remote
                 tests = testCases.Select(t => new { input = t.Input, expectedOutput = t.ExpectedOutput }).ToList()
             };
 
-            var res = await client.PostAsJsonAsync($"{_baseUrl}/run-tests", payload);
+            var res = await client.PostAsJsonAsync($"{_baseUrl}/run/tests", payload);
             if (!res.IsSuccessStatusCode)
                 return new List<TestResultDto> {
                     new() { Passed = false, ActualOutput = $"Runner HTTP {(int)res.StatusCode}" }
