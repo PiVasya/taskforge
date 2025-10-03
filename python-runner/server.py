@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import subprocess, tempfile, os, resource, sys  # ← добавили sys
+import subprocess, tempfile, os, resource, sys
 
 app = FastAPI()
 
 CPU_TIME_SEC = 3
 MEM_BYTES = 256 * 1024 * 1024
-MAX_OUT_LEN = 1_000_000  # защита от лавины вывода (необязательно, но полезно)
+MAX_OUT_LEN = 1_000_000
 
 class RunReq(BaseModel):
     code: str
