@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import subprocess, tempfile, os, resource, sys  # ← добавили sys
+import subprocess, tempfile, os, resource, sys
 
 app = FastAPI()
 
