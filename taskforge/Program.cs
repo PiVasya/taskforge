@@ -25,7 +25,7 @@ builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
 
 // компиляторы/раннеры
-builder.Services.AddHttpClient();                 // <- обязательно для HTTP-раннеров
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<ICompilerService, CompilerService>();
 
 // Регистрируем ТОЛЬКО удалённые компиляторы с теми же именами типов

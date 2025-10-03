@@ -26,7 +26,6 @@ def _compile_and_run(code: str, input_txt: str, timeout: int):
         bin_path = os.path.join(d, "a.out")
         open(src, "w", encoding="utf-8").write(code)
 
-        # компиляция
         c = subprocess.run(
             ["g++", "-std=c++17", "-O2", "-pipe", "-static-libgcc", "-static-libstdc++", src, "-o", bin_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
