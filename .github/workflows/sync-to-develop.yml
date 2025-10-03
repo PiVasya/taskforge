@@ -1,0 +1,56 @@
+name: Sync subtrees TO develop <- runner/api/front branches
+
+on:
+  push:
+    branches:
+      - python-runner
+      - cpp-runner
+      - csharp-runner
+      - api
+      - front
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  pull-into-develop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Add origin with write token (optional if branch not protected)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Detect prefix/branch
+        id: meta
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          case "$BRANCH" in
+            api)           echo "prefix=taskforge"      >> $GITHUB_OUTPUT ;;
+            front)         echo "prefix=clientapp"      >> $GITHUB_OUTPUT ;;
+            python-runner) echo "prefix=python-runner"  >> $GITHUB_OUTPUT ;;
+            cpp-runner)    echo "prefix=cpp-runner"     >> $GITHUB_OUTPUT ;;
+            csharp-runner) echo "prefix=csharp-runner"  >> $GITHUB_OUTPUT ;;
+            *) echo "Unknown branch $BRANCH"; exit 1 ;;
+          esac
+
+      - name: Merge subtree from branch into develop
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          PREFIX="${{ steps.meta.outputs.prefix }}"
+
+          # подтянем свежий origin/BRANCH
+          git fetch origin "$BRANCH":"$BRANCH"
+
+          # Вливаем изменения из ветки в подпапку develop (squash, без истории)
+          git subtree pull --prefix="$PREFIX" origin "$BRANCH" --squash
+
+          # пушим develop
+          git push origin develop
