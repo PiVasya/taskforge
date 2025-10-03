@@ -3,37 +3,40 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using taskforge.Services;
-using taskforge.Services.Compilers;
-using taskforge.Services.Interfaces;
+
 using taskforge.Data;
+using taskforge.Services;
+using taskforge.Services.Interfaces;
+using taskforge.Services.Remote;       // <- HTTP-раннеры (новое)
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHttpContextAccessor();
 
-// Базовое логирование (без дополнительных выводов)
+// базовое логирование
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
-// current user access
+// тек. пользователь
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
-// app services
+// доменные сервисы
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
 
-// уже есть:
+// компиляторы/раннеры
+builder.Services.AddHttpClient();                 // <- обязательно для HTTP-раннеров
 builder.Services.AddScoped<ICompilerService, CompilerService>();
-// Сервисы
+
+// Регистрируем ТОЛЬКО удалённые компиляторы с теми же именами типов
 builder.Services.AddScoped<ICompiler, CSharpCompiler>();
 builder.Services.AddScoped<ICompiler, CppCompiler>();
 builder.Services.AddScoped<ICompiler, PythonCompiler>();
+
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
-
+// CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -41,24 +44,24 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
+
+// БД
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
+
 builder.Services.AddSingleton<PasswordHasher>();
 
-// JWT-конфиг
+// JWT
 var jwtSection = builder.Configuration.GetSection("Jwt");
-var jwtKey = jwtSection.GetValue<string>("Key");
-if (string.IsNullOrWhiteSpace(jwtKey))
-{
-    throw new InvalidOperationException("Jwt:Key is not configured");
-}
+var jwtKey = jwtSection.GetValue<string>("Key")
+    ?? throw new InvalidOperationException("Jwt:Key is not configured");
 
-// Аутентификация (JWT)
 builder.Services
     .AddAuthentication(options =>
     {
@@ -67,11 +70,8 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
-        // Принудительно используем классический обработчик токенов
         options.TokenHandlers.Clear();
         options.TokenHandlers.Add(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler());
-
-        // Не маппим клеймы в устаревшие типы
         options.MapInboundClaims = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
@@ -85,25 +85,22 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.FromMinutes(2)
         };
-
-        // Никаких кастомных событий — токен берётся стандартно из Authorization: Bearer <jwt>
     });
 
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// миграции
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
 }
 
-// Пайплайн
+// пайплайн
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();

@@ -18,7 +18,11 @@ namespace taskforge.Services
             var course = await _db.Courses.FirstOrDefaultAsync(c => c.Id == courseId)
                          ?? throw new InvalidOperationException("Курс не найден");
             // if (course.OwnerId != currentUserId) throw new UnauthorizedAccessException();
-
+            var maxSort = await _db.TaskAssignments
+                .Where(a => a.CourseId == courseId)
+                .Select(a => (int?)a.Sort)
+                .MaxAsync() ?? -1;
+                
             var entity = new TaskAssignment
             {
                 Id = Guid.NewGuid(),
@@ -28,6 +32,7 @@ namespace taskforge.Services
                 Difficulty = req.Difficulty,
                 Tags = req.Tags,
                 Type = (req.Type ?? "code-test").Trim(),
+                Sort = maxSort + 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -56,7 +61,8 @@ namespace taskforge.Services
         {
             return await _db.TaskAssignments
                 .Where(a => a.CourseId == courseId)
-                .OrderByDescending(a => a.CreatedAt)
+                .OrderBy(a => a.Sort)
+                .ThenByDescending(a => a.CreatedAt)
                 .Select(a => new AssignmentListItemDto
                 {
                     Id = a.Id,
@@ -65,7 +71,8 @@ namespace taskforge.Services
                     Difficulty = a.Difficulty,
                     Tags = a.Tags,
                     CreatedAt = a.CreatedAt,
-                    SolvedByCurrentUser = a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
+                    SolvedByCurrentUser = a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests),
+                    Sort = a.Sort
                 })
                 .ToListAsync();
         }
@@ -104,7 +111,8 @@ namespace taskforge.Services
                         ExpectedOutput = tc.ExpectedOutput,
                         IsHidden = tc.IsHidden
                     })
-                    .ToList()
+                    .ToList(),
+                Sort = a.Sort
             };
         }
 
@@ -164,6 +172,21 @@ namespace taskforge.Services
                 throw new UnauthorizedAccessException("Only course owner can delete assignment.");
 
             _db.Remove(task);
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task UpdateSortAsync(Guid assignmentId, Guid currentUserId, int sort)
+        {
+            var task = await _db.Set<TaskAssignment>()
+                .Include(a => a.Course)
+                .FirstOrDefaultAsync(a => a.Id == assignmentId)
+                ?? throw new KeyNotFoundException("Assignment not found");
+
+            if (task.Course.OwnerId != currentUserId)
+                throw new UnauthorizedAccessException("Only course owner can reorder assignment.");
+
+            task.Sort = sort;
+            task.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
         }
     }

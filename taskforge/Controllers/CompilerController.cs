@@ -42,7 +42,7 @@ namespace taskforge.Controllers
             return Ok(result);
         }
 
-        [HttpPost("run-tests")]
+        [HttpPost("run/tests")]
         public async Task<IActionResult> RunTests([FromBody] TestRunRequestDto request)
         {
             _logger.LogInformation("Received RunTests request: language={Language}, code length={CodeLength}, test count={TestCount}",

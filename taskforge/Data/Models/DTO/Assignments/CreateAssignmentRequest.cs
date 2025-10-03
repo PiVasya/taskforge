@@ -18,6 +18,7 @@ namespace taskforge.Data.Models.DTO
         public int Difficulty { get; set; } = 1;
 
         public string? Tags { get; set; } // "строки,через,запятую"
+        public int? Sort { get; set; }
 
         // Публичные и скрытые тесты
         [MinLength(1)]

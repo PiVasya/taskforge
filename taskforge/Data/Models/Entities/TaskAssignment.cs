@@ -25,6 +25,7 @@ namespace taskforge.Data.Models.Entities
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        public int Sort { get; set; } = 0;
 
         public ICollection<TaskTestCase> TestCases { get; set; } = new List<TaskTestCase>();
         public ICollection<UserTaskSolution> Solutions { get; set; } = new List<UserTaskSolution>();

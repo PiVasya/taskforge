@@ -19,7 +19,7 @@ namespace taskforge.Controllers
             _service = service;
         }
 
-        [HttpPost("run-tests")]
+        [HttpPost("run/tests")]
         public async Task<IActionResult> RunTests([FromBody] TestRunRequestDto request)
         {
             // проверка входных данных

@@ -60,3 +60,10 @@ export async function deleteAssignment(assignmentId) {
   });
   return true;
 }
+
+export async function updateAssignmentSort(assignmentId, sort) {
+  await api.patch(`/api/assignments/${assignmentId}/sort`, { sort }, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  });
+  return true;
+}

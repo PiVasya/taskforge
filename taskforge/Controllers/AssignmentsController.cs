@@ -54,5 +54,13 @@ namespace taskforge.Controllers
             await _assignments.DeleteAsync(assignmentId, _current.GetUserId());
             return NoContent();
         }
+
+        [HttpPatch("assignments/{assignmentId:guid}/sort")]
+        public async Task<IActionResult> UpdateSort([FromRoute] Guid assignmentId, [FromBody] UpdateAssignmentSortRequest body)
+        {
+            await _assignments.UpdateSortAsync(assignmentId, _current.GetUserId(), body.Sort);
+            return NoContent();
+        }
+
     }
 }

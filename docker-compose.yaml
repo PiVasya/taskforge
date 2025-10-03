@@ -18,11 +18,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=taskforge_dev;Username=postgres;Password=postgres"
-      Compilers__cpp__Url: "http://cpp-runner:8080/run"
+      Compilers__cpp__Url: "http://cpp-runner:8080"
       Compilers__cpp__TimeoutMs: "12000"
-      Compilers__csharp__Url: "http://csharp-runner:8080/run"
+      Compilers__csharp__Url: "http://csharp-runner:8080"
       Compilers__csharp__TimeoutMs: "12000"
-      Compilers__python__Url: "http://python-runner:8080/run"
+      Compilers__python__Url: "http://python-runner:8080"
       Compilers__python__TimeoutMs: "8000"
     depends_on: [db, cpp-runner, csharp-runner, python-runner]
     expose: ["8080"]
@@ -55,7 +55,6 @@ services:
     networks: [appnet]
     restart: unless-stopped
 
-  # Одноразовая первичная выдача сертификата (идемпотентно)
   certbot-init:
     image: certbot/certbot:latest
     container_name: taskforge-certbot-init
@@ -65,9 +64,7 @@ services:
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    depends_on:
-      - nginx
-    # был многострочный entrypoint -> заменить на массив (одна строка для sh -c)
+    depends_on: [nginx]
     entrypoint: ["sh","-c","if [ -f /etc/letsencrypt/live/$DOMAIN/fullchain.pem ]; then echo '[certbot-init] Certificate already exists for '$DOMAIN' — skipping'; else certbot certonly --webroot -w /var/www/certbot -d \"$DOMAIN\" --email \"$LETSENCRYPT_EMAIL\" --rsa-key-size 4096 --agree-tos --no-eff-email --non-interactive; fi"]
     restart: "no"
     networks: [appnet]
@@ -80,30 +77,34 @@ services:
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    depends_on:
-      - nginx
-    # тоже массив, без CRLF/склейки строк
+    depends_on: [nginx]
     entrypoint: ["sh","-c","trap : TERM INT; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h; done"]
     restart: unless-stopped
     networks: [appnet]
-
-
-
 
   cpp-runner:
     build:
       context: ./cpp-runner
       dockerfile: Dockerfile
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
 
   csharp-runner:
     build:
       context: ./csharp-runner
       dockerfile: Dockerfile
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
 
   python-runner:
     build:
       context: ./python-runner
       dockerfile: Dockerfile
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
 
   watchtower:
     image: containrrr/watchtower
@@ -114,6 +115,7 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: taskforge-pgadmin
@@ -122,7 +124,7 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin123
     ports:
-      - "8081:80"        # открываешь http://localhost:8081
+      - "8081:80"
     networks: [appnet]
 
 networks:
