@@ -38,7 +38,7 @@ export default function LoginPage() {
                 <div className="mt-4 text-sm text-slate-500">
                     Нет аккаунта?{" "}
                     <Link to="/register" className="text-brand-600 hover:underline">
-                        Зарегистрироватьс
+                        Зарегистрироваться
                     </Link>
                 </div>
             </div>
