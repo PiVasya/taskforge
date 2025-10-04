@@ -17,16 +17,18 @@ jobs:
   pull-into-develop:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout full repo
+      - name: Checkout full repo (develop)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: develop
 
-      - name: Add origin with write token (optional if branch not protected)
+      # <<< ВАЖНО: здесь также используем PAT из Secrets >>>
+      - name: Configure git (use PAT so push triggers other workflows)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://${{ secrets.ACTIONS_PAT }}@github.com/${{ github.repository }}.git
 
       - name: Detect prefix/branch
         id: meta
@@ -46,11 +48,6 @@ jobs:
           BRANCH="${GITHUB_REF_NAME}"
           PREFIX="${{ steps.meta.outputs.prefix }}"
 
-          # подтянем свежий origin/BRANCH
           git fetch origin "$BRANCH":"$BRANCH"
-
-          # Вливаем изменения из ветки в подпапку develop (squash, без истории)
           git subtree pull --prefix="$PREFIX" origin "$BRANCH" --squash
-
-          # пушим develop
           git push origin develop
