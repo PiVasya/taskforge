@@ -23,6 +23,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # <<< ВАЖНО: здесь используется ваш PAT из Secrets >>>
+      - name: Configure git (use PAT so downstream workflows trigger)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://${{ secrets.ACTIONS_PAT }}@github.com/${{ github.repository }}.git
+
       - name: API -> branch api
         run: |
           git subtree split --prefix=taskforge -b __tmp_api
