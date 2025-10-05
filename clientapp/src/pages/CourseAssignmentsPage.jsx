@@ -2,7 +2,7 @@
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
-import { Card, Button, Input, Badge } from "../components/ui";
+import { Card, Button, Input } from "../components/ui";
 
 import {
   getAssignmentsByCourse,
@@ -41,7 +41,7 @@ export default function CourseAssignmentsPage() {
       try {
         setLoading(true);
         setErr("");
-        const data = await getAssignmentsByCourse(courseId); // теперь сервер возвращает canEdit
+        const data = await getAssignmentsByCourse(courseId); // сервер теперь отдаёт canEdit
         const norm = (data || []).map((x, i) => ({
           ...x,
           sort: typeof x.sort === "number" ? x.sort : i,
@@ -65,8 +65,9 @@ export default function CourseAssignmentsPage() {
       (a.title || "").localeCompare(b.title || "", undefined, {
         sensitivity: "base",
       }) * dir;
+    // важно: скобки — сначала разница дат, потом умножение на dir
     const byCreated = (a, b, dir = 1) =>
-      (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir; // скобки важны
+      (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
     const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
 
     switch (sortMode) {

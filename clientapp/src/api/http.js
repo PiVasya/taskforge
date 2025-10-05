@@ -1,5 +1,4 @@
-﻿// clientapp/src/api/http.js
-import axios from 'axios';
+﻿import axios from 'axios';
 
 export const api = axios.create({
   baseURL: '',
@@ -20,18 +19,16 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const r = err?.response;
-    // добавляем человекочитаемое сообщение, но не теряем response/status
     err.userMessage =
       r?.data?.message ||
       r?.data?.error ||
       r?.statusText ||
       err.message ||
       'Ошибка запроса';
-    return Promise.reject(err);
+    return Promise.reject(err); // не создаём new Error(...) — сохраняем status/response
   }
 );
 
-// >>> оставить функцию управления токеном
 export function setAccessToken(token) {
   try {
     if (token) {
