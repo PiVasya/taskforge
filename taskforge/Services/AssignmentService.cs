@@ -14,10 +14,12 @@ namespace taskforge.Services
 
         public async Task<Guid> CreateAsync(Guid courseId, CreateAssignmentRequest req, Guid currentUserId)
         {
-            // (опционально) проверить право владения курсом
+            // Строго проверяем право владения курсом
             var course = await _db.Courses.FirstOrDefaultAsync(c => c.Id == courseId)
                          ?? throw new InvalidOperationException("Курс не найден");
-            // if (course.OwnerId != currentUserId) throw new UnauthorizedAccessException();
+            if (course.OwnerId != currentUserId)
+                throw new UnauthorizedAccessException("Только владелец курса может добавлять задания.");
+
             var maxSort = await _db.TaskAssignments
                 .Where(a => a.CourseId == courseId)
                 .Select(a => (int?)a.Sort)
@@ -37,7 +39,6 @@ namespace taskforge.Services
                 UpdatedAt = DateTime.UtcNow
             };
 
-            // тесты из запроса
             if (req.TestCases != null)
             {
                 foreach (var tc in req.TestCases)
@@ -81,7 +82,7 @@ namespace taskforge.Services
         {
             var a = await _db.TaskAssignments
                 .AsNoTracking()
-                .Include(x => x.TestCases) // важно: подтягиваем тесты
+                .Include(x => x.TestCases)
                 .Include(x => x.Solutions.Where(s => s.UserId == currentUserId))
                 .FirstOrDefaultAsync(x => x.Id == assignmentId);
 
@@ -100,10 +101,8 @@ namespace taskforge.Services
                 PublicTestCount = a.TestCases.Count(x => !x.IsHidden),
                 HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
                 SolvedByCurrentUser = a.Solutions.Any(s => s.PassedAllTests),
-
-                // ---- ВАЖНО: отдать тесты на фронт для формы редактирования ----
                 TestCases = a.TestCases
-                    .OrderBy(tc => tc.Id) // если нет поля Order, сортируем стабильно по Id
+                    .OrderBy(tc => tc.Id)
                     .Select(tc => new AssignmentTestCaseDto
                     {
                         Id = tc.Id,
@@ -128,7 +127,6 @@ namespace taskforge.Services
             if (task.Course.OwnerId != currentUserId)
                 throw new UnauthorizedAccessException("Only course owner can edit this assignment.");
 
-            // --- поля задания ---
             task.Title = (request.Title ?? string.Empty).Trim();
             task.Description = request.Description;
             task.Type = (request.Type ?? "code-test").Trim();
@@ -136,13 +134,10 @@ namespace taskforge.Services
             task.Difficulty = request.Difficulty;
             task.UpdatedAt = DateTime.UtcNow;
 
-            // --- ПОЛНАЯ ЗАМЕНА ТЕСТОВ ---
-            // Снести старые тесты одной командой SQL (быстрее и без конфликтов отслеживания)
             await _db.Set<TaskTestCase>()
                 .Where(tc => tc.TaskAssignmentId == task.Id)
                 .ExecuteDeleteAsync();
 
-            // Добавить новые
             if (request.TestCases != null && request.TestCases.Count > 0)
             {
                 var newCases = request.TestCases.Select(tc => new TaskTestCase
