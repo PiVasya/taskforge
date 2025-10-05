@@ -11,6 +11,9 @@ import {
 } from "../api/assignments";
 import { Plus, Layers, CheckCircle2, ArrowUp, ArrowDown } from "lucide-react";
 import IfEditor from "../components/IfEditor";
+import { useNotify } from "../components/notify/NotifyProvider";
+import { handleApiError } from "../utils/handleApiError";
+import { notifyOnce } from "../utils/notifyOnce";
 
 const SORT_OPTIONS = [
   { v: "default", label: "Стандартный (по полю Sort)" },
@@ -24,6 +27,7 @@ export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
+  const notify = useNotify();
 
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
@@ -37,7 +41,7 @@ export default function CourseAssignmentsPage() {
       try {
         setLoading(true);
         setErr("");
-        const data = await getAssignmentsByCourse(courseId);
+        const data = await getAssignmentsByCourse(courseId); // теперь сервер возвращает canEdit
         const norm = (data || []).map((x, i) => ({
           ...x,
           sort: typeof x.sort === "number" ? x.sort : i,
@@ -62,7 +66,7 @@ export default function CourseAssignmentsPage() {
         sensitivity: "base",
       }) * dir;
     const byCreated = (a, b, dir = 1) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() * dir;
+      (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir; // скобки важны
     const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
 
     switch (sortMode) {
@@ -92,6 +96,14 @@ export default function CourseAssignmentsPage() {
     const a = filtered[i];
     const b = filtered[j];
 
+    // если нет прав — предупреждаем и выходим
+    if (!a.canEdit || !b.canEdit) {
+      notifyOnce("no-edit-sort", () =>
+        notify.warn("Вы не владелец курса — менять порядок заданий нельзя")
+      );
+      return;
+    }
+
     const newItems = items.map((x) => {
       if (x.id === a.id) return { ...x, sort: b.sort ?? j };
       if (x.id === b.id) return { ...x, sort: a.sort ?? i };
@@ -104,7 +116,8 @@ export default function CourseAssignmentsPage() {
         updateAssignmentSort(a.id, b.sort ?? j),
         updateAssignmentSort(b.id, a.sort ?? i),
       ]);
-    } catch {
+    } catch (e) {
+      handleApiError(e, notify, "Не удалось изменить порядок");
       try {
         const data = await getAssignmentsByCourse(courseId);
         const norm = (data || []).map((x, k) => ({
@@ -117,18 +130,35 @@ export default function CourseAssignmentsPage() {
   };
 
   const handleCreate = async () => {
-    const payload = {
-      title: "Новое задание",
-      description: "Опишите постановку задачи…",
-      type: "code-test",
-      difficulty: 1,
-      testCases: [{ input: "2 4", expectedOutput: "6", isHidden: false }],
-      tags: "ОАИП",
-      sort: items.length,
-    };
-    const res = await createAssignment(courseId, payload);
-    const id = res && res.id;
-    if (id) nav(`/assignment/${id}/edit`);
+    // быстрый UX-гард: по первому элементу понимаем, чужой курс или нет
+    if (items.length > 0 && items[0].canEdit === false) {
+      notifyOnce("no-edit-course", () =>
+        notify.warn("Вы не владелец курса — создавать задания нельзя")
+      );
+      return;
+    }
+    try {
+      const payload = {
+        title: "Новое задание",
+        description: "Опишите постановку задачи…",
+        type: "code-test",
+        difficulty: 1,
+        testCases: [{ input: "2 4", expectedOutput: "6", isHidden: false }],
+        tags: "ОАИП",
+        sort: items.length,
+      };
+      const res = await createAssignment(courseId, payload);
+      const id = res && res.id;
+      if (id) nav(`/assignment/${id}/edit`);
+    } catch (e) {
+      if (e?.response?.status === 403) {
+        notifyOnce("no-edit-course", () =>
+          notify.error(e?.response?.data?.message || "Создание запрещено")
+        );
+        return;
+      }
+      handleApiError(e, notify, "Не удалось создать задание");
+    }
   };
 
   return (
@@ -267,9 +297,14 @@ export default function CourseAssignmentsPage() {
             </Card>
           );
 
+          // В режим /edit ведём только если canEdit === true
           return (
             <IfEditor key={a.id} otherwise={<ViewWrap>{CardInner}</ViewWrap>}>
-              <EditWrap>{CardInner}</EditWrap>
+              {a.canEdit ? (
+                <EditWrap>{CardInner}</EditWrap>
+              ) : (
+                <ViewWrap>{CardInner}</ViewWrap>
+              )}
             </IfEditor>
           );
         })}

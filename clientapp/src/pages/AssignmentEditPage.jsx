@@ -1,10 +1,11 @@
-﻿import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
-
-// Если у тебя уже есть эти компоненты — оставь импорт.
-// Если нет — временно убери их и верни обычные <div>/<input> (я показал классы tailwind).
-import Layout from '../components/Layout';
-import { Field, Input, Textarea, Select, Button, Card } from '../components/ui';
+﻿import React, { useEffect, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import Layout from "../components/Layout";
+import { useNotify } from "../components/notify/NotifyProvider";
+import { handleApiError } from "../utils/handleApiError";
+import { notifyOnce } from "../utils/notifyOnce";
+import { getAssignment, updateAssignment, deleteAssignment } from "../api/assignments";
+import { Save, Trash2, ArrowLeft } from "lucide-react";
 
 import { getAssignment, updateAssignment, deleteAssignment } from '../api/assignments';
 import { PlusCircle, Trash2, Save, ArrowLeft } from 'lucide-react';
@@ -12,10 +13,11 @@ import { PlusCircle, Trash2, Save, ArrowLeft } from 'lucide-react';
 export default function AssignmentEditPage() {
     const { assignmentId } = useParams();
     const nav = useNavigate();
+    const notify = useNotify();
 
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
 
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
@@ -28,28 +30,21 @@ export default function AssignmentEditPage() {
 
     useEffect(() => {
         (async () => {
-            try {
-                setError('');
-                const a = await getAssignment(assignmentId);
-                setTitle(a.title || '');
-                setDescription(a.description || '');
-                setType(a.type || 'code-test');
-                setTags(a.tags || '');
-                setDifficulty(a.difficulty || 1);
-                setTestCases((a.testCases || []).map(t => ({
-                    id: t.id,
-                    input: t.input || '',
-                    expectedOutput: t.expectedOutput || '',
-                    isHidden: !!t.isHidden
-                })));
-                setCourseId(a.courseId || null);
-            } catch (e) {
-                setError(e.message || 'Ошибка загрузки задания');
-            } finally {
-                setLoading(false);
+        try {
+            setLoading(true); setErr("");
+            const a = await getAssignment(assignmentId); // этот эндпоинт должен вернуть { ..., canEdit }
+            if (!a?.canEdit) {
+            notifyOnce("no-edit-assignment", () => notify.warn("Нельзя редактировать данное задание"));
+            nav(`/assignment/${assignmentId}`, { replace: true });
+            return;
             }
+            // проставляем поля из a...
+        } catch (e) {
+            handleApiError(e, notify, "Ошибка загрузки задания");
+        } finally { setLoading(false); }
         })();
-    }, [assignmentId]);
+    }, [assignmentId, nav, notify]);
+  
 
     const addTest = () => setTestCases(prev => [...prev, { input: '', expectedOutput: '', isHidden: false }]);
     const removeTest = (idx) => setTestCases(prev => prev.filter((_, i) => i !== idx));
@@ -61,41 +56,38 @@ export default function AssignmentEditPage() {
         });
     };
 
-    const handleSave = async () => {
-        setSaving(true);
-        setError('');
-        try {
-            await updateAssignment(assignmentId, {
-                title,
-                description,
-                type,
-                tags,
-                difficulty: Number(difficulty),
-                testCases: testCases.map(t => ({
-                    id: t.id, // игнорится на бэке при replace-all — ок
-                    input: t.input,
-                    expectedOutput: t.expectedOutput,
-                    isHidden: !!t.isHidden
-                }))
-            });
-            if (courseId) nav(`/course/${courseId}`);
-        } catch (e) {
-            setError(e.message || 'Ошибка обновления задания');
-        } finally {
-            setSaving(false);
-        }
-    };
+    const save = async () => {
+    try {
+      setBusy(true);
+      await updateAssignment(assignmentId, /* payload */);
+      notify.success("Изменения сохранены");
+      nav(`/assignment/${assignmentId}`);
+    } catch (e) {
+      if (e?.response?.status === 403) {
+        notifyOnce("no-edit-assignment", () => notify.error(e.response.data?.message || "Нельзя редактировать данное задание"));
+        nav(`/assignment/${assignmentId}`, { replace: true });
+        return;
+      }
+      handleApiError(e, notify, "Ошибка сохранения");
+    } finally { setBusy(false); }
+  };
 
-    const handleDelete = async () => {
-        if (!window.confirm('Удалить задание?')) return;
-        try {
-            await deleteAssignment(assignmentId);
-            if (courseId) nav(`/course/${courseId}`);
-            else nav('/courses');
-        } catch (e) {
-            setError(e.message || 'Ошибка удаления задания');
-        }
-    };
+  const remove = async () => {
+    const ok = await notify.confirm({ title: "Удалить задание?", message: "Действие необратимо." });
+    if (!ok) return;
+    try {
+      await deleteAssignment(assignmentId);
+      notify.success("Задание удалено");
+      nav(-1);
+    } catch (e) {
+      if (e?.response?.status === 403) {
+        notifyOnce("no-edit-assignment", () => notify.error("Нельзя удалять чужие задания"));
+        nav(`/assignment/${assignmentId}`, { replace: true });
+        return;
+      }
+      handleApiError(e, notify, "Ошибка удаления");
+    }
+  };
 
     if (loading) return <Layout><div className="text-slate-500">Загрузка…</div></Layout>;
 
@@ -172,10 +164,10 @@ export default function AssignmentEditPage() {
                 <div className="space-y-4">
                     <Card>
                         <div className="flex gap-2">
-                            <Button onClick={handleSave} disabled={saving} className="flex-1">
+                            <Button onClick={Save} disabled={saving} className="flex-1">
                                 <Save size={16} /> {saving ? 'Сохраняю…' : 'Сохранить'}
                             </Button>
-                            <Button variant="outline" onClick={handleDelete} className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20">
+                            <Button variant="outline" onClick={Delete} className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20">
                                 <Trash2 size={16} /> Удалить
                             </Button>
                         </div>

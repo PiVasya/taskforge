@@ -19,18 +19,19 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const r = err.response;
-    const message =
+    const r = err?.response;
+    // добавляем человекочитаемое сообщение, но не теряем response/status
+    err.userMessage =
       r?.data?.message ||
       r?.data?.error ||
       r?.statusText ||
       err.message ||
       'Ошибка запроса';
-    return Promise.reject(new Error(message));
+    return Promise.reject(err);
   }
 );
 
-// >>> добавить это:
+// >>> оставить функцию управления токеном
 export function setAccessToken(token) {
   try {
     if (token) {

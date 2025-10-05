@@ -59,61 +59,61 @@ namespace taskforge.Services
         }
 
         public async Task<IList<AssignmentListItemDto>> GetByCourseAsync(Guid courseId, Guid currentUserId)
+{
+    return await _db.TaskAssignments
+        .Where(a => a.CourseId == courseId)
+        .OrderBy(a => a.Sort)
+        .ThenByDescending(a => a.CreatedAt)
+        .Select(a => new AssignmentListItemDto
         {
-            return await _db.TaskAssignments
-                .Where(a => a.CourseId == courseId)
-                .OrderBy(a => a.Sort)
-                .ThenByDescending(a => a.CreatedAt)
-                .Select(a => new AssignmentListItemDto
-                {
-                    Id = a.Id,
-                    Title = a.Title,
-                    Description = a.Description,
-                    Difficulty = a.Difficulty,
-                    Tags = a.Tags,
-                    CreatedAt = a.CreatedAt,
-                    SolvedByCurrentUser = a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests),
-                    Sort = a.Sort
-                })
-                .ToListAsync();
-        }
+            Id = a.Id,
+            Title = a.Title,
+            Description = a.Description,
+            Difficulty = a.Difficulty,
+            Tags = a.Tags,
+            CreatedAt = a.CreatedAt,
+            SolvedByCurrentUser = a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests),
+            Sort = a.Sort,
+            CanEdit = a.Course.OwnerId == currentUserId    // <--- НОВОЕ
+        })
+        .ToListAsync();
+}
 
-        public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid currentUserId)
+public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid currentUserId)
+{
+    var a = await _db.TaskAssignments
+        .AsNoTracking()
+        .Include(x => x.TestCases)
+        .Include(x => x.Course)                      // <--- НОВОЕ
+        .Include(x => x.Solutions.Where(s => s.UserId == currentUserId))
+        .FirstOrDefaultAsync(x => x.Id == assignmentId);
+
+    if (a == null) return null;
+
+    return new AssignmentDetailsDto
+    {
+        Id = a.Id,
+        CourseId = a.CourseId,
+        Title = a.Title,
+        Description = a.Description,
+        Difficulty = a.Difficulty,
+        Tags = a.Tags,
+        Type = a.Type,
+        CreatedAt = a.CreatedAt,
+        PublicTestCount = a.TestCases.Count(x => !x.IsHidden),
+        HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
+        SolvedByCurrentUser = a.Solutions.Any(s => s.PassedAllTests),
+        TestCases = a.TestCases.OrderBy(tc => tc.Id).Select(tc => new AssignmentTestCaseDto
         {
-            var a = await _db.TaskAssignments
-                .AsNoTracking()
-                .Include(x => x.TestCases)
-                .Include(x => x.Solutions.Where(s => s.UserId == currentUserId))
-                .FirstOrDefaultAsync(x => x.Id == assignmentId);
-
-            if (a == null) return null;
-
-            return new AssignmentDetailsDto
-            {
-                Id = a.Id,
-                CourseId = a.CourseId,
-                Title = a.Title,
-                Description = a.Description,
-                Difficulty = a.Difficulty,
-                Tags = a.Tags,
-                Type = a.Type,
-                CreatedAt = a.CreatedAt,
-                PublicTestCount = a.TestCases.Count(x => !x.IsHidden),
-                HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
-                SolvedByCurrentUser = a.Solutions.Any(s => s.PassedAllTests),
-                TestCases = a.TestCases
-                    .OrderBy(tc => tc.Id)
-                    .Select(tc => new AssignmentTestCaseDto
-                    {
-                        Id = tc.Id,
-                        Input = tc.Input,
-                        ExpectedOutput = tc.ExpectedOutput,
-                        IsHidden = tc.IsHidden
-                    })
-                    .ToList(),
-                Sort = a.Sort
-            };
-        }
+            Id = tc.Id,
+            Input = tc.Input,
+            ExpectedOutput = tc.ExpectedOutput,
+            IsHidden = tc.IsHidden
+        }).ToList(),
+        Sort = a.Sort,
+        CanEdit = a.Course.OwnerId == currentUserId      // <--- НОВОЕ
+    };
+}
 
         public async Task UpdateAsync(Guid assignmentId, Guid currentUserId, UpdateAssignmentRequest request)
         {
