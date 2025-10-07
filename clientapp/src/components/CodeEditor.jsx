@@ -2,51 +2,50 @@ import React, { useMemo } from "react";
 import Editor from "react-simple-code-editor";
 import Prism from "prismjs";
 
-// базовые языки
+// ВАЖНО: отдадим Prism в глобальную область до импортов языков
+if (typeof window !== "undefined") window.Prism = Prism;
+
+// Порядок имеет значение:
 import "prismjs/components/prism-clike";
-import "prismjs/components/prism-csharp";
+import "prismjs/components/prism-c";       // <-- ДО cpp
 import "prismjs/components/prism-cpp";
+import "prismjs/components/prism-csharp";
 import "prismjs/components/prism-python";
 
-// своя минимальная тема
-const styles = {
-  root: {
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-    fontSize: 14,
-    lineHeight: 1.5,
-    borderRadius: "0.75rem",
-    border: "1px solid var(--tw-prose-pre-border, rgba(148,163,184,0.3))",
-    background: "var(--tw-prose-pre-bg, #0f172a)",
-    color: "white",
-    padding: "0.75rem 0.9rem",
-    minHeight: 280,
-  },
-};
+import "prismjs/themes/prism-tomorrow.css"; // или prism.css
 
-const langMap = {
-  csharp: "csharp",
-  cpp: "cpp",
-  python: "python",
-};
+const LANG_MAP = { csharp: "csharp", cpp: "cpp", python: "python" };
 
-export default function CodeEditor({ language = "csharp", value, onChange, placeholder }) {
-  const grammar = useMemo(() => {
-    const key = langMap[language] || "clike";
-    return Prism.languages[key] || Prism.languages.clike;
-  }, [language]);
-
-  const highlight = (code) => Prism.highlight(code, grammar, language);
+export default function CodeEditor({ language="cpp", value, onChange, placeholder, className="" }) {
+  const prismLang = useMemo(
+    () => Prism.languages[LANG_MAP[language]] || Prism.languages.clike,
+    [language]
+  );
 
   return (
-    <Editor
-      value={value}
-      onValueChange={onChange}
-      highlight={highlight}
-      padding={12}
-      placeholder={placeholder}
-      style={styles.root}
-      textareaClassName="outline-none"
-      preClassName="language-none"
-    />
+    <div className={"rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 " + className}>
+      <Editor
+        value={value || ""}
+        onValueChange={onChange}
+        padding={16}
+        placeholder={placeholder}
+        highlight={(code) => {
+          try { return Prism.highlight(code, prismLang, language); }
+          catch { return code; } // safety net, чтобы не уронить весь React
+        }}
+        style={{
+          fontFamily:
+            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono','Courier New', monospace",
+          fontSize: 14,
+          lineHeight: "1.5",
+          minHeight: 280,
+          outline: "none",
+          background: "transparent",
+          color: "#e5e7eb",
+          caretColor: "#60a5fa",
+          whiteSpace: "pre",
+        }}
+      />
+    </div>
   );
 }
