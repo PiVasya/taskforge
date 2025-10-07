@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Select, Badge, Textarea } from '../components/ui';
 import { getAssignment } from '../api/assignments';
-import { runSolutionRich } from '../api/solutions';
+import { runTestsForAssignment } from '../api/solutions';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
 
@@ -32,7 +32,8 @@ export default function AssignmentSolvePage() {
   const [result, setResult] = useState(null);
 
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
-  const normalizeNewlines = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
+  const normalizeNewlines = (s) =>
+    (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
   const onlyNewlineDiffers = (aa, bb) => normalizeNewlines(aa) === normalizeNewlines(bb);
 
   useEffect(() => {
@@ -68,15 +69,38 @@ class Program { static void Main(){ /* ... */ } }`);
     setSubmitting(true);
     setError('');
     setResult(null);
+
     try {
-      const r = await runSolutionRich({
-        assignmentId,
+      // Собираем ВСЕ тесты задания (и публичные, и скрытые — бэк их не подтягивает сам)
+      // getAssignment уже отдаёт testCases
+      const testCases = (a?.testCases || []).map((t) => ({
+        input: t.input ?? '',
+        expectedOutput: t.expectedOutput ?? '',
+      }));
+
+      if (testCases.length === 0) {
+        setResult({ status: 'no_tests', tests: [] });
+        setSubmitting(false);
+        return;
+      }
+
+      const data = await runTestsForAssignment({
         language,
         source: code,
-        stdin
+        testCases,
+        // при необходимости передай лимиты:
+        // timeLimitMs: 2000,
+        // memoryLimitMb: 256,
       });
-      setResult(r);
+
+      // Приводим к формату, который уже ожидает UI ниже
+      const tests = Array.isArray(data?.results) ? data.results : [];
+      const passed = tests.filter((t) => t.passed).length;
+      const status = passed === tests.length ? 'passed' : 'failed';
+
+      setResult({ status, tests });
     } catch (e) {
+      // если бэк вернул 400 на компиляционную ошибку — покажем как runtime/compile панель позже при необходимости
       setError(e?.message || 'Не удалось выполнить код');
     } finally {
       setSubmitting(false);
@@ -173,6 +197,7 @@ class Program { static void Main(){ /* ... */ } }`);
           {/* Компиляция / рантайм / тесты */}
           {result && (
             <>
+              {/* Оставляем панели — если когда-нибудь начнёшь возвращать их из /api/tests/run/tests */}
               {result.compile && <CompileErrorPanel compile={result.compile} source={code} />}
               {result.run && <RuntimeErrorPanel run={result.run} source={code} />}
 

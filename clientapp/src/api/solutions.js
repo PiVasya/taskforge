@@ -1,35 +1,44 @@
 // src/api/solutions.js
 import { api } from './http';
 
-const BASE = '/api/compiler';
+/**
+ * Единичный «онлайн-запуск» (оставил на всякий случай — вдруг нужен в других местах UI)
+ * POST /api/compiler/compile-run
+ */
+export async function compileRun({ language, code, input, timeLimitMs, memoryLimitMb }) {
+  const { data } = await api.post(
+    `/api/compiler/compile-run`,
+    { language, code, input, timeLimitMs, memoryLimitMb },
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  return data; // { status, exitCode, stdout, stderr, ... }
+}
 
-// унифицированный «богатый» запуск: компиляция + возможный stdin, лимиты (опц.)
-export async function runSolutionRich({
-  assignmentId,        // можно игнорить здесь — бэку не нужен
+/**
+ * Прогон тестов через бэкендовый TestsController
+ * POST /api/tests/run/tests
+ *
+ * Ожидает:
+ * {
+ *   language: 'cpp'|'csharp'|'python',
+ *   code: '...',
+ *   testCases: [{ input, expectedOutput }],
+ *   timeLimitMs?: number,
+ *   memoryLimitMb?: number
+ * }
+ *
+ * Возвращает:
+ * { results: [{ input, expected, actual, passed }] }
+ */
+export async function runTestsForAssignment({
   language,
-  source,              // имя поля у тебя в странице — source
-  stdin,
+  source,          // код решения
+  testCases,       // массив кейсов { input, expectedOutput }
   timeLimitMs,
   memoryLimitMb,
 }) {
   const { data } = await api.post(
-    `${BASE}/compile-run`,
-    {
-      language,
-      code: source,     // <— БЭК ждёт code
-      input: stdin,
-      timeLimitMs,
-      memoryLimitMb,
-    },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  return data; // { status, exitCode, stdout/stderr … }
-}
-
-// запуск набора тестов (если используешь)
-export async function runTestsRich({ language, source, testCases, timeLimitMs, memoryLimitMb }) {
-  const { data } = await api.post(
-    `${BASE}/run-tests`,
+    `/api/tests/run/tests`,
     {
       language,
       code: source,
