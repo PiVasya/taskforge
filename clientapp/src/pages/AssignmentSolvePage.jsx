@@ -2,15 +2,13 @@
 import { Link, useParams } from 'react-router-dom';
 
 import Layout from '../components/Layout';
-import { Card, Button, Select, Badge } from '../components/ui';
-import { getAssignment, submitSolution } from '../api/assignments';
+import { Card, Button, Select, Badge, Textarea } from '../components/ui';
+import { getAssignment } from '../api/assignments';
+import { runSolutionRich } from '../api/solutions';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
 
-// подключаем красивый редактор
 import CodeEditor from '../components/CodeEditor';
-
-// если уже есть панели парсинга ошибок — используем
 import CompileErrorPanel from '../components/runner/CompileErrorPanel';
 import RuntimeErrorPanel from '../components/runner/RuntimeErrorPanel';
 
@@ -29,12 +27,12 @@ export default function AssignmentSolvePage() {
 
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
+  const [stdin, setStdin] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
 
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
-  const normalizeNewlines = (s) =>
-    (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
+  const normalizeNewlines = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
   const onlyNewlineDiffers = (aa, bb) => normalizeNewlines(aa) === normalizeNewlines(bb);
 
   useEffect(() => {
@@ -71,14 +69,15 @@ class Program { static void Main(){ /* ... */ } }`);
     setError('');
     setResult(null);
     try {
-      // если у тебя на бэке другой контракт — подправь поля ниже
-      const r = await submitSolution(assignmentId, {
+      const r = await runSolutionRich({
+        assignmentId,
         language,
-        code,            // или source: code
+        source: code,
+        stdin
       });
       setResult(r);
     } catch (e) {
-      setError(e?.message || 'Не удалось отправить решение');
+      setError(e?.message || 'Не удалось выполнить код');
     } finally {
       setSubmitting(false);
     }
@@ -107,13 +106,11 @@ class Program { static void Main(){ /* ... */ } }`);
         <div className="lg:col-span-2 space-y-5">
           <Card>
             <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
-
             {a.tags && (
               <div className="flex flex-wrap gap-2 mb-3">
                 {a.tags.split(',').filter(Boolean).map(t => <Badge key={t.trim()}>{t.trim()}</Badge>)}
               </div>
             )}
-
             <div className="prose prose-slate dark:prose-invert max-w-none">
               {a.description ? (
                 <div dangerouslySetInnerHTML={{ __html: a.description.replace(/\n/g, '<br/>') }} />
@@ -160,50 +157,52 @@ class Program { static void Main(){ /* ... */ } }`);
                 <CodeEditor language={language} value={code} onChange={setCode} />
               </div>
 
+              <details className="mt-2">
+                <summary className="cursor-pointer select-none text-sm text-slate-500">stdin (опционально)</summary>
+                <Textarea rows={4} value={stdin} onChange={(e) => setStdin(e.target.value)} placeholder="Ввод программы…" />
+              </details>
+
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
-                <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить решение'}
+                <Play size={16} /> {submitting ? 'Выполняю…' : 'Отправить решение'}
               </Button>
 
               {error && <div className="text-red-500 text-sm">{error}</div>}
             </div>
           </Card>
 
-          {/* выводим то, что пришло с бэка: компиляция/рантайм/тесты */}
+          {/* Компиляция / рантайм / тесты */}
           {result && (
             <>
               {result.compile && <CompileErrorPanel compile={result.compile} source={code} />}
               {result.run && <RuntimeErrorPanel run={result.run} source={code} />}
-              {(result.cases || result.testCases) && (
+
+              {(result.tests ?? []).length > 0 && (
                 <Card>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      {(result.passedAll || result.passedAllTests) ? (
+                      {result.status === 'passed' ? (
                         <CheckCircle2 className="text-green-600" size={18} />
                       ) : (
                         <XCircle className="text-red-600" size={18} />
                       )}
                       <div className="font-medium">
-                        {(result.passedAll || result.passedAllTests) ? 'Все тесты пройдены!' : 'Не все тесты пройдены.'}
+                        {result.status === 'passed' ? 'Все тесты пройдены!' : 'Не все тесты пройдены.'}
                       </div>
                     </div>
                     <div className="text-sm text-slate-500">
-                      Успешно: <span className="font-medium">{result.passed ?? result.passedCount ?? 0}</span> ·
-                      Провалено: <span className="font-medium">{result.failed ?? result.failedCount ?? 0}</span>
+                      Успешно: <span className="font-medium">{(result.tests || []).filter(t => t.passed).length}</span> ·
+                      Провалено: <span className="font-medium">{(result.tests || []).filter(t => !t.passed).length}</span>
                     </div>
                   </div>
 
                   <div className="mt-4 grid sm:grid-cols-2 gap-4">
-                    {(result.cases ?? result.testCases ?? []).map((c, i) => {
+                    {(result.tests || []).map((c, i) => {
                       const newlineOnly = !c.passed && onlyNewlineDiffers(c.expected, c.actual);
                       return (
                         <div key={i} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40">
                           <div className="mb-2 flex items-center justify-between">
-                            <div className="text-sm font-semibold">Тест #{i + 1} {c.hidden ? '(скрытый)' : ''}</div>
-                            {c.passed ? (
-                              <span className="text-green-600 text-sm">OK</span>
-                            ) : (
-                              <span className="text-red-600 text-sm">FAIL</span>
-                            )}
+                            <div className="text-sm font-semibold">Тест #{i + 1}</div>
+                            {c.passed ? <span className="text-green-600 text-sm">OK</span> : <span className="text-red-600 text-sm">FAIL</span>}
                           </div>
                           <div className="text-xs text-slate-500 mb-1">Input</div>
                           <pre className="whitespace-pre-wrap text-sm">{c.input}</pre>
@@ -221,9 +220,7 @@ class Program { static void Main(){ /* ... */ } }`);
 
                           {!c.passed && (
                             <div className="mt-2 text-xs text-amber-600">
-                              {newlineOnly
-                                ? 'Различие только в переводах строк (\\r\\n vs \\n).'
-                                : 'Вывод отличается от ожидаемого.'}
+                              {newlineOnly ? 'Различие только в переводах строк (\\r\\n vs \\n).' : 'Вывод отличается от ожидаемого.'}
                             </div>
                           )}
                         </div>

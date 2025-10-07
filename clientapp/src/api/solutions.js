@@ -1,9 +1,9 @@
-import { api } from './http';
+import axios from "axios";
 
-// запуск "богатого" джаджа
-export async function runSolutionRich({ assignmentId, language, source, stdin, timeLimitMs, memoryLimitMb }) {
-  const { data } = await api.post('/api/judge/run', {
-    assignmentId, language, source, stdin, timeLimitMs, memoryLimitMb
-  });
-  return data; // { status, message, compile, run, tests, metrics, version }
+const API = process.env.REACT_APP_API_BASE || "/api";
+
+export async function runSolutionRich(payload) {
+  // payload: { assignmentId, language, source, stdin?, timeLimitMs?, memoryLimitMb? }
+  const { data } = await axios.post(`${API}/judge/run`, payload);
+  return data;
 }
