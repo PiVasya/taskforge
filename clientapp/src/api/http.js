@@ -16,49 +16,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-function extractMessage(data) {
-  if (!data) return null;
-  if (typeof data === 'string') return data;
-
-  // обычное поле message/title
-  if (typeof data.message === 'string') return data.message;
-  if (typeof data.title === 'string') return data.title;
-
-  // ASP.NET ModelState: { errors: { Email: ["..."], Password: ["..."] } }
-  if (data.errors && typeof data.errors === 'object') {
-    const firstKey = Object.keys(data.errors)[0];
-    if (firstKey) {
-      const val = data.errors[firstKey];
-      if (Array.isArray(val) && val.length) return val[0];
-      if (typeof val === 'string') return val;
-    }
-  }
-
-  // массив сообщений
-  if (Array.isArray(data) && data.length) {
-    const first = data[0];
-    if (typeof first === 'string') return first;
-    if (first && typeof first.message === 'string') return first.message;
-  }
-
-  // fallback—попробуем сериализовать
-  try { return JSON.stringify(data); } catch {}
-  return null;
-}
-
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const r = err?.response;
-    err.userMessage =
-      extractMessage(r?.data) ||
+    const r = err.response;
+    const message =
+      r?.data?.message ||
+      r?.data?.error ||
       r?.statusText ||
       err.message ||
       'Ошибка запроса';
-    return Promise.reject(err); // важно: не делаем new Error(...) — сохраняем response/status
+    return Promise.reject(new Error(message));
   }
 );
 
+// >>> добавить это:
 export function setAccessToken(token) {
   try {
     if (token) {

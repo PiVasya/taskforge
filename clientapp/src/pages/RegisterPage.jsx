@@ -6,7 +6,6 @@ import { useAuth } from "../auth/AuthContext";
 import { registerUser } from "../api/auth";
 import { UserPlus, LogIn } from "lucide-react";
 
-
 export default function RegisterPage() {
     const nav = useNavigate();
     const { setTokens } = useAuth?.() || {}; // если контекст отдает сеттер токенов
