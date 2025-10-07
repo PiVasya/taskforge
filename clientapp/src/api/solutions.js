@@ -13,7 +13,7 @@ export async function runSolutionRich({
   memoryLimitMb,
 }) {
   const { data } = await api.post(
-    `${BASE}/compile-run`,
+    `${BASE}/run`,
     {
       language,
       code: source,     // <— БЭК ждёт code
