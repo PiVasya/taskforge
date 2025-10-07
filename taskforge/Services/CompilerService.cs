@@ -3,7 +3,7 @@ using taskforge.Services.Interfaces;
 
 namespace taskforge.Services
 {
-    public class CompilerService : ICompilerService
+    public sealed class CompilerService : ICompilerService
     {
         private readonly ICompilerProvider _provider;
 
@@ -12,22 +12,33 @@ namespace taskforge.Services
             _provider = provider;
         }
 
-        public async Task<CompilerRunResponseDto> CompileAndRunAsync(CompilerRunRequestDto request)
+        public async Task<CompilerRunResponseDto> CompileAndRunAsync(CompilerRunRequestDto req)
         {
-            var compiler = _provider.GetCompiler(request.Language);
-            if (compiler == null)
-                return new CompilerRunResponseDto { Error = $"Unsupported language: {request.Language}" };
+            // выбираем нужный раннер по языку
+            var compiler = _provider.GetCompiler(req.Language);
 
-            return await compiler.CompileAndRunAsync(request.Code, request.Input);
+            var run = await compiler.CompileAndRunAsync(req);
+
+            // аккуратные человекочитаемые сообщения для UI
+            if (run.Status == "compile_error" && string.IsNullOrEmpty(run.Message))
+                run.Message = "Ошибка компиляции";
+            else if (run.Status == "runtime_error" && string.IsNullOrEmpty(run.Message))
+                run.Message = "Ошибка во время выполнения";
+            else if (run.Status == "time_limit" && string.IsNullOrEmpty(run.Message))
+                run.Message = "Превышен лимит времени";
+
+            return run;
         }
 
-        public async Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto request)
+        public Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto req)
         {
-            var compiler = _provider.GetCompiler(request.Language);
-            if (compiler == null)
-                throw new NotSupportedException($"Unsupported language: {request.Language}");
-
-            return await compiler.RunTestsAsync(request.Code, request.TestCases);
+            var compiler = _provider.GetCompiler(req.Language);
+            return compiler.RunTestsAsync(
+                req.Code,
+                req.TestCases ?? new List<TestCaseDto>(),
+                req.TimeLimitMs,
+                req.MemoryLimitMb
+            );
         }
     }
 }

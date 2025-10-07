@@ -29,10 +29,10 @@ builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ICompilerService, CompilerService>();
 
-// Регистрируем ТОЛЬКО удалённые компиляторы с теми же именами типов
-builder.Services.AddScoped<ICompiler, CSharpCompiler>();
-builder.Services.AddScoped<ICompiler, CppCompiler>();
-builder.Services.AddScoped<ICompiler, PythonCompiler>();
+// Регистрируем удалённые компиляторы (HTTP-клиенты к раннерам)
+builder.Services.AddScoped<ICompiler, CSharpHttpCompiler>();
+builder.Services.AddScoped<ICompiler, CppHttpCompiler>();
+builder.Services.AddScoped<ICompiler, PythonHttpCompiler>();
 
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
