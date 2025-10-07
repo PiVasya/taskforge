@@ -36,6 +36,7 @@ builder.Services.AddScoped<ICompiler, PythonCompiler>();
 
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+builder.Services.AddScoped<IJudgeService, JudgeService>();
 
 // CORS
 builder.Services.AddCors(options =>
