@@ -3,10 +3,6 @@ using System.Collections.Generic;
 
 namespace taskforge.Data.Models.DTO.Solutions
 {
-    /// <summary>
-    /// 200 OK всегда. Статус в поле Status:
-    /// passed | failed_tests | compile_error | runtime_error | infrastructure_error
-    /// </summary>
     public sealed class JudgeResponseDto
     {
         public string Status { get; set; } = "passed";
@@ -24,12 +20,12 @@ namespace taskforge.Data.Models.DTO.Solutions
             public bool Ok { get; set; }
             public List<Diagnostic> Diagnostics { get; set; } = new();
             public string? Stdout { get; set; }
-            public string? Stderr { get; set; }  // полный "сырой" лог
+            public string? Stderr { get; set; }
         }
 
         public sealed class Diagnostic
         {
-            public string Level { get; set; } = "error"; // error | warning | info
+            public string Level { get; set; } = "error";
             public string Message { get; set; } = string.Empty;
             public string? Code { get; set; }
             public string? File { get; set; }
@@ -63,7 +59,7 @@ namespace taskforge.Data.Models.DTO.Solutions
             public bool Passed { get; set; }
             public string? Stdout { get; set; }
             public string? Stderr { get; set; }
-            public int TimeMs { get; set; }
+            public int? TimeMs { get; set; }   // <— сделал nullable
         }
 
         public sealed class ExecStats
