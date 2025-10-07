@@ -6,6 +6,26 @@ import { Link, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 
+// helper: достаём userId из JWT
+function getCurrentUserIdFromToken() {
+  try {
+    const raw =
+      localStorage.getItem("access_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("access_token") ||
+      sessionStorage.getItem("token");
+    if (!raw) return null;
+    const parts = raw.split(".");
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(
+      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
+    );
+    return payload.sub || payload.nameid || payload.uid || payload.userId || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function CoursesPage() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
@@ -14,10 +34,13 @@ export default function CoursesPage() {
   const nav = useNavigate();
   const { canEdit, isEditorMode } = useEditorMode();
 
+  const myId = getCurrentUserIdFromToken();
+
   useEffect(() => {
     (async () => {
       try {
-        setLoading(true); setErr("");
+        setLoading(true);
+        setErr("");
         const list = await getCourses();
         setItems(list);
       } catch (e) {
@@ -29,7 +52,9 @@ export default function CoursesPage() {
   }, []);
 
   const filtered = items.filter((c) =>
-    ((c.title || "") + " " + (c.description || "")).toLowerCase().includes(q.toLowerCase())
+    ((c.title || "") + " " + (c.description || ""))
+      .toLowerCase()
+      .includes(q.toLowerCase())
   );
 
   const handleCreate = async () => {
@@ -40,7 +65,9 @@ export default function CoursesPage() {
         isPublic: false,
       });
       nav(`/courses/${id}/edit`);
-    } catch (e) { setErr(e.message || "Не удалось создать курс"); }
+    } catch (e) {
+      setErr(e.message || "Не удалось создать курс");
+    }
   };
 
   return (
@@ -57,7 +84,11 @@ export default function CoursesPage() {
       </div>
 
       <Card className="mb-6">
-        <Input placeholder="Поиск по названию/описанию…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input
+          placeholder="Поиск по названию/описанию…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
       </Card>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
@@ -65,19 +96,35 @@ export default function CoursesPage() {
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((c) => {
-          const href = (canEdit && isEditorMode) ? `/courses/${c.id}/edit` : `/course/${c.id}`;
+          const isOwner =
+            myId &&
+            c.ownerId &&
+            String(c.ownerId).toLowerCase() === String(myId).toLowerCase();
+          const href =
+            canEdit && isEditorMode && isOwner
+              ? `/courses/${c.id}/edit`
+              : `/course/${c.id}`;
           return (
-            <Link key={c.id} to={href} className="block group focus:outline-none focus:ring-2 focus:ring-sky-500 rounded-2xl">
+            <Link
+              key={c.id}
+              to={href}
+              className="block group focus:outline-none focus:ring-2 focus:ring-sky-500 rounded-2xl"
+            >
               <Card className="p-5 transition hover:shadow-lg cursor-pointer">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-lg font-semibold">{c.title}</div>
-                    {c.description && <p className="text-sm text-slate-500 mt-1 line-clamp-2">{c.description}</p>}
+                    {c.description && (
+                      <p className="text-sm text-slate-500 mt-1 line-clamp-2">
+                        {c.description}
+                      </p>
+                    )}
                     <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
                       <Badge>Заданий: {c.assignmentCount ?? "—"}</Badge>
                       {typeof c.solvedCountForCurrentUser === "number" && (
                         <Badge>Решено: {c.solvedCountForCurrentUser}</Badge>
                       )}
+                      {!isOwner && canEdit && isEditorMode && <Badge>чужой</Badge>}
                     </div>
                   </div>
                 </div>
