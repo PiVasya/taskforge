@@ -10,10 +10,12 @@
     "eject": "react-scripts eject"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "axios": "^1.12.2",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.16",
     "lucide-react": "^0.544.0",
+    "monaco-editor": "^0.54.0",
     "react": "^18.3.1",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.23.0",
