@@ -1,4 +1,5 @@
-﻿using taskforge.Data.Models.DTO;
+﻿﻿using System.ComponentModel.DataAnnotations;
+using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Services
@@ -14,25 +15,38 @@ namespace taskforge.Services
 
         public async Task<CompilerRunResponseDto> CompileAndRunAsync(CompilerRunRequestDto req)
         {
-            // выбираем нужный раннер по языку
+            if (req == null)
+                throw new ValidationException("Request body is required.");
+
+            if (string.IsNullOrWhiteSpace(req.Language))
+                throw new ValidationException("Field 'language' is required.");
+
+            if (string.IsNullOrWhiteSpace(req.Code))
+                throw new ValidationException("Field 'code' is required.");
+
             var compiler = _provider.GetCompiler(req.Language);
+            if (compiler is null)
+                throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
 
-            var run = await compiler.CompileAndRunAsync(req);
-
-            // аккуратные человекочитаемые сообщения для UI
-            if (run.Status == "compile_error" && string.IsNullOrEmpty(run.Message))
-                run.Message = "Ошибка компиляции";
-            else if (run.Status == "runtime_error" && string.IsNullOrEmpty(run.Message))
-                run.Message = "Ошибка во время выполнения";
-            else if (run.Status == "time_limit" && string.IsNullOrEmpty(run.Message))
-                run.Message = "Превышен лимит времени";
-
-            return run;
+            // Пробрасываем DTO как есть: раннеры понимают TimeLimitMs/MemoryLimitMb.
+            return await compiler.CompileAndRunAsync(req);
         }
 
         public Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto req)
         {
+            if (req == null)
+                throw new ValidationException("Request body is required.");
+
+            if (string.IsNullOrWhiteSpace(req.Language))
+                throw new ValidationException("Field 'language' is required.");
+
+            if (string.IsNullOrWhiteSpace(req.Code))
+                throw new ValidationException("Field 'code' is required.");
+
             var compiler = _provider.GetCompiler(req.Language);
+            if (compiler is null)
+                throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
+
             return compiler.RunTestsAsync(
                 req.Code,
                 req.TestCases ?? new List<TestCaseDto>(),

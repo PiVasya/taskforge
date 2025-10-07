@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿﻿using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Mvc;
 using taskforge.Data.Models.DTO;
-using taskforge.Services.Interfaces;   // << интерфейс!
+using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers
 {
@@ -8,33 +9,53 @@ namespace taskforge.Controllers
     [Route("api/[controller]")]
     public class CompilerController : ControllerBase
     {
-        private readonly ICompilerService _svc;   // << интерфейс
+        private readonly ICompilerService _svc;
 
         public CompilerController(ICompilerService svc)
         {
             _svc = svc;
         }
 
-        [HttpPost("run")]
-        public async Task<IActionResult> Run([FromBody] CompilerRunRequestDto req)
+        [HttpPost("compile-run")]
+        public async Task<IActionResult> CompileRun([FromBody] CompilerRunRequestDto req)
         {
-            // на всякий — дефолт по языку, чтобы убрать nullable-warning
-            req.Language ??= "cpp";
+            try
+            {
+                // Подстрахуем фронт: часто приходит "C++" из селекта.
+                if (!string.IsNullOrWhiteSpace(req?.Language))
+                {
+                    var l = req.Language.Trim();
+                    if (l.Equals("C++", StringComparison.OrdinalIgnoreCase)) req.Language = "cpp";
+                    if (l.Equals("C#",  StringComparison.OrdinalIgnoreCase)) req.Language = "csharp";
+                }
 
-            var r = await _svc.CompileAndRunAsync(req);
+                var r = await _svc.CompileAndRunAsync(req);
 
-            // если хочется — подстветим неудачную компиляцию 400-кой
-            if (r.Status == "compile_error") return BadRequest(r);
+                // Если раннер вернул compile_error, отдаём 400 (как было задумано в UI).
+                if (string.Equals(r.Status, "compile_error", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(r);
 
-            return Ok(r);
+                return Ok(r);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         [HttpPost("run-tests")]
         public async Task<IActionResult> RunTests([FromBody] TestRunRequestDto req)
         {
-            req.Language ??= "cpp";
-            var list = await _svc.RunTestsAsync(req);
-            return Ok(new { results = list });
+            try
+            {
+                req.Language ??= "cpp";
+                var list = await _svc.RunTestsAsync(req);
+                return Ok(new { results = list });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
     }
 }
