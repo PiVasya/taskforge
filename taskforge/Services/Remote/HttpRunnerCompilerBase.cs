@@ -39,17 +39,43 @@ namespace taskforge.Services.Remote
             var client = _httpFactory.CreateClient();
             var url = $"{BaseUrl.TrimEnd('/')}/run";
 
-            // контракт раннера: { code, input }
             var body = new
             {
                 code  = req.Code,
                 input = req.Input
             };
 
-            var resp = await client.PostAsJsonAsync(url, body);
+            // LOG: исходящий вызов
+            Console.WriteLine($"[Runner:{_langKey}] POST {url}");
+            Console.WriteLine($"[Runner:{_langKey}] code.len={req.Code?.Length ?? 0}  input.visible={ToVisible(req.Input)}");
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await client.PostAsJsonAsync(url, body);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Runner:{_langKey}] HTTP ERROR: {ex.GetType().Name} {ex.Message}");
+                throw;
+            }
+
+            Console.WriteLine($"[Runner:{_langKey}] HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
             resp.EnsureSuccessStatusCode();
 
-            var dto = await resp.Content.ReadFromJsonAsync<RunnerRunResponse>();
+            RunnerRunResponse? dto = null;
+            try
+            {
+                dto = await resp.Content.ReadFromJsonAsync<RunnerRunResponse>();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Runner:{_langKey}] JSON PARSE ERROR: {ex.GetType().Name} {ex.Message}");
+                throw;
+            }
+
+            Console.WriteLine($"[Runner:{_langKey}] exitCode={dto?.exitCode}  stdout.visible={ToVisible(dto?.stdout)}  stderr.visible={ToVisible(dto?.stderr)}");
 
             var status = MapStatus(dto?.exitCode ?? 0, dto?.stderr);
 
@@ -83,15 +109,42 @@ namespace taskforge.Services.Remote
                 }).ToList()
             };
 
-            var resp = await client.PostAsJsonAsync(url, payload);
+            // LOG: исходящий запрос «пакет тестов»
+            Console.WriteLine($"[Runner:{_langKey}] POST {url}  code.len={code?.Length ?? 0}  tests={payload.tests.Count}");
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await client.PostAsJsonAsync(url, payload);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Runner:{_langKey}] HTTP ERROR (tests): {ex.GetType().Name} {ex.Message}");
+                throw;
+            }
+
+            Console.WriteLine($"[Runner:{_langKey}] HTTP (tests) {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
             resp.EnsureSuccessStatusCode();
 
-            var dto = await resp.Content.ReadFromJsonAsync<RunnerTestsResponse>();
+            RunnerTestsResponse? dto = null;
+            try
+            {
+                dto = await resp.Content.ReadFromJsonAsync<RunnerTestsResponse>();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Runner:{_langKey}] JSON PARSE ERROR (tests): {ex.GetType().Name} {ex.Message}");
+                throw;
+            }
 
             var results = new List<TestResultDto>();
+            int idx = 0;
             foreach (var r in dto?.results ?? Enumerable.Empty<RunnerTestItem>())
             {
-                // Раннер по тестам не отдаёт stderr/exitCode по каждому прогону — заполним по-умолчанию.
+                idx++;
+                Console.WriteLine($"[Runner:{_langKey}] test#{idx} passed={r.passed}  exp.visible={ToVisible(r.expectedOutput)}  act.visible={ToVisible(r.actualOutput)}");
+
                 results.Add(new TestResultDto
                 {
                     Input          = r.input,
@@ -140,6 +193,15 @@ namespace taskforge.Services.Remote
                 return "compile_error";
             if (exitCode != 0) return "runtime_error";
             return "ok";
+        }
+
+        private static string ToVisible(string? s)
+        {
+            if (s == null) return "⟨null⟩";
+            return s
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n")
+                .Replace("\t", "\\t");
         }
     }
 }

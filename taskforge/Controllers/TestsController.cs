@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// Controllers/TestsController.cs
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Linq;
 using System.Threading.Tasks;
@@ -25,6 +26,8 @@ namespace taskforge.Controllers
             if (request?.TestCases == null || request.TestCases.Count == 0)
                 return BadRequest(new { error = "No test cases provided." });
 
+            Console.WriteLine($"[TestsController] run/tests lang={request.Language} code.len={request.Code?.Length ?? 0} tests={request.TestCases.Count}");
+
             // 1) «сухая» компиляция
             CompilerRunResponseDto compileResp;
             try
@@ -38,6 +41,7 @@ namespace taskforge.Controllers
             }
             catch (System.Exception ex)
             {
+                Console.WriteLine($"[TestsController] compile: EX {ex.GetType().Name} {ex.Message}");
                 return Ok(new
                 {
                     status  = "infrastructure_error",
@@ -57,6 +61,8 @@ namespace taskforge.Controllers
                 stderr = compileResp?.Stderr ?? ""
             };
 
+            Console.WriteLine($"[TestsController] compile.ok={compileOk} exit={compileResp?.ExitCode}");
+
             if (!compileOk)
             {
                 return Ok(new
@@ -70,10 +76,10 @@ namespace taskforge.Controllers
                 });
             }
 
-            // 2) реальные прогоны тестов (починит Python)
+            // 2) реальные прогоны тестов
             var rawResults = await _service.RunTestsAsync(request);
 
-            // 3) проекция для текущего фронта (expected/actual/hidden)
+            // 3) проекция под UI
             var testsForUi = rawResults.Select(r => new
             {
                 input    = r.Input,
@@ -89,13 +95,15 @@ namespace taskforge.Controllers
             var failed = testsForUi.Count - passed;
             var status = failed == 0 ? "passed" : "failed_tests";
 
+            Console.WriteLine($"[TestsController] done: passed={passed} failed={failed}");
+
             return Ok(new
             {
                 status,
                 compile = compileDto,
-                run     = (object)null,    // при желании можно заполнять агрегатные тайминги
-                tests   = testsForUi,      // то, что уже ожидает твой UI
-                rawResults                // на будущее/отладку: полный DTO с ActualOutput/ExpectedOutput и т.д.
+                run     = (object)null,
+                tests   = testsForUi,
+                rawResults
             });
         }
     }

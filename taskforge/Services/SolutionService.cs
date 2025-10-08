@@ -1,10 +1,11 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿// Services/SolutionService.cs
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using taskforge.Data;
-using taskforge.Data.Models;
 using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
 using taskforge.Services.Interfaces;
+
 namespace taskforge.Services
 {
     public sealed class SolutionService : ISolutionService
@@ -12,18 +13,16 @@ namespace taskforge.Services
         private readonly ApplicationDbContext _db;
         private readonly ICompilerService _compiler;
         private readonly IHttpContextAccessor _http;
+
         private bool CanRevealHidden()
         {
-            // _http или контекст может быть null (тесты, фоновые вызовы, некорректная регистрация) — в таком случае просто не раскрываем.
             var user = _http?.HttpContext?.User;
             if (user == null || !(user.Identity?.IsAuthenticated ?? false))
                 return false;
 
-            // Основная проверка ролей
             if (user.IsInRole("Admin") || user.IsInRole("Teacher") || user.IsInRole("Editor"))
                 return true;
 
-            // На случай, если роли приходят не в ClaimTypes.Role, а в "role"/"roles"
             var roles = user.Claims
                 .Where(c => c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "roles")
                 .Select(c => c.Value)
@@ -32,26 +31,29 @@ namespace taskforge.Services
             return roles.Contains("Admin") || roles.Contains("Teacher") || roles.Contains("Editor");
         }
 
-        public SolutionService(ApplicationDbContext db, ICompilerService compiler)
+        public SolutionService(ApplicationDbContext db, ICompilerService compiler, IHttpContextAccessor http)
         {
             _db = db;
             _compiler = compiler;
+            _http = http;
         }
 
         public async Task<SubmitSolutionResultDto> SubmitAsync(Guid assignmentId, Guid currentUserId, SubmitSolutionRequest req)
         {
+            Console.WriteLine($"[Solution] Submit: assignmentId={assignmentId} user={currentUserId} lang={req.Language} code.len={req.Code?.Length ?? 0}");
+
             var a = await _db.TaskAssignments
                 .Include(x => x.TestCases)
                 .FirstOrDefaultAsync(x => x.Id == assignmentId);
 
             if (a == null) throw new InvalidOperationException("Задание не найдено");
 
-            // Детерминированный порядок тестов: по Id
             var orderedCases = a.TestCases
                 .OrderBy(tc => tc.Id)
                 .ToList();
 
-            // Прогоняем ВСЕ тесты
+            Console.WriteLine($"[Solution] testCases={orderedCases.Count}");
+
             var testReq = new TestRunRequestDto
             {
                 Language = req.Language,
@@ -64,11 +66,11 @@ namespace taskforge.Services
             };
 
             var results = await _compiler.RunTestsAsync(testReq);
+            Console.WriteLine($"[Solution] results={results.Count}; passed={results.Count(x=>x.Passed)} failed={results.Count(x=>!x.Passed)}");
 
-            // Кому можно показывать содержимое скрытых тестов
-            var canReveal = CanRevealHidden(); // ваш хелпер из прошлого сообщения
+            var canReveal = CanRevealHidden();
+            Console.WriteLine($"[Solution] canRevealHidden={canReveal}");
 
-            // Собираем DTO ответа
             var full = new SubmitSolutionResultDto();
 
             for (int i = 0; i < orderedCases.Count; i++)
@@ -92,7 +94,8 @@ namespace taskforge.Services
             full.Failed = full.Cases.Count(c => !c.Passed);
             full.PassedAll = full.Failed == 0;
 
-            // Сохранение решения
+            Console.WriteLine($"[Solution] summary: passed={full.Passed} failed={full.Failed} all={full.PassedAll}");
+
             var solution = new UserTaskSolution
             {
                 Id = Guid.NewGuid(),
@@ -111,6 +114,5 @@ namespace taskforge.Services
 
             return full;
         }
-
     }
 }
