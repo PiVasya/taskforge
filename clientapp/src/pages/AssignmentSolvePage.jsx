@@ -1,10 +1,13 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Card, Button, Textarea, Select, Badge } from '../components/ui';
+import { Card, Button, Select, Badge, Textarea } from '../components/ui';
 import { getAssignment, submitSolution } from '../api/assignments';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
+import CodeEditor from '../components/CodeEditor';
+import CompileErrorPanel from '../components/runner/CompileErrorPanel';
+import RuntimeErrorPanel from '../components/runner/RuntimeErrorPanel';
 
 export default function AssignmentSolvePage() {
   const LANGS = [
@@ -22,12 +25,14 @@ export default function AssignmentSolvePage() {
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // панели
+  const [compileErr, setCompileErr] = useState(null);
+  const [runtimeErr, setRuntimeErr] = useState(null);
   const [result, setResult] = useState(null);
 
-  // утилиты отображения вывода
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
-  const normalizeNewlines = (s) =>
-    (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
+  const normalizeNewlines = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
   const onlyNewlineDiffers = (a, b) => normalizeNewlines(a) === normalizeNewlines(b);
 
   useEffect(() => {
@@ -45,26 +50,22 @@ export default function AssignmentSolvePage() {
     })();
   }, [assignmentId]);
 
-  // стартовый шаблон кода по языку
   useEffect(() => {
     if (code.trim()) return;
     if (language === 'python') {
-      setCode('# write your solution here\n');
+      setCode('# write your solution here\nprint("Hi")\n');
     } else if (language === 'cpp') {
       setCode(`#include <iostream>
 using namespace std;
-int main(){ /* ... */ return 0; }`);
+int main(){ cout << "Hi"; return 0; }`);
     } else if (language === 'csharp') {
       setCode(`using System;
-class Program { static void Main(){ /* ... */ } }`);
+Console.Write("Hi");`);
     }
   }, [language, code]);
 
-  // Нормализация ответа бэка под формат, который ожидает разметка ниже
+  // приводим ответ бэка к ожидаемой разметке
   const normalizeBackendResponse = (r) => {
-    // бэк может вернуть:
-    // - { passedAllTests, passedCount, failedCount, testCases: [{ input, expectedOutput, actualOutput, passed, isHidden }] }
-    // - или совместимые имена
     const cases = (r?.cases ?? r?.testCases ?? r?.results ?? []).map((c) => ({
       input: c.input ?? '',
       expected: c.expected ?? c.expectedOutput ?? '',
@@ -73,23 +74,19 @@ class Program { static void Main(){ /* ... */ } }`);
       hidden: Boolean(c.hidden ?? c.isHidden),
     }));
 
-    // если бэк сразу прислал агрегаты — используем их
-    const passedCount =
-      r?.passed ?? r?.passedCount ?? cases.filter((x) => x.passed).length;
-    const failedCount =
-      r?.failed ?? r?.failedCount ?? (cases.length - passedCount);
-    const passedAll =
-      (typeof r?.passedAll !== 'undefined' ? r.passedAll : r?.passedAllTests) ??
-      (cases.length > 0 && passedCount === cases.length);
+    const passed = cases.filter((x) => x.passed).length;
+    const failed = cases.length - passed;
+    const passedAll = (r?.passedAll ?? r?.passedAllTests) ?? (cases.length > 0 && failed === 0);
 
     return {
       status: passedAll ? 'passed' : 'failed',
-      passedCount,
-      failedCount,
+      passedCount: passed,
+      failedCount: failed,
       tests: cases,
-      // сохраняем для шапки совместимость со старой версткой
       passedAll,
       passedAllTests: passedAll,
+      compile: r?.compile,
+      run: r?.run,
     };
   };
 
@@ -97,11 +94,26 @@ class Program { static void Main(){ /* ... */ } }`);
     setSubmitting(true);
     setError('');
     setResult(null);
+    setCompileErr(null);
+    setRuntimeErr(null);
+
     try {
+      // твой API submitSolution уже знает assignmentId и сам пойдёт в /api/tests/run/tests
       const r = await submitSolution(assignmentId, { language, code });
+
+      // Если бэк вернул панельки — покажем
+      if (r?.compile) setCompileErr(r.compile);
+      if (r?.run) setRuntimeErr(r.run);
+
       setResult(normalizeBackendResponse(r));
     } catch (e) {
-      setError(e?.message || 'Не удалось отправить решение');
+      // если бэк кинул 400 с compile { message, errors[] } — отобразим панель
+      const payload = e?.response?.data || {};
+      if (payload?.compile) {
+        setCompileErr(payload.compile);
+      } else {
+        setError(e?.message || 'Не удалось отправить решение');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -126,24 +138,18 @@ class Program { static void Main(){ /* ... */ } }`);
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* левая колонка */}
+        {/* Левая колонка */}
         <div className="lg:col-span-2 space-y-5">
           <Card>
             <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
             {a.tags && (
               <div className="flex flex-wrap gap-2 mb-3">
-                {a.tags.split(',').filter(Boolean).map((t) => (
-                  <Badge key={t.trim()}>{t.trim()}</Badge>
-                ))}
+                {a.tags.split(',').filter(Boolean).map(t => <Badge key={t.trim()}>{t.trim()}</Badge>)}
               </div>
             )}
             <div className="prose prose-slate dark:prose-invert max-w-none">
               {a.description ? (
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: (a.description || '').replace(/\n/g, '<br/>'),
-                  }}
-                />
+                <div dangerouslySetInnerHTML={{ __html: (a.description || '').replace(/\n/g, '<br/>') }} />
               ) : (
                 <p className="text-slate-500">Описание не задано.</p>
               )}
@@ -157,16 +163,11 @@ class Program { static void Main(){ /* ... */ } }`);
             ) : (
               <div className="grid sm:grid-cols-2 gap-4">
                 {publicTests.map((t, i) => (
-                  <div
-                    key={t.id ?? i}
-                    className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
-                  >
+                  <div key={t.id ?? i} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40">
                     <div className="text-xs text-slate-500 mb-1">Input</div>
                     <pre className="whitespace-pre-wrap text-sm">{t.input}</pre>
                     <div className="text-xs text-slate-500 mt-2 mb-1">Expected Output</div>
-                    <pre className="whitespace-pre-wrap text-sm">
-                      {displayClean(t.expectedOutput)}
-                    </pre>
+                    <pre className="whitespace-pre-wrap text-sm">{displayClean(t.expectedOutput)}</pre>
                   </div>
                 ))}
               </div>
@@ -174,29 +175,22 @@ class Program { static void Main(){ /* ... */ } }`);
           </Card>
         </div>
 
-        {/* правая колонка */}
+        {/* Правая колонка */}
         <div className="space-y-4">
           <Card>
             <div className="grid gap-3">
               <div>
                 <label className="label">Язык</label>
-                <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  {LANGS.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
+                <Select value={language} onChange={e => setLanguage(e.target.value)}>
+                  {LANGS.map(l => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
                   ))}
                 </Select>
               </div>
 
               <div>
                 <label className="label">Ваш код</label>
-                <Textarea
-                  rows={14}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="// Напишите решение..."
-                />
+                <CodeEditor language={language} value={code} onChange={setCode} />
               </div>
 
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
@@ -207,61 +201,39 @@ class Program { static void Main(){ /* ... */ } }`);
             </div>
           </Card>
 
-          {/* Результаты прогонки тестов */}
-          {result && (
+          {/* Компиляционная / Рантайм ошибки отдельно */}
+          {compileErr && <CompileErrorPanel compile={compileErr} source={code} />}
+          {runtimeErr && <RuntimeErrorPanel run={runtimeErr} source={code} />}
+
+          {/* Тесты */}
+          {result && (result.tests || []).length > 0 && (
             <Card>
-              {/* Шапка */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {result.passedAll || result.passedAllTests || result.status === 'passed' ? (
-                    <CheckCircle2 className="text-green-600" size={18} />
-                  ) : (
-                    <XCircle className="text-red-600" size={18} />
-                  )}
+                  {result.status === 'passed'
+                    ? <CheckCircle2 className="text-green-600" size={18} />
+                    : <XCircle className="text-red-600" size={18} />
+                  }
                   <div className="font-medium">
-                    {result.passedAll || result.passedAllTests || result.status === 'passed'
-                      ? 'Все тесты пройдены!'
-                      : 'Не все тесты пройдены.'}
+                    {result.status === 'passed' ? 'Все тесты пройдены!' : 'Не все тесты пройдены.'}
                   </div>
                 </div>
                 <div className="text-sm text-slate-500">
-                  Успешно:{' '}
-                  <span className="font-medium">
-                    {result.passedCount ??
-                      (result.tests || []).filter((t) => t.passed).length ??
-                      0}
-                  </span>{' '}
-                  · Провалено:{' '}
-                  <span className="font-medium">
-                    {result.failedCount ??
-                      ((result.tests || []).length -
-                        (result.tests || []).filter((t) => t.passed).length) ??
-                      0}
-                  </span>
+                  Успешно: <span className="font-medium">{result.passedCount}</span> ·
+                  Провалено: <span className="font-medium">{result.failedCount}</span>
                 </div>
               </div>
 
-              {/* Кейсы */}
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
                 {(result.tests || []).map((c, i) => {
-                  const exp = c.expected ?? c.expectedOutput ?? '';
-                  const act = c.actual ?? c.actualOutput ?? '';
+                  const exp = c.expected ?? '';
+                  const act = c.actual ?? '';
                   const newlineOnly = !c.passed && onlyNewlineDiffers(exp, act);
-
                   return (
-                    <div
-                      key={i}
-                      className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
-                    >
+                    <div key={i} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40">
                       <div className="mb-2 flex items-center justify-between">
-                        <div className="text-sm font-semibold">
-                          Тест #{i + 1} {c.hidden ? '(скрытый)' : ''}
-                        </div>
-                        {c.passed ? (
-                          <span className="text-green-600 text-sm">OK</span>
-                        ) : (
-                          <span className="text-red-600 text-sm">FAIL</span>
-                        )}
+                        <div className="text-sm font-semibold">Тест #{i + 1} {c.hidden ? '(скрытый)' : ''}</div>
+                        {c.passed ? <span className="text-green-600 text-sm">OK</span> : <span className="text-red-600 text-sm">FAIL</span>}
                       </div>
 
                       <div className="text-xs text-slate-500 mb-1">Input</div>
@@ -280,9 +252,7 @@ class Program { static void Main(){ /* ... */ } }`);
 
                       {!c.passed && (
                         <div className="mt-2 text-xs text-amber-600">
-                          {newlineOnly
-                            ? 'Различие только в переводах строк (\\r\\n vs \\n).'
-                            : 'Вывод отличается от ожидаемого.'}
+                          {newlineOnly ? 'Различие только в переводах строк (\\r\\n vs \\n).' : 'Вывод отличается от ожидаемого.'}
                         </div>
                       )}
                     </div>
