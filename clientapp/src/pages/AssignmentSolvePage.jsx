@@ -23,7 +23,7 @@ export default function AssignmentSolvePage() {
   const [a, setA] = useState(null);
 
   const [language, setLanguage] = useState('cpp');
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState('');          // ← стартуем ПУСТО
   const [submitting, setSubmitting] = useState(false);
 
   // панели
@@ -50,19 +50,8 @@ export default function AssignmentSolvePage() {
     })();
   }, [assignmentId]);
 
-  useEffect(() => {
-    if (code.trim()) return;
-    if (language === 'python') {
-      setCode('# write your solution here\nprint("Hi")\n');
-    } else if (language === 'cpp') {
-      setCode(`#include <iostream>
-using namespace std;
-int main(){ cout << "Hi"; return 0; }`);
-    } else if (language === 'csharp') {
-      setCode(`using System;
-Console.Write("Hi");`);
-    }
-  }, [language, code]);
+  // 🔥 УДАЛЕНО: автоподстановка шаблонов при смене языка
+  // useEffect(() => { ... }, [language, code]);
 
   // приводим ответ бэка к ожидаемой разметке
   const normalizeBackendResponse = (r) => {
@@ -98,16 +87,11 @@ Console.Write("Hi");`);
     setRuntimeErr(null);
 
     try {
-      // твой API submitSolution уже знает assignmentId и сам пойдёт в /api/tests/run/tests
       const r = await submitSolution(assignmentId, { language, code });
-
-      // Если бэк вернул панельки — покажем
       if (r?.compile) setCompileErr(r.compile);
       if (r?.run) setRuntimeErr(r.run);
-
       setResult(normalizeBackendResponse(r));
     } catch (e) {
-      // если бэк кинул 400 с compile { message, errors[] } — отобразим панель
       const payload = e?.response?.data || {};
       if (payload?.compile) {
         setCompileErr(payload.compile);
