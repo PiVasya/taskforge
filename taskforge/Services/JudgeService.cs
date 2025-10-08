@@ -1,4 +1,3 @@
-// Services/JudgeService.cs
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -6,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using taskforge.Data;
@@ -14,7 +14,6 @@ using taskforge.Services.Interfaces;
 
 namespace taskforge.Services
 {
-    /// Оркестратор проверки: подгрузка тестов, запуск, парсинг ошибок.
     public sealed class JudgeService : IJudgeService
     {
         private readonly ApplicationDbContext _db;
@@ -28,7 +27,7 @@ namespace taskforge.Services
 
         public async Task<JudgeResponseDto> JudgeAsync(JudgeRequestDto req, Guid currentUserId)
         {
-            // Гарантируем наличие compile/run для стабильного рендера на фронте
+            Console.WriteLine($"[Judge] >>> Start | assignment={req.AssignmentId} lang={req.Language} user={currentUserId}");
             var result = new JudgeResponseDto
             {
                 Status = "passed",
@@ -38,7 +37,7 @@ namespace taskforge.Services
                     Ok = true,
                     Stdout = string.Empty,
                     Stderr = string.Empty,
-                    Diagnostics = new List<JudgeResponseDto.Diagnostic>()
+                    Diagnostics = new()
                 },
                 Run = new JudgeResponseDto.RunInfo
                 {
@@ -48,21 +47,22 @@ namespace taskforge.Services
                 }
             };
 
-            // 1) Загрузка задания + тестов
+            // 1) Грузим задание + тесты
             var task = await _db.TaskAssignments
                 .Include(t => t.TestCases)
                 .FirstOrDefaultAsync(t => t.Id == req.AssignmentId);
 
             if (task == null)
-                return new JudgeResponseDto
-                {
-                    Status = "infrastructure_error",
-                    Message = "Задание не найдено",
-                    Compile = result.Compile,
-                    Run = result.Run
-                };
+            {
+                Console.WriteLine($"[Judge] !!! Task not found: {req.AssignmentId}");
+                result.Status = "infrastructure_error";
+                result.Message = "Задание не найдено";
+                return result;
+            }
 
-            // 2) «Пробная» компиляция (через CompileAndRun с пустым stdin)
+            Console.WriteLine($"[Judge] Task loaded: tests={task.TestCases.Count}");
+
+            // 2) Пробная компиляция
             object comp;
             try
             {
@@ -70,11 +70,12 @@ namespace taskforge.Services
                 {
                     Language = req.Language,
                     Code = req.Source,
-                    Input = "" // просто проверяем сборку
+                    Input = ""
                 });
             }
             catch (Exception ex) when (ex is HttpRequestException || ex.InnerException is HttpRequestException)
             {
+                Console.WriteLine($"[Judge] !!! Compile infra error: {ex}");
                 return new JudgeResponseDto
                 {
                     Status = "infrastructure_error",
@@ -82,7 +83,7 @@ namespace taskforge.Services
                     Compile = new JudgeResponseDto.CompileInfo
                     {
                         Ok = false,
-                        Stdout = string.Empty,
+                        Stdout = "",
                         Stderr = ex.Message,
                         Diagnostics = new()
                     },
@@ -90,33 +91,43 @@ namespace taskforge.Services
                 };
             }
 
-            // Универсально читаем ответы от раннеров
             bool compOk = DynGetBool(comp, "Ok", "ok", "Success", "success");
             string? compOut = DynGetString(comp, "Stdout", "stdout", "Output", "output");
             string? compErr = DynGetString(comp, "Stderr", "stderr", "Error", "error");
             string? version = DynGetString(comp, "Version", "version");
 
+            Console.WriteLine($"[Judge] Compile: ok={compOk} version={version}");
+            if (!string.IsNullOrEmpty(compErr)) Console.WriteLine($"[Judge] Compile.Stderr:\n{compErr}");
+
             result.Version = version;
             result.Compile = new JudgeResponseDto.CompileInfo
             {
                 Ok = compOk,
-                Stdout = compOut ?? string.Empty,
-                Stderr = compErr ?? string.Empty,
-                Diagnostics = ParseDiagnostics(req.Language, compErr ?? string.Empty)
+                Stdout = compOut ?? "",
+                Stderr = compErr ?? "",
+                Diagnostics = ParseDiagnostics(req.Language, compErr ?? "")
             };
 
             if (!compOk)
             {
                 result.Status = "compile_error";
                 result.Message = "Ошибка компиляции";
+                Console.WriteLine("[Judge] <<< Finish (compile_error)");
                 return result;
             }
 
             // 3) Прогон по тестам
             var swTotal = Stopwatch.StartNew();
+            int idx = 0;
 
             foreach (var tc in task.TestCases)
             {
+                idx++;
+                Console.WriteLine($"[Judge] --- Run test #{idx} (hidden={tc.IsHidden}) ---");
+                Console.WriteLine($"[Judge] Input (visible): {ToVisible(tc.Input)}");
+                Console.WriteLine($"[Judge] Expected.raw (visible): {ToVisible(tc.ExpectedOutput)}");
+                Console.WriteLine($"[Judge] Expected.hex: {ToHex(tc.ExpectedOutput)}");
+
                 object run;
                 try
                 {
@@ -131,6 +142,7 @@ namespace taskforge.Services
                 }
                 catch (Exception ex) when (ex is HttpRequestException || ex.InnerException is HttpRequestException)
                 {
+                    Console.WriteLine($"[Judge] !!! Run infra error: {ex}");
                     result.Status = "infrastructure_error";
                     result.Message = "Сервис запуска недоступен";
                     result.Run = new JudgeResponseDto.RunInfo { ExitCode = -1, Stdout = "", Stderr = ex.Message };
@@ -142,16 +154,25 @@ namespace taskforge.Services
                 string? rStderr = DynGetString(run, "Stderr", "stderr", "Error", "error");
                 int timeMs = DynGetInt(run, "TimeMs", "timeMs", "ElapsedMs", "elapsedMs");
 
-                // === ВАЖНО: нормализуем текст для честного сравнения (чинит Python \n vs \r\n) ===
-                var expected = Canon(tc.ExpectedOutput);
-                var actual = Canon(rStdout);
+                Console.WriteLine($"[Judge] exitCode={exitCode} timeMs={timeMs}");
+                Console.WriteLine($"[Judge] Actual.raw (visible): {ToVisible(rStdout)}");
+                Console.WriteLine($"[Judge] Actual.hex: {ToHex(rStdout)}");
 
-                var testPassed = exitCode == 0 &&
-                                 string.Equals(expected, actual, StringComparison.Ordinal);
+                // === Нормализация для сравнения (CRLF/LF/хвостовые пробелы) ===
+                var expectedCanon = Canon(tc.ExpectedOutput);
+                var actualCanon = Canon(rStdout);
+
+                Console.WriteLine($"[Judge] Expected.canon (visible): {ToVisible(expectedCanon)}");
+                Console.WriteLine($"[Judge] Actual.canon   (visible): {ToVisible(actualCanon)}");
+
+                bool testPassed = exitCode == 0 &&
+                                  string.Equals(expectedCanon, actualCanon, StringComparison.Ordinal);
+
+                Console.WriteLine($"[Judge] PASSED={testPassed}");
 
                 result.Tests.Add(new JudgeResponseDto.TestCaseResult
                 {
-                    Name = $"Тест {result.Tests.Count + 1}",
+                    Name = $"Тест {idx}",
                     Input = tc.Input ?? "",
                     Expected = tc.ExpectedOutput ?? "",
                     Actual = rStdout,
@@ -172,41 +193,56 @@ namespace taskforge.Services
                         Stdout = rStdout,
                         Stderr = rStderr ?? ""
                     };
-                    break;
+                    Console.WriteLine("[Judge] <<< Finish (runtime_error)");
+                    return result;
                 }
             }
 
             swTotal.Stop();
             result.Metrics = new JudgeResponseDto.ExecStats { TotalTimeMs = (int)swTotal.ElapsedMilliseconds };
 
-            if (result.Status == "runtime_error") return result;
-
             bool hasFail = result.Tests.Exists(t => !t.Passed);
             result.Status = hasFail ? "failed_tests" : "passed";
             result.Message = hasFail ? "Есть непройденные тесты" : "Все тесты пройдены";
+
+            Console.WriteLine($"[Judge] <<< Finish status={result.Status} totalMs={result.Metrics?.TotalTimeMs}");
             return result;
         }
 
         // ===== Helpers =====
 
-        /// <summary>
-        /// Приводим вывод к канону: CRLF → LF, режем хвостовые пробелы у строк и конечные \n.
-        /// Так «Hi\r\n» и «Hi\n» считаются равными. Это и чинит Python.
-        /// </summary>
+        /// Канонизация вывода: CRLF/CR→LF, обрезка хвостовых пробелов, снос финальных \n
         private static string Canon(string? s)
         {
             if (string.IsNullOrEmpty(s)) return string.Empty;
-
-            // 1) CRLF/CR → LF
             s = s.Replace("\r\n", "\n").Replace("\r", "\n");
-
-            // 2) убираем хвостовые пробелы/табы у каждой строки
             s = string.Join("\n", s.Split('\n').Select(line => line.TrimEnd(' ', '\t')));
-
-            // 3) убираем конечные \n (несколько подряд тоже)
             s = s.TrimEnd('\n');
-
             return s;
+        }
+
+        private static string ToVisible(string? s)
+        {
+            if (s == null) return "⟨null⟩";
+            var sb = new StringBuilder(s.Length + 16);
+            foreach (var ch in s)
+            {
+                sb.Append(ch switch
+                {
+                    '\r' => "\\r",
+                    '\n' => "\\n",
+                    '\t' => "\\t",
+                    _ => ch.ToString()
+                });
+            }
+            return sb.ToString();
+        }
+
+        private static string ToHex(string? s)
+        {
+            if (s == null) return "⟨null⟩";
+            var bytes = Encoding.UTF8.GetBytes(s);
+            return BitConverter.ToString(bytes);
         }
 
         private static string? DynGetString(object? obj, params string[] names)
