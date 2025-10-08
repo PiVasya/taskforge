@@ -99,17 +99,22 @@ export default function CodeEditor({
     });
   }, []);
 
-  // хелпер — безопасно перелэйаутить редактор
-  const relayout = useCallback(() => {
+    const relayout = useCallback(() => {
     const ed = editorRef.current;
     const el = wrapperRef.current;
     if (!ed || !el) return;
-    const w = Math.max(0, el.clientWidth);
-    const h = typeof height === 'number' ? height : el.clientHeight || 0;
-    // запросим кадр, чтобы не дёргать layout чаще, чем перерисовка
-    requestAnimationFrame(() => ed.layout({ width: w, height: h }));
+    // clientWidth иногда даёт «старое» значение сразу после перестроения сетки.
+    // getBoundingClientRect — надёжнее.
+    const rect = el.getBoundingClientRect();
+    const w = Math.max(0, Math.round(rect.width));
+    const h = typeof height === 'number' ? height : Math.max(0, Math.round(rect.height));
+    // Двойной rAF — даём браузеру завершить рефлоу после смены брейкпоинта/масштаба.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        ed.layout({ width: w, height: h });
+      });
+    });
   }, [height]);
-
   // ПРИ МАУНТЕ — запомним ссылки, установим тему, поднимем ResizeObserver
   const handleMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
@@ -122,8 +127,12 @@ export default function CodeEditor({
 
     // наблюдаем изменения размеров контейнера (брейкпоинты/масштаб/скрытие)
     if (wrapperRef.current && !roRef.current) {
-      roRef.current = new ResizeObserver(() => relayout());
-      roRef.current.observe(wrapperRef.current);
+      const ro = new ResizeObserver(() => relayout());
+      ro.observe(wrapperRef.current);
+      // Плюс наблюдаем за колонкой-родителем (grid/flex), где меняется ширина при брейкпоинтах
+      const parent = wrapperRef.current.closest('.editor-column, [data-editor-column], .lg\\:col-span-1, .lg\\:col-span-2') || wrapperRef.current.parentElement;
+      if (parent) ro.observe(parent);
+      roRef.current = ro;
     }
 
     // перестраиваемся на ресайз окна и смену ориентации
