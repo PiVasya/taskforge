@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import Editor, { useMonaco } from '@monaco-editor/react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import Editor from '@monaco-editor/react';
 
 /**
  * Пропсы:
@@ -7,7 +7,7 @@ import Editor, { useMonaco } from '@monaco-editor/react';
  *  - value: string
  *  - onChange: (code: string) => void
  *  - height?: number | string
- *  - lineNumbers?: 'on' | 'off'   // по умолчанию 'on'
+ *  - lineNumbers?: 'on' | 'off'
  */
 export default function CodeEditor({
   language = 'cpp',
@@ -16,52 +16,55 @@ export default function CodeEditor({
   height = 320,
   lineNumbers = 'on',
 }) {
-  const monaco = useMonaco();
   const [isDark, setIsDark] = useState(
     document.documentElement.classList.contains('dark')
   );
 
-  // Регистрируем «синие» темы
-  useEffect(() => {
-    if (!monaco) return;
+  const wrapperRef = useRef(null);
+  const editorRef = useRef(null);   // monaco.editor.IStandaloneCodeEditor
+  const monacoRef = useRef(null);   // monaco namespace
+  const roRef = useRef(null);       // ResizeObserver
 
-    // тёмная синяя (в тон сайту)
+  // соответствие языков Monaco
+  const monacoLang = useMemo(() => {
+    switch (language) {
+      case 'cpp': return 'cpp';
+      case 'csharp': return 'csharp';
+      case 'python': return 'python';
+      default: return 'plaintext';
+    }
+  }, [language]);
+
+  // РЕГИСТРАЦИЯ ТЕМ — ДО создания редактора
+  const handleBeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme('taskforge-blue-dark', {
       base: 'vs-dark',
       inherit: true,
       rules: [
         { token: '', foreground: 'D8DEE9' },
         { token: 'comment', foreground: '7B8794' },
-        { token: 'string', foreground: 'A3E635' },   // салатовый
-        { token: 'number', foreground: 'F59E0B' },   // янтарный
-        { token: 'keyword', foreground: '60A5FA', fontStyle: 'bold' }, // синеватые ключевые
+        { token: 'string', foreground: 'A3E635' },
+        { token: 'number', foreground: 'F59E0B' },
+        { token: 'keyword', foreground: '60A5FA', fontStyle: 'bold' },
         { token: 'type', foreground: '8BBAFF' },
         { token: 'function', foreground: 'F8FAFC' },
         { token: 'identifier', foreground: 'D8DEE9' },
       ],
       colors: {
-        // фон и гаттер — глубокий тёмно-синий
         'editor.background': '#0b1422',
         'editorGutter.background': '#0b1422',
         'editor.foreground': '#D8DEE9',
-
-        // номера строк — включены и менее навязчивые
         'editorLineNumber.foreground': '#5d6b7e',
         'editorLineNumber.activeForeground': '#a7b4c6',
-
-        // выделения/скролл/границы — холодные тона
         'editor.selectionBackground': '#1d2a41',
         'editor.inactiveSelectionBackground': '#172338',
         'editor.lineHighlightBackground': '#111c2d',
         'editorCursor.foreground': '#E5E7EB',
-
         'scrollbarSlider.background': '#2a3a5266',
         'scrollbarSlider.hoverBackground': '#2a3a5299',
         'scrollbarSlider.activeBackground': '#2a3a52cc',
-
         'editorIndentGuide.background': '#233047',
         'editorIndentGuide.activeBackground': '#2f3e5b',
-
         'editorWidget.background': '#0e1a2b',
         'editorWidget.border': '#20314a',
         'editorSuggestWidget.background': '#0e1a2b',
@@ -71,7 +74,6 @@ export default function CodeEditor({
       },
     });
 
-    // светлая (белая) тема
     monaco.editor.defineTheme('taskforge-blue-light', {
       base: 'vs',
       inherit: true,
@@ -86,52 +88,95 @@ export default function CodeEditor({
         'editor.background': '#FFFFFF',
         'editorGutter.background': '#FFFFFF',
         'editor.foreground': '#0F172A',
-
         'editorLineNumber.foreground': '#94A3B8',
         'editorLineNumber.activeForeground': '#475569',
-
         'editor.selectionBackground': '#CDE3FF',
         'editor.inactiveSelectionBackground': '#E6F0FF',
         'editor.lineHighlightBackground': '#F6F8FA',
-
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
       },
     });
-  }, [monaco]);
+  }, []);
 
-  // отслеживаем переключение темы сайта
+  // хелпер — безопасно перелэйаутить редактор
+  const relayout = useCallback(() => {
+    const ed = editorRef.current;
+    const el = wrapperRef.current;
+    if (!ed || !el) return;
+    const w = Math.max(0, el.clientWidth);
+    const h = typeof height === 'number' ? height : el.clientHeight || 0;
+    // запросим кадр, чтобы не дёргать layout чаще, чем перерисовка
+    requestAnimationFrame(() => ed.layout({ width: w, height: h }));
+  }, [height]);
+
+  // ПРИ МАУНТЕ — запомним ссылки, установим тему, поднимем ResizeObserver
+  const handleMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    monaco.editor.setTheme(
+      document.documentElement.classList.contains('dark')
+        ? 'taskforge-blue-dark'
+        : 'taskforge-blue-light'
+    );
+
+    // наблюдаем изменения размеров контейнера (брейкпоинты/масштаб/скрытие)
+    if (wrapperRef.current && !roRef.current) {
+      roRef.current = new ResizeObserver(() => relayout());
+      roRef.current.observe(wrapperRef.current);
+    }
+
+    // перестраиваемся на ресайз окна и смену ориентации
+    const onWinResize = () => relayout();
+    window.addEventListener('resize', onWinResize);
+    window.addEventListener('orientationchange', onWinResize);
+
+    // первая раскладка
+    relayout();
+
+    // очистка
+    return () => {
+      window.removeEventListener('resize', onWinResize);
+      window.removeEventListener('orientationchange', onWinResize);
+      roRef.current?.disconnect();
+      roRef.current = null;
+    };
+  }, [relayout]);
+
+  // Реакция на переключение темы сайта (класс .dark)
   useEffect(() => {
     const mo = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+      const dark = document.documentElement.classList.contains('dark');
+      setIsDark(dark);
+      try {
+        monacoRef.current?.editor?.setTheme(
+          dark ? 'taskforge-blue-dark' : 'taskforge-blue-light'
+        );
+      } catch {}
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => mo.disconnect();
   }, []);
 
-  // соответствие языков Monaco
-  const monacoLang = useMemo(() => {
-    switch (language) {
-      case 'cpp': return 'cpp';
-      case 'csharp': return 'csharp';
-      case 'python': return 'python';
-      default: return 'plaintext';
-    }
-  }, [language]);
-
   return (
-    <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
+    <div
+      ref={wrapperRef}
+      className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 min-w-0" // min-w-0 важно!
+      style={{ width: '100%' }}
+    >
       <Editor
         height={height}
         language={monacoLang}
         theme={isDark ? 'taskforge-blue-dark' : 'taskforge-blue-light'}
         value={value}
         onChange={(v) => onChange?.(v ?? '')}
+        beforeMount={handleBeforeMount}
+        onMount={handleMount}
         options={{
-          // Номера строк включены и компактные
+          // Номера строк и «зазор» после них
           lineNumbers,
-          lineNumbersMinChars: 2,          // уже гаттер для цифр
-          lineDecorationsWidth: 12,         // без дополнительного поля слева
+          lineNumbersMinChars: 2,
+          lineDecorationsWidth: 12,
           glyphMargin: false,
           folding: false,
 
@@ -143,7 +188,7 @@ export default function CodeEditor({
 
           // UX
           minimap: { enabled: false },
-          automaticLayout: true,
+          automaticLayout: false, // мы делаем свой layout — стабильнее
           wordWrap: 'on',
           tabSize: 2,
           insertSpaces: true,
