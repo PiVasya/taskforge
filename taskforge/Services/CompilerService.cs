@@ -16,12 +16,9 @@ namespace taskforge.Services
 
         public async Task<CompilerRunResponseDto> CompileAndRunAsync(CompilerRunRequestDto req)
         {
-            if (req == null)
-                throw new ValidationException("Request body is required.");
-            if (string.IsNullOrWhiteSpace(req.Language))
-                throw new ValidationException("Field 'language' is required.");
-            if (string.IsNullOrWhiteSpace(req.Code))
-                throw new ValidationException("Field 'code' is required.");
+            if (req == null) throw new ValidationException("Request body is required.");
+            if (string.IsNullOrWhiteSpace(req.Language)) throw new ValidationException("Field 'language' is required.");
+            if (string.IsNullOrWhiteSpace(req.Code)) throw new ValidationException("Field 'code' is required.");
 
             var compiler = _provider.GetCompiler(req.Language)
                 ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
@@ -33,19 +30,16 @@ namespace taskforge.Services
         }
 
         /// <summary>
-        /// НАДЁЖНЫЙ прогон тестов: каждый кейс гоняем через CompileAndRunAsync,
-        /// берём реальный stdout и сравниваем с нормализацией CRLF/LF + хвостовые пробелы.
+        /// Прогон тестов «по‑настоящему»: на каждый кейс вызываем CompileAndRunAsync,
+        /// берём фактический stdout и сравниваем через канонизацию (CRLF/LF/хвостовые пробелы).
         /// </summary>
         public async Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto req)
         {
             Console.WriteLine("[RunTests] >>> Start (robust path via CompileAndRunAsync)");
 
-            if (req == null)
-                throw new ValidationException("Request body is required.");
-            if (string.IsNullOrWhiteSpace(req.Language))
-                throw new ValidationException("Field 'language' is required.");
-            if (string.IsNullOrWhiteSpace(req.Code))
-                throw new ValidationException("Field 'code' is required.");
+            if (req == null) throw new ValidationException("Request body is required.");
+            if (string.IsNullOrWhiteSpace(req.Language)) throw new ValidationException("Field 'language' is required.");
+            if (string.IsNullOrWhiteSpace(req.Code)) throw new ValidationException("Field 'code' is required.");
 
             var compiler = _provider.GetCompiler(req.Language)
                 ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
@@ -53,11 +47,10 @@ namespace taskforge.Services
             var tests = req.TestCases ?? new List<TestCaseDto>();
             var results = new List<TestResultDto>(tests.Count);
 
-            int i = 0;
-            foreach (var tc in tests)
+            for (int i = 0; i < tests.Count; i++)
             {
-                i++;
-                Console.WriteLine($"[RunTests] --- test #{i} ---");
+                var tc = tests[i];
+                Console.WriteLine($"[RunTests] --- test #{i + 1} ---");
                 Console.WriteLine($"[RunTests] input.visible    : {ToVisible(tc.Input)}");
                 Console.WriteLine($"[RunTests] expected.visible : {ToVisible(tc.ExpectedOutput)}  hex={ToHex(tc.ExpectedOutput)}");
 
@@ -72,28 +65,24 @@ namespace taskforge.Services
 
                 var actual = run.Stdout ?? string.Empty;
                 var exit   = run.ExitCode;
-
                 Console.WriteLine($"[RunTests] exit={exit}  actual.visible: {ToVisible(actual)}  hex={ToHex(actual)}");
+
+                bool passed = exit == 0 && string.Equals(Canon(tc.ExpectedOutput), Canon(actual), StringComparison.Ordinal);
+
                 Console.WriteLine($"[RunTests] expected.canon  : {ToVisible(Canon(tc.ExpectedOutput))}");
                 Console.WriteLine($"[RunTests] actual.canon    : {ToVisible(Canon(actual))}");
-
-                var passed = exit == 0 && string.Equals(
-                    Canon(tc.ExpectedOutput), Canon(actual), StringComparison.Ordinal);
-
                 Console.WriteLine($"[RunTests] PASSED={passed}");
 
-                // !!! МЭППИНГ ПОД ТВОЙ DTO !!!
                 results.Add(new TestResultDto
                 {
                     Input          = tc.Input ?? string.Empty,
                     ExpectedOutput = tc.ExpectedOutput ?? string.Empty,
                     ActualOutput   = actual,
                     Passed         = passed,
-
-                    Status         = exit == 0 ? "ok" : "runtime_error",
+                    Status         = passed ? "ok" : (exit != 0 ? "runtime_error" : "ok"),
                     ExitCode       = exit,
-                    Stderr         = run.Stderr ?? string.Empty,
-                    CompileStderr  = run.CompileStderr,
+                    Stderr         = run.Stderr ?? "",
+                    CompileStderr  = run.CompileStderr ?? "",
                     Hidden         = tc.IsHidden
                 });
             }
@@ -106,9 +95,9 @@ namespace taskforge.Services
         private static string Canon(string? s)
         {
             if (string.IsNullOrEmpty(s)) return string.Empty;
-            s = s.Replace("\r\n", "\n").Replace("\r", "\n");               // CRLF/LF
-            s = string.Join("\n", s.Split('\n').Select(line => line.TrimEnd(' ', '\t'))); // хвостовые пробелы/таб
-            s = s.TrimEnd('\n');                                           // хвостовые пустые строки
+            s = s.Replace("\r\n", "\n").Replace("\r", "\n");
+            s = string.Join("\n", s.Split('\n').Select(line => line.TrimEnd(' ', '\t')));
+            s = s.TrimEnd('\n');
             return s;
         }
 

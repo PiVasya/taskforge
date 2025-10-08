@@ -1,64 +1,85 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Runner.Models;
 using Runner.Services;
 
 namespace Runner.Controllers;
 
 [ApiController]
-[Route("/")]
-public class RunController : ControllerBase
+[Route("[controller]")]
+public sealed class RunController : ControllerBase
 {
-    private static readonly TimeSpan RunTimeout = TimeSpan.FromSeconds(5);
-    private readonly ICompilationService _compiler;
+    private readonly IRoslynCompilationService _compiler;
     private readonly IExecutionService _exec;
 
-    public RunController(ICompilationService compiler, IExecutionService exec)
+    public RunController(IRoslynCompilationService compiler, IExecutionService exec)
     {
         _compiler = compiler;
         _exec = exec;
     }
 
-    [HttpPost("run")]
-    public ActionResult<RunResponse> Run([FromBody] RunRequest req)
+    public sealed class RunRequest { public string? code { get; set; } public string? input { get; set; } }
+    public sealed class RunResponse
     {
-        var (ok, asm, err) = _compiler.CompileToAssembly(req.Code);
-        if (!ok)
-            return new RunResponse { Error = err, ExitCode = 1 };
-
-        var (ran, stdout, ex) = _exec.Run(asm!, req.Input ?? "", RunTimeout);
-        return ran
-            ? new RunResponse { Stdout = stdout, Stderr = "", ExitCode = 0 }
-            : new RunResponse { Stdout = "", Stderr = ex, ExitCode = 1 };
+        public string? stdout { get; set; }
+        public string? stderr { get; set; }
+        public int exitCode { get; set; }
+        public string? error { get; set; } // компиляционные ошибки сюда тоже
     }
 
-    [HttpPost("run/tests")]
-    public ActionResult<TestResultsResponse> RunTests([FromBody] RunRequestWithTests req)
+    [HttpPost("/run")]
+    public ActionResult<RunResponse> Run([FromBody] RunRequest req)
     {
-        var (ok, asm, err) = _compiler.CompileToAssembly(req.Code);
-        if (!ok)
+        var (ok, asm, err) = _compiler.Compile(req.code ?? "");
+        if (!ok || asm == null)
         {
-            return new TestResultsResponse
+            return Ok(new RunResponse
             {
-                Results = new[]
-                {
-                    new TestResult { ActualOutput = err, Passed = false }
-                }
-            };
-        }
-
-        var list = new List<TestResult>(req.Tests?.Count ?? 0);
-        foreach (var t in req.Tests ?? Enumerable.Empty<TestCase>())
-        {
-            var (ran, stdout, ex) = _exec.Run(asm!, t.Input ?? "", RunTimeout);
-            list.Add(new TestResult
-            {
-                Input = t.Input,
-                ExpectedOutput = t.ExpectedOutput,
-                ActualOutput = ran ? stdout : ex,
-                Passed = ran && stdout == (t.ExpectedOutput ?? "")
+                stdout = null,
+                stderr = err,   // дублируем в stderr
+                exitCode = 1,
+                error = err
             });
         }
 
-        return new TestResultsResponse { Results = list };
+        var (okRun, stdout, runErr) = _exec.Run(asm, req.input ?? "", TimeSpan.FromSeconds(2));
+        return Ok(new RunResponse
+        {
+            stdout = okRun ? stdout : null,
+            stderr = okRun ? null : runErr,
+            exitCode = okRun ? 0 : 1,
+            error = okRun ? null : runErr
+        });
+    }
+
+    public sealed class TestItem { public string? input { get; set; } public string? expectedOutput { get; set; } }
+    public sealed class TestsRequest { public string? code { get; set; } public List<TestItem>? tests { get; set; } }
+    public sealed class TestsResponse { public List<object> results { get; set; } = new(); }
+
+    [HttpPost("/run/tests")]
+    public ActionResult<TestsResponse> RunTests([FromBody] TestsRequest req)
+    {
+        var (ok, asm, err) = _compiler.Compile(req.code ?? "");
+        if (!ok || asm == null)
+        {
+            // Пусть клиент покажет compile error и не продолжает
+            return Ok(new TestsResponse { results = new List<object>() });
+        }
+
+        var res = new TestsResponse();
+        foreach (var t in (req.tests ?? new List<TestItem>()))
+        {
+            var (okRun, stdout, runErr) = _exec.Run(asm, t.input ?? "", TimeSpan.FromSeconds(2));
+            var actual = okRun ? stdout : "";
+            res.results.Add(new
+            {
+                input = t.input ?? "",
+                expectedOutput = t.expectedOutput ?? "",
+                actualOutput = actual,
+                passed = okRun && string.Equals(
+                    (t.expectedOutput ?? "").Replace("\r\n","\n").TrimEnd(),
+                    (actual ?? "").Replace("\r\n","\n").TrimEnd(),
+                    StringComparison.Ordinal)
+            });
+        }
+        return Ok(res);
     }
 }

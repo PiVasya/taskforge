@@ -4,42 +4,71 @@ using System.Reflection;
 
 namespace Runner.Services;
 
-public sealed class RoslynCompilationService : ICompilationService
+public interface IRoslynCompilationService
 {
-    private static readonly CSharpCompilationOptions Options =
-        new(OutputKind.ConsoleApplication,
-            optimizationLevel: OptimizationLevel.Release,
-            concurrentBuild: true);
+    (bool Ok, Assembly? Assembly, string Error) Compile(string code);
+}
 
-    private static readonly MetadataReference[] Refs =
+public sealed class RoslynCompilationService : IRoslynCompilationService
+{
+    public (bool Ok, Assembly? Assembly, string Error) Compile(string code)
     {
-        MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-        MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-        MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
-        // при необходимости добавляй сюда другие референсы (System.Runtime и т.п.)
-    };
-
-    public (bool Ok, Assembly? Assembly, string Error) CompileToAssembly(string code)
-    {
-        var tree = CSharpSyntaxTree.ParseText(code);
-        var compilation = CSharpCompilation.Create(
-            assemblyName: "UserProgram",
-            syntaxTrees: new[] { tree },
-            references: Refs,
-            options: Options
-        );
-
-        using var ms = new MemoryStream();
-        var emit = compilation.Emit(ms);
-        if (!emit.Success)
+        try
         {
-            var err = string.Join("\n", emit.Diagnostics
-                .Where(d => d.Severity == DiagnosticSeverity.Error)
-                .Select(d => d.ToString()));
-            return (false, null, err);
-        }
+            var syntax = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.Preview));
 
-        ms.Position = 0;
-        return (true, Assembly.Load(ms.ToArray()), "");
+            // ПОЛНЫЙ набор платформенных сборок (TPA) — критично для CS0012/System.Runtime
+            var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? string.Empty)
+                      .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+            var references = tpa
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(p =>
+                {
+                    try { return MetadataReference.CreateFromFile(p); }
+                    catch { return null; }
+                })
+                .Where(r => r != null)!
+                .ToList();
+
+            var options = new CSharpCompilationOptions(
+                OutputKind.ConsoleApplication,
+                optimizationLevel: OptimizationLevel.Release,
+                allowUnsafe: true,
+                concurrentBuild: true,
+                usings: new[]
+                {
+                    "System", "System.IO", "System.Text", "System.Linq", "System.Collections.Generic"
+                });
+
+            var compilation = CSharpCompilation.Create(
+                assemblyName: "UserSubmission",
+                syntaxTrees: new[] { syntax },
+                references: references!,
+                options: options
+            );
+
+            using var peStream = new MemoryStream();
+            using var pdbStream = new MemoryStream();
+
+            var emit = compilation.Emit(peStream, pdbStream);
+            if (!emit.Success)
+            {
+                var errors = string.Join("\n", emit.Diagnostics
+                    .Where(d => d.Severity == DiagnosticSeverity.Error)
+                    .Select(d => d.ToString()));
+                return (false, null, errors);
+            }
+
+            peStream.Position = 0;
+            pdbStream.Position = 0;
+
+            var asm = Assembly.Load(peStream.ToArray(), pdbStream.ToArray());
+            return (true, asm, "");
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
     }
 }

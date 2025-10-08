@@ -5,7 +5,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddSingleton<ICompilationService, RoslynCompilationService>();
+builder.Services.AddSingleton<IRoslynCompilationService, RoslynCompilationService>();
 builder.Services.AddSingleton<IExecutionService, ExecutionService>();
 
 var app = builder.Build();
