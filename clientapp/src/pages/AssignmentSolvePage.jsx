@@ -1,16 +1,10 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-
 import Layout from '../components/Layout';
-import { Card, Button, Select, Badge, Textarea } from '../components/ui';
-import { getAssignment } from '../api/assignments';
-import { runTestsForAssignment } from '../api/solutions';
+import { Card, Button, Textarea, Select, Badge } from '../components/ui';
+import { getAssignment, submitSolution } from '../api/assignments';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
-
-import CodeEditor from '../components/CodeEditor';
-import CompileErrorPanel from '../components/runner/CompileErrorPanel';
-import RuntimeErrorPanel from '../components/runner/RuntimeErrorPanel';
 
 export default function AssignmentSolvePage() {
   const LANGS = [
@@ -27,14 +21,14 @@ export default function AssignmentSolvePage() {
 
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
-  const [stdin, setStdin] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
 
+  // утилиты отображения вывода
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
   const normalizeNewlines = (s) =>
     (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
-  const onlyNewlineDiffers = (aa, bb) => normalizeNewlines(aa) === normalizeNewlines(bb);
+  const onlyNewlineDiffers = (a, b) => normalizeNewlines(a) === normalizeNewlines(b);
 
   useEffect(() => {
     (async () => {
@@ -51,6 +45,7 @@ export default function AssignmentSolvePage() {
     })();
   }, [assignmentId]);
 
+  // стартовый шаблон кода по языку
   useEffect(() => {
     if (code.trim()) return;
     if (language === 'python') {
@@ -65,43 +60,48 @@ class Program { static void Main(){ /* ... */ } }`);
     }
   }, [language, code]);
 
+  // Нормализация ответа бэка под формат, который ожидает разметка ниже
+  const normalizeBackendResponse = (r) => {
+    // бэк может вернуть:
+    // - { passedAllTests, passedCount, failedCount, testCases: [{ input, expectedOutput, actualOutput, passed, isHidden }] }
+    // - или совместимые имена
+    const cases = (r?.cases ?? r?.testCases ?? r?.results ?? []).map((c) => ({
+      input: c.input ?? '',
+      expected: c.expected ?? c.expectedOutput ?? '',
+      actual: c.actual ?? c.actualOutput ?? '',
+      passed: Boolean(c.passed),
+      hidden: Boolean(c.hidden ?? c.isHidden),
+    }));
+
+    // если бэк сразу прислал агрегаты — используем их
+    const passedCount =
+      r?.passed ?? r?.passedCount ?? cases.filter((x) => x.passed).length;
+    const failedCount =
+      r?.failed ?? r?.failedCount ?? (cases.length - passedCount);
+    const passedAll =
+      (typeof r?.passedAll !== 'undefined' ? r.passedAll : r?.passedAllTests) ??
+      (cases.length > 0 && passedCount === cases.length);
+
+    return {
+      status: passedAll ? 'passed' : 'failed',
+      passedCount,
+      failedCount,
+      tests: cases,
+      // сохраняем для шапки совместимость со старой версткой
+      passedAll,
+      passedAllTests: passedAll,
+    };
+  };
+
   const onSubmit = async () => {
     setSubmitting(true);
     setError('');
     setResult(null);
-
     try {
-      // Собираем ВСЕ тесты задания (и публичные, и скрытые — бэк их не подтягивает сам)
-      // getAssignment уже отдаёт testCases
-      const testCases = (a?.testCases || []).map((t) => ({
-        input: t.input ?? '',
-        expectedOutput: t.expectedOutput ?? '',
-      }));
-
-      if (testCases.length === 0) {
-        setResult({ status: 'no_tests', tests: [] });
-        setSubmitting(false);
-        return;
-      }
-
-      const data = await runTestsForAssignment({
-        language,
-        source: code,
-        testCases,
-        // при необходимости передай лимиты:
-        // timeLimitMs: 2000,
-        // memoryLimitMb: 256,
-      });
-
-      // Приводим к формату, который уже ожидает UI ниже
-      const tests = Array.isArray(data?.results) ? data.results : [];
-      const passed = tests.filter((t) => t.passed).length;
-      const status = passed === tests.length ? 'passed' : 'failed';
-
-      setResult({ status, tests });
+      const r = await submitSolution(assignmentId, { language, code });
+      setResult(normalizeBackendResponse(r));
     } catch (e) {
-      // если бэк вернул 400 на компиляционную ошибку — покажем как runtime/compile панель позже при необходимости
-      setError(e?.message || 'Не удалось выполнить код');
+      setError(e?.message || 'Не удалось отправить решение');
     } finally {
       setSubmitting(false);
     }
@@ -110,7 +110,7 @@ class Program { static void Main(){ /* ... */ } }`);
   if (loading) return <Layout><div className="text-slate-500">Загрузка…</div></Layout>;
   if (!a)      return <Layout><div className="text-red-500">{error || 'Задание не найдено'}</div></Layout>;
 
-  const publicTests = (a.testCases || []).filter(t => !t.isHidden);
+  const publicTests = (a?.testCases || []).filter((t) => !t.isHidden);
 
   return (
     <Layout>
@@ -132,12 +132,18 @@ class Program { static void Main(){ /* ... */ } }`);
             <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
             {a.tags && (
               <div className="flex flex-wrap gap-2 mb-3">
-                {a.tags.split(',').filter(Boolean).map(t => <Badge key={t.trim()}>{t.trim()}</Badge>)}
+                {a.tags.split(',').filter(Boolean).map((t) => (
+                  <Badge key={t.trim()}>{t.trim()}</Badge>
+                ))}
               </div>
             )}
             <div className="prose prose-slate dark:prose-invert max-w-none">
               {a.description ? (
-                <div dangerouslySetInnerHTML={{ __html: a.description.replace(/\n/g, '<br/>') }} />
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: (a.description || '').replace(/\n/g, '<br/>'),
+                  }}
+                />
               ) : (
                 <p className="text-slate-500">Описание не задано.</p>
               )}
@@ -151,11 +157,16 @@ class Program { static void Main(){ /* ... */ } }`);
             ) : (
               <div className="grid sm:grid-cols-2 gap-4">
                 {publicTests.map((t, i) => (
-                  <div key={t.id ?? i} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40">
+                  <div
+                    key={t.id ?? i}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
+                  >
                     <div className="text-xs text-slate-500 mb-1">Input</div>
                     <pre className="whitespace-pre-wrap text-sm">{t.input}</pre>
                     <div className="text-xs text-slate-500 mt-2 mb-1">Expected Output</div>
-                    <pre className="whitespace-pre-wrap text-sm">{t.expectedOutput}</pre>
+                    <pre className="whitespace-pre-wrap text-sm">
+                      {displayClean(t.expectedOutput)}
+                    </pre>
                   </div>
                 ))}
               </div>
@@ -169,92 +180,116 @@ class Program { static void Main(){ /* ... */ } }`);
             <div className="grid gap-3">
               <div>
                 <label className="label">Язык</label>
-                <Select value={language} onChange={e => setLanguage(e.target.value)}>
-                  {LANGS.map(l => (
-                    <option key={l.value} value={l.value}>{l.label}</option>
+                <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  {LANGS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
                   ))}
                 </Select>
               </div>
 
               <div>
                 <label className="label">Ваш код</label>
-                <CodeEditor language={language} value={code} onChange={setCode} />
+                <Textarea
+                  rows={14}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="// Напишите решение..."
+                />
               </div>
 
-              <details className="mt-2">
-                <summary className="cursor-pointer select-none text-sm text-slate-500">stdin (опционально)</summary>
-                <Textarea rows={4} value={stdin} onChange={(e) => setStdin(e.target.value)} placeholder="Ввод программы…" />
-              </details>
-
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
-                <Play size={16} /> {submitting ? 'Выполняю…' : 'Отправить решение'}
+                <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить решение'}
               </Button>
 
               {error && <div className="text-red-500 text-sm">{error}</div>}
             </div>
           </Card>
 
-          {/* Компиляция / рантайм / тесты */}
+          {/* Результаты прогонки тестов */}
           {result && (
-            <>
-              {/* Оставляем панели — если когда-нибудь начнёшь возвращать их из /api/tests/run/tests */}
-              {result.compile && <CompileErrorPanel compile={result.compile} source={code} />}
-              {result.run && <RuntimeErrorPanel run={result.run} source={code} />}
-
-              {(result.tests ?? []).length > 0 && (
-                <Card>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {result.status === 'passed' ? (
-                        <CheckCircle2 className="text-green-600" size={18} />
-                      ) : (
-                        <XCircle className="text-red-600" size={18} />
-                      )}
-                      <div className="font-medium">
-                        {result.status === 'passed' ? 'Все тесты пройдены!' : 'Не все тесты пройдены.'}
-                      </div>
-                    </div>
-                    <div className="text-sm text-slate-500">
-                      Успешно: <span className="font-medium">{(result.tests || []).filter(t => t.passed).length}</span> ·
-                      Провалено: <span className="font-medium">{(result.tests || []).filter(t => !t.passed).length}</span>
-                    </div>
+            <Card>
+              {/* Шапка */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {result.passedAll || result.passedAllTests || result.status === 'passed' ? (
+                    <CheckCircle2 className="text-green-600" size={18} />
+                  ) : (
+                    <XCircle className="text-red-600" size={18} />
+                  )}
+                  <div className="font-medium">
+                    {result.passedAll || result.passedAllTests || result.status === 'passed'
+                      ? 'Все тесты пройдены!'
+                      : 'Не все тесты пройдены.'}
                   </div>
+                </div>
+                <div className="text-sm text-slate-500">
+                  Успешно:{' '}
+                  <span className="font-medium">
+                    {result.passedCount ??
+                      (result.tests || []).filter((t) => t.passed).length ??
+                      0}
+                  </span>{' '}
+                  · Провалено:{' '}
+                  <span className="font-medium">
+                    {result.failedCount ??
+                      ((result.tests || []).length -
+                        (result.tests || []).filter((t) => t.passed).length) ??
+                      0}
+                  </span>
+                </div>
+              </div>
 
-                  <div className="mt-4 grid sm:grid-cols-2 gap-4">
-                    {(result.tests || []).map((c, i) => {
-                      const newlineOnly = !c.passed && onlyNewlineDiffers(c.expected, c.actual);
-                      return (
-                        <div key={i} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40">
-                          <div className="mb-2 flex items-center justify-between">
-                            <div className="text-sm font-semibold">Тест #{i + 1}</div>
-                            {c.passed ? <span className="text-green-600 text-sm">OK</span> : <span className="text-red-600 text-sm">FAIL</span>}
-                          </div>
-                          <div className="text-xs text-slate-500 mb-1">Input</div>
-                          <pre className="whitespace-pre-wrap text-sm">{c.input}</pre>
+              {/* Кейсы */}
+              <div className="mt-4 grid sm:grid-cols-2 gap-4">
+                {(result.tests || []).map((c, i) => {
+                  const exp = c.expected ?? c.expectedOutput ?? '';
+                  const act = c.actual ?? c.actualOutput ?? '';
+                  const newlineOnly = !c.passed && onlyNewlineDiffers(exp, act);
 
-                          <div className="grid grid-cols-2 gap-3 mt-2">
-                            <div>
-                              <div className="text-xs text-slate-500 mb-1">Expected</div>
-                              <pre className="whitespace-pre-wrap text-sm">{displayClean(c.expected)}</pre>
-                            </div>
-                            <div>
-                              <div className="text-xs text-slate-500 mb-1">Actual</div>
-                              <pre className="whitespace-pre-wrap text-sm">{displayClean(c.actual)}</pre>
-                            </div>
-                          </div>
-
-                          {!c.passed && (
-                            <div className="mt-2 text-xs text-amber-600">
-                              {newlineOnly ? 'Различие только в переводах строк (\\r\\n vs \\n).' : 'Вывод отличается от ожидаемого.'}
-                            </div>
-                          )}
+                  return (
+                    <div
+                      key={i}
+                      className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-sm font-semibold">
+                          Тест #{i + 1} {c.hidden ? '(скрытый)' : ''}
                         </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              )}
-            </>
+                        {c.passed ? (
+                          <span className="text-green-600 text-sm">OK</span>
+                        ) : (
+                          <span className="text-red-600 text-sm">FAIL</span>
+                        )}
+                      </div>
+
+                      <div className="text-xs text-slate-500 mb-1">Input</div>
+                      <pre className="whitespace-pre-wrap text-sm">{c.input}</pre>
+
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        <div>
+                          <div className="text-xs text-slate-500 mb-1">Expected</div>
+                          <pre className="whitespace-pre-wrap text-sm">{displayClean(exp)}</pre>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500 mb-1">Actual</div>
+                          <pre className="whitespace-pre-wrap text-sm">{displayClean(act)}</pre>
+                        </div>
+                      </div>
+
+                      {!c.passed && (
+                        <div className="mt-2 text-xs text-amber-600">
+                          {newlineOnly
+                            ? 'Различие только в переводах строк (\\r\\n vs \\n).'
+                            : 'Вывод отличается от ожидаемого.'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
           )}
         </div>
       </div>
