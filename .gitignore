@@ -365,3 +365,6 @@ FodyWeavers.xsd
 clientapp/dist/taskforge.deps.json
 clientapp/dist/taskforge.exe
 clientapp/dist/taskforge.runtimeconfig.json
+clientapp/dist/taskforge.deps.json
+clientapp/dist/taskforge.exe
+clientapp/dist/taskforge.runtimeconfig.json
