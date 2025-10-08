@@ -1,4 +1,5 @@
 ﻿﻿using System.ComponentModel.DataAnnotations;
+using System.Text;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 
@@ -17,16 +18,13 @@ namespace taskforge.Services
         {
             if (req == null)
                 throw new ValidationException("Request body is required.");
-
             if (string.IsNullOrWhiteSpace(req.Language))
                 throw new ValidationException("Field 'language' is required.");
-
             if (string.IsNullOrWhiteSpace(req.Code))
                 throw new ValidationException("Field 'code' is required.");
 
-            var compiler = _provider.GetCompiler(req.Language);
-            if (compiler is null)
-                throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
+            var compiler = _provider.GetCompiler(req.Language)
+                ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
 
             Console.WriteLine($"[CompileAndRun] lang={req.Language} TL={req.TimeLimitMs} ML={req.MemoryLimitMb}");
             var resp = await compiler.CompileAndRunAsync(req);
@@ -34,105 +32,100 @@ namespace taskforge.Services
             return resp;
         }
 
+        /// <summary>
+        /// НАДЁЖНЫЙ прогон тестов: каждый кейс гоняем через CompileAndRunAsync,
+        /// берём реальный stdout и сравниваем с нормализацией CRLF/LF + хвостовые пробелы.
+        /// </summary>
         public async Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto req)
         {
-            Console.WriteLine("[RunTests] >>> Start");
+            Console.WriteLine("[RunTests] >>> Start (robust path via CompileAndRunAsync)");
+
             if (req == null)
                 throw new ValidationException("Request body is required.");
-
             if (string.IsNullOrWhiteSpace(req.Language))
                 throw new ValidationException("Field 'language' is required.");
-
             if (string.IsNullOrWhiteSpace(req.Code))
                 throw new ValidationException("Field 'code' is required.");
 
-            var compiler = _provider.GetCompiler(req.Language);
-            if (compiler is null)
-                throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
+            var compiler = _provider.GetCompiler(req.Language)
+                ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
 
-            var results = await compiler.RunTestsAsync(
-                req.Code,
-                req.TestCases ?? new List<TestCaseDto>(),
-                req.TimeLimitMs,
-                req.MemoryLimitMb
-            );
+            var tests = req.TestCases ?? new List<TestCaseDto>();
+            var results = new List<TestResultDto>(tests.Count);
 
-            Console.WriteLine($"[RunTests] got {results.Count} results from provider");
             int i = 0;
-
-            foreach (var r in results)
+            foreach (var tc in tests)
             {
                 i++;
-                try
+                Console.WriteLine($"[RunTests] --- test #{i} ---");
+                Console.WriteLine($"[RunTests] input.visible    : {ToVisible(tc.Input)}");
+                Console.WriteLine($"[RunTests] expected.visible : {ToVisible(tc.ExpectedOutput)}  hex={ToHex(tc.ExpectedOutput)}");
+
+                var run = await compiler.CompileAndRunAsync(new CompilerRunRequestDto
                 {
-                    var expected = (string?)r.GetType().GetProperty("Expected")?.GetValue(r)
-                                   ?? (string?)r.GetType().GetProperty("ExpectedOutput")?.GetValue(r)
-                                   ?? "";
-                    var actual = (string?)r.GetType().GetProperty("Actual")?.GetValue(r)
-                                 ?? (string?)r.GetType().GetProperty("Output")?.GetValue(r)
-                                 ?? (string?)r.GetType().GetProperty("Stdout")?.GetValue(r)
-                                 ?? "";
+                    Language      = req.Language,
+                    Code          = req.Code,
+                    Input         = tc.Input ?? string.Empty,
+                    TimeLimitMs   = req.TimeLimitMs ?? 2000,
+                    MemoryLimitMb = req.MemoryLimitMb ?? 256
+                });
 
-                    int exitCode = 0;
-                    var exitCodeProp = r.GetType().GetProperty("ExitCode");
-                    if (exitCodeProp != null && exitCodeProp.GetValue(r) is int ec) exitCode = ec;
+                var actual = run.Stdout ?? string.Empty;
+                var exit   = run.ExitCode;
 
-                    var passedBefore = (bool?)r.GetType().GetProperty("Passed")?.GetValue(r);
+                Console.WriteLine($"[RunTests] exit={exit}  actual.visible: {ToVisible(actual)}  hex={ToHex(actual)}");
+                Console.WriteLine($"[RunTests] expected.canon  : {ToVisible(Canon(tc.ExpectedOutput))}");
+                Console.WriteLine($"[RunTests] actual.canon    : {ToVisible(Canon(actual))}");
 
-                    Console.WriteLine($"[RunTests] #{i}: exit={exitCode} passed(before)={passedBefore}");
-                    Console.WriteLine($"[RunTests] #{i}: expected.raw='{ToVisible(expected)}' (hex={ToHex(expected)})");
-                    Console.WriteLine($"[RunTests] #{i}: actual.raw  ='{ToVisible(actual)}' (hex={ToHex(actual)})");
+                var passed = exit == 0 && string.Equals(
+                    Canon(tc.ExpectedOutput), Canon(actual), StringComparison.Ordinal);
 
-                    bool passed = string.Equals(Canon(expected), Canon(actual), StringComparison.Ordinal);
-                    if (exitCode != 0) passed = false;
+                Console.WriteLine($"[RunTests] PASSED={passed}");
 
-                    r.GetType().GetProperty("Passed")?.SetValue(r, passed);
-
-                    Console.WriteLine($"[RunTests] #{i}: expected.canon='{ToVisible(Canon(expected))}'");
-                    Console.WriteLine($"[RunTests] #{i}: actual.canon  ='{ToVisible(Canon(actual))}'");
-                    Console.WriteLine($"[RunTests] #{i}: passed(after)={passed}");
-                }
-                catch (Exception ex)
+                // !!! МЭППИНГ ПОД ТВОЙ DTO !!!
+                results.Add(new TestResultDto
                 {
-                    Console.WriteLine($"[RunTests] #{i}: normalize ERROR: {ex}");
-                }
+                    Input          = tc.Input ?? string.Empty,
+                    ExpectedOutput = tc.ExpectedOutput ?? string.Empty,
+                    ActualOutput   = actual,
+                    Passed         = passed,
+
+                    Status         = exit == 0 ? "ok" : "runtime_error",
+                    ExitCode       = exit,
+                    Stderr         = run.Stderr ?? string.Empty,
+                    CompileStderr  = run.CompileStderr,
+                    Hidden         = tc.IsHidden
+                });
             }
 
             Console.WriteLine("[RunTests] <<< Finish");
             return results;
+        }
 
-            static string Canon(string? s)
-            {
-                if (string.IsNullOrEmpty(s)) return string.Empty;
-                s = s.Replace("\r\n", "\n").Replace("\r", "\n");
-                s = string.Join("\n", s.Split('\n').Select(line => line.TrimEnd(' ', '\t')));
-                s = s.TrimEnd('\n');
-                return s;
-            }
+        // ===== helpers =====
+        private static string Canon(string? s)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
+            s = s.Replace("\r\n", "\n").Replace("\r", "\n");               // CRLF/LF
+            s = string.Join("\n", s.Split('\n').Select(line => line.TrimEnd(' ', '\t'))); // хвостовые пробелы/таб
+            s = s.TrimEnd('\n');                                           // хвостовые пустые строки
+            return s;
+        }
 
-            static string ToVisible(string? s)
-            {
-                if (s == null) return "⟨null⟩";
-                var sb = new System.Text.StringBuilder(s.Length + 16);
-                foreach (var ch in s)
-                {
-                    sb.Append(ch switch
-                    {
-                        '\r' => "\\r",
-                        '\n' => "\\n",
-                        '\t' => "\\t",
-                        _ => ch.ToString()
-                    });
-                }
-                return sb.ToString();
-            }
+        private static string ToVisible(string? s)
+        {
+            if (s == null) return "⟨null⟩";
+            var sb = new StringBuilder(s.Length + 16);
+            foreach (var ch in s)
+                sb.Append(ch switch { '\r' => "\\r", '\n' => "\\n", '\t' => "\\t", _ => ch.ToString() });
+            return sb.ToString();
+        }
 
-            static string ToHex(string? s)
-            {
-                if (s == null) return "⟨null⟩";
-                var bytes = System.Text.Encoding.UTF8.GetBytes(s);
-                return BitConverter.ToString(bytes);
-            }
+        private static string ToHex(string? s)
+        {
+            if (s == null) return "⟨null⟩";
+            var bytes = Encoding.UTF8.GetBytes(s);
+            return BitConverter.ToString(bytes);
         }
     }
 }
