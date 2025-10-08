@@ -131,7 +131,7 @@ export default function CodeEditor({
           // Номера строк включены и компактные
           lineNumbers,
           lineNumbersMinChars: 2,          // уже гаттер для цифр
-          lineDecorationsWidth: 0,         // без дополнительного поля слева
+          lineDecorationsWidth: 1,         // без дополнительного поля слева
           glyphMargin: false,
           folding: false,
 
