@@ -56,74 +56,36 @@ namespace taskforge.Services.Remote
 
             resp.EnsureSuccessStatusCode();
 
-            // ——— TOLERANT PARSE
+            // tolerant parse
             string? stdout = null, stderr = null;
             int exitCode = 0;
-            string status = "ok";
 
             try
             {
                 using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
                 var root = doc.RootElement;
 
-                stdout = GetString(root, "stdout", "output", "Stdout", "Output");
-                stderr = GetString(root, "stderr", "error", "Stderr", "Error");
+                stdout = JStr(root, "stdout", "output", "Stdout", "Output");
+                // важное место: многие раннеры кладут компиляционные ошибки в `error`
+                stderr = JStr(root, "stderr", "error", "Stderr", "Error");
 
-                // exit code: exitCode | code | status
-                if (!TryGetInt(root, out exitCode, "exitCode", "code", "exit_code"))
+                if (!JInt(root, out exitCode, "exitCode", "code", "exit_code"))
                 {
-                    // success → 0 / false → 1
-                    var success = GetBool(root, "success", "ok");
-                    exitCode = success ? 0 : 1;
-                }
-
-                status = MapStatus(exitCode, stderr);
-
-                static string? GetString(JsonElement el, params string[] names)
-                {
-                    foreach (var n in names)
-                        if (el.TryGetProperty(n, out var p) && p.ValueKind != JsonValueKind.Null)
-                            return p.GetString();
-                    return null;
-                }
-
-                static bool TryGetInt(JsonElement el, out int value, params string[] names)
-                {
-                    foreach (var n in names)
-                    {
-                        if (el.TryGetProperty(n, out var p))
-                        {
-                            if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out value)) return true;
-                            if (p.ValueKind == JsonValueKind.String && int.TryParse(p.GetString(), out value)) return true;
-                        }
-                    }
-                    value = 0; return false;
-                }
-
-                static bool GetBool(JsonElement el, params string[] names)
-                {
-                    foreach (var n in names)
-                    {
-                        if (el.TryGetProperty(n, out var p))
-                        {
-                            if (p.ValueKind == JsonValueKind.True) return true;
-                            if (p.ValueKind == JsonValueKind.False) return false;
-                            if (p.ValueKind == JsonValueKind.String && bool.TryParse(p.GetString(), out var b)) return b;
-                        }
-                    }
-                    return false;
+                    // success/ok → 0
+                    var ok = JBool(root, "success", "ok");
+                    exitCode = ok ? 0 : 1;
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Runner:{_langKey}] JSON PARSE ERROR: {ex.GetType().Name} {ex.Message}");
-                // запасной план: попробуем «жёсткую» модель
-                var dto = System.Text.Json.JsonSerializer.Deserialize<RunnerRunResponse>(json);
+                var dto = JsonSerializer.Deserialize<RunnerRunResponse>(json);
                 stdout = stdout ?? dto?.stdout;
                 stderr = stderr ?? dto?.stderr;
                 exitCode = exitCode == 0 ? dto?.exitCode ?? 0 : exitCode;
-                status = MapStatus(exitCode, stderr);
             }
+
+            var status = MapStatus(_langKey, exitCode, stderr);
 
             Console.WriteLine($"[Runner:{_langKey}] exitCode={exitCode}  stdout.visible={ToVisible(stdout)}  stderr.visible={ToVisible(stderr)}");
 
@@ -133,9 +95,41 @@ namespace taskforge.Services.Remote
                 ExitCode      = exitCode,
                 Stdout        = stdout,
                 Stderr        = stderr,
-                CompileStderr = status == "compile_error" ? stderr : null,
+                CompileStderr = status == "compile_error" ? (stderr ?? "") : null,
                 Message       = status == "time_limit" ? "Time limit exceeded" : null
             };
+
+            // local helpers
+            static string? JStr(JsonElement el, params string[] names)
+            {
+                foreach (var n in names)
+                    if (el.TryGetProperty(n, out var p) && p.ValueKind != JsonValueKind.Null)
+                        return p.GetString();
+                return null;
+            }
+            static bool JInt(JsonElement el, out int value, params string[] names)
+            {
+                foreach (var n in names)
+                {
+                    if (el.TryGetProperty(n, out var p))
+                    {
+                        if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out value)) return true;
+                        if (p.ValueKind == JsonValueKind.String && int.TryParse(p.GetString(), out value)) return true;
+                    }
+                }
+                value = 0; return false;
+            }
+            static bool JBool(JsonElement el, params string[] names)
+            {
+                foreach (var n in names)
+                    if (el.TryGetProperty(n, out var p))
+                    {
+                        if (p.ValueKind == JsonValueKind.True) return true;
+                        if (p.ValueKind == JsonValueKind.False) return false;
+                        if (p.ValueKind == JsonValueKind.String && bool.TryParse(p.GetString(), out var b)) return b;
+                    }
+                return false;
+            }
         }
 
         public async Task<IList<TestResultDto>> RunTestsAsync(
@@ -144,6 +138,7 @@ namespace taskforge.Services.Remote
             int? timeLimitMs = null,
             int? memoryLimitMb = null)
         {
+            // (оставляю как есть — тесты мы гоняем по одному через CompileAndRunAsync в SolutionService)
             var client = _httpFactory.CreateClient();
             var url = $"{BaseUrl.TrimEnd('/')}/run/tests";
 
@@ -173,13 +168,13 @@ namespace taskforge.Services.Remote
 
             resp.EnsureSuccessStatusCode();
 
-            // Пробуем сначала «наш» формат…
+            // простая модель, если раннер поддерживает такой ответ
+            var list = new List<TestResultDto>();
             try
             {
-                var dto = System.Text.Json.JsonSerializer.Deserialize<RunnerTestsResponse>(json);
+                var dto = JsonSerializer.Deserialize<RunnerTestsResponse>(json);
                 if (dto?.results != null)
                 {
-                    var list = new List<TestResultDto>();
                     int idx = 0;
                     foreach (var r in dto.results)
                     {
@@ -197,81 +192,30 @@ namespace taskforge.Services.Remote
                             Hidden         = false
                         });
                     }
-                    return list;
                 }
             }
-            catch { /* пойдём толерантным путём */ }
+            catch { /* ok */ }
 
-            // …а теперь толерантный
-            var results = new List<TestResultDto>();
-            using (var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json))
-            {
-                var root = doc.RootElement;
-                var arr = root.TryGetProperty("results", out var res) ? res
-                      : root.TryGetProperty("tests", out var res2) ? res2
-                      : default;
-
-                if (arr.ValueKind == JsonValueKind.Array)
-                {
-                    int i = 0;
-                    foreach (var item in arr.EnumerateArray())
-                    {
-                        i++;
-                        var inp = TryStr(item, "input");
-                        var exp = TryStr(item, "expectedOutput", "expected");
-                        var act = TryStr(item, "actualOutput", "actual", "output");
-                        var ok  = TryBool(item, "passed", "ok", "success");
-
-                        Console.WriteLine($"[Runner:{_langKey}] test#{i} ok={ok} exp.visible={ToVisible(exp)} act.visible={ToVisible(act)}");
-
-                        results.Add(new TestResultDto
-                        {
-                            Input          = inp,
-                            ExpectedOutput = exp,
-                            ActualOutput   = act,
-                            Passed         = ok,
-                            Status         = ok ? "ok" : "runtime_error",
-                            ExitCode       = ok ? 0 : 1,
-                            Hidden         = false
-                        });
-                    }
-                }
-
-                static string? TryStr(JsonElement el, params string[] names)
-                {
-                    foreach (var n in names)
-                        if (el.TryGetProperty(n, out var p) && p.ValueKind != JsonValueKind.Null)
-                            return p.GetString();
-                    return null;
-                }
-                static bool TryBool(JsonElement el, params string[] names)
-                {
-                    foreach (var n in names)
-                    {
-                        if (el.TryGetProperty(n, out var p))
-                        {
-                            if (p.ValueKind == JsonValueKind.True) return true;
-                            if (p.ValueKind == JsonValueKind.False) return false;
-                            if (p.ValueKind == JsonValueKind.String && bool.TryParse(p.GetString(), out var b)) return b;
-                        }
-                    }
-                    return false;
-                }
-            }
-
-            return results;
+            return list;
         }
 
-        // Модели «нашего» формата (fallback)
         private sealed class RunnerRunResponse { public string? stdout { get; set; } public string? stderr { get; set; } public int exitCode { get; set; } }
         private sealed class RunnerTestsResponse { public List<RunnerTestItem>? results { get; set; } }
         private sealed class RunnerTestItem { public string? input { get; set; } public string? expectedOutput { get; set; } public string? actualOutput { get; set; } public bool passed { get; set; } }
 
-        private static string MapStatus(int exitCode, string? stderr)
+        private static string MapStatus(string lang, int exitCode, string? stderr)
         {
             if (exitCode == 124) return "time_limit";
+            // C# (Roslyn) — часто просто пишет "error CSxxxx" в error/stderr
+            if (string.Equals(lang, "csharp", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(stderr)
+                && stderr.Contains(" error CS", StringComparison.Ordinal))
+                return "compile_error";
+
             if (!string.IsNullOrEmpty(stderr) &&
-                stderr.StartsWith("Compilation error", StringComparison.OrdinalIgnoreCase)) return "compile_error";
+                stderr.StartsWith("Compilation error", StringComparison.OrdinalIgnoreCase))
+                return "compile_error";
+
             if (exitCode != 0) return "runtime_error";
             return "ok";
         }
