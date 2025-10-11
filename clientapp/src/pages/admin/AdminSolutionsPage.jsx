@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
 import { searchUsersOnce, getUserSolutions, getSolutionDetails } from '../../api/admin';
@@ -19,7 +19,6 @@ export default function AdminSolutionsPage() {
     try {
       const res = await searchUsersOnce(q.trim(), 20);
       setUsers(res);
-      // авто-выбор первого найденного
       if (res?.length) setUserId(res[0].id);
     } finally {
       setSearchLoading(false);
@@ -27,9 +26,9 @@ export default function AdminSolutionsPage() {
   };
 
   // --------- горизонтальная лента решений ---
-  const [listSkip, setListSkip] = useState(0);        // сколько уже пропущено
-  const [listTotal, setListTotal] = useState(null);   // можно хранить при необходимости
-  const [columns, setColumns] = useState([]);         // карточки (детали с кодом)
+  const [listSkip, setListSkip] = useState(0);
+  const [listTotal, setListTotal] = useState(null);
+  const [columns, setColumns] = useState([]);
   const [listLoading, setListLoading] = useState(false);
 
   const scrollerRef = useRef(null);
@@ -37,34 +36,32 @@ export default function AdminSolutionsPage() {
   const resetFeed = () => {
     setColumns([]);
     setListSkip(0);
+    setListTotal(null);
   };
 
-  // стартовая загрузка 5 решений с кодом
-  const loadNextPage = useCallback(async () => {
+  // подгрузка следующей порции решений (с кодом)
+  const loadNextPage = async () => {
     if (!userId || listLoading) return;
     setListLoading(true);
     try {
-      // 1) получаем список ID без кода
       const list = await getUserSolutions(userId, { skip: listSkip, take: PAGE_SIZE });
-      // 2) на каждый — отдельный запрос деталей (код + стат)
       const details = await Promise.all(list.map(x => getSolutionDetails(x.id)));
       setColumns(prev => [...prev, ...details.filter(Boolean)]);
-      setListSkip(prev => prev + (list?.length || 0));
-      if (listTotal == null && list.length < PAGE_SIZE) setListTotal(listSkip + list.length);
+      const loaded = list?.length || 0;
+      setListSkip(prev => prev + loaded);
+      if (loaded < PAGE_SIZE) setListTotal((listSkip ?? 0) + loaded);
     } finally {
       setListLoading(false);
     }
-  }, [userId, listSkip, listLoading, listTotal]);
+  };
 
-  // кнопка "Загрузить решения" или авто после выбора студента
   const handleLoadInitial = async () => {
     resetFeed();
     await loadNextPage();
-    // авто-скролл в начало
     if (scrollerRef.current) scrollerRef.current.scrollLeft = 0;
   };
 
-  // при смене пользователя — сбрасываем и грузим стартовые 5
+  // при смене пользователя — грузим стартовые 5 решений
   useEffect(() => {
     if (!userId) return;
     (async () => {
@@ -72,20 +69,18 @@ export default function AdminSolutionsPage() {
       await loadNextPage();
       if (scrollerRef.current) scrollerRef.current.scrollLeft = 0;
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId]); // без подавления правил
 
   // ленивый догруз справа
   const onScroll = (e) => {
     const el = e.currentTarget;
     if (!el) return;
-    const nearRight = el.scrollLeft + el.clientWidth >= el.scrollWidth - 160; // порог
+    const nearRight = el.scrollLeft + el.clientWidth >= el.scrollWidth - 160;
     if (nearRight && !listLoading) {
       loadNextPage();
     }
   };
 
-  // ----------------- рендер -------------------
   return (
     <Layout>
       <div className="container-app py-6 space-y-4">
