@@ -27,7 +27,7 @@ export default function LeaderboardPage() {
   return (
     <Layout>
       <div className="container-app py-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Топ-лист</h1>
+        <h1 className="text-2xl font-semibold">Топ</h1>
 
         <Card className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>

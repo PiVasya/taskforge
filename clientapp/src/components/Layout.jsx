@@ -65,9 +65,9 @@ export default function Layout({ children }) {
                   <ListChecks size={18} />
                   <span className="hidden sm:inline">Решения</span>
                 </Link>
-                <Link to="/admin/leaderboard" className="btn-outline" title="Топ-лист">
+                <Link to="/admin/leaderboard" className="btn-outline" title="Топ">
                   <Trophy size={18} />
-                  <span className="hidden sm:inline">Топ-лист</span>
+                  <span className="hidden sm:inline">Топ</span>
                 </Link>
               </>
             )}
