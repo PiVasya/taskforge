@@ -67,12 +67,21 @@ public sealed class SolutionAdminService : ISolutionAdminService
     {
         var since = days.HasValue ? DateTime.UtcNow.AddDays(-days.Value) : (DateTime?)null;
 
-        var q = _db.UserTaskSolutions.AsNoTracking().Where(s => s.PassedAllTests);
-        if (since.HasValue) q = q.Where(s => s.SubmittedAt >= since.Value);
-        if (courseId.HasValue) q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+        var q = _db.UserTaskSolutions
+            .AsNoTracking()
+            .Where(s => s.PassedAllTests);
 
+        if (since.HasValue)
+            q = q.Where(s => s.SubmittedAt >= since.Value);
+
+        if (courseId.HasValue)
+            q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+
+        // Считаем КОЛ-ВО УНИКАЛЬНЫХ заданий, а не попыток
         var data = await q
-            .GroupBy(s => s.UserId)
+            .GroupBy(s => new { s.UserId, s.TaskAssignmentId })
+            .Select(g => new { g.Key.UserId, g.Key.TaskAssignmentId })
+            .GroupBy(x => x.UserId)
             .Select(g => new { UserId = g.Key, Solved = g.Count() })
             .OrderByDescending(x => x.Solved)
             .Take(top)
@@ -82,9 +91,11 @@ public sealed class SolutionAdminService : ISolutionAdminService
             .Where(u => data.Select(d => d.UserId).Contains(u.Id))
             .ToDictionaryAsync(u => u.Id);
 
-        return data.Select(d => {
+        return data.Select(d =>
+        {
             var u = users[d.UserId];
-            return new LeaderboardEntryDto {
+            return new LeaderboardEntryDto
+            {
                 UserId = u.Id,
                 Email = u.Email,
                 FirstName = u.FirstName,
