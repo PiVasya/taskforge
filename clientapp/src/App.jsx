@@ -35,7 +35,10 @@ export default function App() {
             <Route path="/assignment/:assignmentId/edit" element={<AssignmentEditPage />} />
           </Route>
         </Route>
-
+        <Route element={<ProtectedRoute/>}>
+  <Route path="/admin/solutions" element={<AdminSolutionsPage/>}/>
+  <Route path="/admin/leaderboard" element={<LeaderboardPage/>}/>
+        </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
     </NotifyProvider>

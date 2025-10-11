@@ -49,3 +49,15 @@ export default function EditorModeProvider({ children }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
+export function useRoleFlags() {
+  const { access } = useAuth();
+  let isAdmin = false;
+  if (access) {
+    try {
+      const payload = JSON.parse(atob(access.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      const role = (payload?.role || payload?.Role || payload?.roles)?.toString() || "";
+      isAdmin = role === "Admin";
+    } catch {}
+  }
+  return { isAdmin };
+}
