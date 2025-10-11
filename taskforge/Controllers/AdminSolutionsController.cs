@@ -12,12 +12,10 @@ public sealed class AdminSolutionsController : ControllerBase
     private readonly ISolutionAdminService _svc;
     public AdminSolutionsController(ISolutionAdminService svc) => _svc = svc;
 
-    // Поиск пользователей (для селектора)
     [HttpGet("users")]
     public async Task<IActionResult> SearchUsers([FromQuery] string q = "", [FromQuery] int take = 20)
         => Ok(await _svc.SearchUsersAsync(q, Math.Clamp(take, 1, 100)));
 
-    // Список решений пользователя
     [HttpGet("users/{userId:guid}/solutions")]
     public async Task<IActionResult> GetSolutionsByUser(
         [FromRoute] Guid userId,
@@ -27,7 +25,6 @@ public sealed class AdminSolutionsController : ControllerBase
         [FromQuery] int take = 50)
         => Ok(await _svc.GetByUserAsync(userId, courseId, assignmentId, Math.Max(0, skip), Math.Clamp(take, 1, 200)));
 
-    // Детали решения
     [HttpGet("solutions/{id:guid}")]
     public async Task<IActionResult> GetSolutionDetails([FromRoute] Guid id)
     {
@@ -35,7 +32,6 @@ public sealed class AdminSolutionsController : ControllerBase
         return dto == null ? NotFound() : Ok(dto);
     }
 
-    // Топ-лист
     [HttpGet("leaderboard")]
     public async Task<IActionResult> GetLeaderboard(
         [FromQuery] Guid? courseId,

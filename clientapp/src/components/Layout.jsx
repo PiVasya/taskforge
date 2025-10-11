@@ -22,24 +22,18 @@ export default function Layout({ children }) {
     nav('/login', { replace: true });
   };
 
-  // Определяем роль Admin из JWT (если access выдан)
+  // Роль Admin из JWT
   const isAdmin = useMemo(() => {
     if (!access) return false;
     try {
       const base64 = access.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
       if (!base64) return false;
       const payload = JSON.parse(atob(base64));
-
-      // Возможные поля с ролью:
-      // "role": "Admin" | "User"
-      // "Role": "Admin"
-      // "roles": ["Admin", ...] | "Admin"
       const raw =
         payload?.role ??
         payload?.Role ??
         payload?.roles ??
         payload?.['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'];
-
       if (Array.isArray(raw)) return raw.includes('Admin');
       if (typeof raw === 'string') return raw === 'Admin';
       return false;
@@ -64,7 +58,7 @@ export default function Layout({ children }) {
           </Link>
 
           <div className="flex items-center gap-2">
-            {/* кнопки админа */}
+            {/* Кнопки админа */}
             {isAdmin && (
               <>
                 <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
@@ -78,13 +72,13 @@ export default function Layout({ children }) {
               </>
             )}
 
-            {/* переключатель темы */}
+            {/* Тема */}
             <button className="btn-ghost" onClick={() => setDark(v => !v)} aria-label="Toggle theme">
               {dark ? <Sun size={18} /> : <Moon size={18} />}
               <span className="hidden sm:inline">Тема</span>
             </button>
 
-            {/* переключатель режима редактора — показываем только если аккаунт умеет редактировать */}
+            {/* Режим редактора (для Admin) */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
@@ -98,7 +92,7 @@ export default function Layout({ children }) {
               </button>
             )}
 
-            {/* вход/выход */}
+            {/* Вход/выход */}
             {access ? (
               <button className="btn-outline" onClick={handleLogout} title="Выйти">
                 <LogOut size={18} />

@@ -25,7 +25,7 @@ public sealed class SolutionDetailsDto
     public DateTime SubmittedAt { get; set; }
     public string CourseTitle { get; set; } = "";
     public string AssignmentTitle { get; set; } = "";
-    public IList<SolutionCaseResultDto>? Cases { get; set; }  // если хотите подтягивать разбор (опционально)
+    public IList<SolutionCaseResultDto>? Cases { get; set; }
 }
 
 public sealed class LeaderboardEntryDto
@@ -34,5 +34,5 @@ public sealed class LeaderboardEntryDto
     public string Email { get; set; } = "";
     public string FirstName { get; set; } = "";
     public string LastName { get; set; } = "";
-    public int Solved { get; set; }      // количество PassedAllTests за период
+    public int Solved { get; set; }
 }

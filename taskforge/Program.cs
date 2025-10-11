@@ -37,7 +37,7 @@ builder.Services.AddScoped<ICompiler, PythonHttpCompiler>();
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
-
+builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
 // CORS
 builder.Services.AddCors(options =>
 {
@@ -85,7 +85,8 @@ builder.Services
             ValidIssuer = jwtSection["Issuer"],
             ValidAudience = jwtSection["Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            ClockSkew = TimeSpan.FromMinutes(2)
+            RoleClaimType = System.Security.Claims.ClaimTypes.Role,   // <<< Важно для [Authorize(Roles="Admin")]
+            NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier
         };
     });
 

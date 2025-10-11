@@ -59,7 +59,7 @@ public sealed class SolutionAdminService : ISolutionAdminService
             SubmittedAt = s.SubmittedAt,
             CourseTitle = s.TaskAssignment.Course.Title,
             AssignmentTitle = s.TaskAssignment.Title,
-            // Cases = ...  // если будете хранить/подтягивать
+            Cases = null
         };
     }
 
@@ -69,16 +69,15 @@ public sealed class SolutionAdminService : ISolutionAdminService
 
         var q = _db.UserTaskSolutions.AsNoTracking().Where(s => s.PassedAllTests);
         if (since.HasValue) q = q.Where(s => s.SubmittedAt >= since.Value);
-        if (courseId.HasValue)
-            q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+        if (courseId.HasValue) q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
-        var grouped = q
+        var data = await q
             .GroupBy(s => s.UserId)
             .Select(g => new { UserId = g.Key, Solved = g.Count() })
             .OrderByDescending(x => x.Solved)
-            .Take(top);
+            .Take(top)
+            .ToListAsync();
 
-        var data = await grouped.ToListAsync();
         var users = await _db.Users
             .Where(u => data.Select(d => d.UserId).Contains(u.Id))
             .ToDictionaryAsync(u => u.Id);
