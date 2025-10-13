@@ -1,175 +1,325 @@
-﻿import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
+
 import Layout from "../components/Layout";
-import { Field, Input, Textarea, Button, Card } from "../components/ui";
-import { getCourse, updateCourse, deleteCourse } from "../api/courses";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { Save, Trash2, ArrowLeft, Layers } from "lucide-react";
+import { Card, Button, Input } from "../components/ui";
 
-// helper: userId из JWT
-function getCurrentUserIdFromToken() {
-  try {
-    const raw =
-      localStorage.getItem("access_token") ||
-      localStorage.getItem("token") ||
-      sessionStorage.getItem("access_token") ||
-      sessionStorage.getItem("token");
-    if (!raw) return null;
-    const parts = raw.split(".");
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
-    );
-    return payload.sub || payload.nameid || payload.uid || payload.userId || null;
-  } catch {
-    return null;
-  }
-}
+import {
+  getAssignmentsByCourse,
+  createAssignment,
+  updateAssignmentSort,
+} from "../api/assignments";
+import { Plus, Layers, CheckCircle2, ArrowUp, ArrowDown, ArrowLeft } from "lucide-react";
+import IfEditor from "../components/IfEditor";
+import { useNotify } from "../components/notify/NotifyProvider";
+import { handleApiError } from "../utils/handleApiError";
+import { notifyOnce } from "../utils/notifyOnce";
 
-export default function CourseEditPage() {
+const SORT_OPTIONS = [
+  { v: "default", label: "Стандартный (по полю Sort)" },
+  { v: "title_asc", label: "A → Я" },
+  { v: "title_desc", label: "Я → A" },
+  { v: "created_desc", label: "Сначала новые" },
+  { v: "created_asc", label: "Сначала старые" },
+];
+
+export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const notify = useNotify();
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [isPublic, setIsPublic] = useState(false);
-
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [items, setItems] = useState([]);
+  const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const sortMode = params.get("sort") || "default";
 
   useEffect(() => {
     (async () => {
       try {
-        setErr("");
         setLoading(true);
-        const c = await getCourse(courseId);
-
-        // гард: не владелец — не пускаем
-        const myId = getCurrentUserIdFromToken();
-        const isOwner =
-          myId &&
-          c?.ownerId &&
-          String(c.ownerId).toLowerCase() === String(myId).toLowerCase();
-        if (!isOwner) {
-          setErr("Это чужой курс. Редактирование недоступно.");
-          setTimeout(() => nav(`/course/${courseId}`), 600);
-          return;
-        }
-
-        setTitle(c.title || "");
-        setDescription(c.description || "");
-        setIsPublic(!!c.isPublic);
+        setErr("");
+        const data = await getAssignmentsByCourse(courseId); // сервер теперь отдаёт canEdit
+        const norm = (data || []).map((x, i) => ({
+          ...x,
+          sort: typeof x.sort === "number" ? x.sort : i,
+        }));
+        setItems(norm);
       } catch (e) {
-        setErr(e.message || "Ошибка загрузки курса");
+        setErr(e.message || "Ошибка загрузки");
       } finally {
         setLoading(false);
       }
     })();
-  }, [courseId, nav]);
+  }, [courseId]);
 
-  const save = async () => {
-    setBusy(true);
-    setErr("");
+  const filtered = useMemo(() => {
+    const s = (items || []).filter(
+      (x) =>
+        (x.title || "").toLowerCase().includes(q.toLowerCase()) ||
+        (x.tags || "").toLowerCase().includes(q.toLowerCase())
+    );
+    const byTitle = (a, b, dir = 1) =>
+      (a.title || "").localeCompare(b.title || "", undefined, {
+        sensitivity: "base",
+      }) * dir;
+    const byCreated = (a, b, dir = 1) =>
+      (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
+    const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
+
+    switch (sortMode) {
+      case "title_asc":
+        return [...s].sort((a, b) => byTitle(a, b, +1));
+      case "title_desc":
+        return [...s].sort((a, b) => byTitle(a, b, -1));
+      case "created_asc":
+        return [...s].sort((a, b) => byCreated(a, b, +1));
+      case "created_desc":
+        return [...s].sort((a, b) => byCreated(a, b, -1));
+      case "default":
+      default:
+        return [...s].sort(bySort);
+    }
+  }, [items, q, sortMode]);
+
+  const setSortMode = (mode) => {
+    const next = new URLSearchParams(params);
+    next.set("sort", mode);
+    setParams(next, { replace: true });
+  };
+
+  const swapByIndex = async (i, j) => {
+    if (i < 0 || j < 0 || i >= filtered.length || j >= filtered.length) return;
+
+    const a = filtered[i];
+    const b = filtered[j];
+
+    if (!a.canEdit || !b.canEdit) {
+      notifyOnce("no-edit-sort", () =>
+        notify.warn("Вы не владелец курса — менять порядок заданий нельзя")
+      );
+      return;
+    }
+
+    const newItems = items.map((x) => {
+      if (x.id === a.id) return { ...x, sort: b.sort ?? j };
+      if (x.id === b.id) return { ...x, sort: a.sort ?? i };
+      return x;
+    });
+    setItems(newItems);
+
     try {
-      await updateCourse(courseId, { title, description, isPublic });
-      nav(`/course/${courseId}`);
+      await Promise.all([
+        updateAssignmentSort(a.id, b.sort ?? j),
+        updateAssignmentSort(b.id, a.sort ?? i),
+      ]);
     } catch (e) {
-      const msg =
-        e && e.response && e.response.status === 403
-          ? (e.response.data && e.response.data.message) || "Вы не владелец курса"
-          : e.message || "Ошибка сохранения";
-      setErr(msg);
-    } finally {
-      setBusy(false);
+      handleApiError(e, notify, "Не удалось изменить порядок");
+      try {
+        const data = await getAssignmentsByCourse(courseId);
+        const norm = (data || []).map((x, k) => ({
+          ...x,
+          sort: typeof x.sort === "number" ? x.sort : k,
+        }));
+        setItems(norm);
+      } catch {}
     }
   };
 
-  const remove = async () => {
-    if (!window.confirm("Удалить курс?")) return;
+  const handleCreate = async () => {
+    if (items.length > 0 && items[0].canEdit === false) {
+      notifyOnce("no-edit-course", () =>
+        notify.warn("Вы не владелец курса — создавать задания нельзя")
+      );
+      return;
+    }
     try {
-      await deleteCourse(courseId);
-      nav("/courses");
+      const payload = {
+        title: "Новое задание",
+        description: "Опишите постановку задачи…",
+        type: "code-test",
+        difficulty: 1,
+        testCases: [{ input: "2 4", expectedOutput: "6", isHidden: false }],
+        tags: "ОАИП",
+        sort: items.length,
+      };
+      const res = await createAssignment(courseId, payload);
+      const id = res && res.id;
+      if (id) nav(`/assignment/${id}/edit`);
     } catch (e) {
-      const msg =
-        e && e.response && e.response.status === 403
-          ? (e.response.data && e.response.data.message) || "Вы не владелец курса"
-          : e.message || "Ошибка удаления";
-      setErr(msg);
+      if (e?.response?.status === 403) {
+        notifyOnce("no-edit-course", () =>
+          notify.error(e?.response?.data?.message || "Создание запрещено")
+        );
+        return;
+      }
+      handleApiError(e, notify, "Не удалось создать задание");
     }
   };
 
   return (
     <Layout>
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <Layers size={20} />
-          <h1 className="text-2xl font-semibold">Редактирование курса</h1>
+        {/* Левая часть: кнопка назад к курсам + заголовок */}
+        <div className="flex items-center gap-3">
+          <Link to="/courses" className="btn-outline inline-flex items-center gap-2">
+            <ArrowLeft size={16} />
+            <span>К курсам</span>
+          </Link>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <Layers size={22} /> Задания курса
+          </h1>
         </div>
-        <Link to={`/course/${courseId}`} className="text-brand-600 hover:underline">
-          <ArrowLeft className="inline" size={16} /> к заданиям
-        </Link>
+
+        {/* Правая часть: сортировка + создать */}
+        <div className="flex items-center gap-3">
+          <div>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              className="border rounded-lg px-3 py-2
+                        bg-white text-slate-900 border-slate-300
+                        dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600
+                        focus:outline-none focus:ring-2 focus:ring-sky-500/60"
+              title="Сортировка"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.v} value={o.v}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <IfEditor>
+            <Button onClick={handleCreate}>
+              <Plus size={16} /> Создать
+            </Button>
+          </IfEditor>
+        </div>
       </div>
+
+      <Card className="mb-6">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <Input
+              placeholder="Поиск по названию или тегам"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+        </div>
+      </Card>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-slate-500 mb-4">Загрузка…</div>}
+      {loading && <div className="text-slate-500">Загрузка…</div>}
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <Card>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Название">
-                <Input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Например: Основы C++"
-                />
-              </Field>
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {filtered.map((a, idx) => {
+          const solved = !!a.solvedByCurrentUser;
 
-              <div className="sm:col-span-2">
-                <Field label="Описание">
-                  <Textarea
-                    rows={8}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Кратко опишите, чему посвящён курс…"
-                  />
-                </Field>
+          const ViewWrap = ({ children }) => (
+            <Link to={`/assignment/${a.id}`} className="block group">
+              {children}
+            </Link>
+          );
+          const EditWrap = ({ children }) => (
+            <Link to={`/assignment/${a.id}/edit`} className="block group">
+              {children}
+            </Link>
+          );
+
+          const EditorToolbar =
+            sortMode === "default" ? (
+              <IfEditor>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded-lg border hover:bg-slate-50"
+                    title="Выше"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      swapByIndex(idx, idx - 1);
+                    }}
+                  >
+                    <ArrowUp size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded-lg border hover:bg-slate-50"
+                    title="Ниже"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      swapByIndex(idx, idx + 1);
+                    }}
+                  >
+                    <ArrowDown size={16} />
+                  </button>
+                </div>
+              </IfEditor>
+            ) : null;
+
+          const CardInner = (
+            <Card
+              className={
+                "transition hover:shadow-lg " +
+                (solved ? "border-emerald-400/40 bg-emerald-500/5" : "")
+              }
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 grow">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={
+                        "text-lg font-semibold truncate " +
+                        (solved ? "text-emerald-600" : "")
+                      }
+                      title={a.title}
+                    >
+                      {a.title}
+                    </div>
+                    {solved && (
+                      <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 text-xs">
+                        <CheckCircle2 size={14} />
+                        Решено
+                      </span>
+                    )}
+                  </div>
+
+                  {a.description && (
+                    <p className="text-sm text-slate-500 line-clamp-2 mt-1">
+                      {a.description}
+                    </p>
+                  )}
+                  {a.tags && (
+                    <div className="mt-2 text-xs text-slate-400">{a.tags}</div>
+                  )}
+                </div>
+
+                {EditorToolbar}
               </div>
+            </Card>
+          );
 
-              <div className="sm:col-span-2">
-                <label className="flex items-center gap-3 select-none">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300"
-                    checked={isPublic}
-                    onChange={(e) => setIsPublic(e.target.checked)}
-                  />
-                  <span className="text-sm">
-                    Публичный курс <span className="text-slate-500">(виден всем)</span>
-                  </span>
-                </label>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <div className="space-y-4">
-          <Card>
-            <div className="flex gap-2">
-              <Button onClick={save} disabled={busy} className="flex-1">
-                <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={remove}
-                className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-              >
-                <Trash2 size={16} /> Удалить
-              </Button>
-            </div>
-          </Card>
-        </div>
+          return (
+            <IfEditor key={a.id} otherwise={<ViewWrap>{CardInner}</ViewWrap>}>
+              {a.canEdit ? (
+                <EditWrap>{CardInner}</EditWrap>
+              ) : (
+                <ViewWrap>{CardInner}</ViewWrap>
+              )}
+            </IfEditor>
+          );
+        })}
       </div>
+
+      {!loading && filtered.length === 0 && (
+        <div className="card-muted p-8 text-center text-slate-500 mt-6">
+          Пока заданий нет. Создайте первое ✨
+        </div>
+      )}
     </Layout>
   );
 }

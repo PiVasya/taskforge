@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Select, Badge, Textarea } from '../components/ui';
 import { getAssignment, submitSolution } from '../api/assignments';
-import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Play, CheckCircle2, XCircle, ArrowRight } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
 import CompileErrorPanel from '../components/runner/CompileErrorPanel';
@@ -23,7 +23,7 @@ export default function AssignmentSolvePage() {
   const [a, setA] = useState(null);
 
   const [language, setLanguage] = useState('cpp');
-  const [code, setCode] = useState('');          // ← стартуем ПУСТО
+  const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // панели
@@ -49,9 +49,6 @@ export default function AssignmentSolvePage() {
       }
     })();
   }, [assignmentId]);
-
-  // 🔥 УДАЛЕНО: автоподстановка шаблонов при смене языка
-  // useEffect(() => { ... }, [language, code]);
 
   // приводим ответ бэка к ожидаемой разметке
   const normalizeBackendResponse = (r) => {
@@ -108,17 +105,38 @@ export default function AssignmentSolvePage() {
 
   const publicTests = (a?.testCases || []).filter((t) => !t.isHidden);
 
+  // поддерживаем несколько возможных названий поля «следующее задание»
+  const nextAssignmentId = a?.nextAssignmentId ?? a?.nextId ?? a?.nextAssignment?.id ?? null;
+
   return (
     <Layout>
+      {/* Верхняя панель навигации */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline">
-            <ArrowLeft size={16} /> к заданиям курса
+          <Link to={`/course/${a.courseId}`} className="btn-outline inline-flex items-center gap-2">
+            <ArrowLeft size={16} />
+            <span>К заданиям курса</span>
           </Link>
         </div>
-        <IfEditor>
-          <Link to={`/assignment/${a.id}/edit`} className="btn-outline">Редактировать</Link>
-        </IfEditor>
+
+        <div className="flex items-center gap-2">
+          {/* Кнопка «Следующее задание» справа */}
+          {nextAssignmentId ? (
+            <Link to={`/assignment/${nextAssignmentId}`} className="btn-outline inline-flex items-center gap-2">
+              <span>Следующее задание</span>
+              <ArrowRight size={16} />
+            </Link>
+          ) : (
+            <button className="btn-outline opacity-60 cursor-not-allowed inline-flex items-center gap-2" disabled>
+              <span>Следующее задание</span>
+              <ArrowRight size={16} />
+            </button>
+          )}
+          {/* Кнопка редактирования доступна редактору */}
+          <IfEditor>
+            <Link to={`/assignment/${a.id}/edit`} className="btn-outline">Редактировать</Link>
+          </IfEditor>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
