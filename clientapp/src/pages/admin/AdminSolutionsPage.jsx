@@ -64,7 +64,6 @@ export default function AdminSolutionsPage() {
   useEffect(() => {
     if (!userId) return;
     loadSolutions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   // Отфильтрованный список для отображения
