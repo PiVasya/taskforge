@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
@@ -5,6 +9,10 @@ using taskforge.Services.Interfaces;
 
 namespace taskforge.Services;
 
+/// <summary>
+/// Реализация сервиса для администрирования решений пользователей. В данную версию
+/// добавлены методы для получения полного списка решений и их удаления.
+/// </summary>
 public sealed class SolutionAdminService : ISolutionAdminService
 {
     private readonly ApplicationDbContext _db;
@@ -24,7 +32,8 @@ public sealed class SolutionAdminService : ISolutionAdminService
         if (courseId.HasValue) q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
         return await q.Skip(skip).Take(take)
-            .Select(s => new SolutionListItemDto {
+            .Select(s => new SolutionListItemDto
+            {
                 Id = s.Id,
                 SubmittedAt = s.SubmittedAt,
                 CourseTitle = s.TaskAssignment.Course.Title,
@@ -47,7 +56,8 @@ public sealed class SolutionAdminService : ISolutionAdminService
 
         if (s == null) return null;
 
-        return new SolutionDetailsDto {
+        return new SolutionDetailsDto
+        {
             Id = s.Id,
             UserId = s.UserId,
             TaskAssignmentId = s.TaskAssignmentId,
@@ -77,7 +87,7 @@ public sealed class SolutionAdminService : ISolutionAdminService
         if (courseId.HasValue)
             q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
-        // Считаем КОЛ-ВО УНИКАЛЬНЫХ заданий, а не попыток
+        // Считаем количество уникальных решённых заданий
         var data = await q
             .GroupBy(s => new { s.UserId, s.TaskAssignmentId })
             .Select(g => new { g.Key.UserId, g.Key.TaskAssignmentId })
@@ -107,7 +117,7 @@ public sealed class SolutionAdminService : ISolutionAdminService
 
     public async Task<IList<UserShortDto>> SearchUsersAsync(string query, int take)
     {
-        query = (query ?? "").Trim();
+        query = (query ?? string.Empty).Trim();
         var q = _db.Users.AsNoTracking();
 
         if (!string.IsNullOrEmpty(query))
@@ -119,9 +129,58 @@ public sealed class SolutionAdminService : ISolutionAdminService
         }
 
         return await q.OrderBy(u => u.Email).Take(take)
-            .Select(u => new UserShortDto {
-                Id = u.Id, Email = u.Email, FirstName = u.FirstName, LastName = u.LastName
+            .Select(u => new UserShortDto
+            {
+                Id = u.Id,
+                Email = u.Email,
+                FirstName = u.FirstName,
+                LastName = u.LastName
             })
             .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IList<SolutionListItemDto>> GetAllByUserAsync(Guid userId, Guid? courseId, Guid? assignmentId, int? days)
+    {
+        var q = _db.UserTaskSolutions
+            .AsNoTracking()
+            .Where(s => s.UserId == userId)
+            .Include(s => s.TaskAssignment)
+            .ThenInclude(a => a.Course)
+            .AsQueryable();
+
+        if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+        if (courseId.HasValue) q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+        if (days.HasValue)
+        {
+            var since = DateTime.UtcNow.AddDays(-days.Value);
+            q = q.Where(s => s.SubmittedAt >= since);
+        }
+
+        return await q.OrderByDescending(s => s.SubmittedAt)
+            .Select(s => new SolutionListItemDto
+            {
+                Id = s.Id,
+                SubmittedAt = s.SubmittedAt,
+                CourseTitle = s.TaskAssignment.Course.Title,
+                AssignmentTitle = s.TaskAssignment.Title,
+                Language = s.Language,
+                PassedAllTests = s.PassedAllTests,
+                PassedCount = s.PassedCount,
+                FailedCount = s.FailedCount
+            })
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteUserSolutionsAsync(Guid userId, Guid? courseId, Guid? assignmentId)
+    {
+        var q = _db.UserTaskSolutions.Where(s => s.UserId == userId);
+        if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+        if (courseId.HasValue) q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+        var list = await q.ToListAsync();
+        if (list.Count == 0) return;
+        _db.UserTaskSolutions.RemoveRange(list);
+        await _db.SaveChangesAsync();
     }
 }

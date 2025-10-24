@@ -31,6 +31,9 @@ export default function AssignmentSolvePage() {
   const [runtimeErr, setRuntimeErr] = useState(null);
   const [result, setResult] = useState(null);
 
+  // режим ввода: false — используем CodeEditor; true — простой текстовый ввод
+  const [plainMode, setPlainMode] = useState(false);
+
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
   const normalizeNewlines = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/[ \t]+(?=\n|$)/g, '').replace(/\n+$/, '');
   const onlyNewlineDiffers = (a, b) => normalizeNewlines(a) === normalizeNewlines(b);
@@ -191,8 +194,28 @@ export default function AssignmentSolvePage() {
               </div>
 
               <div>
+                <label className="label">Режим ввода</label>
+                <Select
+                  value={plainMode ? 'plain' : 'editor'}
+                  onChange={(e) => setPlainMode(e.target.value === 'plain')}
+                >
+                  <option value="editor">Графический редактор</option>
+                  <option value="plain">Простой текст</option>
+                </Select>
+              </div>
+
+              <div>
                 <label className="label">Ваш код</label>
-                <CodeEditor language={language} value={code} onChange={setCode} />
+                {plainMode ? (
+                  <Textarea
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    rows={12}
+                    className="w-full"
+                  />
+                ) : (
+                  <CodeEditor language={language} value={code} onChange={setCode} />
+                )}
               </div>
 
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>

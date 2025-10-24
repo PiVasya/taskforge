@@ -1,10 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
-import { searchUsersOnce, getUserSolutions, getSolutionDetails } from '../../api/admin';
+import { searchUsersOnce, getUserSolutions, getSolutionDetails, deleteUserSolutions } from '../../api/admin';
 import CodeEditor from '../../components/CodeEditor';
 
-const PAGE_SIZE = 5; // грузим по 5 карточек-решений
+// Страница администрирования решений студентов
+//
+// Основные отличия от предыдущей версии:
+//  - добавлен выбор временного периода для отображения решений (за сегодня, за неделю, за месяц, или всё время)
+//  - загрузка выполняется одной порцией без ленивой подгрузки по 5 элементов
+//  - добавлена кнопка удаления всех решений пользователя
+//
+// Для фильтра по дням мы не обращаемся к серверу повторно, а фильтруем уже загруженный список
+// Чтобы не запрашивать слишком много данных, запрашивается до 1000 элементов за один запрос
+
+const FILTER_OPTIONS = [
+  { label: 'За всё время', value: null },
+  { label: 'За сегодня', value: 1 },
+  { label: 'За неделю', value: 7 },
+  { label: 'За месяц', value: 30 },
+];
 
 export default function AdminSolutionsPage() {
   // --------- поиск студентов ----------------
@@ -25,59 +40,53 @@ export default function AdminSolutionsPage() {
     }
   };
 
-  // --------- горизонтальная лента решений ---
-  const [listSkip, setListSkip] = useState(0);
-  const [listTotal, setListTotal] = useState(null);
-  const [columns, setColumns] = useState([]);
+  // --------- список решений (без пагинации) ----
+  const [solutions, setSolutions] = useState([]);
   const [listLoading, setListLoading] = useState(false);
+  const [filterDays, setFilterDays] = useState(null);
 
-  const scrollerRef = useRef(null);
-
-  const resetFeed = () => {
-    setColumns([]);
-    setListSkip(0);
-    setListTotal(null);
-  };
-
-  // подгрузка следующей порции решений (с кодом)
-  const loadNextPage = async () => {
-    if (!userId || listLoading) return;
+  // Загрузка всех решений выбранного пользователя
+  const loadSolutions = async () => {
+    if (!userId) return;
     setListLoading(true);
     try {
-      const list = await getUserSolutions(userId, { skip: listSkip, take: PAGE_SIZE });
+      // Загружаем до 1000 решений за один запрос
+      const list = await getUserSolutions(userId, { skip: 0, take: 1000 });
       const details = await Promise.all(list.map(x => getSolutionDetails(x.id)));
-      setColumns(prev => [...prev, ...details.filter(Boolean)]);
-      const loaded = list?.length || 0;
-      setListSkip(prev => prev + loaded);
-      if (loaded < PAGE_SIZE) setListTotal((listSkip ?? 0) + loaded);
+      const filtered = details.filter(Boolean);
+      setSolutions(filtered);
     } finally {
       setListLoading(false);
     }
   };
 
-  const handleLoadInitial = async () => {
-    resetFeed();
-    await loadNextPage();
-    if (scrollerRef.current) scrollerRef.current.scrollLeft = 0;
-  };
-
-  // при смене пользователя — грузим стартовые 5 решений
+  // При смене пользователя — загружаем решения
   useEffect(() => {
     if (!userId) return;
-    (async () => {
-      resetFeed();
-      await loadNextPage();
-      if (scrollerRef.current) scrollerRef.current.scrollLeft = 0;
-    })();
-  }, [userId]); // без подавления правил
+    loadSolutions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
-  // ленивый догруз справа
-  const onScroll = (e) => {
-    const el = e.currentTarget;
-    if (!el) return;
-    const nearRight = el.scrollLeft + el.clientWidth >= el.scrollWidth - 160;
-    if (nearRight && !listLoading) {
-      loadNextPage();
+  // Отфильтрованный список для отображения
+  const displayedSolutions = useMemo(() => {
+    if (!filterDays) return solutions;
+    const since = new Date();
+    since.setDate(since.getDate() - filterDays);
+    return solutions.filter(sol => new Date(sol.submittedAt) >= since);
+  }, [solutions, filterDays]);
+
+  // Удаление всех решений пользователя
+  const handleDeleteAll = async () => {
+    if (!userId) return;
+    const confirm = window.confirm('Вы уверены, что хотите удалить все решения выбранного пользователя?');
+    if (!confirm) return;
+    try {
+      await deleteUserSolutions(userId);
+      // После удаления обновляем список
+      await loadSolutions();
+    } catch (err) {
+      console.error(err);
+      alert('Не удалось удалить решения');
     }
   };
 
@@ -108,9 +117,12 @@ export default function AdminSolutionsPage() {
                 ))}
               </Select>
             </div>
-            <div className="flex items-end">
-              <Button onClick={handleLoadInitial} disabled={!userId || listLoading || searchLoading}>
+            <div className="flex items-end space-x-2">
+              <Button onClick={loadSolutions} disabled={!userId || listLoading || searchLoading}>
                 Загрузить решения
+              </Button>
+              <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
+                Удалить все решения
               </Button>
             </div>
           </div>
@@ -119,18 +131,30 @@ export default function AdminSolutionsPage() {
           </div>
         </Card>
 
-        {/* Горизонтальная лента карточек решений */}
-        <Card className="p-4">
-          <div
-            ref={scrollerRef}
-            onScroll={onScroll}
-            className="overflow-x-auto whitespace-nowrap space-x-4 flex"
-            style={{ scrollSnapType: 'x mandatory' }}
-          >
-            {columns.map(item => (
+        <Card className="p-4 space-y-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="label">Период:</span>
+            {FILTER_OPTIONS.map(opt => (
+              <Button
+                key={opt.label}
+                intent={filterDays === opt.value ? 'primary' : 'secondary'}
+                onClick={() => setFilterDays(opt.value)}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+
+          {listLoading && <div className="text-slate-400">Загрузка…</div>}
+          {!listLoading && !displayedSolutions.length && (
+            <div className="text-slate-400">Нет данных. Выберите студента и нажмите «Загрузить решения».</div>
+          )}
+
+          <div className="space-y-4">
+            {displayedSolutions.map(item => (
               <div
                 key={item.id}
-                className="w-[720px] min-w-[720px] snap-start rounded-2xl bg-slate-900/40 border border-slate-700 p-4 flex-shrink-0"
+                className="rounded-2xl bg-slate-900/40 border border-slate-700 p-4"
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="font-medium">
@@ -158,14 +182,6 @@ export default function AdminSolutionsPage() {
                 </div>
               </div>
             ))}
-
-            {!columns.length && !listLoading && (
-              <div className="text-slate-400">Нет данных. Выберите студента и нажмите «Загрузить решения».</div>
-            )}
-          </div>
-
-          <div className="pt-3 text-sm text-slate-400">
-            {listLoading ? 'Загружаем ещё…' : 'Прокрутите вправо, чтобы подгрузить следующие решения'}
           </div>
         </Card>
       </div>
