@@ -1,13 +1,22 @@
-﻿// Services/SolutionService.cs
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
+using System.Threading.Tasks;
 using taskforge.Data;
+using taskforge.Data.Models;
 using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
+// We use DTOs from Data.Models.DTO rather than a separate Dtos namespace.
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Services
 {
+    /// <summary>
+    /// Service responsible for processing user task solutions: running code against test cases,
+    /// saving results and retrieving aggregated statistics such as leaderboards.
+    /// </summary>
     public sealed class SolutionService : ISolutionService
     {
         private readonly ApplicationDbContext _db;
@@ -38,10 +47,9 @@ namespace taskforge.Services
             _http = http;
         }
 
+        /// <inheritdoc />
         public async Task<SubmitSolutionResultDto> SubmitAsync(Guid assignmentId, Guid currentUserId, SubmitSolutionRequest req)
         {
-            Console.WriteLine($"[Solution] Submit: assignmentId={assignmentId} user={currentUserId} lang={req.Language} code.len={req.Code?.Length ?? 0}");
-
             var a = await _db.TaskAssignments
                 .Include(x => x.TestCases)
                 .FirstOrDefaultAsync(x => x.Id == assignmentId);
@@ -51,8 +59,6 @@ namespace taskforge.Services
             var orderedCases = a.TestCases
                 .OrderBy(tc => tc.Id)
                 .ToList();
-
-            Console.WriteLine($"[Solution] testCases={orderedCases.Count}");
 
             var testReq = new TestRunRequestDto
             {
@@ -66,10 +72,8 @@ namespace taskforge.Services
             };
 
             var results = await _compiler.RunTestsAsync(testReq);
-            Console.WriteLine($"[Solution] results={results.Count}; passed={results.Count(x=>x.Passed)} failed={results.Count(x=>!x.Passed)}");
 
             var canReveal = CanRevealHidden();
-            Console.WriteLine($"[Solution] canRevealHidden={canReveal}");
 
             var full = new SubmitSolutionResultDto();
 
@@ -94,8 +98,6 @@ namespace taskforge.Services
             full.Failed = full.Cases.Count(c => !c.Passed);
             full.PassedAll = full.Failed == 0;
 
-            Console.WriteLine($"[Solution] summary: passed={full.Passed} failed={full.Failed} all={full.PassedAll}");
-
             var solution = new UserTaskSolution
             {
                 Id = Guid.NewGuid(),
@@ -113,6 +115,33 @@ namespace taskforge.Services
             await _db.SaveChangesAsync();
 
             return full;
+        }
+
+        /// <inheritdoc />
+        public async Task<List<TopSolutionDto>> GetTopSolutionsAsync(Guid assignmentId, int count)
+        {
+            var query = _db.UserTaskSolutions
+                .Include(s => s.User)
+                .Where(s => s.TaskAssignmentId == assignmentId)
+                .OrderByDescending(s => s.PassedCount)
+                .ThenBy(s => s.SubmittedAt)
+                .Take(count);
+
+            var list = await query
+                .Select(s => new TopSolutionDto
+                {
+                    // Map Guid identifiers directly
+                    UserId = s.UserId,
+                    UserName = ((s.User.FirstName ?? string.Empty) + " " + (s.User.LastName ?? string.Empty)).Trim(),
+                    PassedCount = s.PassedCount,
+                    FailedCount = s.FailedCount,
+                    SubmittedAt = s.SubmittedAt,
+                    Language = s.Language,
+                    Code = s.SubmittedCode
+                })
+                .ToListAsync();
+
+            return list;
         }
     }
 }
