@@ -3,7 +3,7 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import EditorRoute from './auth/EditorRoute';
 
 // подключаем провайдер уведомлений
-import { NotifyProvider } from './contexts/NotifyProvider';
+import { NotifyProvider } from "./components/notify/NotifyProvider";
 
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
