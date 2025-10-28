@@ -67,3 +67,12 @@ export async function updateAssignmentSort(assignmentId, sort) {
   });
   return true;
 }
+
+// получить список лучших решений для задания
+export async function getTopSolutions(assignmentId, count = 5) {
+  const { data } = await api.get(`/api/solutions/${assignmentId}/top`, {
+    params: { count },
+    headers: authHeaders(),
+  });
+  return data;
+}
