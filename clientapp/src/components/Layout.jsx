@@ -10,6 +10,8 @@ import {
   PencilLine,
   Eye,
   User,
+  BarChart2,     // кнопка "Топ"
+  ListOrdered,   // кнопка "Решения"
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -48,6 +50,7 @@ export default function Layout({ children }) {
               <BookOpen size={16} /> Платформа задач
             </span>
           </Link>
+
           <div className="flex items-center gap-2">
             {/* переключатель темы */}
             <button
@@ -58,34 +61,51 @@ export default function Layout({ children }) {
               {dark ? <Sun size={18} /> : <Moon size={18} />}
               <span className="hidden sm:inline">Тема</span>
             </button>
-            {/* переключатель режима редактора — показываем только если аккаунт умеет редактировать */}
+
+            {/* переключатель режима редактора — только если у аккаунта есть права */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
                 onClick={toggle}
                 title="Режим редактора"
               >
-                {isEditorMode ? (
-                  <PencilLine size={18} />
-                ) : (
-                  <Eye size={18} />
-                )}
+                {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
                 <span className="hidden sm:inline">
                   {isEditorMode ? 'Режим: редактор' : 'Режим: просмотр'}
                 </span>
               </button>
             )}
-            {/* ссылка на профиль для авторизованных пользователей */}
+
+            {/* профиль */}
             {access && (
-              <Link
-                to="/profile"
-                className="btn-ghost"
-                title="Профиль"
-              >
+              <Link to="/profile" className="btn-ghost" title="Профиль">
                 <User size={18} />
                 <span className="hidden sm:inline">Профиль</span>
               </Link>
             )}
+
+            {/* админ-кнопки: доступны только пользователям с правами редактирования */}
+            {access && canEdit && (
+              <>
+                <Link
+                  to="/admin/leaderboard"
+                  className="btn-outline"
+                  title="Топ студентов"
+                >
+                  <BarChart2 size={18} />
+                  <span className="hidden sm:inline">Топ</span>
+                </Link>
+                <Link
+                  to="/admin/solutions"
+                  className="btn-outline"
+                  title="Решения студентов"
+                >
+                  <ListOrdered size={18} />
+                  <span className="hidden sm:inline">Решения</span>
+                </Link>
+              </>
+            )}
+
             {/* вход/выход */}
             {access ? (
               <button
@@ -105,6 +125,7 @@ export default function Layout({ children }) {
           </div>
         </div>
       </header>
+
       <main className="container-app py-8">
         <motion.div
           initial={{ opacity: 0, y: 6 }}
@@ -114,6 +135,7 @@ export default function Layout({ children }) {
           {children}
         </motion.div>
       </main>
+
       <footer className="mt-12 border-t border-slate-200/70 dark:border-slate-800/70">
         <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400">
           © {new Date().getFullYear()} TaskForge

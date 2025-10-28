@@ -1,19 +1,15 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
-import { searchUsersOnce, getUserSolutions, getSolutionDetails, deleteUserSolutions } from '../../api/admin';
+import {
+  searchUsersOnce,
+  getUserSolutions,
+  getSolutionDetails,
+  deleteUserSolutions,
+} from '../../api/admin';
 import CodeEditor from '../../components/CodeEditor';
 
-// Страница администрирования решений студентов
-//
-// Основные отличия от предыдущей версии:
-//  - добавлен выбор временного периода для отображения решений (за сегодня, за неделю, за месяц, или всё время)
-//  - загрузка выполняется одной порцией без ленивой подгрузки по 5 элементов
-//  - добавлена кнопка удаления всех решений пользователя
-//
-// Для фильтра по дням мы не обращаемся к серверу повторно, а фильтруем уже загруженный список
-// Чтобы не запрашивать слишком много данных, запрашивается до 1000 элементов за один запрос
-
+// Options for filtering solutions by date. The value is number of days; null means all time.
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
   { label: 'За сегодня', value: 1 },
@@ -21,67 +17,80 @@ const FILTER_OPTIONS = [
   { label: 'За месяц', value: 30 },
 ];
 
+/**
+ * Admin page for browsing and managing students' solutions.
+ * Allows search by student, loading up to 1000 solutions in one request,
+ * filtering by time period and deleting all solutions for a user.
+ */
 export default function AdminSolutionsPage() {
-  // --------- поиск студентов ----------------
+  // Search query and users list
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
   const [userId, setUserId] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
 
+  // Load solutions state
+  const [solutions, setSolutions] = useState([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [filterDays, setFilterDays] = useState(null);
+
+  // Handler to search for users when Enter is pressed
   const handleSearchEnter = async (e) => {
     if (e.key !== 'Enter') return;
     setSearchLoading(true);
     try {
       const res = await searchUsersOnce(q.trim(), 20);
-      setUsers(res);
+      setUsers(res || []);
       if (res?.length) setUserId(res[0].id);
+    } catch (err) {
+      console.error('Failed to search users', err);
     } finally {
       setSearchLoading(false);
     }
   };
 
-  // --------- список решений (без пагинации) ----
-  const [solutions, setSolutions] = useState([]);
-  const [listLoading, setListLoading] = useState(false);
-  const [filterDays, setFilterDays] = useState(null);
-
-  // Загрузка всех решений выбранного пользователя
+  // Load all solutions for selected user (up to 1000). Then fetch details for each.
   const loadSolutions = async () => {
     if (!userId) return;
     setListLoading(true);
     try {
-      // Загружаем до 1000 решений за один запрос
+      // Request up to 1000 solutions in one go
       const list = await getUserSolutions(userId, { skip: 0, take: 1000 });
-      const details = await Promise.all(list.map(x => getSolutionDetails(x.id)));
+      // Fetch details for each solution in parallel
+      const details = await Promise.all((list || []).map((x) => getSolutionDetails(x.id)));
       const filtered = details.filter(Boolean);
       setSolutions(filtered);
+    } catch (err) {
+      console.error('Failed to load solutions', err);
     } finally {
       setListLoading(false);
     }
   };
 
-  // При смене пользователя — загружаем решения
+  // When user selection changes, reload solutions
   useEffect(() => {
     if (!userId) return;
     loadSolutions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Отфильтрованный список для отображения
+  // Filtered list of solutions based on selected period
   const displayedSolutions = useMemo(() => {
     if (!filterDays) return solutions;
     const since = new Date();
     since.setDate(since.getDate() - filterDays);
-    return solutions.filter(sol => new Date(sol.submittedAt) >= since);
+    return solutions.filter((sol) => new Date(sol.submittedAt) >= since);
   }, [solutions, filterDays]);
 
-  // Удаление всех решений пользователя
+  // Deletion of all solutions for user
   const handleDeleteAll = async () => {
     if (!userId) return;
-    const confirm = window.confirm('Вы уверены, что хотите удалить все решения выбранного пользователя?');
-    if (!confirm) return;
+    const confirmDel = window.confirm(
+      'Вы уверены, что хотите удалить все решения выбранного пользователя?'
+    );
+    if (!confirmDel) return;
     try {
       await deleteUserSolutions(userId);
-      // После удаления обновляем список
       await loadSolutions();
     } catch (err) {
       console.error(err);
@@ -100,16 +109,16 @@ export default function AdminSolutionsPage() {
               <label className="label">Поиск студента</label>
               <Input
                 value={q}
-                onChange={e => setQ(e.target.value)}
+                onChange={(e) => setQ(e.target.value)}
                 onKeyDown={handleSearchEnter}
                 placeholder="email / имя / фамилия — Enter для поиска"
               />
             </div>
             <div>
               <label className="label">Студент</label>
-              <Select value={userId} onChange={e => setUserId(e.target.value)}>
+              <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
                 <option value="">— выберите —</option>
-                {users.map(u => (
+                {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.email} ({u.firstName} {u.lastName})
                   </option>
@@ -133,7 +142,7 @@ export default function AdminSolutionsPage() {
         <Card className="p-4 space-y-4">
           <div className="flex flex-wrap gap-2 items-center">
             <span className="label">Период:</span>
-            {FILTER_OPTIONS.map(opt => (
+            {FILTER_OPTIONS.map((opt) => (
               <Button
                 key={opt.label}
                 intent={filterDays === opt.value ? 'primary' : 'secondary'}
@@ -146,11 +155,13 @@ export default function AdminSolutionsPage() {
 
           {listLoading && <div className="text-slate-400">Загрузка…</div>}
           {!listLoading && !displayedSolutions.length && (
-            <div className="text-slate-400">Нет данных. Выберите студента и нажмите «Загрузить решения».</div>
+            <div className="text-slate-400">
+              Нет данных. Выберите студента и нажмите «Загрузить решения».
+            </div>
           )}
 
           <div className="space-y-4">
-            {displayedSolutions.map(item => (
+            {displayedSolutions.map((item) => (
               <div
                 key={item.id}
                 className="rounded-2xl bg-slate-900/40 border border-slate-700 p-4"
@@ -163,13 +174,17 @@ export default function AdminSolutionsPage() {
                     {new Date(item.submittedAt).toLocaleString()} • {item.language}
                   </div>
                 </div>
-
                 <div className="mb-3">
-                  {item.passedAllTests
-                    ? <Badge intent="success">Все тесты пройдены ({item.passedCount})</Badge>
-                    : <Badge intent="danger">Провалено: {item.failedCount} / Пройдено: {item.passedCount}</Badge>}
+                  {item.passedAllTests ? (
+                    <Badge intent="success">
+                      Все тесты пройдены ({item.passedCount})
+                    </Badge>
+                  ) : (
+                    <Badge intent="danger">
+                      Провалено: {item.failedCount} / Пройдено: {item.passedCount}
+                    </Badge>
+                  )}
                 </div>
-
                 <div className="rounded-xl overflow-hidden border border-slate-700">
                   <CodeEditor
                     language={item.language}

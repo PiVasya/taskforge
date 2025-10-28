@@ -1,28 +1,51 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Card, Select } from '../../components/ui';
 import { getLeaderboard } from '../../api/admin';
-import { getCourses } from '../../api/courses'; // у вас уже есть курсы
+import { api } from '../../api/http';
 
+/**
+ * Leaderboard page for administrators. Shows a ranking of students by the number
+ * of tasks solved. Users can filter by course and by period (days) and view
+ * the top N students. This page depends on admin API endpoints defined in
+ * `clientapp/src/api/admin.js`.
+ */
 export default function LeaderboardPage() {
   const [courses, setCourses] = useState([]);
   const [courseId, setCourseId] = useState('');
   const [days, setDays] = useState('30');
   const [rows, setRows] = useState([]);
+  const nav = useNavigate();
 
-  useEffect(() => { (async () => {
-    const cs = await getCourses();  // используйте ваш эндпоинт, если другой — поправьте импорт
-    setCourses(cs);
-  })(); }, []);
+  // Load available courses on mount.
+  // We call the backend endpoint directly via api to fetch all courses.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/api/courses');
+        setCourses(data || []);
+      } catch (err) {
+        console.error('Failed to load courses', err);
+      }
+    })();
+  }, []);
 
-  useEffect(() => { (async () => {
-    const data = await getLeaderboard({
-      courseId: courseId || undefined,
-      days: days ? Number(days) : undefined,
-      top: 50
-    });
-    setRows(data);
-  })(); }, [courseId, days]);
+  // Load leaderboard whenever course or days filter changes
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getLeaderboard({
+          courseId: courseId || undefined,
+          days: days ? Number(days) : undefined,
+          top: 50,
+        });
+        setRows(data || []);
+      } catch (err) {
+        console.error('Failed to load leaderboard', err);
+      }
+    })();
+  }, [courseId, days]);
 
   return (
     <Layout>
@@ -32,14 +55,18 @@ export default function LeaderboardPage() {
         <Card className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
             <label className="label">Курс</label>
-            <Select value={courseId} onChange={e=>setCourseId(e.target.value)}>
+            <Select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
               <option value="">Все курсы</option>
-              {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
             </Select>
           </div>
           <div>
             <label className="label">Период</label>
-            <Select value={days} onChange={e=>setDays(e.target.value)}>
+            <Select value={days} onChange={(e) => setDays(e.target.value)}>
               <option value="7">7 дней</option>
               <option value="30">30 дней</option>
               <option value="90">90 дней</option>
@@ -61,13 +88,17 @@ export default function LeaderboardPage() {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={r.userId} className="border-t">
-                  <td className="td">{i+1}</td>
+                  <td className="td">{i + 1}</td>
                   <td className="td">{r.lastName} {r.firstName}</td>
                   <td className="td">{r.email}</td>
                   <td className="td text-right font-medium">{r.solved}</td>
                 </tr>
               ))}
-              {!rows.length && <tr><td className="td" colSpan={4}>Нет данных</td></tr>}
+              {!rows.length && (
+                <tr>
+                  <td className="td" colSpan={4}>Нет данных</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </Card>
