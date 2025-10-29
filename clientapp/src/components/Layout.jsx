@@ -10,17 +10,15 @@ import {
   PencilLine,
   Eye,
   User,
-  BarChart2,     // кнопка "Топ"
-  ListOrdered,   // кнопка "Решения"
+  BarChart2,
+  ListOrdered,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 
 export default function Layout({ children }) {
-  const [dark, setDark] = useState(
-    () => localStorage.getItem('theme') === 'dark'
-  );
+  const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle } = useEditorMode();
   const nav = useNavigate();
@@ -53,16 +51,12 @@ export default function Layout({ children }) {
 
           <div className="flex items-center gap-2">
             {/* переключатель темы */}
-            <button
-              className="btn-ghost"
-              onClick={() => setDark((v) => !v)}
-              aria-label="Toggle theme"
-            >
+            <button className="btn-ghost" onClick={() => setDark((v) => !v)} aria-label="Toggle theme">
               {dark ? <Sun size={18} /> : <Moon size={18} />}
               <span className="hidden sm:inline">Тема</span>
             </button>
 
-            {/* переключатель режима редактора — только если у аккаунта есть права */}
+            {/* переключатель режима редактора — только если есть права */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
@@ -84,22 +78,14 @@ export default function Layout({ children }) {
               </Link>
             )}
 
-            {/* админ-кнопки: доступны только пользователям с правами редактирования */}
+            {/* админ-кнопки — только для редакторов/админов */}
             {access && canEdit && (
               <>
-                <Link
-                  to="/admin/leaderboard"
-                  className="btn-outline"
-                  title="Топ студентов"
-                >
+                <Link to="/admin/leaderboard" className="btn-outline" title="Топ студентов">
                   <BarChart2 size={18} />
                   <span className="hidden sm:inline">Топ</span>
                 </Link>
-                <Link
-                  to="/admin/solutions"
-                  className="btn-outline"
-                  title="Решения студентов"
-                >
+                <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
                   <ListOrdered size={18} />
                   <span className="hidden sm:inline">Решения</span>
                 </Link>
@@ -108,11 +94,7 @@ export default function Layout({ children }) {
 
             {/* вход/выход */}
             {access ? (
-              <button
-                className="btn-outline"
-                onClick={handleLogout}
-                title="Выйти"
-              >
+              <button className="btn-outline" onClick={handleLogout} title="Выйти">
                 <LogOut size={18} />
                 <span className="hidden sm:inline">Выйти</span>
               </button>
@@ -125,7 +107,6 @@ export default function Layout({ children }) {
           </div>
         </div>
       </header>
-
       <main className="container-app py-8">
         <motion.div
           initial={{ opacity: 0, y: 6 }}
@@ -135,7 +116,6 @@ export default function Layout({ children }) {
           {children}
         </motion.div>
       </main>
-
       <footer className="mt-12 border-t border-slate-200/70 dark:border-slate-800/70">
         <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400">
           © {new Date().getFullYear()} TaskForge

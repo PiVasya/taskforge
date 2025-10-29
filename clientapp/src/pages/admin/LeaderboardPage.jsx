@@ -19,7 +19,6 @@ export default function LeaderboardPage() {
   const nav = useNavigate();
 
   // Load available courses on mount.
-  // We call the backend endpoint directly via api to fetch all courses.
   useEffect(() => {
     (async () => {
       try {
