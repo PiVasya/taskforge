@@ -71,7 +71,7 @@ export default function AdminSolutionsPage() {
   useEffect(() => {
     if (!userId) return;
     loadSolutions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, [userId]);
 
   // Filtered list of solutions based on selected period
@@ -80,7 +80,6 @@ export default function AdminSolutionsPage() {
     const since = new Date();
     since.setDate(since.getDate() - filterDays);
     return solutions.filter((sol) => new Date(sol.submittedAt) >= since);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [solutions, filterDays]);
 
   // Deletion of all solutions for user
