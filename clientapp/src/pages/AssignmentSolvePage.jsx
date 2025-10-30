@@ -5,6 +5,7 @@ import { Card, Button, Input, Textarea, Select, Badge } from '../components/ui';
 import { getAssignment, submitSolution } from '../api/assignments';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
+import CodeEditor from '../components/CodeEditor';
 
 export default function AssignmentSolvePage() {
   const LANGS = [
@@ -23,18 +24,19 @@ export default function AssignmentSolvePage() {
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  // plainMode = true → use Textarea; false → use Monaco editor
+  const [plainMode, setPlainMode] = useState(false);
 
-  // показываем «чистый» текст: нормализуем перевод строк, убираем лишние хвостовые \n
+  // helpers to display clean text in results
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
-
   const normalizeNewlines = (s) =>
     (s ?? '')
       .replace(/\r\n|\r/g, '\n')
       .replace(/[ \t]+(?=\n|$)/g, '')
       .replace(/\n+$/, '');
-
   const onlyNewlineDiffers = (a, b) => normalizeNewlines(a) === normalizeNewlines(b);
 
+  // load assignment details on mount
   useEffect(() => {
     (async () => {
       try {
@@ -42,8 +44,6 @@ export default function AssignmentSolvePage() {
         setLoading(true);
         const dto = await getAssignment(assignmentId);
         setA(dto);
-        // если храните шаблоны кода — можно подставлять:
-        // setCode(dto.starterCode?.python ?? '');
       } catch (e) {
         setError(e.message || 'Не удалось загрузить задание');
       } finally {
@@ -52,10 +52,9 @@ export default function AssignmentSolvePage() {
     })();
   }, [assignmentId]);
 
+  // load template code for selected language if current code is empty
   useEffect(() => {
-    // если код уже есть — ничего не делаем (важно для предотвращения лишних срабатываний)
     if (code.trim()) return;
-
     if (language === 'python') {
       setCode('# write your solution here\n');
     } else if (language === 'cpp') {
@@ -82,18 +81,20 @@ class Program { static void Main(){ /* ... */ } }`);
     }
   };
 
-  if (loading)
+  if (loading) {
     return (
       <Layout>
         <div className="text-slate-500">Загрузка…</div>
       </Layout>
     );
-  if (!a)
+  }
+  if (!a) {
     return (
       <Layout>
         <div className="text-red-500">{error || 'Задание не найдено'}</div>
       </Layout>
     );
+  }
 
   const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
@@ -108,22 +109,17 @@ class Program { static void Main(){ /* ... */ } }`);
         {/* в редакторском режиме дадим быстрый переход к правке */}
         <div className="flex items-center gap-2">
           <IfEditor>
-            <Link
-              to={`/assignment/${a.id}/edit`}
-              className="btn-outline"
-            >
+            <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
               Редактировать
             </Link>
           </IfEditor>
           {/* ссылка на топ решений — доступна всем пользователям */}
-          <Link
-            to={`/assignment/${a.id}/top`}
-            className="btn-outline"
-          >
+          <Link to={`/assignment/${a.id}/top`} className="btn-outline">
             Топ решений
           </Link>
         </div>
       </div>
+
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-5">
           <Card>
@@ -139,13 +135,9 @@ class Program { static void Main(){ /* ... */ } }`);
               </div>
             )}
             <div className="prose prose-slate dark:prose-invert max-w-none">
-              {/* если у тебя markdown — можно подключить react-markdown позже; пока рендерим как html/текст */}
+              {/* выводим описание задания как текст с сохранением < и > и переносов строк */}
               {a.description ? (
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: a.description.replace(/\n/g, '<br/>'),
-                  }}
-                />
+                <pre className="whitespace-pre-wrap">{a.description}</pre>
               ) : (
                 <p className="text-slate-500">Описание не задано.</p>
               )}
@@ -165,24 +157,20 @@ class Program { static void Main(){ /* ... */ } }`);
                     <div className="text-xs text-slate-500 mb-1">Input</div>
                     <pre className="whitespace-pre-wrap text-sm">{t.input}</pre>
                     <div className="text-xs text-slate-500 mt-2 mb-1">Expected Output</div>
-                    <pre className="whitespace-pre-wrap text-sm">
-                      {t.expectedOutput}
-                    </pre>
+                    <pre className="whitespace-pre-wrap text-sm">{t.expectedOutput}</pre>
                   </div>
                 ))}
               </div>
             )}
           </Card>
         </div>
+
         <div className="space-y-4">
           <Card>
             <div className="grid gap-3">
               <div>
                 <label className="label">Язык</label>
-                <Select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                >
+                <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
                   {LANGS.map((l) => (
                     <option key={l.value} value={l.value}>
                       {l.label}
@@ -191,21 +179,40 @@ class Program { static void Main(){ /* ... */ } }`);
                   {/* добавь/удали языки по поддержке бэка */}
                 </Select>
               </div>
+
+              {/* выбор режима редактора: графический (Monaco) или простой текст */}
+              <div>
+                <label className="label">Режим ввода</label>
+                <Select
+                  value={plainMode ? 'plain' : 'editor'}
+                  onChange={(e) => setPlainMode(e.target.value === 'plain')}
+                >
+                  <option value="editor">Графический редактор</option>
+                  <option value="plain">Простой текст</option>
+                </Select>
+              </div>
+
               <div>
                 <label className="label">Ваш код</label>
-                <Textarea
-                  rows={14}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="// Напишите решение..."
-                />
+                {plainMode ? (
+                  <Textarea
+                    rows={14}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="// Напишите решение..."
+                  />
+                ) : (
+                  <CodeEditor language={language} value={code} onChange={setCode} />
+                )}
               </div>
+
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
                 <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить решение'}
               </Button>
               {error && <div className="text-red-500 text-sm">{error}</div>}
             </div>
           </Card>
+
           {result && (
             <Card>
               {/* Итоговая плашка */}
@@ -233,6 +240,7 @@ class Program { static void Main(){ /* ... */ } }`);
                   </span>
                 </div>
               </div>
+
               {/* Кейсы */}
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
                 {(result.cases ?? result.testCases ?? []).map((c, i) => {
