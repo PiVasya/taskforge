@@ -51,12 +51,15 @@ export default function Layout({ children }) {
 
           <div className="flex items-center gap-2">
             {/* переключатель темы */}
-            <button className="btn-ghost" onClick={() => setDark((v) => !v)} aria-label="Toggle theme">
+            <button
+              className="btn-ghost"
+              onClick={() => setDark((v) => !v)}
+              aria-label="Toggle theme"
+            >
               {dark ? <Sun size={18} /> : <Moon size={18} />}
               <span className="hidden sm:inline">Тема</span>
             </button>
-
-            {/* переключатель режима редактора — только если есть права */}
+            {/* переключатель режима редактора — показываем только если аккаунт умеет редактировать */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
@@ -69,29 +72,27 @@ export default function Layout({ children }) {
                 </span>
               </button>
             )}
-
-            {/* профиль */}
+            {/* ссылка на профиль для авторизованных пользователей */}
             {access && (
               <Link to="/profile" className="btn-ghost" title="Профиль">
                 <User size={18} />
                 <span className="hidden sm:inline">Профиль</span>
               </Link>
             )}
-
-            {/* админ-кнопки — только для редакторов/админов */}
-            {access && canEdit && (
-              <>
-                <Link to="/admin/leaderboard" className="btn-outline" title="Топ студентов">
-                  <BarChart2 size={18} />
-                  <span className="hidden sm:inline">Топ</span>
-                </Link>
-                <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
-                  <ListOrdered size={18} />
-                  <span className="hidden sm:inline">Решения</span>
-                </Link>
-              </>
+            {/* ссылка на общий рейтинг — доступна всем авторизованным пользователям */}
+            {access && (
+              <Link to="/leaderboard" className="btn-outline" title="Топ студентов">
+                <BarChart2 size={18} />
+                <span className="hidden sm:inline">Топ</span>
+              </Link>
             )}
-
+            {/* кнопка "Решения" доступна только пользователям с правами редактирования */}
+            {access && canEdit && (
+              <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
+                <ListOrdered size={18} />
+                <span className="hidden sm:inline">Решения</span>
+              </Link>
+            )}
             {/* вход/выход */}
             {access ? (
               <button className="btn-outline" onClick={handleLogout} title="Выйти">
@@ -108,11 +109,7 @@ export default function Layout({ children }) {
         </div>
       </header>
       <main className="container-app py-8">
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
           {children}
         </motion.div>
       </main>

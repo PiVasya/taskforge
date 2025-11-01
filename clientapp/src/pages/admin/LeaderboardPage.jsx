@@ -2,14 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Card, Select } from '../../components/ui';
-import { getLeaderboard } from '../../api/admin';
+// Use the public leaderboard API.  The backend will hide email/profile
+// for non-admin users, but include them for admins.
+import { getLeaderboard } from '../../api/leaderboard';
 import { api } from '../../api/http';
 
 /**
- * Leaderboard page for administrators. Shows a ranking of students by the number
+ * Leaderboard page. Shows a ranking of students by the number
  * of tasks solved. Users can filter by course and by period (days) and view
- * the top N students. This page depends on admin API endpoints defined in
- * `clientapp/src/api/admin.js`.
+ * the top N students.  Email and avatar columns appear only when at least one entry
+ * contains those fields, and those fields are populated only for admin/teacher/editor users.
  */
 export default function LeaderboardPage() {
   const [courses, setCourses] = useState([]);
@@ -80,7 +82,10 @@ export default function LeaderboardPage() {
               <tr>
                 <th className="th w-16">#</th>
                 <th className="th">Студент</th>
-                <th className="th">Email</th>
+                {/* Conditionally render email column only if at least one row contains email */}
+                {rows.some((r) => !!r.email) && <th className="th">Email</th>}
+                {/* Conditionally render avatar column only if at least one row contains profilePictureUrl */}
+                {rows.some((r) => !!r.profilePictureUrl) && <th className="th">Аватар</th>}
                 <th className="th text-right">Решено</th>
               </tr>
             </thead>
@@ -89,13 +94,41 @@ export default function LeaderboardPage() {
                 <tr key={r.userId} className="border-t">
                   <td className="td">{i + 1}</td>
                   <td className="td">{r.lastName} {r.firstName}</td>
-                  <td className="td">{r.email}</td>
+                  {/* Show email if present */}
+                  {rows.some((x) => !!x.email) && <td className="td">{r.email || ''}</td>}
+                  {/* Show avatar if present; render an img with circular crop */}
+                  {rows.some((x) => !!x.profilePictureUrl) && (
+                    <td className="td">
+                      {r.profilePictureUrl ? (
+                        <img
+                          src={r.profilePictureUrl}
+                          alt="avatar"
+                          className="w-8 h-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        ''
+                      )}
+                    </td>
+                  )}
                   <td className="td text-right font-medium">{r.solved}</td>
                 </tr>
               ))}
               {!rows.length && (
                 <tr>
-                  <td className="td" colSpan={4}>Нет данных</td>
+                  <td
+                    className="td"
+                    colSpan={
+                      rows.some((x) => !!x.email)
+                        ? rows.some((x) => !!x.profilePictureUrl)
+                          ? 5
+                          : 4
+                        : rows.some((x) => !!x.profilePictureUrl)
+                        ? 4
+                        : 3
+                    }
+                  >
+                    Нет данных
+                  </td>
                 </tr>
               )}
             </tbody>
