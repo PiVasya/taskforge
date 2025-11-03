@@ -83,13 +83,15 @@ namespace taskforge.Controllers
                 solutionsQuery = solutionsQuery.Where(s => s.SubmittedAt >= since);
             }
 
-            // Group by user and count solved assignments
+            // Group by user and count distinct assignments solved.
+            // Without this, multiple submissions for the same task would be counted multiple times.
             var leaderboard = await solutionsQuery
                 .GroupBy(s => s.UserId)
                 .Select(g => new
                 {
                     UserId = g.Key,
-                    Solved = g.Count(),
+                    // Count distinct TaskAssignmentId values to avoid counting duplicate solutions
+                    Solved = g.Select(x => x.TaskAssignmentId).Distinct().Count(),
                     FirstName = g.First().User.FirstName,
                     LastName = g.First().User.LastName,
                     Email = g.First().User.Email,
