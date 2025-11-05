@@ -1,12 +1,16 @@
+// clientapp/src/pages/ProfilePage.jsx
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea } from '../components/ui';
 import { getProfile, updateProfile } from '../api/profile';
+import { useNotify } from '../components/notify/NotifyProvider';
+import { handleApiError } from '../utils/handleApiError';
 
 /**
  * Page that allows the authenticated user to view and edit their profile.
  */
 export default function ProfilePage() {
+  const notify = useNotify();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -20,12 +24,14 @@ export default function ProfilePage() {
         const data = await getProfile();
         setProfile(data);
       } catch (e) {
+        // Use centralized error handler for API errors (will redirect on 401)
+        handleApiError(e, notify, 'Не удалось загрузить профиль');
         setError(e.message || 'Не удалось загрузить профиль');
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [notify]);
 
   const onChange = (field, value) => {
     setProfile((prev) => ({ ...prev, [field]: value }));
@@ -44,7 +50,9 @@ export default function ProfilePage() {
         additionalDataJson: profile.additionalDataJson,
       };
       await updateProfile(payload);
+      notify.success('Профиль обновлён');
     } catch (e) {
+      handleApiError(e, notify, 'Не удалось обновить профиль');
       setError(e.message || 'Не удалось обновить профиль');
     } finally {
       setSaving(false);

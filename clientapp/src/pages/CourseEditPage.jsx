@@ -1,27 +1,36 @@
-﻿import React, { useEffect, useState } from "react";
+﻿// clientapp/src/pages/CourseEditPage.jsx
+import React, { useEffect, useState } from 'react';
 
+import Layout from '../components/Layout';
+import { Field, Input, Textarea, Button, Card } from '../components/ui';
+import { getCourse, updateCourse, deleteCourse } from '../api/courses';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Save, Trash2, ArrowLeft, Layers } from 'lucide-react';
 
-import Layout from "../components/Layout";
-import { Field, Input, Textarea, Button, Card } from "../components/ui";
-import { getCourse, updateCourse, deleteCourse } from "../api/courses";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { Save, Trash2, ArrowLeft, Layers } from "lucide-react";
+import { useNotify } from '../components/notify/NotifyProvider';
+import { handleApiError } from '../utils/handleApiError';
 
 // helper: userId из JWT
 function getCurrentUserIdFromToken() {
   try {
     const raw =
-      localStorage.getItem("access_token") ||
-      localStorage.getItem("token") ||
-      sessionStorage.getItem("access_token") ||
-      sessionStorage.getItem("token");
+      localStorage.getItem('access_token') ||
+      localStorage.getItem('token') ||
+      sessionStorage.getItem('access_token') ||
+      sessionStorage.getItem('token');
     if (!raw) return null;
-    const parts = raw.split(".");
+    const parts = raw.split('.');
     if (parts.length < 2) return null;
     const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
+      atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))
     );
-    return payload.sub || payload.nameid || payload.uid || payload.userId || null;
+    return (
+      payload.sub ||
+      payload.nameid ||
+      payload.uid ||
+      payload.userId ||
+      null
+    );
   } catch {
     return null;
   }
@@ -30,154 +39,88 @@ function getCurrentUserIdFromToken() {
 export default function CourseEditPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
+  const notify = useNotify();
 
-
-
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
 
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-
-
-
 
   useEffect(() => {
     (async () => {
       try {
-        setErr("");
+        setErr('');
         setLoading(true);
         const c = await getCourse(courseId);
 
-        // гард: не владелец — не пускаем
+        // guard: not owner — redirect away and show warn
         const myId = getCurrentUserIdFromToken();
         const isOwner =
           myId &&
           c?.ownerId &&
           String(c.ownerId).toLowerCase() === String(myId).toLowerCase();
         if (!isOwner) {
-          setErr("Это чужой курс. Редактирование недоступно.");
-          setTimeout(() => nav(`/course/${courseId}`), 600);
+          notify.warn('Это чужой курс. Редактирование недоступно.');
+          // redirect back to course view
+          nav(`/course/${courseId}`, { replace: true });
           return;
         }
 
-        setTitle(c.title || "");
-        setDescription(c.description || "");
+        setTitle(c.title || '');
+        setDescription(c.description || '');
         setIsPublic(!!c.isPublic);
       } catch (e) {
-        setErr(e.message || "Ошибка загрузки курса");
+        handleApiError(e, notify, 'Ошибка загрузки курса');
+        setErr(e.message || 'Ошибка загрузки курса');
       } finally {
         setLoading(false);
       }
     })();
-  }, [courseId, nav]);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  }, [courseId, nav, notify]);
 
   const save = async () => {
     setBusy(true);
-    setErr("");
+    setErr('');
     try {
       await updateCourse(courseId, { title, description, isPublic });
+      notify.success('Курс обновлён');
       nav(`/course/${courseId}`);
-
-
     } catch (e) {
-      const msg =
-        e && e.response && e.response.status === 403
-          ? (e.response.data && e.response.data.message) || "Вы не владелец курса"
-          : e.message || "Ошибка сохранения";
-      setErr(msg);
+      // 403 — not owner
+      if (e?.response?.status === 403) {
+        notify.error(
+          (e.response?.data && e.response.data.message) || 'Вы не владелец курса'
+        );
+        nav(`/course/${courseId}`, { replace: true });
+        return;
+      }
+      handleApiError(e, notify, 'Ошибка сохранения');
+      setErr(e.message || 'Ошибка сохранения');
     } finally {
       setBusy(false);
-
-
     }
   };
 
   const remove = async () => {
-    if (!window.confirm("Удалить курс?")) return;
-
-
-
-
-
+    if (!window.confirm('Удалить курс?')) return;
     try {
       await deleteCourse(courseId);
-      nav("/courses");
-
-
-
-
-
-
-
-
-
-
+      notify.success('Курс удалён');
+      nav('/courses');
     } catch (e) {
-      const msg =
-        e && e.response && e.response.status === 403
-          ? (e.response.data && e.response.data.message) || "Вы не владелец курса"
-          : e.message || "Ошибка удаления";
-      setErr(msg);
-
-
+      // 403 — not owner
+      if (e?.response?.status === 403) {
+        notify.error(
+          (e.response?.data && e.response.data.message) || 'Вы не владелец курса'
+        );
+        nav(`/course/${courseId}`, { replace: true });
+        return;
+      }
+      handleApiError(e, notify, 'Ошибка удаления');
+      setErr(e.message || 'Ошибка удаления');
     }
   };
 
@@ -187,56 +130,11 @@ export default function CourseEditPage() {
         <div className="flex items-center gap-2">
           <Layers size={20} />
           <h1 className="text-2xl font-semibold">Редактирование курса</h1>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         </div>
         <Link to={`/course/${courseId}`} className="text-brand-600 hover:underline">
           <ArrowLeft className="inline" size={16} /> к заданиям
         </Link>
       </div>
-
-
-
-
-
-
-
-
-
-
-
-
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
       {loading && <div className="text-slate-500 mb-4">Загрузка…</div>}
@@ -264,55 +162,6 @@ export default function CourseEditPage() {
                 </Field>
               </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
               <div className="sm:col-span-2">
                 <label className="flex items-center gap-3 select-none">
                   <input
@@ -334,7 +183,7 @@ export default function CourseEditPage() {
           <Card>
             <div className="flex gap-2">
               <Button onClick={save} disabled={busy} className="flex-1">
-                <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
+                <Save size={16} /> {busy ? 'Сохраняю…' : 'Сохранить'}
               </Button>
               <Button
                 variant="outline"
@@ -347,12 +196,6 @@ export default function CourseEditPage() {
           </Card>
         </div>
       </div>
-
-
-
-
-
-
     </Layout>
   );
 }
