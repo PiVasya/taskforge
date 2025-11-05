@@ -1,8 +1,10 @@
-﻿import React, { useEffect, useState } from 'react';
+﻿// clientapp/src/pages/AssignmentSolvePage.jsx
+import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea, Select, Badge } from '../components/ui';
 import { getAssignment, submitSolution } from '../api/assignments';
+import { compileRun } from '../api/compiler';  // новый импорт
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
@@ -72,6 +74,22 @@ class Program { static void Main(){ /* ... */ } }`);
     setError('');
     setResult(null);
     try {
+      // попытка скомпилировать код перед отправкой
+      try {
+        await compileRun({ language, code, input: '' });
+        // если compileRun вернул 2xx, значит status != compile_error
+      } catch (compileErr) {
+        // при compile_error сервер возвращает HTTP 400 и тело со статусом и stderr
+        const data = compileErr?.response?.data || {};
+        const errMsg =
+          data.compileStderr ||
+          data.stderr ||
+          data.message ||
+          'Ошибка компиляции';
+        setError(errMsg);
+        return;
+      }
+      // если компиляция проходит — отправляем решение
       const r = await submitSolution(assignmentId, { language, code });
       setResult(r);
     } catch (e) {
@@ -209,7 +227,7 @@ class Program { static void Main(){ /* ... */ } }`);
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
                 <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить решение'}
               </Button>
-              {error && <div className="text-red-500 text-sm">{error}</div>}
+              {error && <div className="text-red-500 text-sm whitespace-pre-wrap">{error}</div>}
             </div>
           </Card>
 
