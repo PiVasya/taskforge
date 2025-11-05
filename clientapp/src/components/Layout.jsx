@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useState } from 'react';
+﻿// clientapp/src/components/Layout.jsx
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Moon,
@@ -52,7 +53,7 @@ export default function Layout({ children }) {
           <div className="flex items-center gap-2">
             {/* переключатель темы */}
             <button
-              className="btn-ghost"
+              className="btn-outline"
               onClick={() => setDark((v) => !v)}
               aria-label="Toggle theme"
             >
@@ -68,13 +69,13 @@ export default function Layout({ children }) {
               >
                 {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
                 <span className="hidden sm:inline">
-                  {isEditorMode ? 'Режим: редактор' : 'Режим: просмотр'}
+                  {isEditorMode ? 'Редактор' : 'Просмотр'}
                 </span>
               </button>
             )}
             {/* ссылка на профиль для авторизованных пользователей */}
             {access && (
-              <Link to="/profile" className="btn-ghost" title="Профиль">
+              <Link to="/profile" className="btn-outline" title="Профиль">
                 <User size={18} />
                 <span className="hidden sm:inline">Профиль</span>
               </Link>
