@@ -1,4 +1,3 @@
-// clientapp/src/components/notify/NotifyProvider.jsx
 import React, { createContext, useContext, useState } from 'react';
 
 /**
@@ -65,20 +64,21 @@ export function NotifyProvider({ children }) {
   return (
     <NotifyContext.Provider value={{ notify }}>
       {children}
-      {/* отрисовываем уведомления в правом нижнем углу */}
-      <div className="fixed bottom-4 right-4 z-50 space-y-2 max-w-xs">
+      {/* отрисовываем уведомления в правом верхнем углу */}
+      <div className="fixed top-4 right-4 z-50 space-y-3 max-w-sm">
         {notifications.map((n) => (
           <div
             key={n.id}
-            className={`px-4 py-3 rounded shadow text-white text-sm ${
-              n.type === 'error'
-                ? 'bg-red-600'
-                : n.type === 'success'
-                ? 'bg-green-600'
-                : n.type === 'warning'
-                ? 'bg-yellow-600'
-                : 'bg-blue-600'
-            }`}
+            className={`rounded-xl p-4 shadow-soft border-l-4
+              ${
+                n.type === 'error'
+                  ? 'border-red-500 bg-red-50 text-red-800 dark:bg-red-900/70 dark:text-red-200'
+                  : n.type === 'success'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200'
+                  : n.type === 'warning'
+                  ? 'border-yellow-500 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/70 dark:text-yellow-200'
+                  : 'border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-900/70 dark:text-blue-200'
+              }`}
           >
             {n.message}
           </div>

@@ -79,7 +79,8 @@ export default function CourseEditPage() {
         setLoading(false);
       }
     })();
-  }, [courseId, nav, notify]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId, nav]); // notify не должен быть зависимостью — иначе будет бесконечная загрузка
 
   const save = async () => {
     setBusy(true);

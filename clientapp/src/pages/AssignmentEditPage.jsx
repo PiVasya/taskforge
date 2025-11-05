@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+﻿﻿import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -66,7 +66,8 @@ export default function AssignmentEditPage() {
         setLoading(false);
       }
     })();
-  }, [assignmentId, nav, notify]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignmentId, nav]); // убрали notify из зависимостей
 
   const addTest = () =>
     setTestCases((prev) => [

@@ -31,7 +31,8 @@ export default function ProfilePage() {
         setLoading(false);
       }
     })();
-  }, [notify]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // обращаемся к notify только внутри, но не следим за его изменениями
 
   const onChange = (field, value) => {
     setProfile((prev) => ({ ...prev, [field]: value }));
