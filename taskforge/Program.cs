@@ -8,7 +8,7 @@ using System.Text;
 using taskforge.Data;
 using taskforge.Services;
 using taskforge.Services.Interfaces;
-using taskforge.Services.Remote;       // <- HTTP-раннеры (новое)
+using taskforge.Services.Remote;
 
 var builder = WebApplication.CreateBuilder(args);
 
