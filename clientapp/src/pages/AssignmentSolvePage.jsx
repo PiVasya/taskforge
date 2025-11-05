@@ -4,10 +4,11 @@ import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea, Select, Badge } from '../components/ui';
 import { getAssignment, submitSolution } from '../api/assignments';
-import { compileRun } from '../api/compiler';  // новый импорт
+import { compileRun } from '../api/compiler';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
+import { useNotify } from '../components/notify/NotifyProvider';
 
 export default function AssignmentSolvePage() {
   const LANGS = [
@@ -17,6 +18,7 @@ export default function AssignmentSolvePage() {
   ];
 
   const { assignmentId } = useParams();
+  const notify = useNotify();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,14 +60,11 @@ export default function AssignmentSolvePage() {
   useEffect(() => {
     if (code.trim()) return;
     if (language === 'python') {
-      setCode('# write your solution here\n');
+      setCode('');
     } else if (language === 'cpp') {
-      setCode(`#include <iostream>
-using namespace std;
-int main(){ /* ... */ return 0; }`);
+      setCode(`#include <iostream>\nusing namespace std;\nint main()\n{\n\n\n}`);
     } else if (language === 'csharp') {
-      setCode(`using System;
-class Program { static void Main(){ /* ... */ } }`);
+      setCode(`using System;`);
     }
   }, [language, code]);
 
@@ -74,22 +73,40 @@ class Program { static void Main(){ /* ... */ } }`);
     setError('');
     setResult(null);
     try {
-      // попытка скомпилировать код перед отправкой
+      let compileResp;
       try {
-        await compileRun({ language, code, input: '' });
-        // если compileRun вернул 2xx, значит status != compile_error
+        // компилируем и запускаем без ввода, чтобы поймать ошибки компиляции/выполнения
+        compileResp = await compileRun({ language, code, input: '' });
       } catch (compileErr) {
-        // при compile_error сервер возвращает HTTP 400 и тело со статусом и stderr
+        // сюда попадём, если CompilerController вернул 400 (compile_error)
         const data = compileErr?.response?.data || {};
         const errMsg =
           data.compileStderr ||
           data.stderr ||
           data.message ||
           'Ошибка компиляции';
+        notify.error(errMsg);
         setError(errMsg);
         return;
       }
-      // если компиляция проходит — отправляем решение
+
+      // HTTP 200, но возможен статус runtime_error, time_limit или compile_error
+      if (compileResp && compileResp.status && compileResp.status !== 'ok') {
+        const errMsg =
+          compileResp.compileStderr ||
+          compileResp.stderr ||
+          compileResp.message ||
+          (compileResp.status === 'runtime_error'
+            ? 'Ошибка выполнения'
+            : compileResp.status === 'time_limit'
+            ? 'Превышен лимит времени'
+            : 'Произошла ошибка');
+        notify.error(errMsg);
+        setError(errMsg);
+        return;
+      }
+
+      // если всё нормально – отправляем решение на проверку тестов
       const r = await submitSolution(assignmentId, { language, code });
       setResult(r);
     } catch (e) {
