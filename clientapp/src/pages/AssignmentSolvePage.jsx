@@ -28,6 +28,8 @@ export default function AssignmentSolvePage() {
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  // detailed error output from compiler/runtime; useful for showing long errors
+  const [errorDetail, setErrorDetail] = useState('');
   // plainMode = true → use Textarea; false → use Monaco editor
   const [plainMode, setPlainMode] = useState(false);
 
@@ -60,11 +62,11 @@ export default function AssignmentSolvePage() {
   useEffect(() => {
     if (code.trim()) return;
     if (language === 'python') {
-      setCode('');
+      setCode('# write your solution here\n');
     } else if (language === 'cpp') {
-      setCode(`#include <iostream>\nusing namespace std;\nint main()\n{\n\n\n}`);
+      setCode(`#include <iostream>\nusing namespace std;\nint main(){ /* ... */ return 0; }`);
     } else if (language === 'csharp') {
-      setCode(`using System;`);
+      setCode(`using System;\nclass Program { static void Main(){ /* ... */ } }`);
     }
   }, [language, code]);
 
@@ -72,6 +74,7 @@ export default function AssignmentSolvePage() {
     setSubmitting(true);
     setError('');
     setResult(null);
+    setErrorDetail('');
     try {
       let compileResp;
       try {
@@ -87,6 +90,10 @@ export default function AssignmentSolvePage() {
           'Ошибка компиляции';
         notify.error(errMsg);
         setError(errMsg);
+        // сохраняем полный текст ошибки для отображения (если есть)
+        if (typeof data.compileStderr === 'string' || typeof data.stderr === 'string') {
+          setErrorDetail(data.compileStderr || data.stderr || '');
+        }
         return;
       }
 
@@ -103,6 +110,10 @@ export default function AssignmentSolvePage() {
             : 'Произошла ошибка');
         notify.error(errMsg);
         setError(errMsg);
+        // сохраняем детальную ошибку
+        if (typeof compileResp.compileStderr === 'string' || typeof compileResp.stderr === 'string') {
+          setErrorDetail(compileResp.compileStderr || compileResp.stderr || '');
+        }
         return;
       }
 
@@ -245,6 +256,11 @@ export default function AssignmentSolvePage() {
                 <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить решение'}
               </Button>
               {error && <div className="text-red-500 text-sm whitespace-pre-wrap">{error}</div>}
+              {errorDetail && (
+                <div className="text-xs mt-2 whitespace-pre-wrap max-h-60 overflow-auto border border-red-200 dark:border-red-800 rounded p-2 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-100">
+                  {errorDetail}
+                </div>
+              )}
             </div>
           </Card>
 
