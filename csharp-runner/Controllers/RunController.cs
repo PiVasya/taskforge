@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Runner.Models;
 using Runner.Services;
 
 namespace Runner.Controllers;
@@ -16,70 +17,94 @@ public sealed class RunController : ControllerBase
         _exec = exec;
     }
 
-    public sealed class RunRequest { public string? code { get; set; } public string? input { get; set; } }
-    public sealed class RunResponse
-    {
-        public string? stdout { get; set; }
-        public string? stderr { get; set; }
-        public int exitCode { get; set; }
-        public string? error { get; set; } // компиляционные ошибки сюда тоже
-    }
-
-    [HttpPost("/run")]
+    // POST /run/run
+    [HttpPost("run")]
     public ActionResult<RunResponse> Run([FromBody] RunRequest req)
     {
-        var (ok, asm, err) = _compiler.Compile(req.code ?? "");
-        if (!ok || asm == null)
+        if (req is null || string.IsNullOrWhiteSpace(req.Code))
+            return BadRequest(new RunResponse { Error = "Code is empty." });
+
+        var (ok, asm, compileErr) = _compiler.Compile(req.Code);
+        if (!ok || asm is null)
         {
             return Ok(new RunResponse
             {
-                stdout = null,
-                stderr = err,   // дублируем в stderr
-                exitCode = 1,
-                error = err
+                Stdout = "",
+                Stderr = "",
+                ExitCode = 1,
+                Error = compileErr
             });
         }
 
-        var (okRun, stdout, runErr) = _exec.Run(asm, req.input ?? "", TimeSpan.FromSeconds(2));
+        // при пустом вводе отправляем хотя бы перевод строки, чтобы ReadLine() не вернул null
+        var normalizedInput = string.IsNullOrEmpty(req.Input) ? "\n" : req.Input!;
+        var (ranOk, stdout, err) = _exec.Run(asm, normalizedInput, TimeSpan.FromSeconds(3));
+
         return Ok(new RunResponse
         {
-            stdout = okRun ? stdout : null,
-            stderr = okRun ? null : runErr,
-            exitCode = okRun ? 0 : 1,
-            error = okRun ? null : runErr
+            Stdout = stdout,
+            Stderr = "",
+            ExitCode = ranOk ? 0 : 1,
+            Error = ranOk ? "" : err
         });
     }
 
-    public sealed class TestItem { public string? input { get; set; } public string? expectedOutput { get; set; } }
-    public sealed class TestsRequest { public string? code { get; set; } public List<TestItem>? tests { get; set; } }
-    public sealed class TestsResponse { public List<object> results { get; set; } = new(); }
-
-    [HttpPost("/run/tests")]
-    public ActionResult<TestsResponse> RunTests([FromBody] TestsRequest req)
+    // POST /run/tests
+    [HttpPost("tests")]
+    public ActionResult<TestResultsResponse> RunTests([FromBody] RunRequestWithTests req)
     {
-        var (ok, asm, err) = _compiler.Compile(req.code ?? "");
-        if (!ok || asm == null)
-        {
-            // Пусть клиент покажет compile error и не продолжает
-            return Ok(new TestsResponse { results = new List<object>() });
-        }
+        if (req is null || string.IsNullOrWhiteSpace(req.Code))
+            return BadRequest();
 
-        var res = new TestsResponse();
-        foreach (var t in (req.tests ?? new List<TestItem>()))
+        var (ok, asm, compileErr) = _compiler.Compile(req.Code);
+        if (!ok || asm is null)
         {
-            var (okRun, stdout, runErr) = _exec.Run(asm, t.input ?? "", TimeSpan.FromSeconds(2));
-            var actual = okRun ? stdout : "";
-            res.results.Add(new
+            // Возвращаем одну «ошибочную» запись, чтобы UI отобразил ошибку компиляции
+            return Ok(new TestResultsResponse
             {
-                input = t.input ?? "",
-                expectedOutput = t.expectedOutput ?? "",
-                actualOutput = actual,
-                passed = okRun && string.Equals(
-                    (t.expectedOutput ?? "").Replace("\r\n","\n").TrimEnd(),
-                    (actual ?? "").Replace("\r\n","\n").TrimEnd(),
-                    StringComparison.Ordinal)
+                Results = new List<TestResult>
+                {
+                    new TestResult
+                    {
+                        Input = "",
+                        ExpectedOutput = "",
+                        ActualOutput = compileErr ?? "",
+                        Passed = false
+                    }
+                }
             });
         }
-        return Ok(res);
+
+        var results = new List<TestResult>();
+        var tests = req.Tests ?? new List<TestCase>();
+
+        foreach (var t in tests)
+        {
+            var input = t.Input ?? "";
+            if (input.Length == 0) input = "\n"; // ключевая правка
+
+            var (ranOk, stdout, ex) = _exec.Run(asm, input, TimeSpan.FromSeconds(3));
+
+            string actual = stdout ?? "";
+            // сравниваем без различий в типе переноса строки и без хвостовых переводов
+            bool passed = ranOk &&
+                          string.Equals(
+                              (t.ExpectedOutput ?? "").Replace("\r\n", "\n").TrimEnd(),
+                              (actual).Replace("\r\n", "\n").TrimEnd(),
+                              StringComparison.Ordinal);
+
+            if (!ranOk && string.IsNullOrEmpty(actual))
+                actual = ex ?? "";
+
+            results.Add(new TestResult
+            {
+                Input = t.Input ?? "",
+                ExpectedOutput = t.ExpectedOutput ?? "",
+                ActualOutput = actual,
+                Passed = passed
+            });
+        }
+
+        return Ok(new TestResultsResponse { Results = results });
     }
 }

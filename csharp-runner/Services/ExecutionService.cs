@@ -6,8 +6,9 @@ public sealed class ExecutionService : IExecutionService
 {
     public (bool Ok, string Stdout, string Error) Run(Assembly asm, string input, TimeSpan timeout)
     {
-        // если вход пустой – отправляем хотя бы перевод строки
+        // если вход пустой – отправляем хотя бы перевод строки (важно для Console.ReadLine)
         var normalized = string.IsNullOrEmpty(input) ? "\n" : input;
+
         using var inputReader = new StringReader(normalized);
         using var outputWriter = new StringWriter();
 
@@ -19,16 +20,36 @@ public sealed class ExecutionService : IExecutionService
             Console.SetIn(inputReader);
             Console.SetOut(outputWriter);
 
-            var entry = asm.EntryPoint!;
-            var args = entry.GetParameters().Length == 0
-                ? null
-                : new object[] { Array.Empty<string>() };
+            // ищем статический Main
+            var entry = asm.EntryPoint;
+            if (entry is null)
+                return (false, "", "Entry point not found.");
 
-            using var cts = new CancellationTokenSource(timeout);
-            var task = Task.Run(() => entry.Invoke(null, args), cts.Token);
+            var parameters = entry.GetParameters();
+            object? result;
 
-            if (!task.Wait(timeout))
-                return (false, "", "Time limit exceeded");
+            var cts = new CancellationTokenSource(timeout);
+            var runTask = Task.Run(() =>
+            {
+                if (parameters.Length == 0)
+                {
+                    result = entry.Invoke(null, null);
+                }
+                else
+                {
+                    // Main(string[] args)
+                    result = entry.Invoke(null, new object[] { Array.Empty<string>() });
+                }
+            }, cts.Token);
+
+            try
+            {
+                runTask.Wait(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return (false, "", "Time limit exceeded.");
+            }
 
             return (true, outputWriter.ToString(), "");
         }
