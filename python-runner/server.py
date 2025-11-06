@@ -27,7 +27,11 @@ def run_py(pyfile, input_txt, cwd, timeout):
         cwd=cwd, text=True, preexec_fn=_limits
     )
     try:
-        out, err = p.communicate(input_txt or "", timeout=timeout)
+        # если ввода нет, отправляем хотя бы перевод строки, чтобы input() не упал с EOFError
+        data = (input_txt or "")
+        if data == "":
+            data = "\n"
+        out, err = p.communicate(data, timeout=timeout)
         # нормализуем перевод строк и ограничим размер
         out = out.replace("\r\n", "\n")[:MAX_OUT_LEN]
         err = err.replace("\r\n", "\n")[:MAX_OUT_LEN]
@@ -51,7 +55,10 @@ def run_tests(req: TestsReq):
         open(path, "w", encoding="utf-8").write(req.code)
         results = []
         for t in req.tests:
-            rc, out, err = run_py(path, t.get("input") or "", d, 5)
+            data = t.get("input") or ""
+            if data == "":
+                data = "\n"
+            rc, out, err = run_py(path, data, d, 5)
             results.append({
                 "input": t.get("input"),
                 "expectedOutput": t.get("expectedOutput"),

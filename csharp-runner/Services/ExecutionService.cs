@@ -6,7 +6,9 @@ public sealed class ExecutionService : IExecutionService
 {
     public (bool Ok, string Stdout, string Error) Run(Assembly asm, string input, TimeSpan timeout)
     {
-        using var inputReader = new StringReader(input);
+        // если вход пустой – отправляем хотя бы перевод строки
+        var normalized = string.IsNullOrEmpty(input) ? "\n" : input;
+        using var inputReader = new StringReader(normalized);
         using var outputWriter = new StringWriter();
 
         var oldIn = Console.In;
