@@ -47,16 +47,30 @@ namespace taskforge.Services.Remote
             if (string.IsNullOrWhiteSpace(stderr) && !string.IsNullOrWhiteSpace(dto?.error))
                 stderr = dto!.error;
 
+            // определяем статус по коду возврата и stderr
             var status = MapStatus(dto?.exitCode ?? 0, stderr);
+
+            // Попытаемся извлечь статус и compileStderr, если их прислал раннер
+            string? remoteStatus        = dto?.status;
+            string? remoteCompileStderr = dto?.compileStderr;
+            // Если раннер явно вернул статус — используем его, иначе применяем MapStatus
+            var effectiveStatus = !string.IsNullOrWhiteSpace(remoteStatus)
+                ? remoteStatus
+                : status;
+            // Для compile_error сначала берём compileStderr из раннера,
+            // а если его нет — используем stderr (как и раньше)
+            var effectiveCompileStderr = !string.IsNullOrEmpty(remoteCompileStderr)
+                ? remoteCompileStderr
+                : (effectiveStatus == "compile_error" ? stderr : null);
 
             return new CompilerRunResponseDto
             {
-                Status        = status,                // ok | compile_error | runtime_error | time_limit | infrastructure_error
+                Status        = effectiveStatus,   // ok | compile_error | runtime_error | time_limit | infrastructure_error
                 ExitCode      = dto?.exitCode ?? 0,
                 Stdout        = dto?.stdout,
                 Stderr        = stderr,
-                CompileStderr = status == "compile_error" ? stderr : null,
-                Message       = status == "time_limit" ? "Time limit exceeded" : null
+                CompileStderr = effectiveCompileStderr,
+                Message       = effectiveStatus == "time_limit" ? "Time limit exceeded" : null
             };
         }
 
@@ -116,7 +130,9 @@ namespace taskforge.Services.Remote
             public string? stdout   { get; set; }
             public string? stderr   { get; set; }
             public int     exitCode { get; set; }
-            public string? error    { get; set; } // <-- критично для C#
+            public string? error    { get; set; } // текст ошибки Roslyn
+            public string? status        { get; set; }    // ok | compile_error | runtime_error | time_limit
+            public string? compileStderr { get; set; }    // компиляционные ошибки для C++
         }
 
         private sealed class RunnerTestsResponse
@@ -141,6 +157,8 @@ namespace taskforge.Services.Remote
                 if (s.StartsWith("(") && s.Contains(": error CS")) return "compile_error";
                 if (s.Contains("Compilation error", StringComparison.OrdinalIgnoreCase)) return "compile_error";
             }
+            // Если stderr пуст, но exitCode != 0 — это компиляционная ошибка (например, C++)
+            if (exitCode != 0 && string.IsNullOrWhiteSpace(stderr)) return "compile_error";
             if (exitCode != 0) return "runtime_error";
             return "ok";
         }

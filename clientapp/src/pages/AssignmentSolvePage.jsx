@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Card, Button, Input, Textarea, Select, Badge } from '../components/ui';
+import { Card, Button, Textarea, Select, Badge } from '../components/ui';
 import { getAssignment, submitSolution } from '../api/assignments';
 import { compileRun } from '../api/compiler';
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
@@ -10,7 +10,14 @@ import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
 import { useNotify } from '../components/notify/NotifyProvider';
 
+/**
+ * Страница решения задания.
+ * Перед отправкой решения выполняется компиляция/запуск без входа,
+ * чтобы перехватить ошибки компиляции или выполнения. На их основе
+ * выводится сообщение в интерфейсе, и решение не отправляется.
+ */
 export default function AssignmentSolvePage() {
+  // Доступные языки. Значение совпадает с тем, что принимает бэкенд.
   const LANGS = [
     { label: 'C++', value: 'cpp' },
     { label: 'C#', value: 'csharp' },
@@ -22,18 +29,18 @@ export default function AssignmentSolvePage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [a, setA] = useState(null);
+  const [assignment, setAssignment] = useState(null);
 
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
-  // detailed error output from compiler/runtime; useful for showing long errors
+  // Детальный вывод ошибки (stderr/compileStderr). Показывается в отдельном блоке.
   const [errorDetail, setErrorDetail] = useState('');
-  // plainMode = true → use Textarea; false → use Monaco editor
+  // plainMode = true → используем Textarea; false → Monaco editor
   const [plainMode, setPlainMode] = useState(false);
 
-  // helpers to display clean text in results
+  // Приведение строк результата к единому виду без CR/LF в конце
   const displayClean = (s) => (s ?? '').replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
   const normalizeNewlines = (s) =>
     (s ?? '')
@@ -42,14 +49,14 @@ export default function AssignmentSolvePage() {
       .replace(/\n+$/, '');
   const onlyNewlineDiffers = (a, b) => normalizeNewlines(a) === normalizeNewlines(b);
 
-  // load assignment details on mount
+  // Загрузка данных о задании при монтировании
   useEffect(() => {
     (async () => {
       try {
         setError('');
         setLoading(true);
         const dto = await getAssignment(assignmentId);
-        setA(dto);
+        setAssignment(dto);
       } catch (e) {
         setError(e.message || 'Не удалось загрузить задание');
       } finally {
@@ -58,7 +65,7 @@ export default function AssignmentSolvePage() {
     })();
   }, [assignmentId]);
 
-  // load template code for selected language if current code is empty
+  // При смене языка загружаем шаблон, если пользователь ещё не ввёл код
   useEffect(() => {
     if (code.trim()) return;
     if (language === 'python') {
@@ -70,56 +77,80 @@ export default function AssignmentSolvePage() {
     }
   }, [language, code]);
 
+  /**
+   * Унифицированный обработчик ошибок. Определяет текст базового сообщения
+   * в зависимости от типа ошибки и сохраняет детальное описание в состояние.
+   * Всплывающее уведомление не используется, чтобы избежать дублирования.
+   * @param {string} kind - compile_error | runtime_error | time_limit | other
+   * @param {string} detail - полный текст ошибки
+   */
+  const handleError = (kind, detail) => {
+    let base;
+    if (kind === 'compile_error') base = 'Ошибка компиляции';
+    else if (kind === 'runtime_error') base = 'Ошибка выполнения';
+    else if (kind === 'time_limit') base = 'Превышен лимит времени';
+    else base = 'Произошла ошибка';
+    setError(base);
+    setErrorDetail(detail || '');
+    // Не вызываем notify.error(base) — сообщение будет показано в самом интерфейсе
+  };
+
+  /**
+   * Отправка решения: сначала компиляция/запуск без ввода, затем, если
+   * всё прошло успешно, отправка на проверку тестов. Ошибки компиляции и
+   * выполнения перехватываются и выводятся пользователю.
+   */
   const onSubmit = async () => {
     setSubmitting(true);
     setError('');
-    setResult(null);
     setErrorDetail('');
+    setResult(null);
+
     try {
       let compileResp;
       try {
-        // компилируем и запускаем без ввода, чтобы поймать ошибки компиляции/выполнения
+        // Компилируем и запускаем без входных данных, чтобы поймать
+        // ошибки компиляции или выполнения до отправки решения.
         compileResp = await compileRun({ language, code, input: '' });
       } catch (compileErr) {
-        // сюда попадём, если CompilerController вернул 400 (compile_error)
+        // Ошибка HTTP 400 обычно означает проблему компиляции (например, C#).
         const data = compileErr?.response?.data || {};
-        const errMsg =
-          data.compileStderr ||
-          data.stderr ||
-          data.message ||
-          'Ошибка компиляции';
-        notify.error(errMsg);
-        setError(errMsg);
-        // сохраняем полный текст ошибки для отображения (если есть)
-        if (typeof data.compileStderr === 'string' || typeof data.stderr === 'string') {
-          setErrorDetail(data.compileStderr || data.stderr || '');
-        }
+        const detail =
+          data.compileStderr || data.stderr || data.error || data.message || '';
+        handleError('compile_error', detail);
         return;
       }
 
-      // HTTP 200, но возможен статус runtime_error, time_limit или compile_error
-      if (compileResp && compileResp.status && compileResp.status !== 'ok') {
-        const errMsg =
-          compileResp.compileStderr ||
-          compileResp.stderr ||
-          compileResp.message ||
-          (compileResp.status === 'runtime_error'
-            ? 'Ошибка выполнения'
-            : compileResp.status === 'time_limit'
-            ? 'Превышен лимит времени'
-            : 'Произошла ошибка');
-        notify.error(errMsg);
-        setError(errMsg);
-        // сохраняем детальную ошибку
-        if (typeof compileResp.compileStderr === 'string' || typeof compileResp.stderr === 'string') {
-          setErrorDetail(compileResp.compileStderr || compileResp.stderr || '');
-        }
+      // Разбираем ответ: статус (для C++), exitCode, stderr и error (для C#)
+      const status  = compileResp?.status;
+      const exit    = compileResp?.exitCode;
+      const stderr  = compileResp?.stderr;
+      const compileStderr = compileResp?.compileStderr;
+      const errorField = compileResp?.error; // поле 'error' приходит у C# при ошибке компиляции
+      const msg     = compileResp?.message;
+
+      // Определяем факт ошибки: статус отличен от ok, либо
+      // присутствует errorField (C#), либо exitCode != 0 и есть stderr/compileStderr
+      const hasRuntimeError = typeof exit === 'number' && exit !== 0 && (stderr || compileStderr);
+      if ((status && status !== 'ok') || errorField || hasRuntimeError) {
+        let kind;
+        if (status && status !== 'ok') kind = status;
+        else if (errorField) kind = 'compile_error';
+        else kind = 'runtime_error';
+        const detail = compileStderr || stderr || errorField || msg || '';
+        handleError(kind, detail);
         return;
       }
 
-      // если всё нормально – отправляем решение на проверку тестов
+      // Если всё в порядке, отправляем решение на проверку тестов
       const r = await submitSolution(assignmentId, { language, code });
       setResult(r);
+      // Можно по желанию уведомить об успешной отправке
+      if (r.passedAll || r.passedAllTests) {
+        notify.success('Решение успешно: все тесты пройдены');
+      } else {
+        notify.info('Решение отправлено. Проверьте результаты тестов.');
+      }
     } catch (e) {
       setError(e.message || 'Не удалось отправить решение');
     } finally {
@@ -127,6 +158,7 @@ export default function AssignmentSolvePage() {
     }
   };
 
+  // Отображение загрузки
   if (loading) {
     return (
       <Layout>
@@ -134,7 +166,8 @@ export default function AssignmentSolvePage() {
       </Layout>
     );
   }
-  if (!a) {
+  // Если задание не найдено
+  if (!assignment) {
     return (
       <Layout>
         <div className="text-red-500">{error || 'Задание не найдено'}</div>
@@ -142,37 +175,39 @@ export default function AssignmentSolvePage() {
     );
   }
 
-  const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
+  // Публичные тесты (видны всем)
+  const publicTests = (assignment.testCases || []).filter((t) => !t.isHidden);
 
   return (
     <Layout>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline">
+          <Link to={`/course/${assignment.courseId}`} className="text-brand-600 hover:underline">
             <ArrowLeft size={16} /> к заданиям курса
           </Link>
         </div>
-        {/* в редакторском режиме дадим быстрый переход к правке */}
+        {/* В редакторском режиме показываем ссылку на правку */}
         <div className="flex items-center gap-2">
           <IfEditor>
-            <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
+            <Link to={`/assignment/${assignment.id}/edit`} className="btn-outline">
               Редактировать
             </Link>
           </IfEditor>
-          {/* ссылка на топ решений — доступна всем пользователям */}
-          <Link to={`/assignment/${a.id}/top`} className="btn-outline">
+          {/* Ссылка на топ решений доступна всегда */}
+          <Link to={`/assignment/${assignment.id}/top`} className="btn-outline">
             Топ решений
           </Link>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
+        {/* Левая колонка: описание и тесты */}
         <div className="lg:col-span-2 space-y-5">
           <Card>
-            <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
-            {a.tags && (
+            <h1 className="text-2xl font-semibold mb-1">{assignment.title}</h1>
+            {assignment.tags && (
               <div className="flex flex-wrap gap-2 mb-3">
-                {a.tags
+                {assignment.tags
                   .split(',')
                   .filter(Boolean)
                   .map((t) => (
@@ -181,9 +216,9 @@ export default function AssignmentSolvePage() {
               </div>
             )}
             <div className="prose prose-slate dark:prose-invert max-w-none">
-              {/* выводим описание задания как текст с сохранением < и > и переносов строк */}
-              {a.description ? (
-                <pre className="whitespace-pre-wrap">{a.description}</pre>
+              {/* Выводим описание задания с сохранением форматирования */}
+              {assignment.description ? (
+                <pre className="whitespace-pre-wrap">{assignment.description}</pre>
               ) : (
                 <p className="text-slate-500">Описание не задано.</p>
               )}
@@ -211,6 +246,7 @@ export default function AssignmentSolvePage() {
           </Card>
         </div>
 
+        {/* Правая колонка: редактор кода и вывод результатов */}
         <div className="space-y-4">
           <Card>
             <div className="grid gap-3">
@@ -222,11 +258,10 @@ export default function AssignmentSolvePage() {
                       {l.label}
                     </option>
                   ))}
-                  {/* добавь/удали языки по поддержке бэка */}
                 </Select>
               </div>
 
-              {/* выбор режима редактора: графический (Monaco) или простой текст */}
+              {/* Выбор режима ввода: графический редактор (Monaco) или простой текст */}
               <div>
                 <label className="label">Режим ввода</label>
                 <Select
@@ -255,8 +290,10 @@ export default function AssignmentSolvePage() {
               <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
                 <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить решение'}
               </Button>
+              {/* Общая ошибка */}
               {error && <div className="text-red-500 text-sm whitespace-pre-wrap">{error}</div>}
-              {errorDetail && (
+              {/* Детальный текст ошибки показываем только если он отличается от общего */}
+              {errorDetail && errorDetail.trim() !== error.trim() && (
                 <div className="text-xs mt-2 whitespace-pre-wrap max-h-60 overflow-auto border border-red-200 dark:border-red-800 rounded p-2 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-100">
                   {errorDetail}
                 </div>
@@ -266,7 +303,7 @@ export default function AssignmentSolvePage() {
 
           {result && (
             <Card>
-              {/* Итоговая плашка */}
+              {/* Итоговая информация: все тесты пройдены или нет */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {result.passedAll || result.passedAllTests ? (
@@ -292,7 +329,7 @@ export default function AssignmentSolvePage() {
                 </div>
               </div>
 
-              {/* Кейсы */}
+              {/* Отображение результатов по каждому тесту */}
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
                 {(result.cases ?? result.testCases ?? []).map((c, i) => {
                   const newlineOnly = !c.passed && onlyNewlineDiffers(c.expected, c.actual);
@@ -316,15 +353,11 @@ export default function AssignmentSolvePage() {
                       <div className="grid grid-cols-2 gap-3 mt-2">
                         <div>
                           <div className="text-xs text-slate-500 mb-1">Expected</div>
-                          <pre className="whitespace-pre-wrap text-sm">
-                            {displayClean(c.expected)}
-                          </pre>
+                          <pre className="whitespace-pre-wrap text-sm">{displayClean(c.expected)}</pre>
                         </div>
                         <div>
                           <div className="text-xs text-slate-500 mb-1">Actual</div>
-                          <pre className="whitespace-pre-wrap text-sm">
-                            {displayClean(c.actual)}
-                          </pre>
+                          <pre className="whitespace-pre-wrap text-sm">{displayClean(c.actual)}</pre>
                         </div>
                       </div>
                       {!c.passed && (
