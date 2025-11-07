@@ -1,12 +1,14 @@
-﻿import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import Layout from '../components/Layout';
-import { Card } from '../components/ui';
-import CodeEditor from '../components/CodeEditor';
-import { useNotify } from '../components/notify/NotifyProvider';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import Layout from '../components/Layout';
+import { Card, Button, Textarea, Select, Badge } from '../components/ui';
+import CodeEditor from '../components/CodeEditor';
+import IfEditor from '../components/IfEditor';
 import { getAssignment } from '../api/assignments';
-import { runTests as runCompilerTests } from '../api/compiler';
+import { submitSolution } from '../api/solutions';
+import { ArrowLeft, Play } from 'lucide-react';
+import { useNotify } from '../components/notify/useNotify';
 
 const LANGS = [
   { value: 'cpp', label: 'C++' },
@@ -14,171 +16,220 @@ const LANGS = [
   { value: 'python', label: 'Python' },
 ];
 
+// утилита для хранения кода между переходами
+const codeKey = (assignmentId, language) => `solve:${assignmentId}:code:${language}`;
+
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
-  const navigate = useNavigate();
+  const nav = useNavigate();
   const notify = useNotify();
 
   const [loading, setLoading] = useState(true);
-  const [assignment, setAssignment] = useState(null);
+  const [a, setA] = useState(null);
+  const [error, setError] = useState('');
 
   const [language, setLanguage] = useState('cpp');
-  const [source, setSource] = useState('');
-  const [isRunning, setIsRunning] = useState(false);
+  const [plainMode, setPlainMode] = useState(false);
+  const [code, setCode] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
+  // загрузка задания
   useEffect(() => {
-    let alive = true;
+    let ignore = false;
     (async () => {
       try {
+        setLoading(true);
         const data = await getAssignment(assignmentId);
-        if (!alive) return;
-        setAssignment(data);
-        if (data?.defaultLanguage && LANGS.some(l => l.value === data.defaultLanguage)) {
-          setLanguage(data.defaultLanguage);
-        }
-      } catch {
-        notify.error('Не удалось загрузить задание');
+        if (ignore) return;
+        setA(data);
+        // если ранее сохраняли код для этого задания/языка — подставим
+        const saved = sessionStorage.getItem(codeKey(assignmentId, language));
+        if (saved != null) setCode(saved);
+      } catch (e) {
+        setError(e?.message || 'Не удалось загрузить задание');
       } finally {
-        if (alive) setLoading(false);
+        setLoading(false);
       }
     })();
-    return () => { alive = false; };
-  }, [assignmentId, notify]);
+    return () => { ignore = true; };
+  }, [assignmentId]);
 
-  const publicTests = useMemo(() => {
-    return (assignment?.testCases || []).filter(t => !t.isHidden);
-  }, [assignment]);
+  // подмена кода при смене языка с учётом сохранённого
+  useEffect(() => {
+    const saved = sessionStorage.getItem(codeKey(assignmentId, language));
+    if (saved != null) setCode(saved);
+  }, [assignmentId, language]);
 
-  const goBackToAssignments = useCallback(() => {
-    const courseId = assignment?.courseId ?? assignment?.course?.id;
-    if (courseId) navigate(`/course/${courseId}`);
-    else navigate('/courses');
-  }, [assignment, navigate]);
+  // сохраняем код на лету
+  useEffect(() => {
+    sessionStorage.setItem(codeKey(assignmentId, language), code ?? '');
+  }, [assignmentId, language, code]);
 
-  const runAllTests = useCallback(async () => {
-    if (!assignment) return;
-    if (!source.trim()) {
-      notify.error('Код пустой');
+  const publicTests = useMemo(
+    () => (a?.testCases || []).filter((t) => !t.isHidden),
+    [a]
+  );
+
+  const onSubmit = async () => {
+    if (!code.trim()) {
+      notify.error('Введите код решения');
       return;
     }
 
-    setIsRunning(true);
+    setSubmitting(true);
+    setError('');
     try {
-      const payload = {
-        language,
-        code: source,
-        testCases: assignment.testCases?.map(t => ({
-          input: t.input ?? '',
-          expectedOutput: t.expectedOutput ?? '',
-        })) ?? [],
-      };
+      const result = await submitSolution(assignmentId, { language, code });
 
-      const result = await runCompilerTests(payload);
+      // положим результат в localStorage, чтобы отдельная страница могла его прочитать
+      localStorage.setItem(
+        `results:${assignmentId}`,
+        JSON.stringify({ when: Date.now(), result })
+      );
 
-      if (result?.status === 'passed' || result?.passedAll) {
+      // уведомления
+      if (result?.passedAll || result?.passedAllTests) {
         notify.success('Все тесты пройдены!');
-      } else if (result?.compile?.error) {
-        notify.error('Ошибка компиляции. Открой подробности.');
-      } else if (result?.run?.error) {
-        notify.error('Ошибка выполнения. Открой подробности.');
       } else {
-        notify.error('Есть непройденные тесты.');
+        notify.error('Есть непройденные тесты');
       }
+
+      // переход на страницу результатов (код в редакторе остаётся в sessionStorage)
+      nav(`/assignment/${assignmentId}/results`);
     } catch (e) {
-      console.error(e);
-      notify.error('Не удалось выполнить тесты');
+      const msg = e?.message || 'Не удалось отправить решение';
+      setError(msg);
+      notify.error(msg);
     } finally {
-      setIsRunning(false);
+      setSubmitting(false);
     }
-  }, [assignment, language, source, notify]);
+  };
 
   if (loading) {
     return (
       <Layout>
-        <div className="container-app py-10">Загрузка…</div>
+        <div className="text-slate-500">Загрузка…</div>
       </Layout>
     );
   }
-
-  if (!assignment) {
+  if (!a) {
     return (
       <Layout>
-        <div className="container-app py-10">Задание не найдено</div>
+        <div className="text-red-500">{error || 'Задание не найдено'}</div>
       </Layout>
     );
   }
 
   return (
     <Layout>
-      <div className="container-app py-6 space-y-6">
-        {/* Назад */}
-        <button
-          type="button"
-          onClick={goBackToAssignments}
-          className="text-sm text-slate-600 hover:text-slate-800"
-        >
-          ← К заданиям
-        </button>
+      {/* верхняя панель: назад к ЗАДАНИЯМ и (для редактора) ссылка на правку */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline">
+            <ArrowLeft size={16} /> к заданиям курса
+          </Link>
+        </div>
+        <div className="flex items-center gap-2">
+          <IfEditor>
+            <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
+              Редактировать
+            </Link>
+          </IfEditor>
+          {/* Кнопку «Топ решений» убираем, как просил */}
+        </div>
+      </div>
 
-        <h1 className="text-2xl font-semibold">{assignment.title || 'Задание'}</h1>
-
-        {/* Описание */}
-        <Card>
-          <div className="prose prose-slate max-w-none whitespace-pre-wrap leading-relaxed">
-            {assignment.description}
-          </div>
-        </Card>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Редактор */}
-          <Card className="lg:col-span-2">
-            <div className="flex items-center gap-3 mb-3">
-              <label className="text-sm text-slate-600">Язык</label>
-              <select
-                value={language}
-                onChange={e => setLanguage(e.target.value)}
-                className="border rounded px-2 py-1"
-              >
-                {LANGS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </select>
-            </div>
-
-            <CodeEditor
-              language={language}
-              value={source}
-              onChange={setSource}
-              minHeight={360}
-            />
-
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={runAllTests}
-                disabled={isRunning}
-                className="btn btn-primary"
-              >
-                {isRunning ? 'Запускаю…' : 'Отправить'}
-              </button>
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* левая часть: описание и публичные тесты */}
+        <div className="lg:col-span-2 space-y-5">
+          <Card>
+            <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+            {a.tags && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {a.tags
+                  .split(',')
+                  .filter(Boolean)
+                  .map((t) => (
+                    <Badge key={t.trim()}>{t.trim()}</Badge>
+                  ))}
+              </div>
+            )}
+            <div className="prose prose-slate dark:prose-invert max-w-none">
+              {a.description ? (
+                <pre className="whitespace-pre-wrap">{a.description}</pre>
+              ) : (
+                <p className="text-slate-500">Описание не задано.</p>
+              )}
             </div>
           </Card>
 
-          {/* Публичные тесты */}
           <Card>
-            <div className="font-medium mb-2">Публичные тесты</div>
+            <h2 className="text-lg font-semibold mb-3">Публичные тесты</h2>
             {publicTests.length === 0 ? (
-              <div className="text-slate-500">Нет публичных тестов</div>
+              <div className="text-slate-500">Публичных тестов нет.</div>
             ) : (
-              <ul className="space-y-4 text-sm">
+              <div className="grid sm:grid-cols-2 gap-4">
                 {publicTests.map((t, i) => (
-                  <li key={i}>
-                    <div className="text-slate-500">Ввод:</div>
-                    <pre className="whitespace-pre-wrap">{t.input || '⟨пусто⟩'}</pre>
-                    <div className="text-slate-500 mt-2">Ожидаемый вывод:</div>
-                    <pre className="whitespace-pre-wrap">{t.expectedOutput || '⟨пусто⟩'}</pre>
-                  </li>
+                  <div
+                    key={t.id ?? i}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
+                  >
+                    <div className="text-xs text-slate-500 mb-1">Ввод</div>
+                    <pre className="whitespace-pre-wrap text-sm">{t.input}</pre>
+                    <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
+                    <pre className="whitespace-pre-wrap text-sm">{t.expectedOutput}</pre>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
+          </Card>
+        </div>
+
+        {/* правая колонка: выбор языка, режим ввода, редактор и кнопка Отправить */}
+        <div className="space-y-4">
+          <Card>
+            <div className="grid gap-3">
+              <div>
+                <label className="label">Язык</label>
+                <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  {LANGS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <label className="label">Режим ввода</label>
+                <Select
+                  value={plainMode ? 'plain' : 'editor'}
+                  onChange={(e) => setPlainMode(e.target.value === 'plain')}
+                >
+                  <option value="editor">Графический редактор</option>
+                  <option value="plain">Простой текст</option>
+                </Select>
+              </div>
+
+              <div>
+                <label className="label">Ваш код</label>
+                {plainMode ? (
+                  <Textarea
+                    rows={14}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="// Напишите решение..."
+                  />
+                ) : (
+                  <CodeEditor language={language} value={code} onChange={setCode} />
+                )}
+              </div>
+
+              <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
+                <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить'}
+              </Button>
+              {error && <div className="text-red-500 text-sm">{error}</div>}
+            </div>
           </Card>
         </div>
       </div>

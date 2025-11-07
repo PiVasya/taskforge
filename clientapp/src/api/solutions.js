@@ -7,7 +7,7 @@ function authHeaders() {
 }
 
 /**
- * Единичный «онлайн-запуск» (если пригодится где-то ещё)
+ * (опционально) единичный онлайн-запуск — оставляю, вдруг нужен ещё где-то
  * POST /api/compiler/compile-run
  */
 export async function compileRun({ language, code, input, timeLimitMs, memoryLimitMb }) {
@@ -16,12 +16,12 @@ export async function compileRun({ language, code, input, timeLimitMs, memoryLim
     { language, code, input, timeLimitMs, memoryLimitMb },
     { headers: { 'Content-Type': 'application/json', ...authHeaders() } }
   );
-  return data;
+  return data; // { status, exitCode, stdout, stderr, ... }
 }
 
 /**
- * Сабмит решения (если нужен workflow «сохранить решение»)
- * POST /api/solutions/:assignmentId/submit
+ * Сабмит решения: бэк прогоняет тесты и возвращает агрегированный результат.
+ * POST /api/solutions/{assignmentId}/submit
  */
 export async function submitSolution(assignmentId, { language, code }) {
   const { data } = await api.post(
@@ -29,5 +29,5 @@ export async function submitSolution(assignmentId, { language, code }) {
     { language, code },
     { headers: { 'Content-Type': 'application/json', ...authHeaders() } }
   );
-  return data; // { passed, failed, passedAll, ... }
+  return data; // ожидается: { passedAll, passedCount, failedCount, testCases|cases:[...] }
 }
