@@ -1,52 +1,24 @@
 // src/api/solutions.js
 import { api } from './http';
 
-/**
- * Единичный «онлайн-запуск» (оставил на всякий случай — вдруг нужен в других местах UI)
- * POST /api/compiler/compile-run
- */
-export async function compileRun({ language, code, input, timeLimitMs, memoryLimitMb }) {
-  const { data } = await api.post(
-    `/api/compiler/compile-run`,
-    { language, code, input, timeLimitMs, memoryLimitMb },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  return data; // { status, exitCode, stdout, stderr, ... }
+function authHeaders() {
+  const t = localStorage.getItem('token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
 /**
- * Прогон тестов через бэкендовый TestsController
- * POST /api/tests/run/tests
+ * Сабмит решения на бэкенд.
+ * POST /api/solutions/{assignmentId}/submit
  *
- * Ожидает:
- * {
- *   language: 'cpp'|'csharp'|'python',
- *   code: '...',
- *   testCases: [{ input, expectedOutput }],
- *   timeLimitMs?: number,
- *   memoryLimitMb?: number
- * }
- *
- * Возвращает:
- * { results: [{ input, expected, actual, passed }] }
+ * @param {string} assignmentId
+ * @param {{ language: 'cpp'|'csharp'|'python', code: string }} payload
+ * @returns {Promise<any>} ожидается { passed, failed, passedAll? ... }
  */
-export async function runTestsForAssignment({
-  language,
-  source,          // код решения
-  testCases,       // массив кейсов { input, expectedOutput }
-  timeLimitMs,
-  memoryLimitMb,
-}) {
+export async function submitSolution(assignmentId, { language, code }) {
   const { data } = await api.post(
-    `/api/tests/run/tests`,
-    {
-      language,
-      code: source,
-      testCases,
-      timeLimitMs,
-      memoryLimitMb,
-    },
-    { headers: { 'Content-Type': 'application/json' } }
+    `/api/solutions/${assignmentId}/submit`,
+    { language, code },
+    { headers: { 'Content-Type': 'application/json', ...authHeaders() } }
   );
-  return data; // { results: [...] }
+  return data;
 }
