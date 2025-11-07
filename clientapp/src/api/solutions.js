@@ -1,33 +1,32 @@
 // src/api/solutions.js
 import { api } from './http';
 
-function authHeaders() {
-  const t = localStorage.getItem('token');
-  return t ? { Authorization: `Bearer ${t}` } : {};
-}
-
-/**
- * (опционально) единичный онлайн-запуск
- * POST /api/compiler/compile-run
- */
+/** Технический онлайн-запуск (если ещё где-то нужен) */
 export async function compileRun({ language, code, input, timeLimitMs, memoryLimitMb }) {
   const { data } = await api.post(
     `/api/compiler/compile-run`,
     { language, code, input, timeLimitMs, memoryLimitMb },
-    { headers: { 'Content-Type': 'application/json', ...authHeaders() } }
+    { headers: { 'Content-Type': 'application/json' } }
   );
-  return data; // { status, exitCode, stdout, stderr, ... }
+  return data;
 }
 
 /**
- * Сабмит решения: бэк прогоняет тесты и возвращает результат.
- * POST /api/solutions/{assignmentId}/submit
+ * Сабмит решения на СУЩЕСТВУЮЩИЙ бэкенд-эндпоинт.
+ * ВАЖНО: путь именно /api/assignments/{assignmentId}/submit (как было раньше).
+ * Бэк внутри сам делает: компиляция → смок (1-й публичный тест) → при успехе все тесты.
  */
 export async function submitSolution(assignmentId, { language, code }) {
+  const token = localStorage.getItem('token');
   const { data } = await api.post(
-    `/api/solutions/${assignmentId}/submit`,
+    `/api/assignments/${assignmentId}/submit`,
     { language, code },
-    { headers: { 'Content-Type': 'application/json', ...authHeaders() } }
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    }
   );
-  return data; // { passedAll|passedAllTests, passedCount, failedCount, testCases|cases:[...] }
+  return data; // { passedAllTests, passedCount, failedCount, results, compileError? }
 }
