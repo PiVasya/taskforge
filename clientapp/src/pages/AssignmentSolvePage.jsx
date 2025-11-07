@@ -10,6 +10,7 @@ import CodeEditor from '../components/CodeEditor';
 import { useNotify } from '../components/notify/NotifyProvider'; // правильный импорт
 import { getAssignment } from '../api/assignments';               // как и было
 import { submitSolution } from '../api/solutions';                // теперь путь на /api/assignments/{id}/submit
+import { runTests as runCompilerTests } from '../api/compiler';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -19,45 +20,38 @@ const LANGS = [
   { value: 'csharp', label: 'C#' },
 ];
 
-function displayClean(s) {
-  if (s == null) return '';
-  return String(s);
-}
-
-function onlyNewlineDiffers(exp, act) {
-  if (exp == null || act == null) return false;
-  const a = String(exp).replace(/\r\n/g, '\n');
-  const b = String(act).replace(/\r\n/g, '\n');
-  return a !== b && a.trimEnd() === b.trimEnd();
-}
-
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const notify = useNotify();
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   const [language, setLanguage] = useState('cpp');
-  const [plainMode, setPlainMode] = useState(false);
   const [code, setCode] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [plainMode, setPlainMode] = useState(false);
 
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const [result, setResult] = useState(null); // { passedAllTests, results: [...] }
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      setLoading(true);
+      setError('');
       try {
-        setLoading(true);
         const data = await getAssignment(assignmentId);
         if (!alive) return;
         setA(data);
-        // можно подставить язык по умолчанию из задания
+        if (data?.defaultLanguage) setLanguage(data.defaultLanguage);
+        if (data?.starterCode) setCode(data.starterCode);
       } catch (e) {
-        if (!alive) return;
-        setError(e?.message || 'Не удалось загрузить задание');
+        const msg = e?.response?.data?.error || e?.message || 'Не удалось загрузить задание';
+        if (alive) {
+          setError(msg);
+          notify.error(msg);
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -71,16 +65,48 @@ export default function AssignmentSolvePage() {
     setError('');
     setResult(null);
     try {
+      // SMOKE: прогоняем первый публичный тест (реальный ввод), чтобы поймать синтаксис/рантайм ДО полного прогона
+      const firstPublic = (a?.testCases || []).find((t) => !t.isHidden);
+      if (firstPublic) {
+        try {
+          const smoke = await runCompilerTests({ language, code, testCases: [firstPublic] });
+          const scase = (smoke?.results || smoke?.testCases || smoke?.cases || [])[0] || {};
+          const failed =
+            Boolean(scase.error || scase.compileError || scase.stderr) ||
+            scase.status === 'FAIL' || scase.passed === false || scase.ok === false;
+          if (failed) {
+            // сохраняем результат и открываем отдельную страницу результатов — код остаётся на месте
+            try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: smoke })); } catch {}
+            window.open(`/assignment/${assignmentId}/results?view=smoke`, '_blank', 'noopener,noreferrer');
+            notify.error('Пробный прогон не прошёл. Детали — на странице результатов.');
+            setSubmitting(false);
+            return;
+          }
+        } catch (smokeErr) {
+          const msg = smokeErr?.response?.data?.error || smokeErr?.message || 'Ошибка пробного прогона';
+          const payload = { results: [{ compileStderr: msg }] };
+          try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: payload })); } catch {}
+          window.open(`/assignment/${assignmentId}/results?view=smoke`, '_blank', 'noopener,noreferrer');
+          notify.error(msg);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Если SMOKE прошёл — сабмитим и запускаем все тесты
       const r = await submitSolution(assignmentId, { language, code });
       setResult(r);
 
-      if (r?.passedAllTests) {
+      // уведомления + отдельная страница результатов
+      if (r?.passedAllTests || r?.passedAll) {
         notify.success('Все тесты пройдены!');
       } else if (r?.compileError) {
         notify.error('Ошибка компиляции');
       } else {
         notify.error('Не все тесты пройдены');
       }
+      try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
+      window.open(`/assignment/${assignmentId}/results`, '_blank', 'noopener,noreferrer');
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'Не удалось отправить решение';
       setError(msg);
@@ -100,7 +126,7 @@ export default function AssignmentSolvePage() {
   if (!a) {
     return (
       <Layout>
-        <div className="text-red-500">{error || 'Задание не найдено'}</div>
+        <div className="text-red-600">{error || 'Задание не найдено'}</div>
       </Layout>
     );
   }
@@ -141,27 +167,28 @@ export default function AssignmentSolvePage() {
                   ))}
               </div>
             )}
-            {/* аккуратный вывод описания с переносами и спецсимволами */}
-            <pre className="whitespace-pre-wrap text-[15px] leading-relaxed">
-              {a.description || 'Описание не задано.'}
-            </pre>
+            <div className="prose max-w-none whitespace-pre-wrap break-words">{a.description}</div>
           </Card>
 
           <Card>
-            <h2 className="text-lg font-semibold mb-3">Публичные тесты</h2>
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-medium">Публичные тесты</div>
+            </div>
+
             {publicTests.length === 0 ? (
-              <div className="text-slate-500">Публичных тестов нет.</div>
+              <div className="text-slate-500">У задания нет публичных тестов.</div>
             ) : (
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-3">
                 {publicTests.map((t, i) => (
-                  <div
-                    key={t.id ?? i}
-                    className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
-                  >
-                    <div className="text-xs text-slate-500 mb-1">Ввод:</div>
-                    <pre className="whitespace-pre-wrap text-sm">{t.input}</pre>
-                    <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод:</div>
-                    <pre className="whitespace-pre-wrap text-sm">{t.expectedOutput}</pre>
+                  <div key={i} className="rounded border p-3">
+                    <div className="text-xs text-slate-500 mb-1">Вход</div>
+                    <pre className="whitespace-pre-wrap text-sm">{t.input ?? ''}</pre>
+                    {'expected' in t && (
+                      <>
+                        <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
+                        <pre className="whitespace-pre-wrap text-sm">{t.expected ?? ''}</pre>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -169,7 +196,7 @@ export default function AssignmentSolvePage() {
           </Card>
         </div>
 
-        {/* правая часть: редактор и результат */}
+        {/* правая часть: редактор и запуск */}
         <div className="space-y-4">
           <Card>
             <div className="grid gap-3">
@@ -196,92 +223,39 @@ export default function AssignmentSolvePage() {
               <div>
                 <label className="label">Ваш код</label>
                 {plainMode ? (
-                  <Textarea
-                    rows={14}
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    placeholder="// Напишите решение..."
-                  />
+                  <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={16} />
                 ) : (
-                  <CodeEditor language={language} value={code} onChange={setCode} />
+                  <CodeEditor language={language} value={code} onChange={setCode} height={380} />
                 )}
               </div>
 
-              <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
-                <Play size={16} /> {submitting ? 'Отправляю…' : 'Отправить'}
-              </Button>
-              {error && <div className="text-red-500 text-sm">{error}</div>}
+              <div className="flex items-center gap-2">
+                <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
+                  <Play size={16} className="mr-1" />
+                  {submitting ? 'Отправка…' : 'Отправить'}
+                </Button>
+                {result && (
+                  <div className="flex items-center gap-2 text-sm">
+                    {result.passedAllTests ? (
+                      <>
+                        <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="text-sm text-red-600">
+                  {error}
+                </div>
+              )}
             </div>
           </Card>
-
-          {result && (
-            <Card>
-              {/* итоговая строка */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {result.passedAllTests ? (
-                    <CheckCircle2 className="text-green-600" size={18} />
-                  ) : (
-                    <XCircle className="text-red-600" size={18} />
-                  )}
-                  <div className="font-medium">
-                    {result.passedAllTests ? 'Все тесты пройдены!' : 'Не все тесты пройдены.'}
-                  </div>
-                </div>
-                <div className="text-sm text-slate-500">
-                  Успешно:{' '}
-                  <span className="font-medium">{result.passedCount ?? 0}</span>{' '}
-                  · Провалено:{' '}
-                  <span className="font-medium">{result.failedCount ?? 0}</span>
-                </div>
-              </div>
-
-              {/* список кейсов — компактно */}
-              <div className="mt-4 grid sm:grid-cols-2 gap-4">
-                {(result.results ?? []).map((c, i) => {
-                  const newlineOnly = !c.passed && onlyNewlineDiffers(c.expectedOutput, c.actualOutput);
-                  return (
-                    <div
-                      key={i}
-                      className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-white/60 dark:bg-slate-900/40"
-                    >
-                      <div className="mb-2 flex items-center justify-between">
-                        <div className="text-sm font-semibold">
-                          Тест #{i + 1} {c.hidden ? '(скрытый)' : ''}
-                        </div>
-                        {c.passed ? (
-                          <span className="text-green-600 text-sm">OK</span>
-                        ) : (
-                          <span className="text-red-600 text-sm">FAIL</span>
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-500 mb-1">Ввод</div>
-                      <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input)}</pre>
-                      <div className="grid grid-cols-2 gap-3 mt-2">
-                        <div>
-                          <div className="text-xs text-slate-500 mb-1">Ожидаемый</div>
-                          <pre className="whitespace-pre-wrap text-sm">{displayClean(c.expectedOutput)}</pre>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500 mb-1">Фактический</div>
-                          <pre className="whitespace-pre-wrap text-sm">{displayClean(c.actualOutput)}</pre>
-                        </div>
-                      </div>
-                      {!c.passed && (
-                        <div className="mt-2 text-xs text-amber-600">
-                          {newlineOnly
-                            ? 'Различие только в переводах строк (\\r\\n vs \\n).'
-                            : c.stderr
-                              ? `Runtime error: ${c.stderr}`
-                              : 'Вывод отличается от ожидаемого.'}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
         </div>
       </div>
     </Layout>
