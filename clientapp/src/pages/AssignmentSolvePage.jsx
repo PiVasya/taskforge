@@ -8,7 +8,7 @@ import IfEditor from '../components/IfEditor';
 import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { ArrowLeft, Play } from 'lucide-react';
-import { useNotify } from '../components/notify/useNotify';
+import { useNotify } from '../components/notify/NotifyProvider'; // ✅ правильный импорт
 
 const LANGS = [
   { value: 'cpp', label: 'C++' },
@@ -16,7 +16,6 @@ const LANGS = [
   { value: 'python', label: 'Python' },
 ];
 
-// утилита для хранения кода между переходами
 const codeKey = (assignmentId, language) => `solve:${assignmentId}:code:${language}`;
 
 export default function AssignmentSolvePage() {
@@ -33,7 +32,6 @@ export default function AssignmentSolvePage() {
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // загрузка задания
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -42,7 +40,6 @@ export default function AssignmentSolvePage() {
         const data = await getAssignment(assignmentId);
         if (ignore) return;
         setA(data);
-        // если ранее сохраняли код для этого задания/языка — подставим
         const saved = sessionStorage.getItem(codeKey(assignmentId, language));
         if (saved != null) setCode(saved);
       } catch (e) {
@@ -54,13 +51,11 @@ export default function AssignmentSolvePage() {
     return () => { ignore = true; };
   }, [assignmentId]);
 
-  // подмена кода при смене языка с учётом сохранённого
   useEffect(() => {
     const saved = sessionStorage.getItem(codeKey(assignmentId, language));
     if (saved != null) setCode(saved);
   }, [assignmentId, language]);
 
-  // сохраняем код на лету
   useEffect(() => {
     sessionStorage.setItem(codeKey(assignmentId, language), code ?? '');
   }, [assignmentId, language, code]);
@@ -80,21 +75,17 @@ export default function AssignmentSolvePage() {
     setError('');
     try {
       const result = await submitSolution(assignmentId, { language, code });
-
-      // положим результат в localStorage, чтобы отдельная страница могла его прочитать
       localStorage.setItem(
         `results:${assignmentId}`,
         JSON.stringify({ when: Date.now(), result })
       );
 
-      // уведомления
       if (result?.passedAll || result?.passedAllTests) {
         notify.success('Все тесты пройдены!');
       } else {
         notify.error('Есть непройденные тесты');
       }
 
-      // переход на страницу результатов (код в редакторе остаётся в sessionStorage)
       nav(`/assignment/${assignmentId}/results`);
     } catch (e) {
       const msg = e?.message || 'Не удалось отправить решение';
@@ -122,7 +113,6 @@ export default function AssignmentSolvePage() {
 
   return (
     <Layout>
-      {/* верхняя панель: назад к ЗАДАНИЯМ и (для редактора) ссылка на правку */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline">
@@ -135,12 +125,11 @@ export default function AssignmentSolvePage() {
               Редактировать
             </Link>
           </IfEditor>
-          {/* Кнопку «Топ решений» убираем, как просил */}
+          {/* Кнопку «Топ решений» убрали */}
         </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* левая часть: описание и публичные тесты */}
         <div className="lg:col-span-2 space-y-5">
           <Card>
             <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
@@ -185,7 +174,6 @@ export default function AssignmentSolvePage() {
           </Card>
         </div>
 
-        {/* правая колонка: выбор языка, режим ввода, редактор и кнопка Отправить */}
         <div className="space-y-4">
           <Card>
             <div className="grid gap-3">
