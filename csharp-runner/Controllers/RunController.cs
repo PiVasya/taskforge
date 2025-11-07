@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Runner.Models;
 using Runner.Services;
+using System;
 
 namespace Runner.Controllers;
 
@@ -8,6 +9,8 @@ namespace Runner.Controllers;
 [Route("[controller]")]
 public sealed class RunController : ControllerBase
 {
+    private static readonly TimeSpan RunTimeout = TimeSpan.FromSeconds(3);
+
     private readonly IRoslynCompilationService _compiler;
     private readonly IExecutionService _exec;
 
@@ -17,12 +20,14 @@ public sealed class RunController : ControllerBase
         _exec = exec;
     }
 
-    // POST /run/run
+    // =====================================================================
+    // POST /run/run  — одиночный запуск (для отдельного онлайн-компилятора)
+    // =====================================================================
     [HttpPost("run")]
     public ActionResult<RunResponse> Run([FromBody] RunRequest req)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
-            return BadRequest(new RunResponse { Error = "Code is empty." });
+            return Ok(new RunResponse { ExitCode = 1, Error = "Code is empty." });
 
         var (ok, asm, compileErr) = _compiler.Compile(req.Code);
         if (!ok || asm is null)
@@ -32,79 +37,96 @@ public sealed class RunController : ControllerBase
                 Stdout = "",
                 Stderr = "",
                 ExitCode = 1,
-                Error = compileErr
+                Error = compileErr ?? "Compilation error"
             });
         }
 
-        // при пустом вводе отправляем хотя бы перевод строки, чтобы ReadLine() не вернул null
-        var normalizedInput = string.IsNullOrEmpty(req.Input) ? "\n" : req.Input!;
-        var (ranOk, stdout, err) = _exec.Run(asm, normalizedInput, TimeSpan.FromSeconds(3));
+        var (ranOk, stdout, err) = _exec.Run(asm, req.Input ?? "", RunTimeout);
 
         return Ok(new RunResponse
         {
             Stdout = stdout,
-            Stderr = "",
+            Stderr = ranOk ? "" : (err ?? ""),
             ExitCode = ranOk ? 0 : 1,
-            Error = ranOk ? "" : err
+            Error = ranOk ? "" : (err ?? "Runtime error")
         });
     }
 
-    // POST /run/tests
+    // =====================================================================
+    // POST /run/tests  — прогон тестов
+    // Поддерживает fast-режим: остановиться на первом фейле и отдать детали.
+    // =====================================================================
     [HttpPost("tests")]
     public ActionResult<TestResultsResponse> RunTests([FromBody] RunRequestWithTests req)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
-            return BadRequest();
+            return Ok(new TestResultsResponse
+            {
+                CompileError = "Code is empty.",
+                Results = new()
+            });
 
         var (ok, asm, compileErr) = _compiler.Compile(req.Code);
         if (!ok || asm is null)
         {
-            // Возвращаем одну «ошибочную» запись, чтобы UI отобразил ошибку компиляции
             return Ok(new TestResultsResponse
             {
-                Results = new List<TestResult>
-                {
-                    new TestResult
-                    {
-                        Input = "",
-                        ExpectedOutput = "",
-                        ActualOutput = compileErr ?? "",
-                        Passed = false
-                    }
-                }
+                CompileError = compileErr ?? "Compilation error",
+                Results = new()
             });
         }
 
         var results = new List<TestResult>();
+        TestResult? firstFail = null;
+
         var tests = req.Tests ?? new List<TestCase>();
-
-        foreach (var t in tests)
+        for (int i = 0; i < tests.Count; i++)
         {
+            var t = tests[i];
+
             var input = t.Input ?? "";
-            if (input.Length == 0) input = "\n"; // ключевая правка
+            var (ranOk, stdout, ex) = _exec.Run(asm, input, RunTimeout);
 
-            var (ranOk, stdout, ex) = _exec.Run(asm, input, TimeSpan.FromSeconds(3));
+            // Нормализуем текст для сравнения
+            string exp = Normalize(t.ExpectedOutput ?? "");
+            string act = Normalize(stdout ?? "");
 
-            string actual = stdout ?? "";
-            // сравниваем без различий в типе переноса строки и без хвостовых переводов
-            bool passed = ranOk &&
-                          string.Equals(
-                              (t.ExpectedOutput ?? "").Replace("\r\n", "\n").TrimEnd(),
-                              (actual).Replace("\r\n", "\n").TrimEnd(),
-                              StringComparison.Ordinal);
+            bool passed = ranOk && string.Equals(exp, act, StringComparison.Ordinal);
 
-            if (!ranOk && string.IsNullOrEmpty(actual))
-                actual = ex ?? "";
+            // Что показать пользователю как фактический вывод:
+            // если stdout пуст — показываем сообщение об ошибке/исключение
+            string actualForClient = !string.IsNullOrEmpty(stdout) ? stdout! : (ex ?? "");
 
-            results.Add(new TestResult
+            var item = new TestResult
             {
+                Name = string.IsNullOrWhiteSpace(t.Name) ? $"Test #{i + 1}" : t.Name!,
                 Input = t.Input ?? "",
                 ExpectedOutput = t.ExpectedOutput ?? "",
-                ActualOutput = actual,
-                Passed = passed
-            });
+                ActualOutput = actualForClient,
+                Passed = passed,
+                ExitCode = ranOk ? 0 : 1,
+                Stderr = ranOk ? "" : (ex ?? "")
+            };
+
+            results.Add(item);
+
+            if (!passed && firstFail is null)
+            {
+                firstFail = item;
+                if (req.Fast == true) // смок-режим — останавливаемся на первом фейле
+                    break;
+            }
         }
 
-        return Ok(new TestResultsResponse { Results = results });
+        return Ok(new TestResultsResponse
+        {
+            CompileError = "",
+            FirstFail = firstFail,
+            Results = results
+        });
     }
+
+    // ---- helpers ----------------------------------------------------------
+    private static string Normalize(string s)
+        => (s ?? string.Empty).Replace("\r\n", "\n").TrimEnd('\n');
 }
