@@ -1,12 +1,12 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Card } from '../components/ui/Card';
+import { Card } from '../components/ui';                  // ← правильный импорт
 import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 import CodeEditor from '../components/CodeEditor';
-import { notify } from '../components/notify';
+import { useNotify } from '../components/notify/NotifyProvider';  // ← правильный импорт
 
 const LANGS = [
   { value: 'cpp', label: 'C++' },
@@ -17,6 +17,7 @@ const LANGS = [
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
+  const notify = useNotify(); // ← получаем notify из провайдера
 
   const [assignment, setAssignment] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +29,7 @@ export default function AssignmentSolvePage() {
   const [error, setError] = useState('');
   const [errorDetail, setErrorDetail] = useState('');
   const [result, setResult] = useState(null);
-  const [lastSmoke, setLastSmoke] = useState(null); // сохраним смок-ответ (для кнопки «Подробно»)
+  const [lastSmoke, setLastSmoke] = useState(null);
 
   useEffect(() => {
     let ok = true;
@@ -45,7 +46,7 @@ export default function AssignmentSolvePage() {
       }
     })();
     return () => (ok = false);
-  }, [assignmentId]);
+  }, [assignmentId, notify]);
 
   const publicTests = useMemo(
     () => (assignment?.testCases || []).filter((t) => !t.isHidden),
@@ -59,7 +60,6 @@ export default function AssignmentSolvePage() {
   };
 
   const openDetails = (payload) => {
-    // Передаём в новую страницу state с полным ответом
     navigate(`/assignment/${assignmentId}/results`, { state: payload });
   };
 
@@ -70,7 +70,7 @@ export default function AssignmentSolvePage() {
     setResult(null);
     setLastSmoke(null);
 
-    // === SMOKE: вместо «пустого ввода» прогоняем один публичный тест ===
+    // SMOKE: вместо пустого ввода прогоняем один публичный тест
     try {
       const smokeTests = publicTests.length ? [publicTests[0]] : [];
       if (smokeTests.length) {
@@ -85,9 +85,7 @@ export default function AssignmentSolvePage() {
           return;
         }
       }
-      // если публичных тестов нет — смок пропускаем
     } catch (smokeErr) {
-      // пробуем максимально полезно показать, что пришло
       const data = smokeErr?.response?.data || {};
       const detail =
         data?.compile?.stderr ||
@@ -99,7 +97,7 @@ export default function AssignmentSolvePage() {
       return;
     }
 
-    // === Смок прошёл — отправляем полноценную проверку ===
+    // Смок прошёл — отправляем полноценную проверку
     try {
       const r = await submitSolution(assignmentId, { language, code });
       setResult(r);
@@ -198,7 +196,6 @@ export default function AssignmentSolvePage() {
                 {submitting ? 'Проверяем…' : 'Отправить'}
               </button>
 
-              {/* Кнопка для быстрого перехода к деталям смока/последнего результата */}
               {lastSmoke && (
                 <button
                   className="btn-outline"

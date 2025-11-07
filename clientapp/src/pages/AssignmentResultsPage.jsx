@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Card } from '../components/ui/Card';
+import { Card } from '../components/ui';  // ← правильный импорт
 
 function Block({ title, children }) {
   return (
@@ -78,10 +78,8 @@ export default function AssignmentResultsPage() {
                 <> • Все тесты пройдены: {result.passedAll ? 'да' : 'нет'}</>
               )}
             </div>
-            {/* Если хочешь, можно сюда подгрузить подробности тестов по API последнего сабмита */}
             <div className="text-slate-500 text-sm">
-              Для показа детальных входов/выходов по полному прогону
-              можно добавить отдельный API на бэке (последний сабмит + его тест-лог).
+              Для детальных входов/выходов по полному прогону можно добавить отдельный API (последний сабмит + лог).
             </div>
           </Block>
         )}
