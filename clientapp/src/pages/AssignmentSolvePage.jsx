@@ -33,7 +33,7 @@ export default function AssignmentSolvePage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null); // { passedAllTests, results: [...] }
+  const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
 
   useEffect(() => {
     let alive = true;
@@ -65,7 +65,7 @@ export default function AssignmentSolvePage() {
     setError('');
     setResult(null);
     try {
-      // SMOKE: прогоняем первый публичный тест (реальный ввод), чтобы поймать синтаксис/рантайм ДО полного прогона
+      // SMOKE: первый публичный тест
       const firstPublic = (a?.testCases || []).find((t) => !t.isHidden);
       if (firstPublic) {
         try {
@@ -75,7 +75,6 @@ export default function AssignmentSolvePage() {
             Boolean(scase.error || scase.compileError || scase.stderr) ||
             scase.status === 'FAIL' || scase.passed === false || scase.ok === false;
           if (failed) {
-            // сохраняем и открываем отдельную страницу результатов — код остаётся на месте
             try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: smoke })); } catch {}
             window.open(`/assignment/${assignmentId}/results?view=smoke`, '_blank', 'noopener,noreferrer');
             notify.error('Пробный прогон не прошёл. Детали — на странице результатов.');
@@ -93,17 +92,21 @@ export default function AssignmentSolvePage() {
         }
       }
 
-      // Если SMOKE прошёл — сабмитим и запускаем все тесты
+      // Полный прогон
       const r = await submitSolution(assignmentId, { language, code });
-      setResult(r);
 
-      if (r?.passedAllTests || r?.passedAll) {
-        notify.success('Все тесты пройдены!');
-      } else if (r?.compileError) {
-        notify.error('Ошибка компиляции');
-      } else {
-        notify.error('Не все тесты пройдены');
-      }
+      const cases = r?.cases ?? r?.testCases ?? r?.results ?? [];
+      const allOk =
+        (r?.passedAllTests === true) ||
+        (r?.passedAll === true) ||
+        (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK'));
+
+      setResult({ ...r, __allPassed: allOk });
+
+      if (allOk) notify.success('Все тесты пройдены!');
+      else if (r?.compileError) notify.error('Ошибка компиляции');
+      else notify.error('Не все тесты пройдены');
+
       try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
       window.open(`/assignment/${assignmentId}/results`, '_blank', 'noopener,noreferrer');
     } catch (e) {
@@ -178,11 +181,11 @@ export default function AssignmentSolvePage() {
             ) : (
               <div className="space-y-3">
                 {publicTests.map((t, i) => {
-                  const expectedText = t.expected ?? t.expectedOutput ?? '';
+                  const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                   return (
                     <div key={i} className="rounded border p-3">
                       <div className="text-xs text-slate-500 mb-1">Ввод</div>
-                      <pre className="whitespace-pre-wrap text-sm">{t.input ?? ''}</pre>
+                      <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
 
                       {(expectedText ?? '') !== '' && (
                         <>
@@ -240,7 +243,7 @@ export default function AssignmentSolvePage() {
 
               {result && (
                 <div className="flex items-center gap-2 text-sm">
-                  {result.passedAllTests ? (
+                  {result.__allPassed ? (
                     <>
                       <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
                     </>

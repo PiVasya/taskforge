@@ -38,7 +38,6 @@ export default function AssignmentResultsPage() {
   }, [assignmentId]);
 
   useEffect(() => {
-    // читаем из localStorage, куда положили после сабмита/смока
     const raw = localStorage.getItem(`results:${assignmentId}`);
     if (raw) {
       try {
@@ -49,6 +48,16 @@ export default function AssignmentResultsPage() {
       }
     }
   }, [assignmentId]);
+
+  const handleBack = (e) => {
+    e.preventDefault();
+    // если вкладка открыта скриптом, закроется; если нельзя закрыть — fallback
+    window.close();
+    // небольшой резерв: если закрытие блокируется — просто уйти на страницу решения
+    setTimeout(() => {
+      try { if (!window.closed) nav(`/assignment/${assignmentId}`); } catch {}
+    }, 50);
+  };
 
   if (loading) {
     return (
@@ -63,9 +72,9 @@ export default function AssignmentResultsPage() {
       <Layout>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <Link to={`/assignment/${assignmentId}`} className="text-brand-600 hover:underline">
+            <a href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
               <ArrowLeft size={16} /> назад к решению
-            </Link>
+            </a>
           </div>
           <div className="flex items-center gap-2">
             <Button onClick={() => nav(0)} variant="outline">
@@ -81,15 +90,18 @@ export default function AssignmentResultsPage() {
   }
 
   const cases = res.cases ?? res.testCases ?? res.results ?? [];
-  const passedAll = res.passedAll || res.passedAllTests;
+  const passedAll =
+    (res.passedAll === true) ||
+    (res.passedAllTests === true) ||
+    (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK'));
 
   return (
     <Layout>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Link to={`/assignment/${assignmentId}`} className="text-brand-600 hover:underline">
+          <a href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
             <ArrowLeft size={16} /> назад к решению
-          </Link>
+          </a>
           {view === 'smoke' && <Badge>Пробный прогон</Badge>}
         </div>
         <div className="flex items-center gap-2">
@@ -111,8 +123,8 @@ export default function AssignmentResultsPage() {
 
           <div className="space-y-4">
             {cases.map((c, i) => {
-              const expectedText = c.expected ?? c.expectedOutput;
-              const actualText = c.actual ?? c.actualOutput;
+              const expectedText = c.expected ?? c.expectedOutput ?? c.ExpectedOutput ?? '';
+              const actualText   = c.actual   ?? c.actualOutput   ?? c.ActualOutput   ?? '';
               return (
                 <div key={i} className="rounded border p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -122,12 +134,12 @@ export default function AssignmentResultsPage() {
                     </div>
                   </div>
 
-                  {'input' in c && (
+                  {'input' in c || 'Input' in c ? (
                     <>
                       <div className="text-xs text-slate-500 mb-1">Ввод</div>
-                      <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input)}</pre>
+                      <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input ?? c.Input)}</pre>
                     </>
-                  )}
+                  ) : null}
 
                   {(expectedText ?? '') !== '' && (
                     <>
