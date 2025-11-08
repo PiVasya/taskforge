@@ -19,6 +19,7 @@ public sealed class RunController : ControllerBase
 
     // POST /run/run
     [HttpPost("run")]
+    [HttpPost("/run")]
     public ActionResult<RunResponse> Run([FromBody] RunRequest req)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
@@ -51,6 +52,7 @@ public sealed class RunController : ControllerBase
 
     // POST /run/tests
     [HttpPost("tests")]
+    [HttpPost("/run/tests")]
     public ActionResult<TestResultsResponse> RunTests([FromBody] RunRequestWithTests req)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
