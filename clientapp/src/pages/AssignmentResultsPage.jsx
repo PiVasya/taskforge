@@ -110,46 +110,50 @@ export default function AssignmentResultsPage() {
           </div>
 
           <div className="space-y-4">
-            {cases.map((c, i) => (
-              <div key={i} className="rounded border p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-medium">Тест #{i + 1}</div>
-                  <div className={`text-xs px-2 py-0.5 rounded ${c.passed || c.status === 'OK' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                    {c.passed || c.status === 'OK' ? 'OK' : 'FAIL'}
+            {cases.map((c, i) => {
+              const expectedText = c.expected ?? c.expectedOutput;
+              const actualText = c.actual ?? c.actualOutput;
+              return (
+                <div key={i} className="rounded border p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-medium">Тест #{i + 1}</div>
+                    <div className={`text-xs px-2 py-0.5 rounded ${c.passed || c.status === 'OK' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {c.passed || c.status === 'OK' ? 'OK' : 'FAIL'}
+                    </div>
                   </div>
+
+                  {'input' in c && (
+                    <>
+                      <div className="text-xs text-slate-500 mb-1">Ввод</div>
+                      <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input)}</pre>
+                    </>
+                  )}
+
+                  {(expectedText ?? '') !== '' && (
+                    <>
+                      <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
+                      <pre className="whitespace-pre-wrap text-sm">{displayClean(expectedText)}</pre>
+                    </>
+                  )}
+
+                  {(actualText ?? '') !== '' && (
+                    <>
+                      <div className="text-xs text-slate-500 mt-2 mb-1">Фактически</div>
+                      <pre className="whitespace-pre-wrap text-sm">{displayClean(actualText)}</pre>
+                    </>
+                  )}
+
+                  {(c.compileStderr || c.stderr || c.error) && (
+                    <div className="mt-2">
+                      <div className="text-xs text-slate-500 mb-1">Ошибки</div>
+                      <pre className="whitespace-pre-wrap text-xs text-red-600">
+                        {displayClean(c.compileStderr || c.stderr || c.error)}
+                      </pre>
+                    </div>
+                  )}
                 </div>
-
-                {'input' in c && (
-                  <>
-                    <div className="text-xs text-slate-500 mb-1">Вход</div>
-                    <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input)}</pre>
-                  </>
-                )}
-
-                {'expected' in c && (
-                  <>
-                    <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый</div>
-                    <pre className="whitespace-pre-wrap text-sm">{displayClean(c.expected)}</pre>
-                  </>
-                )}
-
-                {'actual' in c || 'actualOutput' in c ? (
-                  <>
-                    <div className="text-xs text-slate-500 mt-2 mb-1">Фактически</div>
-                    <pre className="whitespace-pre-wrap text-sm">{displayClean(c.actual ?? c.actualOutput)}</pre>
-                  </>
-                ) : null}
-
-                {(c.compileStderr || c.stderr || c.error) && (
-                  <div className="mt-2">
-                    <div className="text-xs text-slate-500 mb-1">Ошибки</div>
-                    <pre className="whitespace-pre-wrap text-xs text-red-600">
-                      {displayClean(c.compileStderr || c.stderr || c.error)}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </Card>

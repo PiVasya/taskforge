@@ -7,9 +7,9 @@ import { Card, Button, Select, Textarea, Badge } from '../components/ui';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
 
-import { useNotify } from '../components/notify/NotifyProvider'; // правильный импорт
-import { getAssignment } from '../api/assignments';               // как и было
-import { submitSolution } from '../api/solutions';                // теперь путь на /api/assignments/{id}/submit
+import { useNotify } from '../components/notify/NotifyProvider';
+import { getAssignment } from '../api/assignments';
+import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
@@ -75,7 +75,7 @@ export default function AssignmentSolvePage() {
             Boolean(scase.error || scase.compileError || scase.stderr) ||
             scase.status === 'FAIL' || scase.passed === false || scase.ok === false;
           if (failed) {
-            // сохраняем результат и открываем отдельную страницу результатов — код остаётся на месте
+            // сохраняем и открываем отдельную страницу результатов — код остаётся на месте
             try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: smoke })); } catch {}
             window.open(`/assignment/${assignmentId}/results?view=smoke`, '_blank', 'noopener,noreferrer');
             notify.error('Пробный прогон не прошёл. Детали — на странице результатов.');
@@ -97,7 +97,6 @@ export default function AssignmentSolvePage() {
       const r = await submitSolution(assignmentId, { language, code });
       setResult(r);
 
-      // уведомления + отдельная страница результатов
       if (r?.passedAllTests || r?.passedAll) {
         notify.success('Все тесты пройдены!');
       } else if (r?.compileError) {
@@ -148,7 +147,6 @@ export default function AssignmentSolvePage() {
               Редактировать
             </Link>
           </IfEditor>
-          {/* Кнопку «Топ решений» убрали по твоему запросу */}
         </div>
       </div>
 
@@ -179,18 +177,22 @@ export default function AssignmentSolvePage() {
               <div className="text-slate-500">У задания нет публичных тестов.</div>
             ) : (
               <div className="space-y-3">
-                {publicTests.map((t, i) => (
-                  <div key={i} className="rounded border p-3">
-                    <div className="text-xs text-slate-500 mb-1">Вход</div>
-                    <pre className="whitespace-pre-wrap text-sm">{t.input ?? ''}</pre>
-                    {'expected' in t && (
-                      <>
-                        <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
-                        <pre className="whitespace-pre-wrap text-sm">{t.expected ?? ''}</pre>
-                      </>
-                    )}
-                  </div>
-                ))}
+                {publicTests.map((t, i) => {
+                  const expectedText = t.expected ?? t.expectedOutput ?? '';
+                  return (
+                    <div key={i} className="rounded border p-3">
+                      <div className="text-xs text-slate-500 mb-1">Ввод</div>
+                      <pre className="whitespace-pre-wrap text-sm">{t.input ?? ''}</pre>
+
+                      {(expectedText ?? '') !== '' && (
+                        <>
+                          <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
+                          <pre className="whitespace-pre-wrap text-sm">{expectedText}</pre>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -229,31 +231,28 @@ export default function AssignmentSolvePage() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
+              <div>
+                <Button className="w-full" onClick={onSubmit} disabled={submitting || !code.trim()}>
                   <Play size={16} className="mr-1" />
                   {submitting ? 'Отправка…' : 'Отправить'}
                 </Button>
-                {result && (
-                  <div className="flex items-center gap-2 text-sm">
-                    {result.passedAllTests ? (
-                      <>
-                        <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
 
-              {error && (
-                <div className="text-sm text-red-600">
-                  {error}
+              {result && (
+                <div className="flex items-center gap-2 text-sm">
+                  {result.passedAllTests ? (
+                    <>
+                      <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
+                    </>
+                  )}
                 </div>
               )}
+
+              {error && <div className="text-sm text-red-600">{error}</div>}
             </div>
           </Card>
         </div>
