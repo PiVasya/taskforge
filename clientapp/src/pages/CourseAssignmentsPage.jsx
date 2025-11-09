@@ -16,7 +16,7 @@ import { handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
 
 const SORT_OPTIONS = [
-  { v: "default", label: "Стандартный (по полю Sort)" },
+  { v: "default", label: "Стандартный" },
   { v: "title_asc", label: "A → Я" },
   { v: "title_desc", label: "Я → A" },
   { v: "created_desc", label: "Сначала новые" },
