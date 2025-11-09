@@ -35,9 +35,19 @@ export default function CodeEditor({
     }
   }, [language]);
 
+  // имя темы по классам на <html>
+  const pickThemeName = useCallback(() => {
+    const root = document.documentElement;
+    const pink = root.classList.contains('pink');
+    const dark = root.classList.contains('dark');
+    if (pink) return dark ? 'taskforge-pink-dark' : 'taskforge-pink-light';
+    return dark ? 'taskforge-brand-dark' : 'taskforge-brand-light';
+  }, []);
+
   // РЕГИСТРАЦИЯ ТЕМ — ДО создания редактора
   const handleBeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme('taskforge-blue-dark', {
+    // ---- Брендовая (синяя) пара тем ----
+    monaco.editor.defineTheme('taskforge-brand-dark', {
       base: 'vs-dark',
       inherit: true,
       rules: [
@@ -45,10 +55,8 @@ export default function CodeEditor({
         { token: 'comment', foreground: '7B8794' },
         { token: 'string', foreground: 'A3E635' },
         { token: 'number', foreground: 'F59E0B' },
-        /* было 60A5FA — убираем синеву */
-        { token: 'keyword', foreground: 'DB2777', fontStyle: 'bold' }, /* rose-600 */
-        /* было 8BBAFF — мягкая фуксия */
-        { token: 'type', foreground: 'F0ABFC' },                       /* fuchsia-300 */
+        { token: 'keyword', foreground: '60A5FA', fontStyle: 'bold' }, // blue-400
+        { token: 'type', foreground: '38BDF8' },                       // sky-400
         { token: 'function', foreground: 'F8FAFC' },
         { token: 'identifier', foreground: 'D8DEE9' },
       ],
@@ -56,10 +64,72 @@ export default function CodeEditor({
         'editor.background': '#0b1422',
         'editorGutter.background': '#0b1422',
         'editor.foreground': '#D8DEE9',
-        /* номера строк чуть «теплее», активный — светлее */
+        'editorLineNumber.foreground': '#5d6b7e',
+        'editorLineNumber.activeForeground': '#a7b4c6',
+        'editor.selectionBackground': '#1d2a41',
+        'editor.inactiveSelectionBackground': '#172338',
+        'editor.lineHighlightBackground': '#111c2d',
+        'editorCursor.foreground': '#E5E7EB',
+        'scrollbarSlider.background': '#2a3a5266',
+        'scrollbarSlider.hoverBackground': '#2a3a5299',
+        'scrollbarSlider.activeBackground': '#2a3a52cc',
+        'editorIndentGuide.background': '#233047',
+        'editorIndentGuide.activeBackground': '#2f3e5b',
+        'editorWidget.background': '#0e1a2b',
+        'editorWidget.border': '#20314a',
+        'editorSuggestWidget.background': '#0e1a2b',
+        'editorSuggestWidget.border': '#20314a',
+        'editorSuggestWidget.selectedBackground': '#16243a',
+        'list.hoverBackground': '#132035',
+        'focusBorder': '#60A5FA', // blue-400
+      },
+    });
+
+    monaco.editor.defineTheme('taskforge-brand-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '94A3B8' },
+        { token: 'string', foreground: '10B981' },
+        { token: 'number', foreground: '2563EB' }, // blue-600
+        { token: 'keyword', foreground: '2563EB', fontStyle: 'bold' },
+        { token: 'type', foreground: '0EA5E9' },   // sky-500
+      ],
+      colors: {
+        'editor.background': '#FFFFFF',
+        'editorGutter.background': '#FFFFFF',
+        'editor.foreground': '#0F172A',
+        'editorLineNumber.foreground': '#94A3B8',
+        'editorLineNumber.activeForeground': '#475569',
+        'editor.selectionBackground': '#CDE3FF',
+        'editor.inactiveSelectionBackground': '#E6F0FF',
+        'editor.lineHighlightBackground': '#F6F8FA',
+        'editorIndentGuide.background': '#E5E7EB',
+        'editorIndentGuide.activeBackground': '#CBD5E1',
+        'focusBorder': '#2563EB', // blue-600
+      },
+    });
+
+    // ---- Розовая пара тем (для html.pink) ----
+    monaco.editor.defineTheme('taskforge-pink-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: '', foreground: 'D8DEE9' },
+        { token: 'comment', foreground: '7B8794' },
+        { token: 'string', foreground: 'A3E635' },
+        { token: 'number', foreground: 'F59E0B' },
+        { token: 'keyword', foreground: 'DB2777', fontStyle: 'bold' }, // rose-600
+        { token: 'type', foreground: 'F0ABFC' },                       // fuchsia-300
+        { token: 'function', foreground: 'F8FAFC' },
+        { token: 'identifier', foreground: 'D8DEE9' },
+      ],
+      colors: {
+        'editor.background': '#0b1422',
+        'editorGutter.background': '#0b1422',
+        'editor.foreground': '#D8DEE9',
         'editorLineNumber.foreground': '#7f5d6b',
         'editorLineNumber.activeForeground': '#d4a7b4',
-        /* селекшн с лёгким розовым оттенком */
         'editor.selectionBackground': '#3b143033',
         'editor.inactiveSelectionBackground': '#3b143022',
         'editor.lineHighlightBackground': '#111c2d',
@@ -75,20 +145,18 @@ export default function CodeEditor({
         'editorSuggestWidget.border': '#20314a',
         'editorSuggestWidget.selectedBackground': '#16243a',
         'list.hoverBackground': '#132035',
-        'focusBorder': '#DB2777',   
+        'focusBorder': '#DB2777', // rose-600
       },
     });
 
-    monaco.editor.defineTheme('taskforge-blue-light', {
+    monaco.editor.defineTheme('taskforge-pink-light', {
       base: 'vs',
       inherit: true,
       rules: [
         { token: 'comment', foreground: '94A3B8' },
         { token: 'string', foreground: '10B981' },
-        { token: 'number', foreground: 'DB2777' },
-        /* было 2563EB — заменили на rose-700 */
-        { token: 'keyword', foreground: 'BE185D', fontStyle: 'bold' },
-        /* было 0EA5E9 — заменили на розовый */
+        { token: 'number', foreground: 'DB2777' }, // rose-600
+        { token: 'keyword', foreground: 'BE185D', fontStyle: 'bold' }, // rose-700
         { token: 'type', foreground: 'DB2777' },
       ],
       colors: {
@@ -102,7 +170,7 @@ export default function CodeEditor({
         'editor.lineHighlightBackground': '#F6F8FA',
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
-        'focusBorder': '#F472B6',
+        'focusBorder': '#F472B6', // pink-400
       },
     });
   }, []);
@@ -114,7 +182,6 @@ export default function CodeEditor({
     if (!ed || !el) return;
     const w = Math.max(0, el.clientWidth);
     const h = typeof height === 'number' ? height : el.clientHeight || 0;
-    // запросим кадр, чтобы не дёргать layout чаще, чем перерисовка
     requestAnimationFrame(() => ed.layout({ width: w, height: h }));
   }, [height]);
 
@@ -122,49 +189,39 @@ export default function CodeEditor({
   const handleMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
-    monaco.editor.setTheme(
-      document.documentElement.classList.contains('dark')
-        ? 'taskforge-blue-dark'
-        : 'taskforge-blue-light'
-    );
 
-    // наблюдаем изменения размеров контейнера (брейкпоинты/масштаб/скрытие)
+    monaco.editor.setTheme(pickThemeName());
+
     if (wrapperRef.current && !roRef.current) {
       roRef.current = new ResizeObserver(() => relayout());
       roRef.current.observe(wrapperRef.current);
     }
-
-    // перестраиваемся на ресайз окна и смену ориентации
     const onWinResize = () => relayout();
     window.addEventListener('resize', onWinResize);
     window.addEventListener('orientationchange', onWinResize);
 
-    // первая раскладка
     relayout();
 
-    // очистка
     return () => {
       window.removeEventListener('resize', onWinResize);
       window.removeEventListener('orientationchange', onWinResize);
       roRef.current?.disconnect();
       roRef.current = null;
     };
-  }, [relayout]);
+  }, [pickThemeName, relayout]);
 
-  // Реакция на переключение темы сайта (класс .dark)
+  // Реакция на переключение темы сайта (классы .dark / .pink на <html>)
   useEffect(() => {
     const mo = new MutationObserver(() => {
       const dark = document.documentElement.classList.contains('dark');
       setIsDark(dark);
       try {
-        monacoRef.current?.editor?.setTheme(
-          dark ? 'taskforge-blue-dark' : 'taskforge-blue-light'
-        );
+        monacoRef.current?.editor?.setTheme(pickThemeName());
       } catch {}
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => mo.disconnect();
-  }, []);
+  }, [pickThemeName]);
 
   return (
     <div
@@ -175,28 +232,25 @@ export default function CodeEditor({
       <Editor
         height={height}
         language={monacoLang}
-        theme={isDark ? 'taskforge-blue-dark' : 'taskforge-blue-light'}
+        theme={isDark ? pickThemeName() : pickThemeName()}
         value={value}
         onChange={(v) => onChange?.(v ?? '')}
         beforeMount={handleBeforeMount}
         onMount={handleMount}
         options={{
-          // Номера строк и «зазор» после них
           lineNumbers,
           lineNumbersMinChars: 2,
           lineDecorationsWidth: 12,
           glyphMargin: false,
           folding: false,
 
-          // Стиль
           fontSize: 14,
           lineHeight: 20,
           letterSpacing: 0.2,
           padding: { top: 8, bottom: 8 },
 
-          // UX
           minimap: { enabled: false },
-          automaticLayout: false, // мы делаем свой layout — стабильнее
+          automaticLayout: false,
           wordWrap: 'on',
           tabSize: 2,
           insertSpaces: true,
