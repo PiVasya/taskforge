@@ -187,6 +187,13 @@ html.pink input:focus,
 html.pink textarea:focus,
 html.pink select:focus { @apply ring-pink-500; }
 
+/* Monaco: убираем фокус-ринг у внутреннего textarea */
+.monaco-editor .inputarea:focus {
+  outline: none !important;
+  box-shadow: none !important; /* гасит tailwind ring */
+}
+
+
 /* ====== Фоны-градиенты в pink — мягче ====== */
 html.pink .bg-gradient-to-b {
   background-image: linear-gradient(

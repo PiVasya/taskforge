@@ -75,6 +75,7 @@ export default function CodeEditor({
         'editorSuggestWidget.border': '#20314a',
         'editorSuggestWidget.selectedBackground': '#16243a',
         'list.hoverBackground': '#132035',
+        'focusBorder': '#DB2777',   
       },
     });
 
@@ -101,6 +102,7 @@ export default function CodeEditor({
         'editor.lineHighlightBackground': '#F6F8FA',
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
+        'focusBorder': '#F472B6',
       },
     });
   }, []);
