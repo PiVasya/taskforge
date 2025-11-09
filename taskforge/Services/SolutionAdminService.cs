@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
+using taskforge.Data.Models.Entities;
 
 namespace taskforge.Services
 {
@@ -184,7 +185,7 @@ namespace taskforge.Services
         }
 
         // ---- приватный маппер для единообразия ----
-        private static SolutionDetailsDto MapToDetailsDto(Models.UserTaskSolution s)
+        private static SolutionDetailsDto MapToDetailsDto(UserTaskSolution s)
         {
             return new SolutionDetailsDto
             {

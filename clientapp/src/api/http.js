@@ -92,3 +92,6 @@ export function setAccessToken(token) {
     }
   } catch {}
 }
+
+// Добавлено для совместимости с импортами вида `import api from './http'`
+export default api;
