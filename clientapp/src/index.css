@@ -59,8 +59,9 @@ header .btn-primary {
 .btn-ghost { @apply btn bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800; }
 .btn-outline { @apply btn border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800; }
 
+/* ЕДИНЫЙ фон для всех контролов: rgb(var(--card)) */
 .input {
-  @apply w-full border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 bg-white dark:bg-slate-900;
+  @apply w-full border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 bg-[rgb(var(--card))];
 }
 .input::placeholder { opacity: .7; }
 
@@ -85,7 +86,7 @@ a:hover { color: inherit; text-decoration-color: currentColor; }
 select,
 select.input {
   @apply w-full rounded-xl px-3 py-2;
-  @apply border bg-white text-slate-800 border-slate-300;
+  @apply border bg-[rgb(var(--card))] text-slate-800 border-slate-300;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='currentColor' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -96,15 +97,15 @@ select.input {
 select:focus,
 select.input:focus { @apply outline-none ring-2 ring-brand-500; }
 
-/* Тёмная тема для select */
+/* Тёмная тема для select — тоже через var(--card) */
 .dark select,
-.dark select.input { @apply bg-slate-900 text-slate-100 border-slate-700; }
+.dark select.input { @apply bg-[rgb(var(--card))] text-slate-100 border-slate-700; }
 .dark select:focus,
 .dark select.input:focus { @apply ring-brand-400; }
 
-/* Розовая тема для select */
+/* Розовая тема для select — НЕ задаём фон, он уже из var(--card) */
 html.pink select,
-html.pink select.input { @apply bg-pink-50 text-slate-800 border-pink-300; }
+html.pink select.input { @apply text-slate-800 border-pink-300; }
 html.pink select:focus,
 html.pink select.input:focus { @apply ring-pink-500; }
 
@@ -207,7 +208,7 @@ html.pink .bg-gradient-to-b {
          border-slate-300 dark:border-slate-700;
 }
 .select {
-  @apply w-full rounded-xl px-3 py-2 border bg-white text-slate-800 border-slate-300;
+  @apply w-full rounded-xl px-3 py-2 border bg-[rgb(var(--card))] text-slate-800 border-slate-300;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='currentColor' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -216,5 +217,5 @@ html.pink .bg-gradient-to-b {
   padding-right: 2.25rem;
 }
 .select:focus { @apply outline-none ring-2 ring-brand-500; }
-.dark .select { @apply bg-slate-900 text-slate-100 border-slate-700; }
-.html.pink .select { @apply bg-pink-50 text-slate-800 border-pink-300; }
+.dark .select { @apply text-slate-100 border-slate-700; }
+html.pink .select { @apply text-slate-800 border-pink-300; }
