@@ -27,3 +27,21 @@ export async function updateProfile(payload) {
   });
   return true;
 }
+
+/**
+ * Change password (requires current password)
+ */
+export async function changePassword(payload) {
+  await api.post('/api/profile/change-password', payload, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  });
+}
+
+/**
+ * Change email (requires password)
+ */
+export async function changeEmail(payload) {
+  await api.post('/api/profile/change-email', payload, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  });
+}

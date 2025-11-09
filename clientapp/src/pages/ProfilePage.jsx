@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea } from '../components/ui';
-import { getProfile, updateProfile } from '../api/profile';
+import { getProfile, updateProfile, changePassword, changeEmail } from '../api/profile';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
 
@@ -133,6 +133,93 @@ export default function ProfilePage() {
             {saving ? 'Сохраняю…' : 'Сохранить'}
           </Button>
         </div>
+
+<div className="mt-8 pt-6 border-t">
+  <h3 className="text-lg font-semibold mb-3">Сменить email</h3>
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+      <label className="label">Новый email</label>
+      <Input
+        type="email"
+        value={profile.newEmail || ''}
+        onChange={(e) => onChange('newEmail', e.target.value)}
+      />
+    </div>
+    <div>
+      <label className="label">Пароль</label>
+      <Input
+        type="password"
+        value={profile.confirmPassword || ''}
+        onChange={(e) => onChange('confirmPassword', e.target.value)}
+      />
+    </div>
+  </div>
+  <div className="mt-3">
+    <Button
+      onClick={async () => {
+        try {
+          await changeEmail({ newEmail: profile.newEmail, password: profile.confirmPassword });
+          notify.success('Email обновлён');
+          setProfile((prev) => ({ ...prev, email: profile.newEmail, newEmail: '', confirmPassword: '' }));
+        } catch (e) {
+          handleApiError(e, notify, 'Не удалось сменить email');
+        }
+      }}
+    >
+      Обновить email
+    </Button>
+  </div>
+</div>
+
+<div className="mt-8 pt-6 border-t">
+  <h3 className="text-lg font-semibold mb-3">Сменить пароль</h3>
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div>
+      <label className="label">Текущий пароль</label>
+      <Input
+        type="password"
+        value={profile.curPwd || ''}
+        onChange={(e) => onChange('curPwd', e.target.value)}
+      />
+    </div>
+    <div>
+      <label className="label">Новый пароль</label>
+      <Input
+        type="password"
+        value={profile.newPwd || ''}
+        onChange={(e) => onChange('newPwd', e.target.value)}
+      />
+    </div>
+    <div>
+      <label className="label">Повторите новый пароль</label>
+      <Input
+        type="password"
+        value={profile.newPwd2 || ''}
+        onChange={(e) => onChange('newPwd2', e.target.value)}
+      />
+    </div>
+  </div>
+  <div className="mt-3">
+    <Button
+      onClick={async () => {
+        if ((profile.newPwd || '') !== (profile.newPwd2 || '')) {
+          notify.error('Пароли не совпадают');
+          return;
+        }
+        try {
+          await changePassword({ currentPassword: profile.curPwd, newPassword: profile.newPwd });
+          notify.success('Пароль изменён');
+          setProfile((prev) => ({ ...prev, curPwd: '', newPwd: '', newPwd2: '' }));
+        } catch (e) {
+          handleApiError(e, notify, 'Не удалось сменить пароль');
+        }
+      }}
+    >
+      Обновить пароль
+    </Button>
+  </div>
+</div>
+
       </Card>
     </Layout>
   );

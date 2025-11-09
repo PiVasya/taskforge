@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
+using taskforge.Services;
 
 namespace taskforge.Controllers
 {
@@ -18,9 +19,11 @@ namespace taskforge.Controllers
     {
         private readonly ApplicationDbContext _db;
 
-        public ProfileController(ApplicationDbContext db)
+        private readonly PasswordHasher _passwordHasher;
+        public ProfileController(ApplicationDbContext db, PasswordHasher passwordHasher)
         {
             _db = db;
+            _passwordHasher = passwordHasher;
         }
 
         /// <summary>
@@ -91,4 +94,73 @@ namespace taskforge.Controllers
             return NoContent();
         }
     }
+
+/// <summary>
+/// Changes the current user's password. Requires the current password.
+/// </summary>
+[HttpPost("change-password")]
+[Authorize]
+public async Task<ActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+{
+    if (!ModelState.IsValid) return BadRequest(ModelState);
+
+    var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (string.IsNullOrEmpty(userIdStr) || !Guid.TryParse(userIdStr, out var userId))
+        return Unauthorized();
+
+    var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user == null) return NotFound();
+
+    if (user.PasswordSalt == null || user.PasswordHash == null)
+        return BadRequest(new { message = "Password is not set." });
+
+    if (!_passwordHasher.VerifyPassword(dto.CurrentPassword, user.PasswordSalt, user.PasswordHash))
+        return BadRequest(new { message = "Текущий пароль неверный." });
+
+    var (salt, hash) = _passwordHasher.HashPassword(dto.NewPassword);
+    user.PasswordSalt = salt;
+    user.PasswordHash = hash;
+    user.UpdatedAt = DateTime.UtcNow;
+    await _db.SaveChangesAsync();
+    return Ok(new { message = "Пароль изменён." });
+}
+
+/// <summary>
+/// Changes the current user's email. Requires password confirmation and checks uniqueness.
+/// </summary>
+[HttpPost("change-email")]
+[Authorize]
+public async Task<ActionResult> ChangeEmail([FromBody] ChangeEmailDto dto)
+{
+    if (!ModelState.IsValid) return BadRequest(ModelState);
+
+    var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (string.IsNullOrEmpty(userIdStr) || !Guid.TryParse(userIdStr, out var userId))
+        return Unauthorized();
+
+    var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user == null) return NotFound();
+
+    if (string.Equals(user.Email, dto.NewEmail, StringComparison.OrdinalIgnoreCase))
+        return BadRequest(new { message = "Новый email совпадает с текущим." });
+
+    if (user.PasswordSalt == null || user.PasswordHash == null)
+        return BadRequest(new { message = "Password is not set." });
+
+    if (!_passwordHasher.VerifyPassword(dto.Password, user.PasswordSalt, user.PasswordHash))
+        return BadRequest(new { message = "Неверный пароль." });
+
+    var exists = await _db.Users.AnyAsync(u => u.Email == dto.NewEmail);
+    if (exists)
+        return Conflict(new { message = "Пользователь с таким email уже существует." });
+
+    user.Email = dto.NewEmail;
+    user.EmailConfirmed = false;
+    user.EmailConfirmationToken = Guid.NewGuid();
+    user.UpdatedAt = DateTime.UtcNow;
+    await _db.SaveChangesAsync();
+
+    return Ok(new { message = "Email обновлён. Подтвердите новый адрес, если требуется." });
+}
+
 }
