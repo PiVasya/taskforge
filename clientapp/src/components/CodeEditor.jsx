@@ -16,6 +16,10 @@ export default function CodeEditor({
   height = 320,
   lineNumbers = 'on',
 }) {
+  const [isDark, setIsDark] = useState(
+    document.documentElement.classList.contains('dark')
+  );
+
   const wrapperRef = useRef(null);
   const editorRef = useRef(null);   // monaco.editor.IStandaloneCodeEditor
   const monacoRef = useRef(null);   // monaco namespace
@@ -31,9 +35,8 @@ export default function CodeEditor({
     }
   }, [language]);
 
-  /** Регистрируем темы ДО создания редактора */
+  // РЕГИСТРАЦИЯ ТЕМ — ДО создания редактора
   const handleBeforeMount = useCallback((monaco) => {
-    // Тёмная синяя
     monaco.editor.defineTheme('taskforge-blue-dark', {
       base: 'vs-dark',
       inherit: true,
@@ -54,17 +57,23 @@ export default function CodeEditor({
         'editorLineNumber.foreground': '#5d6b7e',
         'editorLineNumber.activeForeground': '#a7b4c6',
         'editor.selectionBackground': '#1d2a41',
-        'editor.inactiveSelectionBackground': '#1d2a41',
-        'editorWidget.background': '#0f1a2b',
-        'editorCursor.foreground': '#93c5fd',
-        'editorBracketMatch.background': '#1e293b',
-        'editorBracketMatch.border': '#334155',
-        'editor.findMatchBackground': '#283b5f',
-        'editor.findMatchHighlightBackground': '#20324f',
+        'editor.inactiveSelectionBackground': '#172338',
+        'editor.lineHighlightBackground': '#111c2d',
+        'editorCursor.foreground': '#E5E7EB',
+        'scrollbarSlider.background': '#2a3a5266',
+        'scrollbarSlider.hoverBackground': '#2a3a5299',
+        'scrollbarSlider.activeBackground': '#2a3a52cc',
+        'editorIndentGuide.background': '#233047',
+        'editorIndentGuide.activeBackground': '#2f3e5b',
+        'editorWidget.background': '#0e1a2b',
+        'editorWidget.border': '#20314a',
+        'editorSuggestWidget.background': '#0e1a2b',
+        'editorSuggestWidget.border': '#20314a',
+        'editorSuggestWidget.selectedBackground': '#16243a',
+        'list.hoverBackground': '#132035',
       },
     });
 
-    // Светлая синяя
     monaco.editor.defineTheme('taskforge-blue-light', {
       base: 'vs',
       inherit: true,
@@ -82,116 +91,104 @@ export default function CodeEditor({
         'editorLineNumber.foreground': '#94A3B8',
         'editorLineNumber.activeForeground': '#475569',
         'editor.selectionBackground': '#CDE3FF',
-        'editor.inactiveSelectionBackground': '#E2E8F0',
-        'editorWidget.background': '#FFFFFF',
-        'editorCursor.foreground': '#1d4ed8',
-        'editorBracketMatch.background': '#E0E7FF',
-        'editorBracketMatch.border': '#C7D2FE',
-        'editor.findMatchBackground': '#FDE68A',
-        'editor.findMatchHighlightBackground': '#FEF3C7',
-      },
-    });
-
-    // Светлая розовая (для темы html.pink)
-    monaco.editor.defineTheme('taskforge-rose-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [
-        { token: 'comment', foreground: 'A8A3AD' },
-        { token: 'string', foreground: '16A34A' },
-        { token: 'number', foreground: 'BE185D' },
-        { token: 'keyword', foreground: 'DB2777', fontStyle: 'bold' },
-        { token: 'type', foreground: 'EA580C' },
-      ],
-      colors: {
-        'editor.background': '#FFF1F6',
-        'editorGutter.background': '#FFF1F6',
-        'editor.foreground': '#111827',
-        'editorLineNumber.foreground': '#C08497',
-        'editorLineNumber.activeForeground': '#8B5D75',
-        'editor.selectionBackground': '#FBCFE8',
-        'editor.inactiveSelectionBackground': '#FFE4F1',
-        'editorWidget.background': '#FFFFFF',
-        'editorCursor.foreground': '#DB2777',
-        'editorBracketMatch.background': '#FCE7F3',
-        'editorBracketMatch.border': '#F9A8D4',
-        'editor.findMatchBackground': '#FDE68A',
-        'editor.findMatchHighlightBackground': '#FEF3C7',
+        'editor.inactiveSelectionBackground': '#E6F0FF',
+        'editor.lineHighlightBackground': '#F6F8FA',
+        'editorIndentGuide.background': '#E5E7EB',
+        'editorIndentGuide.activeBackground': '#CBD5E1',
       },
     });
   }, []);
 
-  /** Возвращает актуальное имя темы по классу на <html> */
-  const pickTheme = useCallback(() => {
-    const cls = document.documentElement.classList;
-    if (cls.contains('dark')) return 'taskforge-blue-dark';
-    if (cls.contains('pink')) return 'taskforge-rose-light';
-    return 'taskforge-blue-light';
-  }, []);
-
-  /** Лэйаут по размеру контейнера */
-  const layout = useCallback(() => {
+  // хелпер — безопасно перелэйаутить редактор
+  const relayout = useCallback(() => {
     const ed = editorRef.current;
     const el = wrapperRef.current;
     if (!ed || !el) return;
     const w = Math.max(0, el.clientWidth);
     const h = typeof height === 'number' ? height : el.clientHeight || 0;
+    // запросим кадр, чтобы не дёргать layout чаще, чем перерисовка
     requestAnimationFrame(() => ed.layout({ width: w, height: h }));
   }, [height]);
 
-  /** mount: ссылки, тема, ResizeObserver */
+  // ПРИ МАУНТЕ — запомним ссылки, установим тему, поднимем ResizeObserver
   const handleMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
-    monaco.editor.setTheme(pickTheme());
+    monaco.editor.setTheme(
+      document.documentElement.classList.contains('dark')
+        ? 'taskforge-blue-dark'
+        : 'taskforge-blue-light'
+    );
 
-    // ResizeObserver следит за контейнером
-    roRef.current = new ResizeObserver(() => layout());
-    roRef.current.observe(wrapperRef.current);
+    // наблюдаем изменения размеров контейнера (брейкпоинты/масштаб/скрытие)
+    if (wrapperRef.current && !roRef.current) {
+      roRef.current = new ResizeObserver(() => relayout());
+      roRef.current.observe(wrapperRef.current);
+    }
 
-    // Следим за сменой темы (переключатель темы меняет классы на <html>)
+    // перестраиваемся на ресайз окна и смену ориентации
+    const onWinResize = () => relayout();
+    window.addEventListener('resize', onWinResize);
+    window.addEventListener('orientationchange', onWinResize);
+
+    // первая раскладка
+    relayout();
+
+    // очистка
+    return () => {
+      window.removeEventListener('resize', onWinResize);
+      window.removeEventListener('orientationchange', onWinResize);
+      roRef.current?.disconnect();
+      roRef.current = null;
+    };
+  }, [relayout]);
+
+  // Реакция на переключение темы сайта (класс .dark)
+  useEffect(() => {
     const mo = new MutationObserver(() => {
-      monacoRef.current?.editor?.setTheme(pickTheme());
-      layout();
+      const dark = document.documentElement.classList.contains('dark');
+      setIsDark(dark);
+      try {
+        monacoRef.current?.editor?.setTheme(
+          dark ? 'taskforge-blue-dark' : 'taskforge-blue-light'
+        );
+      } catch {}
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-
-    // первый layout
-    layout();
-
-    return () => {
-      roRef.current?.disconnect();
-      mo.disconnect();
-    };
-  }, [layout, pickTheme]);
+    return () => mo.disconnect();
+  }, []);
 
   return (
     <div
       ref={wrapperRef}
-      className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 min-w-0"
+      className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 min-w-0" // min-w-0 важно!
       style={{ width: '100%' }}
     >
       <Editor
         height={height}
         language={monacoLang}
-        theme={pickTheme()}
+        theme={isDark ? 'taskforge-blue-dark' : 'taskforge-blue-light'}
         value={value}
-        onChange={(val) => onChange?.(val ?? '')}
+        onChange={(v) => onChange?.(v ?? '')}
         beforeMount={handleBeforeMount}
         onMount={handleMount}
-        loading={<div className="p-4 text-sm text-slate-500">Загружаем редактор…</div>}
         options={{
-          // типографика
-          fontFamily: 'Cascadia Code, Fira Code, JetBrains Mono, Consolas, Menlo, Monaco, ui-monospace, monospace',
-          fontLigatures: true,
-          fontSize: 14,
-          lineHeight: 22,
-
-          // UI
-          minimap: { enabled: false },
-          scrollbar: { verticalScrollbarSize: 12, horizontalScrollbarSize: 12 },
+          // Номера строк и «зазор» после них
           lineNumbers,
-          automaticLayout: false, // свой layout стабильнее
+          lineNumbersMinChars: 2,
+          lineDecorationsWidth: 12,
+          glyphMargin: false,
+          folding: false,
+
+          // Стиль
+          fontSize: 14,
+          lineHeight: 20,
+          letterSpacing: 0.2,
+          padding: { top: 8, bottom: 8 },
+
+          // UX
+          minimap: { enabled: false },
+          automaticLayout: false, // мы делаем свой layout — стабильнее
           wordWrap: 'on',
           tabSize: 2,
           insertSpaces: true,
