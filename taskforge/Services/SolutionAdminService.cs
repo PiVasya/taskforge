@@ -25,11 +25,13 @@ namespace taskforge.Services
                 .Where(s => s.UserId == userId)
                 .Include(s => s.TaskAssignment)
                     .ThenInclude(a => a.Course)
-                .OrderByDescending(s => s.SubmittedAt)
                 .AsQueryable();
 
             if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)    q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+
+            // сортировка по времени — новые сверху
+            q = q.OrderByDescending(s => s.SubmittedAt);
 
             return await q.Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200))
                 .Select(s => new SolutionListItemDto
@@ -134,7 +136,7 @@ namespace taskforge.Services
                 .AsQueryable();
 
             if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)    q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
             if (days.HasValue)
             {
                 var since = DateTime.UtcNow.AddDays(-days.Value);
@@ -160,7 +162,7 @@ namespace taskforge.Services
         {
             var q = _db.UserTaskSolutions.Where(s => s.UserId == userId);
             if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)    q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
             var list = await q.ToListAsync();
             if (list.Count == 0) return;

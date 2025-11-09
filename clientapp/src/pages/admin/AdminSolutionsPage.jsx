@@ -69,11 +69,18 @@ export default function AdminSolutionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, filterDays]);
 
+  // ГАРАНТИРОВАННАЯ сортировка "новые сверху" (и для фильтра, и без него)
   const displayedSolutions = useMemo(() => {
-    if (!filterDays) return solutions;
-    const since = new Date();
-    since.setDate(since.getDate() - filterDays);
-    return solutions.filter((sol) => new Date(sol.submittedAt) >= since);
+    let list;
+    if (!filterDays) {
+      list = [...solutions];
+    } else {
+      const since = new Date();
+      since.setDate(since.getDate() - filterDays);
+      list = solutions.filter((sol) => new Date(sol.submittedAt) >= since);
+    }
+    list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    return list;
   }, [solutions, filterDays]);
 
   const handleDeleteAll = async () => {
