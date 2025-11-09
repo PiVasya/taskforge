@@ -13,22 +13,30 @@ import {
   User,
   BarChart2,
   ListOrdered,
+  Palette, // иконка розовой темы
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 
 export default function Layout({ children }) {
-  const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  // темы: light | dark | pink
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  const isDark = theme === 'dark';
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle } = useEditorMode();
   const nav = useNavigate();
 
+  // цикл: light → dark → pink → light
+  const cycleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : t === 'dark' ? 'pink' : 'light'));
+
   useEffect(() => {
     const cls = document.documentElement.classList;
-    dark ? cls.add('dark') : cls.remove('dark');
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
-  }, [dark]);
+    cls.remove('dark', 'pink');
+    if (theme === 'dark') cls.add('dark');
+    if (theme === 'pink') cls.add('pink');
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   const handleLogout = async () => {
     await logout();
@@ -54,12 +62,14 @@ export default function Layout({ children }) {
             {/* переключатель темы */}
             <button
               className="btn-outline"
-              onClick={() => setDark((v) => !v)}
+              onClick={cycleTheme}
               aria-label="Toggle theme"
+              title={`Тема: ${theme}`}
             >
-              {dark ? <Sun size={18} /> : <Moon size={18} />}
+              {isDark ? <Sun size={18} /> : theme === 'pink' ? <Palette size={18} /> : <Moon size={18} />}
               <span className="hidden sm:inline">Тема</span>
             </button>
+
             {/* переключатель режима редактора — показываем только если аккаунт умеет редактировать */}
             {canEdit && (
               <button
@@ -73,6 +83,7 @@ export default function Layout({ children }) {
                 </span>
               </button>
             )}
+
             {/* ссылка на профиль для авторизованных пользователей */}
             {access && (
               <Link to="/profile" className="btn-outline" title="Профиль">
@@ -80,6 +91,7 @@ export default function Layout({ children }) {
                 <span className="hidden sm:inline">Профиль</span>
               </Link>
             )}
+
             {/* ссылка на общий рейтинг — доступна всем авторизованным пользователям */}
             {access && (
               <Link to="/leaderboard" className="btn-outline" title="Топ студентов">
@@ -87,6 +99,7 @@ export default function Layout({ children }) {
                 <span className="hidden sm:inline">Топ</span>
               </Link>
             )}
+
             {/* кнопка "Решения" доступна только пользователям с правами редактирования */}
             {access && canEdit && (
               <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
@@ -94,6 +107,7 @@ export default function Layout({ children }) {
                 <span className="hidden sm:inline">Решения</span>
               </Link>
             )}
+
             {/* вход/выход */}
             {access ? (
               <button className="btn-outline" onClick={handleLogout} title="Выйти">
@@ -109,11 +123,13 @@ export default function Layout({ children }) {
           </div>
         </div>
       </header>
+
       <main className="container-app py-8">
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
           {children}
         </motion.div>
       </main>
+
       <footer className="mt-12 border-t border-slate-200/70 dark:border-slate-800/70">
         <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400">
           © {new Date().getFullYear()} TaskForge
