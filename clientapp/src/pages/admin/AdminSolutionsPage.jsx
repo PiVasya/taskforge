@@ -4,8 +4,9 @@ import { Card, Button, Input, Select, Badge } from '../../components/ui';
 import {
   searchUsersOnce,
   getUserSolutions,
+  getSolutionDetails,
   getSolutionsDetailsBulkOrFallback,
-  deleteAllUserSolutions,
+  deleteUserSolutions,
 } from '../../api/admin';
 import CodeEditor from '../../components/CodeEditor';
 
@@ -33,9 +34,6 @@ export default function AdminSolutionsPage() {
       const res = await searchUsersOnce(q.trim(), 20);
       setUsers(res || []);
       if (res?.length) setUserId(res[0].id);
-    } catch (err) {
-      console.error('Failed to search users', err);
-      alert('Не удалось выполнить поиск пользователей');
     } finally {
       setSearchLoading(false);
     }
@@ -48,21 +46,17 @@ export default function AdminSolutionsPage() {
     }
     setListLoading(true);
     try {
-      // берём умеренную порцию, чтобы не долбить по 1000 сразу
-      const take = 150;
-      const baseList = await getUserSolutions(userId, { skip: 0, take });
-      const list = Array.isArray(baseList) ? baseList : (baseList?.items ?? []);
-      if (!list.length) {
+      // Тянем «лайт» список и затем детали (bulk или фоллбэк)
+      const baseList = await getUserSolutions(userId, { skip: 0, take: 150, days: filterDays });
+      const ids = (baseList || []).map(x => x.id);
+      if (!ids.length) {
         setSolutions([]);
         return;
       }
-
-      const ids = list.map((x) => x.id);
-      const details = await getSolutionsDetailsBulkOrFallback(ids, { concurrency: 8 });
-      setSolutions(details || []);
+      const detailed = await getSolutionsDetailsBulkOrFallback(ids, { concurrency: 8 });
+      setSolutions(detailed);
     } catch (e) {
       console.error('loadSolutions error:', e);
-      alert('Не удалось загрузить решения');
       setSolutions([]);
     } finally {
       setListLoading(false);
@@ -73,25 +67,21 @@ export default function AdminSolutionsPage() {
     if (!userId) return;
     loadSolutions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, filterDays]);
 
   const displayedSolutions = useMemo(() => {
     if (!filterDays) return solutions;
     const since = new Date();
     since.setDate(since.getDate() - filterDays);
-    return (solutions || []).filter((s) => new Date(s.submittedAt) >= since);
+    return solutions.filter((sol) => new Date(sol.submittedAt) >= since);
   }, [solutions, filterDays]);
 
   const handleDeleteAll = async () => {
     if (!userId) return;
-    if (!window.confirm('Вы уверены, что хотите удалить все решения выбранного пользователя?')) return;
-    try {
-      await deleteAllUserSolutions(userId);
-      await loadSolutions();
-    } catch (err) {
-      console.error(err);
-      alert('Не удалось удалить решения');
-    }
+    const ok = window.confirm('Удалить все решения выбранного пользователя?');
+    if (!ok) return;
+    await deleteUserSolutions(userId);
+    await loadSolutions();
   };
 
   return (
@@ -121,7 +111,7 @@ export default function AdminSolutionsPage() {
                 ))}
               </Select>
             </div>
-            <div className="flex items-end space-x-2">
+            <div className="flex items-end gap-2">
               <Button onClick={loadSolutions} disabled={!userId || listLoading || searchLoading}>
                 Загрузить решения
               </Button>
@@ -151,17 +141,12 @@ export default function AdminSolutionsPage() {
 
           {listLoading && <div className="text-slate-400">Загрузка…</div>}
           {!listLoading && !displayedSolutions.length && (
-            <div className="text-slate-400">
-              Нет данных. Выберите студента и нажмите «Загрузить решения».
-            </div>
+            <div className="text-slate-400">Нет данных.</div>
           )}
 
           <div className="space-y-4">
             {displayedSolutions.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-2xl bg-slate-900/40 border border-slate-700 p-4"
-              >
+              <div key={item.id} className="rounded-2xl bg-slate-900/40 border border-slate-700 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="font-medium">
                     {item.courseTitle} — {item.assignmentTitle}

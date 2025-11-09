@@ -28,9 +28,9 @@ namespace taskforge.Services
                 .AsQueryable();
 
             if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (courseId.HasValue)    q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
-            return await q.Skip(skip).Take(take)
+            return await q.Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200))
                 .Select(s => new SolutionListItemDto
                 {
                     Id = s.Id,
@@ -53,30 +53,16 @@ namespace taskforge.Services
                     .ThenInclude(a => a.Course)
                 .FirstOrDefaultAsync(x => x.Id == solutionId);
 
-            if (s == null) return null;
-
-            return new SolutionDetailsDto
-            {
-                Id = s.Id,
-                UserId = s.UserId,
-                TaskAssignmentId = s.TaskAssignmentId,
-                Language = s.Language,
-                SubmittedCode = s.SubmittedCode,
-                PassedAllTests = s.PassedAllTests,
-                PassedCount = s.PassedCount,
-                FailedCount = s.FailedCount,
-                SubmittedAt = s.SubmittedAt,
-                CourseTitle = s.TaskAssignment.Course.Title,
-                AssignmentTitle = s.TaskAssignment.Title,
-                Cases = null
-            };
+            return s == null ? null : MapToDetailsDto(s);
         }
 
         public async Task<IList<LeaderboardEntryDto>> GetLeaderboardAsync(Guid? courseId, int? days, int top)
         {
             var since = days.HasValue ? DateTime.UtcNow.AddDays(-days.Value) : (DateTime?)null;
 
-            var q = _db.UserTaskSolutions.AsNoTracking().Where(s => s.PassedAllTests);
+            var q = _db.UserTaskSolutions
+                .AsNoTracking()
+                .Where(s => s.PassedAllTests);
 
             if (since.HasValue)
                 q = q.Where(s => s.SubmittedAt >= since.Value);
@@ -90,11 +76,12 @@ namespace taskforge.Services
                 .GroupBy(x => x.UserId)
                 .Select(g => new { UserId = g.Key, Solved = g.Count() })
                 .OrderByDescending(x => x.Solved)
-                .Take(top)
+                .Take(Math.Clamp(top, 1, 100))
                 .ToListAsync();
 
+            var userIds = data.Select(d => d.UserId).ToArray();
             var users = await _db.Users
-                .Where(u => data.Select(d => d.UserId).Contains(u.Id))
+                .Where(u => userIds.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id);
 
             return data.Select(d =>
@@ -124,7 +111,8 @@ namespace taskforge.Services
                     u.LastName.Contains(query));
             }
 
-            return await q.OrderBy(u => u.Email).Take(take)
+            return await q.OrderBy(u => u.Email)
+                .Take(Math.Clamp(take, 1, 100))
                 .Select(u => new UserShortDto
                 {
                     Id = u.Id,
@@ -135,7 +123,6 @@ namespace taskforge.Services
                 .ToListAsync();
         }
 
-        /// <inheritdoc />
         public async Task<IList<SolutionListItemDto>> GetAllByUserAsync(Guid userId, Guid? courseId, Guid? assignmentId, int? days)
         {
             var q = _db.UserTaskSolutions
@@ -146,7 +133,7 @@ namespace taskforge.Services
                 .AsQueryable();
 
             if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (courseId.HasValue)    q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
             if (days.HasValue)
             {
                 var since = DateTime.UtcNow.AddDays(-days.Value);
@@ -168,12 +155,11 @@ namespace taskforge.Services
                 .ToListAsync();
         }
 
-        /// <inheritdoc />
         public async Task DeleteUserSolutionsAsync(Guid userId, Guid? courseId, Guid? assignmentId)
         {
             var q = _db.UserTaskSolutions.Where(s => s.UserId == userId);
             if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (courseId.HasValue)    q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
             var list = await q.ToListAsync();
             if (list.Count == 0) return;
@@ -184,7 +170,7 @@ namespace taskforge.Services
 
         public async Task<List<SolutionDetailsDto>> GetDetailsBulkAsync(IEnumerable<Guid> ids)
         {
-            var idSet = ids?.ToHashSet() ?? new HashSet<Guid>();
+            var idSet = (ids ?? Array.Empty<Guid>()).ToHashSet();
             if (idSet.Count == 0) return new List<SolutionDetailsDto>();
 
             var entities = await _db.UserTaskSolutions
@@ -194,21 +180,27 @@ namespace taskforge.Services
                     .ThenInclude(a => a.Course)
                 .ToListAsync();
 
-            return entities.Select(s => new SolutionDetailsDto
+            return entities.Select(MapToDetailsDto).ToList();
+        }
+
+        // ---- приватный маппер для единообразия ----
+        private static SolutionDetailsDto MapToDetailsDto(Models.UserTaskSolution s)
+        {
+            return new SolutionDetailsDto
             {
                 Id = s.Id,
                 UserId = s.UserId,
                 TaskAssignmentId = s.TaskAssignmentId,
-                Language = s.Language,
-                SubmittedCode = s.SubmittedCode,
+                Language = s.Language ?? string.Empty,
+                SubmittedCode = s.SubmittedCode ?? string.Empty,
                 PassedAllTests = s.PassedAllTests,
                 PassedCount = s.PassedCount,
                 FailedCount = s.FailedCount,
                 SubmittedAt = s.SubmittedAt,
-                CourseTitle = s.TaskAssignment.Course.Title,
-                AssignmentTitle = s.TaskAssignment.Title,
+                CourseTitle = s.TaskAssignment?.Course?.Title ?? string.Empty,
+                AssignmentTitle = s.TaskAssignment?.Title ?? string.Empty,
                 Cases = null
-            }).ToList();
+            };
         }
     }
 }

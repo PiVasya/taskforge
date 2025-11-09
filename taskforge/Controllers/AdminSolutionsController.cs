@@ -33,12 +33,14 @@ namespace taskforge.Controllers
             [FromQuery] int take = 50,
             [FromQuery] int? days = null)
         {
+            // режим "всё сразу" / "за период"
             if (days.HasValue || take > 999)
             {
                 var all = await _svc.GetAllByUserAsync(userId, courseId, assignmentId, days);
                 return Ok(all);
             }
 
+            // обычная пагинация
             var list = await _svc.GetByUserAsync(
                 userId,
                 courseId,
@@ -49,7 +51,7 @@ namespace taskforge.Controllers
             return Ok(list);
         }
 
-        // Совместимость с фронтом старого формата: GET /api/admin/solutions?userId=...
+        /// <summary>Совместимость со старым роутом списка: GET /api/admin/solutions?userId=...</summary>
         [HttpGet("solutions")]
         public Task<IActionResult> GetSolutionsByUserCompat(
             [FromQuery] Guid userId,
@@ -72,7 +74,7 @@ namespace taskforge.Controllers
             return NoContent();
         }
 
-        // Совместимость со старым роутом удаления: DELETE /api/admin/solutions?userId=...
+        /// <summary>Совместимость со старым роутом удаления: DELETE /api/admin/solutions?userId=...</summary>
         [HttpDelete("solutions")]
         public Task<IActionResult> DeleteUserSolutionsCompat(
             [FromQuery] Guid userId,
@@ -97,12 +99,13 @@ namespace taskforge.Controllers
             if (ids is null || ids.Length == 0)
                 return Ok(Array.Empty<SolutionDetailsDto>());
 
+            // safety-лимит, чтобы не класть БД/сервис
             var safeIds = ids.Take(200).ToArray();
             var data = await _svc.GetDetailsBulkAsync(safeIds);
             return Ok(data);
         }
 
-        /// <summary>Лидерборд.</summary>
+        /// <summary>Лидерборд (кол-во уникально решённых заданий).</summary>
         /// GET /api/admin/leaderboard?courseId=&days=&top=
         [HttpGet("leaderboard")]
         public async Task<IActionResult> GetLeaderboard(

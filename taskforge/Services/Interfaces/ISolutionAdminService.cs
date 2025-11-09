@@ -19,7 +19,7 @@ namespace taskforge.Services.Interfaces
 
         Task<SolutionDetailsDto?> GetDetailsAsync(Guid solutionId);
 
-        // <-- ВАЖНО: именно этого метода не хватало сборке
+        // bulk для ускоренной загрузки деталей
         Task<List<SolutionDetailsDto>> GetDetailsBulkAsync(IEnumerable<Guid> ids);
 
         Task<IList<LeaderboardEntryDto>> GetLeaderboardAsync(Guid? courseId, int? days, int top);
