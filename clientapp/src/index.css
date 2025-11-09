@@ -14,9 +14,26 @@
     --muted: 30 41 59; /* slate-800 */
 }
 
+/* Light Pink theme */
+html.pink {
+    --card: 255 241 246; /* rose-50 */
+    --muted: 255 228 235; /* rose-100 */
+}
 
-html, body, #root {
-    height: 100%;
+html.pink body {
+    @apply bg-pink-50 text-slate-800;
+}
+
+html.pink .btn-primary {
+    @apply bg-pink-600 hover:bg-pink-700;
+}
+
+html.pink .btn-outline {
+    @apply border-pink-300 hover:bg-pink-100;
+}
+
+html.pink a {
+    @apply text-pink-700 hover:text-pink-800;
 }
 
 body {
@@ -33,23 +50,11 @@ body {
 }
 
 .card-muted {
-    @apply rounded-2xl bg-[rgb(var(--muted))] dark:bg-slate-800/70;
-}
-
-.input {
-    @apply w-full rounded-xl border border-slate-300 bg-white/90 dark:bg-slate-900/60 dark:border-slate-700 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-600/40;
-}
-
-.textarea {
-    @apply input min-h-[120px];
-}
-
-.select {
-    @apply input;
+    @apply rounded-2xl bg-[rgb(var(--muted))] dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-800/60;
 }
 
 .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-medium transition;
+    @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl transition select-none;
 }
 
 .btn-primary {
@@ -64,18 +69,19 @@ body {
     @apply btn border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800;
 }
 
-.badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700;
+.input {
+    @apply w-full border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 bg-white dark:bg-slate-900;
 }
 
-.label {
-    @apply block text-sm font-medium mb-1 text-slate-600 dark:text-slate-300;
+.input::placeholder {
+    opacity: .7;
 }
 
-.field {
-    @apply space-y-1;
+.link {
+    @apply underline underline-offset-2 hover:no-underline;
 }
 
+/* Firefox normalize for inputs */
 @-moz-document url-prefix() {
     .input {
         -moz-appearance: none;
@@ -86,7 +92,7 @@ body {
         min-height: 40px;
     }
 
-        .input::placeholder {
-            opacity: .7;
-        }
+    .input::placeholder {
+        opacity: .7;
+    }
 }
