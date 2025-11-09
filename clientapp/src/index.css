@@ -118,9 +118,9 @@ html.pink select.input:focus { @apply ring-pink-500; }
 }
 
 /* Перекраска «брендовых» утилит в pink-теме */
-html.pink .bg-brand-600     { @apply bg-pink-600; }
-html.pink .text-brand-600   { @apply text-pink-600; }
-html.pink .border-brand-600 { @apply border-pink-600; }
+html.pink .bg-brand-600       { @apply bg-pink-600; }
+html.pink .text-brand-600     { @apply text-pink-600; }
+html.pink .border-brand-600   { @apply border-pink-600; }
 html.pink .from-brand-600\/10 { @apply from-pink-600/10; }
 
 /* ====== Инпуты/редакторы: гармонизация и автофилл ====== */
@@ -195,3 +195,26 @@ html.pink .bg-gradient-to-b {
     rgb(236 72 153 / 0%) 100%
   ) !important;
 }
+
+/* ====== Доп. классы для наших UI-компонентов ====== */
+.field { @apply w-full; }
+.field > .label { @apply block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1; }
+
+/* алиасы под классы компонентов */
+.textarea {
+  @apply w-full bg-[rgb(var(--card))] text-slate-800 dark:text-slate-100
+         border rounded-xl px-3 py-2
+         border-slate-300 dark:border-slate-700;
+}
+.select {
+  @apply w-full rounded-xl px-3 py-2 border bg-white text-slate-800 border-slate-300;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='currentColor' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+}
+.select:focus { @apply outline-none ring-2 ring-brand-500; }
+.dark .select { @apply bg-slate-900 text-slate-100 border-slate-700; }
+.html.pink .select { @apply bg-pink-50 text-slate-800 border-pink-300; }

@@ -23,12 +23,12 @@ export function useNotify() {
 
 /**
  * Провайдер, который хранит список уведомлений в локальном состоянии
- * и автоматически удаляет их по тайм‑ауту.
+ * и автоматически удаляет их по тайм-ауту.
  */
 export function NotifyProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
 
-  // Базовая функция: показывает уведомление нужного типа и удаляет его по тайм‑ауту.
+  // Базовая функция: показывает уведомление нужного типа и удаляет его по тайм-ауту.
   const notify = (message, type = 'info', timeout = 5000) => {
     const id = Date.now() + Math.random();
     setNotifications((prev) => [...prev, { id, message, type }]);
@@ -77,7 +77,7 @@ export function NotifyProvider({ children }) {
                   ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200'
                   : n.type === 'warning'
                   ? 'border-yellow-500 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/70 dark:text-yellow-200'
-                  : 'border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-900/70 dark:text-blue-200'
+                  : 'border-pink-500 bg-pink-50 text-pink-800 dark:bg-pink-900/70 dark:text-pink-200'
               }`}
           >
             {n.message}

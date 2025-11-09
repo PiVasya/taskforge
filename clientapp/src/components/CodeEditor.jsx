@@ -45,8 +45,10 @@ export default function CodeEditor({
         { token: 'comment', foreground: '7B8794' },
         { token: 'string', foreground: 'A3E635' },
         { token: 'number', foreground: 'F59E0B' },
-        { token: 'keyword', foreground: '60A5FA', fontStyle: 'bold' },
-        { token: 'type', foreground: '8BBAFF' },
+        /* было 60A5FA — убираем синеву */
+        { token: 'keyword', foreground: 'DB2777', fontStyle: 'bold' }, /* rose-600 */
+        /* было 8BBAFF — мягкая фуксия */
+        { token: 'type', foreground: 'F0ABFC' },                       /* fuchsia-300 */
         { token: 'function', foreground: 'F8FAFC' },
         { token: 'identifier', foreground: 'D8DEE9' },
       ],
@@ -54,10 +56,12 @@ export default function CodeEditor({
         'editor.background': '#0b1422',
         'editorGutter.background': '#0b1422',
         'editor.foreground': '#D8DEE9',
-        'editorLineNumber.foreground': '#5d6b7e',
-        'editorLineNumber.activeForeground': '#a7b4c6',
-        'editor.selectionBackground': '#1d2a41',
-        'editor.inactiveSelectionBackground': '#172338',
+        /* номера строк чуть «теплее», активный — светлее */
+        'editorLineNumber.foreground': '#7f5d6b',
+        'editorLineNumber.activeForeground': '#d4a7b4',
+        /* селекшн с лёгким розовым оттенком */
+        'editor.selectionBackground': '#3b143033',
+        'editor.inactiveSelectionBackground': '#3b143022',
         'editor.lineHighlightBackground': '#111c2d',
         'editorCursor.foreground': '#E5E7EB',
         'scrollbarSlider.background': '#2a3a5266',
@@ -81,8 +85,10 @@ export default function CodeEditor({
         { token: 'comment', foreground: '94A3B8' },
         { token: 'string', foreground: '10B981' },
         { token: 'number', foreground: 'DB2777' },
-        { token: 'keyword', foreground: '2563EB', fontStyle: 'bold' },
-        { token: 'type', foreground: '0EA5E9' },
+        /* было 2563EB — заменили на rose-700 */
+        { token: 'keyword', foreground: 'BE185D', fontStyle: 'bold' },
+        /* было 0EA5E9 — заменили на розовый */
+        { token: 'type', foreground: 'DB2777' },
       ],
       colors: {
         'editor.background': '#FFFFFF',
@@ -90,8 +96,8 @@ export default function CodeEditor({
         'editor.foreground': '#0F172A',
         'editorLineNumber.foreground': '#94A3B8',
         'editorLineNumber.activeForeground': '#475569',
-        'editor.selectionBackground': '#CDE3FF',
-        'editor.inactiveSelectionBackground': '#E6F0FF',
+        'editor.selectionBackground': '#FBCFE833',
+        'editor.inactiveSelectionBackground': '#FBCFE822',
         'editor.lineHighlightBackground': '#F6F8FA',
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
@@ -161,7 +167,7 @@ export default function CodeEditor({
   return (
     <div
       ref={wrapperRef}
-      className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 min-w-0" // min-w-0 важно!
+      className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 min-w-0"
       style={{ width: '100%' }}
     >
       <Editor
