@@ -225,7 +225,7 @@ export default function AssignmentEditPage() {
               {testCases.map((t, idx) => (
                 <div
                   key={idx}
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-white/60 dark:bg-slate-900/40"
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-[rgb(var(--card))]"
                 >
                   <div className="grid sm:grid-cols-2 gap-4">
                     <Field label="Input">
