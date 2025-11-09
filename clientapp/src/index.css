@@ -39,16 +39,6 @@ html.pink a.link {
 html.pink header a { @apply text-slate-800; }
 .dark header a     { @apply text-slate-200; }
 
-/* Подмена синего «ореола» на розовый для pink-темы */
-html.pink .bg-gradient-to-b {
-    background-image: linear-gradient(
-      to bottom,
-      rgba(236, 72, 153, 0.10),
-      rgba(236, 72, 153, 0.00),
-      rgba(236, 72, 153, 0.00)
-    ) !important;
-}
-
 /* Базовая типографика */
 body {
     @apply bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100;
@@ -171,8 +161,66 @@ a:hover { color: inherit; text-decoration-color: currentColor; }
 html.pink a.link { @apply text-pink-700 hover:text-pink-800; }
 
 /* 2) В pink-теме перекрашиваем «брендовые» utility-классы (иконка/аватарка и т.п.) */
-html.pink .bg-brand-600      { @apply bg-pink-600 !important; }
-html.pink .text-brand-600    { @apply text-pink-600 !important; }
-html.pink .border-brand-600  { @apply border-pink-600 !important; }
+html.pink .bg-brand-600     { @apply bg-pink-600; }
+html.pink .text-brand-600   { @apply text-pink-600; }
+html.pink .border-brand-600 { @apply border-pink-600; }
 /* если где-то используется градиент через from-brand-600/10 */
-html.pink .from-brand-600\/10 { @apply from-pink-600/10 !important; }
+html.pink .from-brand-600\/10 { @apply from-pink-600/10; }
+
+/* Базовая гармонизация инпутов под тему (без select, чтобы не перебивать блок выше) */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  @apply bg-[rgb(var(--card))] text-slate-800 dark:text-slate-100
+         border rounded-xl px-3 py-2
+         border-slate-300 dark:border-slate-700;
+}
+
+/* Autofill (Chrome/Edge/Safari) — убираем «голубизну» и красим под тему */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(15 23 42); /* светлая тема: тёмный текст */
+  box-shadow: inset 0 0 0 1000px rgb(255 255 255);
+  transition: background-color 9999s ease-out 0s; /* hack чтобы фон не мигал */
+}
+.dark input:-webkit-autofill,
+.dark textarea:-webkit-autofill,
+.dark select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(226 232 240);
+  box-shadow: inset 0 0 0 1000px rgb(15 23 42);
+}
+html.pink input:-webkit-autofill,
+html.pink textarea:-webkit-autofill,
+html.pink select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(51 65 85); /* slate-700/800 под розовую тему */
+  box-shadow: inset 0 0 0 1000px rgb(255 241 246); /* rose-50 */
+}
+
+/* Фокус под тему */
+input:focus,
+textarea:focus,
+select:focus {
+  @apply outline-none ring-2 ring-brand-500; /* по умолчанию */
+}
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  @apply ring-brand-400;
+}
+html.pink input:focus,
+html.pink textarea:focus,
+html.pink select:focus {
+  @apply ring-pink-500;
+}
+
+/* Pink-градиент — мягче и один раз */
+html.pink .bg-gradient-to-b {
+  background-image: linear-gradient(
+    to bottom,
+    rgb(236 72 153 / 6%),
+    rgb(236 72 153 / 0%) 45%,
+    rgb(236 72 153 / 0%) 100%
+  ) !important;
+}
