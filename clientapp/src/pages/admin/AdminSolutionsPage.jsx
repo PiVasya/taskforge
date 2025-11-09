@@ -1,15 +1,14 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
 import {
   searchUsersOnce,
   getUserSolutions,
-  getSolutionDetails,
-  deleteUserSolutions,
+  getSolutionsDetailsBulkOrFallback,
+  deleteAllUserSolutions,
 } from '../../api/admin';
 import CodeEditor from '../../components/CodeEditor';
 
-// Options for filtering solutions by date. The value is number of days; null means all time.
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
   { label: 'За сегодня', value: 1 },
@@ -17,24 +16,16 @@ const FILTER_OPTIONS = [
   { label: 'За месяц', value: 30 },
 ];
 
-/**
- * Admin page for browsing and managing students' solutions.
- * Allows search by student, loading up to 1000 solutions in one request,
- * filtering by time period and deleting all solutions for a user.
- */
 export default function AdminSolutionsPage() {
-  // Search query and users list
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
   const [userId, setUserId] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // Load solutions state
   const [solutions, setSolutions] = useState([]);
   const [listLoading, setListLoading] = useState(false);
   const [filterDays, setFilterDays] = useState(null);
 
-  // Handler to search for users when Enter is pressed
   const handleSearchEnter = async (e) => {
     if (e.key !== 'Enter') return;
     setSearchLoading(true);
@@ -44,53 +35,58 @@ export default function AdminSolutionsPage() {
       if (res?.length) setUserId(res[0].id);
     } catch (err) {
       console.error('Failed to search users', err);
+      alert('Не удалось выполнить поиск пользователей');
     } finally {
       setSearchLoading(false);
     }
   };
 
-  // Load all solutions for selected user (up to 1000). Then fetch details for each.
   const loadSolutions = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setSolutions([]);
+      return;
+    }
     setListLoading(true);
     try {
-      // Request up to 1000 solutions in one go
-      const list = await getUserSolutions(userId, { skip: 0, take: 1000 });
-      // Fetch details for each solution in parallel
-      const details = await Promise.all((list || []).map((x) => getSolutionDetails(x.id)));
-      const filtered = details.filter(Boolean);
-      setSolutions(filtered);
-    } catch (err) {
-      console.error('Failed to load solutions', err);
+      // берём умеренную порцию, чтобы не долбить по 1000 сразу
+      const take = 150;
+      const baseList = await getUserSolutions(userId, { skip: 0, take });
+      const list = Array.isArray(baseList) ? baseList : (baseList?.items ?? []);
+      if (!list.length) {
+        setSolutions([]);
+        return;
+      }
+
+      const ids = list.map((x) => x.id);
+      const details = await getSolutionsDetailsBulkOrFallback(ids, { concurrency: 8 });
+      setSolutions(details || []);
+    } catch (e) {
+      console.error('loadSolutions error:', e);
+      alert('Не удалось загрузить решения');
+      setSolutions([]);
     } finally {
       setListLoading(false);
     }
   };
 
-  // When user selection changes, reload solutions
   useEffect(() => {
     if (!userId) return;
     loadSolutions();
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Filtered list of solutions based on selected period
   const displayedSolutions = useMemo(() => {
     if (!filterDays) return solutions;
     const since = new Date();
     since.setDate(since.getDate() - filterDays);
-    return solutions.filter((sol) => new Date(sol.submittedAt) >= since);
+    return (solutions || []).filter((s) => new Date(s.submittedAt) >= since);
   }, [solutions, filterDays]);
 
-  // Deletion of all solutions for user
   const handleDeleteAll = async () => {
     if (!userId) return;
-    const confirmDel = window.confirm(
-      'Вы уверены, что хотите удалить все решения выбранного пользователя?'
-    );
-    if (!confirmDel) return;
+    if (!window.confirm('Вы уверены, что хотите удалить все решения выбранного пользователя?')) return;
     try {
-      await deleteUserSolutions(userId);
+      await deleteAllUserSolutions(userId);
       await loadSolutions();
     } catch (err) {
       console.error(err);
@@ -176,9 +172,7 @@ export default function AdminSolutionsPage() {
                 </div>
                 <div className="mb-3">
                   {item.passedAllTests ? (
-                    <Badge intent="success">
-                      Все тесты пройдены ({item.passedCount})
-                    </Badge>
+                    <Badge intent="success">Все тесты пройдены ({item.passedCount})</Badge>
                   ) : (
                     <Badge intent="danger">
                       Провалено: {item.failedCount} / Пройдено: {item.passedCount}
