@@ -117,8 +117,7 @@ namespace taskforge.Services
             return full;
         }
 
-        /// <inheritdoc />
-        public async Task<List<TopSolutionDto>> GetTopSolutionsAsync(Guid assignmentId, int count)
+                public async Task<List<TopSolutionDto>> GetTopSolutionsAsync(Guid assignmentId, int count)
         {
             var query = _db.UserTaskSolutions
                 .Include(s => s.User)
@@ -142,6 +141,124 @@ namespace taskforge.Services
                 .ToListAsync();
 
             return list;
+        }
+
+        /// <summary>
+        /// Список решений текущего пользователя с пагинацией.
+        /// </summary>
+        public async Task<IList<SolutionListItemDto>> GetMySolutionsAsync(
+            Guid currentUserId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int skip,
+            int take)
+        {
+            var q = _db.UserTaskSolutions
+                .AsNoTracking()
+                .Where(s => s.UserId == currentUserId)
+                .Include(s => s.TaskAssignment)
+                    .ThenInclude(a => a.Course)
+                .AsQueryable();
+
+            if (assignmentId.HasValue)
+                q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+
+            if (courseId.HasValue)
+                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+
+            q = q.OrderByDescending(s => s.SubmittedAt);
+
+            return await q
+                .Skip(Math.Max(0, skip))
+                .Take(Math.Clamp(take, 1, 200))
+                .Select(s => new SolutionListItemDto
+                {
+                    Id = s.Id,
+                    SubmittedAt = s.SubmittedAt,
+                    CourseTitle = s.TaskAssignment.Course.Title,
+                    AssignmentTitle = s.TaskAssignment.Title,
+                    Language = s.Language,
+                    PassedAllTests = s.PassedAllTests,
+                    PassedCount = s.PassedCount,
+                    FailedCount = s.FailedCount
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Все решения текущего пользователя (или за период), без пагинации.
+        /// </summary>
+        public async Task<IList<SolutionListItemDto>> GetMySolutionsAllAsync(
+            Guid currentUserId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int? days)
+        {
+            var q = _db.UserTaskSolutions
+                .AsNoTracking()
+                .Where(s => s.UserId == currentUserId)
+                .Include(s => s.TaskAssignment)
+                    .ThenInclude(a => a.Course)
+                .AsQueryable();
+
+            if (assignmentId.HasValue)
+                q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+
+            if (courseId.HasValue)
+                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+
+            if (days.HasValue)
+            {
+                var since = DateTime.UtcNow.AddDays(-days.Value);
+                q = q.Where(s => s.SubmittedAt >= since);
+            }
+
+            q = q.OrderByDescending(s => s.SubmittedAt);
+
+            return await q
+                .Select(s => new SolutionListItemDto
+                {
+                    Id = s.Id,
+                    SubmittedAt = s.SubmittedAt,
+                    CourseTitle = s.TaskAssignment.Course.Title,
+                    AssignmentTitle = s.TaskAssignment.Title,
+                    Language = s.Language,
+                    PassedAllTests = s.PassedAllTests,
+                    PassedCount = s.PassedCount,
+                    FailedCount = s.FailedCount
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Детали одного решения текущего пользователя (код решения).
+        /// </summary>
+        public async Task<SolutionDetailsDto?> GetMySolutionDetailsAsync(Guid currentUserId, Guid solutionId)
+        {
+            var s = await _db.UserTaskSolutions
+                .AsNoTracking()
+                .Include(x => x.TaskAssignment)
+                    .ThenInclude(a => a.Course)
+                .FirstOrDefaultAsync(x => x.Id == solutionId && x.UserId == currentUserId);
+
+            if (s == null)
+                return null;
+
+            return new SolutionDetailsDto
+            {
+                Id = s.Id,
+                UserId = s.UserId,
+                TaskAssignmentId = s.TaskAssignmentId,
+                Language = s.Language ?? string.Empty,
+                SubmittedCode = s.SubmittedCode ?? string.Empty,
+                PassedAllTests = s.PassedAllTests,
+                PassedCount = s.PassedCount,
+                FailedCount = s.FailedCount,
+                SubmittedAt = s.SubmittedAt,
+                CourseTitle = s.TaskAssignment?.Course?.Title ?? string.Empty,
+                AssignmentTitle = s.TaskAssignment?.Title ?? string.Empty,
+                Cases = null
+            };
         }
     }
 }

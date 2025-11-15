@@ -14,7 +14,11 @@ namespace taskforge.Controllers
     public sealed class AdminSolutionsController : ControllerBase
     {
         private readonly ISolutionAdminService _svc;
-        public AdminSolutionsController(ISolutionAdminService svc) => _svc = svc;
+
+        public AdminSolutionsController(ISolutionAdminService svc)
+        {
+            _svc = svc;
+        }
 
         /// <summary>Поиск пользователей по email/имени/фамилии.</summary>
         /// GET /api/admin/users?q=...&take=...
@@ -81,6 +85,15 @@ namespace taskforge.Controllers
             [FromQuery] Guid? courseId,
             [FromQuery] Guid? assignmentId)
             => DeleteUserSolutions(userId, courseId, assignmentId);
+
+        /// <summary>Удаление пользователя целиком (аккаунт + все его решения).</summary>
+        /// DELETE /api/admin/users/{userId}
+        [HttpDelete("users/{userId:guid}")]
+        public async Task<IActionResult> DeleteUser([FromRoute] Guid userId)
+        {
+            await _svc.DeleteUserAsync(userId);
+            return NoContent();
+        }
 
         /// <summary>Детали одного решения (с кодом).</summary>
         /// GET /api/admin/solutions/{id}

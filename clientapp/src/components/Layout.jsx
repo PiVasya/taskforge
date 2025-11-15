@@ -90,7 +90,13 @@ export default function Layout({ children }) {
               aria-label="Toggle theme"
               title={`Тема: ${theme}`}
             >
-              {isDark ? <Sun size={18} /> : theme === 'pink' ? <Palette size={18} /> : <Moon size={18} />}
+              {isDark ? (
+                <Sun size={18} />
+              ) : theme === 'pink' ? (
+                <Palette size={18} />
+              ) : (
+                <Moon size={18} />
+              )}
               <span className="hidden sm:inline">Тема</span>
             </button>
 
@@ -116,6 +122,14 @@ export default function Layout({ children }) {
               </Link>
             )}
 
+            {/* Мои решения — доступны всем авторизованным пользователям */}
+            {access && (
+              <Link to="/my/solutions" className="btn-outline" title="Мои решения">
+                <ListOrdered size={18} />
+                <span className="hidden sm:inline">Мои решения</span>
+              </Link>
+            )}
+
             {/* ссылка на общий рейтинг — доступна всем авторизованным пользователям */}
             {access && (
               <Link to="/leaderboard" className="btn-outline" title="Топ студентов">
@@ -124,7 +138,7 @@ export default function Layout({ children }) {
               </Link>
             )}
 
-            {/* кнопка "Решения" доступна только пользователям с правами редактирования */}
+            {/* кнопка "Решения" (админка) доступна только пользователям с правами редактирования */}
             {access && canEdit && (
               <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
                 <ListOrdered size={18} />
@@ -139,7 +153,10 @@ export default function Layout({ children }) {
                 <span className="hidden sm:inline">Выйти</span>
               </button>
             ) : (
-              <Link to="/login" className="btn-primary" title="Войти"> ... </Link>
+              <Link to="/login" className="btn-primary" title="Войти">
+                <LogIn size={18} />
+                <span className="hidden sm:inline">Войти</span>
+              </Link>
             )}
           </div>
 
@@ -165,9 +182,18 @@ export default function Layout({ children }) {
                 <button
                   role="menuitem"
                   className="btn-ghost w-full justify-start"
-                  onClick={() => { setMoreOpen(false); cycleTheme(); }}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    cycleTheme();
+                  }}
                 >
-                  {isDark ? <Sun size={18} /> : theme === 'pink' ? <Palette size={18} /> : <Moon size={18} />}
+                  {isDark ? (
+                    <Sun size={18} />
+                  ) : theme === 'pink' ? (
+                    <Palette size={18} />
+                  ) : (
+                    <Moon size={18} />
+                  )}
                   <span>Тема: {theme === 'pink' ? 'Rose' : isDark ? 'Dark' : 'Light'}</span>
                 </button>
 
@@ -176,7 +202,10 @@ export default function Layout({ children }) {
                   <button
                     role="menuitem"
                     className="btn-ghost w-full justify-start"
-                    onClick={() => { setMoreOpen(false); toggle(); }}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      toggle();
+                    }}
                   >
                     {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
                     <span>{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
@@ -197,6 +226,20 @@ export default function Layout({ children }) {
                   </Link>
                 )}
 
+                {/* Мои решения */}
+                {access && (
+                  <Link
+                    role="menuitem"
+                    to="/my/solutions"
+                    className="btn-ghost w-full justify-start"
+                    onClick={() => setMoreOpen(false)}
+                    title="Мои решения"
+                  >
+                    <ListOrdered size={18} />
+                    <span>Мои решения</span>
+                  </Link>
+                )}
+
                 {/* Топ */}
                 {access && (
                   <Link
@@ -211,7 +254,7 @@ export default function Layout({ children }) {
                   </Link>
                 )}
 
-                {/* Решения */}
+                {/* Решения (админка) */}
                 {access && canEdit && (
                   <Link
                     role="menuitem"
@@ -230,7 +273,10 @@ export default function Layout({ children }) {
                   <button
                     role="menuitem"
                     className="btn-ghost w-full justify-start"
-                    onClick={() => { setMoreOpen(false); handleLogout(); }}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      handleLogout();
+                    }}
                     title="Выйти"
                   >
                     <LogOut size={18} />

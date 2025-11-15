@@ -1,4 +1,4 @@
-﻿import { Routes, Route, Navigate } from 'react-router-dom';
+﻿﻿import { Routes, Route, Navigate } from 'react-router-dom';
 import { NotifyProvider } from './components/notify/NotifyProvider';
 
 import ProtectedRoute from './auth/ProtectedRoute';
@@ -14,7 +14,8 @@ import AssignmentSolvePage from './pages/AssignmentSolvePage';
 import AssignmentResultsPage from './pages/AssignmentResultsPage';
 
 import ProfilePage from './pages/ProfilePage';
-import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage'; // страница есть, кнопку просто не показываем
+import MySolutionsPage from './pages/MySolutionsPage';
+import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
 
 // Admin pages
 import LeaderboardPage from './pages/admin/LeaderboardPage';
@@ -34,6 +35,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<CoursesPage />} />
@@ -48,6 +50,7 @@ export default function App() {
           <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />
 
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/my/solutions" element={<MySolutionsPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
 
           <Route element={<EditorRoute fallbackTo="courses" />}>

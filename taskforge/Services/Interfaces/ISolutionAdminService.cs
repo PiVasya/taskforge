@@ -10,10 +10,22 @@ namespace taskforge.Services.Interfaces
         Task<IList<UserShortDto>> SearchUsersAsync(string query, int take);
 
         Task<IList<SolutionListItemDto>> GetByUserAsync(
-            Guid userId, Guid? courseId, Guid? assignmentId, int skip, int take);
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int skip,
+            int take
+        );
 
         Task<IList<SolutionListItemDto>> GetAllByUserAsync(
-            Guid userId, Guid? courseId, Guid? assignmentId, int? days);
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int? days
+        );
+
+        /// <summary>Удаление пользователя целиком (для админа).</summary>
+        Task DeleteUserAsync(Guid userId);
 
         Task DeleteUserSolutionsAsync(Guid userId, Guid? courseId, Guid? assignmentId);
 

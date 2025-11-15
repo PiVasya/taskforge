@@ -7,6 +7,7 @@ import {
   getSolutionDetails,
   getSolutionsDetailsBulkOrFallback,
   deleteUserSolutions,
+  deleteUser,
 } from '../../api/admin';
 import CodeEditor from '../../components/CodeEditor';
 
@@ -27,13 +28,16 @@ export default function AdminSolutionsPage() {
   const [listLoading, setListLoading] = useState(false);
   const [filterDays, setFilterDays] = useState(null);
 
-  const handleSearchEnter = async (e) => {
-    if (e.key !== 'Enter') return;
+  const [detailsMap, setDetailsMap] = useState({});
+  const [expandedId, setExpandedId] = useState(null);
+
+  const loadUsers = async () => {
     setSearchLoading(true);
     try {
-      const res = await searchUsersOnce(q.trim(), 20);
-      setUsers(res || []);
-      if (res?.length) setUserId(res[0].id);
+      const data = await searchUsersOnce(q, 20);
+      setUsers(data || []);
+    } catch (e) {
+      console.error('Failed to search users', e);
     } finally {
       setSearchLoading(false);
     }
@@ -46,42 +50,53 @@ export default function AdminSolutionsPage() {
     }
     setListLoading(true);
     try {
-      // Тянем «лайт» список и затем детали (bulk или фоллбэк)
-      const baseList = await getUserSolutions(userId, { skip: 0, take: 150, days: filterDays });
-      const ids = (baseList || []).map(x => x.id);
-      if (!ids.length) {
-        setSolutions([]);
-        return;
-      }
-      const detailed = await getSolutionsDetailsBulkOrFallback(ids, { concurrency: 8 });
-      setSolutions(detailed);
+      const data = await getUserSolutions(userId, { days: filterDays });
+      setSolutions(Array.isArray(data) ? data : []);
+      setExpandedId(null);
+      setDetailsMap({});
     } catch (e) {
-      console.error('loadSolutions error:', e);
-      setSolutions([]);
+      console.error('Failed to load solutions', e);
     } finally {
       setListLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!userId) return;
-    loadSolutions();
+    if (userId) {
+      loadSolutions();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, filterDays]);
+  }, [filterDays, userId]);
 
-  // ГАРАНТИРОВАННАЯ сортировка "новые сверху" (и для фильтра, и без него)
   const displayedSolutions = useMemo(() => {
-    let list;
-    if (!filterDays) {
-      list = [...solutions];
-    } else {
+    const list = [...solutions];
+    if (filterDays) {
       const since = new Date();
       since.setDate(since.getDate() - filterDays);
-      list = solutions.filter((sol) => new Date(sol.submittedAt) >= since);
+      // на всякий случай можно было бы фильтровать тут, но мы уже фильтруем на бэке
     }
     list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return list;
   }, [solutions, filterDays]);
+
+  const handleToggleCode = async (id) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+
+    if (!detailsMap[id]) {
+      try {
+        const dto = await getSolutionDetails(id);
+        setDetailsMap((prev) => ({ ...prev, [id]: dto }));
+      } catch (e) {
+        console.error('Failed to load solution details', e);
+        return;
+      }
+    }
+
+    setExpandedId(id);
+  };
 
   const handleDeleteAll = async () => {
     if (!userId) return;
@@ -91,26 +106,54 @@ export default function AdminSolutionsPage() {
     await loadSolutions();
   };
 
+  const handleDeleteUser = async () => {
+    if (!userId) return;
+    const ok = window.confirm('Удалить аккаунт выбранного пользователя вместе со всеми его решениями?');
+    if (!ok) return;
+
+    try {
+      await deleteUser(userId);
+      setSolutions([]);
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+      setUserId('');
+    } catch (e) {
+      console.error('Failed to delete user', e);
+    }
+  };
+
+  const selectedUser = users.find((u) => u.id === userId) || null;
+
   return (
     <Layout>
       <div className="container-app py-6 space-y-4">
         <h1 className="text-2xl font-semibold">Решения студентов</h1>
 
         <Card className="p-4 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="label">Поиск студента</label>
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={handleSearchEnter}
-                placeholder="email / имя / фамилия — Enter для поиска"
-              />
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Поиск пользователя</div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="email / имя / фамилия"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') loadUsers();
+                  }}
+                />
+                <Button onClick={loadUsers} disabled={searchLoading}>
+                  Найти
+                </Button>
+              </div>
             </div>
-            <div>
-              <label className="label">Студент</label>
-              <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
-                <option value="">— выберите —</option>
+
+            <div className="space-y-1 min-w-[220px]">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Пользователь</div>
+              <Select
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+              >
+                <option value="">— не выбрано —</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.email} ({u.firstName} {u.lastName})
@@ -118,6 +161,24 @@ export default function AdminSolutionsPage() {
                 ))}
               </Select>
             </div>
+
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Период</div>
+              <Select
+                value={filterDays === null ? '' : String(filterDays)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFilterDays(v === '' ? null : Number(v));
+                }}
+              >
+                {FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.label} value={opt.value === null ? '' : opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
             <div className="flex items-end gap-2">
               <Button onClick={loadSolutions} disabled={!userId || listLoading || searchLoading}>
                 Загрузить решения
@@ -125,65 +186,83 @@ export default function AdminSolutionsPage() {
               <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
                 Удалить все решения
               </Button>
+              <Button intent="danger" onClick={handleDeleteUser} disabled={!userId || listLoading}>
+                Удалить аккаунт
+              </Button>
             </div>
           </div>
-          <div className="text-xs text-slate-500">
-            {searchLoading ? 'Поиск…' : 'Введите запрос и нажмите Enter'}
-          </div>
-        </Card>
 
-        <Card className="p-4 space-y-4">
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="label">Период:</span>
-            {FILTER_OPTIONS.map((opt) => (
-              <Button
-                key={opt.label}
-                intent={filterDays === opt.value ? 'primary' : 'secondary'}
-                onClick={() => setFilterDays(opt.value)}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-
-          {listLoading && <div className="text-slate-400">Загрузка…</div>}
-          {!listLoading && !displayedSolutions.length && (
-            <div className="text-slate-400">Нет данных.</div>
+          {selectedUser && (
+            <div className="text-xs text-slate-400">
+              Выбран: <span className="font-mono">{selectedUser.email}</span>
+            </div>
           )}
-
-          <div className="space-y-4">
-            {displayedSolutions.map((item) => (
-              <div key={item.id} className="rounded-2xl bg-slate-900/40 border border-slate-700 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-medium">
-                    {item.courseTitle} — {item.assignmentTitle}
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    {new Date(item.submittedAt).toLocaleString()} • {item.language}
-                  </div>
-                </div>
-                <div className="mb-3">
-                  {item.passedAllTests ? (
-                    <Badge intent="success">Все тесты пройдены ({item.passedCount})</Badge>
-                  ) : (
-                    <Badge intent="danger">
-                      Провалено: {item.failedCount} / Пройдено: {item.passedCount}
-                    </Badge>
-                  )}
-                </div>
-                <div className="rounded-xl overflow-hidden border border-slate-700">
-                  <CodeEditor
-                    language={item.language}
-                    value={item.submittedCode || ''}
-                    readOnly
-                    onChange={() => {}}
-                    height={360}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
         </Card>
+
+        {listLoading && <div className="text-slate-400">Загрузка…</div>}
+
+        {!listLoading && displayedSolutions.length > 0 && (
+          <Card className="p-4 space-y-4">
+            <div className="text-sm text-slate-400">
+              Всего решений: {displayedSolutions.length}
+            </div>
+
+            <div className="space-y-6">
+              {displayedSolutions.map((item) => {
+                const full = detailsMap[item.id] || null;
+                const showCode = expandedId === item.id && full;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="border border-slate-800/40 rounded-xl p-4 bg-slate-900/40"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                      <div>
+                        <div className="font-medium">
+                          {item.courseTitle} • {item.assignmentTitle}
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {new Date(item.submittedAt).toLocaleString()} • {item.language}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        {item.passedAllTests ? (
+                          <Badge intent="success">
+                            Все тесты пройдены ({item.passedCount})
+                          </Badge>
+                        ) : (
+                          <Badge intent="danger">
+                            Провалено: {item.failedCount} / Пройдено: {item.passedCount}
+                          </Badge>
+                        )}
+                        <Button size="sm" onClick={() => handleToggleCode(item.id)}>
+                          {expandedId === item.id ? 'Скрыть код' : 'Показать код'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {showCode && (
+                      <div className="mt-3 rounded-xl overflow-hidden border border-slate-700">
+                        <CodeEditor
+                          language={full.language || item.language}
+                          value={full.submittedCode || ''}
+                          readOnly
+                          onChange={() => {}}
+                          height={360}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+        {!listLoading && !displayedSolutions.length && selectedUser && (
+          <Card className="p-4 text-slate-400">Для этого пользователя нет решений за выбранный период.</Card>
+        )}
       </div>
     </Layout>
   );

@@ -2,33 +2,60 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using taskforge.Data.Models.DTO;
-// Import DTOs from the canonical namespace. TopSolutionDto is defined in Data.Models.DTO.
 
 namespace taskforge.Services.Interfaces
 {
     /// <summary>
     /// Приём и проверка решений пользователей.
-    /// Отвечает за прогон кода по тестам и сохранение результата, а также предоставление топ‑решений.
+    /// Отвечает за прогон кода по тестам и сохранение результата, а также
+    /// предоставление топ-решений и истории решений текущего пользователя.
     /// </summary>
     public interface ISolutionService
     {
         /// <summary>
         /// Принять решение пользователя для задания, прогнать все тесты (включая скрытые),
-        /// сохранить UserTaskSolution и вернуть разбор по каждому кейсу.
-        /// </summary>
-        /// <param name="assignmentId">Id задания.</param>
-        /// <param name="currentUserId">Id текущего пользователя.</param>
-        /// <param name="request">Код и язык.</param>
-        /// <returns>Итог проверки с пометкой скрытых тестов.</returns>
-        Task<SubmitSolutionResultDto> SubmitAsync(Guid assignmentId, Guid currentUserId, SubmitSolutionRequest request);
-
-        /// <summary>
-        /// Получить список лучших решений для конкретного задания. Результаты сортируются
-        /// по убыванию количества успешно пройденных тестов, затем по времени отправки.
+        /// сохранить результат и вернуть агрегированную информацию.
         /// </summary>
         /// <param name="assignmentId">Идентификатор задания.</param>
-        /// <param name="count">Количество решений, которое следует вернуть.</param>
-        /// <returns>Список топ‑решений, содержащих информацию о пользователе и коде.</returns>
+        /// <param name="currentUserId">Идентификатор текущего пользователя.</param>
+        /// <param name="request">Код и язык.</param>
+        Task<SubmitSolutionResultDto> SubmitAsync(
+            Guid assignmentId,
+            Guid currentUserId,
+            SubmitSolutionRequest request
+        );
+
+        /// <summary>
+        /// Получить список лучших решений для конкретного задания.
+        /// </summary>
+        /// <param name="assignmentId">Идентификатор задания.</param>
+        /// <param name="count">Максимальное число записей.</param>
         Task<List<TopSolutionDto>> GetTopSolutionsAsync(Guid assignmentId, int count);
+
+        /// <summary>
+        /// Получить страницу решений текущего пользователя с возможностью фильтрации по курсу/заданию.
+        /// </summary>
+        Task<IList<SolutionListItemDto>> GetMySolutionsAsync(
+            Guid currentUserId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int skip,
+            int take
+        );
+
+        /// <summary>
+        /// Получить все решения текущего пользователя или за период (без пагинации).
+        /// </summary>
+        Task<IList<SolutionListItemDto>> GetMySolutionsAllAsync(
+            Guid currentUserId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int? days
+        );
+
+        /// <summary>
+        /// Получить детали конкретного решения текущего пользователя (код, язык и т.д.).
+        /// </summary>
+        Task<SolutionDetailsDto?> GetMySolutionDetailsAsync(Guid currentUserId, Guid solutionId);
     }
 }

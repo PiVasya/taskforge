@@ -157,7 +157,6 @@ namespace taskforge.Services
                 })
                 .ToListAsync();
         }
-
         public async Task DeleteUserSolutionsAsync(Guid userId, Guid? courseId, Guid? assignmentId)
         {
             var q = _db.UserTaskSolutions.Where(s => s.UserId == userId);
@@ -168,6 +167,19 @@ namespace taskforge.Services
             if (list.Count == 0) return;
 
             _db.UserTaskSolutions.RemoveRange(list);
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task DeleteUserAsync(Guid userId)
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+                return;
+
+            // сначала удаляем все решения пользователя
+            await DeleteUserSolutionsAsync(userId, null, null);
+
+            _db.Users.Remove(user);
             await _db.SaveChangesAsync();
         }
 

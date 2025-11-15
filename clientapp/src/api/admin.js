@@ -13,62 +13,56 @@ export async function searchUsersOnce(q = '', take = 20) {
 }
 
 /**
- * Лайт-список решений пользователя.
- * GET /api/admin/users/{userId}/solutions?skip=&take=&days=
+ * Список решений пользователя.
+ * GET /api/admin/users/{userId}/solutions
  */
 export async function getUserSolutions(userId, { courseId, assignmentId, skip = 0, take = 50, days = null } = {}) {
   const { data } = await api.get(`/api/admin/users/${userId}/solutions`, {
     params: { courseId, assignmentId, skip, take, days },
   });
-  return Array.isArray(data) ? data : (data?.items ?? []);
+  return Array.isArray(data) ? data : [];
 }
 
 /**
  * Детали одного решения.
  * GET /api/admin/solutions/{id}
  */
-export async function getSolutionDetails(solutionId) {
-  const { data } = await api.get(`/api/admin/solutions/${solutionId}`);
+export async function getSolutionDetails(id) {
+  const { data } = await api.get(`/api/admin/solutions/${id}`);
   return data;
 }
 
 /**
- * Bulk-детали (если сервер поддерживает), иначе — аккуратный фоллбэк
- * с ограничением параллелизма (по умолчанию 8).
+ * Bulk-детали нескольких решений (с ограничением по количеству).
+ * POST /api/admin/solutions/bulk
  */
-export async function getSolutionsDetailsBulkOrFallback(ids, { concurrency = 8 } = {}) {
-  if (!ids?.length) return [];
+export async function getSolutionsDetailsBulkOrFallback(ids, { concurrency = 4 } = {}) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
 
-  try {
-    const { data } = await api.post('/api/admin/solutions/bulk', ids, {
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (Array.isArray(data)) return data;
-  } catch (e) {
-    // bulk недоступен — молча уходим на фоллбэк
-    console.warn('bulk not available, fallback to per-id:', e?.response?.status, e?.message);
+  const safeIds = ids.slice(0, 200);
+
+  if (safeIds.length <= 8) {
+    const results = [];
+    for (const id of safeIds) {
+      const dto = await getSolutionDetails(id);
+      if (dto) results.push(dto);
+    }
+    return results;
   }
 
-  // Фоллбэк: ограниченный параллелизм
-  const mapLimit = async (items, limit, fn) => {
-    const res = new Array(items.length);
-    let i = 0;
-    const workers = Array.from({ length: Math.max(1, limit | 0) }, async () => {
-      while (true) {
-        const idx = i++;
-        if (idx >= items.length) break;
-        try {
-          res[idx] = await fn(items[idx]);
-        } catch {
-          res[idx] = null;
-        }
-      }
-    });
-    await Promise.all(workers);
-    return res.filter(Boolean);
-  };
+  const { default: pLimit } = await import('p-limit');
+  const limit = pLimit(concurrency);
 
-  return mapLimit(ids, concurrency, (id) => getSolutionDetails(id));
+  const results = await Promise.all(
+    safeIds.map((id) =>
+      limit(async () => {
+        const dto = await getSolutionDetails(id);
+        return dto || null;
+      })
+    )
+  );
+
+  return results.filter(Boolean);
 }
 
 /**
@@ -79,4 +73,12 @@ export async function deleteUserSolutions(userId, { courseId, assignmentId } = {
   await api.delete(`/api/admin/users/${userId}/solutions`, {
     params: { courseId, assignmentId },
   });
+}
+
+/**
+ * Удаление пользователя целиком (аккаунт + все его решения).
+ * DELETE /api/admin/users/{userId}
+ */
+export async function deleteUser(userId) {
+  await api.delete(`/api/admin/users/${userId}`);
 }
