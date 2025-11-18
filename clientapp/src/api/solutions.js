@@ -62,7 +62,7 @@ export async function getMySolutions({
   courseId,
   assignmentId,
   skip = 0,
-  take = 50,
+  take = 500,
   days = null,
 } = {}) {
   const { data } = await api.get('/api/me/solutions', {
