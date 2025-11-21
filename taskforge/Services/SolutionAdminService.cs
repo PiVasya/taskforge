@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using FuzzySharp;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 using taskforge.Data.Models.Entities;
+using System.Text;
 
 namespace taskforge.Services
 {
@@ -101,29 +104,104 @@ namespace taskforge.Services
             }).ToList();
         }
 
-        public async Task<IList<UserShortDto>> SearchUsersAsync(string query, int take)
+    public async Task<IList<UserShortDto>> SearchUsersAsync(string query, int take)
+    {
+        // 0) нормализация и разбиение на токены
+        query = (query ?? string.Empty).Trim();
+        var normQuery = Normalize(query);
+        var tokens = normQuery.Split(new[] { ' ', '\t', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Distinct()
+                            .ToArray();
+
+        // Порог «верхней полки» для предварительного набора
+        // Берём х10 от итогового take (минимум 100), чтобы fuzzy было из чего выбирать
+        int prefetch = Math.Max(take * 10, 100);
+
+        // 1) БД-фильтр: все токены должны «встретиться» в Email/First/Last хотя бы как подстрока/префикс
+        //    Для ускорения: токен как префикс для имён и подстрока для email.
+        //    Если токенов нет (пустой запрос) — просто последние по Email.
+        var q = _db.Users.AsNoTracking();
+
+        if (tokens.Length > 0)
         {
-            query = (query ?? string.Empty).Trim();
-            var q = _db.Users.AsNoTracking();
-
-            if (!string.IsNullOrEmpty(query))
+            foreach (var tok in tokens)
             {
+                var t = tok; // замыкание
                 q = q.Where(u =>
-                    u.Email.Contains(query) ||
-                    u.FirstName.Contains(query) ||
-                    u.LastName.Contains(query));
+                    EF.Functions.Like(u.Email, $"%{t}%") ||
+                    EF.Functions.Like(u.FirstName, $"{t}%") ||
+                    EF.Functions.Like(u.LastName,  $"{t}%")
+                );
             }
+        }
 
-            return await q.OrderBy(u => u.Email)
-                .Take(Math.Clamp(take, 1, 100))
-                .Select(u => new UserShortDto
-                {
-                    Id = u.Id,
-                    Email = u.Email,
-                    FirstName = u.FirstName,
-                    LastName = u.LastName
-                })
-                .ToListAsync();
+        var raw = await q
+            .Select(u => new
+            {
+                u.Id,
+                u.Email,
+                u.FirstName,
+                u.LastName
+            })
+            .Take(prefetch)
+            .ToListAsync();
+
+        if (raw.Count == 0)
+            return new List<UserShortDto>();
+
+        // 2) Fuzzy-скоринг в памяти.
+        //    Используем TokenSet/TokenSort/WRatio — устойчиво к порядку «Фамилия Имя»
+        //    и к мелким опечаткам.
+        string Canon(string email, string first, string last)
+            => $"{last} {first} {email}".Trim();
+
+        var scored = raw
+            .Select(u =>
+            {
+                var candidate = Normalize(Canon(u.Email ?? "", u.FirstName ?? "", u.LastName ?? ""));
+                // Сводный скор: максимум из трёх популярных метрик
+                var s1 = Fuzz.TokenSetRatio(normQuery, candidate);
+                var s2 = Fuzz.TokenSortRatio(normQuery, candidate);
+                var s3 = Fuzz.WeightedRatio(normQuery, candidate);
+                var score = Math.Max(s1, Math.Max(s2, s3));
+                return new { u.Id, u.Email, u.FirstName, u.LastName, Score = score };
+            })
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.LastName)
+            .ThenBy(x => x.FirstName)
+            .ThenBy(x => x.Email)
+            .Take(Math.Clamp(take, 1, 100))
+            .ToList();
+
+        return scored.Select(x => new UserShortDto
+        {
+            Id = x.Id,
+            Email = x.Email,
+            FirstName = x.FirstName,
+            LastName = x.LastName
+        }).ToList();
+
+        // --- локальные хелперы ---
+        static string Normalize(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            s = s.Trim().ToLowerInvariant();
+
+            // убираем множественные пробелы
+            while (s.Contains("  ")) s = s.Replace("  ", " ");
+
+            // нормализация Unicode (на всякий) + уберём "мусорные" символы
+            s = s.Normalize(NormalizationForm.FormKC);
+            // оставим буквы/цифры/@/._- и пробелы
+            var span = s.ToCharArray();
+            var arr = new List<char>(span.Length);
+            foreach (var ch in span)
+            {
+                if (char.IsLetterOrDigit(ch) || ch == '@' || ch == '.' || ch == '_' || ch == '-' || ch == ' ')
+                    arr.Add(ch);
+            }
+            return new string(arr.ToArray());
+        }
         }
 
         public async Task<IList<SolutionListItemDto>> GetAllByUserAsync(Guid userId, Guid? courseId, Guid? assignmentId, int? days)
