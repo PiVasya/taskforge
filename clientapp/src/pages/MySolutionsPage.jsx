@@ -118,7 +118,7 @@ export default function MySolutionsPage() {
                             Провалено: {item.failedCount} / Пройдено: {item.passedCount}
                           </Badge>
                         )}
-                        <Button size="sm" onClick={() => handleToggleCode(item.id)}>
+                        <Button onClick={() => handleToggleCode(item.id)}>
                           {expandedId === item.id ? 'Скрыть код' : 'Показать код'}
                         </Button>
                       </div>

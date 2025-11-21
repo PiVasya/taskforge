@@ -1,4 +1,4 @@
-// modified LeaderboardCard.jsx adds support for custom badges and improved styling
+// LeaderboardCard.jsx — карточка участника в топе
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, MapPin, BookOpen, Clock } from 'lucide-react';
@@ -9,13 +9,15 @@ export default function LeaderboardCard({ entry }) {
     nav(`/users/${entry.userId}`);
   };
 
-  // градиенты для топ-3 мест
+  // Градиенты для топ-3 мест
   const rankColors = {
     1: 'from-amber-400 to-yellow-500',
     2: 'from-slate-300 to-slate-100',
     3: 'from-orange-400 to-amber-500',
   };
-  const rankBg = rankColors[entry.rank] || 'from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800';
+  const rankBg =
+    rankColors[entry.rank] ||
+    'from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800';
 
   return (
     <button
@@ -52,7 +54,9 @@ export default function LeaderboardCard({ entry }) {
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="font-semibold truncate">{entry.displayName || entry.email}</div>
+            <div className="font-semibold truncate">
+              {entry.displayName || entry.email}
+            </div>
             {entry.location && (
               <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 truncate">
                 <MapPin size={12} />
@@ -70,21 +74,38 @@ export default function LeaderboardCard({ entry }) {
 
         {/* Статы */}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-1">
-            <span className="font-semibold">{entry.solvedAssignments}</span>
-            <span className="text-slate-500">решённых заданий</span>
+          {/* Решённые задания */}
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/70 px-2 py-1">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
+              {entry.solvedAssignments}
+            </span>
+            <span className="text-slate-500 dark:text-slate-400">
+              решённых&nbsp;заданий
+            </span>
           </span>
+
+          {/* Всего попыток */}
           {typeof entry.totalAttempts === 'number' && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-1">
-              <span className="font-semibold">{entry.totalAttempts}</span>
-              <span className="text-slate-500">попыток</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/70 px-2 py-1">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                {entry.totalAttempts}
+              </span>
+              <span className="text-slate-500 dark:text-slate-400">
+                попыток
+              </span>
             </span>
           )}
+
+          {/* Последний актив */}
           {entry.lastSubmitAt && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-1">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/70 px-2 py-1">
               <Clock size={12} />
-              <span className="text-slate-500">
-                Активен: {new Date(entry.lastSubmitAt).toLocaleDateString()}
+              <span className="text-slate-500 dark:text-slate-400">
+                {/* Последний актив по отправке решений */}
+                Активен:{' '}
+                {new Date(entry.lastSubmitAt).toLocaleDateString(undefined, {
+                  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                })}
               </span>
             </span>
           )}

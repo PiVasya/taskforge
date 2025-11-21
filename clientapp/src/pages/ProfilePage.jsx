@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea } from '../components/ui';
 import { getProfile, updateProfile } from '../api/profile';
@@ -20,6 +21,9 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState(null);
   const [extra, setExtra] = useState(parseProfileExtra(null));
+
+  // навигация для перехода после сохранения
+  const navigate = useNavigate();
 
   // Загрузка профиля при монтировании
   useEffect(() => {
@@ -71,6 +75,10 @@ export default function ProfilePage() {
       setProfile(dto);
       setExtra(parseProfileExtra(dto.additionalDataJson));
       setSaved(true);
+
+      // После успешного сохранения перенаправляем на главную страницу,
+      // чтобы форма не выглядела пустой и пользователь вернулся к задачам.
+      navigate('/', { replace: true });
     } catch (err) {
       console.error(err);
       setError('Не удалось сохранить профиль');
