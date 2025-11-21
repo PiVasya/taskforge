@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import Layout from '../components/Layout';
-import { getLeaderboard } from '../api/leaderboard';
-import LeaderboardCard from '../components/LeaderboardCard';
+import Layout from '../../components/Layout';
+import { getLeaderboard } from '../../api/leaderboard';
+import LeaderboardCard from '../../components/LeaderboardCard';
 
 export default function LeaderboardPage() {
   const [entries, setEntries] = useState([]);
@@ -12,7 +12,7 @@ export default function LeaderboardPage() {
     (async () => {
       try {
         setLoading(true);
-        const data = await getLeaderboard(); // твой API-метод
+        const data = await getLeaderboard(); // API топа
         setEntries(data || []);
       } catch (e) {
         console.error(e);
