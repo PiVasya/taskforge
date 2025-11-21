@@ -16,6 +16,7 @@ import AssignmentResultsPage from './pages/AssignmentResultsPage';
 import ProfilePage from './pages/ProfilePage';
 import MySolutionsPage from './pages/MySolutionsPage';
 import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
+import PublicProfilePage from './pages/PublicProfilePage';
 
 // Admin pages
 import LeaderboardPage from './pages/admin/LeaderboardPage';
@@ -44,13 +45,24 @@ export default function App() {
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
           {/* отдельная страница результатов; открываем после сабмита */}
-          <Route path="/assignment/:assignmentId/results" element={<AssignmentResultsPage />} />
+          <Route
+            path="/assignment/:assignmentId/results"
+            element={<AssignmentResultsPage />}
+          />
 
           {/* при необходимости — остаётся, но кнопку на SolvePage не показываем */}
-          <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />
+          <Route
+            path="/assignment/:assignmentId/top"
+            element={<AssignmentTopSolutionsPage />}
+          />
+
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/my/solutions" element={<MySolutionsPage />} />
+
+          {/* общий топ */}
           <Route path="/leaderboard" element={<LeaderboardPage />} />
+
+          {/* публичный профиль по userId */}
           <Route path="/users/:userId" element={<PublicProfilePage />} />
 
           <Route element={<EditorRoute fallbackTo="courses" />}>

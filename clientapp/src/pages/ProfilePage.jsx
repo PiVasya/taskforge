@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
-import { Card, Button, Input, Textarea, Switch } from '../components/ui';
+import { Card, Button, Input, Textarea } from '../components/ui';
 import { getProfile, updateProfile } from '../api/profile';
 import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 
@@ -56,10 +56,6 @@ export default function ProfilePage() {
     try {
       const dto = {
         ...profile,
-        // то, что реально редактируем на этой странице
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        // Собираем JSON
         additionalDataJson: buildProfileExtra(extra),
       };
 
@@ -137,7 +133,9 @@ export default function ProfilePage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="text-sm text-slate-500">Город / место учёбы</label>
+                  <label className="text-sm text-slate-500">
+                    Город / место учёбы
+                  </label>
                   <Input
                     placeholder="Минск, БГУИР, ITD-21"
                     value={extra.location}
@@ -145,7 +143,9 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-slate-500">Образование / группа</label>
+                  <label className="text-sm text-slate-500">
+                    Образование / группа
+                  </label>
                   <Input
                     placeholder="Факультет АИС, ITD-21"
                     value={extra.education}
@@ -188,7 +188,9 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-slate-500">Личный сайт / портфолио</label>
+                  <label className="text-sm text-slate-500">
+                    Личный сайт / портфолио
+                  </label>
                   <Input
                     placeholder="https://..."
                     value={extra.website}
@@ -205,10 +207,17 @@ export default function ProfilePage() {
                   Если выключить, профиль не будет отображаться в общем рейтинге.
                 </div>
               </div>
-              <Switch
-                checked={extra.showInLeaderboard}
-                onCheckedChange={handleChangeExtra('showInLeaderboard')}
-              />
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  checked={extra.showInLeaderboard}
+                  onChange={handleChangeExtra('showInLeaderboard')}
+                />
+                <span className="text-sm text-slate-700 dark:text-slate-200">
+                  Включено
+                </span>
+              </label>
             </Card>
 
             <div className="flex justify-end">
