@@ -38,18 +38,4 @@ namespace taskforge.Data.Models.DTO
         public string AssignmentTitle { get; set; } = string.Empty;
         public IList<SolutionCaseResultDto>? Cases { get; set; }
     }
-
-    /// <summary>
-    /// DTO для элемента таблицы лидеров. Обычные пользователи видят только имя, фамилию и количество решённых задач.
-    /// Поля Email и ProfilePictureUrl заполняются только для администраторов/преподавателей.
-    /// </summary>
-    public class LeaderboardEntryDto
-    {
-        public Guid UserId { get; set; }
-        public string FirstName { get; set; } = string.Empty;
-        public string LastName { get; set; } = string.Empty;
-        public int Solved { get; set; }
-        public string? Email { get; set; }          // личная информация — заполняется только у админов/преподавателей
-        public string? ProfilePictureUrl { get; set; }  // URL аватара — заполняется только у админов/преподавателей
-    }
 }

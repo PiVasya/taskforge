@@ -1,226 +1,224 @@
-// clientapp/src/pages/ProfilePage.jsx
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
-import { Card, Button, Input, Textarea } from '../components/ui';
-import { getProfile, updateProfile, changePassword, changeEmail } from '../api/profile';
-import { useNotify } from '../components/notify/NotifyProvider';
-import { handleApiError } from '../utils/handleApiError';
+import { Card, Button, Input, Textarea, Switch } from '../components/ui';
+import { getProfile, updateProfile } from '../api/profile';
+import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 
-/**
- * Page that allows the authenticated user to view and edit their profile.
- */
 export default function ProfilePage() {
-  const notify = useNotify();
-  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
 
-  // Load profile on mount
+  const [profile, setProfile] = useState(null);
+  const [extra, setExtra] = useState(
+    parseProfileExtra(null) // дефолты
+  );
+
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        const data = await getProfile();
+        const data = await getProfile(); // твой api/метод, раньше уже был
         setProfile(data);
+        setExtra(parseProfileExtra(data.additionalDataJson));
       } catch (e) {
-        // Use centralized error handler for API errors (will redirect on 401)
-        handleApiError(e, notify, 'Не удалось загрузить профиль');
-        setError(e.message || 'Не удалось загрузить профиль');
+        console.error(e);
+        setError('Не удалось загрузить профиль');
       } finally {
         setLoading(false);
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // обращаемся к notify только внутри, но не следим за его изменениями
+  }, []);
 
-  const onChange = (field, value) => {
-    setProfile((prev) => ({ ...prev, [field]: value }));
+  const handleChangeExtra = (field) => (eOrValue) => {
+    const value =
+      eOrValue && eOrValue.target !== undefined
+        ? eOrValue.target.type === 'checkbox'
+          ? eOrValue.target.checked
+          : eOrValue.target.value
+        : eOrValue;
+
+    setExtra((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
-  const onSave = async () => {
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!profile) return;
+
     setSaving(true);
-    setError('');
+    setError(null);
+    setSaved(false);
+
     try {
-      const payload = {
+      const dto = {
+        ...profile,
+        // то, что реально редактируем на этой странице
         firstName: profile.firstName,
         lastName: profile.lastName,
-        phoneNumber: profile.phoneNumber,
-        dateOfBirth: profile.dateOfBirth,
-        profilePictureUrl: profile.profilePictureUrl,
-        additionalDataJson: profile.additionalDataJson,
+        // Собираем JSON
+        additionalDataJson: buildProfileExtra(extra),
       };
-      await updateProfile(payload);
-      notify.success('Профиль обновлён');
+
+      const updated = await updateProfile(dto);
+      setProfile(updated);
+      setExtra(parseProfileExtra(updated.additionalDataJson));
+      setSaved(true);
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось обновить профиль');
-      setError(e.message || 'Не удалось обновить профиль');
+      console.error(e);
+      setError('Не удалось сохранить профиль');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <Layout>
-        <div className="text-slate-500">Загрузка…</div>
-      </Layout>
-    );
-  }
-  if (!profile) {
-    return (
-      <Layout>
-        <div className="text-red-500">{error || 'Профиль не найден'}</div>
-      </Layout>
-    );
-  }
-
   return (
     <Layout>
-      <Card>
-        <h1 className="text-2xl font-semibold mb-4">Профиль</h1>
-        {error && <div className="text-red-500 mb-3">{error}</div>}
-        <div className="grid gap-3">
-          <div>
-            <label className="label">Email</label>
-            <Input value={profile.email} disabled />
-          </div>
-          <div>
-            <label className="label">Имя</label>
-            <Input
-              value={profile.firstName || ''}
-              onChange={(e) => onChange('firstName', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Фамилия</label>
-            <Input
-              value={profile.lastName || ''}
-              onChange={(e) => onChange('lastName', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Телефон</label>
-            <Input
-              value={profile.phoneNumber || ''}
-              onChange={(e) => onChange('phoneNumber', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Дата рождения</label>
-            <Input
-              type="date"
-              value={profile.dateOfBirth ? profile.dateOfBirth.substring(0, 10) : ''}
-              onChange={(e) => onChange('dateOfBirth', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">URL фото профиля</label>
-            <Input
-              value={profile.profilePictureUrl || ''}
-              onChange={(e) => onChange('profilePictureUrl', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Дополнительные данные (JSON)</label>
-            <Textarea
-              rows={4}
-              value={profile.additionalDataJson || ''}
-              onChange={(e) => onChange('additionalDataJson', e.target.value)}
-            />
-          </div>
-          <Button onClick={onSave} disabled={saving}>
-            {saving ? 'Сохраняю…' : 'Сохранить'}
-          </Button>
-        </div>
+      <div className="max-w-3xl mx-auto space-y-6">
+        <h1 className="text-2xl font-semibold">Профиль</h1>
 
-<div className="mt-8 pt-6 border-t">
-  <h3 className="text-lg font-semibold mb-3">Сменить email</h3>
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <div>
-      <label className="label">Новый email</label>
-      <Input
-        type="email"
-        value={profile.newEmail || ''}
-        onChange={(e) => onChange('newEmail', e.target.value)}
-      />
-    </div>
-    <div>
-      <label className="label">Пароль</label>
-      <Input
-        type="password"
-        value={profile.confirmPassword || ''}
-        onChange={(e) => onChange('confirmPassword', e.target.value)}
-      />
-    </div>
-  </div>
-  <div className="mt-3">
-    <Button
-      onClick={async () => {
-        try {
-          await changeEmail({ newEmail: profile.newEmail, password: profile.confirmPassword });
-          notify.success('Email обновлён');
-          setProfile((prev) => ({ ...prev, email: profile.newEmail, newEmail: '', confirmPassword: '' }));
-        } catch (e) {
-          handleApiError(e, notify, 'Не удалось сменить email');
-        }
-      }}
-    >
-      Обновить email
-    </Button>
-  </div>
-</div>
+        {loading && <div>Загрузка…</div>}
+        {error && (
+          <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
+            {error}
+          </div>
+        )}
+        {saved && (
+          <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl">
+            Профиль сохранён
+          </div>
+        )}
 
-<div className="mt-8 pt-6 border-t">
-  <h3 className="text-lg font-semibold mb-3">Сменить пароль</h3>
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-    <div>
-      <label className="label">Текущий пароль</label>
-      <Input
-        type="password"
-        value={profile.curPwd || ''}
-        onChange={(e) => onChange('curPwd', e.target.value)}
-      />
-    </div>
-    <div>
-      <label className="label">Новый пароль</label>
-      <Input
-        type="password"
-        value={profile.newPwd || ''}
-        onChange={(e) => onChange('newPwd', e.target.value)}
-      />
-    </div>
-    <div>
-      <label className="label">Повторите новый пароль</label>
-      <Input
-        type="password"
-        value={profile.newPwd2 || ''}
-        onChange={(e) => onChange('newPwd2', e.target.value)}
-      />
-    </div>
-  </div>
-  <div className="mt-3">
-    <Button
-      onClick={async () => {
-        if ((profile.newPwd || '') !== (profile.newPwd2 || '')) {
-          notify.error('Пароли не совпадают');
-          return;
-        }
-        try {
-          await changePassword({ currentPassword: profile.curPwd, newPassword: profile.newPwd });
-          notify.success('Пароль изменён');
-          setProfile((prev) => ({ ...prev, curPwd: '', newPwd: '', newPwd2: '' }));
-        } catch (e) {
-          handleApiError(e, notify, 'Не удалось сменить пароль');
-        }
-      }}
-    >
-      Обновить пароль
-    </Button>
-  </div>
-</div>
+        {profile && (
+          <form onSubmit={handleSave} className="space-y-6">
+            <Card className="p-4 space-y-4">
+              <h2 className="font-semibold">Основное</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-sm text-slate-500">Имя</label>
+                  <Input
+                    value={profile.firstName || ''}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, firstName: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-500">Фамилия</label>
+                  <Input
+                    value={profile.lastName || ''}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, lastName: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-slate-500">Email</label>
+                <Input value={profile.email} disabled />
+              </div>
+            </Card>
 
-      </Card>
+            <Card className="p-4 space-y-4">
+              <h2 className="font-semibold">О себе</h2>
+
+              <div>
+                <label className="text-sm text-slate-500">Краткое описание</label>
+                <Textarea
+                  rows={4}
+                  placeholder="Например: студент ИТ, люблю C#, делаю проекты на TaskForge…"
+                  value={extra.bio}
+                  onChange={handleChangeExtra('bio')}
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-sm text-slate-500">Город / место учёбы</label>
+                  <Input
+                    placeholder="Минск, БГУИР, ITD-21"
+                    value={extra.location}
+                    onChange={handleChangeExtra('location')}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-500">Образование / группа</label>
+                  <Input
+                    placeholder="Факультет АИС, ITD-21"
+                    value={extra.education}
+                    onChange={handleChangeExtra('education')}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-500">Навыки</label>
+                <Input
+                  placeholder="C#, C++, SQL, React"
+                  value={extra.skillsText}
+                  onChange={handleChangeExtra('skillsText')}
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  Перечисли через запятую — они будут показаны в профиле и топе.
+                </p>
+              </div>
+            </Card>
+
+            <Card className="p-4 space-y-4">
+              <h2 className="font-semibold">Ссылки</h2>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm text-slate-500">GitHub</label>
+                  <Input
+                    placeholder="https://github.com/..."
+                    value={extra.github}
+                    onChange={handleChangeExtra('github')}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-500">Telegram</label>
+                  <Input
+                    placeholder="@ник или ссылка"
+                    value={extra.telegram}
+                    onChange={handleChangeExtra('telegram')}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-500">Личный сайт / портфолио</label>
+                  <Input
+                    placeholder="https://..."
+                    value={extra.website}
+                    onChange={handleChangeExtra('website')}
+                  />
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4 flex items-center justify-between gap-4">
+              <div>
+                <div className="font-medium">Показывать меня в топе</div>
+                <div className="text-xs text-slate-500">
+                  Если выключить, профиль не будет отображаться в общем рейтинге.
+                </div>
+              </div>
+              <Switch
+                checked={extra.showInLeaderboard}
+                onCheckedChange={handleChangeExtra('showInLeaderboard')}
+              />
+            </Card>
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Сохранение…' : 'Сохранить'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
     </Layout>
   );
 }

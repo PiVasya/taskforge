@@ -16,6 +16,7 @@ const FILTER_OPTIONS = [
   { label: 'За сегодня', value: 1 },
   { label: 'За неделю', value: 7 },
   { label: 'За месяц', value: 30 },
+  { label: 'Как можно больше', value: 1000 },
 ];
 
 export default function AdminSolutionsPage() {

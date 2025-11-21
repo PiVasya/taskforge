@@ -38,6 +38,7 @@ builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
 builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
+builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 // CORS
 builder.Services.AddCors(options =>
 {

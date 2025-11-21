@@ -48,10 +48,10 @@ export default function App() {
 
           {/* при необходимости — остаётся, но кнопку на SolvePage не показываем */}
           <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />
-
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/my/solutions" element={<MySolutionsPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/users/:userId" element={<PublicProfilePage />} />
 
           <Route element={<EditorRoute fallbackTo="courses" />}>
             <Route path="/courses/:courseId/edit" element={<CourseEditPage />} />
