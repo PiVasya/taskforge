@@ -1,5 +1,6 @@
-// taskforge/Data/Models/DTO/LeaderboardEntryDto.cs
+// modified version of LeaderboardEntryDto.cs with badges support
 using System;
+using System.Collections.Generic;
 
 namespace taskforge.Data.Models.DTO
 {
@@ -7,6 +8,7 @@ namespace taskforge.Data.Models.DTO
     /// Универсальный DTO для топов:
     /// - публичный топ (LeaderboardController)
     /// - админский топ решений (SolutionAdminService)
+    /// Добавлено поле Badges для будущих расширений (к примеру, бейджи как в Discord).
     /// </summary>
     public sealed class LeaderboardEntryDto
     {
@@ -55,5 +57,12 @@ namespace taskforge.Data.Models.DTO
 
         /// <summary>Образование / группа.</summary>
         public string? Education { get; set; }
+
+        /// <summary>
+        /// Список бейджей пользователя. Пока заполняется пустым списком, но в будущем
+        /// здесь могут храниться названия или идентификаторы специальных бейджей
+        /// (например, за участие в хакатонах, роль преподавателя и т.п.).
+        /// </summary>
+        public List<string> Badges { get; set; } = new();
     }
 }

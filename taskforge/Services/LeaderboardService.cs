@@ -1,4 +1,4 @@
-// taskforge/Services/LeaderboardService.cs
+// modified version of LeaderboardService.cs with filtering support and badges field
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,6 +16,7 @@ namespace taskforge.Services
     /// <summary>
     /// Сервис общего рейтинга и публичных профилей.
     /// Использует UserTaskSolutions и AdditionalDataJson.
+    /// Добавлена поддержка фильтров: курс, дни, группа и ограничение по количеству.
     /// </summary>
     public sealed class LeaderboardService : ILeaderboardService
     {
@@ -33,20 +34,51 @@ namespace taskforge.Services
         /// - количество попыток
         /// - последнюю отправку
         /// Режет тех, у кого в профиле ShowInLeaderboard = false.
+        /// Фильтры по курсу, дням и группе позволяют получать выборку за определённый период
+        /// или только по конкретному курсу/группе.
         /// </summary>
-        public async Task<IReadOnlyList<LeaderboardEntryDto>> GetLeaderboardAsync()
+        public async Task<IReadOnlyList<LeaderboardEntryDto>> GetLeaderboardAsync(
+            Guid? courseId = null,
+            int? days = null,
+            Guid? groupId = null,
+            int? top = null)
         {
-            // Сначала вытягиваем все решения (с трекингом выключенным),
-            // дальше работаем в памяти — так мы полностью избегаем
-            // проблемного GroupBy/let, который EF не умеет транслировать.
-            var allSolutions = await _db.UserTaskSolutions
+            // базовый запрос по решениям
+            var q = _db.UserTaskSolutions
                 .AsNoTracking()
-                .ToListAsync();
+                .AsQueryable();
 
+            // для фильтра по курсу или группе нам нужен TaskAssignment
+            if (courseId.HasValue || groupId.HasValue)
+            {
+                q = q.Include(s => s.TaskAssignment);
+            }
+
+            // фильтр по курсу
+            if (courseId.HasValue)
+            {
+                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            }
+
+            // фильтр по количеству дней
+            if (days.HasValue && days.Value > 0)
+            {
+                var since = DateTime.UtcNow.AddDays(-days.Value);
+                q = q.Where(s => s.SubmittedAt >= since);
+            }
+
+            // TODO: фильтр по группе (когда появятся группы)
+            if (groupId.HasValue)
+            {
+                // пока группы не реализованы, фильтр игнорируется
+            }
+
+            // загружаем все подходящие решения
+            var allSolutions = await q.ToListAsync();
             if (allSolutions.Count == 0)
                 return Array.Empty<LeaderboardEntryDto>();
 
-            // Группировка по пользователю и расчёт агрегатов
+            // агрегация по пользователю
             var aggregated = allSolutions
                 .GroupBy(s => s.UserId)
                 .Select(g => new
@@ -65,10 +97,15 @@ namespace taskforge.Services
                 .ThenBy(x => x.LastSubmitAt ?? DateTime.MaxValue)
                 .ToList();
 
+            // ограничение по top
+            if (top.HasValue && top.Value > 0 && aggregated.Count > top.Value)
+            {
+                aggregated = aggregated.Take(top.Value).ToList();
+            }
+
             if (aggregated.Count == 0)
                 return Array.Empty<LeaderboardEntryDto>();
 
-            // Подгружаем сами User'ов для найденных id
             var userIds = aggregated
                 .Select(x => x.UserId)
                 .Distinct()
@@ -77,16 +114,14 @@ namespace taskforge.Services
             var users = await _db.Users
                 .Where(u => userIds.Contains(u.Id))
                 .ToListAsync();
-
             var userMap = users.ToDictionary(u => u.Id);
 
             var result = new List<LeaderboardEntryDto>();
 
-            // rank считаем по позиции в отсортированном aggregated
+            // формируем финальный список и учитываем ShowInLeaderboard
             for (var i = 0; i < aggregated.Count; i++)
             {
                 var row = aggregated[i];
-
                 if (!userMap.TryGetValue(row.UserId, out var user))
                     continue;
 
@@ -94,31 +129,25 @@ namespace taskforge.Services
                 if (!extra.ShowInLeaderboard)
                     continue;
 
-                var rank = i + 1;
                 var displayName = BuildDisplayName(user);
-
-                result.Add(new LeaderboardEntryDto
+                var entry = new LeaderboardEntryDto
                 {
                     UserId = user.Id,
-                    Rank = rank,
+                    Rank = i + 1,
                     DisplayName = displayName,
                     Email = user.Email,
-
-                    // для совместимости с админским топом
                     FirstName = user.FirstName,
                     LastName = user.LastName,
                     Solved = row.SolvedAssignments,
-
-                    // для публичного топа
                     SolvedAssignments = row.SolvedAssignments,
                     TotalAttempts = row.TotalAttempts,
                     LastSubmitAt = row.LastSubmitAt,
-
-                    // ава и доп.данные
                     AvatarUrl = user.ProfilePictureUrl,
                     Location = extra.Location,
-                    Education = extra.Education
-                });
+                    Education = extra.Education,
+                    Badges = new List<string>() // пока пусто, заглушка под будущие бейджи
+                };
+                result.Add(entry);
             }
 
             return result;
@@ -159,16 +188,13 @@ namespace taskforge.Services
                 DisplayName = BuildDisplayName(user),
                 Email = user.Email,
                 AvatarUrl = user.ProfilePictureUrl,
-
                 Bio = extra.Bio,
                 Location = extra.Location,
                 Education = extra.Education,
                 Skills = extra.Skills,
-
                 Github = extra.Links.Github,
                 Telegram = extra.Links.Telegram,
                 Website = extra.Links.Website,
-
                 Rank = rank,
                 SolvedAssignments = solvedAssignments,
                 TotalAttempts = totalAttempts

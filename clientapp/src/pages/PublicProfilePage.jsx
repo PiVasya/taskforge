@@ -1,9 +1,10 @@
+// modified PublicProfilePage.jsx fixes link visibility and trims empty strings
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Badge } from '../components/ui';
 import { Github, Send, Globe2, MapPin, BookOpen, Trophy } from 'lucide-react';
-import { api } from '../api/http'; // смотри, как у тебя экспортируется
+import { api } from '../api/http';
 
 export default function PublicProfilePage() {
   const { userId } = useParams();
@@ -91,12 +92,10 @@ export default function PublicProfilePage() {
                 <h2 className="font-semibold text-sm">Статистика</h2>
                 <div className="text-sm space-y-1">
                   <div>
-                    <span className="font-semibold">{profile.solvedAssignments}</span>{' '}
-                    решённых заданий
+                    <span className="font-semibold">{profile.solvedAssignments}</span> решённых заданий
                   </div>
                   <div>
-                    <span className="font-semibold">{profile.totalAttempts}</span>{' '}
-                    попыток отправки решений
+                    <span className="font-semibold">{profile.totalAttempts}</span> попыток отправки решений
                   </div>
                 </div>
               </Card>
@@ -104,46 +103,55 @@ export default function PublicProfilePage() {
               <Card className="p-4 space-y-2">
                 <h2 className="font-semibold text-sm">Ссылки</h2>
                 <div className="flex flex-col gap-2 text-sm">
-                  {profile.github && (
-                    <a
-                      href={profile.github}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
-                    >
-                      <Github size={16} />
-                      <span>GitHub</span>
-                    </a>
-                  )}
-                  {profile.telegram && (
-                    <a
-                      href={
-                        profile.telegram.startsWith('http')
-                          ? profile.telegram
-                          : `https://t.me/${profile.telegram.replace(/^@/, '')}`
-                      }
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
-                    >
-                      <Send size={16} />
-                      <span>Telegram</span>
-                    </a>
-                  )}
-                  {profile.website && (
-                    <a
-                      href={profile.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
-                    >
-                      <Globe2 size={16} />
-                      <span>Сайт / портфолио</span>
-                    </a>
-                  )}
-                  {!profile.github && !profile.telegram && !profile.website && (
-                    <div className="text-xs text-slate-400">Пользователь не добавил ссылки.</div>
-                  )}
+                  {(() => {
+                    const hasGithub = !!profile.github?.trim();
+                    const hasTelegram = !!profile.telegram?.trim();
+                    const hasWebsite = !!profile.website?.trim();
+                    return (
+                      <>
+                        {hasGithub && (
+                          <a
+                            href={profile.github}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
+                          >
+                            <Github size={16} />
+                            <span>GitHub</span>
+                          </a>
+                        )}
+                        {hasTelegram && (
+                          <a
+                            href={
+                              profile.telegram.startsWith('http')
+                                ? profile.telegram
+                                : `https://t.me/${profile.telegram.replace(/^@/, '')}`
+                            }
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
+                          >
+                            <Send size={16} />
+                            <span>Telegram</span>
+                          </a>
+                        )}
+                        {hasWebsite && (
+                          <a
+                            href={profile.website}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
+                          >
+                            <Globe2 size={16} />
+                            <span>Сайт / портфолио</span>
+                          </a>
+                        )}
+                        {!hasGithub && !hasTelegram && !hasWebsite && (
+                          <div className="text-xs text-slate-400">Пользователь не добавил ссылки.</div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </Card>
             </div>

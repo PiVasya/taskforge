@@ -1,3 +1,4 @@
+// modified MySolutionsPage.jsx improves theme styling for solution cards
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../components/Layout';
 import { Card, Button, Badge } from '../components/ui';
@@ -77,15 +78,15 @@ export default function MySolutionsPage() {
             ))}
           </div>
 
-          {listLoading && <div className="text-slate-400">Загрузка…</div>}
+          {listLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
           {!listLoading && !displayedSolutions.length && (
-            <div className="text-slate-400">За выбранный период решений нет.</div>
+            <div className="text-slate-500 dark:text-slate-400">За выбранный период решений нет.</div>
           )}
         </Card>
 
         {!listLoading && displayedSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-400 mb-2">
+            <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
               Всего попыток: {displayedSolutions.length}
             </div>
 
@@ -93,18 +94,17 @@ export default function MySolutionsPage() {
               {displayedSolutions.map((item) => {
                 const full = details[item.id] || null;
                 const showCode = expandedId === item.id && full;
-
                 return (
                   <div
                     key={item.id}
-                    className="border border-slate-800/40 rounded-xl p-4 bg-slate-900/40"
+                    className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-slate-50 dark:bg-slate-900/40"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div>
                         <div className="font-medium">
                           {item.courseTitle} • {item.assignmentTitle}
                         </div>
-                        <div className="text-xs text-slate-400">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
                           {new Date(item.submittedAt).toLocaleString()} • {item.language}
                         </div>
                       </div>
@@ -123,9 +123,8 @@ export default function MySolutionsPage() {
                         </Button>
                       </div>
                     </div>
-
                     {showCode && (
-                      <div className="mt-3 rounded-xl overflow-hidden border border-slate-700">
+                      <div className="mt-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
                         <CodeEditor
                           language={full.language || item.language}
                           value={full.submittedCode || ''}

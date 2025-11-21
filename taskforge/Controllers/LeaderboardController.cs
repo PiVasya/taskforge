@@ -1,4 +1,5 @@
-// taskforge/Controllers/LeaderboardController.cs
+// modified version of LeaderboardController.cs with filtering parameters
+using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,10 +20,18 @@ namespace taskforge.Controllers
         }
 
         /// <summary>Общий рейтинг пользователей.</summary>
+        /// <param name="courseId">Фильтр по курсу (null — все курсы).</param>
+        /// <param name="days">Количество дней для учёта решений (null — за всё время).</param>
+        /// <param name="groupId">Фильтр по группе (не реализовано, оставлено для будущих расширений).</param>
+        /// <param name="top">Максимальное количество записей (null — вернуть всех).</param>
         [HttpGet]
-        public async Task<IActionResult> Get()
+        public async Task<IActionResult> Get([
+            FromQuery] Guid? courseId,
+            [FromQuery] int? days,
+            [FromQuery] Guid? groupId,
+            [FromQuery] int? top)
         {
-            var items = await _svc.GetLeaderboardAsync();
+            var items = await _svc.GetLeaderboardAsync(courseId, days, groupId, top);
             return Ok(items);
         }
     }
