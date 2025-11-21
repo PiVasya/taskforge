@@ -2,14 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using FuzzySharp;
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 using taskforge.Data.Models.Entities;
-using System.Text;
 
 namespace taskforge.Services
 {
@@ -21,7 +18,12 @@ namespace taskforge.Services
         private readonly ApplicationDbContext _db;
         public SolutionAdminService(ApplicationDbContext db) => _db = db;
 
-        public async Task<IList<SolutionListItemDto>> GetByUserAsync(Guid userId, Guid? courseId, Guid? assignmentId, int skip, int take)
+        public async Task<IList<SolutionListItemDto>> GetByUserAsync(
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int skip,
+            int take)
         {
             var q = _db.UserTaskSolutions
                 .AsNoTracking()
@@ -30,13 +32,17 @@ namespace taskforge.Services
                     .ThenInclude(a => a.Course)
                 .AsQueryable();
 
-            if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (assignmentId.HasValue)
+                q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+            if (courseId.HasValue)
+                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
             // сортировка по времени — новые сверху
             q = q.OrderByDescending(s => s.SubmittedAt);
 
-            return await q.Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200))
+            return await q
+                .Skip(Math.Max(0, skip))
+                .Take(Math.Clamp(take, 1, 200))
                 .Select(s => new SolutionListItemDto
                 {
                     Id = s.Id,
@@ -62,7 +68,13 @@ namespace taskforge.Services
             return s == null ? null : MapToDetailsDto(s);
         }
 
-        public async Task<IList<LeaderboardEntryDto>> GetLeaderboardAsync(Guid? courseId, int? days, int top)
+        /// <summary>
+        /// Топ по решённым задачам (используется в админке).
+        /// </summary>
+        public async Task<IList<LeaderboardEntryDto>> GetLeaderboardAsync(
+            Guid? courseId,
+            int? days,
+            int top)
         {
             var since = days.HasValue ? DateTime.UtcNow.AddDays(-days.Value) : (DateTime?)null;
 
@@ -78,7 +90,7 @@ namespace taskforge.Services
 
             var data = await q
                 .GroupBy(s => new { s.UserId, s.TaskAssignmentId })
-                .Select(g => new { g.Key.UserId, g.Key.TaskAssignmentId })
+                .Select(g => g.Key)
                 .GroupBy(x => x.UserId)
                 .Select(g => new { UserId = g.Key, Solved = g.Count() })
                 .OrderByDescending(x => x.Solved)
@@ -86,6 +98,7 @@ namespace taskforge.Services
                 .ToListAsync();
 
             var userIds = data.Select(d => d.UserId).ToArray();
+
             var users = await _db.Users
                 .Where(u => userIds.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id);
@@ -104,107 +117,51 @@ namespace taskforge.Services
             }).ToList();
         }
 
-    public async Task<IList<UserShortDto>> SearchUsersAsync(string query, int take)
-    {
-        // 0) нормализация и разбиение на токены
-        query = (query ?? string.Empty).Trim();
-        var normQuery = Normalize(query);
-        var tokens = normQuery.Split(new[] { ' ', '\t', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                            .Distinct()
-                            .ToArray();
-
-        // Порог «верхней полки» для предварительного набора
-        // Берём х10 от итогового take (минимум 100), чтобы fuzzy было из чего выбирать
-        int prefetch = Math.Max(take * 10, 100);
-
-        // 1) БД-фильтр: все токены должны «встретиться» в Email/First/Last хотя бы как подстрока/префикс
-        //    Для ускорения: токен как префикс для имён и подстрока для email.
-        //    Если токенов нет (пустой запрос) — просто последние по Email.
-        var q = _db.Users.AsNoTracking();
-
-        if (tokens.Length > 0)
+        /// <summary>
+        /// Простой поиск пользователей по подстроке в email / имени / фамилии.
+        /// Используется в админке "Решения студентов".
+        /// </summary>
+        public async Task<IList<UserShortDto>> SearchUsersAsync(string query, int take)
         {
-            foreach (var tok in tokens)
+            query = (query ?? string.Empty).Trim();
+            take = Math.Clamp(take, 1, 100);
+
+            var q = _db.Users.AsNoTracking();
+
+            if (!string.IsNullOrEmpty(query))
             {
-                var t = tok; // замыкание
+                // для простоты — приведение к нижнему регистру обеих сторон
+                var pattern = query.ToLower();
+
                 q = q.Where(u =>
-                    EF.Functions.Like(u.Email, $"%{t}%") ||
-                    EF.Functions.Like(u.FirstName, $"{t}%") ||
-                    EF.Functions.Like(u.LastName,  $"{t}%")
+                    (u.Email != null && u.Email.ToLower().Contains(pattern)) ||
+                    (u.FirstName != null && u.FirstName.ToLower().Contains(pattern)) ||
+                    (u.LastName != null && u.LastName.ToLower().Contains(pattern))
                 );
             }
+
+            var users = await q
+                .OrderBy(u => u.LastName)
+                .ThenBy(u => u.FirstName)
+                .ThenBy(u => u.Email)
+                .Take(take)
+                .Select(u => new UserShortDto
+                {
+                    Id = u.Id,
+                    Email = u.Email,
+                    FirstName = u.FirstName,
+                    LastName = u.LastName
+                })
+                .ToListAsync();
+
+            return users;
         }
 
-        var raw = await q
-            .Select(u => new
-            {
-                u.Id,
-                u.Email,
-                u.FirstName,
-                u.LastName
-            })
-            .Take(prefetch)
-            .ToListAsync();
-
-        if (raw.Count == 0)
-            return new List<UserShortDto>();
-
-        // 2) Fuzzy-скоринг в памяти.
-        //    Используем TokenSet/TokenSort/WRatio — устойчиво к порядку «Фамилия Имя»
-        //    и к мелким опечаткам.
-        string Canon(string email, string first, string last)
-            => $"{last} {first} {email}".Trim();
-
-        var scored = raw
-            .Select(u =>
-            {
-                var candidate = Normalize(Canon(u.Email ?? "", u.FirstName ?? "", u.LastName ?? ""));
-                // Сводный скор: максимум из трёх популярных метрик
-                var s1 = Fuzz.TokenSetRatio(normQuery, candidate);
-                var s2 = Fuzz.TokenSortRatio(normQuery, candidate);
-                var s3 = Fuzz.WeightedRatio(normQuery, candidate);
-                var score = Math.Max(s1, Math.Max(s2, s3));
-                return new { u.Id, u.Email, u.FirstName, u.LastName, Score = score };
-            })
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.LastName)
-            .ThenBy(x => x.FirstName)
-            .ThenBy(x => x.Email)
-            .Take(Math.Clamp(take, 1, 100))
-            .ToList();
-
-        return scored.Select(x => new UserShortDto
-        {
-            Id = x.Id,
-            Email = x.Email,
-            FirstName = x.FirstName,
-            LastName = x.LastName
-        }).ToList();
-
-        // --- локальные хелперы ---
-        static string Normalize(string s)
-        {
-            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
-            s = s.Trim().ToLowerInvariant();
-
-            // убираем множественные пробелы
-            while (s.Contains("  ")) s = s.Replace("  ", " ");
-
-            // нормализация Unicode (на всякий) + уберём "мусорные" символы
-            s = s.Normalize(NormalizationForm.FormKC);
-            // оставим буквы/цифры/@/._- и пробелы
-            var span = s.ToCharArray();
-            var arr = new List<char>(span.Length);
-            foreach (var ch in span)
-            {
-                if (char.IsLetterOrDigit(ch) || ch == '@' || ch == '.' || ch == '_' || ch == '-' || ch == ' ')
-                    arr.Add(ch);
-            }
-            return new string(arr.ToArray());
-        }
-        }
-
-        public async Task<IList<SolutionListItemDto>> GetAllByUserAsync(Guid userId, Guid? courseId, Guid? assignmentId, int? days)
+        public async Task<IList<SolutionListItemDto>> GetAllByUserAsync(
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int? days)
         {
             var q = _db.UserTaskSolutions
                 .AsNoTracking()
@@ -213,15 +170,18 @@ namespace taskforge.Services
                     .ThenInclude(a => a.Course)
                 .AsQueryable();
 
-            if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            if (assignmentId.HasValue)
+                q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+            if (courseId.HasValue)
+                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
             if (days.HasValue)
             {
                 var since = DateTime.UtcNow.AddDays(-days.Value);
                 q = q.Where(s => s.SubmittedAt >= since);
             }
 
-            return await q.OrderByDescending(s => s.SubmittedAt)
+            return await q
+                .OrderByDescending(s => s.SubmittedAt)
                 .Select(s => new SolutionListItemDto
                 {
                     Id = s.Id,
@@ -235,11 +195,18 @@ namespace taskforge.Services
                 })
                 .ToListAsync();
         }
-        public async Task DeleteUserSolutionsAsync(Guid userId, Guid? courseId, Guid? assignmentId)
+
+        public async Task DeleteUserSolutionsAsync(
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId)
         {
             var q = _db.UserTaskSolutions.Where(s => s.UserId == userId);
-            if (assignmentId.HasValue) q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
-            if (courseId.HasValue)     q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+
+            if (assignmentId.HasValue)
+                q = q.Where(s => s.TaskAssignmentId == assignmentId.Value);
+            if (courseId.HasValue)
+                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
             var list = await q.ToListAsync();
             if (list.Count == 0) return;

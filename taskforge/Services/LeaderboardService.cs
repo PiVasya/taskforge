@@ -36,49 +36,65 @@ namespace taskforge.Services
         /// </summary>
         public async Task<IReadOnlyList<LeaderboardEntryDto>> GetLeaderboardAsync()
         {
-            var query =
-                from s in _db.UserTaskSolutions.AsNoTracking()
-                group s by s.UserId
-                into g
-                let solvedAssignments = g
-                    .Where(x => x.PassedAllTests)
-                    .Select(x => x.TaskAssignmentId)
-                    .Distinct()
-                    .Count()
-                let totalAttempts = g.Count()
-                let lastSubmitAt = g.Max(x => (DateTime?)x.SubmittedAt)
-                join u in _db.Users on g.Key equals u.Id
-                select new
-                {
-                    User = u,
-                    SolvedAssignments = solvedAssignments,
-                    TotalAttempts = totalAttempts,
-                    LastSubmitAt = lastSubmitAt,
-                    u.AdditionalDataJson
-                };
-
-            var rows = await query
-                .Where(x => x.SolvedAssignments > 0)
+            // Сначала вытягиваем все решения (с трекингом выключенным),
+            // дальше работаем в памяти — так мы полностью избегаем
+            // проблемного GroupBy/let, который EF не умеет транслировать.
+            var allSolutions = await _db.UserTaskSolutions
+                .AsNoTracking()
                 .ToListAsync();
 
-            // сортируем: сначала по решённым, потом по давности
-            var ordered = rows
+            if (allSolutions.Count == 0)
+                return Array.Empty<LeaderboardEntryDto>();
+
+            // Группировка по пользователю и расчёт агрегатов
+            var aggregated = allSolutions
+                .GroupBy(s => s.UserId)
+                .Select(g => new
+                {
+                    UserId = g.Key,
+                    SolvedAssignments = g
+                        .Where(x => x.PassedAllTests)
+                        .Select(x => x.TaskAssignmentId)
+                        .Distinct()
+                        .Count(),
+                    TotalAttempts = g.Count(),
+                    LastSubmitAt = (DateTime?)g.Max(x => x.SubmittedAt)
+                })
+                .Where(x => x.SolvedAssignments > 0)
                 .OrderByDescending(x => x.SolvedAssignments)
                 .ThenBy(x => x.LastSubmitAt ?? DateTime.MaxValue)
                 .ToList();
 
-            var result = new List<LeaderboardEntryDto>(ordered.Count);
+            if (aggregated.Count == 0)
+                return Array.Empty<LeaderboardEntryDto>();
 
-            for (var i = 0; i < ordered.Count; i++)
+            // Подгружаем сами User'ов для найденных id
+            var userIds = aggregated
+                .Select(x => x.UserId)
+                .Distinct()
+                .ToArray();
+
+            var users = await _db.Users
+                .Where(u => userIds.Contains(u.Id))
+                .ToListAsync();
+
+            var userMap = users.ToDictionary(u => u.Id);
+
+            var result = new List<LeaderboardEntryDto>();
+
+            // rank считаем по позиции в отсортированном aggregated
+            for (var i = 0; i < aggregated.Count; i++)
             {
-                var row = ordered[i];
-                var rank = i + 1;
-                var user = row.User;
+                var row = aggregated[i];
 
-                var extra = ParseExtra(row.AdditionalDataJson);
+                if (!userMap.TryGetValue(row.UserId, out var user))
+                    continue;
+
+                var extra = ParseExtra(user.AdditionalDataJson);
                 if (!extra.ShowInLeaderboard)
                     continue;
 
+                var rank = i + 1;
                 var displayName = BuildDisplayName(user);
 
                 result.Add(new LeaderboardEntryDto
