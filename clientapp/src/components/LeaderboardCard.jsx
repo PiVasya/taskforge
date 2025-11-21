@@ -1,4 +1,5 @@
-// LeaderboardCard.jsx — карточка участника в топе
+// clientapp/src/components/LeaderboardCard.jsx
+
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, MapPin, BookOpen, Clock } from 'lucide-react';
@@ -75,22 +76,22 @@ export default function LeaderboardCard({ entry }) {
         {/* Статы */}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           {/* Решённые задания */}
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/70 px-2 py-1">
-            <span className="font-semibold text-slate-700 dark:text-slate-200">
+          <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 px-2 py-1">
+            <span className="font-semibold text-slate-900 dark:text-slate-100">
               {entry.solvedAssignments}
             </span>
-            <span className="text-slate-500 dark:text-slate-400">
+            <span className="text-slate-700 dark:text-slate-200">
               решённых&nbsp;заданий
             </span>
           </span>
 
           {/* Всего попыток */}
           {typeof entry.totalAttempts === 'number' && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/70 px-2 py-1">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 px-2 py-1">
+              <span className="font-semibold text-slate-900 dark:text-slate-100">
                 {entry.totalAttempts}
               </span>
-              <span className="text-slate-500 dark:text-slate-400">
+              <span className="text-slate-700 dark:text-slate-200">
                 попыток
               </span>
             </span>
@@ -98,10 +99,9 @@ export default function LeaderboardCard({ entry }) {
 
           {/* Последний актив */}
           {entry.lastSubmitAt && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/70 px-2 py-1">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 px-2 py-1">
               <Clock size={12} />
-              <span className="text-slate-500 dark:text-slate-400">
-                {/* Последний актив по отправке решений */}
+              <span className="text-slate-700 dark:text-slate-200">
                 Активен:{' '}
                 {new Date(entry.lastSubmitAt).toLocaleDateString(undefined, {
                   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

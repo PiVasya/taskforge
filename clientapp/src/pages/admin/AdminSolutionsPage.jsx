@@ -109,7 +109,9 @@ export default function AdminSolutionsPage() {
 
   const handleDeleteUser = async () => {
     if (!userId) return;
-    const ok = window.confirm('Удалить аккаунт выбранного пользователя вместе со всеми его решениями?');
+    const ok = window.confirm(
+      'Удалить аккаунт выбранного пользователя вместе со всеми его решениями?'
+    );
     if (!ok) return;
 
     try {
@@ -132,7 +134,9 @@ export default function AdminSolutionsPage() {
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap gap-3 items-end">
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Поиск пользователя</div>
+              <div className="text-xs uppercase tracking-wide text-slate-500">
+                Поиск пользователя
+              </div>
               <div className="flex gap-2">
                 <Input
                   placeholder="email / имя / фамилия"
@@ -149,11 +153,10 @@ export default function AdminSolutionsPage() {
             </div>
 
             <div className="space-y-1 min-w-[220px]">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Пользователь</div>
-              <Select
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-              >
+              <div className="text-xs uppercase tracking-wide text-slate-500">
+                Пользователь
+              </div>
+              <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
                 <option value="">— не выбрано —</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -164,7 +167,9 @@ export default function AdminSolutionsPage() {
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Период</div>
+              <div className="text-xs uppercase tracking-wide text-slate-500">
+                Период
+              </div>
               <Select
                 value={filterDays === null ? '' : String(filterDays)}
                 onChange={(e) => {
@@ -181,30 +186,43 @@ export default function AdminSolutionsPage() {
             </div>
 
             <div className="flex items-end gap-2">
-              <Button onClick={loadSolutions} disabled={!userId || listLoading || searchLoading}>
+              <Button
+                onClick={loadSolutions}
+                disabled={!userId || listLoading || searchLoading}
+              >
                 Загрузить решения
               </Button>
-              <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
+              <Button
+                intent="danger"
+                onClick={handleDeleteAll}
+                disabled={!userId || listLoading}
+              >
                 Удалить все решения
               </Button>
-              <Button intent="danger" onClick={handleDeleteUser} disabled={!userId || listLoading}>
+              <Button
+                intent="danger"
+                onClick={handleDeleteUser}
+                disabled={!userId || listLoading}
+              >
                 Удалить аккаунт
               </Button>
             </div>
           </div>
 
           {selectedUser && (
-            <div className="text-xs text-slate-400">
+            <div className="text-xs text-slate-600 dark:text-slate-300">
               Выбран: <span className="font-mono">{selectedUser.email}</span>
             </div>
           )}
         </Card>
 
-        {listLoading && <div className="text-slate-400">Загрузка…</div>}
+        {listLoading && (
+          <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+        )}
 
         {!listLoading && displayedSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-400">
+            <div className="text-sm text-slate-600 dark:text-slate-300">
               Всего решений: {displayedSolutions.length}
             </div>
 
@@ -216,15 +234,16 @@ export default function AdminSolutionsPage() {
                 return (
                   <div
                     key={item.id}
-                    className="border border-slate-800/40 rounded-xl p-4 bg-slate-900/40"
+                    className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div>
-                        <div className="font-medium">
+                        <div className="font-medium text-slate-900 dark:text-slate-50">
                           {item.courseTitle} • {item.assignmentTitle}
                         </div>
-                        <div className="text-xs text-slate-400">
-                          {new Date(item.submittedAt).toLocaleString()} • {item.language}
+                        <div className="text-xs text-slate-600 dark:text-slate-400">
+                          {new Date(item.submittedAt).toLocaleString()} •{' '}
+                          {item.language}
                         </div>
                       </div>
                       <div className="flex gap-2 items-center">
@@ -234,7 +253,8 @@ export default function AdminSolutionsPage() {
                           </Badge>
                         ) : (
                           <Badge intent="danger">
-                            Провалено: {item.failedCount} / Пройдено: {item.passedCount}
+                            Провалено: {item.failedCount} / Пройдено:{' '}
+                            {item.passedCount}
                           </Badge>
                         )}
                         <Button size="sm" onClick={() => handleToggleCode(item.id)}>
@@ -262,7 +282,9 @@ export default function AdminSolutionsPage() {
         )}
 
         {!listLoading && !displayedSolutions.length && selectedUser && (
-          <Card className="p-4 text-slate-400">Для этого пользователя нет решений за выбранный период.</Card>
+          <Card className="p-4 text-slate-600 dark:text-slate-400">
+            Для этого пользователя нет решений за выбранный период.
+          </Card>
         )}
       </div>
     </Layout>
