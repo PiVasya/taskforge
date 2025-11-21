@@ -95,10 +95,10 @@ export default function MySolutionsPage() {
                 const full = details[item.id] || null;
                 const showCode = expandedId === item.id && full;
                 return (
-                  <div
-                    key={item.id}
-                    className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-slate-50 dark:bg-slate-900/40"
-                  >
+                    <div
+                      key={item.id}
+                      className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div>
                         <div className="font-medium">

@@ -4,6 +4,8 @@ import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
 import LeaderboardCard from '../../components/LeaderboardCard';
+// Подключаем UI-компоненты для единообразного оформления фильтров
+import { Card, Input, Select, Button } from '../../components/ui';
 
 export default function LeaderboardPage() {
   const [entries, setEntries] = useState([]);
@@ -66,17 +68,17 @@ export default function LeaderboardPage() {
         </p>
 
         {/* Фильтры */}
-        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl space-y-2">
+        <Card className="p-4 space-y-2">
           <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex flex-col">
+            {/* выбор курса */}
+            <div className="flex flex-col min-w-[140px]">
               <label className="text-xs font-medium mb-1" htmlFor="course-filter">
                 Курс
               </label>
-              <select
+              <Select
                 id="course-filter"
                 value={courseId}
                 onChange={(e) => setCourseId(e.target.value)}
-                className="min-w-[140px] py-1 px-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm"
               >
                 <option value="">Все курсы</option>
                 {courses.map((c) => (
@@ -84,48 +86,47 @@ export default function LeaderboardPage() {
                     {c.title}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
-
-            <div className="flex flex-col">
+            {/* фильтр по количеству дней */}
+            <div className="flex flex-col w-24">
               <label className="text-xs font-medium mb-1" htmlFor="days-filter">
                 За последние, дней
               </label>
-              <input
+              <Input
                 id="days-filter"
                 type="number"
-                min="0"
+                min={0}
                 placeholder="Напр. 7"
                 value={days}
                 onChange={(e) => setDays(e.target.value)}
-                className="w-24 py-1 px-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm"
               />
             </div>
-
-            <div className="flex flex-col">
+            {/* поле для групп (пока недоступно) */}
+            <div className="flex flex-col w-32">
               <label className="text-xs font-medium mb-1" htmlFor="group-filter">
                 Группа
               </label>
-              <input
+              <Input
                 id="group-filter"
                 type="text"
                 placeholder="Скоро"
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
                 disabled
-                className="w-32 py-1 px-2 rounded-md border border-slate-300 dark:border-slate-600 bg-gray-100 dark:bg-slate-700 text-sm cursor-not-allowed"
               />
             </div>
-
-            <button
+            {/* кнопка */}
+            <Button
               type="button"
+              variant="primary"
+              className="h-8"
               onClick={loadEntries}
-              className="h-8 px-4 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
             >
               Применить
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
 
         {loading && <div>Загрузка…</div>}
         {error && (
