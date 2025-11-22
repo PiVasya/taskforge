@@ -107,7 +107,14 @@ export default function ProfilePage() {
             {/* Основное */}
             <Card className="p-4 space-y-4">
               <h2 className="font-semibold">Основное</h2>
+              {/*
+                Размещаем основные поля пользователя в сетке. Помимо имени и
+                фамилии, сюда добавлены телефон и ссылка на аватар. Email
+                остаётся только для просмотра, поскольку его изменение
+                требует отдельного подтверждения на бэке.
+              */}
               <div className="grid gap-4 md:grid-cols-2">
+                {/* Имя */}
                 <div>
                   <label className="text-sm text-slate-500">Имя</label>
                   <Input
@@ -117,6 +124,7 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
+                {/* Фамилия */}
                 <div>
                   <label className="text-sm text-slate-500">Фамилия</label>
                   <Input
@@ -126,10 +134,33 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
-              </div>
-              <div>
-                <label className="text-sm text-slate-500">Email</label>
-                <Input value={profile.email} disabled />
+                {/* Email (для просмотра) */}
+                <div>
+                  <label className="text-sm text-slate-500">Email</label>
+                  <Input type="email" value={profile.email || ''} disabled />
+                </div>
+                {/* Телефон */}
+                <div>
+                  <label className="text-sm text-slate-500">Телефон</label>
+                  <Input
+                    placeholder="+375 (__) ___-__-__"
+                    value={profile.phoneNumber || ''}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, phoneNumber: e.target.value }))
+                    }
+                  />
+                </div>
+                {/* Ссылка на аватар */}
+                <div className="md:col-span-2">
+                  <label className="text-sm text-slate-500">Ссылка на аватар</label>
+                  <Input
+                    placeholder="https://example.com/avatar.jpg"
+                    value={profile.profilePictureUrl || ''}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, profilePictureUrl: e.target.value }))
+                    }
+                  />
+                </div>
               </div>
             </Card>
             {/* О себе */}
