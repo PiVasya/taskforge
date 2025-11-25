@@ -15,6 +15,10 @@ namespace taskforge.Data
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
 
+        // 🔹 Бейджи
+        public DbSet<Badge> Badges { get; set; } = null!;
+        public DbSet<UserBadge> UserBadges { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -64,6 +68,21 @@ namespace taskforge.Data
             modelBuilder.Entity<UserTaskSolution>()
                 .Property(s => s.SubmittedAt)
                 .HasColumnType("timestamp with time zone");
+
+            // 🔹 Badge
+            modelBuilder.Entity<Badge>()
+                .Property(b => b.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            // 🔹 UserBadge
+            modelBuilder.Entity<UserBadge>()
+                .Property(ub => ub.AwardedAt)
+                .HasColumnType("timestamp with time zone");
+
+            // один и тот же бейдж нельзя выдать одному пользователю дважды
+            modelBuilder.Entity<UserBadge>()
+                .HasIndex(ub => new { ub.UserId, ub.BadgeId })
+                .IsUnique();
         }
     }
 }

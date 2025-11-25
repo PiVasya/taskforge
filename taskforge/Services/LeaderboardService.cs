@@ -1,4 +1,3 @@
-// modified version of LeaderboardService.cs with filtering support and badges field
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -116,6 +115,26 @@ namespace taskforge.Services
                 .ToListAsync();
             var userMap = users.ToDictionary(u => u.Id);
 
+            // Предварительно загружаем все бейджи для выбранных пользователей
+            var userBadges = await _db.UserBadges
+                .Where(ub => userIds.Contains(ub.UserId))
+                .Include(ub => ub.Badge)
+                .ToListAsync();
+
+            var badgesMap = userBadges
+                .GroupBy(ub => ub.UserId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g
+                        .Select(ub => new BadgeDto
+                        {
+                            Id = ub.Badge.Id,
+                            Name = ub.Badge.Name,
+                            ImageUrl = ub.Badge.ImageUrl,
+                            Description = ub.Badge.Description
+                        })
+                        .ToList());
+
             var result = new List<LeaderboardEntryDto>();
 
             // формируем финальный список и учитываем ShowInLeaderboard
@@ -130,6 +149,10 @@ namespace taskforge.Services
                     continue;
 
                 var displayName = BuildDisplayName(user);
+
+                // получаем список бейджей, если есть
+                badgesMap.TryGetValue(row.UserId, out var badgeList);
+
                 var entry = new LeaderboardEntryDto
                 {
                     UserId = user.Id,
@@ -145,8 +168,12 @@ namespace taskforge.Services
                     AvatarUrl = user.ProfilePictureUrl,
                     Location = extra.Location,
                     Education = extra.Education,
-                    Badges = new List<string>() // пока пусто, заглушка под будущие бейджи
+                    // 👇 тут был косяк: List<BadgeDto> → List<string>
+                    Badges = (badgeList ?? new List<BadgeDto>())
+                        .Select(b => b.Name)
+                        .ToList()
                 };
+
                 result.Add(entry);
             }
 
@@ -182,6 +209,19 @@ namespace taskforge.Services
 
             var extra = ParseExtra(user.AdditionalDataJson);
 
+            // загружаем бейджи пользователя
+            var userBadges = await _db.UserBadges
+                .Where(ub => ub.UserId == userId)
+                .Include(ub => ub.Badge)
+                .ToListAsync();
+            var badgeDtos = userBadges.Select(ub => new BadgeDto
+            {
+                Id = ub.Badge.Id,
+                Name = ub.Badge.Name,
+                ImageUrl = ub.Badge.ImageUrl,
+                Description = ub.Badge.Description
+            }).ToList();
+
             return new PublicUserProfileDto
             {
                 Id = user.Id,
@@ -191,10 +231,13 @@ namespace taskforge.Services
                 Bio = extra.Bio,
                 Location = extra.Location,
                 Education = extra.Education,
-                Skills = extra.Skills,
-                Github = extra.Links.Github,
-                Telegram = extra.Links.Telegram,
-                Website = extra.Links.Website,
+                // Если список навыков не задан, возвращаем пустой список, чтобы избежать null на фронте
+                Skills = extra.Skills ?? new List<string>(),
+                // Ссылки могут отсутствовать в JSON, поэтому используем null-пропагацию
+                Github = extra.Links?.Github,
+                Telegram = extra.Links?.Telegram,
+                Website = extra.Links?.Website,
+                Badges = badgeDtos,
                 Rank = rank,
                 SolvedAssignments = solvedAssignments,
                 TotalAttempts = totalAttempts
@@ -208,7 +251,12 @@ namespace taskforge.Services
 
             try
             {
-                return JsonSerializer.Deserialize<UserProfileExtra>(json) ?? new UserProfileExtra();
+                // Use case-insensitive property names to allow camelCase JSON to be deserialized
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                return JsonSerializer.Deserialize<UserProfileExtra>(json, options) ?? new UserProfileExtra();
             }
             catch
             {
