@@ -16,6 +16,7 @@ import {
   Palette,        // иконка розовой темы
   MoreHorizontal, // иконка "..."
   Award,          // иконка бейджей
+  Settings,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -51,9 +52,15 @@ export default function Layout({ children }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
 
+  const adminRef = useRef(null);
+
+  // отдельное меню для админских действий
+  const [adminOpen, setAdminOpen] = useState(false);
+
   useEffect(() => {
     const onDocClick = (e) => {
       if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false);
+      if (adminRef.current && !adminRef.current.contains(e.target)) setAdminOpen(false);
     };
     const onEsc = (e) => {
       if (e.key === 'Escape') setMoreOpen(false);
@@ -101,18 +108,61 @@ export default function Layout({ children }) {
               <span className="hidden sm:inline">Тема</span>
             </button>
 
-            {/* переключатель режима редактора — показываем только если аккаунт умеет редактировать */}
-            {canEdit && (
-              <button
-                className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
-                onClick={toggle}
-                title="Режим редактора"
-              >
-                {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                <span className="hidden sm:inline">
-                  {isEditorMode ? 'Редактор' : 'Просмотр'}
-                </span>
-              </button>
+            {/* Админский выпадающий список: редактор/решения/бейджи */}
+            {access && canEdit && (
+              <div className="relative" ref={adminRef}>
+                <button
+                  className="btn-outline"
+                  onClick={() => setAdminOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={adminOpen}
+                  title="Админ-меню"
+                >
+                  <Settings size={18} />
+                  <span className="hidden sm:inline">Управление</span>
+                </button>
+                {adminOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
+                  >
+                    {/* Переключатель режима редактора */}
+                    <button
+                      role="menuitem"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => {
+                        toggle();
+                        setAdminOpen(false);
+                      }}
+                    >
+                      {isEditorMode ? <Eye size={18} /> : <PencilLine size={18} />}
+                      <span className="ml-2">
+                        {isEditorMode ? 'Просмотр' : 'Редактор'}
+                      </span>
+                    </button>
+                    {/* Решения студентов */}
+                    <Link
+                      role="menuitem"
+                      to="/admin/solutions"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                    >
+                      <ListOrdered size={18} />
+                      <span className="ml-2">Решения</span>
+                    </Link>
+                    {/* Бейджи */}
+                    <Link
+                      role="menuitem"
+                      to="/admin/badges"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                    >
+                      <Award size={18} />
+                      <span className="ml-2">Бейджи</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* ссылка на профиль для авторизованных пользователей */}
@@ -139,21 +189,7 @@ export default function Layout({ children }) {
               </Link>
             )}
 
-            {/* кнопка "Решения" (админка) доступна только пользователям с правами редактирования */}
-            {access && canEdit && (
-              <Link to="/admin/solutions" className="btn-outline" title="Решения студентов">
-                <ListOrdered size={18} />
-                <span className="hidden sm:inline">Решения</span>
-              </Link>
-            )}
-
-            {/* кнопка "Бейджи" (админка) */}
-            {access && canEdit && (
-              <Link to="/admin/badges" className="btn-outline" title="Бейджи">
-                <Award size={18} />
-                <span className="hidden sm:inline">Бейджи</span>
-              </Link>
-            )}
+            {/* (кнопки Решения и Бейджи перенесены в админский выпадающий список) */}
 
             {/* вход/выход */}
             {access ? (
@@ -206,21 +242,6 @@ export default function Layout({ children }) {
                   <span>Тема: {theme === 'pink' ? 'Rose' : isDark ? 'Dark' : 'Light'}</span>
                 </button>
 
-                {/* Режим редактора */}
-                {canEdit && (
-                  <button
-                    role="menuitem"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      toggle();
-                    }}
-                  >
-                    {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                    <span>{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
-                  </button>
-                )}
-
                 {/* Профиль */}
                 {access && (
                   <Link
@@ -263,32 +284,61 @@ export default function Layout({ children }) {
                   </Link>
                 )}
 
-                {/* Решения (админка) */}
+                {/* Управление (админское подменю) */}
                 {access && canEdit && (
-                  <Link
-                    role="menuitem"
-                    to="/admin/solutions"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Решения студентов"
-                  >
-                    <ListOrdered size={18} />
-                    <span>Решения</span>
-                  </Link>
-                )}
-
-                {/* Бейджи (админка) */}
-                {access && canEdit && (
-                  <Link
-                    role="menuitem"
-                    to="/admin/badges"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Бейджи"
-                  >
-                    <Award size={18} />
-                    <span>Бейджи</span>
-                  </Link>
+                  <>
+                    <button
+                      role="menuitem"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen((v) => !v)}
+                    >
+                      <Settings size={18} />
+                      <span>Управление</span>
+                    </button>
+                    {/* подменю для администратора в компактном виде */}
+                    {adminOpen && (
+                      <div className="pl-4 space-y-1">
+                        <button
+                          role="menuitem"
+                          className="btn-ghost w-full justify-start"
+                          onClick={() => {
+                            toggle();
+                            setAdminOpen(false);
+                            setMoreOpen(false);
+                          }}
+                        >
+                          {isEditorMode ? <Eye size={18} /> : <PencilLine size={18} />}
+                          <span className="ml-2">{isEditorMode ? 'Просмотр' : 'Редактор'}</span>
+                        </button>
+                        <Link
+                          role="menuitem"
+                          to="/admin/solutions"
+                          className="btn-ghost w-full justify-start"
+                          onClick={() => {
+                            setAdminOpen(false);
+                            setMoreOpen(false);
+                          }}
+                          title="Решения студентов"
+                        >
+                          <ListOrdered size={18} />
+                          <span className="ml-2">Решения</span>
+                        </Link>
+                        <Link
+                          role="menuitem"
+                          to="/admin/badges"
+                          className="btn-ghost w-full justify-start"
+                          onClick={() => {
+                            setAdminOpen(false);
+                            setMoreOpen(false);
+                          }}
+                          title="Бейджи"
+                        >
+                          <Award size={18} />
+                          <span className="ml-2">Бейджи</span>
+                        </Link>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Вход/Выход */}

@@ -106,22 +106,35 @@ namespace taskforge.Services
                 .ToListAsync();
             var userMap = users.ToDictionary(u => u.Id);
 
-            // загружаем все бейджи для участвующих пользователей заранее
+            // загружаем все записи UserBadge для участвующих пользователей без навигации Badge.
+            // Использование Include(ub => ub.Badge) может привести к NullReference из‑за
+            // теневых свойств BadgeId1/UserId1, поэтому делаем join вручную.
             var userBadges = await _db.UserBadges
                 .Where(ub => userIds.Contains(ub.UserId))
-                .Include(ub => ub.Badge)
                 .ToListAsync();
+
+            // получим все уникальные идентификаторы бейджей и загрузим их
+            var allBadgeIds = userBadges.Select(ub => ub.BadgeId).Distinct().ToArray();
+            var badgeDict = await _db.Badges
+                .Where(b => allBadgeIds.Contains(b.Id))
+                .ToDictionaryAsync(b => b.Id);
+
+            // группируем бейджи по пользователю, используя заранее загруженный словарь
             var badgeMap = userBadges
                 .GroupBy(ub => ub.UserId)
                 .ToDictionary(
                     g => g.Key,
-                    g => g.Select(ub => new BadgeDto
-                    {
-                        Id = ub.Badge.Id,
-                        Name = ub.Badge.Name,
-                        ImageUrl = ub.Badge.ImageUrl,
-                        Description = ub.Badge.Description
-                    }).ToList());
+                    g => g
+                        .Where(ub => badgeDict.ContainsKey(ub.BadgeId))
+                        .Select(ub => badgeDict[ub.BadgeId])
+                        .Select(b => new BadgeDto
+                        {
+                            Id = b.Id,
+                            Name = b.Name,
+                            ImageUrl = b.ImageUrl,
+                            Description = b.Description
+                        })
+                        .ToList());
 
             var result = new List<LeaderboardEntryDto>();
 
@@ -195,18 +208,27 @@ namespace taskforge.Services
 
             var extra = ParseExtra(user.AdditionalDataJson);
 
-            // загружаем бейджи пользователя
+            // загружаем все записи UserBadge пользователя без навигации Badge,
+            // затем вручную джойним с таблицей Badges. Это предотвращает NullReference
+            // из‑за теневых свойств (BadgeId1/UserId1).
             var userBadges = await _db.UserBadges
                 .Where(ub => ub.UserId == userId)
-                .Include(ub => ub.Badge)
                 .ToListAsync();
-            var badgeDtos = userBadges.Select(ub => new BadgeDto
-            {
-                Id = ub.Badge.Id,
-                Name = ub.Badge.Name,
-                ImageUrl = ub.Badge.ImageUrl,
-                Description = ub.Badge.Description
-            }).ToList();
+            var badgeIdsForUser = userBadges.Select(ub => ub.BadgeId).Distinct().ToArray();
+            var badgeDictForUser = await _db.Badges
+                .Where(b => badgeIdsForUser.Contains(b.Id))
+                .ToDictionaryAsync(b => b.Id);
+            var badgeDtos = userBadges
+                .Where(ub => badgeDictForUser.ContainsKey(ub.BadgeId))
+                .Select(ub => badgeDictForUser[ub.BadgeId])
+                .Select(b => new BadgeDto
+                {
+                    Id = b.Id,
+                    Name = b.Name,
+                    ImageUrl = b.ImageUrl,
+                    Description = b.Description
+                })
+                .ToList();
 
             return new PublicUserProfileDto
             {
