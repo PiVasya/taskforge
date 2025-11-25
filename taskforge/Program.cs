@@ -16,7 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
-// тек. пользователь
+// текущий пользователь и сервис контекста
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
@@ -24,21 +24,22 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
+builder.Services.AddScoped<IJudgeService, JudgeService>();
+builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
+builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+
+// регистрация сервиса бейджей
+builder.Services.AddScoped<IBadgeService, BadgeService>();
 
 // компиляторы/раннеры
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ICompilerService, CompilerService>();
-
-// Регистрируем удалённые компиляторы (HTTP-клиенты к раннерам)
 builder.Services.AddScoped<ICompiler, CSharpHttpCompiler>();
 builder.Services.AddScoped<ICompiler, CppHttpCompiler>();
 builder.Services.AddScoped<ICompiler, PythonHttpCompiler>();
-
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
-builder.Services.AddScoped<IJudgeService, JudgeService>();
-builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
-builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+
 // CORS
 builder.Services.AddCors(options =>
 {
@@ -52,12 +53,14 @@ builder.Services.AddCors(options =>
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Controllers
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
 
+// Парольный хэшер как singleton
 builder.Services.AddSingleton<PasswordHasher>();
 
 // JWT
@@ -76,7 +79,6 @@ builder.Services
         options.TokenHandlers.Clear();
         options.TokenHandlers.Add(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler());
         options.MapInboundClaims = false;
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -86,7 +88,7 @@ builder.Services
             ValidIssuer = jwtSection["Issuer"],
             ValidAudience = jwtSection["Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            RoleClaimType = System.Security.Claims.ClaimTypes.Role,   // <<< Важно для [Authorize(Roles="Admin")]
+            RoleClaimType = System.Security.Claims.ClaimTypes.Role,
             NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier
         };
     });
@@ -102,7 +104,7 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-// ===== Глобальный маппинг исключений -> корректные HTTP-коды =====
+// глобальный маппинг исключений -> корректные HTTP‑коды
 app.Use(async (ctx, next) =>
 {
     try
@@ -130,12 +132,12 @@ app.Use(async (ctx, next) =>
         await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт сохранения данных", detail = ex.Message });
     }
 });
-// ================================================================
 
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
-
+// отдаём статические файлы из wwwroot (например, изображения бейджей)
+app.UseStaticFiles();
 app.MapControllers();
 
 app.Run();

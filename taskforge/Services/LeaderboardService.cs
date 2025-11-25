@@ -1,4 +1,3 @@
-// modified version of LeaderboardService.cs with filtering support and badges field
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,7 +15,7 @@ namespace taskforge.Services
     /// <summary>
     /// Сервис общего рейтинга и публичных профилей.
     /// Использует UserTaskSolutions и AdditionalDataJson.
-    /// Добавлена поддержка фильтров: курс, дни, группа и ограничение по количеству.
+    /// Добавлена поддержка фильтров и бейджей.
     /// </summary>
     public sealed class LeaderboardService : ILeaderboardService
     {
@@ -27,16 +26,7 @@ namespace taskforge.Services
             _db = db;
         }
 
-        /// <summary>
-        /// Публичный топ пользователей.
-        /// Считает:
-        /// - количество уникальных решённых заданий (PassedAllTests = true)
-        /// - количество попыток
-        /// - последнюю отправку
-        /// Режет тех, у кого в профиле ShowInLeaderboard = false.
-        /// Фильтры по курсу, дням и группе позволяют получать выборку за определённый период
-        /// или только по конкретному курсу/группе.
-        /// </summary>
+        /// <inheritdoc/>
         public async Task<IReadOnlyList<LeaderboardEntryDto>> GetLeaderboardAsync(
             Guid? courseId = null,
             int? days = null,
@@ -116,25 +106,22 @@ namespace taskforge.Services
                 .ToListAsync();
             var userMap = users.ToDictionary(u => u.Id);
 
-            // Предварительно загружаем все бейджи для выбранных пользователей
+            // загружаем все бейджи для участвующих пользователей заранее
             var userBadges = await _db.UserBadges
                 .Where(ub => userIds.Contains(ub.UserId))
                 .Include(ub => ub.Badge)
                 .ToListAsync();
-
-            var badgesMap = userBadges
+            var badgeMap = userBadges
                 .GroupBy(ub => ub.UserId)
                 .ToDictionary(
                     g => g.Key,
-                    g => g
-                        .Select(ub => new BadgeDto
-                        {
-                            Id = ub.Badge.Id,
-                            Name = ub.Badge.Name,
-                            ImageUrl = ub.Badge.ImageUrl,
-                            Description = ub.Badge.Description
-                        })
-                        .ToList());
+                    g => g.Select(ub => new BadgeDto
+                    {
+                        Id = ub.Badge.Id,
+                        Name = ub.Badge.Name,
+                        ImageUrl = ub.Badge.ImageUrl,
+                        Description = ub.Badge.Description
+                    }).ToList());
 
             var result = new List<LeaderboardEntryDto>();
 
@@ -150,9 +137,8 @@ namespace taskforge.Services
                     continue;
 
                 var displayName = BuildDisplayName(user);
-
-                // получаем список бейджей, если есть
-                badgesMap.TryGetValue(row.UserId, out var badgeList);
+                // пробуем найти бейджи для пользователя
+                badgeMap.TryGetValue(user.Id, out var badges);
 
                 var entry = new LeaderboardEntryDto
                 {
@@ -169,8 +155,10 @@ namespace taskforge.Services
                     AvatarUrl = user.ProfilePictureUrl,
                     Location = extra.Location,
                     Education = extra.Education,
-                    // 👇 здесь фикс: конвертируем List<BadgeDto> в List<string>
-                    Badges = (badgeList ?? new List<BadgeDto>())
+                    // В публичном топе выводим только названия бейджей, чтобы не приводить
+                    // List<BadgeDto> к List<string>. Если у пользователя нет бейджей,
+                    // возвращаем пустой список.
+                    Badges = (badges ?? new List<BadgeDto>())
                         .Select(b => b.Name)
                         .ToList()
                 };
@@ -180,9 +168,7 @@ namespace taskforge.Services
             return result;
         }
 
-        /// <summary>
-        /// Публичный профиль пользователя (открывается из топа).
-        /// </summary>
+        /// <inheritdoc/>
         public async Task<PublicUserProfileDto?> GetPublicProfileAsync(Guid userId)
         {
             var user = await _db.Users
@@ -231,9 +217,7 @@ namespace taskforge.Services
                 Bio = extra.Bio,
                 Location = extra.Location,
                 Education = extra.Education,
-                // Если список навыков не задан, возвращаем пустой список, чтобы избежать null на фронте
                 Skills = extra.Skills ?? new List<string>(),
-                // Ссылки могут отсутствовать в JSON, поэтому используем null-пропагацию
                 Github = extra.Links?.Github,
                 Telegram = extra.Links?.Telegram,
                 Website = extra.Links?.Website,
@@ -251,11 +235,9 @@ namespace taskforge.Services
 
             try
             {
-                // Use case-insensitive property names to allow camelCase JSON to be deserialized
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
+                // Используем регистронезависимый десериализатор, чтобы корректно
+                // обрабатывать camelCase-поля в JSON (bio, links, skills и т.п.).
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 return JsonSerializer.Deserialize<UserProfileExtra>(json, options) ?? new UserProfileExtra();
             }
             catch
