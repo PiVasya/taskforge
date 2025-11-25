@@ -1,3 +1,4 @@
+// modified version of LeaderboardService.cs with filtering support and badges field
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -168,12 +169,11 @@ namespace taskforge.Services
                     AvatarUrl = user.ProfilePictureUrl,
                     Location = extra.Location,
                     Education = extra.Education,
-                    // 👇 тут был косяк: List<BadgeDto> → List<string>
+                    // 👇 здесь фикс: конвертируем List<BadgeDto> в List<string>
                     Badges = (badgeList ?? new List<BadgeDto>())
                         .Select(b => b.Name)
                         .ToList()
                 };
-
                 result.Add(entry);
             }
 

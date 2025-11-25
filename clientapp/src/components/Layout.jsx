@@ -15,6 +15,7 @@ import {
   ListOrdered,
   Palette,        // иконка розовой темы
   MoreHorizontal, // иконка "..."
+  Award,          // иконка бейджей
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -146,6 +147,14 @@ export default function Layout({ children }) {
               </Link>
             )}
 
+            {/* кнопка "Бейджи" (админка) */}
+            {access && canEdit && (
+              <Link to="/admin/badges" className="btn-outline" title="Бейджи">
+                <Award size={18} />
+                <span className="hidden sm:inline">Бейджи</span>
+              </Link>
+            )}
+
             {/* вход/выход */}
             {access ? (
               <button className="btn-outline" onClick={handleLogout} title="Выйти">
@@ -265,6 +274,20 @@ export default function Layout({ children }) {
                   >
                     <ListOrdered size={18} />
                     <span>Решения</span>
+                  </Link>
+                )}
+
+                {/* Бейджи (админка) */}
+                {access && canEdit && (
+                  <Link
+                    role="menuitem"
+                    to="/admin/badges"
+                    className="btn-ghost w-full justify-start"
+                    onClick={() => setMoreOpen(false)}
+                    title="Бейджи"
+                  >
+                    <Award size={18} />
+                    <span>Бейджи</span>
                   </Link>
                 )}
 

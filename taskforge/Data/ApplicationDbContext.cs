@@ -4,6 +4,13 @@ using taskforge.Data.Models.Entities;
 
 namespace taskforge.Data
 {
+    /// <summary>
+    /// Основной контекст базы данных приложения. Содержит DbSet'ы для
+    /// всех доменных сущностей и настраивает типы столбцов для
+    /// некоторых свойств.
+    /// Этот файл основан на версии develop, но дополнен поддержкой
+    /// сущностей Badge и UserBadge.
+    /// </summary>
     public class ApplicationDbContext : DbContext
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
@@ -15,7 +22,7 @@ namespace taskforge.Data
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
 
-        // 🔹 Бейджи
+        // Бейджи и связи между пользователями и бейджами
         public DbSet<Badge> Badges { get; set; } = null!;
         public DbSet<UserBadge> UserBadges { get; set; } = null!;
 
@@ -43,9 +50,6 @@ namespace taskforge.Data
                 .HasColumnType("timestamp with time zone");
             modelBuilder.Entity<User>()
                 .Property(u => u.ResetPasswordExpiration)
-                .HasColumnType("timestamp with time zone");
-            modelBuilder.Entity<User>()
-                .Property(u => u.LockoutEnd)
                 .HasColumnType("timestamp with time zone");
 
             // 🔹 Course
@@ -79,10 +83,17 @@ namespace taskforge.Data
                 .Property(ub => ub.AwardedAt)
                 .HasColumnType("timestamp with time zone");
 
-            // один и тот же бейдж нельзя выдать одному пользователю дважды
             modelBuilder.Entity<UserBadge>()
-                .HasIndex(ub => new { ub.UserId, ub.BadgeId })
-                .IsUnique();
+                .HasOne<User>()
+                .WithMany()
+                .HasForeignKey(ub => ub.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserBadge>()
+                .HasOne<Badge>()
+                .WithMany()
+                .HasForeignKey(ub => ub.BadgeId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

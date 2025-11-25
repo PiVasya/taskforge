@@ -21,6 +21,7 @@ import PublicProfilePage from './pages/PublicProfilePage';
 // Admin pages
 import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
+import AdminBadgesPage from './pages/admin/AdminBadgesPage';
 
 function Home() {
   return <Navigate to="/login" replace />;
@@ -70,6 +71,7 @@ export default function App() {
             <Route path="/assignment/:assignmentId/edit" element={<AssignmentEditPage />} />
             <Route path="/admin/leaderboard" element={<LeaderboardPage />} />
             <Route path="/admin/solutions" element={<AdminSolutionsPage />} />
+            <Route path="/admin/badges" element={<AdminBadgesPage />} />
           </Route>
         </Route>
 
