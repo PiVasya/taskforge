@@ -1,15 +1,11 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using taskforge.Data.Models;
 using taskforge.Data.Models.Entities;
 
 namespace taskforge.Data
 {
     /// <summary>
-    /// Основной контекст базы данных приложения. Содержит DbSet'ы для
-    /// всех доменных сущностей и настраивает типы столбцов для
-    /// некоторых свойств.
-    /// Этот файл основан на версии develop, но дополнен поддержкой
-    /// сущностей Badge и UserBadge.
+    /// Основной контекст базы данных приложения. Дополнен поддержкой бейджей.
     /// </summary>
     public class ApplicationDbContext : DbContext
     {
@@ -22,7 +18,7 @@ namespace taskforge.Data
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
 
-        // Бейджи и связи между пользователями и бейджами
+        // Наборы данных для бейджей и связей между пользователями и бейджами.
         public DbSet<Badge> Badges { get; set; } = null!;
         public DbSet<UserBadge> UserBadges { get; set; } = null!;
 
@@ -50,6 +46,9 @@ namespace taskforge.Data
                 .HasColumnType("timestamp with time zone");
             modelBuilder.Entity<User>()
                 .Property(u => u.ResetPasswordExpiration)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<User>()
+                .Property(u => u.LockoutEnd)
                 .HasColumnType("timestamp with time zone");
 
             // 🔹 Course
@@ -82,15 +81,16 @@ namespace taskforge.Data
             modelBuilder.Entity<UserBadge>()
                 .Property(ub => ub.AwardedAt)
                 .HasColumnType("timestamp with time zone");
-
+            // Явно указываем навигационные свойства, чтобы EF использовал существующие
+            // ключи UserId и BadgeId в качестве внешних ключей, иначе создаются
+            // дублирующие столбцы UserId1/BadgeId1.
             modelBuilder.Entity<UserBadge>()
-                .HasOne<User>()
+                .HasOne(ub => ub.User)
                 .WithMany()
                 .HasForeignKey(ub => ub.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-
             modelBuilder.Entity<UserBadge>()
-                .HasOne<Badge>()
+                .HasOne(ub => ub.Badge)
                 .WithMany()
                 .HasForeignKey(ub => ub.BadgeId)
                 .OnDelete(DeleteBehavior.Cascade);

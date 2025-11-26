@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select } from '../../components/ui';
 import { searchUsersOnce } from '../../api/admin';
-import { getAllBadges, createBadge, awardBadge } from '../../api/badges';
+import { getAllBadges, createBadge, awardBadge, deleteBadge } from '../../api/badges';
 
 /**
  * Страница администрирования бейджей.
@@ -107,6 +107,22 @@ export default function AdminBadgesPage() {
     } catch (err) {
       console.error('Failed to award badge', err);
       setMessage('Не удалось выдать бейдж');
+    }
+  };
+
+  /**
+   * Удаление бейджа
+   */
+  const handleDelete = async (badgeId) => {
+    const ok = window.confirm('Удалить этот бейдж?');
+    if (!ok) return;
+    try {
+      await deleteBadge(badgeId);
+      await loadBadges();
+      setMessage('Бейдж удалён');
+    } catch (err) {
+      console.error('Failed to delete badge', err);
+      setMessage('Не удалось удалить бейдж');
     }
   };
 
@@ -222,7 +238,7 @@ export default function AdminBadgesPage() {
                       <img
                         src={b.imageUrl}
                         alt={b.name}
-                        className="h-8 w-8 rounded border border-slate-200 dark:border-slate-700 object-contain"
+                        className="h-10 w-10 rounded border border-slate-200 dark:border-slate-700 object-contain"
                       />
                     )}
                     <div className="min-w-0">
@@ -236,6 +252,7 @@ export default function AdminBadgesPage() {
                       )}
                     </div>
                   </div>
+                <div className="flex gap-2">
                   <Button
                     size="sm"
                     onClick={() => handleAward(b.id)}
@@ -243,6 +260,14 @@ export default function AdminBadgesPage() {
                   >
                     Назначить
                   </Button>
+                  <Button
+                    size="sm"
+                    intent="danger"
+                    onClick={() => handleDelete(b.id)}
+                  >
+                    Удалить
+                  </Button>
+                </div>
                 </div>
               ))}
             </div>

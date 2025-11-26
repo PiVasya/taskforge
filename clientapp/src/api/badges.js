@@ -40,3 +40,13 @@ export async function getUserBadges(userId) {
   const { data } = await api.get(`/api/badges/user/${userId}`);
   return Array.isArray(data) ? data : [];
 }
+
+/**
+ * Удалить существующий бейдж.
+ * DELETE /api/badges/{badgeId}
+ * @param {string} badgeId
+ */
+export async function deleteBadge(badgeId) {
+  await api.delete(`/api/badges/${badgeId}`);
+  return true;
+}

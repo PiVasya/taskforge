@@ -21,11 +21,13 @@ namespace taskforge.Data.Models.Entities
         public string? Description { get; set; }
 
         /// <summary>
-        /// Ссылка на SVG или изображение бейджа. Путь может начинаться с '/', если хранится в
-        /// статических файлах приложения (например, /badges/123.svg) или быть абсолютным URL.
+        /// Ссылка или data URI на изображение бейджа. Раньше здесь хранился путь к
+        /// файлу внутри каталога /badges, но теперь изображения сохраняются как
+        /// data URI прямо в базе данных. Тем не менее поле остаётся строковым
+        /// и поддерживает до 8192 символов, чтобы уместить длинные base64‑строки.
         /// </summary>
         [Required]
-        [MaxLength(2048)]
+        [MaxLength(8192)]
         public string ImageUrl { get; set; } = string.Empty;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -1,4 +1,6 @@
-// clientapp/src/components/LeaderboardCard.jsx
+// Компонент карточки участника топа. Показывает аватар, имя, статистику
+// и список бейджей в виде иконок. При наведении на иконку выводится
+// название бейджа через tooltip (атрибут title).
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -10,7 +12,7 @@ export default function LeaderboardCard({ entry }) {
     nav(`/users/${entry.userId}`);
   };
 
-  // Градиенты для топ-3 мест
+  // градиенты для топ-3 мест
   const rankColors = {
     1: 'from-amber-400 to-yellow-500',
     2: 'from-slate-300 to-slate-100',
@@ -55,9 +57,7 @@ export default function LeaderboardCard({ entry }) {
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="font-semibold truncate">
-              {entry.displayName || entry.email}
-            </div>
+            <div className="font-semibold truncate">{entry.displayName || entry.email}</div>
             {entry.location && (
               <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 truncate">
                 <MapPin size={12} />
@@ -73,35 +73,35 @@ export default function LeaderboardCard({ entry }) {
           </div>
         </div>
 
-        {/* Статы */}
+        {/* Статистика */}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           {/* Решённые задания */}
-          <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 px-2 py-1">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1"
+          >
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
               {entry.solvedAssignments}
             </span>
-            <span className="text-slate-700 dark:text-slate-200">
-              решённых&nbsp;заданий
-            </span>
+            <span className="text-slate-500 dark:text-slate-400">решённых&nbsp;заданий</span>
           </span>
-
           {/* Всего попыток */}
           {typeof entry.totalAttempts === 'number' && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 px-2 py-1">
-              <span className="font-semibold text-slate-900 dark:text-slate-100">
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1"
+            >
+              <span className="font-semibold text-slate-700 dark:text-slate-200">
                 {entry.totalAttempts}
               </span>
-              <span className="text-slate-700 dark:text-slate-200">
-                попыток
-              </span>
+              <span className="text-slate-500 dark:text-slate-400">попыток</span>
             </span>
           )}
-
           {/* Последний актив */}
           {entry.lastSubmitAt && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 px-2 py-1">
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1"
+            >
               <Clock size={12} />
-              <span className="text-slate-700 dark:text-slate-200">
+              <span className="text-slate-500 dark:text-slate-400">
                 Активен:{' '}
                 {new Date(entry.lastSubmitAt).toLocaleDateString(undefined, {
                   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -114,12 +114,21 @@ export default function LeaderboardCard({ entry }) {
         {/* Бейджи */}
         {entry.badges && entry.badges.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
-            {entry.badges.map((b) => (
+            {entry.badges.map((badge) => (
               <span
-                key={b}
+                key={badge.id || badge.name}
+                title={badge.name}
                 className="inline-flex items-center rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300"
               >
-                {b}
+                {badge.imageUrl && (
+                  <img
+                    src={badge.imageUrl}
+                    alt={badge.name}
+                    className="h-4 w-4 mr-1 object-contain"
+                  />
+                )}
+                {/* скрытый текст для доступности */}
+                <span className="sr-only">{badge.name}</span>
               </span>
             ))}
           </div>

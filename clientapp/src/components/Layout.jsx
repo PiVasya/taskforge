@@ -1,4 +1,11 @@
-﻿// clientapp/src/components/Layout.jsx
+// clientapp/src/components/Layout.jsx
+//
+// Компонент-шаблон для всей страницы. Содержит шапку с навигацией,
+// переключатель темы, кнопку режима редактора и меню администраторов.
+// В мобильной версии используется выпадающее меню «…», в которое также
+// помещены ссылки на страницы и действия. На широких экранах админские
+// ссылки прячутся за отдельной кнопкой с тремя точками.
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -34,6 +41,7 @@ export default function Layout({ children }) {
   const cycleTheme = () =>
     setTheme((t) => (t === 'light' ? 'dark' : t === 'dark' ? 'pink' : 'light'));
 
+  // применяем классы для темы и сохраняем в localStorage
   useEffect(() => {
     const cls = document.documentElement.classList;
     cls.remove('dark', 'pink');
@@ -47,22 +55,17 @@ export default function Layout({ children }) {
     nav('/login', { replace: true });
   };
 
-  // ----- меню "..." (общие действия — мобильная версия) -----
+  // состояние выпадающих меню
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef(null);
-
-  // ----- отдельное меню "..." для АДМИН-действий (десктоп) -----
   const [adminOpen, setAdminOpen] = useState(false);
+  const moreRef = useRef(null);
   const adminRef = useRef(null);
 
+  // закрытие меню при клике вне или нажатию Esc
   useEffect(() => {
     const onDocClick = (e) => {
-      if (moreRef.current && !moreRef.current.contains(e.target)) {
-        setMoreOpen(false);
-      }
-      if (adminRef.current && !adminRef.current.contains(e.target)) {
-        setAdminOpen(false);
-      }
+      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false);
+      if (adminRef.current && !adminRef.current.contains(e.target)) setAdminOpen(false);
     };
     const onEsc = (e) => {
       if (e.key === 'Escape') {
@@ -80,10 +83,11 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen">
+      {/* фоновой градиент */}
       <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
       <header className="sticky top-0 z-20 border-b border-slate-200/70 dark:border-slate-800/70 backdrop-blur bg-white/70 dark:bg-slate-900/60">
         <div className="container-app flex h-16 items-center justify-between gap-2">
-          {/* Левый блок (логотип/название) */}
+          {/* Логотип и название */}
           <Link to="/courses" className="flex min-w-0 items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-brand-600 text-white grid place-items-center shadow-soft">
               <PanelsTopLeft size={18} />
@@ -94,7 +98,7 @@ export default function Layout({ children }) {
             </span>
           </Link>
 
-          {/* Правая панель действий — десктоп (от xl) */}
+          {/* Правая панель — крупные экраны */}
           <div className="hidden xl:flex items-center gap-2">
             {/* переключатель темы */}
             <button
@@ -113,7 +117,7 @@ export default function Layout({ children }) {
               <span className="hidden sm:inline">Тема</span>
             </button>
 
-            {/* переключатель режима редактора — как в старой версии */}
+            {/* режим редактора */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
@@ -121,9 +125,7 @@ export default function Layout({ children }) {
                 title="Режим редактора"
               >
                 {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                <span className="hidden sm:inline">
-                  {isEditorMode ? 'Редактор' : 'Просмотр'}
-                </span>
+                <span className="hidden sm:inline">{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
               </button>
             )}
 
@@ -151,7 +153,7 @@ export default function Layout({ children }) {
               </Link>
             )}
 
-            {/* ОТДЕЛЬНЫЕ три точки для АДМИН-прав (Решения / Бейджи) */}
+            {/* админские действия — отдельное меню на три точки */}
             {access && canEdit && (
               <div className="relative" ref={adminRef}>
                 <button
@@ -159,10 +161,9 @@ export default function Layout({ children }) {
                   onClick={() => setAdminOpen((v) => !v)}
                   aria-haspopup="menu"
                   aria-expanded={adminOpen}
-                  title="Админ меню"
+                  title="Админские действия"
                 >
                   <MoreHorizontal size={18} />
-                  <span className="hidden sm:inline">Админ</span>
                 </button>
                 {adminOpen && (
                   <div
@@ -174,15 +175,17 @@ export default function Layout({ children }) {
                       to="/admin/solutions"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setAdminOpen(false)}
+                      title="Решения студентов"
                     >
                       <ListOrdered size={18} />
-                      <span className="ml-2">Решения</span>
+                      <span className="ml-2">Решения студентов</span>
                     </Link>
                     <Link
                       role="menuitem"
                       to="/admin/badges"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setAdminOpen(false)}
+                      title="Бейджи"
                     >
                       <Award size={18} />
                       <span className="ml-2">Бейджи</span>
@@ -206,7 +209,7 @@ export default function Layout({ children }) {
             )}
           </div>
 
-          {/* Компактная версия — одна кнопка "..." (для узкого экрана/зумов) */}
+          {/* Мобильное меню — одна кнопка "..." */}
           <div className="relative xl:hidden" ref={moreRef}>
             <button
               className="btn-outline"
@@ -218,7 +221,6 @@ export default function Layout({ children }) {
             >
               <MoreHorizontal size={18} />
             </button>
-
             {moreOpen && (
               <div
                 role="menu"
@@ -242,7 +244,6 @@ export default function Layout({ children }) {
                   )}
                   <span>Тема: {theme === 'pink' ? 'Rose' : isDark ? 'Dark' : 'Light'}</span>
                 </button>
-
                 {/* Режим редактора */}
                 {canEdit && (
                   <button
@@ -257,7 +258,6 @@ export default function Layout({ children }) {
                     <span>{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
                   </button>
                 )}
-
                 {/* Профиль */}
                 {access && (
                   <Link
@@ -271,7 +271,6 @@ export default function Layout({ children }) {
                     <span>Профиль</span>
                   </Link>
                 )}
-
                 {/* Мои решения */}
                 {access && (
                   <Link
@@ -285,7 +284,6 @@ export default function Layout({ children }) {
                     <span>Мои решения</span>
                   </Link>
                 )}
-
                 {/* Топ */}
                 {access && (
                   <Link
@@ -299,8 +297,7 @@ export default function Layout({ children }) {
                     <span>Топ</span>
                   </Link>
                 )}
-
-                {/* Админка: решения и бейджи (как раньше) */}
+                {/* админка: решения и бейджи */}
                 {access && canEdit && (
                   <>
                     <Link
@@ -325,8 +322,7 @@ export default function Layout({ children }) {
                     </Link>
                   </>
                 )}
-
-                {/* Вход/выход */}
+                {/* вход/выход */}
                 {access ? (
                   <button
                     role="menuitem"

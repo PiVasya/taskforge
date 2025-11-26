@@ -84,5 +84,18 @@ namespace taskforge.Controllers
             public Guid UserId { get; set; }
             public Guid BadgeId { get; set; }
         }
+
+        /// <summary>
+        /// Удаляет бейдж. Доступно только администраторам. При удалении также
+        /// удаляются все назначения этого бейджа пользователям и, если
+        /// изображение хранится как файл, файл удаляется.
+        /// </summary>
+        /// <param name="badgeId">ID бейджа</param>
+        [HttpDelete("{badgeId:guid}")]
+        public async Task<IActionResult> Delete(Guid badgeId)
+        {
+            await _badgeService.DeleteBadgeAsync(badgeId);
+            return NoContent();
+        }
     }
 }

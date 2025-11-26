@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -131,7 +132,10 @@ namespace taskforge.Services
                         {
                             Id = b.Id,
                             Name = b.Name,
-                            ImageUrl = b.ImageUrl,
+                            // Конвертируем путь к файлу в data URI. Если ImageUrl
+                            // уже содержит data URI или внешний URL, метод
+                            // вернёт оригинальную строку.
+                            ImageUrl = ConvertImageUrl(b.ImageUrl),
                             Description = b.Description
                         })
                         .ToList());
@@ -168,12 +172,7 @@ namespace taskforge.Services
                     AvatarUrl = user.ProfilePictureUrl,
                     Location = extra.Location,
                     Education = extra.Education,
-                    // В публичном топе выводим только названия бейджей, чтобы не приводить
-                    // List<BadgeDto> к List<string>. Если у пользователя нет бейджей,
-                    // возвращаем пустой список.
-                    Badges = (badges ?? new List<BadgeDto>())
-                        .Select(b => b.Name)
-                        .ToList()
+                    Badges = badges ?? new List<BadgeDto>()
                 };
                 result.Add(entry);
             }
@@ -225,7 +224,7 @@ namespace taskforge.Services
                 {
                     Id = b.Id,
                     Name = b.Name,
-                    ImageUrl = b.ImageUrl,
+                    ImageUrl = ConvertImageUrl(b.ImageUrl),
                     Description = b.Description
                 })
                 .ToList();
@@ -282,6 +281,49 @@ namespace taskforge.Services
                 return user.Email;
 
             return string.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// Преобразует ссылку на изображение бейджа в data URI. Если ссылка
+        /// уже содержит data URI (начинается с "data:image"), метод
+        /// возвращает её без изменений. Если ссылка указывает на файл в
+        /// каталоге /badges, файл читается из каталога wwwroot и
+        /// преобразуется в строку base64. В остальных случаях исходная
+        /// строка возвращается без изменений. Этот метод синхронен и
+        /// используется в рейтинге и публичном профиле, чтобы SVG‑иконки
+        /// корректно отображались даже когда статические файлы недоступны.
+        /// </summary>
+        /// <param name="imageUrl">Строка из базы данных (может быть null).</param>
+        /// <returns>data URI либо исходная строка.</returns>
+        private static string ConvertImageUrl(string? imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                return string.Empty;
+            // Уже data URI
+            if (imageUrl.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
+                return imageUrl;
+            // Путь в каталоге /badges
+            if (imageUrl.StartsWith("/badges/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Пытаемся вычислить путь к файлу относительно wwwroot
+                var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                var relative = imageUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                var filePath = Path.Combine(webRoot, relative);
+                if (File.Exists(filePath))
+                {
+                    try
+                    {
+                        var bytes = File.ReadAllBytes(filePath);
+                        var base64 = Convert.ToBase64String(bytes);
+                        return $"data:image/svg+xml;base64,{base64}";
+                    }
+                    catch
+                    {
+                        // ignore read errors and fall through
+                    }
+                }
+            }
+            return imageUrl;
         }
     }
 }
