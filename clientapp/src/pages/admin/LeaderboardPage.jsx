@@ -1,10 +1,11 @@
-// modified LeaderboardPage.jsx adds filtering by course, days and group and improves UI
+// LeaderboardPage.jsx — обновлённая финальная версия
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
 import LeaderboardCard from '../../components/LeaderboardCard';
-// Подключаем UI-компоненты для единообразного оформления фильтров
+
+// UI
 import { Card, Input, Select, Button } from '../../components/ui';
 
 export default function LeaderboardPage() {
@@ -18,7 +19,7 @@ export default function LeaderboardPage() {
   const [days, setDays] = useState('');
   const [groupId, setGroupId] = useState('');
 
-  // load list of courses once
+  // load courses once
   useEffect(() => {
     (async () => {
       try {
@@ -26,7 +27,6 @@ export default function LeaderboardPage() {
         setCourses(Array.isArray(list) ? list : []);
       } catch (e) {
         console.error('Failed to load courses', e);
-        // ignore
       }
     })();
   }, []);
@@ -35,14 +35,20 @@ export default function LeaderboardPage() {
     try {
       setLoading(true);
       setError(null);
+
       const params = {};
+
       if (courseId) params.courseId = courseId;
-      // convert days to integer if provided
+
       const daysInt = parseInt(days, 10);
-      if (!Number.isNaN(daysInt) && daysInt > 0) params.days = daysInt;
+      if (!Number.isNaN(daysInt) && daysInt > 0) {
+        params.days = daysInt;
+      }
+
       if (groupId) params.groupId = groupId;
-      // ask backend to return up to 100 entries
+
       params.top = 100;
+
       const data = await getLeaderboard(params);
       setEntries(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -70,9 +76,10 @@ export default function LeaderboardPage() {
         {/* Фильтры */}
         <Card className="p-4 space-y-2">
           <div className="flex flex-wrap gap-4 items-end">
-            {/* выбор курса */}
+
+            {/* Courses */}
             <div className="flex flex-col min-w-[140px]">
-              <label className="text-xs font-medium mb-1" htmlFor="course-filter">
+              <label htmlFor="course-filter" className="text-xs font-medium mb-1">
                 Курс
               </label>
               <Select
@@ -88,9 +95,10 @@ export default function LeaderboardPage() {
                 ))}
               </Select>
             </div>
-            {/* фильтр по количеству дней */}
+
+            {/* Days */}
             <div className="flex flex-col w-24">
-              <label className="text-xs font-medium mb-1" htmlFor="days-filter">
+              <label htmlFor="days-filter" className="text-xs font-medium mb-1">
                 За последние, дней
               </label>
               <Input
@@ -102,9 +110,10 @@ export default function LeaderboardPage() {
                 onChange={(e) => setDays(e.target.value)}
               />
             </div>
-            {/* поле для групп (пока недоступно) */}
+
+            {/* Group (disabled placeholder) */}
             <div className="flex flex-col w-32">
-              <label className="text-xs font-medium mb-1" htmlFor="group-filter">
+              <label htmlFor="group-filter" className="text-xs font-medium mb-1">
                 Группа
               </label>
               <Input
@@ -116,7 +125,8 @@ export default function LeaderboardPage() {
                 disabled
               />
             </div>
-            {/* кнопка */}
+
+            {/* Apply button */}
             <Button
               type="button"
               variant="primary"
@@ -128,12 +138,17 @@ export default function LeaderboardPage() {
           </div>
         </Card>
 
+        {/* Loading */}
         {loading && <div>Загрузка…</div>}
+
+        {/* Error */}
         {error && (
           <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
             {error}
           </div>
         )}
+
+        {/* List */}
         {!loading && !error && (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {entries.map((e) => (
