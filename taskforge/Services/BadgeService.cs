@@ -14,8 +14,12 @@ using taskforge.Services.Interfaces;
 namespace taskforge.Services
 {
     /// <summary>
-    /// Реализация сервиса управления бейджами. Предоставляет методы
-    /// для создания, получения и назначения бейджей.
+    /// Реализация сервиса управления бейджами.
+    /// Умеет:
+    /// - создавать бейджи по SVG-файлам (файл на диск, путь в БД);
+    /// - выдавать бейджи пользователям;
+    /// - возвращать списки бейджей в виде DTO с корректным ImageUrl (data URI);
+    /// - удалять бейджи вместе с связями и при необходимости — с файлами.
     /// </summary>
     public class BadgeService : IBadgeService
     {
@@ -24,195 +28,182 @@ namespace taskforge.Services
 
         public BadgeService(ApplicationDbContext db, IWebHostEnvironment env)
         {
-            _db = db;
-            _env = env;
+            _db = db ?? throw new ArgumentNullException(nameof(db));
+            _env = env ?? throw new ArgumentNullException(nameof(env));
         }
 
+        /// <inheritdoc />
         public async Task<IReadOnlyList<BadgeDto>> GetAllBadgesAsync()
         {
-            /*
-             * When returning badge DTOs to the client we ensure the ImageUrl is always
-             * a valid image. Historically badges were stored as files under
-             * wwwroot/badges and ImageUrl contained a relative path like
-             * "/badges/{id}.svg". In some hosting environments these static files are not
-             * served, resulting in 404 responses. To make the frontend independent of
-             * static file hosting we convert the SVG on disk into a data URI at
-             * runtime. If the ImageUrl already contains a data URI we return it as‑is.
-             */
             var badges = await _db.Badges
+                .AsNoTracking()
                 .OrderBy(b => b.Name)
                 .ToListAsync();
-            var result = new List<BadgeDto>();
-            foreach (var b in badges)
-            {
-                result.Add(new BadgeDto
-                {
-                    Id = b.Id,
-                    Name = b.Name,
-                    Description = b.Description,
-                    ImageUrl = await ConvertImageUrlAsync(b.ImageUrl)
-                });
-            }
-            return result;
-        }
 
-        public async Task<IReadOnlyList<BadgeDto>> GetUserBadgesAsync(Guid userId)
-        {
-            /*
-             * Similar to GetAllBadgesAsync we want to return data URIs for badge
-             * images so they always render correctly. We therefore hydrate the
-             * ImageUrl for each badge before returning it.
-             */
-            var userBadges = await _db.UserBadges
-                .Where(ub => ub.UserId == userId)
-                .Include(ub => ub.Badge)
-                .OrderBy(ub => ub.AwardedAt)
-                .ToListAsync();
-            var result = new List<BadgeDto>();
-            foreach (var ub in userBadges)
+            var result = new List<BadgeDto>(badges.Count);
+
+            foreach (var badge in badges)
             {
-                var badge = ub.Badge;
+                var imageUrl = await ConvertImageUrlAsync(badge.ImageUrl);
+
                 result.Add(new BadgeDto
                 {
                     Id = badge.Id,
                     Name = badge.Name,
                     Description = badge.Description,
-                    ImageUrl = await ConvertImageUrlAsync(badge.ImageUrl)
+                    ImageUrl = imageUrl
                 });
             }
+
             return result;
         }
 
-        /// <summary>
-        /// Deletes a badge and all its assignments. If the badge references a
-        /// file under /badges, the file is also removed from disk.
-        /// </summary>
-        /// <param name="badgeId">ID of the badge to delete.</param>
-        public async Task DeleteBadgeAsync(Guid badgeId)
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<BadgeDto>> GetUserBadgesAsync(Guid userId)
         {
-            var badge = await _db.Badges.FindAsync(badgeId);
-            if (badge == null)
-                throw new KeyNotFoundException("Бейдж не найден");
+            var userBadges = await _db.UserBadges
+                .AsNoTracking()
+                .Include(ub => ub.Badge)
+                .Where(ub => ub.UserId == userId)
+                .OrderBy(ub => ub.AwardedAt)
+                .ToListAsync();
 
-            // Remove assignments
-            var assignments = _db.UserBadges.Where(ub => ub.BadgeId == badgeId);
-            _db.UserBadges.RemoveRange(assignments);
+            var result = new List<BadgeDto>(userBadges.Count);
 
-            // Remove file if stored on disk (ImageUrl starting with /badges/)
-            if (!string.IsNullOrWhiteSpace(badge.ImageUrl) && badge.ImageUrl.StartsWith("/badges/", StringComparison.OrdinalIgnoreCase))
+            foreach (var ub in userBadges)
             {
-                var webRoot = _env.WebRootPath;
-                if (string.IsNullOrEmpty(webRoot))
+                if (ub.Badge == null)
+                    continue;
+
+                var imageUrl = await ConvertImageUrlAsync(ub.Badge.ImageUrl);
+
+                result.Add(new BadgeDto
                 {
-                    webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                }
-                // convert URL path to file system path
-                var relativePath = badge.ImageUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var filePath = Path.Combine(webRoot, relativePath);
-                if (File.Exists(filePath))
-                {
-                    try
-                    {
-                        File.Delete(filePath);
-                    }
-                    catch
-                    {
-                        // ignore failures deleting file
-                    }
-                }
+                    Id = ub.Badge.Id,
+                    Name = ub.Badge.Name,
+                    Description = ub.Badge.Description,
+                    ImageUrl = imageUrl
+                });
             }
-            _db.Badges.Remove(badge);
-            await _db.SaveChangesAsync();
+
+            return result;
         }
 
-        /// <summary>
-        /// Converts the stored ImageUrl to a data URI if it points to a file
-        /// under /badges. If it's already a data URI or empty, returns it as is.
-        /// </summary>
-        /// <param name="imageUrl">The image URL stored in the database.</param>
-        /// <returns>A data URI string if applicable, otherwise the original imageUrl.</returns>
-        private async Task<string> ConvertImageUrlAsync(string? imageUrl)
+        /// <inheritdoc />
+        public async Task<BadgeDto> CreateBadgeAsync(string name, string? description, IFormFile svgFile)
         {
-            if (string.IsNullOrWhiteSpace(imageUrl))
-                return string.Empty;
-            // Already a data URI
-            if (imageUrl.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
-                return imageUrl;
-            // Only convert if referencing our badges folder
-            if (imageUrl.StartsWith("/badges/", StringComparison.OrdinalIgnoreCase))
-            {
-                var webRoot = _env.WebRootPath;
-                if (string.IsNullOrEmpty(webRoot))
-                {
-                    webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                }
-                var relative = imageUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var filePath = Path.Combine(webRoot, relative);
-                if (File.Exists(filePath))
-                {
-                    // read file bytes and convert to base64 data URI
-                    var bytes = await File.ReadAllBytesAsync(filePath);
-                    var base64 = Convert.ToBase64String(bytes);
-                    return $"data:image/svg+xml;base64,{base64}";
-                }
-            }
-            return imageUrl;
-        }
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Имя бейджа не может быть пустым.", nameof(name));
 
-        public async Task<BadgeDto> CreateBadgeAsync(string name, string description, IFormFile svgFile)
-        {
             if (svgFile == null || svgFile.Length == 0)
-                throw new ArgumentException("Файл изображения не выбран");
+                throw new ArgumentException("Файл изображения не выбран или пуст.", nameof(svgFile));
 
-            var ext = Path.GetExtension(svgFile.FileName)?.ToLowerInvariant();
-            if (ext != ".svg")
-                throw new InvalidOperationException("Разрешены только SVG-файлы");
+            var extension = Path.GetExtension(svgFile.FileName)?.ToLowerInvariant() ?? string.Empty;
+            if (extension != ".svg")
+                throw new InvalidOperationException("Разрешены только SVG-файлы (.svg).");
 
-            // создаём идентификатор и читаем содержимое файла в память
             var badgeId = Guid.NewGuid();
 
-            using var ms = new MemoryStream();
-            await svgFile.CopyToAsync(ms);
-            var base64 = Convert.ToBase64String(ms.ToArray());
-            // Data URI для SVG. Такой формат не требует отдачи статических файлов.
-            var dataUrl = $"data:image/svg+xml;base64,{base64}";
+            // 1. Папка wwwroot
+            var webRoot = _env.WebRootPath;
+            if (string.IsNullOrWhiteSpace(webRoot))
+            {
+                webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            }
+
+            // 2. Папка для бейджей
+            var badgesDir = Path.Combine(webRoot, "badges");
+            Directory.CreateDirectory(badgesDir);
+
+            // 3. Имя файла
+            var fileName = $"{badgeId}{extension}";
+            var filePath = Path.Combine(badgesDir, fileName);
+
+            // 4. Сохраняем файл на диск
+            await using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
+            {
+                await svgFile.CopyToAsync(fileStream);
+            }
+
+            // 5. В БД сохраняем относительный путь
+            var imageUrl = $"/badges/{fileName}";
 
             var badge = new Badge
             {
                 Id = badgeId,
                 Name = name.Trim(),
                 Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
-                ImageUrl = dataUrl,
+                ImageUrl = imageUrl,
                 CreatedAt = DateTime.UtcNow
             };
 
             _db.Badges.Add(badge);
             await _db.SaveChangesAsync();
 
+            // 6. Для фронта сразу отдаём data URI (или путь, если не удалось прочитать файл)
+            var dtoImageUrl = await ConvertImageUrlAsync(imageUrl);
+
             return new BadgeDto
             {
                 Id = badge.Id,
                 Name = badge.Name,
-                ImageUrl = badge.ImageUrl,
-                Description = badge.Description
+                Description = badge.Description,
+                ImageUrl = dtoImageUrl
             };
         }
 
+        /// <inheritdoc />
+        public async Task DeleteBadgeAsync(Guid badgeId)
+        {
+            var badge = await _db.Badges.FirstOrDefaultAsync(b => b.Id == badgeId);
+            if (badge == null)
+            {
+                // Ничего не делаем, если бейдж уже удалён.
+                return;
+            }
+
+            // Попробуем удалить файл, если он хранится как путь.
+            if (!string.IsNullOrWhiteSpace(badge.ImageUrl) &&
+                !badge.ImageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteBadgeFile(badge.ImageUrl);
+            }
+
+            // UserBadge удалятся каскадно, если настроен cascade delete.
+            // Даже если нет — можно явно удалить:
+            // var links = _db.UserBadges.Where(ub => ub.BadgeId == badgeId);
+            // _db.UserBadges.RemoveRange(links);
+
+            _db.Badges.Remove(badge);
+            await _db.SaveChangesAsync();
+        }
+
+        /// <inheritdoc />
         public async Task AwardBadgeAsync(Guid userId, Guid badgeId)
         {
-            // проверим, что бейдж существует
-            var badge = await _db.Badges.FindAsync(badgeId);
-            if (badge == null)
-                throw new KeyNotFoundException("Бейдж не найден");
+            // Проверим, что сам бейдж существует.
+            var badgeExists = await _db.Badges
+                .AsNoTracking()
+                .AnyAsync(b => b.Id == badgeId);
 
-            // проверим, что пользователь существует
-            var userExists = await _db.Users.AnyAsync(u => u.Id == userId);
+            if (!badgeExists)
+                throw new InvalidOperationException("Указанный бейдж не существует.");
+
+            // Можно также проверить существование пользователя, если нужно.
+            var userExists = await _db.Users
+                .AsNoTracking()
+                .AnyAsync(u => u.Id == userId);
+
             if (!userExists)
-                throw new KeyNotFoundException("Пользователь не найден");
+                throw new InvalidOperationException("Указанный пользователь не существует.");
 
-            // если уже есть такая связка, не создаём повторно
-            var exists = await _db.UserBadges.AnyAsync(ub => ub.UserId == userId && ub.BadgeId == badgeId);
-            if (exists) return;
+            // Не даём назначить один и тот же бейдж дважды.
+            var alreadyHas = await _db.UserBadges
+                .AsNoTracking()
+                .AnyAsync(ub => ub.UserId == userId && ub.BadgeId == badgeId);
+
+            if (alreadyHas)
+                return;
 
             var userBadge = new UserBadge
             {
@@ -221,8 +212,85 @@ namespace taskforge.Services
                 BadgeId = badgeId,
                 AwardedAt = DateTime.UtcNow
             };
+
             _db.UserBadges.Add(userBadge);
             await _db.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Конвертирует строку ImageUrl в то, что удобно фронту:
+        /// - если это уже data URI — возвращаем как есть;
+        /// - если это относительный путь ("/badges/xxx.svg") — читаем файл
+        ///   и оборачиваем в data URI;
+        /// - если файл не найден — возвращаем исходную строку или пустую.
+        /// </summary>
+        private async Task<string> ConvertImageUrlAsync(string imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                return string.Empty;
+
+            if (imageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                return imageUrl;
+
+            // Ожидаем относительный путь вида "/badges/xxx.svg" или "badges/xxx.svg"
+            var webRoot = _env.WebRootPath;
+            if (string.IsNullOrWhiteSpace(webRoot))
+            {
+                webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            }
+
+            var relativePath = imageUrl.TrimStart('~').TrimStart('/');
+            var fullPath = Path.Combine(webRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+            if (!File.Exists(fullPath))
+            {
+                // Файл не найден — пусть фронт сам решает, что делать.
+                return imageUrl;
+            }
+
+            var bytes = await File.ReadAllBytesAsync(fullPath);
+            var base64 = Convert.ToBase64String(bytes);
+
+            var extension = Path.GetExtension(fullPath)?.ToLowerInvariant();
+            var mimeType = extension switch
+            {
+                ".svg" => "image/svg+xml",
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif" => "image/gif",
+                _ => "application/octet-stream"
+            };
+
+            return $"data:{mimeType};base64,{base64}";
+        }
+
+        /// <summary>
+        /// Пытается удалить файл изображения бейджа, если он хранится как путь.
+        /// Ошибки не пробрасываются наружу — чтобы не ломать удаление в целом.
+        /// </summary>
+        /// <param name="imageUrl">Относительный URL, например "/badges/xxx.svg".</param>
+        private void TryDeleteBadgeFile(string imageUrl)
+        {
+            try
+            {
+                var webRoot = _env.WebRootPath;
+                if (string.IsNullOrWhiteSpace(webRoot))
+                {
+                    webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                }
+
+                var relativePath = imageUrl.TrimStart('~').TrimStart('/');
+                var fullPath = Path.Combine(webRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                if (File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                }
+            }
+            catch
+            {
+                // Лог можно добавить при необходимости, но исключение глушим.
+            }
         }
     }
 }

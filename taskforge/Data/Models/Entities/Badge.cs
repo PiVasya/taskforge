@@ -4,32 +4,48 @@ using System.ComponentModel.DataAnnotations;
 namespace taskforge.Data.Models.Entities
 {
     /// <summary>
-    /// Представляет награду/бейдж, который может быть присвоен пользователю. Каждый бейдж имеет
-    /// имя, изображение (SVG или другая картинка) и необязательное описание. Картинка хранится
-    /// как URL (например, путь к файлу в wwwroot или внешнему хранилищу).
+    /// Представляет награду/бейдж, который может быть присвоен пользователю.
+    /// Каждый бейдж имеет имя, изображение и необязательное описание.
+    /// Изображение хранится как строка:
+    /// - либо относительный путь к файлу в wwwroot (например, "/badges/{id}.svg");
+    /// - либо data URI (data:image/...;base64,...).
     /// </summary>
     public class Badge
     {
+        /// <summary>
+        /// Уникальный идентификатор бейджа.
+        /// </summary>
         [Key]
         public Guid Id { get; set; }
 
+        /// <summary>
+        /// Человекочитаемое название бейджа.
+        /// </summary>
         [Required]
-        [MaxLength(100)]
+        [MaxLength(128)]
         public string Name { get; set; } = string.Empty;
 
-        [MaxLength(512)]
+        /// <summary>
+        /// Необязательное текстовое описание.
+        /// </summary>
+        [MaxLength(1024)]
         public string? Description { get; set; }
 
         /// <summary>
-        /// Ссылка или data URI на изображение бейджа. Раньше здесь хранился путь к
-        /// файлу внутри каталога /badges, но теперь изображения сохраняются как
-        /// data URI прямо в базе данных. Тем не менее поле остаётся строковым
-        /// и поддерживает до 8192 символов, чтобы уместить длинные base64‑строки.
+        /// Ссылка на изображение бейджа:
+        /// - либо относительный URL ("/badges/xxx.svg");
+        /// - либо data URI вида "data:image/svg+xml;base64,...".
+        ///
+        /// Лимит поднят до 40000 символов, чтобы спокойно
+        /// влезали большие SVG/base64.
         /// </summary>
         [Required]
-        [MaxLength(8192)]
+        [MaxLength(40000)]
         public string ImageUrl { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Время создания бейджа (UTC).
+        /// </summary>
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

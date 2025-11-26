@@ -11,31 +11,33 @@ namespace taskforge.Services.Interfaces
     /// Позволяет:
     /// - получать список всех существующих бейджей;
     /// - получать бейджи конкретного пользователя;
-    /// - создавать новые бейджи по SVG-файлу (храня картинку как data URI);
+    /// - создавать новые бейджи по SVG-файлу;
     /// - назначать бейджи пользователям;
-    /// - удалять бейджи.
+    /// - удалять бейджи (вместе с привязками и, при необходимости, файлами).
     /// </summary>
     public interface IBadgeService
     {
         /// <summary>
-        /// Возвращает список всех доступных бейджей.
+        /// Возвращает список всех бейджей.
         /// </summary>
         Task<IReadOnlyList<BadgeDto>> GetAllBadgesAsync();
 
         /// <summary>
-        /// Возвращает список бейджей пользователя в порядке их назначения.
+        /// Возвращает бейджи конкретного пользователя.
         /// </summary>
+        /// <param name="userId">ID пользователя.</param>
         Task<IReadOnlyList<BadgeDto>> GetUserBadgesAsync(Guid userId);
 
         /// <summary>
-        /// Создаёт новый бейдж. SVG-файл читается и сохраняется в БД
-        /// в виде строки data:image/svg+xml;base64,...
+        /// Создаёт новый бейдж по загруженному SVG-файлу.
+        /// Сохраняет файл на диск (в wwwroot/badges),
+        /// а в базу — относительный путь или data URI.
+        /// На выход отдаёт DTO с уже готовым ImageUrl (обычно — data URI).
         /// </summary>
         /// <param name="name">Название бейджа.</param>
-        /// <param name="description">Описание (может быть пустым).</param>
-        /// <param name="svgFile">SVG-файл с изображением.</param>
-        /// <returns>DTO созданного бейджа.</returns>
-        Task<BadgeDto> CreateBadgeAsync(string name, string description, IFormFile svgFile);
+        /// <param name="description">Необязательное описание.</param>
+        /// <param name="svgFile">Файл изображения (SVG).</param>
+        Task<BadgeDto> CreateBadgeAsync(string name, string? description, IFormFile svgFile);
 
         /// <summary>
         /// Назначает существующий бейдж пользователю. Повторно назначать
@@ -47,6 +49,7 @@ namespace taskforge.Services.Interfaces
 
         /// <summary>
         /// Удаляет бейдж и все его назначения пользователям.
+        /// Если изображение хранится как файл, файл также удаляется.
         /// </summary>
         /// <param name="badgeId">ID бейджа.</param>
         Task DeleteBadgeAsync(Guid badgeId);
