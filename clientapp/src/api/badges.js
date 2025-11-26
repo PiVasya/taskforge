@@ -50,3 +50,14 @@ export async function deleteBadge(badgeId) {
   await api.delete(`/api/badges/${badgeId}`);
   return true;
 }
+
+/**
+ * Снять (отозвать) выданный бейдж у пользователя.
+ * POST /api/badges/revoke
+ * @param {string} userId
+ * @param {string} badgeId
+ */
+export async function revokeBadge(userId, badgeId) {
+  await api.post('/api/badges/revoke', { userId, badgeId });
+  return true;
+}

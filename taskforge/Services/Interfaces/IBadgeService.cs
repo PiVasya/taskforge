@@ -13,6 +13,7 @@ namespace taskforge.Services.Interfaces
     /// - получать бейджи конкретного пользователя;
     /// - создавать новые бейджи по SVG-файлу;
     /// - назначать бейджи пользователям;
+    /// - снимать бейджи с пользователей;
     /// - удалять бейджи (вместе с привязками и, при необходимости, файлами).
     /// </summary>
     public interface IBadgeService
@@ -46,6 +47,14 @@ namespace taskforge.Services.Interfaces
         /// <param name="userId">ID пользователя.</param>
         /// <param name="badgeId">ID бейджа.</param>
         Task AwardBadgeAsync(Guid userId, Guid badgeId);
+
+        /// <summary>
+        /// Снимает указанный бейдж с пользователя.
+        /// Если такого назначения нет — метод просто ничего не делает.
+        /// </summary>
+        /// <param name="userId">ID пользователя.</param>
+        /// <param name="badgeId">ID бейджа.</param>
+        Task RevokeBadgeAsync(Guid userId, Guid badgeId);
 
         /// <summary>
         /// Удаляет бейдж и все его назначения пользователям.

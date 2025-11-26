@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select } from '../../components/ui';
 import { searchUsersOnce } from '../../api/admin';
-import { getAllBadges, createBadge, awardBadge, deleteBadge } from '../../api/badges';
+import {
+  getAllBadges,
+  createBadge,
+  awardBadge,
+  deleteBadge,
+  getUserBadges,
+  revokeBadge,
+} from '../../api/badges';
 
 /**
  * Страница администрирования бейджей.
@@ -22,6 +29,10 @@ export default function AdminBadgesPage() {
   const [badges, setBadges] = useState([]);
   const [badgesLoading, setBadgesLoading] = useState(true);
 
+  // бейджи выбранного пользователя
+  const [userBadges, setUserBadges] = useState([]);
+  const [userBadgesLoading, setUserBadgesLoading] = useState(false);
+
   // создание бейджа
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -38,6 +49,17 @@ export default function AdminBadgesPage() {
     })();
   }, []);
 
+  // загружаем бейджи выбранного пользователя при смене userId
+  useEffect(() => {
+    if (!userId) {
+      setUserBadges([]);
+      return;
+    }
+    (async () => {
+      await loadUserBadges(userId);
+    })();
+  }, [userId]);
+
   /**
    * Загрузить список доступных бейджей с бэка
    */
@@ -50,6 +72,23 @@ export default function AdminBadgesPage() {
       console.error('Failed to load badges', err);
     } finally {
       setBadgesLoading(false);
+    }
+  };
+
+  /**
+   * Загрузить список бейджей выбранного пользователя
+   * @param {string} uid
+   */
+  const loadUserBadges = async (uid) => {
+    if (!uid) return;
+    setUserBadgesLoading(true);
+    try {
+      const list = await getUserBadges(uid);
+      setUserBadges(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error('Failed to load user badges', err);
+    } finally {
+      setUserBadgesLoading(false);
     }
   };
 
@@ -104,6 +143,8 @@ export default function AdminBadgesPage() {
     try {
       await awardBadge(userId, badgeId);
       setMessage('Бейдж выдан');
+      // обновляем список бейджей пользователя
+      await loadUserBadges(userId);
     } catch (err) {
       console.error('Failed to award badge', err);
       setMessage('Не удалось выдать бейдж');
@@ -123,6 +164,26 @@ export default function AdminBadgesPage() {
     } catch (err) {
       console.error('Failed to delete badge', err);
       setMessage('Не удалось удалить бейдж');
+    }
+  };
+
+  /**
+   * Снятие (удаление) бейджа у выбранного пользователя
+   */
+  const handleRevoke = async (badgeId) => {
+    if (!userId) {
+      setMessage('Сначала выберите пользователя');
+      return;
+    }
+    const ok = window.confirm('Снять этот бейдж у пользователя?');
+    if (!ok) return;
+    try {
+      await revokeBadge(userId, badgeId);
+      setMessage('Бейдж снят');
+      await loadUserBadges(userId);
+    } catch (err) {
+      console.error('Failed to revoke badge', err);
+      setMessage('Не удалось снять бейдж');
     }
   };
 
@@ -276,6 +337,57 @@ export default function AdminBadgesPage() {
 
         {message && (
           <div className="text-sm text-emerald-600 dark:text-emerald-400">{message}</div>
+        )}
+
+        {/* бейджи выбранного пользователя */}
+        {selectedUser && (
+          <Card className="p-4 space-y-4">
+            <h2 className="text-lg font-semibold">
+              Бейджи пользователя
+              {selectedUser.firstName || selectedUser.lastName
+                ? `: ${selectedUser.firstName} ${selectedUser.lastName}`
+                : ''}
+            </h2>
+            {userBadgesLoading ? (
+              <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+            ) : userBadges.length === 0 ? (
+              <div className="text-slate-600 dark:text-slate-300">У пользователя пока нет бейджей</div>
+            ) : (
+              <div className="space-y-3">
+                {userBadges.map((b) => (
+                  <div
+                    key={b.id}
+                    className="flex items-center justify-between border border-slate-200 dark:border-slate-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {b.imageUrl && (
+                        <img
+                          src={b.imageUrl}
+                          alt={b.name}
+                          className="h-8 w-8 rounded border border-slate-200 dark:border-slate-700 object-contain"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900 dark:text-slate-50 truncate">
+                          {b.name}
+                        </div>
+                        {b.description && (
+                          <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                            {b.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" intent="danger" onClick={() => handleRevoke(b.id)}>
+                        Снять
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         )}
       </div>
     </Layout>
