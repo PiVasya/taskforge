@@ -68,7 +68,7 @@ export default function LeaderboardCard({ entry }) {
                 <span
                   key={badge.id || badge.name}
                   title={badge.name}
-                  className="inline-flex items-center justify-center rounded-full bg-[rgb(var(--muted))] px-1.5 py-1"
+                  className="inline-flex items-center justify-center drop-shadow-sm"
                 >
                   {badge.imageUrl && (
                     <img
