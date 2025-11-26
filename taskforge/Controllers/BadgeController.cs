@@ -86,6 +86,28 @@ namespace taskforge.Controllers
         }
 
         /// <summary>
+        /// Снимает (отзывает) бейдж у пользователя. Получает JSON с полями userId и badgeId.
+        /// </summary>
+        /// <param name="request">Запрос со связкой пользователь–бейдж.</param>
+        /// <returns>HTTP 200 OK если снятие прошло успешно.</returns>
+        [HttpPost("revoke")]
+        public async Task<IActionResult> Revoke([FromBody] RevokeBadgeRequest request)
+        {
+            // Ничего не делаем, если данные невалидны – сервис сам проверит
+            await _badgeService.RevokeBadgeAsync(request.UserId, request.BadgeId);
+            return Ok();
+        }
+
+        /// <summary>
+        /// Модель запроса для снятия бейджа у пользователя.
+        /// </summary>
+        public sealed class RevokeBadgeRequest
+        {
+            public Guid UserId { get; set; }
+            public Guid BadgeId { get; set; }
+        }
+
+        /// <summary>
         /// Удаляет бейдж. Доступно только администраторам. При удалении также
         /// удаляются все назначения этого бейджа пользователям и, если
         /// изображение хранится как файл, файл удаляется.

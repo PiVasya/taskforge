@@ -17,9 +17,9 @@ namespace taskforge.Services
     /// Реализация сервиса управления бейджами.
     /// Умеет:
     /// - создавать бейджи по SVG-файлам (файл на диск, путь в БД);
-    /// - выдавать и снимать бейджи с пользователей;
+    /// - выдавать бейджи пользователям;
     /// - возвращать списки бейджей в виде DTO с корректным ImageUrl (data URI);
-    /// - удалять бейджи вместе со связями и, при необходимости, с файлами.
+    /// - удалять бейджи вместе с связями и при необходимости — с файлами.
     /// </summary>
     public class BadgeService : IBadgeService
     {
@@ -153,6 +153,32 @@ namespace taskforge.Services
         }
 
         /// <inheritdoc />
+        public async Task DeleteBadgeAsync(Guid badgeId)
+        {
+            var badge = await _db.Badges.FirstOrDefaultAsync(b => b.Id == badgeId);
+            if (badge == null)
+            {
+                // Ничего не делаем, если бейдж уже удалён.
+                return;
+            }
+
+            // Попробуем удалить файл, если он хранится как путь.
+            if (!string.IsNullOrWhiteSpace(badge.ImageUrl) &&
+                !badge.ImageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteBadgeFile(badge.ImageUrl);
+            }
+
+            // UserBadge удалятся каскадно, если настроен cascade delete.
+            // Даже если нет — можно явно удалить:
+            // var links = _db.UserBadges.Where(ub => ub.BadgeId == badgeId);
+            // _db.UserBadges.RemoveRange(links);
+
+            _db.Badges.Remove(badge);
+            await _db.SaveChangesAsync();
+        }
+
+        /// <inheritdoc />
         public async Task AwardBadgeAsync(Guid userId, Guid badgeId)
         {
             // Проверим, что сам бейдж существует.
@@ -191,45 +217,23 @@ namespace taskforge.Services
             await _db.SaveChangesAsync();
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Снимает (удаляет) указанный бейдж у пользователя.
+        /// Если у пользователя нет этого бейджа – метод не делает ничего.
+        /// </summary>
+        /// <param name="userId">ID пользователя.</param>
+        /// <param name="badgeId">ID бейджа.</param>
         public async Task RevokeBadgeAsync(Guid userId, Guid badgeId)
         {
-            // Находим конкретную связку пользователь ↔ бейдж.
             var userBadge = await _db.UserBadges
                 .FirstOrDefaultAsync(ub => ub.UserId == userId && ub.BadgeId == badgeId);
 
             if (userBadge == null)
             {
-                // Нечего снимать — просто выходим.
                 return;
             }
 
             _db.UserBadges.Remove(userBadge);
-            await _db.SaveChangesAsync();
-        }
-
-        /// <inheritdoc />
-        public async Task DeleteBadgeAsync(Guid badgeId)
-        {
-            var badge = await _db.Badges.FirstOrDefaultAsync(b => b.Id == badgeId);
-            if (badge == null)
-            {
-                // Ничего не делаем, если бейдж уже удалён.
-                return;
-            }
-
-            // Попробуем удалить файл, если он хранится как путь.
-            if (!string.IsNullOrWhiteSpace(badge.ImageUrl) &&
-                !badge.ImageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            {
-                TryDeleteBadgeFile(badge.ImageUrl);
-            }
-
-            // Если каскад не настроен — можно явно удалить связки:
-            // var links = _db.UserBadges.Where(ub => ub.BadgeId == badgeId);
-            // _db.UserBadges.RemoveRange(links);
-
-            _db.Badges.Remove(badge);
             await _db.SaveChangesAsync();
         }
 
@@ -305,7 +309,7 @@ namespace taskforge.Services
             }
             catch
             {
-                // Можно залогировать, но не рушим основной поток.
+                // Лог можно добавить при необходимости, но исключение глушим.
             }
         }
     }
