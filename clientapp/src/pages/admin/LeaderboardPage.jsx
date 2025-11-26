@@ -1,11 +1,10 @@
-// LeaderboardPage.jsx — обновлённая финальная версия
+// LeaderboardPage.jsx — версия с фильтрами и сеткой максимум из 2 колонок
+
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
 import LeaderboardCard from '../../components/LeaderboardCard';
-
-// UI
 import { Card, Input, Select, Button } from '../../components/ui';
 
 export default function LeaderboardPage() {
@@ -76,8 +75,7 @@ export default function LeaderboardPage() {
         {/* Фильтры */}
         <Card className="p-4 space-y-2">
           <div className="flex flex-wrap gap-4 items-end">
-
-            {/* Courses */}
+            {/* Курс */}
             <div className="flex flex-col min-w-[140px]">
               <label htmlFor="course-filter" className="text-xs font-medium mb-1">
                 Курс
@@ -96,7 +94,7 @@ export default function LeaderboardPage() {
               </Select>
             </div>
 
-            {/* Days */}
+            {/* Дни */}
             <div className="flex flex-col w-24">
               <label htmlFor="days-filter" className="text-xs font-medium mb-1">
                 За последние, дней
@@ -111,7 +109,7 @@ export default function LeaderboardPage() {
               />
             </div>
 
-            {/* Group (disabled placeholder) */}
+            {/* Группа (заглушка) */}
             <div className="flex flex-col w-32">
               <label htmlFor="group-filter" className="text-xs font-medium mb-1">
                 Группа
@@ -126,7 +124,7 @@ export default function LeaderboardPage() {
               />
             </div>
 
-            {/* Apply button */}
+            {/* Кнопка */}
             <Button
               type="button"
               variant="primary"
@@ -138,19 +136,17 @@ export default function LeaderboardPage() {
           </div>
         </Card>
 
-        {/* Loading */}
         {loading && <div>Загрузка…</div>}
 
-        {/* Error */}
         {error && (
           <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
             {error}
           </div>
         )}
 
-        {/* List */}
         {!loading && !error && (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          // максимум 2 человека в строку: 1 колонка на мобиле, 2 — на шире md
+          <div className="grid gap-4 md:grid-cols-2">
             {entries.map((e) => (
               <LeaderboardCard key={e.userId} entry={e} />
             ))}
