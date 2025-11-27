@@ -235,7 +235,9 @@ export default function CourseAssignmentsPage() {
                     className="px-2 py-1 rounded-lg border hover:bg-slate-50"
                     title="Выше"
                     onClick={(e) => {
+                      // Останавливаем всплытие события, чтобы клик по кнопке не переходил по ссылке
                       e.preventDefault();
+                      e.stopPropagation();
                       swapByIndex(idx, idx - 1);
                     }}
                   >
@@ -246,7 +248,9 @@ export default function CourseAssignmentsPage() {
                     className="px-2 py-1 rounded-lg border hover:bg-slate-50"
                     title="Ниже"
                     onClick={(e) => {
+                      // Останавливаем всплытие события, чтобы клик по кнопке не переходил по ссылке
                       e.preventDefault();
+                      e.stopPropagation();
                       swapByIndex(idx, idx + 1);
                     }}
                   >
