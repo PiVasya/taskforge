@@ -1,21 +1,28 @@
-// modified PublicProfilePage.jsx fixes link visibility and trims empty strings
+// PublicProfilePage.jsx – публичный профиль пользователя с бейджами
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Badge } from '../components/ui';
 import { Github, Send, Globe2, MapPin, BookOpen, Trophy } from 'lucide-react';
 import { api } from '../api/http';
+import { getUserBadges } from '../api/badges';
 
 export default function PublicProfilePage() {
   const { userId } = useParams();
+
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [badges, setBadges] = useState([]);
+  const [badgesLoading, setBadgesLoading] = useState(false);
+
+  // Загрузка публичного профиля
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
+        setError(null);
         const { data } = await api.get(`/api/users/${userId}/public-profile`);
         setProfile(data);
       } catch (e) {
@@ -27,10 +34,28 @@ export default function PublicProfilePage() {
     })();
   }, [userId]);
 
+  // Загрузка бейджей пользователя
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      try {
+        setBadgesLoading(true);
+        const list = await getUserBadges(userId);
+        setBadges(Array.isArray(list) ? list : []);
+      } catch (e) {
+        console.error('Failed to load user badges', e);
+        setBadges([]);
+      } finally {
+        setBadgesLoading(false);
+      }
+    })();
+  }, [userId]);
+
   return (
     <Layout>
       <div className="max-w-3xl mx-auto space-y-6">
         {loading && <div>Загрузка…</div>}
+
         {error && (
           <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
             {error}
@@ -60,10 +85,13 @@ export default function PublicProfilePage() {
                   <h1 className="text-2xl font-semibold truncate">
                     {profile.displayName || profile.email}
                   </h1>
-                  <div className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-medium">
-                    <Trophy size={14} />
-                    <span>#{profile.rank} в топе</span>
-                  </div>
+
+                  {typeof profile.rank === 'number' && (
+                    <div className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-medium">
+                      <Trophy size={14} />
+                      <span>#{profile.rank} в топе</span>
+                    </div>
+                  )}
                 </div>
 
                 {profile.location && (
@@ -72,6 +100,7 @@ export default function PublicProfilePage() {
                     <span>{profile.location}</span>
                   </div>
                 )}
+
                 {profile.education && (
                   <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
                     <BookOpen size={14} />
@@ -84,6 +113,27 @@ export default function PublicProfilePage() {
                     {profile.bio}
                   </p>
                 )}
+
+                {/* Маленькая полоска бейджей сразу под именем */}
+                {badges.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-2">
+                    {badges.map((b) => (
+                      <span
+                        key={b.id || b.name}
+                        title={b.name}
+                        className="inline-flex items-center justify-center"
+                      >
+                        {b.imageUrl && (
+                          <img
+                            src={b.imageUrl}
+                            alt={b.name}
+                            className="h-6 w-6 object-contain rounded border border-slate-200 dark:border-slate-700"
+                          />
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </Card>
 
@@ -92,10 +142,16 @@ export default function PublicProfilePage() {
                 <h2 className="font-semibold text-sm">Статистика</h2>
                 <div className="text-sm space-y-1">
                   <div>
-                    <span className="font-semibold">{profile.solvedAssignments}</span> решённых заданий
+                    <span className="font-semibold">
+                      {profile.solvedAssignments}
+                    </span>{' '}
+                    решённых заданий
                   </div>
                   <div>
-                    <span className="font-semibold">{profile.totalAttempts}</span> попыток отправки решений
+                    <span className="font-semibold">
+                      {profile.totalAttempts}
+                    </span>{' '}
+                    попыток отправки решений
                   </div>
                 </div>
               </Card>
@@ -107,6 +163,7 @@ export default function PublicProfilePage() {
                     const hasGithub = !!profile.github?.trim();
                     const hasTelegram = !!profile.telegram?.trim();
                     const hasWebsite = !!profile.website?.trim();
+
                     return (
                       <>
                         {hasGithub && (
@@ -120,12 +177,16 @@ export default function PublicProfilePage() {
                             <span>GitHub</span>
                           </a>
                         )}
+
                         {hasTelegram && (
                           <a
                             href={
                               profile.telegram.startsWith('http')
                                 ? profile.telegram
-                                : `https://t.me/${profile.telegram.replace(/^@/, '')}`
+                                : `https://t.me/${profile.telegram.replace(
+                                    /^@/,
+                                    ''
+                                  )}`
                             }
                             target="_blank"
                             rel="noreferrer"
@@ -135,6 +196,7 @@ export default function PublicProfilePage() {
                             <span>Telegram</span>
                           </a>
                         )}
+
                         {hasWebsite && (
                           <a
                             href={profile.website}
@@ -146,8 +208,11 @@ export default function PublicProfilePage() {
                             <span>Сайт / портфолио</span>
                           </a>
                         )}
+
                         {!hasGithub && !hasTelegram && !hasWebsite && (
-                          <div className="text-xs text-slate-400">Пользователь не добавил ссылки.</div>
+                          <div className="text-xs text-slate-400">
+                            Пользователь не добавил ссылки.
+                          </div>
                         )}
                       </>
                     );
@@ -164,6 +229,34 @@ export default function PublicProfilePage() {
                     <Badge key={s}>{s}</Badge>
                   ))}
                 </div>
+              </Card>
+            )}
+
+            {(badgesLoading || badges.length > 0) && (
+              <Card className="p-4 space-y-2">
+                <h2 className="font-semibold text-sm">Бейджи</h2>
+                {badgesLoading && (
+                  <div className="text-xs text-slate-400">Загрузка…</div>
+                )}
+                {!badgesLoading && badges.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {badges.map((b) => (
+                      <span
+                        key={b.id || b.name}
+                        title={b.name}
+                        className="inline-flex items-center justify-center"
+                      >
+                        {b.imageUrl && (
+                          <img
+                            src={b.imageUrl}
+                            alt={b.name}
+                            className="h-8 w-8 object-contain rounded border border-slate-200 dark:border-slate-700"
+                          />
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </Card>
             )}
           </>
