@@ -16,7 +16,7 @@ import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); 
   const [saved, setSaved] = useState(false);
 
   const [profile, setProfile] = useState(null);
