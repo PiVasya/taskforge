@@ -104,51 +104,36 @@ namespace taskforge.Services
 
             var badgeId = Guid.NewGuid();
 
-            // 1. Папка wwwroot
-            var webRoot = _env.WebRootPath;
-            if (string.IsNullOrWhiteSpace(webRoot))
+            // Читаем загруженный SVG-файл в память и кодируем его в base64.
+            byte[] svgBytes;
+            await using (var ms = new MemoryStream())
             {
-                webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                await svgFile.CopyToAsync(ms);
+                svgBytes = ms.ToArray();
             }
-
-            // 2. Папка для бейджей
-            var badgesDir = Path.Combine(webRoot, "badges");
-            Directory.CreateDirectory(badgesDir);
-
-            // 3. Имя файла
-            var fileName = $"{badgeId}{extension}";
-            var filePath = Path.Combine(badgesDir, fileName);
-
-            // 4. Сохраняем файл на диск
-            await using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-            {
-                await svgFile.CopyToAsync(fileStream);
-            }
-
-            // 5. В БД сохраняем относительный путь
-            var imageUrl = $"/badges/{fileName}";
+            // Формируем data URI вида "data:image/svg+xml;base64,..."
+            var base64 = Convert.ToBase64String(svgBytes); //НЕ ТРОГАТЬ НЕ ЛОМАТЬ  И Т.П.
+            var dataUri = $"data:image/svg+xml;base64,{base64}";
 
             var badge = new Badge
             {
                 Id = badgeId,
                 Name = name.Trim(),
                 Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
-                ImageUrl = imageUrl,
+                ImageUrl = dataUri,
                 CreatedAt = DateTime.UtcNow
             };
 
             _db.Badges.Add(badge);
             await _db.SaveChangesAsync();
 
-            // 6. Для фронта сразу отдаём data URI (или путь, если не удалось прочитать файл)
-            var dtoImageUrl = await ConvertImageUrlAsync(imageUrl);
-
+            // Прямо возвращаем base64-строку, так как она уже является data URI
             return new BadgeDto
             {
                 Id = badge.Id,
                 Name = badge.Name,
                 Description = badge.Description,
-                ImageUrl = dtoImageUrl
+                ImageUrl = dataUri
             };
         }
 
