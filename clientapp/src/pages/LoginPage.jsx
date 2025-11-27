@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+﻿import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
 import { Field, Input, Button, Card } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
@@ -6,7 +6,7 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, access } = useAuth();      // забираем access из контекста
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -21,10 +21,10 @@ export default function LoginPage() {
     setErr("");
 
     try {
+      // ждём, пока login выполнится — он обновит access в контексте
       await login(email, password);
-      nav(from, { replace: true });
+      // ❗️ навигировать сразу не нужно: это сделает useEffect
     } catch (e) {
-      // аккуратно достаём текст ошибки
       const msg =
         e?.userMessage ||
         e?.response?.data?.message ||
@@ -38,6 +38,13 @@ export default function LoginPage() {
     }
   };
 
+  // Дожидаемся появления access и только потом перенаправляем
+  useEffect(() => {
+    if (access) {
+      nav(from, { replace: true });
+    }
+  }, [access, nav, from]);
+  
   return (
     <Layout>
       <div className="max-w-md mx-auto">
