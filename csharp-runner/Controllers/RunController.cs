@@ -25,8 +25,8 @@ public sealed class RunController : ControllerBase
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
             return BadRequest(new RunResponse { Error = "Code is empty." });
 
-        var (ok, asm, compileErr) = _compiler.Compile(req.Code);
-        if (!ok || asm is null)
+        var (ok, pe, pdb, compileErr) = _compiler.Compile(req.Code);
+        if (!ok || pe is null)
         {
             return Ok(new RunResponse
             {
@@ -39,7 +39,7 @@ public sealed class RunController : ControllerBase
 
         // при пустом вводе отправляем хотя бы перевод строки, чтобы ReadLine() не вернул null
         var normalizedInput = string.IsNullOrEmpty(req.Input) ? "\n" : req.Input!;
-        var (ranOk, stdout, err) = _exec.Run(asm, normalizedInput, TimeSpan.FromSeconds(3));
+        var (ranOk, stdout, err) = _exec.Run(pe, pdb ?? Array.Empty<byte>(), normalizedInput, TimeSpan.FromSeconds(3));
 
         return Ok(new RunResponse
         {
@@ -58,8 +58,8 @@ public sealed class RunController : ControllerBase
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
             return BadRequest();
 
-        var (ok, asm, compileErr) = _compiler.Compile(req.Code);
-        if (!ok || asm is null)
+        var (ok, pe, pdb, compileErr) = _compiler.Compile(req.Code);
+        if (!ok || pe is null)
         {
             // Возвращаем одну «ошибочную» запись, чтобы UI отобразил ошибку компиляции
             return Ok(new TestResultsResponse
@@ -83,16 +83,15 @@ public sealed class RunController : ControllerBase
         foreach (var t in tests)
         {
             var input = t.Input ?? "";
-            if (input.Length == 0) input = "\n"; // ключевая правка
+            if (input.Length == 0) input = "\n";
 
-            var (ranOk, stdout, ex) = _exec.Run(asm, input, TimeSpan.FromSeconds(3));
+            var (ranOk, stdout, ex) = _exec.Run(pe, pdb ?? Array.Empty<byte>(), input, TimeSpan.FromSeconds(3));
 
             string actual = stdout ?? "";
-            // сравниваем без различий в типе переноса строки и без хвостовых переводов
             bool passed = ranOk &&
                           string.Equals(
                               (t.ExpectedOutput ?? "").Replace("\r\n", "\n").TrimEnd(),
-                              (actual).Replace("\r\n", "\n").TrimEnd(),
+                              actual.Replace("\r\n", "\n").TrimEnd(),
                               StringComparison.Ordinal);
 
             if (!ranOk && string.IsNullOrEmpty(actual))

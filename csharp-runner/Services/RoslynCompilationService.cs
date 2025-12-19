@@ -1,17 +1,16 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using System.Reflection;
 
 namespace Runner.Services;
 
 public interface IRoslynCompilationService
 {
-    (bool Ok, Assembly? Assembly, string Error) Compile(string code);
+    (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code);
 }
 
 public sealed class RoslynCompilationService : IRoslynCompilationService
 {
-    public (bool Ok, Assembly? Assembly, string Error) Compile(string code)
+    public (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code)
     {
         try
         {
@@ -19,7 +18,7 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
 
             // ПОЛНЫЙ набор платформенных сборок (TPA) — критично для CS0012/System.Runtime
             var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? string.Empty)
-                      .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
 
             var references = tpa
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -44,7 +43,7 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
             var compilation = CSharpCompilation.Create(
                 assemblyName: "UserSubmission",
                 syntaxTrees: new[] { syntax },
-                references: references!,
+                references: references,
                 options: options
             );
 
@@ -57,18 +56,14 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
                 var errors = string.Join("\n", emit.Diagnostics
                     .Where(d => d.Severity == DiagnosticSeverity.Error)
                     .Select(d => d.ToString()));
-                return (false, null, errors);
+                return (false, null, null, errors);
             }
 
-            peStream.Position = 0;
-            pdbStream.Position = 0;
-
-            var asm = Assembly.Load(peStream.ToArray(), pdbStream.ToArray());
-            return (true, asm, "");
+            return (true, peStream.ToArray(), pdbStream.ToArray(), "");
         }
         catch (Exception ex)
         {
-            return (false, null, ex.Message);
+            return (false, null, null, ex.Message);
         }
     }
 }
