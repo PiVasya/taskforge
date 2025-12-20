@@ -31,6 +31,15 @@ jobs:
           - name: csharp-runner
             path: csharp-runner
             image: taskforge-csharp-runner
+          - name: javascript-runner
+            path: javascript-runner
+            image: taskforge-javascript-runner
+          - name: pascal-runner
+            path: pascal-runner
+            image: taskforge-pascal-runner
+          - name: java-runner
+            path: java-runner
+            image: taskforge-java-runner
 
     env:
       BRANCH_NAME: develop
