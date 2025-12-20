@@ -1,85 +1,96 @@
-# java-runner/server.py
 from fastapi import FastAPI
 from pydantic import BaseModel
-import subprocess, tempfile, os, resource
+import subprocess
+import tempfile
+import os
+import resource
+import math
 
 app = FastAPI()
 
-CPU_TIME_SEC = 3
-MEM_BYTES = 256 * 1024 * 1024
 MAX_OUT_LEN = 1_000_000
 
 class RunReq(BaseModel):
     code: str
     input: str | None = None
+    timeLimitMs: int | None = None
+    memoryLimitMb: int | None = None
 
-class TestsReq(BaseModel):
-    code: str
-    tests: list[dict]
+def _set_cpu_limit(timeout_ms: int):
+    sec = max(1, int(math.ceil(timeout_ms / 1000.0)) + 1)
+    resource.setrlimit(resource.RLIMIT_CPU, (sec, sec))
 
-def _limits():
-    resource.setrlimit(resource.RLIMIT_CPU, (CPU_TIME_SEC, CPU_TIME_SEC))
-    resource.setrlimit(resource.RLIMIT_AS, (MEM_BYTES, MEM_BYTES))
+def _java_heap_mb(mem_mb: int) -> int:
+    mem_mb = max(128, mem_mb)
+    # запас под metaspace/codecache/стек/ОС
+    heap = mem_mb - 128
+    if heap < 64:
+        heap = 64
+    if heap > 512:
+        heap = 512
+    return heap
 
-# компиляция и запуск Java-кода
-def _compile(source: str, workdir: str):
-    # компилируем Main.java в каталоге workdir
-    c = subprocess.run(["javac", source], stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE, text=True, cwd=workdir)
-    return c.returncode, c.stderr
-
-# запуск java-программы
-def _run(workdir: str, input_txt: str, timeout: int):
-    p = subprocess.Popen(["java", "-cp", workdir, "Main"],
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         cwd=workdir, text=True, preexec_fn=_limits)
-    try:
-        out, err = p.communicate(input_txt or "", timeout=timeout)
-        out = out.replace("\r\n", "\n")[:MAX_OUT_LEN]
-        err = err.replace("\r\n", "\n")[:MAX_OUT_LEN]
-        return p.returncode, out, err
-    except subprocess.TimeoutExpired:
-        p.kill()
-        return 124, "", "Time limit exceeded"
+def _java_flags(mem_mb: int):
+    heap = _java_heap_mb(mem_mb)
+    # Уменьшаем code cache, иначе JVM падает на маленькой памяти
+    return [
+        "-Xms16m",
+        f"-Xmx{heap}m",
+        "-XX:+UseSerialGC",
+        "-XX:ReservedCodeCacheSize=16m",
+        "-XX:InitialCodeCacheSize=8m",
+        "-XX:MaxMetaspaceSize=64m",
+        "-XX:CompressedClassSpaceSize=32m",
+        "-XX:+ExitOnOutOfMemoryError",
+    ]
 
 @app.post("/run")
 def run(req: RunReq):
+    tl = req.timeLimitMs or 12000
+    ml = req.memoryLimitMb or 768
+
     with tempfile.TemporaryDirectory() as d:
         src = os.path.join(d, "Main.java")
-        open(src, "w", encoding="utf-8").write(req.code)
-        rc, compile_err = _compile(src, d)
-        if rc != 0:
-            return {"stdout": "", "stderr": f"Compilation error:\n{compile_err}", "exitCode": 2}
-        rc, out, err = _run(d, req.input or "", 5)
-        return {"stdout": out, "stderr": err, "exitCode": rc}
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(req.code)
 
-@app.post("/run/tests")
-def run_tests(req: TestsReq):
-    results = []
-    with tempfile.TemporaryDirectory() as d:
-        src = os.path.join(d, "Main.java")
-        open(src, "w", encoding="utf-8").write(req.code)
-        rc, compile_err = _compile(src, d)
-        if rc != 0:
-            # если не скомпилировалось — все тесты провалены
-            return {"results": [{"input": t.get("input"),
-                                  "expectedOutput": t.get("expectedOutput"),
-                                  "actualOutput": "",
-                                  "passed": False} for t in req.tests]}
-        for t in req.tests:
-            given = t.get("input") or ""
-            expected = t.get("expectedOutput") or ""
-            rc_run, out, err = _run(d, given, 5)
-            passed = (out.rstrip("\r\n") == expected.rstrip("\r\n")) and rc_run == 0
-            results.append({
-                "input": given,
-                "expectedOutput": expected,
-                "actualOutput": out,
-                "passed": passed
-            })
-    return {"results": results}
+        def preexec():
+            _set_cpu_limit(tl)
+            # ВАЖНО: НЕ ставим RLIMIT_AS — иначе Java может падать на резервах
 
-# старый URL
-@app.post("/run-tests")
-def run_tests_alias(req: TestsReq):
-    return run_tests(req)
+        # compile
+        c = subprocess.run(
+            ["javac", "Main.java"],
+            cwd=d,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=max(2, int(math.ceil(tl / 1000.0)) + 2),
+            preexec_fn=preexec
+        )
+
+        if c.returncode != 0:
+            out = (c.stdout or "").replace("\r\n", "\n")[:MAX_OUT_LEN]
+            err = (c.stderr or "").replace("\r\n", "\n")[:MAX_OUT_LEN]
+            msg = (out + err).strip() or "Compilation error"
+            return {"stdout": "", "stderr": "", "compileStderr": msg + "\n", "exitCode": 2}
+
+        # run
+        p = subprocess.Popen(
+            ["java", *_java_flags(ml), "Main"],
+            cwd=d,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            preexec_fn=preexec
+        )
+
+        try:
+            out, err = p.communicate(req.input or "", timeout=max(2, int(math.ceil(tl / 1000.0)) + 2))
+            out = out.replace("\r\n", "\n")[:MAX_OUT_LEN]
+            err = err.replace("\r\n", "\n")[:MAX_OUT_LEN]
+            return {"stdout": out, "stderr": err, "compileStderr": None, "exitCode": p.returncode}
+        except subprocess.TimeoutExpired:
+            p.kill()
+            return {"stdout": "", "stderr": "Time limit exceeded", "compileStderr": None, "exitCode": 124}
