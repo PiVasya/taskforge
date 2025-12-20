@@ -21,9 +21,11 @@ namespace taskforge.Services
             if (string.IsNullOrWhiteSpace(req.Code)) throw new ValidationException("Field 'code' is required.");
 
             var compiler = _provider.GetCompiler(req.Language)
-                ?? throw new ValidationException(
-                    $"Unsupported language '{req.Language}'. Try: C++, C#, Python, JavaScript, Pascal, Java."
-                );
+                ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python, JavaScript, Pascal, Java.");
+
+            // применяем разумные дефолты, если клиент не передал лимиты
+            req.TimeLimitMs   ??= DefaultTimeMs(req.Language);
+            req.MemoryLimitMb ??= DefaultMemoryMb(req.Language);
 
             Console.WriteLine($"[CompileAndRun] lang={req.Language} TL={req.TimeLimitMs} ML={req.MemoryLimitMb}");
             var resp = await compiler.CompileAndRunAsync(req);
@@ -32,7 +34,7 @@ namespace taskforge.Services
         }
 
         /// <summary>
-        /// Прогон тестов «по-настоящему»: на каждый кейс вызываем CompileAndRunAsync,
+        /// Прогон тестов «по‑настоящему»: на каждый кейс вызываем CompileAndRunAsync,
         /// берём фактический stdout и сравниваем через канонизацию (CRLF/LF/хвостовые пробелы).
         /// </summary>
         public async Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto req)
@@ -44,12 +46,14 @@ namespace taskforge.Services
             if (string.IsNullOrWhiteSpace(req.Code)) throw new ValidationException("Field 'code' is required.");
 
             var compiler = _provider.GetCompiler(req.Language)
-                ?? throw new ValidationException(
-                    $"Unsupported language '{req.Language}'. Try: C++, C#, Python, JavaScript, Pascal, Java."
-                );
+                ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python, JavaScript, Pascal, Java.");
 
             var tests = req.TestCases ?? new List<TestCaseDto>();
             var results = new List<TestResultDto>(tests.Count);
+
+            // однажды определяем дефолтные лимиты для всех тестов
+            var tl = req.TimeLimitMs ?? DefaultTimeMs(req.Language);
+            var ml = req.MemoryLimitMb ?? DefaultMemoryMb(req.Language);
 
             for (int i = 0; i < tests.Count; i++)
             {
@@ -63,8 +67,8 @@ namespace taskforge.Services
                     Language      = req.Language,
                     Code          = req.Code,
                     Input         = tc.Input ?? string.Empty,
-                    TimeLimitMs   = req.TimeLimitMs ?? 2000,
-                    MemoryLimitMb = req.MemoryLimitMb ?? 256
+                    TimeLimitMs   = tl,
+                    MemoryLimitMb = ml
                 });
 
                 var actual = run.Stdout ?? string.Empty;
@@ -93,6 +97,32 @@ namespace taskforge.Services
 
             Console.WriteLine("[RunTests] <<< Finish");
             return results;
+        }
+
+        // ===== defaults =====
+
+        private static int DefaultTimeMs(string? lang)
+        {
+            lang = (lang ?? "").Trim().ToLowerInvariant();
+            return lang switch
+            {
+                "java"       => 12000,
+                "javascript" => 12000,
+                "js"         => 12000,
+                _            => 8000
+            };
+        }
+
+        private static int DefaultMemoryMb(string? lang)
+        {
+            lang = (lang ?? "").Trim().ToLowerInvariant();
+            return lang switch
+            {
+                "java"       => 768,   // Java требует больше памяти
+                "javascript" => 512,   // V8 часто падает на 256MB
+                "js"         => 512,
+                _            => 256
+            };
         }
 
         // ===== helpers =====

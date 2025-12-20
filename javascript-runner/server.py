@@ -30,9 +30,9 @@ def _limits():
     resource.setrlimit(resource.RLIMIT_AS, (MEM_BYTES, MEM_BYTES))
 
 def run_js(jsfile: str, input_txt: str, cwd: str, timeout: int):
-    """Compile and run a JavaScript file using Node.js with timeouts and limits."""
+    """Run a JavaScript file using Node.js with flags to limit memory and code range."""
     p = subprocess.Popen(
-        ["node", jsfile],
+        ["node", "--max-old-space-size=256", "--code-range-size=64", jsfile],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -22,7 +22,6 @@ def _limits():
     resource.setrlimit(resource.RLIMIT_AS, (MEM_BYTES, MEM_BYTES))
 
 # компиляция и запуск Java-кода
-
 def _compile(source: str, workdir: str):
     # компилируем Main.java в каталоге workdir
     c = subprocess.run(["javac", source], stdout=subprocess.PIPE,
@@ -30,7 +29,6 @@ def _compile(source: str, workdir: str):
     return c.returncode, c.stderr
 
 # запуск java-программы
-
 def _run(workdir: str, input_txt: str, timeout: int):
     p = subprocess.Popen(["java", "-cp", workdir, "Main"],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
