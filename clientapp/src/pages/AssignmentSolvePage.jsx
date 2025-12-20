@@ -1,5 +1,5 @@
 ﻿// src/pages/AssignmentSolvePage.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import Layout from '../components/Layout';
@@ -14,11 +14,57 @@ import { runTests as runCompilerTests } from '../api/compiler';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
-const LANGS = [
-  { value: 'cpp', label: 'C++' },
-  { value: 'python', label: 'Python' },
-  { value: 'csharp', label: 'C#' },
+// ===== Все языки, которые поддерживает система =====
+const ALL_LANGS = [
+  { value: 'cpp',        label: 'C++' },
+  { value: 'python',     label: 'Python' },
+  { value: 'csharp',     label: 'C#' },
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'pascal',     label: 'Pascal' },
+  { value: 'java',       label: 'Java' },
 ];
+
+// Быстрая нормализация, чтобы понимать "C++", "c++", "js", "node", "c#" и т.п.
+function normalizeLang(x) {
+  if (!x) return '';
+  const s = String(x).trim().toLowerCase();
+
+  if (s === 'c++' || s === 'cpp') return 'cpp';
+  if (s === 'c#' || s === 'cs' || s === 'csharp') return 'csharp';
+  if (s === 'py' || s === 'python') return 'python';
+  if (s === 'js' || s === 'node' || s === 'javascript') return 'javascript';
+
+  // Pascal: можно расширять алиасы как угодно
+  if (s === 'pas' || s === 'pascal' || s === 'pascalabc' || s === 'pascalabcnet') return 'pascal';
+
+  // Java
+  if (s === 'java') return 'java';
+
+  return s;
+}
+
+// raw может быть:
+// - массивом: ["cpp","python"]
+// - строкой: "cpp, python, csharp"
+// - null/undefined
+function parseAllowedLanguages(raw) {
+  let arr = [];
+
+  if (Array.isArray(raw)) arr = raw;
+  else if (typeof raw === 'string') arr = raw.split(',').map(x => x.trim()).filter(Boolean);
+  else arr = [];
+
+  const allowed = arr
+    .map(normalizeLang)
+    .filter(Boolean);
+
+  // оставляем только те, которые вообще есть в ALL_LANGS
+  const allowedSet = new Set(allowed);
+  const knownSet = new Set(ALL_LANGS.map(x => x.value));
+  const filtered = Array.from(allowedSet).filter(x => knownSet.has(x));
+
+  return filtered;
+}
 
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
@@ -35,6 +81,29 @@ export default function AssignmentSolvePage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
 
+  // Список языков, разрешённых для курса/задания (если есть ограничения)
+  const allowedLangs = useMemo(() => {
+    // Пытаемся найти ограничения в разных возможных полях,
+    // чтобы фронт не падал, даже если ты назовёшь поле иначе.
+    const raw =
+      a?.allowedLanguages ??
+      a?.courseAllowedLanguages ??
+      a?.course?.allowedLanguages ??
+      null;
+
+    const parsed = parseAllowedLanguages(raw);
+    return parsed;
+  }, [a]);
+
+  // То, что показываем в Select
+  const langsForSelect = useMemo(() => {
+    if (!allowedLangs || allowedLangs.length === 0) return ALL_LANGS;
+
+    // сохраняем порядок как в ALL_LANGS
+    const set = new Set(allowedLangs);
+    return ALL_LANGS.filter(x => set.has(x.value));
+  }, [allowedLangs]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -43,8 +112,26 @@ export default function AssignmentSolvePage() {
       try {
         const data = await getAssignment(assignmentId);
         if (!alive) return;
+
         setA(data);
-        if (data?.defaultLanguage) setLanguage(data.defaultLanguage);
+
+        const defaultLangFromApi = normalizeLang(data?.defaultLanguage) || 'cpp';
+
+        // Если API прислал ограничения — применяем их
+        const parsedAllowed = parseAllowedLanguages(
+          data?.allowedLanguages ??
+          data?.courseAllowedLanguages ??
+          data?.course?.allowedLanguages
+        );
+
+        let nextLang = defaultLangFromApi;
+
+        if (parsedAllowed.length > 0 && !parsedAllowed.includes(nextLang)) {
+          nextLang = parsedAllowed[0];
+        }
+
+        setLanguage(nextLang);
+
         if (data?.starterCode) setCode(data.starterCode);
       } catch (e) {
         const msg = e?.response?.data?.error || e?.message || 'Не удалось загрузить задание';
@@ -58,6 +145,15 @@ export default function AssignmentSolvePage() {
     })();
     return () => { alive = false; };
   }, [assignmentId]);
+
+  // Если ограничения изменились (например, подгрузились),
+  // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
+  useEffect(() => {
+    if (!allowedLangs || allowedLangs.length === 0) return;
+    if (!allowedLangs.includes(language)) {
+      setLanguage(allowedLangs[0]);
+    }
+  }, [allowedLangs, language]);
 
   const onSubmit = async () => {
     if (!code.trim()) return;
@@ -208,10 +304,17 @@ export default function AssignmentSolvePage() {
               <div>
                 <label className="label">Язык</label>
                 <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  {LANGS.map((l) => (
+                  {langsForSelect.map((l) => (
                     <option key={l.value} value={l.value}>{l.label}</option>
                   ))}
                 </Select>
+
+                {/* маленькая подсказка, если ограничения включены */}
+                {allowedLangs && allowedLangs.length > 0 && (
+                  <div className="text-xs text-slate-500 mt-1">
+                    Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
+                  </div>
+                )}
               </div>
 
               <div>
