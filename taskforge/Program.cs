@@ -37,8 +37,10 @@ builder.Services.AddScoped<ICompilerService, CompilerService>();
 builder.Services.AddScoped<ICompiler, CSharpHttpCompiler>();
 builder.Services.AddScoped<ICompiler, CppHttpCompiler>();
 builder.Services.AddScoped<ICompiler, PythonHttpCompiler>();
+builder.Services.AddScoped<ICompiler, JavascriptHttpCompiler>();
+builder.Services.AddScoped<ICompiler, PascalHttpCompiler>();
+builder.Services.AddScoped<ICompiler, JavaHttpCompiler>();
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
-builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
 // CORS
 builder.Services.AddCors(options =>

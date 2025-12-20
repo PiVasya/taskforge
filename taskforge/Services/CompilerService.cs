@@ -21,7 +21,9 @@ namespace taskforge.Services
             if (string.IsNullOrWhiteSpace(req.Code)) throw new ValidationException("Field 'code' is required.");
 
             var compiler = _provider.GetCompiler(req.Language)
-                ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
+                ?? throw new ValidationException(
+                    $"Unsupported language '{req.Language}'. Try: C++, C#, Python, JavaScript, Pascal, Java."
+                );
 
             Console.WriteLine($"[CompileAndRun] lang={req.Language} TL={req.TimeLimitMs} ML={req.MemoryLimitMb}");
             var resp = await compiler.CompileAndRunAsync(req);
@@ -30,7 +32,7 @@ namespace taskforge.Services
         }
 
         /// <summary>
-        /// Прогон тестов «по‑настоящему»: на каждый кейс вызываем CompileAndRunAsync,
+        /// Прогон тестов «по-настоящему»: на каждый кейс вызываем CompileAndRunAsync,
         /// берём фактический stdout и сравниваем через канонизацию (CRLF/LF/хвостовые пробелы).
         /// </summary>
         public async Task<IList<TestResultDto>> RunTestsAsync(TestRunRequestDto req)
@@ -42,7 +44,9 @@ namespace taskforge.Services
             if (string.IsNullOrWhiteSpace(req.Code)) throw new ValidationException("Field 'code' is required.");
 
             var compiler = _provider.GetCompiler(req.Language)
-                ?? throw new ValidationException($"Unsupported language '{req.Language}'. Try: C++, C#, Python.");
+                ?? throw new ValidationException(
+                    $"Unsupported language '{req.Language}'. Try: C++, C#, Python, JavaScript, Pascal, Java."
+                );
 
             var tests = req.TestCases ?? new List<TestCaseDto>();
             var results = new List<TestResultDto>(tests.Count);
