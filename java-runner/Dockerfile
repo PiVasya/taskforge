@@ -2,9 +2,9 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Устанавливаем OpenJDK и зависимости
+# Устанавливаем OpenJDK (дефолтную версию) и зависимости
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openjdk-17-jdk \
+ && apt-get install -y --no-install-recommends default-jdk \
  && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir fastapi uvicorn
