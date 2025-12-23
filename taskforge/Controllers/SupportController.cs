@@ -2,15 +2,14 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using taskforge.Data;
 using taskforge.Data.Models.DTO;
 
 namespace taskforge.Controllers
 {
-    /// <summary>
-    /// Принимает обращения в поддержку и отправляет их владельцу через Telegram‑бота.
-    /// </summary>
     [ApiController]
     [Route("api")]
     public sealed class SupportController : ControllerBase
@@ -18,22 +17,21 @@ namespace taskforge.Controllers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _config;
         private readonly ILogger<SupportController> _logger;
+        private readonly ApplicationDbContext _db;
 
         public SupportController(
             IHttpClientFactory httpClientFactory,
             IConfiguration config,
-            ILogger<SupportController> logger)
+            ILogger<SupportController> logger,
+            ApplicationDbContext db)
         {
             _httpClientFactory = httpClientFactory;
             _config = config;
             _logger = logger;
+            _db = db;
         }
 
-        /// <summary>
-        /// Отправить обращение в поддержку.
-        /// </summary>
-        /// <param name="request">Тип вопроса и текст сообщения.</param>
-        [Authorize] // при желании можно поменять на [AllowAnonymous], если поддержка доступна без входа
+        [Authorize]
         [HttpPost("support")]
         public async Task<IActionResult> Send([FromBody] SupportMessageDto request, CancellationToken ct)
         {
@@ -42,49 +40,55 @@ namespace taskforge.Controllers
 
             var type = (request.Type ?? "").Trim();
             var msg = (request.Message ?? "").Trim();
-
             if (string.IsNullOrWhiteSpace(msg))
                 return BadRequest(new { message = "Сообщение не может быть пустым." });
             if (msg.Length > 2000)
                 return BadRequest(new { message = "Сообщение слишком длинное (максимум 2000 символов)." });
 
-            // Пример: читаем токен/чат из appsettings.json или переменных окружения
+            // Инициализировать токен и chatId
             var token = "8548368756:AAGoxV2eda_gptaD7IPXyzqb3jDR-mQv-JM";
             var chatId = "1202503239";
-
             if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(chatId))
-            {
                 return StatusCode(500, new { message = "Служба поддержки не настроена (отсутствует BotToken или ChatId)." });
-            }
 
-            // Достаём данные о пользователе (если авторизован)
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                       ?? User.FindFirstValue("sub")
-                       ?? "-";
-            var userEmail = User.FindFirstValue(ClaimTypes.Email)
-                         ?? User.FindFirstValue("email")
-                         ?? "";
-            var userName = User.Identity?.Name
-                       ?? User.FindFirstValue("name")
-                       ?? "";
+            // Пытаемся получить данные пользователя
+            string firstName = "";
+            string lastName = "";
+            string email = "";
+            string phone = "";
+            try
+            {
+                var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+                if (userIdString != null && Guid.TryParse(userIdString, out var userId))
+                {
+                    var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+                    if (user != null)
+                    {
+                        firstName = user.FirstName;
+                        lastName = user.LastName;
+                        email = user.Email;
+                        phone = user.PhoneNumber ?? "";
+                    }
+                }
+            }
+            catch { /* если что‑то пошло не так, просто оставим поля пустыми */ }
 
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "-";
             var ua = Request.Headers.UserAgent.ToString();
 
-            // Формируем текст для Telegram
+            // Формируем текст сообщения (без отображения ID)
             var text =
                 "🛠️ <b>Обращение в поддержку</b>\n" +
                 $"Тип: {type}\n" +
-                $"UserId: {userId}\n" +
-                (!string.IsNullOrWhiteSpace(userName) ? $"Имя: {userName}\n" : "") +
-                (!string.IsNullOrWhiteSpace(userEmail) ? $"Email: {userEmail}\n" : "") +
+                (!string.IsNullOrWhiteSpace(firstName) || !string.IsNullOrWhiteSpace(lastName) ? $"Имя: {firstName} {lastName}\n" : "") +
+                (!string.IsNullOrWhiteSpace(email) ? $"Email: {email}\n" : "") +
+                (!string.IsNullOrWhiteSpace(phone) ? $"Телефон: {phone}\n" : "") +
                 $"IP: {ip}\n" +
                 (!string.IsNullOrWhiteSpace(ua) ? $"UA: {ua}\n" : "") +
                 "--------------------\n" +
                 msg;
 
             var url = $"https://api.telegram.org/bot{token}/sendMessage";
-
             try
             {
                 var client = _httpClientFactory.CreateClient();
