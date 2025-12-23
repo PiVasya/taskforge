@@ -3,7 +3,7 @@ import { NotifyProvider } from './components/notify/NotifyProvider';
 
 import ProtectedRoute from './auth/ProtectedRoute';
 import EditorRoute from './auth/EditorRoute';
-
+import SupportPage from "./pages/SupportPage";
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CoursesPage from './pages/CoursesPage';
@@ -42,6 +42,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
+          <Route path="/support" element={<SupportPage />} />
 
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />

@@ -365,10 +365,15 @@ export default function Layout({ children }) {
       </main>
 
       <footer className="mt-12 border-t border-slate-200/70 dark:border-slate-800/70">
-        <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400">
-          © {new Date().getFullYear()} TaskForge
+        <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400 flex items-center justify-between gap-3">
+          <div>© {new Date().getFullYear()} TaskForge</div>
+
+          <Link to="/support" className="btn-outline">
+            Связь с техподдержкой
+          </Link>
         </div>
       </footer>
+
     </div>
   );
 }
