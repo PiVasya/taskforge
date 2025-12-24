@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -9,6 +9,7 @@ using taskforge.Data;
 using taskforge.Services;
 using taskforge.Services.Interfaces;
 using taskforge.Services.Remote;
+using taskforge.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,6 +62,9 @@ builder.Services.AddControllers()
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
+
+// Добавляем SignalR для real‑time уведомлений службы поддержки
+builder.Services.AddSignalR();
 
 // Парольный хэшер как singleton
 builder.Services.AddSingleton<PasswordHasher>();
@@ -141,5 +145,7 @@ app.UseAuthorization();
 // отдаём статические файлы из wwwroot (например, изображения бейджей)
 app.UseStaticFiles();
 app.MapControllers();
+// Маршрутизируем SignalR хаб поддержки
+app.MapHub<SupportHub>("/hubs/support");
 
 app.Run();

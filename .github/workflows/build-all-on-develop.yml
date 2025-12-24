@@ -40,6 +40,12 @@ jobs:
           - name: java-runner
             path: java-runner
             image: taskforge-java-runner
+          # New service: support-bot. This will build and push the container
+          # defined in support-bot/Dockerfile. The resulting image is
+          # published as ghcr.io/<owner>/taskforge-support-bot.
+          - name: support-bot
+            path: support-bot
+            image: taskforge-support-bot
 
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +53,10 @@ jobs:
       - name: Lowercase owner
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
+      # Verify that a Dockerfile exists for the component. If it is missing,
+      # fail the job to avoid pushing an empty image. This also prints
+      # helpful debugging information about the working directory and
+      # available files.
       - name: Debug & verify Dockerfile exists
         shell: bash
         run: |
@@ -95,4 +105,4 @@ jobs:
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to:   type=gha,mode=max

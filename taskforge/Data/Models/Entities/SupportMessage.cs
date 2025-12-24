@@ -4,41 +4,71 @@ using System.ComponentModel.DataAnnotations;
 namespace taskforge.Data.Models.Entities
 {
     /// <summary>
-    /// Отдельное сообщение в обращении. Может быть от пользователя или от админа.
+    /// Отдельное сообщение в обращении в службу поддержки.
+    /// Может быть создано как пользователем, так и администратором.
     /// </summary>
     public class SupportMessage
     {
-        [Key] public Guid Id { get; set; }
+        /// <summary>
+        /// Идентификатор сообщения.
+        /// </summary>
+        [Key]
+        public Guid Id { get; set; }
 
+        /// <summary>
+        /// Идентификатор тикета, к которому относится сообщение.
+        /// </summary>
         [Required]
         public Guid TicketId { get; set; }
+
+        /// <summary>
+        /// Навигационное свойство к тикету.
+        /// </summary>
         public SupportTicket Ticket { get; set; } = null!;
 
         /// <summary>
-        /// Автор сообщения. Для системных или админ‑сообщений может быть null.
+        /// Пользовательский идентификатор автора внутри системы (если автор зарегистрирован).
+        /// Для сообщений из Telegram или других каналов может быть null.
         /// </summary>
-        public Guid? AuthorId { get; set; }
-        public User? Author { get; set; }
+        public Guid? AuthorUserId { get; set; }
 
         /// <summary>
-        /// Имя автора (для админ‑сообщений, если нет связи с User).
+        /// Имя автора сообщения. Заполняется для администраторских сообщений из внешних каналов.
         /// </summary>
         [MaxLength(256)]
         public string? AuthorName { get; set; }
 
+        /// <summary>
+        /// Текст сообщения.
+        /// </summary>
         [Required]
-        public string Text { get; set; } = "";
+        public string Text { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Дата и время создания сообщения (UTC).
+        /// </summary>
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         /// <summary>
-        /// Сообщение от админа (владельца). Поле AuthorId при этом может быть null.
+        /// Признак, что сообщение было отправлено администратором.
         /// </summary>
-        public bool IsFromAdmin { get; set; } = false;
+        public bool IsFromAdmin { get; set; }
 
         /// <summary>
-        /// ID сообщения в Telegram. Помогает связать ответ админа с конкретным пользовательским сообщением.
+        /// Идентификатор чата в Telegram, если сообщение было отправлено или получено через Telegram.
+        /// </summary>
+        public long? TelegramChatId { get; set; }
+
+        /// <summary>
+        /// Идентификатор сообщения в Telegram, если применимо. Используется для поиска ответов.
         /// </summary>
         public long? TelegramMessageId { get; set; }
+
+        /// <summary>
+        /// Источник сообщения (например, SiteUser, SiteAdmin, TelegramAdmin).
+        /// Позволяет в дальнейшем расширять каналы (Discord и т. д.).
+        /// </summary>
+        [MaxLength(64)]
+        public string? Source { get; set; }
     }
 }

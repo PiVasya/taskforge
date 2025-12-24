@@ -1,3 +1,8 @@
+// clientapp/src/api/support.js
+// Набор функций для работы с API техподдержки. Эти функции
+// используют экземпляр axios `api` из http.js для выполнения запросов
+// к серверу.
+
 import { api } from './http';
 
 /**
@@ -11,8 +16,8 @@ export async function createSupportTicket(payload) {
 }
 
 /**
- * Получить список всех обращений текущего пользователя.
- * @returns {Promise<Array>}
+ * Получить список обращений текущего пользователя (или всех, если пользователь — админ).
+ * @returns {Promise<any[]>}
  */
 export async function listSupportTickets() {
   const { data } = await api.get('/api/support');
@@ -20,9 +25,9 @@ export async function listSupportTickets() {
 }
 
 /**
- * Получить обращение и все сообщения.
+ * Получить подробности обращения и все его сообщения.
  * @param {string} ticketId
- * @returns {Promise<{ ticket: object, messages: Array }>}
+ * @returns {Promise<{ ticket: any, messages: any[] }>}
  */
 export async function getSupportTicket(ticketId) {
   const { data } = await api.get(`/api/support/${ticketId}`);
@@ -30,7 +35,7 @@ export async function getSupportTicket(ticketId) {
 }
 
 /**
- * Отправить ответ в существующее обращение.
+ * Отправить новое сообщение в обращение (ответ пользователя).
  * @param {string} ticketId
  * @param {{ message: string }} payload
  * @returns {Promise<{ id: string }>}

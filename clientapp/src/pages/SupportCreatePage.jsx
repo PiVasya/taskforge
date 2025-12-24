@@ -1,7 +1,12 @@
+// clientapp/src/pages/SupportCreatePage.jsx
+// Страница создания нового обращения в поддержку. Позволяет выбрать тип
+// и ввести текст сообщения. После отправки создаётся тикет и
+// пользователь перенаправляется на страницу переписки.
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Field, Textarea, Select, Button, Card } from '../components/ui';
+import { Field, Select, Textarea, Button, Card } from '../components/ui';
 import { createSupportTicket } from '../api/support';
 
 export default function SupportCreatePage() {
@@ -21,10 +26,10 @@ export default function SupportCreatePage() {
       setSending(true);
       setError('');
       const { ticketId } = await createSupportTicket({ type, message });
-      alert('Ваше обращение создано ✅');
+      // перенаправляем в чат
       nav(`/support/${ticketId}`);
     } catch (err) {
-      setError(err.message || 'Не удалось отправить обращение');
+      setError(err?.message || 'Не удалось создать обращение');
     } finally {
       setSending(false);
     }
@@ -34,7 +39,7 @@ export default function SupportCreatePage() {
     <Layout>
       <div className="max-w-xl mx-auto">
         <h1 className="text-2xl font-semibold mb-6">Новое обращение</h1>
-        {error && <div className="mb-4 text-red-500">{error}</div>}
+        {error && <div className="text-red-500 mb-4">{error}</div>}
         <Card>
           <form onSubmit={submit} className="space-y-4">
             <Field label="Тип обращения">
@@ -51,11 +56,11 @@ export default function SupportCreatePage() {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={6}
-                placeholder="Опишите вашу проблему или предложение…"
+                placeholder="Введите текст…"
                 required
               />
             </Field>
-            <div className="flex gap-2 justify-end">
+            <div className="flex justify-end gap-2">
               <Button variant="outline" type="button" onClick={() => nav(-1)} disabled={sending}>Отмена</Button>
               <Button type="submit" disabled={sending}>{sending ? 'Отправка…' : 'Отправить'}</Button>
             </div>

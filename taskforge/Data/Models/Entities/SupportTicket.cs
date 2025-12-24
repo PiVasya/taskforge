@@ -5,33 +5,52 @@ using System.ComponentModel.DataAnnotations;
 namespace taskforge.Data.Models.Entities
 {
     /// <summary>
-    /// Обращение в поддержку. Хранит заголовок, тип и связь с пользователем.
+    /// Represents a support ticket created by a user.
     /// </summary>
     public class SupportTicket
     {
-        [Key] public Guid Id { get; set; }
+        /// <summary>
+        /// Ticket identifier (GUID).
+        /// </summary>
+        [Key]
+        public Guid Id { get; set; }
 
         /// <summary>
-        /// Пользователь, который создал обращение.
+        /// User who created the ticket.
         /// </summary>
         [Required]
         public Guid UserId { get; set; }
-        public User User { get; set; } = null!;
 
         /// <summary>
-        /// Тип: bug, question, suggestion, other…
+        /// Type of ticket: bug, question, suggestion, etc.
         /// </summary>
-        [Required, MaxLength(32)]
-        public string Type { get; set; } = "";
-
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        [Required]
+        [MaxLength(32)]
+        public string Type { get; set; } = string.Empty;
 
         /// <summary>
-        /// Закрыто ли обращение (например, решено).
+        /// Indicates if the ticket is closed.
         /// </summary>
         public bool IsClosed { get; set; } = false;
 
+        /// <summary>
+        /// When the ticket was created.
+        /// </summary>
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// When the ticket was last updated.
+        /// </summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Collection of messages associated with this ticket.
+        /// </summary>
         public ICollection<SupportMessage> Messages { get; set; } = new List<SupportMessage>();
+
+        /// <summary>
+        /// (Optional) The admin assigned to this ticket.
+        /// </summary>
+        public Guid? AssignedAdminId { get; set; }
     }
 }

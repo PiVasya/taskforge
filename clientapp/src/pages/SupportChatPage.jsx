@@ -1,4 +1,9 @@
-import React, { useState, useEffect } from 'react';
+// clientapp/src/pages/SupportChatPage.jsx
+// Страница переписки по конкретному обращению. Показывает все сообщения
+// и позволяет добавить ответ. Подписывается на уведомления через SignalR (пока
+// не реализовано) для получения новых сообщений в реальном времени.
+
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Field, Textarea, Button, Card } from '../components/ui';
@@ -12,18 +17,22 @@ export default function SupportChatPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchTicket = () => {
-    getSupportTicket(ticketId)
-      .then((data) => {
-        setTicket(data.ticket);
-        setMessages(data.messages);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+  // загрузка тикета
+  const fetchTicket = async () => {
+    try {
+      const data = await getSupportTicket(ticketId);
+      setTicket(data.ticket);
+      setMessages(data.messages);
+    } catch (err) {
+      setError(err?.message || 'Ошибка загрузки сообщения');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchTicket();
+    // TODO: Подписка на SignalR для новых сообщений
   }, [ticketId]);
 
   const send = async (e) => {
@@ -31,19 +40,19 @@ export default function SupportChatPage() {
     if (!newMessage.trim()) return;
     try {
       await sendSupportMessage(ticketId, { message: newMessage });
-      // Добавляем локально, чтобы отобразилось без перезагрузки
+      // локально добавляем пока без real-time
       setMessages([
         ...messages,
         {
-          id: 'tmp-' + Date.now(),
+          id: `tmp-${Date.now()}`,
           text: newMessage,
           createdAt: new Date().toISOString(),
           isFromAdmin: false,
         },
       ]);
       setNewMessage('');
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err?.message || 'Не удалось отправить сообщение');
     }
   };
 
@@ -51,7 +60,7 @@ export default function SupportChatPage() {
     <Layout>
       <div className="max-w-3xl mx-auto">
         <h1 className="text-2xl font-semibold mb-4">Обращение #{ticketId}</h1>
-        {error && <div className="mb-4 text-red-500">{error}</div>}
+        {error && <div className="text-red-500 mb-4">{error}</div>}
         {loading ? (
           <div>Загрузка…</div>
         ) : (
@@ -80,7 +89,7 @@ export default function SupportChatPage() {
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   rows={4}
-                  placeholder="Введите ответ…"
+                  placeholder="Введите ваш ответ…"
                 />
               </Field>
               <div className="flex justify-end">
