@@ -17,6 +17,8 @@ namespace taskforge.Data
         public DbSet<TaskAssignment> TaskAssignments { get; set; } = null!;
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
+        public DbSet<SupportTicket> SupportTickets { get; set; } = null!;
+        public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
 
         // Наборы данных для бейджей и связей между пользователями и бейджами.
         public DbSet<Badge> Badges { get; set; } = null!;
@@ -94,6 +96,17 @@ namespace taskforge.Data
                 .WithMany()
                 .HasForeignKey(ub => ub.BadgeId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<SupportTicket>()
+                .Property(t => t.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<SupportTicket>()
+                .Property(t => t.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<SupportMessage>()
+                .Property(m => m.CreatedAt)
+                .HasColumnType("timestamp with time zone");
         }
     }
 }

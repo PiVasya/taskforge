@@ -22,6 +22,9 @@ import PublicProfilePage from './pages/PublicProfilePage';
 import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
 import AdminBadgesPage from './pages/admin/AdminBadgesPage';
+import SupportTicketsPage from "./pages/SupportTicketsPage";
+import SupportCreatePage from "./pages/SupportCreatePage";
+import SupportChatPage from "./pages/SupportChatPage";
 
 function Home() {
   return <Navigate to="/login" replace />;
@@ -43,6 +46,9 @@ export default function App() {
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
           <Route path="/support" element={<SupportPage />} />
+          <Route path="/support" element={<SupportTicketsPage />} />
+          <Route path="/support/new" element={<SupportCreatePage />} />
+          <Route path="/support/:ticketId" element={<SupportChatPage />} />
 
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />

@@ -1,5 +1,9 @@
-using System.Net.Http.Json;
+using System;
+using System.Linq;
 using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -7,112 +11,219 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
+using taskforge.Data.Models.Entities;
 
 namespace taskforge.Controllers
 {
     [ApiController]
-    [Route("api")]
-    public sealed class SupportController : ControllerBase
+    [Route("api/support")]
+    [Authorize]
+    public class SupportController : ControllerBase
     {
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IConfiguration _config;
-        private readonly ILogger<SupportController> _logger;
         private readonly ApplicationDbContext _db;
+        private readonly IHttpClientFactory _httpFactory;
+        private readonly IConfiguration _cfg;
+        private readonly ILogger<SupportController> _logger;
 
-        public SupportController(
-            IHttpClientFactory httpClientFactory,
-            IConfiguration config,
-            ILogger<SupportController> logger,
-            ApplicationDbContext db)
+        public SupportController(ApplicationDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, ILogger<SupportController> logger)
         {
-            _httpClientFactory = httpClientFactory;
-            _config = config;
-            _logger = logger;
             _db = db;
+            _httpFactory = httpFactory;
+            _cfg = cfg;
+            _logger = logger;
         }
 
-        [Authorize]
-        [HttpPost("support")]
-        public async Task<IActionResult> Send([FromBody] SupportMessageDto request, CancellationToken ct)
+        /// <summary>
+        /// Создать новое обращение. Возвращает ticketId.
+        /// </summary>
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] SupportMessageDto dto, CancellationToken ct)
         {
-            if (request == null)
-                return BadRequest(new { message = "Пустой запрос." });
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-            var type = (request.Type ?? "").Trim();
-            var msg = (request.Message ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(msg))
-                return BadRequest(new { message = "Сообщение не может быть пустым." });
-            if (msg.Length > 2000)
-                return BadRequest(new { message = "Сообщение слишком длинное (максимум 2000 символов)." });
+            // валидация
+            var msg = (dto.Message ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(msg) || msg.Length > 2000)
+                return BadRequest(new { message = "Сообщение не может быть пустым и не может быть длиннее 2000 символов." });
 
-            // Инициализировать токен и chatId
-            var token = "8548368756:AAGoxV2eda_gptaD7IPXyzqb3jDR-mQv-JM";
-            var chatId = "1202503239";
-            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(chatId))
-                return StatusCode(500, new { message = "Служба поддержки не настроена (отсутствует BotToken или ChatId)." });
+            var type = (dto.Type ?? "question").Trim();
+            if (string.IsNullOrWhiteSpace(type)) type = "question";
 
-            // Пытаемся получить данные пользователя
-            string firstName = "";
-            string lastName = "";
-            string email = "";
-            string phone = "";
-            try
+            // создаём тикет и первое сообщение
+            var ticket = new SupportTicket
             {
-                var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-                if (userIdString != null && Guid.TryParse(userIdString, out var userId))
+                UserId = userId,
+                Type = type,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                IsClosed = false
+            };
+
+            var message = new SupportMessage
+            {
+                Ticket = ticket,
+                AuthorId = userId,
+                Text = msg,
+                CreatedAt = DateTime.UtcNow,
+                IsFromAdmin = false
+            };
+
+            _db.SupportTickets.Add(ticket);
+            _db.SupportMessages.Add(message);
+            await _db.SaveChangesAsync(ct);
+
+            // Отправляем уведомление в Telegram
+            var telegramId = await SendToTelegramAsync(ticket, message, ct);
+            message.TelegramMessageId = telegramId;
+            await _db.SaveChangesAsync(ct);
+
+            return Ok(new { ticketId = ticket.Id });
+        }
+
+        /// <summary>
+        /// Вернуть список обращений текущего пользователя.
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> List(CancellationToken ct)
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var tickets = await _db.SupportTickets
+                .Where(t => t.UserId == userId)
+                .OrderByDescending(t => t.UpdatedAt)
+                .Select(t => new
                 {
-                    var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
-                    if (user != null)
-                    {
-                        firstName = user.FirstName;
-                        lastName = user.LastName;
-                        email = user.Email;
-                        phone = user.PhoneNumber ?? "";
-                    }
-                }
-            }
-            catch { /* если что‑то пошло не так, просто оставим поля пустыми */ }
+                    t.Id,
+                    t.Type,
+                    t.CreatedAt,
+                    t.UpdatedAt,
+                    t.IsClosed,
+                    MessagesCount = t.Messages.Count
+                })
+                .ToListAsync(ct);
 
-            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "-";
-            var ua = Request.Headers.UserAgent.ToString();
+            return Ok(tickets);
+        }
 
-            // Формируем текст сообщения (без отображения ID)
+        /// <summary>
+        /// Вернуть подробности обращения и все сообщения.
+        /// </summary>
+        [HttpGet("{ticketId:guid}")]
+        public async Task<IActionResult> Get(Guid ticketId, CancellationToken ct)
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var ticket = await _db.SupportTickets
+                .Include(t => t.Messages.OrderBy(m => m.CreatedAt))
+                .FirstOrDefaultAsync(t => t.Id == ticketId, ct);
+
+            if (ticket == null || ticket.UserId != userId)
+                return NotFound();
+
+            // Получаем имя/фамилию пользователя для подписи
+            var user = await _db.Users.FirstAsync(u => u.Id == userId, ct);
+
+            var messages = ticket.Messages.OrderBy(m => m.CreatedAt).Select(m => new
+            {
+                m.Id,
+                m.Text,
+                m.CreatedAt,
+                m.IsFromAdmin,
+                AuthorName = m.IsFromAdmin
+                    ? (string.IsNullOrEmpty(m.AuthorName) ? "Администратор" : m.AuthorName)
+                    : $"{user.FirstName} {user.LastName}"
+            });
+
+            return Ok(new
+            {
+                ticket = new { ticket.Id, ticket.Type, ticket.CreatedAt, ticket.UpdatedAt, ticket.IsClosed },
+                messages
+            });
+        }
+
+        /// <summary>
+        /// Добавить новое сообщение в уже существующее обращение (ответ пользователя).
+        /// </summary>
+        [HttpPost("{ticketId:guid}")]
+        public async Task<IActionResult> Reply(Guid ticketId, [FromBody] SupportMessageDto dto, CancellationToken ct)
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var ticket = await _db.SupportTickets.FirstOrDefaultAsync(t => t.Id == ticketId, ct);
+
+            if (ticket == null || ticket.UserId != userId)
+                return NotFound();
+
+            var msg = (dto.Message ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(msg) || msg.Length > 2000)
+                return BadRequest(new { message = "Сообщение не может быть пустым и не может быть длиннее 2000 символов." });
+
+            var message = new SupportMessage
+            {
+                TicketId = ticketId,
+                AuthorId = userId,
+                Text = msg,
+                CreatedAt = DateTime.UtcNow,
+                IsFromAdmin = false
+            };
+
+            _db.SupportMessages.Add(message);
+            ticket.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
+            // Отправляем новое сообщение в Telegram
+            var telegramId = await SendToTelegramAsync(ticket, message, ct);
+            message.TelegramMessageId = telegramId;
+            await _db.SaveChangesAsync(ct);
+
+            return Ok(new { id = message.Id });
+        }
+
+        /// <summary>
+        /// Внутренний метод: отправляет текст в Telegram и возвращает message_id.
+        /// </summary>
+        private async Task<long?> SendToTelegramAsync(SupportTicket ticket, SupportMessage message, CancellationToken ct)
+        {
+            var user = await _db.Users.FirstAsync(u => u.Id == ticket.UserId, ct);
             var text =
-                "🛠️ <b>Обращение в поддержку</b>\n" +
-                $"Тип: {type}\n" +
-                (!string.IsNullOrWhiteSpace(firstName) || !string.IsNullOrWhiteSpace(lastName) ? $"Имя: {firstName} {lastName}\n" : "") +
-                (!string.IsNullOrWhiteSpace(email) ? $"Email: {email}\n" : "") +
-                (!string.IsNullOrWhiteSpace(phone) ? $"Телефон: {phone}\n" : "") +
-                $"IP: {ip}\n" +
-                (!string.IsNullOrWhiteSpace(ua) ? $"UA: {ua}\n" : "") +
+                "🛠️ <b>Новое сообщение в обращении</b>\n" +
+                $"Ticket: {ticket.Id}\n" +
+                $"Тип: {ticket.Type}\n" +
+                $"Пользователь: {user.FirstName} {user.LastName}\n" +
+                $"Email: {user.Email}\n" +
                 "--------------------\n" +
-                msg;
+                message.Text;
 
-            var url = $"https://api.telegram.org/bot{token}/sendMessage";
+            var token = _cfg["Telegram:BotToken"] ?? _cfg["TELEGRAM_BOT_TOKEN"];
+            var chatId = _cfg["Telegram:SupportChatId"] ?? _cfg["SUPPORT_CHAT_ID"];
+
+            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(chatId))
+            {
+                _logger.LogError("Telegram is not configured.");
+                return null;
+            }
+
             try
             {
-                var client = _httpClientFactory.CreateClient();
-                var response = await client.PostAsJsonAsync(url, new
+                var client = _httpFactory.CreateClient();
+                var response = await client.PostAsJsonAsync($"https://api.telegram.org/bot{token}/sendMessage", new
                 {
                     chat_id = chatId,
-                    text = text,
+                    text,
                     parse_mode = "HTML"
                 }, ct);
 
                 if (!response.IsSuccessStatusCode)
                 {
                     var body = await response.Content.ReadAsStringAsync(ct);
-                    _logger.LogError("Telegram sendMessage failed. Status={Status} Body={Body}",
-                        response.StatusCode, body);
-                    return StatusCode(502, new { message = "Не удалось отправить сообщение в Telegram." });
+                    _logger.LogError("Telegram sendMessage failed: {Status} {Body}", response.StatusCode, body);
+                    return null;
                 }
 
-                return Ok(new { ok = true });
+                var json = await response.Content.ReadFromJsonAsync<dynamic>(cancellationToken: ct);
+                return (long?)json?.result?.message_id;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Support send failed");
-                return StatusCode(500, new { message = "Ошибка отправки сообщения." });
+                _logger.LogError(ex, "Failed to send to Telegram");
+                return null;
             }
         }
     }
