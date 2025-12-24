@@ -45,7 +45,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
-          <Route path="/support" element={<SupportPage />} />
+          <Route path="/supportold" element={<SupportPage />} />
           <Route path="/support" element={<SupportTicketsPage />} />
           <Route path="/support/new" element={<SupportCreatePage />} />
           <Route path="/support/:ticketId" element={<SupportChatPage />} />
