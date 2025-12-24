@@ -6,13 +6,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
-    <PackageReference Include="Telegram.Bot" Version="18.3.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0" />
+    <!-- Обновлённые версии библиотек под .NET 9 -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <!-- Telegram.Bot 19.x решает предупреждение о несовместимой версии -->
+    <PackageReference Include="Telegram.Bot" Version="19.0.0" />
+    <!-- Используем ту же версию EF Core Design, что и в основном проекте, и скрываем её -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <!-- Явная ссылка на Microsoft.CodeAnalysis.Common устраняет конфликт версий -->
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="4.8.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\taskforge\taskforge.csproj" />
+    <ProjectReference Include="..\\taskforge\\taskforge.csproj" />
   </ItemGroup>
 </Project>
