@@ -55,7 +55,7 @@ export default function App() {
           {/* отдельная страница результатов; открываем после сабмита */}
           <Route
             path="/assignment/:assignmentId/results"
-            element={<AssignmentResultsPage />}
+            element={<AssignmentResultsPage />} 
           />
 
           {/* при необходимости — остаётся, но кнопку на SolvePage не показываем */}
