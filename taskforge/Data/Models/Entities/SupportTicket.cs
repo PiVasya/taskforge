@@ -52,5 +52,15 @@ namespace taskforge.Data.Models.Entities
         /// (Optional) The admin assigned to this ticket.
         /// </summary>
         public Guid? AssignedAdminId { get; set; }
+
+        /// <summary>
+        /// Navigation property to the user who created this ticket.
+        /// Having this property allows controllers to access the author's
+        /// first and last name without an additional query. Entity
+        /// Framework will automatically link this to the <see cref="UserId"/> field.
+        /// Without this navigation property, code that calls <c>.Include(t => t.User)</c>
+        /// or tries to access <c>User.FirstName</c>/<c>User.LastName</c> would not compile.
+        /// </summary>
+        public taskforge.Data.Models.Entities.User User { get; set; } = null!;
     }
 }

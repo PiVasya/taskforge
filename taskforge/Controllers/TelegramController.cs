@@ -10,6 +10,10 @@ using taskforge.Data.Models.Entities;
 
 namespace taskforge.Controllers
 {
+    /// <summary>
+    /// Контроллер для обработки вебхуков Telegram. Используется для
+    /// преобразования ответов администраторов в новые сообщения тикета.
+    /// </summary>
     [ApiController]
     [Route("api/telegram")]
     public class TelegramController : ControllerBase
@@ -23,18 +27,21 @@ namespace taskforge.Controllers
             _logger = logger;
         }
 
+        /// <summary>
+        /// Вебхук Telegram. Получает обновления и сохраняет ответы администраторов.
+        /// Только ответы (reply) на существующие сообщения тикетов обрабатываются.
+        /// </summary>
         [HttpPost("webhook")]
         [AllowAnonymous]
         public async Task<IActionResult> Webhook([FromBody] TelegramUpdate update, CancellationToken ct)
         {
-            // Интересуют только ответы (reply) на существующие сообщения
             var message = update?.message;
+            // Обрабатываем только ответы на известные сообщения с текстом
             if (message?.reply_to_message?.message_id == null || string.IsNullOrWhiteSpace(message.text))
                 return Ok();
 
             var repliedId = message.reply_to_message.message_id;
-
-            // Находим исходное SupportMessage
+            // Находим исходное сообщение, чтобы понять тикет
             var originalMsg = await _db.SupportMessages
                 .Include(m => m.Ticket)
                 .FirstOrDefaultAsync(m => m.TelegramMessageId == repliedId, ct);
@@ -52,25 +59,27 @@ namespace taskforge.Controllers
                 return Ok();
             }
 
-            // Формируем новое сообщение от админа
+            // Создаём новое сообщение от админа. Внешний администратор не имеет связанного пользователя.
             var adminMsg = new SupportMessage
             {
                 TicketId = ticket.Id,
-                AuthorId = null, // нет привязки к пользователю в нашей системе
-                AuthorName = $"{update.message.from.first_name} {update.message.from.last_name}".Trim(),
-                Text = message.text,
+                AuthorUserId = null,
+                AuthorName = $"{message.@from?.first_name} {message.@from?.last_name}".Trim(),
+                Text = message.text ?? string.Empty,
                 CreatedAt = DateTime.UtcNow,
-                IsFromAdmin = true
+                IsFromAdmin = true,
+                Source = "TelegramAdmin"
             };
 
             _db.SupportMessages.Add(adminMsg);
             ticket.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
-
             return Ok();
         }
 
-        // Примитивные классы для Telegram JSON (минимум полей)
+        // Ниже определены минимальные модели для десериализации обновления Telegram. Telegram
+        // использует нестандартные имена полей (from), поэтому имена свойств помечены
+        // @ для предотвращения конфликтов с ключевыми словами C#.
         public class TelegramUpdate
         {
             public TelegramMessage? message { get; set; }
@@ -79,7 +88,7 @@ namespace taskforge.Controllers
         public class TelegramMessage
         {
             public long message_id { get; set; }
-            public TelegramUser? from { get; set; }
+            public TelegramUser? @from { get; set; }
             public TelegramMessage? reply_to_message { get; set; }
             public string? text { get; set; }
         }

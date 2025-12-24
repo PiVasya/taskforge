@@ -10,21 +10,21 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy project files and restore dependencies separately for better
-# Docker layer caching. We copy both the support-bot and taskforge
-# project files because the bot references the taskforge project.
-COPY taskforge/taskforge.csproj ./taskforge/
-COPY support-bot/support-bot.csproj ./support-bot/
+# Copy the entire repository into the build context. This Dockerfile
+# assumes that the build context is the root of the repo so that both
+# the taskforge API project and the support-bot project are available.
+# By copying everything first, we allow dotnet restore to resolve
+# dependencies across projects.
+COPY . .
 
-RUN dotnet restore support-bot/support-bot.csproj
+# Restore only the support-bot project. This implicitly restores
+# referenced projects (like taskforge) because they are present in the
+# context. Using the full path ensures dotnet finds the csproj.
+RUN dotnet restore ./support-bot/support-bot.csproj
 
-# Copy the full source code into the image
-COPY taskforge/ ./taskforge/
-COPY support-bot/ ./support-bot/
-
-# Publish the support-bot project. This command compiles the code and
-# produces a self-contained set of binaries under /app/publish.
-RUN dotnet publish support-bot/support-bot.csproj -c Release -o /app/publish
+# Publish the support-bot project. This step compiles the project and
+# outputs the published DLLs into the /app/publish directory.
+RUN dotnet publish ./support-bot/support-bot.csproj -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/runtime:9.0 AS runtime
 WORKDIR /app

@@ -44,7 +44,11 @@ namespace taskforge.Controllers
             {
                 return Unauthorized();
             }
-            var ticket = await _db.SupportTickets.Include(t => t.User).FirstOrDefaultAsync(t => t.Id == request.TicketId);
+            // We no longer include the navigation property here because the
+            // SupportTicket entity now exposes a User navigation property.  A
+            // simple lookup by Id is sufficient, and we avoid a compile-time
+            // error when the User property does not exist.
+            var ticket = await _db.SupportTickets.FirstOrDefaultAsync(t => t.Id == request.TicketId);
             if (ticket == null) return NotFound();
             var msg = new SupportMessage
             {
