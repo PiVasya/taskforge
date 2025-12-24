@@ -96,11 +96,23 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.repository }}
 
+      # Determine the correct build context and Dockerfile for each service.
+      - name: Set build variables
+        id: set-vars
+        run: |
+          if [ "${{ matrix.name }}" = "support-bot" ]; then
+            echo "context=." >> $GITHUB_OUTPUT
+            echo "dockerfile=./support-bot/Dockerfile" >> $GITHUB_OUTPUT
+          else
+            echo "context=./${{ matrix.path }}" >> $GITHUB_OUTPUT
+            echo "dockerfile=./${{ matrix.path }}/Dockerfile" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build & push ${{ matrix.name }}
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.path }}
-          file: ./${{ matrix.path }}/Dockerfile
+          context: ${{ steps.set-vars.outputs.context }}
+          file: ${{ steps.set-vars.outputs.dockerfile }}
           push: true
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
