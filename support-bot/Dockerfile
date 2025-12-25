@@ -26,7 +26,7 @@ RUN dotnet restore ./support-bot/support-bot.csproj
 # outputs the published DLLs into the /app/publish directory.
 RUN dotnet publish ./support-bot/support-bot.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/runtime:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
