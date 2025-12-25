@@ -72,7 +72,9 @@ namespace taskforge.Services
             Difficulty = a.Difficulty,
             Tags = a.Tags,
             CreatedAt = a.CreatedAt,
-            SolvedByCurrentUser = a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests),
+            SolvedByCurrentUser =
+                a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
+                || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed),
             Sort = a.Sort,
             CanEdit = a.Course.OwnerId == currentUserId    // <--- НОВОЕ
         })
@@ -102,7 +104,9 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         CreatedAt = a.CreatedAt,
         PublicTestCount = a.TestCases.Count(x => !x.IsHidden),
         HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
-        SolvedByCurrentUser = a.Solutions.Any(s => s.PassedAllTests),
+        SolvedByCurrentUser =
+            a.Solutions.Any(s => s.PassedAllTests)
+            || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed),
         TestCases = a.TestCases.OrderBy(tc => tc.Id).Select(tc => new AssignmentTestCaseDto
         {
             Id = tc.Id,

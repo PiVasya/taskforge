@@ -7,6 +7,7 @@ using System.Text;
 
 using taskforge.Data;
 using taskforge.Services;
+using taskforge.Services.Assignments;
 using taskforge.Services.Interfaces;
 using taskforge.Services.Remote;
 using taskforge.Services.Support;
@@ -25,6 +26,7 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 // доменные сервисы
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<ITaskTestService, TaskTestService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
 builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();

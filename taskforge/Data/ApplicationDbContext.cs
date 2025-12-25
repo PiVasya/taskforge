@@ -20,6 +20,11 @@ namespace taskforge.Data
         public DbSet<SupportTicket> SupportTickets { get; set; } = null!;
         public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
 
+        // ===== Test (quiz) задания =====
+        public DbSet<TaskTestSettings> TaskTestSettings { get; set; } = null!;
+        public DbSet<TaskTestQuestion> TaskTestQuestions { get; set; } = null!;
+        public DbSet<UserTaskTestAttempt> UserTaskTestAttempts { get; set; } = null!;
+
         // Наборы данных для бейджей и связей между пользователями и бейджами.
         public DbSet<Badge> Badges { get; set; } = null!;
         public DbSet<UserBadge> UserBadges { get; set; } = null!;
@@ -107,6 +112,70 @@ namespace taskforge.Data
             modelBuilder.Entity<SupportMessage>()
                 .Property(m => m.CreatedAt)
                 .HasColumnType("timestamp with time zone");
+
+            // ===== Test (quiz) задания =====
+            modelBuilder.Entity<TaskTestSettings>()
+                .HasIndex(x => x.TaskAssignmentId)
+                .IsUnique();
+            modelBuilder.Entity<TaskTestSettings>()
+                .Property(x => x.AttemptTimeLimitsJson)
+                .HasColumnType("jsonb");
+            modelBuilder.Entity<TaskTestSettings>()
+                .Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<TaskTestSettings>()
+                .Property(x => x.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<TaskTestSettings>()
+                .HasOne(x => x.TaskAssignment)
+                .WithMany()
+                .HasForeignKey(x => x.TaskAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<TaskTestQuestion>()
+                .HasIndex(x => new { x.TaskAssignmentId, x.Order });
+            modelBuilder.Entity<TaskTestQuestion>()
+                .Property(x => x.DataJson)
+                .HasColumnType("jsonb");
+            modelBuilder.Entity<TaskTestQuestion>()
+                .Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<TaskTestQuestion>()
+                .Property(x => x.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<TaskTestQuestion>()
+                .HasOne(x => x.TaskAssignment)
+                .WithMany()
+                .HasForeignKey(x => x.TaskAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .HasIndex(x => new { x.TaskAssignmentId, x.UserId, x.AttemptNumber })
+                .IsUnique();
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .HasIndex(x => new { x.TaskAssignmentId, x.UserId });
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .Property(x => x.QuestionOrderJson)
+                .HasColumnType("jsonb");
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .Property(x => x.AnswersJson)
+                .HasColumnType("jsonb");
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .Property(x => x.StartedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .Property(x => x.SubmittedAt)
+                .HasColumnType("timestamp with time zone");
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .HasOne(x => x.TaskAssignment)
+                .WithMany()
+                .HasForeignKey(x => x.TaskAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<UserTaskTestAttempt>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }
