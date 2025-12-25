@@ -9,6 +9,7 @@ using taskforge.Data;
 using taskforge.Services;
 using taskforge.Services.Interfaces;
 using taskforge.Services.Remote;
+using taskforge.Services.Support;
 using taskforge.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,9 @@ builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
 builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+
+// поддержка
+builder.Services.AddScoped<ISupportService, SupportService>();
 
 // регистрация сервиса бейджей
 builder.Services.AddScoped<IBadgeService, BadgeService>();

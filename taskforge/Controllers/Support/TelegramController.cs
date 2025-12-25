@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using taskforge.Data;
 using taskforge.Data.Models.Entities;
+using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers
 {
@@ -20,11 +21,13 @@ namespace taskforge.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger<TelegramController> _logger;
+        private readonly ISupportService _support;
 
-        public TelegramController(ApplicationDbContext db, ILogger<TelegramController> logger)
+        public TelegramController(ApplicationDbContext db, ILogger<TelegramController> logger, ISupportService support)
         {
             _db = db;
             _logger = logger;
+            _support = support;
         }
 
         /// <summary>
@@ -59,21 +62,14 @@ namespace taskforge.Controllers
                 return Ok();
             }
 
-            // Создаём новое сообщение от админа. Внешний администратор не имеет связанного пользователя.
-            var adminMsg = new SupportMessage
-            {
-                TicketId = ticket.Id,
-                AuthorUserId = null,
-                AuthorName = $"{message.@from?.first_name} {message.@from?.last_name}".Trim(),
-                Text = message.text ?? string.Empty,
-                CreatedAt = DateTime.UtcNow,
-                IsFromAdmin = true,
-                Source = "TelegramAdmin"
-            };
-
-            _db.SupportMessages.Add(adminMsg);
-            ticket.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
+            var authorName = $"{message.@from?.first_name} {message.@from?.last_name}".Trim();
+            await _support.AddExternalAdminMessageAsync(
+                ticket.Id,
+                authorName,
+                message.text ?? string.Empty,
+                source: "TelegramAdmin",
+                externalMessageId: message.message_id.ToString(),
+                ct: ct);
             return Ok();
         }
 
