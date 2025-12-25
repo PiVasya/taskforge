@@ -386,22 +386,23 @@ export default function Layout({ children }) {
       </main>
 
       <footer className="mt-12 border-t border-slate-200/70 dark:border-slate-800/70">
-        <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400">
-          © {new Date().getFullYear()} TaskForge
+        <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400 flex items-center justify-between">
+          {/* слева */}
+          <div>© {new Date().getFullYear()} TaskForge</div>
+
+          {/* справа */}
+          {access && (
+            <Link
+              to="/support"
+              className="inline-flex items-center gap-2 hover:text-slate-700 dark:hover:text-slate-200 transition"
+              title="Техподдержка"
+            >
+              <LifeBuoy size={16} className="opacity-70" />
+              <span className="opacity-80">Техподдержка</span>
+            </Link>
+          )}
         </div>
       </footer>
-
-      {/* Кнопка техподдержки (внизу экрана) */}
-      {access && (
-        <Link
-          to="/support"
-          className="fixed bottom-6 right-6 btn-primary shadow-soft z-40"
-          title="Техподдержка"
-        >
-          <LifeBuoy size={18} />
-          <span className="ml-2 hidden sm:inline">Техподдержка</span>
-        </Link>
-      )}
     </div>
   );
 }
