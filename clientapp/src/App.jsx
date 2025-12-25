@@ -18,6 +18,14 @@ import MySolutionsPage from './pages/MySolutionsPage';
 import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
 import PublicProfilePage from './pages/PublicProfilePage';
 
+// Support pages
+import SupportTicketsPage from './pages/SupportTicketsPage';
+import SupportCreatePage from './pages/SupportCreatePage';
+import SupportChatPage from './pages/SupportChatPage';
+import AdminSupportPage from './pages/AdminSupportPage';
+
+import SupportNotifier from './components/SupportNotifier';
+
 // Admin pages
 import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
@@ -34,6 +42,7 @@ function NotFound() {
 export default function App() {
   return (
     <NotifyProvider>
+      <SupportNotifier />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -66,12 +75,18 @@ export default function App() {
           {/* публичный профиль по userId */}
           <Route path="/users/:userId" element={<PublicProfilePage />} />
 
+          {/* техподдержка */}
+          <Route path="/support" element={<SupportTicketsPage />} />
+          <Route path="/support/new" element={<SupportCreatePage />} />
+          <Route path="/support/:ticketId" element={<SupportChatPage />} />
+
           <Route element={<EditorRoute fallbackTo="courses" />}>
             <Route path="/courses/:courseId/edit" element={<CourseEditPage />} />
             <Route path="/assignment/:assignmentId/edit" element={<AssignmentEditPage />} />
             <Route path="/admin/leaderboard" element={<LeaderboardPage />} />
             <Route path="/admin/solutions" element={<AdminSolutionsPage />} />
             <Route path="/admin/badges" element={<AdminBadgesPage />} />
+            <Route path="/admin/support" element={<AdminSupportPage />} />
           </Route>
         </Route>
 

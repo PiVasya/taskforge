@@ -1,18 +1,15 @@
 // clientapp/src/pages/AdminSupportPage.jsx
-// Админская страница для просмотра всех тикетов поддержки. Позволяет
-// открывать тикеты и отвечать в них. Доступна только для администраторов.
+// Админская страница: список всех обращений.
 
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card } from '../components/ui';
 import { listSupportTickets } from '../api/support';
-
-// Пока админская и пользовательская страницы используют один и тот же API.
-// Но здесь админ видит все тикеты, а не только свои. Для этого сервер
-// возвращает полный список, проверяя роль пользователя.
+import { useNotify } from '../components/notify/NotifyProvider';
 
 export default function AdminSupportPage() {
+  const notify = useNotify();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -23,12 +20,14 @@ export default function AdminSupportPage() {
         const data = await listSupportTickets();
         setTickets(data);
       } catch (err) {
-        setError(err?.message || 'Ошибка загрузки');
+        const msg = err?.message || 'Ошибка загрузки';
+        setError(msg);
+        notify.error(msg);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [notify]);
 
   return (
     <Layout>
@@ -45,13 +44,15 @@ export default function AdminSupportPage() {
               {tickets.map((t) => (
                 <li key={t.id} className="p-4 flex justify-between items-center">
                   <div>
-                    <div className="font-semibold">#{t.id?.slice(0, 8)}</div>
+                    <div className="font-semibold">#{String(t.id).slice(0, 8)}</div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">Тип: {t.type}</div>
+                    {t.user && (
+                      <div className="text-xs text-slate-400 dark:text-slate-500">
+                        Пользователь: {t.user?.firstName} {t.user?.lastName}
+                      </div>
+                    )}
                     <div className="text-xs text-slate-400 dark:text-slate-500">
-                      Пользователь: {t.user?.firstName} {t.user?.lastName}
-                    </div>
-                    <div className="text-xs text-slate-400 dark:text-slate-500">
-                      Обновлено {new Date(t.updatedAt).toLocaleString()}
+                      Обновлено {t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—'}
                     </div>
                   </div>
                   <Link to={`/support/${t.id}`} className="btn-outline">Открыть</Link>

@@ -23,6 +23,7 @@ import {
   Palette,
   MoreHorizontal,
   Award,
+  LifeBuoy,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -190,6 +191,16 @@ export default function Layout({ children }) {
                       <Award size={18} />
                       <span className="ml-2">Бейджи</span>
                     </Link>
+                    <Link
+                      role="menuitem"
+                      to="/admin/support"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Обращения пользователей"
+                    >
+                      <LifeBuoy size={18} />
+                      <span className="ml-2">Обращения</span>
+                    </Link>
                   </div>
                 )}
               </div>
@@ -320,6 +331,16 @@ export default function Layout({ children }) {
                       <Award size={18} />
                       <span>Бейджи</span>
                     </Link>
+                    <Link
+                      role="menuitem"
+                      to="/admin/support"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setMoreOpen(false)}
+                      title="Обращения пользователей"
+                    >
+                      <LifeBuoy size={18} />
+                      <span>Обращения</span>
+                    </Link>
                   </>
                 )}
                 {/* вход/выход */}
@@ -369,6 +390,18 @@ export default function Layout({ children }) {
           © {new Date().getFullYear()} TaskForge
         </div>
       </footer>
+
+      {/* Кнопка техподдержки (внизу экрана) */}
+      {access && (
+        <Link
+          to="/support"
+          className="fixed bottom-6 right-6 btn-primary shadow-soft z-40"
+          title="Техподдержка"
+        >
+          <LifeBuoy size={18} />
+          <span className="ml-2 hidden sm:inline">Техподдержка</span>
+        </Link>
+      )}
     </div>
   );
 }

@@ -1,16 +1,16 @@
 // clientapp/src/pages/SupportCreatePage.jsx
-// Страница создания нового обращения в поддержку. Позволяет выбрать тип
-// и ввести текст сообщения. После отправки создаётся тикет и
-// пользователь перенаправляется на страницу переписки.
+// Создание нового обращения.
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Field, Select, Textarea, Button, Card } from '../components/ui';
 import { createSupportTicket } from '../api/support';
+import { useNotify } from '../components/notify/NotifyProvider';
 
 export default function SupportCreatePage() {
   const nav = useNavigate();
+  const notify = useNotify();
   const [type, setType] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -19,17 +19,21 @@ export default function SupportCreatePage() {
   const submit = async (e) => {
     e.preventDefault();
     if (!type || !message.trim()) {
-      setError('Пожалуйста, заполните все поля.');
+      const msg = 'Пожалуйста, заполните все поля.';
+      setError(msg);
+      notify.warn(msg);
       return;
     }
     try {
       setSending(true);
       setError('');
-      const { ticketId } = await createSupportTicket({ type, message });
-      // перенаправляем в чат
+      const { ticketId } = await createSupportTicket({ type, message: message.trim() });
+      notify.success('Обращение создано');
       nav(`/support/${ticketId}`);
     } catch (err) {
-      setError(err?.message || 'Не удалось создать обращение');
+      const msg = err?.message || 'Не удалось создать обращение';
+      setError(msg);
+      notify.error(msg);
     } finally {
       setSending(false);
     }
@@ -39,7 +43,9 @@ export default function SupportCreatePage() {
     <Layout>
       <div className="max-w-xl mx-auto">
         <h1 className="text-2xl font-semibold mb-6">Новое обращение</h1>
+
         {error && <div className="text-red-500 mb-4">{error}</div>}
+
         <Card>
           <form onSubmit={submit} className="space-y-4">
             <Field label="Тип обращения">
@@ -51,6 +57,7 @@ export default function SupportCreatePage() {
                 <option value="other">Другое</option>
               </Select>
             </Field>
+
             <Field label="Сообщение" hint="Опишите проблему, вопрос или предложение максимально подробно.">
               <Textarea
                 value={message}
@@ -60,9 +67,14 @@ export default function SupportCreatePage() {
                 required
               />
             </Field>
+
             <div className="flex justify-end gap-2">
-              <Button variant="outline" type="button" onClick={() => nav(-1)} disabled={sending}>Отмена</Button>
-              <Button type="submit" disabled={sending}>{sending ? 'Отправка…' : 'Отправить'}</Button>
+              <Button variant="outline" type="button" onClick={() => nav(-1)} disabled={sending}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={sending}>
+                {sending ? 'Отправка…' : 'Отправить'}
+              </Button>
             </div>
           </form>
         </Card>

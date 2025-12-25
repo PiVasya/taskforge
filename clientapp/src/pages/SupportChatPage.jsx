@@ -1,88 +1,135 @@
 // clientapp/src/pages/SupportChatPage.jsx
-// Страница переписки по конкретному обращению. Показывает все сообщения
-// и позволяет добавить ответ. Подписывается на уведомления через SignalR (пока
-// не реализовано) для получения новых сообщений в реальном времени.
+// Переписка по конкретному обращению.
+// Есть polling, чтобы подтягивать ответы техподдержки.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Field, Textarea, Button, Card } from '../components/ui';
 import { getSupportTicket, sendSupportMessage } from '../api/support';
+import { useNotify } from '../components/notify/NotifyProvider';
+import { notifyOnce } from '../utils/notifyOnce';
+
+function pickLastMessage(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return null;
+  // обычно сервер уже отдаёт по времени, но на всякий случай отсортируем.
+  return [...messages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).at(-1);
+}
 
 export default function SupportChatPage() {
   const { ticketId } = useParams();
+  const notify = useNotify();
+
   const [ticket, setTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // загрузка тикета
-  const fetchTicket = async () => {
+  const lastMessageIdRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  const title = useMemo(() => `Обращение #${String(ticketId).slice(0, 8)}`, [ticketId]);
+
+  const fetchTicket = async ({ silent = false } = {}) => {
     try {
       const data = await getSupportTicket(ticketId);
+      if (!isMountedRef.current) return;
+
       setTicket(data.ticket);
-      setMessages(data.messages);
+      setMessages(data.messages || []);
+
+      const last = pickLastMessage(data.messages);
+      const lastId = last?.id || `${last?.createdAt || ''}-${last?.text || ''}`;
+      const prev = lastMessageIdRef.current;
+      lastMessageIdRef.current = lastId;
+
+      // уведомляем только если это не первая загрузка и пришёл ответ админа
+      if (prev && last && lastId !== prev && last.isFromAdmin) {
+        notifyOnce(
+          `support_msg_${ticketId}_${lastId}`,
+          () => notify.info(`Техподдержка ответила в ${title}`),
+          6000
+        );
+      }
     } catch (err) {
-      setError(err?.message || 'Ошибка загрузки сообщения');
+      if (!silent) {
+        const msg = err?.message || 'Ошибка загрузки сообщения';
+        setError(msg);
+        notify.error(msg);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
+    setLoading(true);
+    setError('');
+    lastMessageIdRef.current = null;
+
     fetchTicket();
-    // TODO: Подписка на SignalR для новых сообщений
+
+    // polling (если SignalR появится — можно заменить)
+    const t = setInterval(() => fetchTicket({ silent: true }), 12000);
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId]);
 
   const send = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    const txt = newMessage.trim();
+    if (!txt) return;
+
     try {
-      await sendSupportMessage(ticketId, { message: newMessage });
-      // локально добавляем пока без real-time
-      setMessages([
-        ...messages,
-        {
-          id: `tmp-${Date.now()}`,
-          text: newMessage,
-          createdAt: new Date().toISOString(),
-          isFromAdmin: false,
-        },
-      ]);
+      setError('');
+      await sendSupportMessage(ticketId, { message: txt });
       setNewMessage('');
+      notify.success('Сообщение отправлено');
+      // после отправки сразу подтягиваем серверную версию (чтобы получить реальный id)
+      await fetchTicket({ silent: true });
     } catch (err) {
-      setError(err?.message || 'Не удалось отправить сообщение');
+      const msg = err?.message || 'Не удалось отправить сообщение';
+      setError(msg);
+      notify.error(msg);
     }
   };
 
   return (
     <Layout>
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-2xl font-semibold mb-4">Обращение #{ticketId}</h1>
+        <h1 className="text-2xl font-semibold mb-4">{title}</h1>
         {error && <div className="text-red-500 mb-4">{error}</div>}
+
         {loading ? (
           <div>Загрузка…</div>
         ) : (
           <Card>
             <div className="space-y-4 mb-4">
-              {messages.map((m, idx) => (
-                <div key={idx} className={m.isFromAdmin ? 'text-right' : 'text-left'}>
-                  <div
-                    className={
-                      m.isFromAdmin
-                        ? 'bg-slate-100 dark:bg-slate-800 inline-block p-3 rounded-xl'
-                        : 'bg-brand-100 dark:bg-brand-900 inline-block p-3 rounded-xl'
-                    }
-                  >
-                    {m.text}
+              {messages.length === 0 ? (
+                <div className="text-slate-500 dark:text-slate-400">Пока нет сообщений.</div>
+              ) : (
+                messages.map((m) => (
+                  <div key={m.id || `${m.createdAt}-${m.text}`} className={m.isFromAdmin ? 'text-right' : 'text-left'}>
+                    <div
+                      className={
+                        m.isFromAdmin
+                          ? 'bg-slate-100 dark:bg-slate-800 inline-block p-3 rounded-xl'
+                          : 'bg-brand-100 dark:bg-brand-900 inline-block p-3 rounded-xl'
+                      }
+                    >
+                      {m.text}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">{m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}</div>
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {new Date(m.createdAt).toLocaleString()}
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
+
             <form onSubmit={send} className="space-y-2">
               <Field label="Ваш ответ">
                 <Textarea
