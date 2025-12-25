@@ -1,10 +1,8 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+﻿﻿import { Routes, Route, Navigate } from 'react-router-dom';
 import { NotifyProvider } from './components/notify/NotifyProvider';
 
 import ProtectedRoute from './auth/ProtectedRoute';
 import EditorRoute from './auth/EditorRoute';
-
-import SupportPage from "./pages/SupportPage";
 
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -25,12 +23,6 @@ import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
 import AdminBadgesPage from './pages/admin/AdminBadgesPage';
 
-// Support (new)
-import SupportTicketsPage from "./pages/SupportTicketsPage";
-import SupportCreatePage from "./pages/SupportCreatePage";
-import SupportChatPage from "./pages/SupportChatPage";
-import AdminSupportPage from "./pages/AdminSupportPage";
-
 function Home() {
   return <Navigate to="/login" replace />;
 }
@@ -48,15 +40,8 @@ export default function App() {
 
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Home />} />
-
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
-
-          {/* Support */}
-          <Route path="/supportold" element={<SupportPage />} />
-          <Route path="/support" element={<SupportTicketsPage />} />
-          <Route path="/support/new" element={<SupportCreatePage />} />
-          <Route path="/support/:ticketId" element={<SupportChatPage />} />
 
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
@@ -81,16 +66,12 @@ export default function App() {
           {/* публичный профиль по userId */}
           <Route path="/users/:userId" element={<PublicProfilePage />} />
 
-          {/* Админка */}
           <Route element={<EditorRoute fallbackTo="courses" />}>
             <Route path="/courses/:courseId/edit" element={<CourseEditPage />} />
             <Route path="/assignment/:assignmentId/edit" element={<AssignmentEditPage />} />
             <Route path="/admin/leaderboard" element={<LeaderboardPage />} />
             <Route path="/admin/solutions" element={<AdminSolutionsPage />} />
             <Route path="/admin/badges" element={<AdminBadgesPage />} />
-
-            {/* NEW: админ-страница поддержки */}
-            <Route path="/admin/support" element={<AdminSupportPage />} />
           </Route>
         </Route>
 
