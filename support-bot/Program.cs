@@ -1,6 +1,8 @@
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 
 namespace SupportBot
@@ -18,8 +20,10 @@ namespace SupportBot
                     // База данных
                     services.AddDbContext<ApplicationDbContext>(options =>
                         options.UseNpgsql(context.Configuration.GetConnectionString("DefaultConnection")));
+
                     // HttpClient для вызовов в API
                     services.AddHttpClient();
+
                     // Наш hosted service
                     services.AddHostedService<SupportBotService>();
                 })
