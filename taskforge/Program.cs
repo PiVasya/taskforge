@@ -69,7 +69,7 @@ builder.Services.AddControllers()
         o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
 
-// Добавляем SignalR для real‑time уведомлений службы поддержки
+// SignalR (уведомления поддержки)
 builder.Services.AddSignalR();
 
 // Парольный хэшер как singleton
@@ -109,14 +109,29 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// миграции
+//
+// ✅ Автоприменение миграций при запуске
+// (без этого новые таблицы/изменения схемы не появятся и будут 500 ошибки)
+//
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("DatabaseMigration");
+
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        db.Database.Migrate();
+        logger.LogInformation("Database migrations applied successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to apply database migrations");
+        throw; // важно: пусть сервис не стартует в поломанном состоянии
+    }
 }
 
-// глобальный маппинг исключений -> корректные HTTP‑коды
+// глобальный маппинг исключений -> корректные HTTP-коды
 app.Use(async (ctx, next) =>
 {
     try
@@ -146,12 +161,16 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseCors("AllowAll");
+
 app.UseAuthentication();
 app.UseAuthorization();
+
 // отдаём статические файлы из wwwroot (например, изображения бейджей)
 app.UseStaticFiles();
+
 app.MapControllers();
-// Маршрутизируем SignalR хаб поддержки
+
+// SignalR хаб поддержки
 app.MapHub<SupportHub>("/hubs/support");
 
 app.Run();
