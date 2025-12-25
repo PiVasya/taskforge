@@ -6,6 +6,7 @@ import Layout from '../components/Layout';
 import { Card, Button, Select, Textarea, Badge } from '../components/ui';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
+import TaskTestSolve from './TaskTestSolve';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
@@ -225,6 +226,31 @@ export default function AssignmentSolvePage() {
     return (
       <Layout>
         <div className="text-red-600">{error || 'Задание не найдено'}</div>
+      </Layout>
+    );
+  }
+
+  // ===== Новый тип задания: тест =====
+  if (a.type === 'test') {
+    return (
+      <Layout>
+        {/* верхняя панель */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
+              <ArrowLeft size={16} /> к заданиям курса
+            </Link>
+          </div>
+          <div className="flex items-center gap-2">
+            <IfEditor>
+              <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
+                Редактировать
+              </Link>
+            </IfEditor>
+          </div>
+        </div>
+
+        <TaskTestSolve assignment={a} assignmentId={a.id} />
       </Layout>
     );
   }

@@ -7,9 +7,11 @@ import { handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
 
 import { getAssignment, updateAssignment, deleteAssignment } from "../api/assignments";
+import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
 
 import { Card, Button, Field, Input, Textarea, Select } from "../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle } from "lucide-react";
+import TaskTestEditor from "./TaskTestEditor";
 
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
@@ -26,6 +28,15 @@ export default function AssignmentEditPage() {
   const [tags, setTags] = useState("");
   const [difficulty, setDifficulty] = useState(1);
   const [testCases, setTestCases] = useState([]);
+
+  const [testSettings, setTestSettings] = useState({
+    shuffleQuestions: true,
+    shuffleAnswers: true,
+    maxAttempts: 1,
+    passPercent: 60,
+    attemptTimeLimitsSeconds: [],
+  });
+  const [testQuestions, setTestQuestions] = useState([]);
 
   const [courseId, setCourseId] = useState(null);
 
@@ -60,6 +71,24 @@ export default function AssignmentEditPage() {
               }))
             : [{ input: "", expectedOutput: "", isHidden: false }]
         );
+
+        // если это тест — подтягиваем настройки/вопросы
+        if ((a.type || "").trim() === "test") {
+          try {
+            const te = await getTaskTestEdit(assignmentId);
+            setTestSettings(te.settings || {
+              shuffleQuestions: true,
+              shuffleAnswers: true,
+              maxAttempts: 1,
+              passPercent: 60,
+              attemptTimeLimitsSeconds: [],
+            });
+            setTestQuestions(Array.isArray(te.questions) ? te.questions : []);
+          } catch (e2) {
+            // не блокируем редактор базовых полей
+            console.warn('getTaskTestEdit failed', e2);
+          }
+        }
       } catch (e) {
         handleApiError(e, notify, "Ошибка загрузки задания");
       } finally {
@@ -96,14 +125,27 @@ export default function AssignmentEditPage() {
         type: (type || "code-test").trim(),
         tags: (tags || "").trim(),
         difficulty: Number(difficulty) || 1,
-        testCases: testCases.map((t) => ({
-          input: t.input ?? "",
-          expectedOutput: t.expectedOutput ?? "",
-          isHidden: !!t.isHidden,
-        })),
+        // для type=test на бэке тест-кейсы не нужны: просто отправляем пустой массив,
+        // чтобы при смене типа старые тест-кейсы были удалены
+        testCases:
+          (type || "").trim() === "code-test"
+            ? testCases.map((t) => ({
+                input: t.input ?? "",
+                expectedOutput: t.expectedOutput ?? "",
+                isHidden: !!t.isHidden,
+              }))
+            : [],
       };
 
       await updateAssignment(assignmentId, payload);
+
+      // сохраняем тест (если type=test)
+      if ((type || "").trim() === "test") {
+        await saveTaskTestEdit(assignmentId, {
+          settings: testSettings,
+          questions: testQuestions,
+        });
+      }
       notify.success("Изменения сохранены");
       nav(`/assignment/${assignmentId}`);
     } catch (e) {
@@ -180,9 +222,7 @@ export default function AssignmentEditPage() {
               <Field label="Тип">
                 <Select value={type} onChange={(e) => setType(e.target.value)}>
                   <option value="code-test">code-test</option>
-                  <option value="quiz" disabled>
-                    quiz (скоро)
-                  </option>
+                  <option value="test">test</option>
                 </Select>
               </Field>
 
@@ -213,59 +253,70 @@ export default function AssignmentEditPage() {
             </div>
           </Card>
 
-          <Card>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xl font-semibold">Тест-кейсы</h2>
-              <Button className="btn-outline" onClick={addTest}>
-                <PlusCircle size={16} /> Добавить тест
-              </Button>
-            </div>
+          {type === 'code-test' && (
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xl font-semibold">Тест-кейсы</h2>
+                <Button className="btn-outline" onClick={addTest}>
+                  <PlusCircle size={16} /> Добавить тест
+                </Button>
+              </div>
 
-            <div className="space-y-4">
-              {testCases.map((t, idx) => (
-                <div
-                  key={idx}
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-[rgb(var(--card))]"
-                >
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Field label="Input">
-                      <Textarea
-                        rows={4}
-                        value={t.input}
-                        onChange={(e) => changeTest(idx, "input", e.target.value)}
-                      />
-                    </Field>
-                    <Field label="Expected Output">
-                      <Textarea
-                        rows={4}
-                        value={t.expectedOutput}
-                        onChange={(e) =>
-                          changeTest(idx, "expectedOutput", e.target.value)
-                        }
-                      />
-                    </Field>
-                    <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                      <input
-                        type="checkbox"
-                        checked={t.isHidden}
-                        onChange={(e) => changeTest(idx, "isHidden", e.target.checked)}
-                      />
-                      Скрытый
-                    </label>
+              <div className="space-y-4">
+                {testCases.map((t, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-[rgb(var(--card))]"
+                  >
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Field label="Input">
+                        <Textarea
+                          rows={4}
+                          value={t.input}
+                          onChange={(e) => changeTest(idx, "input", e.target.value)}
+                        />
+                      </Field>
+                      <Field label="Expected Output">
+                        <Textarea
+                          rows={4}
+                          value={t.expectedOutput}
+                          onChange={(e) =>
+                            changeTest(idx, "expectedOutput", e.target.value)
+                          }
+                        />
+                      </Field>
+                      <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                        <input
+                          type="checkbox"
+                          checked={t.isHidden}
+                          onChange={(e) => changeTest(idx, "isHidden", e.target.checked)}
+                        />
+                        Скрытый
+                      </label>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant="outline"
+                        className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => removeTest(idx)}
+                      >
+                        <Trash2 size={16} /> Удалить тест
+                      </Button>
+                    </div>
                   </div>
-                  <div className="mt-3 flex justify-end">
-                    <Button
-                      variant="outline"
-                      className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-                      onClick={() => removeTest(idx)}
-                    >
-                      <Trash2 size={16} /> Удалить тест
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {type === 'test' && (
+            <TaskTestEditor
+              settings={testSettings}
+              setSettings={setTestSettings}
+              questions={testQuestions}
+              setQuestions={setTestQuestions}
+            />
+          )}
         </div>
 
         <div className="space-y-4">
@@ -284,12 +335,14 @@ export default function AssignmentEditPage() {
             </div>
           </Card>
 
-          <Card>
-            <div className="text-sm text-slate-500">
-              Подсказка: используйте публичные и скрытые тесты, чтобы проверки были
-              надёжными.
-            </div>
-          </Card>
+          {type === 'code-test' && (
+            <Card>
+              <div className="text-sm text-slate-500">
+                Подсказка: используйте публичные и скрытые тесты, чтобы проверки были
+                надёжными.
+              </div>
+            </Card>
+          )}
         </div>
       </div>
     </Layout>

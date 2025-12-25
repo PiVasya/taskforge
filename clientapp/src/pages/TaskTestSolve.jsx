@@ -1,0 +1,211 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Card, Button, Field, Input, Textarea, Select, Badge } from '../components/ui';
+import { startTaskTest, submitTaskTest } from '../api/taskTests';
+import { useNotify } from '../components/notify/NotifyProvider';
+
+function fmtSeconds(total) {
+  if (total == null) return '';
+  const t = Math.max(0, Math.floor(total));
+  const m = Math.floor(t / 60);
+  const s = t % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export default function TaskTestSolve({ assignmentId, assignment }) {
+  const notify = useNotify();
+
+  const [loading, setLoading] = useState(false);
+  const [startData, setStartData] = useState(null);
+  const [answers, setAnswers] = useState({});
+
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const timeLimit = startData?.timeLimitSeconds ?? null;
+  const startedAt = startData?.startedAtUtc ? new Date(startData.startedAtUtc) : null;
+
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    if (!startedAt || !timeLimit) return;
+    const id = setInterval(() => setNowTick(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [startedAt, timeLimit]);
+
+  const secondsLeft = useMemo(() => {
+    if (!startedAt || !timeLimit) return null;
+    const elapsed = (nowTick - startedAt.getTime()) / 1000;
+    return Math.max(0, Math.ceil(timeLimit - elapsed));
+  }, [startedAt, timeLimit, nowTick]);
+
+  const begin = async () => {
+    try {
+      setLoading(true);
+      setResult(null);
+      setAnswers({});
+      const data = await startTaskTest(assignmentId);
+      setStartData(data);
+    } catch (err) {
+      notify.error(err?.userMessage || err?.message || 'Не удалось начать тест');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const doSubmit = async () => {
+    if (!startData?.attemptId) return;
+    try {
+      setSubmitLoading(true);
+      const payload = {
+        attemptId: startData.attemptId,
+        answers: Object.entries(answers).map(([questionId, v]) => ({
+          questionId,
+          selectedOptionKey: v?.selectedOptionKey ?? null,
+          text: v?.text ?? null,
+        })),
+      };
+      const res = await submitTaskTest(assignmentId, payload);
+      setResult(res);
+      notify.success(res.passed ? 'Тест засчитан ✅' : 'Попытка завершена');
+    } catch (err) {
+      notify.error(err?.userMessage || err?.message || 'Не удалось отправить ответы');
+    } finally {
+      setSubmitLoading(false);
+    }
+  };
+
+  // автосабмит при 0 (мягко)
+  useEffect(() => {
+    if (!startData?.attemptId) return;
+    if (secondsLeft == null) return;
+    if (secondsLeft > 0) return;
+    // чтобы не заспамить
+    if (submitLoading || result) return;
+    doSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft]);
+
+  const questions = startData?.questions ?? [];
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">{assignment?.title || 'Тест'}</h1>
+          {assignment?.description && (
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap">
+              {assignment.description}
+            </p>
+          )}
+        </div>
+        <div className="text-right">
+          {startData && (
+            <div className="text-sm text-slate-600 dark:text-slate-400">
+              Попытка: <b>{startData.attemptNumber}</b> / {startData.maxAttempts}
+            </div>
+          )}
+          {timeLimit ? (
+            <div className="mt-1">
+              <Badge variant={secondsLeft !== null && secondsLeft <= 10 ? 'destructive' : 'secondary'}>
+                Таймер: {fmtSeconds(secondsLeft)}
+              </Badge>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {!startData && (
+        <Card>
+          <div className="space-y-3">
+            <div className="text-sm text-slate-600 dark:text-slate-400">
+              Чтобы начать, нажми кнопку. Вопросы/варианты могут быть в случайном порядке.
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={begin} disabled={loading}>
+                {loading ? 'Запуск…' : 'Начать тест'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {result && (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold">
+                Результат: {result.scorePercent}% ({result.correctCount}/{result.totalCount})
+              </div>
+              <div className="text-sm text-slate-600 dark:text-slate-400">
+                Порог: {result.passPercent}%.{' '}
+                {result.timeExpired ? '⏱️ Время вышло — попытка не засчитана.' : (result.passed ? '✅ Засчитано.' : '❌ Не засчитано.')}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => { setStartData(null); setResult(null); }}>
+                Закрыть
+              </Button>
+              <Button onClick={begin} disabled={loading}>
+                {loading ? 'Запуск…' : 'Новая попытка'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {startData && !result && (
+        <div className="space-y-4">
+          {questions.map((q, idx) => (
+            <Card key={q.id}>
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="font-medium">
+                    {idx + 1}. {q.prompt}
+                  </div>
+                  <Badge variant="outline">{q.type}</Badge>
+                </div>
+
+                {q.type === 'single-choice' && (
+                  <div className="space-y-2">
+                    {(q.options || []).map((o) => {
+                      const cur = answers[q.id]?.selectedOptionKey || '';
+                      return (
+                        <label key={o.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`q-${q.id}`}
+                            checked={cur === o.key}
+                            onChange={() => setAnswers((p) => ({ ...p, [q.id]: { selectedOptionKey: o.key } }))}
+                          />
+                          <span>{o.text}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {(q.type === 'fill' || q.type === 'text') && (
+                  <Field label={q.type === 'fill' ? 'Вставь слово' : 'Ответ'}>
+                    <Input
+                      value={answers[q.id]?.text || ''}
+                      onChange={(e) => setAnswers((p) => ({ ...p, [q.id]: { text: e.target.value } }))}
+                      placeholder="Введите ответ…"
+                    />
+                  </Field>
+                )}
+              </div>
+            </Card>
+          ))}
+
+          <div className="flex gap-3">
+            <Button onClick={doSubmit} disabled={submitLoading}>
+              {submitLoading ? 'Отправка…' : 'Завершить тест'}
+            </Button>
+            <Button variant="outline" onClick={() => { setStartData(null); setAnswers({}); }} disabled={submitLoading}>
+              Отмена
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
