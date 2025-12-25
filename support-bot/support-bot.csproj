@@ -12,6 +12,9 @@
 
     <!-- те же зависимости EF Core -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.1" />
+    <!-- Важно: в рантайме бот использует DbContext + Include/миграционные расширения,
+         поэтому Relational должен быть гарантированно в publish output (иначе FileNotFoundException). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.1" />
 
     <PackageReference Include="Telegram.Bot" Version="19.0.0" />
