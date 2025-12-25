@@ -10,19 +10,20 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using taskforge.Data;
-using taskforge.Data.Models.Entities;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
-
 namespace SupportBot
 {
     /// <summary>
     /// HostedService, работающий с Telegram API. Отправляет сообщения пользователей
     /// в группу поддержки и обрабатывает ответы админов как сообщения в тикете.
+    ///
+    /// ВАЖНО: бот НЕ сохраняет ответы админов в БД. Он только форвардит их в API,
+    /// иначе будет дубль (бот сохраняет + API сохраняет).
     /// </summary>
     public class SupportBotService : BackgroundService
     {
@@ -47,17 +48,24 @@ namespace SupportBot
             var groupIdStr = _configuration["TELEGRAM_SUPPORT_GROUP_ID"];
             _apiBaseUrl = _configuration["API_BASE_URL"];
             _apiKey = _configuration["API_INTERNAL_KEY"];
-            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(groupIdStr) || string.IsNullOrWhiteSpace(_apiBaseUrl) || string.IsNullOrWhiteSpace(_apiKey))
+
+            if (string.IsNullOrWhiteSpace(token) ||
+                string.IsNullOrWhiteSpace(groupIdStr) ||
+                string.IsNullOrWhiteSpace(_apiBaseUrl) ||
+                string.IsNullOrWhiteSpace(_apiKey))
             {
                 _logger.LogError("SupportBotService: environment variables are not set");
                 return;
             }
+
             if (!long.TryParse(groupIdStr, out _groupId))
             {
                 _logger.LogError("SupportBotService: TELEGRAM_SUPPORT_GROUP_ID is invalid");
                 return;
             }
+
             _bot = new TelegramBotClient(token);
+
             try
             {
                 // Удаляем вебхук на случай, если ранее был установлен, чтобы переходить в режим polling
@@ -67,10 +75,12 @@ namespace SupportBot
             {
                 _logger.LogWarning(ex, "Failed to delete webhook");
             }
+
             var receiverOptions = new ReceiverOptions
             {
                 AllowedUpdates = Array.Empty<UpdateType>()
             };
+
             _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, receiverOptions, cancellationToken: stoppingToken);
             _logger.LogInformation("Support bot started receiving updates");
 
@@ -85,6 +95,7 @@ namespace SupportBot
                 {
                     _logger.LogError(ex, "Error while sending unsent messages");
                 }
+
                 // Опрашиваем каждые 10 секунд
                 await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
             }
@@ -96,13 +107,16 @@ namespace SupportBot
         private async Task SendUnsentMessagesAsync(CancellationToken ct)
         {
             if (_bot == null) return;
+
             using var scope = _provider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
             var unsent = await db.SupportMessages
                 .Include(m => m.Ticket)
                 .ThenInclude(t => t.User)
                 .Where(m => !m.IsFromAdmin && m.TelegramMessageId == null)
                 .ToListAsync(ct);
+
             foreach (var msg in unsent)
             {
                 var user = msg.Ticket.User;
@@ -111,54 +125,55 @@ namespace SupportBot
                     $"Тип: {msg.Ticket.Type}\n" +
                     $"Пользователь: {user.FirstName} {user.LastName}\n" +
                     $"Email: {user.Email}\n\n";
+
                 var sent = await _bot.SendTextMessageAsync(_groupId, header + msg.Text, cancellationToken: ct);
+
                 msg.TelegramChatId = _groupId;
                 msg.TelegramMessageId = sent.MessageId;
+
                 await db.SaveChangesAsync(ct);
                 _logger.LogInformation($"Sent support message {msg.Id} to group {_groupId}");
             }
         }
 
         /// <summary>
-        /// Обработчик обновлений Telegram. Отвечает только на ответы (reply) в группе.
+        /// Обработчик обновлений Telegram. Берём только ответы (reply) в группе.
+        /// Бот НЕ пишет ответ в БД, а только отправляет событие в API.
         /// </summary>
         private async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
             try
             {
-                if (update.Message != null && update.Message.ReplyToMessage != null && !string.IsNullOrWhiteSpace(update.Message.Text))
-                {
-                    var replyId = update.Message.ReplyToMessage.MessageId;
-                    using var scope = _provider.CreateScope();
-                    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                    var original = await db.SupportMessages
-                        .Include(m => m.Ticket)
-                        .FirstOrDefaultAsync(m => m.TelegramMessageId == replyId, ct);
-                    if (original == null)
-                    {
-                        return;
-                    }
-                    var ticket = original.Ticket;
-                    var firstName = update.Message.From?.FirstName ?? string.Empty;
-                    var lastName = update.Message.From?.LastName ?? string.Empty;
-                    var authorName = $"{firstName} {lastName}".Trim();
-                    var newMsg = new SupportMessage
-                    {
-                        TicketId = ticket.Id,
-                        Text = update.Message.Text ?? string.Empty,
-                        CreatedAt = DateTime.UtcNow,
-                        IsFromAdmin = true,
-                        AuthorName = string.IsNullOrWhiteSpace(authorName) ? update.Message.From?.Username : authorName,
-                        TelegramChatId = update.Message.Chat.Id,
-                        TelegramMessageId = update.Message.MessageId,
-                        Source = "TelegramAdmin"
-                    };
-                    db.SupportMessages.Add(newMsg);
-                    ticket.UpdatedAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync(ct);
-                    _logger.LogInformation($"Received reply for ticket {ticket.Id}");
-                    await NotifyApiAsync(ticket.Id, newMsg.AuthorName ?? "Admin", newMsg.Text, ct);
-                }
+                if (update.Message == null) return;
+                if (update.Message.ReplyToMessage == null) return;
+                if (string.IsNullOrWhiteSpace(update.Message.Text)) return;
+
+                var replyId = update.Message.ReplyToMessage.MessageId;
+
+                using var scope = _provider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+                // Находим исходное сообщение пользователя, которое бот ранее отправлял в TG
+                var original = await db.SupportMessages
+                    .Include(m => m.Ticket)
+                    .FirstOrDefaultAsync(m => m.TelegramMessageId == replyId, ct);
+
+                if (original == null) return;
+
+                var ticket = original.Ticket;
+
+                var firstName = update.Message.From?.FirstName ?? string.Empty;
+                var lastName = update.Message.From?.LastName ?? string.Empty;
+                var authorName = $"{firstName} {lastName}".Trim();
+                if (string.IsNullOrWhiteSpace(authorName))
+                    authorName = update.Message.From?.Username ?? "Admin";
+
+                var text = update.Message.Text ?? string.Empty;
+
+                _logger.LogInformation($"Received reply for ticket {ticket.Id} (TG msg {update.Message.MessageId})");
+
+                // ВАЖНО: сохраняет и рассылает только API, иначе будет дубль.
+                await NotifyApiAsync(ticket.Id, authorName, text, ct);
             }
             catch (Exception ex)
             {
@@ -184,15 +199,18 @@ namespace SupportBot
         private async Task NotifyApiAsync(Guid ticketId, string authorName, string message, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(_apiBaseUrl) || string.IsNullOrEmpty(_apiKey)) return;
+
             using var scope = _provider.CreateScope();
             var clientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
             var http = clientFactory.CreateClient();
+
             var payload = new { ticketId, authorName, message };
             var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiBaseUrl}/api/support/events/new")
             {
                 Content = JsonContent.Create(payload)
             };
             request.Headers.Add("X-Internal-Key", _apiKey);
+
             try
             {
                 var resp = await http.SendAsync(request, ct);
