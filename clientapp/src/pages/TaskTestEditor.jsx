@@ -29,7 +29,10 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
   };
 
   const addQuestion = () => {
-    const nextOrder = (qList.reduce((m, x) => Math.max(m, x.order || 0), 0) || 0) + 1;
+    // order в тестах храним 0-based (как в бэке). Первый вопрос должен иметь order = 0.
+    const nextOrder = qList.length
+      ? Math.max(...qList.map(x => (Number.isFinite(x.order) ? x.order : 0))) + 1
+      : 0;
     setQuestions([
       ...qList,
       {
@@ -65,7 +68,8 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     copy[idx] = copy[j];
     copy[j] = t;
     // пересчёт order
-    const withOrder = copy.map((x, i) => ({ ...x, order: i + 1 }));
+    // Держим 0-based порядок. Иначе после первого перемещения все order "съезжают" на 1..N.
+    const withOrder = copy.map((x, i) => ({ ...x, order: i }));
     setQuestions(withOrder);
   };
 

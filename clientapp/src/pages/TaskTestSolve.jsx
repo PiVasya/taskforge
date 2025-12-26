@@ -21,6 +21,11 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [result, setResult] = useState(null);
 
+  // Если лимит попыток достигнут, показываем предупреждение и блокируем "Начать тест".
+  // Важно именно для кейса: пользователь закрыл результаты, увидел кнопку "Начать тест",
+  // нажал её, получил 409, но UI может выглядеть как будто тест всё равно начался.
+  const [limitReached, setLimitReached] = useState(false);
+
   const timeLimit = startData?.timeLimitSeconds ?? null;
   const startedAt = startData?.startedAtUtc ? new Date(startData.startedAtUtc) : null;
 
@@ -40,11 +45,19 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   const begin = async () => {
     try {
       setLoading(true);
+      setLimitReached(false);
+      // Важно: сбрасываем старые данные попытки ДО запроса.
+      // Иначе при 409 (лимит попыток) UI покажет старые вопросы как будто тест начался,
+      // но отправка уже не сработает (attemptId от старой попытки).
+      setStartData(null);
       setResult(null);
       setAnswers({});
       const data = await startTaskTest(assignmentId);
       setStartData(data);
     } catch (err) {
+      if (err?.response?.status === 409) {
+        setLimitReached(true);
+      }
       notify.error(err?.userMessage || err?.message || 'Не удалось начать тест');
     } finally {
       setLoading(false);
@@ -65,6 +78,16 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
       };
       const res = await submitTaskTest(assignmentId, payload);
       setResult(res);
+
+      // Если это была последняя попытка — запоминаем это, чтобы после закрытия
+      // результатов пользователь не мог "начать" тест повторно.
+      if (
+        Number.isFinite(startData?.attemptNumber) &&
+        Number.isFinite(startData?.maxAttempts) &&
+        startData.attemptNumber >= startData.maxAttempts
+      ) {
+        setLimitReached(true);
+      }
       notify.success(res.passed ? 'Тест засчитан ✅' : 'Попытка завершена');
     } catch (err) {
       notify.error(err?.userMessage || err?.message || 'Не удалось отправить ответы');
@@ -120,10 +143,15 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
               Чтобы начать, нажми кнопку. Вопросы/варианты могут быть в случайном порядке.
             </div>
             <div className="flex gap-3">
-              <Button onClick={begin} disabled={loading}>
-                {loading ? 'Запуск…' : 'Начать тест'}
+              <Button onClick={begin} disabled={loading || limitReached}>
+                {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать тест')}
               </Button>
             </div>
+            {limitReached ? (
+              <div className="text-sm text-rose-600">
+                Достигнут лимит попыток. Новую попытку начать нельзя.
+              </div>
+            ) : null}
           </div>
         </Card>
       )}
@@ -144,9 +172,15 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
               <Button variant="outline" onClick={() => { setStartData(null); setResult(null); }}>
                 Закрыть
               </Button>
-              <Button onClick={begin} disabled={loading}>
-                {loading ? 'Запуск…' : 'Новая попытка'}
-              </Button>
+              {startData && startData.attemptNumber < startData.maxAttempts ? (
+                <Button onClick={begin} disabled={loading}>
+                  {loading ? 'Запуск…' : 'Новая попытка'}
+                </Button>
+              ) : (
+                <Button variant="secondary" disabled>
+                  Лимит попыток
+                </Button>
+              )}
             </div>
           </div>
         </Card>
