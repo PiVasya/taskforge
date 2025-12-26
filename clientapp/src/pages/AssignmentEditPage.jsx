@@ -141,9 +141,20 @@ export default function AssignmentEditPage() {
 
       // сохраняем тест (если type=test)
       if ((type || "").trim() === "test") {
+        // В редакторе допустимых ответов мы не фильтруем пустые строки на лету (иначе Enter не работает),
+        // поэтому перед сохранением чистим список ответов.
+        const cleanedQuestions = (testQuestions || []).map((q) => {
+          const aa = Array.isArray(q?.acceptedAnswers)
+            ? q.acceptedAnswers
+                .map((x) => (typeof x === "string" ? x : ""))
+                .map((x) => x.replace(/\r/g, ""))
+                .filter((x) => x.trim().length > 0)
+            : [];
+          return { ...q, acceptedAnswers: aa };
+        });
         await saveTaskTestEdit(assignmentId, {
           settings: testSettings,
-          questions: testQuestions,
+          questions: cleanedQuestions,
         });
       }
       notify.success("Изменения сохранены");

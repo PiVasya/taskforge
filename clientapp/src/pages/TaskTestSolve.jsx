@@ -64,6 +64,17 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
     }
   };
 
+  // Для типа "fill" (вставить пропущенное слово) поддерживаем плейсхолдер из подчёркиваний,
+  // например: "______ самый быстрый язык".
+  // В UI вставляем поле ввода прямо в текст вопроса.
+  const splitFillPrompt = (prompt) => {
+    const p = String(prompt || '');
+    const m = p.match(/_{3,}/);
+    if (!m) return null;
+    const i = p.indexOf(m[0]);
+    return { before: p.slice(0, i), after: p.slice(i + m[0].length) };
+  };
+
   const doSubmit = async () => {
     if (!startData?.attemptId) return;
     try {
@@ -192,8 +203,34 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
             <Card key={q.id}>
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="font-medium">
-                    {idx + 1}. {q.prompt}
+                  <div className="font-medium whitespace-pre-wrap">
+                    {idx + 1}.{' '}
+                    {(() => {
+                      const type = (q.type || '').toLowerCase();
+                      if (type !== 'fill') return q.prompt;
+
+                      const parts = splitFillPrompt(q.prompt);
+                      if (!parts) return q.prompt;
+
+                      const val = answers[q.id]?.text || '';
+                      return (
+                        <>
+                          {parts.before}
+                          <Input
+                            className="inline-block align-baseline mx-2 w-40"
+                            value={val}
+                            placeholder=""
+                            onChange={(e) =>
+                              setAnswers((p) => ({
+                                ...p,
+                                [q.id]: { text: e.target.value },
+                              }))
+                            }
+                          />
+                          {parts.after}
+                        </>
+                      );
+                    })()}
                   </div>
                   <Badge variant="outline">{q.type}</Badge>
                 </div>
@@ -217,12 +254,22 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
                   </div>
                 )}
 
-                {(q.type === 'fill' || q.type === 'text') && (
-                  <Field label={q.type === 'fill' ? 'Вставь слово' : 'Ответ'}>
+                {q.type === 'text' && (
+                  <Field label="Ответ">
                     <Input
                       value={answers[q.id]?.text || ''}
                       onChange={(e) => setAnswers((p) => ({ ...p, [q.id]: { text: e.target.value } }))}
                       placeholder="Введите ответ…"
+                    />
+                  </Field>
+                )}
+
+                {q.type === 'fill' && !splitFillPrompt(q.prompt) && (
+                  <Field label="Вставь слово">
+                    <Input
+                      value={answers[q.id]?.text || ''}
+                      onChange={(e) => setAnswers((p) => ({ ...p, [q.id]: { text: e.target.value } }))}
+                      placeholder="Введите слово…"
                     />
                   </Field>
                 )}

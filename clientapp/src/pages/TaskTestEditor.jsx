@@ -143,7 +143,9 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         <Textarea
           rows={4}
           value={answers.join('\n')}
-          onChange={(e) => updateQuestion(idx, { acceptedAnswers: e.target.value.split(/\r?\n/).map((x) => x).filter((x) => x.trim().length > 0) })}
+          // ВАЖНО: не фильтруем пустые строки на лету, иначе Enter «не работает»
+          // (пользователь не сможет перейти на новую строку, т.к. последняя пустая строка сразу выкидывается).
+          onChange={(e) => updateQuestion(idx, { acceptedAnswers: e.target.value.split(/\r?\n/).map((x) => x) })}
           placeholder={type === 'fill' ? 'Напр.: apple\nApple' : 'Напр.: 42'}
         />
         <div className="flex items-center gap-4">
