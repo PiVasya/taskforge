@@ -120,10 +120,15 @@ namespace taskforge.Services.Assignments
                 TaskAssignmentId = assignmentId,
                 UserId = userId,
                 AttemptNumber = attemptNumber,
+
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+
                 StartedAt = DateTime.UtcNow,
                 TimeLimitSeconds = timeLimitSeconds,
                 QuestionOrderJson = JsonSerializer.Serialize(questionOrder, JsonOptions)
             };
+
 
             _db.UserTaskTestAttempts.Add(attempt);
             await _db.SaveChangesAsync(ct);
@@ -207,12 +212,14 @@ namespace taskforge.Services.Assignments
             var passed = !timeExpired && scorePercent >= passPercent;
 
             attempt.SubmittedAt = DateTime.UtcNow;
+            attempt.UpdatedAt = DateTime.UtcNow;
             attempt.ScorePercent = scorePercent;
             attempt.Passed = passed;
             attempt.TimeExpired = timeExpired;
             attempt.AnswersJson = JsonSerializer.Serialize(request, JsonOptions);
 
             await _db.SaveChangesAsync(ct);
+
 
             var maxAttempts = settings.MaxAttempts;
             return new TaskTestSubmitResultDto
