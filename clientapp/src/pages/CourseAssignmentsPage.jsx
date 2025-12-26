@@ -400,56 +400,67 @@ export default function CourseAssignmentsPage() {
               </IfEditor>
             ) : null;
 
-          const CardInner = (
+          const CardBody = (
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 grow">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={
+                      "text-lg font-semibold truncate " +
+                      (solved ? "text-emerald-600" : "")
+                    }
+                    title={a.title}
+                  >
+                    {a.title}
+                  </div>
+                  {solved && (
+                    <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 text-xs">
+                      <CheckCircle2 size={14} />
+                      Решено
+                    </span>
+                  )}
+                </div>
+
+                {a.description && (
+                  <p className="text-sm text-slate-500 line-clamp-2 mt-1">
+                    {a.description}
+                  </p>
+                )}
+                {a.tags && (
+                  <div className="mt-2 text-xs text-slate-400">{a.tags}</div>
+                )}
+              </div>
+            </div>
+          );
+
+          const CardBase = (
             <Card
               className={
                 "transition hover:shadow-lg " +
                 (solved ? "border-emerald-400/40 bg-emerald-500/5" : "")
               }
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 grow">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={
-                        "text-lg font-semibold truncate " +
-                        (solved ? "text-emerald-600" : "")
-                      }
-                      title={a.title}
-                    >
-                      {a.title}
-                    </div>
-                    {solved && (
-                      <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 text-xs">
-                        <CheckCircle2 size={14} />
-                        Решено
-                      </span>
-                    )}
-                  </div>
-
-                  {a.description && (
-                    <p className="text-sm text-slate-500 line-clamp-2 mt-1">
-                      {a.description}
-                    </p>
-                  )}
-                  {a.tags && (
-                    <div className="mt-2 text-xs text-slate-400">{a.tags}</div>
-                  )}
-                </div>
-
-                {EditorToolbar}
-              </div>
+              {CardBody}
             </Card>
           );
 
-          // В режим /edit ведём только если canEdit === true
+          // В редакторе НЕ кладём инпут/кнопки внутрь ссылки (иначе браузер ведёт себя странно)
+          // Поэтому: карточка = div, тулбар сверху, а ссылкой делаем только тело.
+          const EditorCard = (
+            <Card
+              className={
+                "transition hover:shadow-lg " +
+                (solved ? "border-emerald-400/40 bg-emerald-500/5" : "")
+              }
+            >
+              <div className="flex items-start justify-end mb-3">{EditorToolbar}</div>
+              <EditWrap>{CardBody}</EditWrap>
+            </Card>
+          );
+
           return (
-            <IfEditor key={a.id} otherwise={<ViewWrap>{CardInner}</ViewWrap>}>
-              {a.canEdit ? (
-                <EditWrap>{CardInner}</EditWrap>
-              ) : (
-                <ViewWrap>{CardInner}</ViewWrap>
-              )}
+            <IfEditor key={a.id} otherwise={<ViewWrap>{CardBase}</ViewWrap>}>
+              {a.canEdit ? EditorCard : <ViewWrap>{CardBase}</ViewWrap>}
             </IfEditor>
           );
         })}
