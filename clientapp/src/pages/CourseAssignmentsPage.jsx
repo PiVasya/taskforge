@@ -102,6 +102,15 @@ export default function CourseAssignmentsPage() {
     return m;
   }, [orderedAll]);
 
+  // Единый флаг прав редактирования курса.
+  // Бэк отдаёт canEdit внутри каждого задания (как правило одинаковое для всех).
+  // Если заданий ещё нет — разрешаем UI, а бэк всё равно не даст не-owner менять данные.
+  const canEdit = useMemo(() => {
+    if (!items || items.length === 0) return true;
+    const any = items.find((x) => typeof x?.canEdit === "boolean");
+    return any ? !!any.canEdit : true;
+  }, [items]);
+
   const setSortMode = (mode) => {
     const next = new URLSearchParams(params);
     next.set("sort", mode);
@@ -191,14 +200,14 @@ export default function CourseAssignmentsPage() {
         .filter((x) => (oldSort.get(x.id) ?? 0) !== (newSort.get(x.id) ?? 0))
         .map((x) => ({ id: x.id, sort: newSort.get(x.id) ?? 0 }));
 
-      await Promise.all(changed.map((x) => api.updateAssignmentSort(x.id, x.sort)));
+      await Promise.all(changed.map((x) => updateAssignmentSort(x.id, x.sort)));
       notify.success("Позиция обновлена");
     } catch (e) {
       console.error(e);
       notify.error("Не удалось изменить позицию");
       // откат/перезагрузка
       try {
-        const list = await api.listAssignmentsByCourse(courseId);
+        const list = await getAssignmentsByCourse(courseId);
         setItems(Array.isArray(list) ? list : []);
       } catch {
         // ignore
