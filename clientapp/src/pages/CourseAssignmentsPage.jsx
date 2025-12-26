@@ -34,6 +34,10 @@ export default function CourseAssignmentsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // draft-значения для инпута "позиция" по каждому заданию
+  // (чтобы можно было ввести число и применить по blur/Enter)
+  const [posDraft, setPosDraft] = useState({});
+
   const sortMode = params.get("sort") || "default";
 
   useEffect(() => {
@@ -85,6 +89,19 @@ export default function CourseAssignmentsPage() {
     }
   }, [items, q, sortMode]);
 
+  // Базовый порядок (позиции) всегда считаем по Sort и по ВСЕМ заданиям курса.
+  // Это даёт корректные позиции даже когда включён поиск или другой режим сортировки.
+  const orderedAll = useMemo(() => {
+    const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
+    return [...(items || [])].sort(bySort);
+  }, [items]);
+
+  const positionById = useMemo(() => {
+    const m = new Map();
+    orderedAll.forEach((x, idx) => m.set(x.id, idx + 1));
+    return m;
+  }, [orderedAll]);
+
   const setSortMode = (mode) => {
     const next = new URLSearchParams(params);
     next.set("sort", mode);
@@ -127,6 +144,65 @@ export default function CourseAssignmentsPage() {
         }));
         setItems(norm);
       } catch {}
+    }
+  };
+
+  // Перемещение задания на заданную позицию (1..N) в курсе.
+  // Делается через пересчёт Sort для всех заданий курса (0..N-1).
+  const moveToPosition = async (assignmentId, newPos1Based) => {
+    if (!canEdit) {
+      notify.error("Недостаточно прав");
+      return;
+    }
+    if (sortMode !== "default") {
+      notify.info("Изменение позиции доступно только в режиме сортировки: По порядку");
+      return;
+    }
+
+    const n = orderedAll.length;
+    let targetPos = parseInt(String(newPos1Based || ""), 10);
+    if (!Number.isFinite(targetPos)) return;
+    if (targetPos < 1) targetPos = 1;
+    if (targetPos > n) targetPos = n;
+
+    const curIndex = orderedAll.findIndex((x) => x.id === assignmentId);
+    if (curIndex < 0) return;
+    const newIndex = targetPos - 1;
+    if (newIndex === curIndex) return;
+
+    const nextOrder = [...orderedAll];
+    const [moved] = nextOrder.splice(curIndex, 1);
+    nextOrder.splice(newIndex, 0, moved);
+
+    const oldSort = new Map();
+    for (const x of orderedAll) oldSort.set(x.id, x.sort ?? 0);
+
+    const newSort = new Map();
+    nextOrder.forEach((x, idx) => newSort.set(x.id, idx));
+
+    // Optimistic UI update
+    setItems((prev) =>
+      prev.map((x) => (newSort.has(x.id) ? { ...x, sort: newSort.get(x.id) } : x))
+    );
+
+    try {
+      // Обновляем только то, что реально поменялось
+      const changed = nextOrder
+        .filter((x) => (oldSort.get(x.id) ?? 0) !== (newSort.get(x.id) ?? 0))
+        .map((x) => ({ id: x.id, sort: newSort.get(x.id) ?? 0 }));
+
+      await Promise.all(changed.map((x) => api.updateAssignmentSort(x.id, x.sort)));
+      notify.success("Позиция обновлена");
+    } catch (e) {
+      console.error(e);
+      notify.error("Не удалось изменить позицию");
+      // откат/перезагрузка
+      try {
+        const list = await api.listAssignmentsByCourse(courseId);
+        setItems(Array.isArray(list) ? list : []);
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -229,7 +305,62 @@ export default function CourseAssignmentsPage() {
           const EditorToolbar =
             sortMode === "default" ? (
               <IfEditor>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex items-center gap-2"
+                    title="Позиция задания в курсе"
+                    onClick={(e) => {
+                      // не переходим по ссылке
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <span className="text-xs text-slate-500">№</span>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      className="w-20"
+                      min={1}
+                      max={orderedAll.length}
+                      value={
+                      posDraft[a.id] ??
+                        String(positionById.get(a.id) ?? "")
+                      }
+                      onChange={(e) =>
+                        setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.currentTarget.blur();
+                        }
+                        if (e.key === "Escape") {
+                          setPosDraft((p) => {
+                            const next = { ...p };
+                            delete next[a.id];
+                            return next;
+                          });
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={() => {
+                        const raw = posDraft[a.id];
+                        // если пользователь ничего не менял — просто выходим
+                        if (raw === undefined) return;
+
+                        // очищаем draft
+                        setPosDraft((p) => {
+                          const next = { ...p };
+                          delete next[a.id];
+                          return next;
+                        });
+
+                        const n = parseInt(String(raw), 10);
+                        if (!Number.isFinite(n)) return;
+                        moveToPosition(a.id, n);
+                      }}
+                    />
+                  </div>
+
                   <button
                     type="button"
                     className="px-2 py-1 rounded-lg border hover:bg-slate-50"
