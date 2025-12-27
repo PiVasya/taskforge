@@ -45,6 +45,7 @@ namespace taskforge.Services.Assignments
                     PassPercent = 60,
                     ShuffleQuestions = true,
                     ShuffleAnswers = true,
+                    AllowReview = true,
                     AttemptTimeLimitsJson = "[]"
                 };
 
@@ -167,7 +168,7 @@ namespace taskforge.Services.Assignments
             var settings = await _db.TaskTestSettings
                 .AsNoTracking()
                 .FirstOrDefaultAsync(s => s.TaskAssignmentId == assignmentId, ct)
-                ?? new TaskTestSettings { TaskAssignmentId = assignmentId };
+                ?? new TaskTestSettings { TaskAssignmentId = assignmentId, AllowReview = true };
 
             var questions = await _db.TaskTestQuestions
                 .AsNoTracking()
@@ -267,6 +268,7 @@ namespace taskforge.Services.Assignments
                     PassPercent = ClampPercent(settings.PassPercent),
                     ShuffleQuestions = settings.ShuffleQuestions,
                     ShuffleAnswers = settings.ShuffleAnswers,
+                    AllowReview = settings.AllowReview,
                     AttemptTimeLimitsSeconds = ParseTimeLimits(settings.AttemptTimeLimitsJson)
                 },
                 Questions = new List<TaskTestQuestionEditDto>()
@@ -330,6 +332,7 @@ namespace taskforge.Services.Assignments
             settings.PassPercent = ClampPercent(normalizedSettings.PassPercent);
             settings.ShuffleQuestions = normalizedSettings.ShuffleQuestions;
             settings.ShuffleAnswers = normalizedSettings.ShuffleAnswers;
+            settings.AllowReview = normalizedSettings.AllowReview;
             settings.AttemptTimeLimitsJson = JsonSerializer.Serialize(
                 (normalizedSettings.AttemptTimeLimitsSeconds ?? new List<int?>()),
                 JsonOptions);
@@ -440,6 +443,207 @@ namespace taskforge.Services.Assignments
             }
 
             await _db.SaveChangesAsync(ct);
+        }
+
+        // ===== Attempts (review) =====
+        public async Task<List<TaskTestAttemptListItemDto>> GetAttemptsAsync(
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int? days,
+            CancellationToken ct)
+        {
+            var q = _db.UserTaskTestAttempts
+                .AsNoTracking()
+                .Include(a => a.TaskAssignment!)
+                .ThenInclude(t => t.Course)
+                .Where(a => a.UserId == userId && a.SubmittedAt != null);
+
+            if (courseId.HasValue)
+                q = q.Where(a => a.TaskAssignment != null && a.TaskAssignment.CourseId == courseId.Value);
+            if (assignmentId.HasValue)
+                q = q.Where(a => a.TaskAssignmentId == assignmentId.Value);
+
+            if (days.HasValue)
+            {
+                var since = DateTime.UtcNow.AddDays(-Math.Abs(days.Value));
+                q = q.Where(a => a.SubmittedAt >= since);
+            }
+
+            var list = await q
+                .OrderByDescending(a => a.SubmittedAt)
+                .ThenByDescending(a => a.AttemptNumber)
+                .ToListAsync(ct);
+
+            if (list.Count == 0) return new List<TaskTestAttemptListItemDto>();
+
+            var ids = list.Select(x => x.TaskAssignmentId).Distinct().ToArray();
+            var settings = await _db.TaskTestSettings
+                .AsNoTracking()
+                .Where(s => ids.Contains(s.TaskAssignmentId))
+                .ToListAsync(ct);
+
+            var allowMap = settings.ToDictionary(s => s.TaskAssignmentId, s => s.AllowReview);
+
+            return list.Select(a =>
+            {
+                var ta = a.TaskAssignment;
+                var c = ta?.Course;
+                return new TaskTestAttemptListItemDto
+                {
+                    AttemptId = a.Id,
+                    TaskAssignmentId = a.TaskAssignmentId,
+                    CourseId = ta?.CourseId ?? Guid.Empty,
+                    CourseTitle = c?.Title ?? string.Empty,
+                    AssignmentTitle = ta?.Title ?? string.Empty,
+                    AttemptNumber = a.AttemptNumber,
+                    SubmittedAt = a.SubmittedAt ?? a.UpdatedAt,
+                    ScorePercent = a.ScorePercent,
+                    Passed = a.Passed,
+                    TimeExpired = a.TimeExpired,
+                    AllowReview = allowMap.TryGetValue(a.TaskAssignmentId, out var ar) ? ar : true
+                };
+            }).ToList();
+        }
+
+        public async Task<TaskTestAttemptReviewDto?> GetAttemptReviewAsync(
+            Guid userId,
+            Guid attemptId,
+            bool isAdmin,
+            CancellationToken ct)
+        {
+            var attempt = await _db.UserTaskTestAttempts
+                .AsNoTracking()
+                .Include(a => a.User)
+                .Include(a => a.TaskAssignment!)
+                .ThenInclude(t => t.Course)
+                .FirstOrDefaultAsync(a => a.Id == attemptId, ct);
+
+            if (attempt == null) return null;
+            if (!isAdmin && attempt.UserId != userId) return null;
+            if (attempt.SubmittedAt == null) return null;
+
+            var settings = await _db.TaskTestSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.TaskAssignmentId == attempt.TaskAssignmentId, ct)
+                ?? new TaskTestSettings { TaskAssignmentId = attempt.TaskAssignmentId, AllowReview = true };
+
+            var allowReview = settings.AllowReview;
+            if (!isAdmin && !allowReview)
+                throw new UnauthorizedAccessException("Просмотр попытки отключён");
+
+            var questions = await _db.TaskTestQuestions
+                .AsNoTracking()
+                .Where(q => q.TaskAssignmentId == attempt.TaskAssignmentId)
+                .OrderBy(q => q.Order)
+                .ThenBy(q => q.Id)
+                .ToListAsync(ct);
+
+            var order = SafeDeserialize<List<Guid>>(attempt.QuestionOrderJson) ?? new List<Guid>();
+            if (order.Count == 0)
+                order = questions.Select(x => x.Id).ToList();
+
+            var qMap = questions.ToDictionary(x => x.Id, x => x);
+
+            var req = SafeDeserialize<TaskTestSubmitRequestDto>(attempt.AnswersJson) ?? new TaskTestSubmitRequestDto
+            {
+                AttemptId = attempt.Id,
+                Answers = new List<TaskTestAnswerDto>()
+            };
+
+            var ansMap = (req.Answers ?? new List<TaskTestAnswerDto>())
+                .Where(x => x != null && x.QuestionId != Guid.Empty)
+                .GroupBy(x => x.QuestionId)
+                .ToDictionary(g => g.Key, g => g.Last());
+
+            var dto = new TaskTestAttemptReviewDto
+            {
+                AttemptId = attempt.Id,
+                TaskAssignmentId = attempt.TaskAssignmentId,
+                CourseId = attempt.TaskAssignment?.CourseId ?? Guid.Empty,
+                CourseTitle = attempt.TaskAssignment?.Course?.Title ?? string.Empty,
+                AssignmentTitle = attempt.TaskAssignment?.Title ?? string.Empty,
+                UserId = attempt.UserId,
+                UserEmail = attempt.User?.Email,
+                AttemptNumber = attempt.AttemptNumber,
+                StartedAt = attempt.StartedAt,
+                SubmittedAt = attempt.SubmittedAt.Value,
+                PassPercent = ClampPercent(settings.PassPercent),
+                TimeExpired = attempt.TimeExpired,
+                Passed = attempt.Passed,
+                ScorePercent = attempt.ScorePercent,
+                AllowReview = allowReview,
+                Questions = new List<TaskTestAttemptReviewQuestionDto>()
+            };
+
+            var correct = 0;
+            var idx = 0;
+            foreach (var qId in order)
+            {
+                if (!qMap.TryGetValue(qId, out var q)) continue;
+                ansMap.TryGetValue(qId, out var ua);
+
+                var qDto = BuildReviewQuestionDto(q, settings, attempt.Id, ua);
+                qDto.Order = idx;
+
+                if (qDto.IsCorrect) correct++;
+                dto.Questions.Add(qDto);
+                idx++;
+            }
+
+            dto.TotalQuestions = dto.Questions.Count;
+            dto.CorrectQuestions = correct;
+
+            return dto;
+        }
+
+        private TaskTestAttemptReviewQuestionDto BuildReviewQuestionDto(
+            TaskTestQuestion q,
+            TaskTestSettings settings,
+            Guid attemptId,
+            TaskTestAnswerDto? userAnswer)
+        {
+            var t = (q.Type ?? string.Empty).ToLowerInvariant();
+
+            var dto = new TaskTestAttemptReviewQuestionDto
+            {
+                Id = q.Id,
+                Order = q.Order,
+                Type = q.Type,
+                Prompt = q.Prompt,
+                UserAnswer = userAnswer,
+            };
+
+            if (t == "single-choice" || t == "multi-choice")
+            {
+                var data = SafeDeserialize<SingleChoiceData>(q.DataJson) ?? new SingleChoiceData();
+                var opts = data.Options ?? new List<Option>();
+                var optDtos = opts.Select(o => new TaskTestOptionDto { Key = o.Key, Text = o.Text }).ToList();
+
+                // порядок вариантов — как в решении (детерминированно)
+                if (settings.ShuffleAnswers && optDtos.Count > 1)
+                {
+                    var rng = new Random(attemptId.GetHashCode() ^ q.Id.GetHashCode());
+                    optDtos = optDtos.OrderBy(_ => rng.Next()).ToList();
+                }
+
+                dto.Options = optDtos;
+                dto.CorrectOptionKeys = data.CorrectOptionKeys ?? new List<string>();
+                dto.IsCorrect = IsCorrect(q, userAnswer);
+                return dto;
+            }
+
+            if (t == "fill" || t == "text")
+            {
+                var data = SafeDeserialize<TextAnswerData>(q.DataJson) ?? new TextAnswerData();
+                dto.AcceptedAnswers = data.AcceptedAnswers ?? new List<string>();
+                dto.IsCorrect = IsCorrect(q, userAnswer);
+                return dto;
+            }
+
+            // неизвестный тип — считаем неправильным, но показываем вопрос
+            dto.IsCorrect = false;
+            return dto;
         }
 
         // ===== Helpers =====

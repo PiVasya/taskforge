@@ -178,7 +178,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-lg font-semibold">
-                Результат: {result.scorePercent}% ({result.correctCount}/{result.totalCount})
+                Результат: {result.scorePercent}% ({result.correctQuestions}/{result.totalQuestions})
               </div>
               <div className="text-sm text-slate-600 dark:text-slate-400">
                 Порог: {result.passPercent}%.{' '}

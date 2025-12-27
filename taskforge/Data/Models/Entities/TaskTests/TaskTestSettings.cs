@@ -28,6 +28,13 @@ namespace taskforge.Data.Models.Entities
         public bool ShuffleAnswers { get; set; } = true;
 
         /// <summary>
+        /// Разрешить студенту просматривать свою попытку после отправки
+        /// (видеть правильные/неправильные ответы).
+        /// Если false — просмотр доступен только преподавателю/админу.
+        /// </summary>
+        public bool AllowReview { get; set; } = true;
+
+        /// <summary>
         /// Таймер на попытку, в секундах, по номеру попытки.
         /// JSON-массив: [120, 90, null] и т.п.
         /// null/0/отрицательное = без таймера.

@@ -34,6 +34,7 @@ export default function AssignmentEditPage() {
     shuffleAnswers: true,
     maxAttempts: 1,
     passPercent: 60,
+    allowReview: true,
     attemptTimeLimitsSeconds: [],
   });
   const [testQuestions, setTestQuestions] = useState([]);
@@ -81,6 +82,7 @@ export default function AssignmentEditPage() {
               shuffleAnswers: true,
               maxAttempts: 1,
               passPercent: 60,
+              allowReview: true,
               attemptTimeLimitsSeconds: [],
             });
             setTestQuestions(Array.isArray(te.questions) ? te.questions : []);

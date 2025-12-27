@@ -20,6 +20,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     passPercent: 60,
     shuffleQuestions: true,
     shuffleAnswers: true,
+    allowReview: true,
     attemptTimeLimitsSeconds: [],
   };
 
@@ -227,6 +228,15 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
               onChange={(e) => updateSettings({ shuffleAnswers: e.target.checked })}
             />
             Случайный порядок ответов
+          </label>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={s.allowReview !== false}
+              onChange={(e) => updateSettings({ allowReview: e.target.checked })}
+            />
+            Разрешить просмотр результатов (мои ответы)
           </label>
         </div>
 

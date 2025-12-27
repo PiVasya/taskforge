@@ -82,6 +82,10 @@ namespace taskforge.Data.Models.DTO.TaskTests
         public int PassPercent { get; set; } = 60;
         public bool ShuffleQuestions { get; set; } = true;
         public bool ShuffleAnswers { get; set; } = true;
+        /// <summary>
+        /// Разрешить студентам просмотр своих попыток после сдачи.
+        /// </summary>
+        public bool AllowReview { get; set; } = true;
         public List<int?> AttemptTimeLimitsSeconds { get; set; } = new();
     }
 
