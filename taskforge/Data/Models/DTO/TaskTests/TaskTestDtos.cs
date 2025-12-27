@@ -44,6 +44,11 @@ namespace taskforge.Data.Models.DTO.TaskTests
     {
         public Guid QuestionId { get; set; }
         public string? SelectedOptionKey { get; set; }
+        /// <summary>
+        /// Для вопросов с выбором (single-choice / multi-choice): выбранные ключи.
+        /// Для single-choice можно передать 1 элемент.
+        /// </summary>
+        public List<string>? SelectedOptionKeys { get; set; }
         public string? Text { get; set; }
     }
 
@@ -85,7 +90,7 @@ namespace taskforge.Data.Models.DTO.TaskTests
         public Guid Id { get; set; }
         public int Order { get; set; }
 
-        /// <summary>"single-choice" | "fill" | "text"</summary>
+        /// <summary>"single-choice" | "multi-choice" | "fill" | "text"</summary>
         public string Type { get; set; } = "single-choice";
 
         public string Prompt { get; set; } = "";

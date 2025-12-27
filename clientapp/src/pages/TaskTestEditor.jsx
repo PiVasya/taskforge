@@ -3,6 +3,7 @@ import { Button, Card, Field, Input, Select, Textarea, Badge } from '../componen
 
 const QUESTION_TYPES = [
   { value: 'single-choice', label: 'A/B/C/D (один вариант)' },
+  { value: 'multi-choice', label: 'A/B/C/D (несколько вариантов)' },
   { value: 'fill', label: 'Вставить пропущенное слово' },
   { value: 'text', label: 'Текстовый ответ' },
 ];
@@ -82,21 +83,36 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
   const renderQuestionBody = (q, idx) => {
     const type = q.type || 'single-choice';
 
-    if (type === 'single-choice') {
+    if (type === 'single-choice' || type === 'multi-choice') {
+      const isMulti = type === 'multi-choice';
       const opts = Array.isArray(q.options) ? q.options : [];
       const correct = new Set(Array.isArray(q.correctOptionKeys) ? q.correctOptionKeys : []);
 
       return (
         <div className="space-y-3">
-          <div className="text-sm text-slate-600">Варианты ответа (пометь правильный)</div>
+          <div className="text-sm text-slate-600">
+            Варианты ответа ({isMulti ? 'пометь правильные' : 'пометь правильный'})
+          </div>
           <div className="space-y-2">
             {opts.map((o, oi) => (
               <div key={oi} className="flex items-center gap-2">
                 <input
-                  type="radio"
+                  type={isMulti ? 'checkbox' : 'radio'}
                   name={`q_${idx}_correct`}
                   checked={correct.has(o.key)}
-                  onChange={() => updateQuestion(idx, { correctOptionKeys: [o.key] })}
+                  onChange={() => {
+                    if (!isMulti) {
+                      updateQuestion(idx, { correctOptionKeys: [o.key] });
+                      return;
+                    }
+                    const next = new Set(correct);
+                    const has = next.has(o.key);
+                    // не даём снять последнюю галочку — иначе сохранение упадёт на валидации
+                    if (has && next.size === 1) return;
+                    if (has) next.delete(o.key);
+                    else next.add(o.key);
+                    updateQuestion(idx, { correctOptionKeys: Array.from(next) });
+                  }}
                 />
                 <Input
                   value={o.text || ''}
@@ -288,7 +304,8 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                       onChange={(e) => {
                         const t = e.target.value;
                         const patch = { type: t };
-                        if (t === 'single-choice' && (!q.options || q.options.length === 0)) {
+                        const isChoice = t === 'single-choice' || t === 'multi-choice';
+                        if (isChoice && (!q.options || q.options.length === 0)) {
                           patch.options = [
                             { key: 'a', text: '' },
                             { key: 'b', text: '' },
@@ -296,6 +313,12 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                             { key: 'd', text: '' },
                           ];
                           patch.correctOptionKeys = ['a'];
+                        }
+                        // если переключились в single-choice — оставляем ровно 1 правильный вариант
+                        if (t === 'single-choice') {
+                          const cur = Array.isArray(q.correctOptionKeys) ? q.correctOptionKeys : [];
+                          const one = cur[0] || 'a';
+                          patch.correctOptionKeys = [one];
                         }
                         updateQuestion(idx, patch);
                       }}

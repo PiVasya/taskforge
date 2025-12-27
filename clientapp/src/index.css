@@ -7,17 +7,20 @@
 :root {
   --card: 255 255 255;
   --muted: 244 247 252;
+  --accent: 14 165 233; /* brand-600 (#0ea5e9) */
 }
 
 .dark {
   --card: 15 23 42;   /* slate-900 */
   --muted: 30 41 59;  /* slate-800 */
+  --accent: 14 165 233; /* в тёмной теме тоже бренд */
 }
 
 /* Light Pink theme (светлая розовая) */
 html.pink {
   --card: 255 241 246; /* rose-50 */
   --muted: 255 228 235; /* rose-100 */
+  --accent: 219 39 119; /* pink-600 */
 }
 
 /* ====== База / типографика / фон ====== */
@@ -64,6 +67,62 @@ header .btn-primary {
   @apply w-full border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 bg-[rgb(var(--card))];
 }
 .input::placeholder { opacity: .7; }
+
+/* ====== Нативные radio/checkbox/file — красим под тему ====== */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: rgb(var(--accent));
+}
+
+input[type="file"] {
+  color: inherit;
+}
+
+input[type="file"]::file-selector-button {
+  background: rgb(var(--accent));
+  color: white;
+  border: 0;
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-right: 12px;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button:hover {
+  filter: brightness(0.95);
+}
+
+/* ====== Fill question: поле В ТЕКСТЕ + ширина от количества _ ====== */
+.fill-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.fill-input {
+  display: inline-block;
+  background: rgb(var(--card));
+  color: inherit;
+  border: 1px solid rgba(100, 116, 139, 0.35); /* slate-500/35 */
+  border-radius: 12px;
+  padding: 6px 10px;
+}
+
+.dark .fill-input {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+html.pink .fill-input {
+  border-color: rgba(219, 39, 119, 0.45);
+}
+
+.fill-input:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
 
 .link { @apply underline underline-offset-2 hover:no-underline; }
 

@@ -384,10 +384,10 @@ namespace taskforge.Services.Assignments
                 if (string.IsNullOrWhiteSpace(entity.Prompt))
                     throw new ValidationException("Текст вопроса не может быть пустым");
 
-                if (IsSingleChoice(entity.Type))
+                if (IsChoice(entity.Type))
                 {
                     if (qDto.Options == null || qDto.Options.Count < 2)
-                        throw new ValidationException("В single-choice должно быть минимум 2 варианта");
+                        throw new ValidationException("В вопросах с выбором должно быть минимум 2 варианта");
 
                     // гарантируем ключи
                     var opts = qDto.Options
@@ -407,8 +407,11 @@ namespace taskforge.Services.Assignments
                         .Distinct()
                         .ToList();
 
-                    if (correctKeys.Count == 0)
-                        throw new ValidationException("Нужно выбрать правильный вариант");
+                    if (IsSingleChoice(entity.Type) && correctKeys.Count != 1)
+                        throw new ValidationException("Для single-choice должен быть выбран ровно 1 правильный вариант");
+
+                    if (IsMultiChoice(entity.Type) && correctKeys.Count == 0)
+                        throw new ValidationException("Для multi-choice нужно выбрать хотя бы 1 правильный вариант");
 
                     entity.DataJson = JsonSerializer.Serialize(new SingleChoiceData
                     {
@@ -445,9 +448,19 @@ namespace taskforge.Services.Assignments
                || string.Equals(type, "single", StringComparison.OrdinalIgnoreCase)
                || string.Equals(type, "choice", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsMultiChoice(string? type)
+            => string.Equals(type, "multi-choice", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(type, "multiple-choice", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(type, "multi", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(type, "multiple", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsChoice(string? type)
+            => IsSingleChoice(type) || IsMultiChoice(type);
+
         private static string NormalizeType(string? type)
         {
             var t = (type ?? "").Trim().ToLowerInvariant();
+            if (t.Contains("multi") || t.Contains("multiple")) return "multi-choice";
             if (t.Contains("choice") || t.Contains("single")) return "single-choice";
             if (t.Contains("fill") || t.Contains("cloze") || t.Contains("gap")) return "fill";
             if (t.Contains("text") || t.Contains("word") || t.Contains("input")) return "text";
@@ -502,7 +515,7 @@ namespace taskforge.Services.Assignments
                     Prompt = q.Prompt
                 };
 
-                if (IsSingleChoice(q.Type))
+                if (IsChoice(q.Type))
                 {
                     var data = SafeDeserialize<SingleChoiceData>(q.DataJson) ?? new SingleChoiceData();
                     var opts = data.Options
@@ -561,12 +574,43 @@ namespace taskforge.Services.Assignments
 
         private static bool IsCorrect(TaskTestQuestion q, TaskTestAnswerDto? ans)
         {
-            if (IsSingleChoice(q.Type))
+            if (IsChoice(q.Type))
             {
                 var data = SafeDeserialize<SingleChoiceData>(q.DataJson) ?? new SingleChoiceData();
-                var selected = (ans?.SelectedOptionKey ?? "").Trim();
-                if (string.IsNullOrWhiteSpace(selected)) return false;
-                return data.CorrectOptionKeys.Any(k => string.Equals(k, selected, StringComparison.Ordinal));
+                if (IsMultiChoice(q.Type))
+                {
+                    var selectedKeys = (ans?.SelectedOptionKeys ?? new List<string>())
+                        .Select(x => (x ?? "").Trim())
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList();
+
+                    // поддержка старого формата
+                    if (selectedKeys.Count == 0 && !string.IsNullOrWhiteSpace(ans?.SelectedOptionKey))
+                        selectedKeys.Add(ans.SelectedOptionKey.Trim());
+
+                    var correct = (data.CorrectOptionKeys ?? new List<string>())
+                        .Select(x => (x ?? "").Trim())
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.Ordinal)
+                        .ToHashSet(StringComparer.Ordinal);
+
+                    if (correct.Count == 0 || selectedKeys.Count == 0) return false;
+                    if (selectedKeys.Count != correct.Count) return false;
+                    foreach (var k in selectedKeys)
+                        if (!correct.Contains(k)) return false;
+                    return true;
+                }
+                else
+                {
+                    // single-choice
+                    var selected = (ans?.SelectedOptionKey ?? "").Trim();
+                    if (string.IsNullOrWhiteSpace(selected))
+                        selected = (ans?.SelectedOptionKeys?.FirstOrDefault() ?? "").Trim();
+                    if (string.IsNullOrWhiteSpace(selected)) return false;
+                    return (data.CorrectOptionKeys ?? new List<string>())
+                        .Any(k => string.Equals(k?.Trim(), selected, StringComparison.Ordinal));
+                }
             }
             else
             {

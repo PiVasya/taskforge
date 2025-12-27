@@ -69,10 +69,12 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   // В UI вставляем поле ввода прямо в текст вопроса.
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
-    const m = p.match(/_{3,}/);
+    // Берём первую группу подчёркиваний (___). Достаточно даже одного, но по UX обычно 3+.
+    const m = p.match(/_+/);
     if (!m) return null;
-    const i = p.indexOf(m[0]);
-    return { before: p.slice(0, i), after: p.slice(i + m[0].length) };
+    const blank = m[0];
+    const i = p.indexOf(blank);
+    return { before: p.slice(0, i), after: p.slice(i + blank.length), blankLen: blank.length };
   };
 
   const doSubmit = async () => {
@@ -83,7 +85,11 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
         attemptId: startData.attemptId,
         answers: Object.entries(answers).map(([questionId, v]) => ({
           questionId,
-          selectedOptionKey: v?.selectedOptionKey ?? null,
+          // single-choice: selectedOptionKey (и дублируем массивом)
+          selectedOptionKey: v?.selectedOptionKey ?? (v?.selectedOptionKeys?.[0] ?? null),
+          // multi-choice: selectedOptionKeys (и поддержка старого формата через selectedOptionKey)
+          selectedOptionKeys:
+            v?.selectedOptionKeys ?? (v?.selectedOptionKey ? [v.selectedOptionKey] : null),
           text: v?.text ?? null,
         })),
       };
@@ -213,11 +219,12 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
                       if (!parts) return q.prompt;
 
                       const val = answers[q.id]?.text || '';
+                      const ch = Math.min(40, Math.max(6, (parts.blankLen || 3) * 2)); // width = count * 2ch (c clamp)
                       return (
-                        <>
-                          {parts.before}
-                          <Input
-                            className="inline-block align-baseline mx-2 w-40"
+                        <span className="fill-line">
+                          <span className="whitespace-pre-wrap">{parts.before}</span>
+                          <input
+                            className="fill-input"
                             value={val}
                             placeholder=""
                             onChange={(e) =>
@@ -226,9 +233,10 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
                                 [q.id]: { text: e.target.value },
                               }))
                             }
+                            style={{ width: `${ch}ch` }}
                           />
-                          {parts.after}
-                        </>
+                          <span className="whitespace-pre-wrap">{parts.after}</span>
+                        </span>
                       );
                     })()}
                   </div>
@@ -251,6 +259,35 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
                         </label>
                       );
                     })}
+                  </div>
+                )}
+
+                {q.type === 'multi-choice' && (
+                  <div className="space-y-2">
+                    {(q.options || []).map((o) => {
+                      const cur = new Set(answers[q.id]?.selectedOptionKeys || []);
+                      const checked = cur.has(o.key);
+                      return (
+                        <label key={o.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setAnswers((p) => {
+                                const prev = new Set(p[q.id]?.selectedOptionKeys || []);
+                                if (prev.has(o.key)) prev.delete(o.key);
+                                else prev.add(o.key);
+                                return { ...p, [q.id]: { selectedOptionKeys: Array.from(prev) } };
+                              })
+                            }
+                          />
+                          <span>{o.text}</span>
+                        </label>
+                      );
+                    })}
+                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                      Можно выбрать несколько вариантов.
+                    </div>
                   </div>
                 )}
 
