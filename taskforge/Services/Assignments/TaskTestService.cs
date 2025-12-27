@@ -284,7 +284,9 @@ namespace taskforge.Services.Assignments
                     Prompt = q.Prompt
                 };
 
-                if (IsSingleChoice(q.Type))
+                // В редакторе нужно отдавать данные и для single-choice, и для multi-choice.
+                // Иначе multi-choice попадает в ветку text/fill и теряет варианты при загрузке.
+                if (IsChoice(q.Type))
                 {
                     var data = SafeDeserialize<SingleChoiceData>(q.DataJson) ?? new SingleChoiceData();
                     qDto.Options = data.Options.Select(o => new TaskTestOptionDto { Key = o.Key, Text = o.Text }).ToList();

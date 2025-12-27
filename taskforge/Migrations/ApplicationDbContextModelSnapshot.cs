@@ -277,9 +277,6 @@ namespace taskforge.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("AllowReview")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("AttemptTimeLimitsJson")
                         .HasColumnType("jsonb");
 

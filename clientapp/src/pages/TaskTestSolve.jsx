@@ -69,8 +69,8 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   // В UI вставляем поле ввода прямо в текст вопроса.
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
-    // Берём первую группу подчёркиваний (___). Достаточно даже одного, но по UX обычно 3+.
-    const m = p.match(/_+/);
+    // Берём первую группу подчёркиваний (___). 3+ чтобы не ловить _ в идентификаторах кода.
+    const m = p.match(/_{3,}/);
     if (!m) return null;
     const blank = m[0];
     const i = p.indexOf(blank);
@@ -209,17 +209,17 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
             <Card key={q.id}>
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="font-medium whitespace-pre-wrap">
+                  <div className="font-medium">
                     {idx + 1}.{' '}
                     {(() => {
                       const type = (q.type || '').toLowerCase();
-                      if (type !== 'fill') return q.prompt;
+                      if (type !== 'fill') return <span className="whitespace-pre-wrap">{q.prompt}</span>;
 
                       const parts = splitFillPrompt(q.prompt);
                       if (!parts) return q.prompt;
 
                       const val = answers[q.id]?.text || '';
-                      const ch = Math.min(40, Math.max(6, (parts.blankLen || 3) * 2)); // width = count * 2ch (c clamp)
+                      const ch = Math.min(30, Math.max(6, (parts.blankLen || 3) * 2)); // width = count * 2ch (c clamp)
                       return (
                         <span className="fill-line">
                           <span className="whitespace-pre-wrap">{parts.before}</span>

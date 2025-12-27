@@ -115,7 +115,8 @@ export default function AdminSolutionsPage() {
 
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
-    const m = p.match(/_+/);
+    // 3+ чтобы не ловить _ в идентификаторах кода.
+    const m = p.match(/_{3,}/);
     if (!m) return null;
     const blank = m[0];
     const i = p.indexOf(blank);
@@ -202,7 +203,7 @@ export default function AdminSolutionsPage() {
                           className="fill-input"
                           value={userText}
                           readOnly
-                          style={{ width: `${Math.min(40, Math.max(6, Math.round(split.blankLen * 1.4)))}ch` }}
+                          style={{ width: `${Math.min(30, Math.max(6, (split.blankLen || 3) * 2))}ch` }}
                         />
                         {split.after}
                       </span>

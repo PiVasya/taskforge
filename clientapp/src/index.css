@@ -101,10 +101,11 @@ input[type="file"]::file-selector-button:hover {
 
 /* ====== Fill question: поле В ТЕКСТЕ + ширина от количества _ ====== */
 .fill-line {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
+  /* Вставляем input прямо в текст и даём строке вести себя как обычный текст.
+     Так корректно работают переносы строк/пробелы (в т.ч. в коде) и не появляется
+     "двойной" перенос/огромные отступы как при inline-flex+gap. */
+  display: inline;
+  white-space: pre-wrap;
   line-height: 1.4;
 }
 
@@ -113,8 +114,13 @@ input[type="file"]::file-selector-button:hover {
   background: rgb(var(--card));
   color: inherit;
   border: 1px solid rgba(100, 116, 139, 0.35); /* slate-500/35 */
-  border-radius: 12px;
-  padding: 6px 10px;
+  border-radius: 10px;
+  /* компактнее, чтобы не выглядело "квадратом" */
+  padding: 2px 8px;
+  height: 1.9em;
+  vertical-align: baseline;
+  /* не добавляем свои пробелы через gap — делаем аккуратный отступ */
+  margin: 0 0.35em;
 }
 
 .dark .fill-input {
