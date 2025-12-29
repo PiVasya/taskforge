@@ -61,8 +61,12 @@ namespace taskforge.Services.Assignments
 
             // Если у пользователя уже есть незавершённая попытка — возвращаем её,
             // чтобы можно было обновить страницу и продолжить.
+            //
+            // Важно: тест может быть отредактирован (добавили/удалили вопросы), пока попытка активна.
+            // В таком случае старая QuestionOrderJson содержит не полный набор вопросов.
+            // Мы "лечим" порядок: удаляем несуществующие id и добавляем недостающие (новые) вопросы.
+            // Тогда пользователь увидит актуальное количество вопросов без необходимости чистить БД.
             var activeAttempt = await _db.UserTaskTestAttempts
-                .AsNoTracking()
                 .Where(a => a.TaskAssignmentId == assignmentId && a.UserId == userId && a.SubmittedAt == null)
                 .OrderByDescending(a => a.AttemptNumber)
                 .FirstOrDefaultAsync(ct);
@@ -70,13 +74,37 @@ namespace taskforge.Services.Assignments
             if (activeAttempt != null)
             {
                 var byId = questions.ToDictionary(q => q.Id, q => q);
+
                 var orderIds = ParseGuidArray(activeAttempt.QuestionOrderJson);
+                if (orderIds.Count == 0)
+                    orderIds = questions.Select(q => q.Id).ToList();
+
+                // удаляем id, которых уже нет (вопрос удалили)
+                orderIds = orderIds.Where(byId.ContainsKey).ToList();
+
+                // добавляем новые вопросы, которых нет в порядке
+                var missing = byId.Keys.Where(id => !orderIds.Contains(id)).ToList();
+                if (missing.Count > 0)
+                {
+                    if (settings.ShuffleQuestions)
+                        Shuffle(missing, new Random(SeedFromGuid(activeAttempt.Id)));
+
+                    orderIds.AddRange(missing);
+
+                    // сохраняем обновлённый порядок в попытке
+                    activeAttempt.QuestionOrderJson = JsonSerializer.Serialize(orderIds, JsonOptions);
+                    activeAttempt.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(ct);
+                }
+
                 var orderedList = orderIds
                     .Select(id => byId.TryGetValue(id, out var q) ? q : null)
                     .Where(q => q != null)
                     .Cast<TaskTestQuestion>()
                     .ToList();
-                if (orderedList.Count == 0) orderedList = questions;
+
+                if (orderedList.Count == 0)
+                    orderedList = questions;
 
                 return new TaskTestStartResponseDto
                 {
