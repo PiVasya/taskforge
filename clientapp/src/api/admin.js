@@ -33,6 +33,23 @@ export async function getSolutionDetails(id) {
 }
 
 /**
+ * Удалить одно решение пользователя (код) по id.
+ * DELETE /api/admin/solutions/{id}
+ */
+export async function deleteSolution(id) {
+  await api.delete(`/api/admin/solutions/${id}`);
+}
+
+/**
+ * Список групп пользователя (id групп).
+ * GET /api/admin/users/{userId}/groups
+ */
+export async function getAdminUserGroupIds(userId) {
+  const { data } = await api.get(`/api/admin/users/${userId}/groups`);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
  * Bulk-детали нескольких решений (с ограничением по количеству).
  * POST /api/admin/solutions/bulk
  */

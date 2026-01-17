@@ -29,6 +29,8 @@ namespace taskforge.Services.Interfaces
 
         Task DeleteUserSolutionsAsync(Guid userId, Guid? courseId, Guid? assignmentId);
 
+        Task DeleteSolutionAsync(Guid solutionId);
+
         Task<SolutionDetailsDto?> GetDetailsAsync(Guid solutionId);
 
         // bulk для ускоренной загрузки деталей

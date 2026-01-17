@@ -46,5 +46,16 @@ namespace taskforge.Controllers
             var dto = await _tests.GetAttemptReviewAsync(Guid.Empty, attemptId, isAdmin: true, ct);
             return dto == null ? NotFound() : Ok(dto);
         }
+
+        /// <summary>
+        /// Удалить одну попытку теста.
+        /// DELETE /api/admin/test-attempts/{attemptId}
+        /// </summary>
+        [HttpDelete("test-attempts/{attemptId:guid}")]
+        public async Task<IActionResult> DeleteAttempt([FromRoute] Guid attemptId, CancellationToken ct)
+        {
+            await _tests.DeleteAttemptAsync(attemptId, ct);
+            return NoContent();
+        }
     }
 }

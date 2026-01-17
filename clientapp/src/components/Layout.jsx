@@ -177,10 +177,10 @@ export default function Layout({ children }) {
                       to="/admin/solutions"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setAdminOpen(false)}
-                      title="Решения студентов"
+                      title="Управление пользователями"
                     >
                       <ListOrdered size={18} />
-                      <span className="ml-2">Решения студентов</span>
+                      <span className="ml-2">Управление пользователями</span>
                     </Link>
                     <Link
                       role="menuitem"
@@ -328,10 +328,10 @@ export default function Layout({ children }) {
                       to="/admin/solutions"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setMoreOpen(false)}
-                      title="Решения студентов"
+                      title="Управление пользователями"
                     >
                       <ListOrdered size={18} />
-                      <span>Решения</span>
+                      <span>Управление пользователями</span>
                     </Link>
                     <Link
                       role="menuitem"

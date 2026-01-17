@@ -21,6 +21,8 @@ namespace taskforge.Services.Interfaces
             bool isAdmin,
             CancellationToken ct);
 
+        Task DeleteAttemptAsync(Guid attemptId, CancellationToken ct);
+
         // editor
         Task<TaskTestEditDto> GetEditAsync(Guid assignmentId, Guid userId, CancellationToken ct);
         Task SaveEditAsync(Guid assignmentId, Guid userId, TaskTestEditDto dto, CancellationToken ct);

@@ -14,10 +14,12 @@ namespace taskforge.Controllers
     public sealed class AdminSolutionsController : ControllerBase
     {
         private readonly ISolutionAdminService _svc;
+        private readonly IUserGroupService _groups;
 
-        public AdminSolutionsController(ISolutionAdminService svc)
+        public AdminSolutionsController(ISolutionAdminService svc, IUserGroupService groups)
         {
             _svc = svc;
+            _groups = groups;
         }
 
         /// <summary>Поиск пользователей по email/имени/фамилии.</summary>
@@ -95,6 +97,12 @@ namespace taskforge.Controllers
             return NoContent();
         }
 
+        /// <summary>Список групп, в которых состоит пользователь.</summary>
+        /// GET /api/admin/users/{userId}/groups
+        [HttpGet("users/{userId:guid}/groups")]
+        public async Task<IActionResult> GetUserGroups([FromRoute] Guid userId)
+            => Ok(await _groups.GetUserGroupIdsAsync(userId));
+
         /// <summary>Детали одного решения (с кодом).</summary>
         /// GET /api/admin/solutions/{id}
         [HttpGet("solutions/{id:guid}")]
@@ -102,6 +110,15 @@ namespace taskforge.Controllers
         {
             var dto = await _svc.GetDetailsAsync(id);
             return dto == null ? NotFound() : Ok(dto);
+        }
+
+        /// <summary>Удалить одно конкретное решение (код) по id.</summary>
+        /// DELETE /api/admin/solutions/{id}
+        [HttpDelete("solutions/{id:guid}")]
+        public async Task<IActionResult> DeleteSolution([FromRoute] Guid id)
+        {
+            await _svc.DeleteSolutionAsync(id);
+            return NoContent();
         }
 
         /// <summary>Bulk-детали нескольких решений.</summary>

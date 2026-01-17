@@ -6,6 +6,7 @@ namespace taskforge.Services.Interfaces
     {
         Task<IReadOnlyList<UserGroupDto>> GetAllAsync(bool includeInactive);
         Task<UserGroupDto?> GetByIdAsync(Guid groupId);
+        Task<IReadOnlyList<Guid>> GetUserGroupIdsAsync(Guid userId);
         Task<Guid> CreateAsync(CreateUserGroupRequest request);
         Task UpdateAsync(Guid groupId, UpdateUserGroupRequest request);
         Task DeleteAsync(Guid groupId);

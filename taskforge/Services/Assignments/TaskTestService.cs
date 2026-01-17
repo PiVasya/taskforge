@@ -680,6 +680,16 @@ namespace taskforge.Services.Assignments
             return dto;
         }
 
+        public async Task DeleteAttemptAsync(Guid attemptId, CancellationToken ct)
+        {
+            if (attemptId == Guid.Empty) return;
+
+            // answers хранятся в самой таблице попыток, поэтому достаточно удалить строку
+            await _db.UserTaskTestAttempts
+                .Where(a => a.Id == attemptId)
+                .ExecuteDeleteAsync(ct);
+        }
+
         // ===== Helpers =====
         private static bool IsSingleChoice(string? type)
             => string.Equals(type, "single-choice", StringComparison.OrdinalIgnoreCase)

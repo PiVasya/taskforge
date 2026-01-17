@@ -29,6 +29,15 @@ export async function deleteGroup(id) {
   await api.delete(`/api/admin/groups/${id}`);
 }
 
+// membership (admin)
+export async function addGroupMember(groupId, userId) {
+  await api.post(`/api/admin/groups/${groupId}/members`, { userId });
+}
+
+export async function removeGroupMember(groupId, userId) {
+  await api.delete(`/api/admin/groups/${groupId}/members/${userId}`);
+}
+
 
 export async function getAdminGroups() {
   const { data } = await api.get('/api/admin/groups');

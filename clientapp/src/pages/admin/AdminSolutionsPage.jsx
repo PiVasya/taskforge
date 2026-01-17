@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
+import { Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   searchUsersOnce,
   getUserSolutions,
@@ -8,8 +9,12 @@ import {
   getSolutionsDetailsBulkOrFallback,
   deleteUserSolutions,
   deleteUser,
+  deleteSolution,
+  getAdminUserGroupIds,
 } from '../../api/admin';
 import { getUserTaskTestAttempts, getAdminTaskTestAttemptReview } from '../../api/taskTestAttempts';
+import { deleteAdminTaskTestAttempt } from '../../api/taskTestAttempts';
+import { getAdminGroups, addGroupMember, removeGroupMember } from '../../api/groups';
 import CodeEditor from '../../components/CodeEditor';
 
 const FILTER_OPTIONS = [
@@ -21,7 +26,7 @@ const FILTER_OPTIONS = [
 ];
 
 export default function AdminSolutionsPage() {
-  const [tab, setTab] = useState('code'); // 'code' | 'tests'
+  const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'groups'
 
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
@@ -39,6 +44,11 @@ export default function AdminSolutionsPage() {
   const [testListLoading, setTestListLoading] = useState(false);
   const [testDetailsMap, setTestDetailsMap] = useState({});
   const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(null);
+
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [userGroupIds, setUserGroupIds] = useState([]);
+  const [groupToAdd, setGroupToAdd] = useState('');
 
   const loadUsers = async () => {
     setSearchLoading(true);
@@ -88,13 +98,46 @@ export default function AdminSolutionsPage() {
     }
   };
 
+  const loadGroups = async () => {
+    setGroupsLoading(true);
+    try {
+      const list = await getAdminGroups();
+      setGroups(Array.isArray(list) ? list : []);
+    } catch (e) {
+      console.error('Failed to load groups', e);
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  const loadUserGroups = async () => {
+    if (!userId) {
+      setUserGroupIds([]);
+      return;
+    }
+    try {
+      const ids = await getAdminUserGroupIds(userId);
+      setUserGroupIds(Array.isArray(ids) ? ids : []);
+    } catch (e) {
+      console.error('Failed to load user groups', e);
+      setUserGroupIds([]);
+    }
+  };
+
   useEffect(() => {
     if (userId) {
       loadSolutions();
       loadTestAttempts();
+      loadUserGroups();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDays, userId]);
+
+  useEffect(() => {
+    // список групп нужен только админке, подгружаем один раз
+    loadGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const displayedSolutions = useMemo(() => {
     const list = [...solutions];
@@ -112,6 +155,8 @@ export default function AdminSolutionsPage() {
     list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return list;
   }, [testAttempts]);
+
+  const userGroupSet = useMemo(() => new Set(userGroupIds || []), [userGroupIds]);
 
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
@@ -268,6 +313,61 @@ export default function AdminSolutionsPage() {
     await loadSolutions();
   };
 
+  const handleDeleteSolution = async (id) => {
+    const ok = window.confirm('Удалить это решение (код)?');
+    if (!ok) return;
+    try {
+      await deleteSolution(id);
+      setSolutions((prev) => prev.filter((x) => x.id !== id));
+      setDetailsMap((prev) => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+      if (expandedId === id) setExpandedId(null);
+    } catch (e) {
+      console.error('Failed to delete solution', e);
+    }
+  };
+
+  const handleDeleteAttempt = async (attemptId) => {
+    const ok = window.confirm('Удалить эту попытку теста?');
+    if (!ok) return;
+    try {
+      await deleteAdminTaskTestAttempt(attemptId);
+      setTestAttempts((prev) => prev.filter((x) => x.attemptId !== attemptId));
+      setTestDetailsMap((prev) => {
+        const copy = { ...prev };
+        delete copy[attemptId];
+        return copy;
+      });
+      if (expandedTestAttemptId === attemptId) setExpandedTestAttemptId(null);
+    } catch (e) {
+      console.error('Failed to delete test attempt', e);
+    }
+  };
+
+  const handleAddToGroup = async () => {
+    if (!userId || !groupToAdd) return;
+    try {
+      await addGroupMember(groupToAdd, userId);
+      setGroupToAdd('');
+      await loadUserGroups();
+    } catch (e) {
+      console.error('Failed to add user to group', e);
+    }
+  };
+
+  const handleRemoveFromGroup = async (groupId) => {
+    if (!userId || !groupId) return;
+    try {
+      await removeGroupMember(groupId, userId);
+      await loadUserGroups();
+    } catch (e) {
+      console.error('Failed to remove user from group', e);
+    }
+  };
+
   const handleDeleteUser = async () => {
     if (!userId) return;
     const ok = window.confirm(
@@ -290,7 +390,7 @@ export default function AdminSolutionsPage() {
   return (
     <Layout>
       <div className="container-app py-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Решения студентов</h1>
+        <h1 className="text-2xl font-semibold">Управление пользователями</h1>
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -299,6 +399,9 @@ export default function AdminSolutionsPage() {
             </Button>
             <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>
               Тесты
+            </Button>
+            <Button variant={tab === 'groups' ? 'primary' : 'outline'} onClick={() => setTab('groups')}>
+              Группы
             </Button>
           </div>
 
@@ -357,18 +460,24 @@ export default function AdminSolutionsPage() {
 
             <div className="flex items-end gap-2">
               <Button
-                onClick={() => (tab === 'tests' ? loadTestAttempts() : loadSolutions())}
+                onClick={() => {
+                  if (tab === 'tests') return loadTestAttempts();
+                  if (tab === 'groups') return loadUserGroups();
+                  return loadSolutions();
+                }}
                 disabled={!userId || listLoading || testListLoading || searchLoading}
               >
-                {tab === 'tests' ? 'Загрузить попытки тестов' : 'Загрузить решения'}
+                {tab === 'tests'
+                  ? 'Загрузить попытки тестов'
+                  : tab === 'groups'
+                    ? 'Обновить группы'
+                    : 'Загрузить решения'}
               </Button>
-              <Button
-                intent="danger"
-                onClick={handleDeleteAll}
-                disabled={!userId || listLoading}
-              >
-                Удалить все решения
-              </Button>
+              {tab === 'code' && (
+                <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
+                  Удалить все решения
+                </Button>
+              )}
               <Button
                 intent="danger"
                 onClick={handleDeleteUser}
@@ -426,8 +535,21 @@ export default function AdminSolutionsPage() {
                             Провалено: {item.failedCount} / Пройдено: {item.passedCount}
                           </Badge>
                         )}
-                        <Button size="sm" onClick={() => handleToggleCode(item.id)}>
+                        <Button
+                          variant="outline"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => handleToggleCode(item.id)}
+                        >
                           {expandedId === item.id ? 'Скрыть код' : 'Показать код'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          intent="danger"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => handleDeleteSolution(item.id)}
+                          title="Удалить это решение"
+                        >
+                          <Trash2 size={16} />
                         </Button>
                       </div>
                     </div>
@@ -478,8 +600,21 @@ export default function AdminSolutionsPage() {
                         {a.allowReview === false ? (
                           <Badge intent="secondary">Скрыт для студента</Badge>
                         ) : null}
-                        <Button size="sm" onClick={() => handleToggleTestAttempt(a)}>
+                        <Button
+                          variant="outline"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => handleToggleTestAttempt(a)}
+                        >
                           {expanded ? 'Скрыть' : 'Просмотреть'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          intent="danger"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => handleDeleteAttempt(id)}
+                          title="Удалить эту попытку"
+                        >
+                          <Trash2 size={16} />
                         </Button>
                       </div>
                     </div>
@@ -501,6 +636,66 @@ export default function AdminSolutionsPage() {
         {tab === 'tests' && !testListLoading && !displayedAttempts.length && selectedUser && (
           <Card className="p-4 text-slate-600 dark:text-slate-400">
             Для этого пользователя нет попыток тестов за выбранный период.
+          </Card>
+        )}
+
+        {tab === 'groups' && selectedUser && (
+          <Card className="p-4 space-y-4">
+            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <Users size={18} />
+              <span>Группы пользователя</span>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1 min-w-[260px]">
+                <div className="text-xs uppercase tracking-wide text-slate-500">Добавить в группу</div>
+                <Select value={groupToAdd} onChange={(e) => setGroupToAdd(e.target.value)} disabled={groupsLoading}>
+                  <option value="">— выберите группу —</option>
+                  {groups
+                    .filter((g) => !userGroupSet.has(g.id))
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({g.code})
+                      </option>
+                    ))}
+                </Select>
+              </div>
+              <Button
+                variant="outline"
+                className="inline-flex items-center gap-2"
+                onClick={handleAddToGroup}
+                disabled={!groupToAdd || !userId}
+              >
+                <UserPlus size={16} /> Добавить
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {userGroupIds.length === 0 ? (
+                <div className="text-slate-600 dark:text-slate-400">Пользователь не состоит ни в одной группе.</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {groups
+                    .filter((g) => userGroupSet.has(g.id))
+                    .map((g) => (
+                      <div
+                        key={g.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-sm"
+                      >
+                        <span className="font-medium">{g.name}</span>
+                        <span className="text-xs opacity-70">({g.code})</span>
+                        <button
+                          className="opacity-70 hover:opacity-100"
+                          title="Убрать из группы"
+                          onClick={() => handleRemoveFromGroup(g.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </Card>
         )}
       </div>

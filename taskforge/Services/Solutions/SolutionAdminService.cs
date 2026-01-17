@@ -215,6 +215,15 @@ namespace taskforge.Services
             await _db.SaveChangesAsync();
         }
 
+        public async Task DeleteSolutionAsync(Guid solutionId)
+        {
+            var entity = await _db.UserTaskSolutions.FirstOrDefaultAsync(s => s.Id == solutionId);
+            if (entity == null) return;
+
+            _db.UserTaskSolutions.Remove(entity);
+            await _db.SaveChangesAsync();
+        }
+
         public async Task DeleteUserAsync(Guid userId)
         {
             var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);

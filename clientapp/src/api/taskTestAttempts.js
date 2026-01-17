@@ -27,3 +27,7 @@ export async function getAdminTaskTestAttemptReview(attemptId) {
   const { data } = await api.get(`/api/admin/test-attempts/${attemptId}`);
   return data;
 }
+
+export async function deleteAdminTaskTestAttempt(attemptId) {
+  await api.delete(`/api/admin/test-attempts/${attemptId}`);
+}

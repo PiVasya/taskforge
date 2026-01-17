@@ -65,6 +65,15 @@ namespace taskforge.Services.UserGroups
                 .FirstOrDefaultAsync();
         }
 
+        public async Task<IReadOnlyList<Guid>> GetUserGroupIdsAsync(Guid userId)
+        {
+            return await _db.UserGroupMembers
+                .AsNoTracking()
+                .Where(m => m.UserId == userId)
+                .Select(m => m.GroupId)
+                .ToListAsync();
+        }
+
         public async Task<Guid> CreateAsync(CreateUserGroupRequest request)
         {
             var now = DateTime.UtcNow;
