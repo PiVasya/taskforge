@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import { Card, Button, Input, Badge } from "../components/ui";
 import { getCourses, createCourse } from "../api/courses";
@@ -6,35 +6,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 
-// helper: достаём userId из JWT
-function getCurrentUserIdFromToken() {
-  try {
-    const raw =
-      localStorage.getItem("access_token") ||
-      localStorage.getItem("token") ||
-      sessionStorage.getItem("access_token") ||
-      sessionStorage.getItem("token");
-    if (!raw) return null;
-    const parts = raw.split(".");
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
-    );
-    return payload.sub || payload.nameid || payload.uid || payload.userId || null;
-  } catch {
-    return null;
-  }
-}
-
 export default function CoursesPage() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+
   const nav = useNavigate();
   const { canEdit, isEditorMode } = useEditorMode();
-
-  const myId = getCurrentUserIdFromToken();
 
   useEffect(() => {
     (async () => {
@@ -42,20 +21,21 @@ export default function CoursesPage() {
         setLoading(true);
         setErr("");
         const list = await getCourses();
-        setItems(list);
+        setItems(Array.isArray(list) ? list : []);
       } catch (e) {
-        setErr(e.message || "Не удалось загрузить курсы");
+        setErr(e?.userMessage || e?.message || "Не удалось загрузить курсы");
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const filtered = items.filter((c) =>
-    ((c.title || "") + " " + (c.description || ""))
-      .toLowerCase()
-      .includes(q.toLowerCase())
-  );
+  const filtered = useMemo(() => {
+    const qq = q.toLowerCase();
+    return (items || []).filter((c) =>
+      ((c.title || "") + " " + (c.description || "")).toLowerCase().includes(qq)
+    );
+  }, [items, q]);
 
   const handleCreate = async () => {
     try {
@@ -63,10 +43,12 @@ export default function CoursesPage() {
         title: "Новый курс",
         description: "Описание курса",
         isPublic: false,
+        visibleGroupIds: [],
+        ownerIds: [],
       });
       nav(`/courses/${id}/edit`);
     } catch (e) {
-      setErr(e.message || "Не удалось создать курс");
+      setErr(e?.userMessage || e?.message || "Не удалось создать курс");
     }
   };
 
@@ -75,8 +57,8 @@ export default function CoursesPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Курсы</h1>
 
-        {canEdit && (
-          <Button onClick={handleCreate}>
+        {canEdit && isEditorMode && (
+          <Button onClick={handleCreate} title="Создать курс">
             <Plus size={16} />
             <span className="ml-1">Создать курс</span>
           </Button>
@@ -96,35 +78,38 @@ export default function CoursesPage() {
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((c) => {
-          const isOwner =
-            myId &&
-            c.ownerId &&
-            String(c.ownerId).toLowerCase() === String(myId).toLowerCase();
-          const href =
-            canEdit && isEditorMode && isOwner
-              ? `/courses/${c.id}/edit`
-              : `/course/${c.id}`;
+          const href = canEdit && isEditorMode && c.canEdit ? `/courses/${c.id}/edit` : `/course/${c.id}`;
+
           return (
             <Link
               key={c.id}
               to={href}
               className="block group focus:outline-none focus:ring-2 focus:ring-sky-500 rounded-2xl"
             >
-              <Card className="p-5 transition hover:shadow-lg cursor-pointer">
+              <Card
+                className={
+                  "p-5 transition hover:shadow-lg cursor-pointer " +
+                  (c.isCompletedForCurrentUser ? "border-emerald-400/40 bg-emerald-500/5" : "")
+                }
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-lg font-semibold">{c.title}</div>
                     {c.description && (
-                      <p className="text-sm text-slate-500 mt-1 line-clamp-2">
-                        {c.description}
-                      </p>
+                      <p className="text-sm text-slate-500 mt-1 line-clamp-2">{c.description}</p>
                     )}
-                    <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                       <Badge>Заданий: {c.assignmentCount ?? "—"}</Badge>
+                      <Badge>Тестов: {c.testCount ?? "—"}</Badge>
                       {typeof c.solvedCountForCurrentUser === "number" && (
-                        <Badge>Решено: {c.solvedCountForCurrentUser}</Badge>
+                        <Badge>Код решено: {c.solvedCountForCurrentUser}</Badge>
                       )}
-                      {!isOwner && canEdit && isEditorMode && <Badge>чужой</Badge>}
+                      {typeof c.solvedTestsCountForCurrentUser === "number" && (
+                        <Badge>Тесты решено: {c.solvedTestsCountForCurrentUser}</Badge>
+                      )}
+                      {c.isCompletedForCurrentUser ? <Badge intent="success">Курс пройден</Badge> : null}
+                      {canEdit && isEditorMode && !c.canEdit ? <Badge intent="secondary">чужой</Badge> : null}
                     </div>
                   </div>
                 </div>

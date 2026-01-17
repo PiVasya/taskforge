@@ -1,6 +1,4 @@
 // modified version of LeaderboardController.cs with filtering parameters
-using System;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using taskforge.Services.Interfaces;
@@ -9,14 +7,16 @@ namespace taskforge.Controllers
 {
     [ApiController]
     [Route("api/leaderboard")]
-    [AllowAnonymous]
+    [Authorize]
     public sealed class LeaderboardController : ControllerBase
     {
         private readonly ILeaderboardService _svc;
+        private readonly ICurrentUserService _current;
 
-        public LeaderboardController(ILeaderboardService svc)
+        public LeaderboardController(ILeaderboardService svc, ICurrentUserService current)
         {
             _svc = svc;
+            _current = current;
         }
 
         /// <summary>Общий рейтинг пользователей.</summary>
@@ -31,8 +31,15 @@ namespace taskforge.Controllers
             [FromQuery] Guid? groupId,
             [FromQuery] int? top)
         {
-            var items = await _svc.GetLeaderboardAsync(courseId, days, groupId, top);
-            return Ok(items);
+            try
+            {
+                var items = await _svc.GetLeaderboardAsync(_current.GetUserId(), _current.GetRole(), courseId, days, groupId, top);
+                return Ok(items);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
         }
     }
 }

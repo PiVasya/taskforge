@@ -274,7 +274,9 @@ namespace taskforge.Services.Assignments
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Id == assignmentId, ct);
             if (assignment == null) throw new KeyNotFoundException("Assignment not found");
-            if (assignment.Course.OwnerId != userId) throw new UnauthorizedAccessException("Forbidden");
+            var isOwner = assignment.Course.OwnerId == userId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == assignment.CourseId && o.UserId == userId, ct);
+            if (!isOwner) throw new UnauthorizedAccessException("Forbidden");
 
             var settings = await _db.TaskTestSettings
                 .AsNoTracking()
@@ -340,7 +342,9 @@ namespace taskforge.Services.Assignments
                 .Include(a => a.Course)
                 .FirstOrDefaultAsync(a => a.Id == assignmentId, ct);
             if (assignment == null) throw new KeyNotFoundException("Assignment not found");
-            if (assignment.Course.OwnerId != userId) throw new UnauthorizedAccessException("Forbidden");
+            var isOwner = assignment.Course.OwnerId == userId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == assignment.CourseId && o.UserId == userId, ct);
+            if (!isOwner) throw new UnauthorizedAccessException("Forbidden");
             if (!string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase))
                 throw new ValidationException("Тип задания должен быть 'test'");
 

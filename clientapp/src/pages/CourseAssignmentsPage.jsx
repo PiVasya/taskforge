@@ -4,6 +4,8 @@ import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom"
 import Layout from "../components/Layout";
 import { Card, Button, Input } from "../components/ui";
 
+import { getCourse } from "../api/courses";
+
 import {
   getAssignmentsByCourse,
   createAssignment,
@@ -30,6 +32,7 @@ export default function CourseAssignmentsPage() {
   const notify = useNotify();
 
   const [items, setItems] = useState([]);
+  const [courseCanEdit, setCourseCanEdit] = useState(true);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -55,6 +58,17 @@ export default function CourseAssignmentsPage() {
         setErr(e.message || "Ошибка загрузки");
       } finally {
         setLoading(false);
+      }
+    })();
+  }, [courseId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const c = await getCourse(courseId);
+        if (typeof c?.canEdit === 'boolean') setCourseCanEdit(!!c.canEdit);
+      } catch {
+        // ignore
       }
     })();
   }, [courseId]);
@@ -274,9 +288,11 @@ export default function CourseAssignmentsPage() {
           </div>
 
           <IfEditor>
-            <Button onClick={handleCreate}>
+            {courseCanEdit ? (
+              <Button onClick={handleCreate}>
               <Plus size={16} /> Создать
-            </Button>
+              </Button>
+            ) : null}
           </IfEditor>
         </div>
       </div>

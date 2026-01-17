@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
+using taskforge.Constants;
 using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
 using taskforge.Data.Models.Profile;
@@ -21,66 +22,84 @@ namespace taskforge.Services
     public sealed class LeaderboardService : ILeaderboardService
     {
         private readonly ApplicationDbContext _db;
+        private readonly ICourseAccessService _access;
 
-        public LeaderboardService(ApplicationDbContext db)
+        public LeaderboardService(ApplicationDbContext db, ICourseAccessService access)
         {
             _db = db;
+            _access = access;
         }
 
         /// <inheritdoc/>
         public async Task<IReadOnlyList<LeaderboardEntryDto>> GetLeaderboardAsync(
+            Guid currentUserId,
+            string? role,
             Guid? courseId = null,
             int? days = null,
             Guid? groupId = null,
             int? top = null)
         {
-            // базовый запрос по решениям
-            var q = _db.UserTaskSolutions
+            // ВАЖНО: пользователь может фильтровать/строить рейтинг только по курсам, которые ему доступны.
+            // Backend валидирует доступ, не доверяем фронту.
+            var accessibleCourseIds = await _access.GetAccessibleCourseIdsAsync(currentUserId, role);
+
+            if (courseId.HasValue && !accessibleCourseIds.Contains(courseId.Value))
+                throw new UnauthorizedAccessException("Course is not accessible");
+
+            // учитываем и код-решения, и тестовые попытки
+            var memberIdsQuery = _db.UserGroupMembers.AsNoTracking()
+                .Where(m => !groupId.HasValue || m.GroupId == groupId.Value)
+                .Select(m => m.UserId);
+
+            var codeQ = _db.UserTaskSolutions
                 .AsNoTracking()
-                .AsQueryable();
+                .Where(s => s.PassedAllTests)
+                .Include(s => s.TaskAssignment)
+                .Where(s => courseId.HasValue
+                    ? s.TaskAssignment.CourseId == courseId.Value
+                    : accessibleCourseIds.Contains(s.TaskAssignment.CourseId));
 
-            // для фильтра по курсу или группе нам нужен TaskAssignment
-            if (courseId.HasValue || groupId.HasValue)
-            {
-                q = q.Include(s => s.TaskAssignment);
-            }
+            var testQ = _db.UserTaskTestAttempts
+                .AsNoTracking()
+                .Where(t => t.Passed)
+                .Include(t => t.TaskAssignment)
+                .Where(t => courseId.HasValue
+                    ? t.TaskAssignment.CourseId == courseId.Value
+                    : accessibleCourseIds.Contains(t.TaskAssignment.CourseId));
 
-            // фильтр по курсу
-            if (courseId.HasValue)
-            {
-                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
-            }
-
-            // фильтр по количеству дней
             if (days.HasValue && days.Value > 0)
             {
                 var since = DateTime.UtcNow.AddDays(-days.Value);
-                q = q.Where(s => s.SubmittedAt >= since);
+                codeQ = codeQ.Where(s => s.SubmittedAt >= since);
+                testQ = testQ.Where(t => t.SubmittedAt != null && t.SubmittedAt >= since);
             }
 
-            // TODO: фильтр по группе (когда появятся группы)
             if (groupId.HasValue)
             {
-                // пока группы не реализованы, фильтр игнорируется
+                codeQ = codeQ.Where(s => memberIdsQuery.Contains(s.UserId));
+                testQ = testQ.Where(t => memberIdsQuery.Contains(t.UserId));
             }
 
-            // загружаем все подходящие решения
-            var allSolutions = await q.ToListAsync();
-            if (allSolutions.Count == 0)
+            var codeRows = await codeQ
+                .Select(s => new { s.UserId, s.TaskAssignmentId, SubmittedAt = (DateTime?)s.SubmittedAt })
+                .ToListAsync();
+
+            var testRows = await testQ
+                .Select(t => new { t.UserId, TaskAssignmentId = t.TaskAssignmentId, SubmittedAt = t.SubmittedAt })
+                .ToListAsync();
+
+            var allSolved = codeRows.Concat(testRows).ToList();
+            if (allSolved.Count == 0)
                 return Array.Empty<LeaderboardEntryDto>();
 
             // агрегация по пользователю
-            var aggregated = allSolutions
-                .GroupBy(s => s.UserId)
+            var aggregated = allSolved
+                .GroupBy(x => x.UserId)
                 .Select(g => new
                 {
                     UserId = g.Key,
-                    SolvedAssignments = g
-                        .Where(x => x.PassedAllTests)
-                        .Select(x => x.TaskAssignmentId)
-                        .Distinct()
-                        .Count(),
-                    TotalAttempts = g.Count(),
+                    SolvedAssignments = g.Select(x => x.TaskAssignmentId).Distinct().Count(),
+                    TotalAttempts = codeRows.Count(x => x.UserId == g.Key) + testRows.Count(x => x.UserId == g.Key),
                     LastSubmitAt = (DateTime?)g.Max(x => x.SubmittedAt)
                 })
                 .Where(x => x.SolvedAssignments > 0)
@@ -202,7 +221,7 @@ namespace taskforge.Services
             var totalAttempts = await solvesQuery.CountAsync();
 
             // считаем rank через общий топ
-            var leaderboard = await GetLeaderboardAsync();
+            var leaderboard = await GetLeaderboardAsync(Guid.Empty, AppRoles.Admin, null, null, null, null);
             var rank = leaderboard.FirstOrDefault(e => e.UserId == userId)?.Rank ?? 0;
 
             var extra = ParseExtra(user.AdditionalDataJson);

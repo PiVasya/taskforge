@@ -42,5 +42,9 @@ namespace taskforge.Data.Models.Entities
 
         // поле для произвольных данных в формате JSON
         public string? AdditionalDataJson { get; set; }
+
+        // ===== группы / владельцы курсов =====
+        public ICollection<UserGroupMember> GroupMembers { get; set; } = new List<UserGroupMember>();
+        public ICollection<CourseOwner> OwnedCourses { get; set; } = new List<CourseOwner>();
     }
 }

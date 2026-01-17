@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using System.Security.Claims;
+using taskforge.Constants;
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Services
@@ -27,6 +28,10 @@ namespace taskforge.Services
                    ?? _http.HttpContext?.User?.FindFirstValue("role");
         }
 
-        public bool IsAdmin() => string.Equals(GetRole(), "Admin", StringComparison.OrdinalIgnoreCase);
+        public bool IsAdmin() => string.Equals(GetRole(), AppRoles.Admin, StringComparison.OrdinalIgnoreCase);
+
+        public bool IsEditor() => string.Equals(GetRole(), AppRoles.Editor, StringComparison.OrdinalIgnoreCase);
+
+        public bool IsAdminOrEditor() => IsAdmin() || IsEditor();
     }
 }

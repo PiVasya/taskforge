@@ -20,6 +20,8 @@ namespace taskforge.Services.Interfaces
         /// <param name="groupId">Идентификатор группы (зарезервировано для будущих фильтров).</param>
         /// <param name="top">Максимальное количество записей (null — вернуть всех).</param>
         Task<IReadOnlyList<LeaderboardEntryDto>> GetLeaderboardAsync(
+            Guid currentUserId,
+            string? role,
             Guid? courseId = null,
             int? days = null,
             Guid? groupId = null,

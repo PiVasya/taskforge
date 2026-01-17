@@ -1,7 +1,7 @@
 ﻿import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 
-// Декодер JWT без зависимостей
+// JWT payload decoder (no deps)
 function parseJwt(token) {
   try {
     const [, payload] = token.split(".");
@@ -10,6 +10,35 @@ function parseJwt(token) {
   } catch {
     return null;
   }
+}
+
+function normalizeRoles(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+  if (typeof raw === "string") {
+    // sometimes roles come as "Admin,Editor" or "Admin;Editor"
+    if (raw.includes(",") || raw.includes(";")) {
+      return raw
+        .split(/[,;]+/g)
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+    return [raw];
+  }
+  return [];
+}
+
+function getRolesFromToken(access) {
+  if (!access) return [];
+  const p = parseJwt(access);
+  const raw =
+    p?.role ??
+    p?.Role ??
+    p?.roles ??
+    p?.Roles ??
+    p?.["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"] ??
+    null;
+  return normalizeRoles(raw);
 }
 
 const Ctx = createContext(null);
@@ -21,22 +50,14 @@ export default function EditorModeProvider({ children }) {
   const { access } = useAuth();
   const [isEditorMode, setIsEditorMode] = useState(false);
 
-  // Роль из токена (поддерживаем несколько вариантов claim)
-  const role = useMemo(() => {
-    if (!access) return null;
-    const p = parseJwt(access);
-    return (
-      p?.role ??
-      p?.Role ??
-      p?.roles ??
-      p?.["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"] ??
-      null
-    );
-  }, [access]);
+  const roles = useMemo(() => getRolesFromToken(access), [access]);
+  const isAdmin = roles.includes("Admin");
+  const isEditor = roles.includes("Editor");
 
-  const canEdit = String(role || "").toLowerCase() === "admin";
+  // editor mode is available for Admin and Editor
+  const canEdit = isAdmin || isEditor;
 
-  // Восстановление переключателя (только если есть права)
+  // restore switch only if canEdit
   useEffect(() => {
     if (!canEdit) {
       setIsEditorMode(false);
@@ -47,7 +68,7 @@ export default function EditorModeProvider({ children }) {
     } catch {}
   }, [canEdit]);
 
-  // Сохранение флага режима
+  // persist
   useEffect(() => {
     if (canEdit) {
       try {
@@ -58,32 +79,25 @@ export default function EditorModeProvider({ children }) {
 
   const toggle = () => {
     if (!canEdit) return;
-    setIsEditorMode(v => !v);
+    setIsEditorMode((v) => !v);
   };
 
   const value = useMemo(
-    () => ({ canEdit, isEditorMode, toggle }),
-    [canEdit, isEditorMode]
+    () => ({ canEdit, isEditorMode, toggle, isAdmin, isEditor, roles }),
+    [canEdit, isEditorMode, isAdmin, isEditor, roles]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-// Вспомогательный хук (если где-то нужно быстро проверить роль)
+// quick role flags (for components that do not want editor-mode state)
 export function useRoleFlags() {
   const { access } = useAuth();
-  let isAdmin = false;
-  if (access) {
-    try {
-      const payload = parseJwt(access);
-      const raw =
-        payload?.role ??
-        payload?.Role ??
-        payload?.roles ??
-        payload?.["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
-      if (Array.isArray(raw)) isAdmin = raw.includes("Admin");
-      else if (typeof raw === "string") isAdmin = raw === "Admin";
-    } catch {}
-  }
-  return { isAdmin };
+  const roles = useMemo(() => getRolesFromToken(access), [access]);
+  return {
+    roles,
+    isAdmin: roles.includes("Admin"),
+    isEditor: roles.includes("Editor"),
+    canEdit: roles.includes("Admin") || roles.includes("Editor"),
+  };
 }

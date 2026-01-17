@@ -1,5 +1,5 @@
 // ЕДИНАЯ точка входа для admin-роутов фронта
-import api from './http';
+import { api } from './http';
 
 /**
  * Поиск пользователей по email/имени/фамилии.

@@ -14,6 +14,11 @@ namespace taskforge.Data
 
         public DbSet<User> Users { get; set; } = null!;
         public DbSet<Course> Courses { get; set; } = null!;
+        public DbSet<CourseOwner> CourseOwners { get; set; } = null!;
+        public DbSet<CourseVisibleGroup> CourseVisibleGroups { get; set; } = null!;
+
+        public DbSet<UserGroup> UserGroups { get; set; } = null!;
+        public DbSet<UserGroupMember> UserGroupMembers { get; set; } = null!;
         public DbSet<TaskAssignment> TaskAssignments { get; set; } = null!;
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
@@ -73,6 +78,81 @@ namespace taskforge.Data
             modelBuilder.Entity<Course>()
                 .Property(c => c.UpdatedAt)
                 .HasColumnType("timestamp with time zone");
+
+            // ===== UserGroups =====
+            modelBuilder.Entity<UserGroup>()
+                .HasIndex(x => x.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<UserGroup>()
+                .Property(x => x.TagsJson)
+                .HasColumnType("jsonb");
+
+            modelBuilder.Entity<UserGroup>()
+                .Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserGroup>()
+                .Property(x => x.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserGroupMember>()
+                .HasKey(x => new { x.UserId, x.GroupId });
+
+            modelBuilder.Entity<UserGroupMember>()
+                .Property(x => x.AddedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserGroupMember>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.GroupMembers)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserGroupMember>()
+                .HasOne(x => x.Group)
+                .WithMany()
+                .HasForeignKey(x => x.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ===== Course owners / visible groups =====
+            modelBuilder.Entity<CourseOwner>()
+                .HasKey(x => new { x.CourseId, x.UserId });
+
+            modelBuilder.Entity<CourseOwner>()
+                .Property(x => x.AddedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<CourseOwner>()
+                .HasOne(x => x.Course)
+                .WithMany(c => c.Owners)
+                .HasForeignKey(x => x.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseOwner>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.OwnedCourses)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .HasKey(x => new { x.CourseId, x.GroupId });
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .Property(x => x.AddedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .HasOne(x => x.Course)
+                .WithMany(c => c.VisibleGroups)
+                .HasForeignKey(x => x.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .HasOne(x => x.Group)
+                .WithMany()
+                .HasForeignKey(x => x.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // 🔹 TaskAssignment
             modelBuilder.Entity<TaskAssignment>()
@@ -210,6 +290,81 @@ namespace taskforge.Data
                 .HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ===== UserGroups =====
+            modelBuilder.Entity<UserGroup>()
+                .HasIndex(x => x.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<UserGroup>()
+                .Property(x => x.TagsJson)
+                .HasColumnType("jsonb");
+
+            modelBuilder.Entity<UserGroup>()
+                .Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserGroup>()
+                .Property(x => x.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserGroupMember>()
+                .HasKey(x => new { x.UserId, x.GroupId });
+
+            modelBuilder.Entity<UserGroupMember>()
+                .Property(x => x.AddedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserGroupMember>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.GroupMembers)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserGroupMember>()
+                .HasOne(x => x.Group)
+                .WithMany()
+                .HasForeignKey(x => x.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ===== CourseOwners / VisibleGroups =====
+            modelBuilder.Entity<CourseOwner>()
+                .HasKey(x => new { x.CourseId, x.UserId });
+
+            modelBuilder.Entity<CourseOwner>()
+                .Property(x => x.AddedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<CourseOwner>()
+                .HasOne(x => x.Course)
+                .WithMany(c => c.Owners)
+                .HasForeignKey(x => x.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseOwner>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.OwnedCourses)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .HasKey(x => new { x.CourseId, x.GroupId });
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .Property(x => x.AddedAt)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .HasOne(x => x.Course)
+                .WithMany(c => c.VisibleGroups)
+                .HasForeignKey(x => x.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseVisibleGroup>()
+                .HasOne(x => x.Group)
+                .WithMany()
+                .HasForeignKey(x => x.GroupId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }

@@ -23,6 +23,10 @@ builder.Logging.AddConsole();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
+// доступ к курсам / видимость / owners / группы
+builder.Services.AddScoped<ICourseAccessService, taskforge.Services.Courses.CourseAccessService>();
+builder.Services.AddScoped<IUserGroupService, taskforge.Services.UserGroups.UserGroupService>();
+
 // доменные сервисы
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();

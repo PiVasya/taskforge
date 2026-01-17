@@ -19,6 +19,12 @@ namespace taskforge.Data.Models.Entities
 
         public bool IsPublic { get; set; } = false;
 
+        // владельцы курса (много). OwnerId остаётся как "создатель" для совместимости.
+        public ICollection<CourseOwner> Owners { get; set; } = new List<CourseOwner>();
+
+        // группы, которым виден курс, если IsPublic = false
+        public ICollection<CourseVisibleGroup> VisibleGroups { get; set; } = new List<CourseVisibleGroup>();
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

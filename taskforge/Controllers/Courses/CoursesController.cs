@@ -23,7 +23,7 @@ namespace taskforge.Controllers
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateCourseRequest req)
         {
-            var id = await _courses.CreateAsync(req, _current.GetUserId());
+            var id = await _courses.CreateAsync(req, _current.GetUserId(), _current.GetRole());
             return CreatedAtAction(nameof(GetById), new { courseId = id }, new { id });
         }
 
@@ -31,14 +31,14 @@ namespace taskforge.Controllers
         [HttpGet]
         public async Task<IActionResult> List()
         {
-            var list = await _courses.GetListAsync(_current.GetUserId(), _current.IsAdmin());
+            var list = await _courses.GetListAsync(_current.GetUserId(), _current.GetRole());
             return Ok(list);
         }
 
         [HttpGet("{courseId:guid}")]
         public async Task<IActionResult> GetById([FromRoute] Guid courseId)
         {
-            var dto = await _courses.GetDetailsAsync(courseId, _current.GetUserId(), _current.IsAdmin());
+            var dto = await _courses.GetDetailsAsync(courseId, _current.GetUserId(), _current.GetRole());
             if (dto == null) return NotFound();
             return Ok(dto);
         }
@@ -48,7 +48,7 @@ namespace taskforge.Controllers
         {
             try
             {
-                await _courses.UpdateAsync(courseId, _current.GetUserId(), _current.IsAdmin(), req);
+                await _courses.UpdateAsync(courseId, _current.GetUserId(), _current.GetRole(), req);
                 return NoContent();
             }
             catch (UnauthorizedAccessException ex)
@@ -62,7 +62,7 @@ namespace taskforge.Controllers
         {
             try
             {
-                await _courses.DeleteAsync(courseId, _current.GetUserId(), _current.IsAdmin());
+                await _courses.DeleteAsync(courseId, _current.GetUserId(), _current.GetRole());
                 return NoContent();
             }
             catch (UnauthorizedAccessException ex)

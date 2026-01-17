@@ -14,11 +14,13 @@ namespace taskforge.Services
 
         public async Task<Guid> CreateAsync(Guid courseId, CreateAssignmentRequest req, Guid currentUserId)
         {
-            // Строго проверяем право владения курсом
             var course = await _db.Courses.FirstOrDefaultAsync(c => c.Id == courseId)
                          ?? throw new InvalidOperationException("Курс не найден");
-            if (course.OwnerId != currentUserId)
-                throw new UnauthorizedAccessException("Только владелец курса может добавлять задания.");
+
+            var isOwner = course.OwnerId == currentUserId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == courseId && o.UserId == currentUserId);
+            if (!isOwner)
+                throw new UnauthorizedAccessException("Only course owner can add assignments.");
 
             var maxSort = await _db.TaskAssignments
                 .Where(a => a.CourseId == courseId)
@@ -76,7 +78,8 @@ namespace taskforge.Services
                 a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
                 || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed),
             Sort = a.Sort,
-            CanEdit = a.Course.OwnerId == currentUserId    // <--- НОВОЕ
+            CanEdit = a.Course.OwnerId == currentUserId
+                      || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
         })
         .ToListAsync();
 }
@@ -115,7 +118,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             IsHidden = tc.IsHidden
         }).ToList(),
         Sort = a.Sort,
-        CanEdit = a.Course.OwnerId == currentUserId      // <--- НОВОЕ
+        CanEdit = a.Course.OwnerId == currentUserId
+                  || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
     };
 }
 
@@ -128,7 +132,9 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             if (task == null)
                 throw new KeyNotFoundException("Assignment not found");
 
-            if (task.Course.OwnerId != currentUserId)
+            var isOwner = task.Course?.OwnerId == currentUserId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
+            if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can edit this assignment.");
 
             task.Title = (request.Title ?? string.Empty).Trim();
@@ -167,7 +173,9 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 .FirstOrDefaultAsync(a => a.Id == assignmentId)
                 ?? throw new KeyNotFoundException("Assignment not found");
 
-            if (task.Course.OwnerId != currentUserId)
+            var isOwner = task.Course?.OwnerId == currentUserId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
+            if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can delete assignment.");
 
             _db.Remove(task);
@@ -181,7 +189,9 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 .FirstOrDefaultAsync(a => a.Id == assignmentId)
                 ?? throw new KeyNotFoundException("Assignment not found");
 
-            if (task.Course.OwnerId != currentUserId)
+            var isOwner = task.Course?.OwnerId == currentUserId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
+            if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can reorder assignment.");
 
             task.Sort = sort;

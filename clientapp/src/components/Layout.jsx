@@ -18,6 +18,7 @@ import {
   PencilLine,
   Eye,
   User,
+  Users,
   BarChart2,
   ListOrdered,
   Palette,
@@ -35,7 +36,7 @@ export default function Layout({ children }) {
   const isDark = theme === 'dark';
 
   const { access, logout } = useAuth();
-  const { canEdit, isEditorMode, toggle } = useEditorMode();
+  const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
   const nav = useNavigate();
 
   // цикл: light → dark → pink → light
@@ -155,7 +156,7 @@ export default function Layout({ children }) {
             )}
 
             {/* админские действия — отдельное меню на три точки */}
-            {access && canEdit && (
+            {access && isAdmin && (
               <div className="relative" ref={adminRef}>
                 <button
                   className="btn-outline"
@@ -190,6 +191,17 @@ export default function Layout({ children }) {
                     >
                       <Award size={18} />
                       <span className="ml-2">Бейджи</span>
+                    </Link>
+
+                    <Link
+                      role="menuitem"
+                      to="/admin/groups"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Группы пользователей"
+                    >
+                      <Users size={18} />
+                      <span className="ml-2">Группы</span>
                     </Link>
                     <Link
                       role="menuitem"
@@ -309,7 +321,7 @@ export default function Layout({ children }) {
                   </Link>
                 )}
                 {/* админка: решения и бейджи */}
-                {access && canEdit && (
+                {access && isAdmin && (
                   <>
                     <Link
                       role="menuitem"
@@ -330,6 +342,16 @@ export default function Layout({ children }) {
                     >
                       <Award size={18} />
                       <span>Бейджи</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      to="/admin/groups"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setMoreOpen(false)}
+                      title="Группы пользователей"
+                    >
+                      <Users size={18} />
+                      <span>Группы</span>
                     </Link>
                     <Link
                       role="menuitem"

@@ -1,8 +1,9 @@
-﻿﻿import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { NotifyProvider } from './components/notify/NotifyProvider';
 
 import ProtectedRoute from './auth/ProtectedRoute';
 import EditorRoute from './auth/EditorRoute';
+import AdminRoute from './auth/AdminRoute';
 
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -12,10 +13,10 @@ import CourseEditPage from './pages/CourseEditPage';
 import AssignmentEditPage from './pages/AssignmentEditPage';
 import AssignmentSolvePage from './pages/AssignmentSolvePage';
 import AssignmentResultsPage from './pages/AssignmentResultsPage';
+import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
 
 import ProfilePage from './pages/ProfilePage';
 import MySolutionsPage from './pages/MySolutionsPage';
-import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
 import PublicProfilePage from './pages/PublicProfilePage';
 
 // Support pages
@@ -30,9 +31,10 @@ import SupportNotifier from './components/SupportNotifier';
 import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
 import AdminBadgesPage from './pages/admin/AdminBadgesPage';
+import AdminGroupsPage from './pages/admin/AdminGroupsPage';
 
 function Home() {
-  return <Navigate to="/login" replace />;
+  return <Navigate to="/courses" replace />;
 }
 
 function NotFound() {
@@ -55,16 +57,10 @@ export default function App() {
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
           {/* отдельная страница результатов; открываем после сабмита */}
-          <Route
-            path="/assignment/:assignmentId/results"
-            element={<AssignmentResultsPage />}
-          />
+          <Route path="/assignment/:assignmentId/results" element={<AssignmentResultsPage />} />
 
           {/* при необходимости — остаётся, но кнопку на SolvePage не показываем */}
-          <Route
-            path="/assignment/:assignmentId/top"
-            element={<AssignmentTopSolutionsPage />}
-          />
+          <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />
 
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/my/solutions" element={<MySolutionsPage />} />
@@ -80,13 +76,18 @@ export default function App() {
           <Route path="/support/new" element={<SupportCreatePage />} />
           <Route path="/support/:ticketId" element={<SupportChatPage />} />
 
+          {/* редактор: только при включённом editor-mode */}
           <Route element={<EditorRoute fallbackTo="courses" />}>
             <Route path="/courses/:courseId/edit" element={<CourseEditPage />} />
             <Route path="/assignment/:assignmentId/edit" element={<AssignmentEditPage />} />
-            <Route path="/admin/leaderboard" element={<LeaderboardPage />} />
+          </Route>
+
+          {/* админка: только Admin, без зависимости от editor-mode */}
+          <Route element={<AdminRoute />}>
             <Route path="/admin/solutions" element={<AdminSolutionsPage />} />
             <Route path="/admin/badges" element={<AdminBadgesPage />} />
             <Route path="/admin/support" element={<AdminSupportPage />} />
+            <Route path="/admin/groups" element={<AdminGroupsPage />} />
           </Route>
         </Route>
 
