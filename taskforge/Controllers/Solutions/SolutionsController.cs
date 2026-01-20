@@ -25,6 +25,24 @@ namespace taskforge.Controllers
             _access = access;
         }
 
+        [HttpGet("top-solutions")]
+        public async Task<IActionResult> GetTopSolutions([FromRoute] Guid assignmentId, [FromQuery] int top = 20)
+        {
+            var userId = _current.GetUserId();
+            var role = _current.GetRole();
+
+            var courseId = await _db.TaskAssignments.AsNoTracking()
+                .Where(a => a.Id == assignmentId)
+                .Select(a => (Guid?)a.CourseId)
+                .FirstOrDefaultAsync();
+            if (courseId == null) return NotFound();
+            if (!await _access.CanViewCourseAsync(userId, role, courseId.Value))
+                return Forbid();
+
+            var list = await _solutions.GetTopSolutionsAsync(assignmentId, Math.Clamp(top, 1, 100));
+            return Ok(list);
+        }
+
         [HttpPost("submit")]
         public async Task<IActionResult> Submit([FromRoute] Guid assignmentId, [FromBody] SubmitSolutionRequest req)
         {

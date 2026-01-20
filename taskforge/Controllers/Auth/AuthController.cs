@@ -49,7 +49,7 @@ namespace taskforge.Controllers
         /// Регистрация нового пользователя.
         /// </summary>
         [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterDto dto)
+        public async Task<IActionResult> Register([FromBody] RegisterUserDto dto)
         {
             var email = dto.Email.Trim().ToLowerInvariant();
 
@@ -59,7 +59,7 @@ namespace taskforge.Controllers
             var user = new User
             {
                 Email = email,
-                Name = dto.Name,
+                Name = (dto.FirstName + " " + dto.LastName).Trim(),
                 PasswordHash = _passwordHasher.Hash(dto.Password),
                 Role = UserRole.User
             };
