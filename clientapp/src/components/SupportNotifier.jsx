@@ -3,6 +3,7 @@
 // от техподдержки, показываем всплывающее уведомление.
 
 import React, { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useNotify } from './notify/NotifyProvider';
 import { getSupportTicket, listSupportTickets } from '../api/support';
@@ -30,9 +31,14 @@ function pickLastMessage(messages) {
 export default function SupportNotifier() {
   const { access } = useAuth();
   const notify = useNotify();
+  const location = useLocation();
 
   useEffect(() => {
     if (!access) return;
+    // Чтобы не "тыкать" саппорт постоянно: включаем poller только на страницах техподдержки.
+    const p = location?.pathname || '';
+    const shouldPoll = p.startsWith('/support') || p.startsWith('/admin/support');
+    if (!shouldPoll) return;
     let stopped = false;
 
     const tick = async () => {
@@ -83,13 +89,13 @@ export default function SupportNotifier() {
 
     // стартуем сразу и дальше периодически
     tick();
-    const t = setInterval(tick, 15000);
+    const t = setInterval(tick, 60000);
 
     return () => {
       stopped = true;
       clearInterval(t);
     };
-  }, [access, notify]);
+  }, [access, notify, location]);
 
   return null;
 }

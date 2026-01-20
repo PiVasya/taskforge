@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
+import { getGroups } from '../../api/groups';
 import LeaderboardCard from '../../components/LeaderboardCard';
 import { Card, Input, Select, Button } from '../../components/ui';
 
@@ -14,6 +15,7 @@ export default function LeaderboardPage() {
 
   // filters
   const [courses, setCourses] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [courseId, setCourseId] = useState('');
   const [days, setDays] = useState('');
   const [groupId, setGroupId] = useState('');
@@ -26,6 +28,12 @@ export default function LeaderboardPage() {
         setCourses(Array.isArray(list) ? list : []);
       } catch (e) {
         console.error('Failed to load courses', e);
+      }
+      try {
+        const gs = await getGroups();
+        setGroups(Array.isArray(gs) ? gs : []);
+      } catch (e) {
+        console.error('Failed to load groups', e);
       }
     })();
   }, []);
@@ -52,7 +60,13 @@ export default function LeaderboardPage() {
       setEntries(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
-      setError('Не удалось загрузить топ');
+      if (e?.response?.status === 429) {
+        const ra = e.response?.data?.retryAfterSeconds;
+        const msg = e.response?.data?.message || 'Топ можно обновлять раз в 5 минут';
+        setError(ra ? `${msg}. Повтори через ~${Math.ceil(ra / 60)} мин.` : msg);
+      } else {
+        setError('Не удалось загрузить топ');
+      }
     } finally {
       setLoading(false);
     }
@@ -109,19 +123,24 @@ export default function LeaderboardPage() {
               />
             </div>
 
-            {/* Группа (заглушка) */}
-            <div className="flex flex-col w-32">
+            {/* Группа */}
+            <div className="flex flex-col min-w-[180px]">
               <label htmlFor="group-filter" className="text-xs font-medium mb-1">
                 Группа
               </label>
-              <Input
+              <Select
                 id="group-filter"
-                type="text"
-                placeholder="Скоро"
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
-                disabled
-              />
+                disabled={!groups.length}
+              >
+                <option value="">Все группы</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </Select>
             </div>
 
             {/* Кнопка */}

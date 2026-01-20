@@ -5,6 +5,7 @@ namespace taskforge.Services.Interfaces
     public interface IUserGroupService
     {
         Task<IReadOnlyList<UserGroupDto>> GetAllAsync(bool includeInactive);
+        Task<IReadOnlyList<UserGroupDto>> GetForUserAsync(Guid userId, bool includeInactive);
         Task<UserGroupDto?> GetByIdAsync(Guid groupId);
         Task<IReadOnlyList<Guid>> GetUserGroupIdsAsync(Guid userId);
         Task<Guid> CreateAsync(CreateUserGroupRequest request);

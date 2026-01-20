@@ -15,9 +15,9 @@ function authHeaders() {
  * @param {number} [opts.days] Number of days to look back (e.g. 7, 30, 90)
  * @param {number} [opts.top=20] Maximum number of users to return
  */
-export async function getLeaderboard({ courseId, days, top = 20 } = {}) {
+export async function getLeaderboard({ courseId, days, groupId, top = 20 } = {}) {
   const { data } = await api.get('/api/leaderboard', {
-    params: { courseId, days, top },
+    params: { courseId, days, groupId, top },
     headers: authHeaders(),
   });
   return data;

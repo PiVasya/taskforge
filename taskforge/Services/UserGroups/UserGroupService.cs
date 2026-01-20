@@ -42,6 +42,35 @@ namespace taskforge.Services.UserGroups
                 .ToListAsync();
         }
 
+        public async Task<IReadOnlyList<UserGroupDto>> GetForUserAsync(Guid userId, bool includeInactive)
+        {
+            var q = _db.UserGroups.AsNoTracking()
+                .Where(g => _db.UserGroupMembers.Any(m => m.UserId == userId && m.GroupId == g.Id));
+
+            if (!includeInactive)
+                q = q.Where(g => g.IsActive);
+
+            return await q
+                .OrderBy(g => g.Name)
+                .Select(g => new UserGroupDto
+                {
+                    Id = g.Id,
+                    Name = g.Name,
+                    Code = g.Code,
+                    Description = g.Description,
+                    IsActive = g.IsActive,
+                    Color = g.Color,
+                    Icon = g.Icon,
+                    ExternalId = g.ExternalId,
+                    Notes = g.Notes,
+                    TagsJson = g.TagsJson,
+                    CreatedAt = g.CreatedAt,
+                    UpdatedAt = g.UpdatedAt,
+                    MembersCount = _db.UserGroupMembers.Count(m => m.GroupId == g.Id)
+                })
+                .ToListAsync();
+        }
+
         public async Task<UserGroupDto?> GetByIdAsync(Guid groupId)
         {
             return await _db.UserGroups.AsNoTracking()

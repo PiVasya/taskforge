@@ -21,6 +21,7 @@ builder.Logging.AddConsole();
 
 // текущий пользователь и сервис контекста
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 // доступ к курсам / видимость / owners / группы

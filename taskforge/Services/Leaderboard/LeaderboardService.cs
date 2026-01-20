@@ -46,6 +46,18 @@ namespace taskforge.Services
             if (courseId.HasValue && !accessibleCourseIds.Contains(courseId.Value))
                 throw new UnauthorizedAccessException("Course is not accessible");
 
+            // Фильтр по группе: обычный пользователь может выбирать только свои группы.
+            if (groupId.HasValue
+                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(role, AppRoles.Editor, StringComparison.OrdinalIgnoreCase))
+            {
+                var isMember = await _db.UserGroupMembers
+                    .AsNoTracking()
+                    .AnyAsync(m => m.UserId == currentUserId && m.GroupId == groupId.Value);
+                if (!isMember)
+                    throw new UnauthorizedAccessException("Group is not accessible");
+            }
+
             // учитываем и код-решения, и тестовые попытки
             var memberIdsQuery = _db.UserGroupMembers.AsNoTracking()
                 .Where(m => !groupId.HasValue || m.GroupId == groupId.Value)
