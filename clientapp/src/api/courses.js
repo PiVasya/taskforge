@@ -1,5 +1,5 @@
 ﻿// clientapp/src/api/courses.js
-import { api } from './http';
+import api from './http';
 
 // список курсов
 export async function getCourses() {

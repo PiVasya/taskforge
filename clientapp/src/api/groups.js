@@ -1,4 +1,4 @@
-import { api } from './http';
+import api from './http';
 
 // список групп (для редактора курсов). Для Admin/Editor.
 export async function getGroups() {

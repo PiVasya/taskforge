@@ -1,78 +1,31 @@
-﻿import { api } from './http';
+import api from './http';
 
-function authHeaders() {
-  const t = localStorage.getItem('token');
-  return t ? { Authorization: `Bearer ${t}` } : {};
+export async function listAssignments(courseId) {
+  const res = await api.get(`/api/courses/${courseId}/assignments`);
+  return res.data;
 }
 
-// список заданий по курсу
-export async function getAssignmentsByCourse(courseId) {
-  const { data } = await api.get(`/api/courses/${courseId}/assignments`, {
-    headers: authHeaders(),
-  });
-  return data;
-}
-
-// создать задание
 export async function createAssignment(courseId, payload) {
-  const res = await api.post(`/api/courses/${courseId}/assignments`, payload, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    transformResponse: [(d) => d], // сырой текст
-  });
-  const txt = res.data ?? '';
-  return txt ? JSON.parse(txt) : null; // сервер может вернуть { id }
+  const res = await api.post(`/api/courses/${courseId}/assignments`, payload);
+  return res.data;
 }
 
-// детальная инфа по заданию
-export async function getAssignment(assignmentId) {
-  const { data } = await api.get(`/api/assignments/${assignmentId}`, {
-    headers: authHeaders(),
-  });
-  return data;
+export async function updateAssignment(courseId, assignmentId, payload) {
+  const res = await api.put(`/api/courses/${courseId}/assignments/${assignmentId}`, payload);
+  return res.data;
 }
 
-// отправка решения
-export async function submitSolution(assignmentId, { language, code }) {
-  const res = await api.post(
-    `/api/assignments/${assignmentId}/submit`,
-    { language, code },
-    {
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      transformResponse: [(d) => d],
-    }
-  );
-  const txt = res.data ?? '';
-  return txt ? JSON.parse(txt) : null; // SubmitSolutionResultDto
+export async function deleteAssignment(courseId, assignmentId) {
+  const res = await api.delete(`/api/courses/${courseId}/assignments/${assignmentId}`);
+  return res.data;
 }
 
-// обновить задание
-export async function updateAssignment(assignmentId, payload) {
-  await api.put(`/api/assignments/${assignmentId}`, payload, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-  });
-  return true;
+export async function addVisibleGroups(courseId, groupIds) {
+  const res = await api.post(`/api/courses/${courseId}/visible-groups`, { groupIds });
+  return res.data;
 }
 
-// удалить задание
-export async function deleteAssignment(assignmentId) {
-  await api.delete(`/api/assignments/${assignmentId}`, {
-    headers: authHeaders(),
-  });
-  return true;
-}
-
-export async function updateAssignmentSort(assignmentId, sort) {
-  await api.patch(`/api/assignments/${assignmentId}/sort`, { sort }, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-  });
-  return true;
-}
-
-// получить список лучших решений для задания
-export async function getTopSolutions(assignmentId, count = 5) {
-  const { data } = await api.get(`/api/solutions/${assignmentId}/top`, {
-    params: { count },
-    headers: authHeaders(),
-  });
-  return data;
+export async function setCourseOwners(courseId, ownerIds) {
+  const res = await api.post(`/api/courses/${courseId}/owners`, { ownerIds });
+  return res.data;
 }

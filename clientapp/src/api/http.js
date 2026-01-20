@@ -1,97 +1,76 @@
-﻿// clientapp/src/api/http.js
 import axios from 'axios';
 
-// Create a shared axios instance with basic config
-export const api = axios.create({
-  baseURL: '',
-  timeout: 15000,
-  headers: { Accept: 'application/json' },
-});
+// Access token is kept only in memory (not localStorage).
+// Requests use cookies (HttpOnly) for auth.
+let accessToken = null;
 
-// Attach access token to every request if present
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Helper to extract a human-readable message from various server responses
-function extractMessage(data) {
-  if (!data) return null;
-  if (typeof data === 'string') return data;
-
-  // обычное поле message/title
-  if (typeof data.message === 'string') return data.message;
-  if (typeof data.title === 'string') return data.title;
-
-  // ASP.NET ModelState: { errors: { Email: ["..."], Password: ["..."] } }
-  if (data.errors && typeof data.errors === 'object') {
-    const firstKey = Object.keys(data.errors)[0];
-    if (firstKey) {
-      const val = data.errors[firstKey];
-      if (Array.isArray(val) && val.length) return val[0];
-      if (typeof val === 'string') return val;
-    }
-  }
-
-  // массив сообщений
-  if (Array.isArray(data) && data.length) {
-    const first = data[0];
-    if (typeof first === 'string') return first;
-    if (first && typeof first.message === 'string') return first.message;
-  }
-
-  // fallback—попробуем сериализовать
-  try {
-    return JSON.stringify(data);
-  } catch {}
-  return null;
+export function setAccessToken(token) {
+  accessToken = token || null;
 }
 
-// Intercept responses to add userMessage and handle auth errors
-api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    const r = err?.response;
-    // Attach a friendly message for UI
-    err.userMessage =
-      extractMessage(r?.data) ||
-      r?.statusText ||
-      err.message ||
-      'Ошибка запроса';
+export function getAccessToken() {
+  return accessToken;
+}
 
-    // If the server reported unauthorized, clear any stored token so the app knows the user is logged out.
-    if (r?.status === 401) {
-      try {
-        localStorage.removeItem('token');
-      } catch {}
-      // Also remove default auth header on this axios instance
-      delete api.defaults.headers.common?.Authorization;
+const api = axios.create({
+  // For same-origin deployment cookies are sent automatically.
+  // If you run FE/BE on different origins locally, this must be true.
+  withCredentials: true,
+});
+
+let isRefreshing = false;
+let refreshQueue = [];
+
+function resolveQueue(err) {
+  refreshQueue.forEach(({ resolve, reject }) => {
+    if (err) reject(err);
+    else resolve();
+  });
+  refreshQueue = [];
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config || {};
+
+    // prevent infinite loops
+    if (original.__skipAuthRefresh) {
+      return Promise.reject(error);
     }
 
-    return Promise.reject(err); // важно: не делаем new Error(...) — сохраняем response/status
+    const status = error?.response?.status;
+    if (status !== 401) {
+      return Promise.reject(error);
+    }
+
+    // do not try to refresh on auth endpoints
+    const url = (original.url || '').toLowerCase();
+    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh')) {
+      return Promise.reject(error);
+    }
+
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        refreshQueue.push({ resolve, reject });
+      }).then(() => api(original));
+    }
+
+    isRefreshing = true;
+    try {
+      const res = await api.post('/api/auth/refresh', null, { __skipAuthRefresh: true });
+      const newToken = res?.data?.accessToken;
+      if (newToken) setAccessToken(newToken);
+
+      resolveQueue(null);
+      return api(original);
+    } catch (e) {
+      resolveQueue(e);
+      return Promise.reject(e);
+    } finally {
+      isRefreshing = false;
+    }
   }
 );
 
-/**
- * Utility to persist or remove the access token for future API calls.
- * When called with a non-empty token, it stores it and updates the axios defaults.
- * When called with null/undefined, it removes the token and header.
- */
-export function setAccessToken(token) {
-  try {
-    if (token) {
-      localStorage.setItem('token', token);
-      api.defaults.headers.common.Authorization = `Bearer ${token}`;
-    } else {
-      localStorage.removeItem('token');
-      delete api.defaults.headers.common.Authorization;
-    }
-  } catch {}
-}
-
-// Добавлено для совместимости с импортами вида `import api from './http'`
 export default api;

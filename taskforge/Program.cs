@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.ComponentModel.DataAnnotations;
+using System.Threading.Tasks;
 using System.Text;
 
 using taskforge.Data;
@@ -85,6 +86,7 @@ var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection.GetValue<string>("Key")
     ?? throw new InvalidOperationException("Jwt:Key is not configured");
 
+
 builder.Services
     .AddAuthentication(options =>
     {
@@ -96,21 +98,48 @@ builder.Services
         options.TokenHandlers.Clear();
         options.TokenHandlers.Add(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler());
         options.MapInboundClaims = false;
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtSection["Issuer"],
-            ValidAudience = jwtSection["Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            RoleClaimType = System.Security.Claims.ClaimTypes.Role,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            RoleClaimType = "role",
             NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (!string.IsNullOrEmpty(context.Token))
+                    return Task.CompletedTask;
+
+                var path = context.HttpContext.Request.Path;
+
+                var qsToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(qsToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = qsToken;
+                    return Task.CompletedTask;
+                }
+
+                if (context.Request.Cookies.TryGetValue("tf_at", out var cookieToken) && !string.IsNullOrEmpty(cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 
 builder.Services.AddAuthorization();
+
 
 var app = builder.Build();
 

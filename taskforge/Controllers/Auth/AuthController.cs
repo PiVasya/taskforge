@@ -1,9 +1,11 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System;
-using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -24,117 +26,210 @@ namespace taskforge.Controllers
     [AllowAnonymous]
     public class AuthController : ControllerBase
     {
+        private const string AccessTokenCookie = "tf_at";
+        private const string RefreshTokenCookie = "tf_rt";
+
         private readonly ApplicationDbContext _context;
         private readonly PasswordHasher _passwordHasher;
         private readonly IConfiguration _configuration;
+        private readonly IWebHostEnvironment _env;
 
         /// <summary>
         /// Конструктор с внедрением контекста БД, хэш‑сервиса и конфигурации (для JWT).
         /// </summary>
-        public AuthController(ApplicationDbContext context, PasswordHasher passwordHasher, IConfiguration configuration)
+        public AuthController(ApplicationDbContext context, PasswordHasher passwordHasher, IConfiguration configuration, IWebHostEnvironment env)
         {
             _context = context;
             _passwordHasher = passwordHasher;
             _configuration = configuration;
+            _env = env;
         }
 
         /// <summary>
         /// Регистрация нового пользователя.
         /// </summary>
-        /// <param name="dto">Данные регистрации (email, имя, фамилия, пароль, телефон и дата рождения).</param>
-        /// <returns>Результат регистрации.</returns>
-        [AllowAnonymous]
         [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterUserDto dto)
+        public async Task<IActionResult> Register([FromBody] RegisterDto dto)
         {
-            if (await _context.Users.AnyAsync(u => u.Email == dto.Email))
-            {
-                return BadRequest(new { message = "Email уже используется." });
-            }
+            var email = dto.Email.Trim().ToLowerInvariant();
 
-            // Хэшируем пароль (Argon2id используется внутри PasswordHasher)
-            var (salt, hash) = _passwordHasher.HashPassword(dto.Password);
+            if (await _context.Users.AnyAsync(u => u.Email.ToLower() == email))
+                return BadRequest("Пользователь с таким email уже существует.");
 
             var user = new User
             {
-                Id = Guid.NewGuid(),
-                Email = dto.Email,
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                PhoneNumber = dto.PhoneNumber,
-                DateOfBirth = dto.DateOfBirth,
-                PasswordSalt = salt,
-                PasswordHash = hash,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                Email = email,
+                Name = dto.Name,
+                PasswordHash = _passwordHasher.Hash(dto.Password),
+                Role = UserRole.User
             };
 
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
-            // Можно автоматически выдать токен после регистрации, но пока вернём лишь сообщение
-            return Ok(new { message = "Регистрация успешна." });
+            return Ok(new { message = "Пользователь зарегистрирован" });
         }
 
         /// <summary>
-        /// Авторизация пользователя.
+        /// Авторизация пользователя. Токены выдаются и сохраняются в HttpOnly cookies.
+        /// Дополнительно accessToken возвращается в ответе, чтобы фронт мог держать его в памяти (не localStorage).
         /// </summary>
-        /// <param name="dto">Данные для входа (email и пароль).</param>
-        /// <returns>JWT‑токен либо сообщение об ошибке.</returns>
-        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
-            var user = await _context.Users.SingleOrDefaultAsync(u => u.Email == dto.Email);
+            var email = dto.Email.Trim().ToLowerInvariant();
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
+
+            if (user == null || !_passwordHasher.Verify(dto.Password, user.PasswordHash))
+                return Unauthorized("Неверный email или пароль.");
+
+            var accessMinutes = _configuration.GetValue<int?>("Jwt:ExpireMinutes") ?? 120;
+            var accessTokenLifetime = TimeSpan.FromMinutes(accessMinutes);
+            var refreshTokenLifetime = TimeSpan.FromDays(7);
+
+            var accessToken = CreateJwt(user, accessTokenLifetime, tokenType: "access");
+            var refreshToken = CreateJwt(user, refreshTokenLifetime, tokenType: "refresh");
+
+            SetAuthCookies(accessToken, refreshToken, accessTokenLifetime, refreshTokenLifetime);
+
+            return Ok(new { accessToken });
+        }
+
+        /// <summary>
+        /// Обновление access token по refresh token из cookie.
+        /// </summary>
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh()
+        {
+            if (!Request.Cookies.TryGetValue(RefreshTokenCookie, out var refreshToken) || string.IsNullOrWhiteSpace(refreshToken))
+                return Unauthorized();
+
+            var principal = ValidateJwt(refreshToken, validateLifetime: true);
+            if (principal == null)
+                return Unauthorized();
+
+            var tokenType = principal.FindFirstValue("token_type");
+            if (!string.Equals(tokenType, "refresh", StringComparison.OrdinalIgnoreCase))
+                return Unauthorized();
+
+            var userIdStr = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(userIdStr, out var userId))
+                return Unauthorized();
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null)
-            {
-                return Unauthorized(new { message = "Неверные учетные данные." });
-            }
+                return Unauthorized();
 
-            // Проверяем пароль
-            bool isValid = _passwordHasher.VerifyPassword(dto.Password, user.PasswordSalt, user.PasswordHash);
-            if (!isValid)
-            {
-                user.AccessFailedCount++;
-                await _context.SaveChangesAsync();
-                return Unauthorized(new { message = "Неверные учетные данные." });
-            }
+            var accessMinutes = _configuration.GetValue<int?>("Jwt:ExpireMinutes") ?? 120;
+            var accessTokenLifetime = TimeSpan.FromMinutes(accessMinutes);
+            var refreshTokenLifetime = TimeSpan.FromDays(7);
 
-            // При успешном входе обновляем дату последнего входа и обнуляем счётчик ошибок
-            user.LastLoginAt = DateTime.UtcNow;
-            user.AccessFailedCount = 0;
-            await _context.SaveChangesAsync();
+            // Rotate refresh token (simple rotation without DB storage).
+            var newAccessToken = CreateJwt(user, accessTokenLifetime, tokenType: "access");
+            var newRefreshToken = CreateJwt(user, refreshTokenLifetime, tokenType: "refresh");
 
-            // Формируем список claims
-            var claims = new List<Claim>
+            SetAuthCookies(newAccessToken, newRefreshToken, accessTokenLifetime, refreshTokenLifetime);
+
+            return Ok(new { accessToken = newAccessToken });
+        }
+
+        /// <summary>
+        /// Выход: очищает cookies с токенами.
+        /// </summary>
+        [HttpPost("logout")]
+        public IActionResult Logout()
+        {
+            ClearAuthCookies();
+            return Ok();
+        }
+
+        private string CreateJwt(User user, TimeSpan lifetime, string tokenType)
+        {
+            var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!);
+
+            var claims = new[]
             {
-                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new Claim(JwtRegisteredClaimNames.Email, user.Email),
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new Claim(ClaimTypes.Role, user.Role ?? "User"),
-                new Claim("role", user.Role ?? "User"),
+                // Keep both forms to be safe (some parts read ClaimTypes.Role, some read "role")
+                new Claim(ClaimTypes.Role, user.Role.ToString()),
+                new Claim("role", user.Role.ToString()),
+                new Claim("token_type", tokenType)
             };
 
-            // Подготовка ключа и параметров
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var creds = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
 
-            // Задаём время жизни токена
-            var expires = DateTime.UtcNow.AddMinutes(
-                double.Parse(_configuration["Jwt:ExpireMinutes"] ?? "60"));
-
-            // Создание токена
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: expires,
+                expires: DateTime.UtcNow.Add(lifetime),
                 signingCredentials: creds
             );
 
-            string tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
 
-            return Ok(new { token = tokenString });
+        private ClaimsPrincipal? ValidateJwt(string token, bool validateLifetime)
+        {
+            try
+            {
+                var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!);
+
+                var validationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidateLifetime = validateLifetime,
+                    ValidIssuer = _configuration["Jwt:Issuer"],
+                    ValidAudience = _configuration["Jwt:Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(key),
+                    RoleClaimType = "role",
+                    NameClaimType = ClaimTypes.NameIdentifier,
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                };
+
+                var handler = new JwtSecurityTokenHandler();
+                var principal = handler.ValidateToken(token, validationParameters, out _);
+                return principal;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void SetAuthCookies(string accessToken, string refreshToken, TimeSpan accessLifetime, TimeSpan refreshLifetime)
+        {
+            var accessOptions = BuildAuthCookieOptions(DateTimeOffset.UtcNow.Add(accessLifetime));
+            var refreshOptions = BuildAuthCookieOptions(DateTimeOffset.UtcNow.Add(refreshLifetime));
+
+            Response.Cookies.Append(AccessTokenCookie, accessToken, accessOptions);
+            Response.Cookies.Append(RefreshTokenCookie, refreshToken, refreshOptions);
+        }
+
+        private void ClearAuthCookies()
+        {
+            var options = BuildAuthCookieOptions(DateTimeOffset.UtcNow.AddDays(-1));
+            Response.Cookies.Delete(AccessTokenCookie, options);
+            Response.Cookies.Delete(RefreshTokenCookie, options);
+        }
+
+        private CookieOptions BuildAuthCookieOptions(DateTimeOffset expires)
+        {
+            // In local dev (http://localhost) Secure cookies are not sent.
+            var secure = !_env.IsDevelopment() && !_env.IsEnvironment("Local");
+
+            return new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = secure,
+                SameSite = SameSiteMode.Lax,
+                Path = "/",
+                Expires = expires
+            };
         }
     }
 }

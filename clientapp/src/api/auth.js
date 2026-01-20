@@ -1,20 +1,19 @@
-﻿import { api } from './http';
+import api from './http';
 
-// логин — ждём { token } или { accessToken }
-export async function login({ email, password }) {
-  const { data } = await api.post('/api/auth/login', { email, password });
-  const token = data?.token ?? data?.accessToken;
-  if (!token) throw new Error('Токен не получен');
-  return { token };
-}
+export const AuthApi = {
+  async login(payload) {
+    // Sets HttpOnly cookies on success. Also returns accessToken for in-memory role parsing.
+    const res = await api.post('/api/auth/login', payload, { __skipAuthRefresh: true });
+    return res.data;
+  },
 
-// регистрация — возвращаем тело ответа
-export async function registerUser(dto) {
-  const { data } = await api.post('/api/auth/register', dto);
-  return data;
-}
+  async refresh() {
+    const res = await api.post('/api/auth/refresh', null, { __skipAuthRefresh: true });
+    return res.data;
+  },
 
-// совместимость
-export const loginUser = login;
-export async function refresh() { throw new Error('refresh недоступен'); }
-export async function logout() {}
+  async logout() {
+    const res = await api.post('/api/auth/logout', null, { __skipAuthRefresh: true });
+    return res.data;
+  },
+};

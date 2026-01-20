@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Badge } from '../components/ui';
 import { Github, Send, Globe2, MapPin, BookOpen, Trophy } from 'lucide-react';
-import { api } from '../api/http';
+import api from '../api/http';
 import { getUserBadges } from '../api/badges';
 
 export default function PublicProfilePage() {
