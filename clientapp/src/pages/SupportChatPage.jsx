@@ -1,6 +1,6 @@
 // clientapp/src/pages/SupportChatPage.jsx
 // Переписка по конкретному обращению.
-// Есть polling, чтобы подтягивать ответы техподдержки.
+// Без polling: подключаем SignalR и получаем новые сообщения push-ом.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -9,6 +9,8 @@ import { Field, Textarea, Button, Card } from '../components/ui';
 import { getSupportTicket, sendSupportMessage } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { notifyOnce } from '../utils/notifyOnce';
+import { useAuth } from '../auth/AuthContext';
+import { ensureSupportHubStarted } from '../realtime/supportHub';
 
 function pickLastMessage(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return null;
@@ -19,6 +21,7 @@ function pickLastMessage(messages) {
 export default function SupportChatPage() {
   const { ticketId } = useParams();
   const notify = useNotify();
+  const { access } = useAuth();
 
   const [ticket, setTicket] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -71,14 +74,83 @@ export default function SupportChatPage() {
 
     fetchTicket();
 
-    // polling (если SignalR появится — можно заменить)
-    const t = setInterval(() => fetchTicket({ silent: true }), 12000);
+    let conn = null;
+    let disposed = false;
+    let onReceive = null;
+
+    const setupRealtime = async () => {
+      try {
+        if (!access) return;
+        conn = await ensureSupportHubStarted(access);
+        if (!conn || disposed) return;
+
+        const join = async () => {
+          try {
+            await conn.invoke('JoinTicket', ticketId);
+          } catch {
+            // ignore
+          }
+        };
+
+        await join();
+        conn.onreconnected(async () => {
+          if (disposed) return;
+          await join();
+        });
+
+        onReceive = (incomingTicketId, msg) => {
+          if (!isMountedRef.current) return;
+          if (String(incomingTicketId) !== String(ticketId)) return;
+
+          // Сообщение приходит в формате payload, добавим его в список.
+          const m = {
+            id: msg?.id ?? msg?.Id,
+            text: msg?.text ?? msg?.Text,
+            createdAt: msg?.createdAt ?? msg?.CreatedAt,
+            isFromAdmin: msg?.isFromAdmin ?? msg?.IsFromAdmin,
+            authorName: msg?.authorName ?? msg?.AuthorName,
+          };
+
+          setMessages((prev) => {
+            // дедуп по id
+            if (m.id && prev.some((x) => x.id === m.id)) return prev;
+            return [...prev, m].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          });
+
+          const lastId = m?.id || `${m?.createdAt || ''}-${m?.text || ''}`;
+          const prev = lastMessageIdRef.current;
+          lastMessageIdRef.current = lastId;
+
+          // уведомление если пришёл ответ админа
+          if (prev && m && m.isFromAdmin) {
+            notifyOnce(
+              `support_msg_${ticketId}_${lastId}`,
+              () => notify.info(`Техподдержка ответила в ${title}`),
+              6000
+            );
+          }
+        };
+
+        conn.on('ReceiveMessage', onReceive);
+      } catch {
+        // если SignalR не завёлся, молча живём с ручным обновлением (кнопка/переоткрытие)
+      }
+    };
+
+    setupRealtime();
+
     return () => {
       isMountedRef.current = false;
-      clearInterval(t);
+      disposed = true;
+      try {
+        if (conn) {
+          if (onReceive) conn.off('ReceiveMessage', onReceive);
+          conn.invoke('LeaveTicket', ticketId).catch(() => {});
+        }
+      } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketId]);
+  }, [ticketId, access]);
 
   const send = async (e) => {
     e.preventDefault();
