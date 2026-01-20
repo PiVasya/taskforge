@@ -56,12 +56,16 @@ namespace taskforge.Controllers
             if (await _context.Users.AnyAsync(u => u.Email.ToLower() == email))
                 return BadRequest("Пользователь с таким email уже существует.");
 
+            var (salt, hash) = _passwordHasher.HashPassword(dto.Password);
+
             var user = new User
             {
                 Email = email,
-                Name = (dto.FirstName + " " + dto.LastName).Trim(),
-                PasswordHash = _passwordHasher.Hash(dto.Password),
-                Role = UserRole.User
+                FirstName = (dto.FirstName ?? string.Empty).Trim(),
+                LastName = (dto.LastName ?? string.Empty).Trim(),
+                PasswordSalt = salt,
+                PasswordHash = hash,
+                Role = "User"
             };
 
             _context.Users.Add(user);
@@ -80,7 +84,7 @@ namespace taskforge.Controllers
             var email = dto.Email.Trim().ToLowerInvariant();
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
 
-            if (user == null || !_passwordHasher.Verify(dto.Password, user.PasswordHash))
+            if (user == null || !_passwordHasher.VerifyPassword(dto.Password, user.PasswordSalt, user.PasswordHash))
                 return Unauthorized("Неверный email или пароль.");
 
             var accessMinutes = _configuration.GetValue<int?>("Jwt:ExpireMinutes") ?? 120;

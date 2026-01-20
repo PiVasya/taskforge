@@ -86,6 +86,9 @@ var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection.GetValue<string>("Key")
     ?? throw new InvalidOperationException("Jwt:Key is not configured");
 
+// Symmetric key bytes for signing/validation
+var key = Encoding.UTF8.GetBytes(jwtKey);
+
 
 builder.Services
     .AddAuthentication(options =>
