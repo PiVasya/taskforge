@@ -18,6 +18,19 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Attach Authorization header when we have an in-memory access token.
+// This makes auth robust even if cookies are blocked by browser policy.
+api.interceptors.request.use((config) => {
+  const token = accessToken;
+  if (token) {
+    config.headers = config.headers || {};
+    if (!config.headers.Authorization && !config.headers.authorization) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
 let isRefreshing = false;
 let refreshQueue = [];
 

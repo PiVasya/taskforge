@@ -58,6 +58,10 @@ namespace taskforge.Controllers
 
             var (salt, hash) = _passwordHasher.HashPassword(dto.Password);
 
+            // Роль задаётся по умолчанию.
+            // Админов пользователь назначает вручную через БД/админ-инструменты.
+            var role = "User";
+
             var user = new User
             {
                 Email = email,
@@ -65,7 +69,7 @@ namespace taskforge.Controllers
                 LastName = (dto.LastName ?? string.Empty).Trim(),
                 PasswordSalt = salt,
                 PasswordHash = hash,
-                Role = "User"
+                Role = role
             };
 
             _context.Users.Add(user);
