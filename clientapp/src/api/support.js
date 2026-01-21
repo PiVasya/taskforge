@@ -11,7 +11,8 @@ import api from './http';
  */
 export async function createSupportTicket(payload) {
   const { data } = await api.post('/api/support', payload);
-  return data;
+  const ticketId = data?.ticketId || data?.id || data?.Id;
+  return { ...data, ticketId };
 }
 
 /**

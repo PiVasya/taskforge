@@ -26,8 +26,10 @@ namespace taskforge.Services.Support
 
         public async Task<IReadOnlyList<SupportTicketListItemDto>> GetTicketsAsync(Guid userId, bool isSupportAdmin, CancellationToken ct)
         {
+            // For the list view we project everything we need in SQL.
+            // (No need to include full messages collection.)
             var query = _db.SupportTickets
-                .Include(t => t.Messages)
+                .AsNoTracking()
                 .AsQueryable();
 
             if (!isSupportAdmin)
@@ -44,7 +46,20 @@ namespace taskforge.Services.Support
                     IsClosed = t.IsClosed,
                     CreatedAt = t.CreatedAt,
                     UpdatedAt = t.UpdatedAt,
-                    MessagesCount = t.Messages.Count
+                    MessagesCount = t.Messages.Count,
+                    LastMessagePreview = t.Messages
+                        .OrderByDescending(m => m.CreatedAt)
+                        .Select(m => m.Text)
+                        .FirstOrDefault(),
+                    User = t.User == null
+                        ? null
+                        : new SupportTicketUserDto
+                        {
+                            Id = t.User.Id.ToString(),
+                            Email = t.User.Email,
+                            FirstName = t.User.FirstName,
+                            LastName = t.User.LastName
+                        }
                 })
                 .ToListAsync(ct);
 
@@ -71,6 +86,15 @@ namespace taskforge.Services.Support
                 CreatedAt = ticket.CreatedAt,
                 UpdatedAt = ticket.UpdatedAt,
                 IsClosed = ticket.IsClosed,
+                User = ticket.User == null
+                    ? null
+                    : new SupportTicketUserDto
+                    {
+                        Id = ticket.User.Id.ToString(),
+                        Email = ticket.User.Email,
+                        FirstName = ticket.User.FirstName,
+                        LastName = ticket.User.LastName
+                    },
                 Messages = ticket.Messages
                     .OrderBy(m => m.CreatedAt)
                     .Select(m => new SupportMessageDto

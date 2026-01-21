@@ -10,6 +10,7 @@ namespace taskforge.Data.Models.DTO.Support
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public bool IsClosed { get; set; }
+        public SupportTicketUserDto? User { get; set; }
         public List<SupportMessageDto> Messages { get; set; } = new();
     }
 }

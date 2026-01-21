@@ -58,7 +58,9 @@ namespace taskforge.Controllers
             if (userIdStr == null) return Unauthorized();
             var userId = Guid.Parse(userIdStr);
             var ticketId = await _support.CreateTicketAsync(userId, request.Type, request.Message, HttpContext.RequestAborted);
-            return Ok(new { Id = ticketId });
+            // Keep both fields for compatibility with different frontends.
+            // Some clients expect `ticketId`, others expect `id`/`Id`.
+            return Ok(new { ticketId, id = ticketId, Id = ticketId });
         }
 
         [HttpPost("{id:guid}")]

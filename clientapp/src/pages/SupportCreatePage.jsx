@@ -27,9 +27,13 @@ export default function SupportCreatePage() {
     try {
       setSending(true);
       setError('');
-      const { ticketId } = await createSupportTicket({ type, message: message.trim() });
+      const res = await createSupportTicket({ type, message: message.trim() });
+      const ticketId = res?.ticketId || res?.id || res?.Id;
       notify.success('Обращение создано');
-      nav(`/support/${ticketId}`);
+
+      // По требованиям: после создания возвращаем на главную,
+      // чтобы пользователь мог потом открыть обращения и перейти в переписку.
+      nav('/');
     } catch (err) {
       const msg = err?.message || 'Не удалось создать обращение';
       setError(msg);

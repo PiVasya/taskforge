@@ -415,7 +415,7 @@ export default function Layout({ children }) {
           {/* справа */}
           {access && (
             <Link
-              to="/support"
+              to={isAdmin ? "/admin/support" : "/support"}
               className="inline-flex items-center gap-2 hover:text-slate-700 dark:hover:text-slate-200 transition"
               title="Техподдержка"
             >
