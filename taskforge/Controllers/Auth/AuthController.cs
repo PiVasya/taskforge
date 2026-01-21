@@ -194,7 +194,8 @@ namespace taskforge.Controllers
                     ValidIssuer = _configuration["Jwt:Issuer"],
                     ValidAudience = _configuration["Jwt:Audience"],
                     IssuerSigningKey = new SymmetricSecurityKey(key),
-                    RoleClaimType = "role",
+                    // Use the standard Role claim type to align with Program.cs configuration
+                    RoleClaimType = ClaimTypes.Role,
                     NameClaimType = ClaimTypes.NameIdentifier,
                     ClockSkew = TimeSpan.FromSeconds(30)
                 };
