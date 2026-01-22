@@ -5,6 +5,7 @@ on:
     branches: [ develop ]
     paths:
       - "support-bot/**"
+      - "taskforge/**"                 # важно! бот зависит от taskforge.csproj
       - ".github/workflows/build-support-bot.yml"
   workflow_dispatch: {}
 
@@ -32,7 +33,8 @@ jobs:
       - name: Build & Push
         uses: docker/build-push-action@v6
         with:
-          context: ./support-bot
+          context: .                      # КОРЕНЬ РЕПО (иначе не найдёт taskforge)
+          file: support-bot/Dockerfile    # Dockerfile бота
           push: true
           tags: ghcr.io/${{ env.OWNER_LC }}/taskforge-support-bot:latest
           cache-from: type=gha
