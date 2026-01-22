@@ -59,8 +59,9 @@ namespace taskforge.Controllers
             var userId = Guid.Parse(userIdStr);
             var ticketId = await _support.CreateTicketAsync(userId, request.Type, request.Message, HttpContext.RequestAborted);
             // Keep both fields for compatibility with different frontends.
-            // Some clients expect `ticketId`, others expect `id`/`Id`.
-            return Ok(new { ticketId, id = ticketId, Id = ticketId });
+            // Some clients expect `ticketId`, others expect `id`. Do not include both `id` and `Id` because JSON
+            // serialization treats property names case-insensitively, which causes a collision and runtime exception.
+            return Ok(new { ticketId, id = ticketId });
         }
 
         [HttpPost("{id:guid}")]
