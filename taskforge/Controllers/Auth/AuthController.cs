@@ -91,6 +91,29 @@ namespace taskforge.Controllers
             if (user == null || !_passwordHasher.VerifyPassword(dto.Password, user.PasswordSalt, user.PasswordHash))
                 return Unauthorized("Неверный email или пароль.");
 
+            // Update last login timestamp and record a login log entry.
+            var now = DateTime.UtcNow;
+            user.LastLoginAt = now;
+
+            // Capture contextual information about the request for auditing.
+            var ip = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            string? userAgent = null;
+            if (Request?.Headers != null && Request.Headers.ContainsKey("User-Agent"))
+            {
+                userAgent = Request.Headers["User-Agent"].ToString();
+            }
+
+            var loginLog = new UserLoginLog
+            {
+                UserId = user.Id,
+                LoginAt = now,
+                IpAddress = ip,
+                UserAgent = userAgent
+            };
+            _context.UserLoginLogs.Add(loginLog);
+            // Persist changes to user and log.  Without this call the updates will not be saved.
+            await _context.SaveChangesAsync();
+
             var accessMinutes = _configuration.GetValue<int?>("Jwt:ExpireMinutes") ?? 120;
             var accessTokenLifetime = TimeSpan.FromMinutes(accessMinutes);
             var refreshTokenLifetime = TimeSpan.FromDays(7);

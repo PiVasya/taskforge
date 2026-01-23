@@ -27,6 +27,9 @@ import AdminSupportPage from './pages/AdminSupportPage';
 
 import SupportNotifier from './components/SupportNotifier';
 
+// Страница политики конфиденциальности (доступна без авторизации)
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+
 // Admin pages
 import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
@@ -48,6 +51,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        {/* Политика конфиденциальности: открытая страница */}
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Home />} />

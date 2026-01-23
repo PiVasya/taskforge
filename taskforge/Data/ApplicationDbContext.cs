@@ -25,6 +25,12 @@ namespace taskforge.Data
         public DbSet<SupportTicket> SupportTickets { get; set; } = null!;
         public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
 
+        /// <summary>
+        /// Records of individual user logins including timestamp, IP address and
+        /// user‑agent. Useful for auditing and security analytics.
+        /// </summary>
+        public DbSet<UserLoginLog> UserLoginLogs { get; set; } = null!;
+
         // ===== Test (quiz) задания =====
         public DbSet<TaskTestSettings> TaskTestSettings { get; set; } = null!;
         public DbSet<TaskTestQuestion> TaskTestQuestions { get; set; } = null!;
@@ -189,6 +195,11 @@ namespace taskforge.Data
                 .WithMany()
                 .HasForeignKey(ub => ub.BadgeId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // 🔹 UserLoginLog
+            modelBuilder.Entity<UserLoginLog>()
+                .Property(l => l.LoginAt)
+                .HasColumnType("timestamp with time zone");
 
             // 🔹 SupportTicket
             modelBuilder.Entity<SupportTicket>()

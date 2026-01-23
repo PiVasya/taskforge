@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea } from '../components/ui';
-import { getProfile, updateProfile } from '../api/profile';
+import { getProfile, updateProfile, changeEmail, changePassword } from '../api/profile';
 import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 
 /**
@@ -21,6 +21,18 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState(null);
   const [extra, setExtra] = useState(parseProfileExtra(null));
+
+  // state for email change form
+  const [emailForm, setEmailForm] = useState({ newEmail: '', password: '' });
+  const [emailError, setEmailError] = useState(null);
+  const [emailSuccess, setEmailSuccess] = useState(null);
+  const [savingEmail, setSavingEmail] = useState(false);
+
+  // state for password change form
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
+  const [passwordError, setPasswordError] = useState(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(null);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   // навигация для перехода после сохранения
   const navigate = useNavigate();
@@ -87,6 +99,56 @@ export default function ProfilePage() {
     }
   };
 
+  // Handler for email change submission
+  const handleEmailSubmit = async (e) => {
+    e.preventDefault();
+    const { newEmail, password } = emailForm;
+    if (!newEmail.trim() || !password) return;
+    setSavingEmail(true);
+    setEmailError(null);
+    setEmailSuccess(null);
+    try {
+      await changeEmail(newEmail.trim(), password);
+      // update local profile email so it reflects the change immediately
+      setProfile((p) => (p ? { ...p, email: newEmail.trim() } : p));
+      setEmailSuccess('Email обновлён. Подтвердите новый адрес, если требуется.');
+      setEmailForm({ newEmail: '', password: '' });
+    } catch (err) {
+      setEmailError(
+        err?.response?.data?.message ||
+          err?.response?.data?.title ||
+          err?.message ||
+          'Не удалось обновить email'
+      );
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
+  // Handler for password change submission
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    const { currentPassword, newPassword, confirmNewPassword } = passwordForm;
+    if (!currentPassword || !newPassword || newPassword !== confirmNewPassword) return;
+    setSavingPassword(true);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    try {
+      await changePassword(currentPassword, newPassword);
+      setPasswordSuccess('Пароль изменён.');
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
+    } catch (err) {
+      setPasswordError(
+        err?.response?.data?.message ||
+          err?.response?.data?.title ||
+          err?.message ||
+          'Не удалось изменить пароль'
+      );
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   return (
     <Layout>
       <div className="max-w-3xl mx-auto space-y-6">
@@ -103,6 +165,7 @@ export default function ProfilePage() {
           </div>
         )}
         {profile && (
+          <>
           <form onSubmit={handleSave} className="space-y-6">
             {/* Основное */}
             <Card className="p-4 space-y-4">
@@ -259,6 +322,110 @@ export default function ProfilePage() {
               </Button>
             </div>
           </form>
+
+          {/* Change Email Section */}
+          <Card className="p-4 space-y-4 mt-6">
+            <h2 className="font-semibold">Изменить email</h2>
+            {emailError && (
+              <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
+                {emailError}
+              </div>
+            )}
+            {emailSuccess && (
+              <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl">
+                {emailSuccess}
+              </div>
+            )}
+            <form onSubmit={handleEmailSubmit} className="space-y-4">
+              <div>
+                <label className="text-sm text-slate-500">Новый email</label>
+                <Input
+                  type="email"
+                  value={emailForm.newEmail}
+                  onChange={(e) =>
+                    setEmailForm((f) => ({ ...f, newEmail: e.target.value }))
+                  }
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-slate-500">Текущий пароль</label>
+                <Input
+                  type="password"
+                  value={emailForm.password}
+                  onChange={(e) =>
+                    setEmailForm((f) => ({ ...f, password: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={savingEmail || !emailForm.newEmail || !emailForm.password}>
+                  {savingEmail ? 'Сохранение…' : 'Сменить email'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+
+          {/* Change Password Section */}
+          <Card className="p-4 space-y-4 mt-6">
+            <h2 className="font-semibold">Изменить пароль</h2>
+            {passwordError && (
+              <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
+                {passwordError}
+              </div>
+            )}
+            {passwordSuccess && (
+              <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl">
+                {passwordSuccess}
+              </div>
+            )}
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div>
+                <label className="text-sm text-slate-500">Текущий пароль</label>
+                <Input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(e) =>
+                    setPasswordForm((f) => ({ ...f, currentPassword: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-sm text-slate-500">Новый пароль</label>
+                <Input
+                  type="password"
+                  value={passwordForm.newPassword}
+                  onChange={(e) =>
+                    setPasswordForm((f) => ({ ...f, newPassword: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-sm text-slate-500">Повторите новый пароль</label>
+                <Input
+                  type="password"
+                  value={passwordForm.confirmNewPassword}
+                  onChange={(e) =>
+                    setPasswordForm((f) => ({ ...f, confirmNewPassword: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  type="submit"
+                  disabled={
+                    savingPassword ||
+                    !passwordForm.currentPassword ||
+                    !passwordForm.newPassword ||
+                    passwordForm.newPassword !== passwordForm.confirmNewPassword
+                  }
+                >
+                  {savingPassword ? 'Сохранение…' : 'Сменить пароль'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+          </>
         )}
       </div>
     </Layout>

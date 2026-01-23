@@ -20,6 +20,9 @@ export default function RegisterPage() {
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
 
+    // Пользователь должен принять политику конфиденциальности перед регистрацией.
+    const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+
     const [err, setErr] = useState("");
     const [busy, setBusy] = useState(false);
 
@@ -27,7 +30,8 @@ export default function RegisterPage() {
         email.trim() &&
         password.length >= 6 &&
         password === password2 &&
-        firstName.trim();
+        firstName.trim() &&
+        acceptedPolicy;
 
     const onSubmit = async (e) => {
         e.preventDefault();
@@ -130,6 +134,26 @@ export default function RegisterPage() {
                             {busy ? "Создаю аккаунт…" : "Зарегистрироваться"}
                         </Button>
                     </form>
+
+                    {/* Политика конфиденциальности */}
+                    <div className="mt-4 text-sm text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                        <input
+                            id="policyAgreement"
+                            type="checkbox"
+                            className="mt-1"
+                            checked={acceptedPolicy}
+                            onChange={(e) => setAcceptedPolicy(e.target.checked)}
+                        />
+                        <label htmlFor="policyAgreement" className="leading-5">
+                            Я соглашаюсь с{' '}
+                            <Link
+                                to="/privacy"
+                                className="text-brand-600 hover:underline"
+                            >
+                                политикой конфиденциальности
+                            </Link>
+                        </label>
+                    </div>
 
                     <div className="mt-4 text-sm text-slate-500">
                         Уже есть аккаунт?{" "}
