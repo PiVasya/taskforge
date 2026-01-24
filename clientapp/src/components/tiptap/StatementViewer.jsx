@@ -2,7 +2,13 @@ import React, { useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
+// NOTE: We intentionally omit the Link extension here.  Including Link
+// alongside StarterKit in the viewer can cause a duplicate extension
+// error ("Duplicate extension names found: ['link']") in newer
+// versions of TipTap.  StarterKit already knows how to render
+// existing anchor tags in the document.  If link-specific behaviour
+// (such as autolinking or openOnClick) is needed in the future,
+// consider configuring Link on the editor side only.
 // We need the lowlight-based code block extension from TipTap.  The
 // `@tiptap/extension-code-block-lowlight` package exposes a custom
 // CodeBlockLowlight extension that integrates with the lowlight
@@ -48,7 +54,8 @@ export default function StatementViewer({ value }) {
             // leaving codeBlock enabled here and removing the
             // lowlight-dependent extension, we avoid the build error.
             StarterKit,
-            Link.configure({ openOnClick: true, autolink: true, linkOnPaste: true }),
+            // We deliberately avoid including the Link extension here to prevent
+            // duplicate extension errors.  See the note above.
             Image.configure({ inline: false, allowBase64: false }),
           ],
           content: doc,
