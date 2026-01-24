@@ -18,24 +18,32 @@ function safeParseJson(str) {
 export default function StatementViewer({ value }) {
   const doc = useMemo(() => safeParseJson(value), [value]);
 
-  // fallback на обычный текст для старых заданий
+  // вызываем useEditor ВСЕГДА, а если doc нет — передаём null
+  const editor = useEditor(
+    doc
+      ? {
+          editable: false,
+          extensions: [
+            StarterKit,
+            Link.configure({ openOnClick: true, autolink: true, linkOnPaste: true }),
+            Image.configure({ inline: false, allowBase64: false }),
+          ],
+          content: doc,
+          editorProps: {
+            attributes: { class: 'prose max-w-none' },
+          },
+        }
+      : null,
+  );
+
+  // если это старое plain‑text условие — показываем текст, а редактор мы уже создали (editor = null)
   if (!doc) {
     return <div className="prose max-w-none whitespace-pre-wrap break-words">{value}</div>;
   }
 
-  const editor = useEditor({
-    editable: false,
-    extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: true, autolink: true, linkOnPaste: true }),
-      Image.configure({ inline: false, allowBase64: false }),
-    ],
-    content: doc,
-    editorProps: {
-      attributes: { class: 'prose max-w-none' },
-    },
-  });
-
+  // если редактор ещё не создался (асинхронная инициализация)
   if (!editor) return <div className="text-slate-500">…</div>;
+
+  // рендерим контент TipTap
   return <EditorContent editor={editor} />;
 }
