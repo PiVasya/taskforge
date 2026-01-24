@@ -1,174 +1,387 @@
-import React, { useEffect, useMemo } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
-import Placeholder from '@tiptap/extension-placeholder';
-// Bring in the lowlight-powered code block extension.  See
-// StatementViewer.jsx for details on why we import lowlight directly.
-// We no longer use the lowlight-powered code block extension.  See
-// StatementViewer.jsx for details.  The default codeBlock from
-// StarterKit is sufficient for displaying code blocks; syntax
-// highlighting can be added via CSS if desired.
-import { uploadImage } from '../../api/files';
+import React, { useMemo } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
 
-function safeParseJson(str) {
-  if (!str) return null;
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import Highlight from "@tiptap/extension-highlight";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Subscript from "@tiptap/extension-subscript";
+import Superscript from "@tiptap/extension-superscript";
+
+import {
+  Bold,
+  Italic,
+  Underline as UnderlineIcon,
+  Strikethrough,
+  Code,
+  Quote,
+  List,
+  ListOrdered,
+  Heading2,
+  Undo,
+  Redo,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Link as LinkIcon,
+  Image as ImageIcon,
+  Highlighter,
+  Subscript as SubIcon,
+  Superscript as SupIcon,
+  RemoveFormatting,
+  Minus,
+} from "lucide-react";
+
+import { Button } from "../ui";
+import { uploadImage } from "../../api/files";
+
+import "./tiptap.css";
+
+function ToolbarButton({
+  title,
+  isActive,
+  disabled,
+  onClick,
+  children,
+}) {
+  return (
+    <Button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={
+        "h-9 w-9 p-0 rounded-lg border transition-colors " +
+        (isActive
+          ? "bg-gray-900 text-white border-gray-900"
+          : "bg-white hover:bg-gray-50 border-gray-200") +
+        (disabled ? " opacity-50 cursor-not-allowed" : "")
+      }
+    >
+      {children}
+    </Button>
+  );
+}
+
+function ToolbarDivider() {
+  return <div className="w-px h-6 bg-gray-200 mx-2" />;
+}
+
+async function uploadAndInsertImage(editor, file) {
+  // Ограничим только картинками.
+  if (!file || !file.type?.startsWith("image/")) return false;
+
   try {
-    const o = JSON.parse(str);
-    if (o && typeof o === 'object') return o;
-    return null;
+    const res = await uploadImage(file);
+    const url = res?.data?.url;
+    if (!url) return false;
+
+    editor
+      .chain()
+      .focus()
+      .setImage({ src: url })
+      .run();
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
-async function pickImageFile() {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = () => {
-      const f = input.files && input.files[0] ? input.files[0] : null;
-      resolve(f);
-    };
-    input.click();
-  });
-}
-
-export default function StatementEditor({ value, onChange }) {
-  const initialDoc = useMemo(() => {
-    const json = safeParseJson(value);
-    if (json) return json;
-    // если раньше было plain-text, создаём документ с одним параграфом
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: value }] }] };
-    }
-    return { type: 'doc', content: [{ type: 'paragraph' }] };
-  }, []); // важно: только при первом монтировании
+export function StatementEditor({ value, onChange }) {
+  const initialContent = useMemo(() => value ?? "", [value]);
 
   const editor = useEditor({
     extensions: [
-      // Use StarterKit as-is (including its built-in codeBlock).  We
-      // previously disabled the codeBlock and registered a
-      // lowlight-dependent extension, but the installed version of
-      // lowlight no longer exports `lib/common`, causing build
-      // failures.  Falling back to the default codeBlock avoids
-      // those issues.  If syntax highlighting is required in the
-      // future, consider using a different highlighting strategy.
       StarterKit,
-      Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
-      Image.configure({ inline: false, allowBase64: false }),
-      Placeholder.configure({ placeholder: 'Опишите условие задания…' }),
+      Underline,
+      Highlight,
+      TextStyle,
+      Color,
+      Subscript,
+      Superscript,
+      TextAlign.configure({
+        types: ["heading", "paragraph"],
+      }),
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        linkOnPaste: true,
+        HTMLAttributes: {
+          rel: "noopener noreferrer nofollow",
+          target: "_blank",
+          class: "tiptap-link",
+        },
+      }),
+      Image.configure({
+        inline: false,
+        allowBase64: false,
+      }),
     ],
-    content: initialDoc,
+    content: initialContent,
     editorProps: {
       attributes: {
-        class: 'min-h-[220px] prose max-w-none focus:outline-none',
+        class:
+          "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none",
       },
-      handlePaste(view, event) {
-        const items = event?.clipboardData?.items;
-        if (!items) return false;
-        for (const it of items) {
-          if (it.kind === 'file') {
-            const file = it.getAsFile();
-            if (file && file.type && file.type.startsWith('image/')) {
-              event.preventDefault();
-              (async () => {
-                const r = await uploadImage(file);
-                if (r?.url) editor?.chain().focus().setImage({ src: r.url }).run();
-              })();
-              return true;
-            }
-          }
-        }
-        return false;
+      handlePaste: (view, event) => {
+        const dt = event.clipboardData;
+        if (!dt?.files?.length) return false;
+        const file = dt.files[0];
+        // Важно: обработчик может быть async только через side-effect.
+        void uploadAndInsertImage(editor, file);
+        return true;
       },
-      handleDrop(view, event, slice, moved) {
-        const files = event?.dataTransfer?.files;
-        if (!files || files.length === 0) return false;
-        const file = files[0];
-        if (file && file.type && file.type.startsWith('image/')) {
-          event.preventDefault();
-          (async () => {
-            const r = await uploadImage(file);
-            if (r?.url) editor?.chain().focus().setImage({ src: r.url }).run();
-          })();
-          return true;
-        }
-        return false;
+      handleDrop: (view, event) => {
+        const dt = event.dataTransfer;
+        if (!dt?.files?.length) return false;
+        const file = dt.files[0];
+        void uploadAndInsertImage(editor, file);
+        return true;
       },
     },
-    onUpdate({ editor }) {
-      const json = editor.getJSON();
-      onChange?.(JSON.stringify(json));
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
     },
   });
 
-  // если value пришёл извне и это уже json-документ — обновляем редактор
-  useEffect(() => {
-    if (!editor) return;
-    const json = safeParseJson(value);
-    if (!json) return;
-    const current = editor.getJSON();
-    const curStr = JSON.stringify(current);
-    const nextStr = JSON.stringify(json);
-    if (curStr !== nextStr) {
-      editor.commands.setContent(json, false);
-    }
-  }, [editor, value]);
-
-  if (!editor) return <div className="text-slate-500">Загрузка редактора…</div>;
-
-  const btn = (active, onClick, label) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-2 py-1 rounded border text-sm ${active ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'}`}
-    >
-      {label}
-    </button>
-  );
+  if (!editor) return null;
 
   const setLink = () => {
-    const prev = editor.getAttributes('link').href || '';
-    const url = window.prompt('Ссылка (URL):', prev);
+    const previousUrl = editor.getAttributes("link").href;
+    const url = window.prompt("Введите ссылку", previousUrl || "https://");
     if (url === null) return;
-    if (url.trim() === '') {
-      editor.chain().focus().unsetLink().run();
+    if (url.trim() === "") {
+      editor.chain().focus().extendMarkRange("link").unsetLink().run();
       return;
     }
-    editor.chain().focus().setLink({ href: url.trim() }).run();
+    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   };
 
-  const insertImage = async () => {
-    const f = await pickImageFile();
-    if (!f) return;
-    const r = await uploadImage(f);
-    if (r?.url) editor.chain().focus().setImage({ src: r.url }).run();
+  const insertImageByUrl = () => {
+    const url = window.prompt("URL картинки", "https://");
+    if (!url) return;
+    editor.chain().focus().setImage({ src: url }).run();
+  };
+
+  const uploadImageByPicker = async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      await uploadAndInsertImage(editor, file);
+    };
+    input.click();
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        {btn(editor.isActive('bold'), () => editor.chain().focus().toggleBold().run(), 'Жирный')}
-        {btn(editor.isActive('italic'), () => editor.chain().focus().toggleItalic().run(), 'Курсив')}
-        {btn(editor.isActive('code'), () => editor.chain().focus().toggleCode().run(), 'Код')}
-        {btn(editor.isActive('heading', { level: 2 }), () => editor.chain().focus().toggleHeading({ level: 2 }).run(), 'H2')}
-        {btn(editor.isActive('bulletList'), () => editor.chain().focus().toggleBulletList().run(), '• Список')}
-        {btn(editor.isActive('orderedList'), () => editor.chain().focus().toggleOrderedList().run(), '1. Список')}
-        {btn(editor.isActive('blockquote'), () => editor.chain().focus().toggleBlockquote().run(), 'Цитата')}
-        {btn(editor.isActive('codeBlock'), () => editor.chain().focus().toggleCodeBlock().run(), 'Блок кода')}
-        {btn(editor.isActive('link'), setLink, 'Ссылка')}
-        {btn(false, insertImage, 'Картинка')}
+    <div className="w-full">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white/70 px-3 py-2 backdrop-blur">
+        <ToolbarButton
+          title="Отменить"
+          disabled={!editor.can().chain().focus().undo().run()}
+          onClick={() => editor.chain().focus().undo().run()}
+        >
+          <Undo size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Повторить"
+          disabled={!editor.can().chain().focus().redo().run()}
+          onClick={() => editor.chain().focus().redo().run()}
+        >
+          <Redo size={18} />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          title="Жирный"
+          isActive={editor.isActive("bold")}
+          onClick={() => editor.chain().focus().toggleBold().run()}
+        >
+          <Bold size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Курсив"
+          isActive={editor.isActive("italic")}
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+        >
+          <Italic size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Подчёркивание"
+          isActive={editor.isActive("underline")}
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+        >
+          <UnderlineIcon size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Зачёркивание"
+          isActive={editor.isActive("strike")}
+          onClick={() => editor.chain().focus().toggleStrike().run()}
+        >
+          <Strikethrough size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Код"
+          isActive={editor.isActive("code")}
+          onClick={() => editor.chain().focus().toggleCode().run()}
+        >
+          <Code size={18} />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          title="Заголовок (H2)"
+          isActive={editor.isActive("heading", { level: 2 })}
+          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        >
+          <Heading2 size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Цитата"
+          isActive={editor.isActive("blockquote")}
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+        >
+          <Quote size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Маркированный список"
+          isActive={editor.isActive("bulletList")}
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+        >
+          <List size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Нумерованный список"
+          isActive={editor.isActive("orderedList")}
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        >
+          <ListOrdered size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Блок кода"
+          isActive={editor.isActive("codeBlock")}
+          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+        >
+          <Code size={18} />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          title="Выравнивание слева"
+          isActive={editor.isActive({ textAlign: "left" })}
+          onClick={() => editor.chain().focus().setTextAlign("left").run()}
+        >
+          <AlignLeft size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="По центру"
+          isActive={editor.isActive({ textAlign: "center" })}
+          onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        >
+          <AlignCenter size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Справа"
+          isActive={editor.isActive({ textAlign: "right" })}
+          onClick={() => editor.chain().focus().setTextAlign("right").run()}
+        >
+          <AlignRight size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="По ширине"
+          isActive={editor.isActive({ textAlign: "justify" })}
+          onClick={() => editor.chain().focus().setTextAlign("justify").run()}
+        >
+          <AlignJustify size={18} />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          title="Подсветка"
+          isActive={editor.isActive("highlight")}
+          onClick={() => editor.chain().focus().toggleHighlight().run()}
+        >
+          <Highlighter size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Нижний индекс"
+          isActive={editor.isActive("subscript")}
+          onClick={() => editor.chain().focus().toggleSubscript().run()}
+        >
+          <SubIcon size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Верхний индекс"
+          isActive={editor.isActive("superscript")}
+          onClick={() => editor.chain().focus().toggleSuperscript().run()}
+        >
+          <SupIcon size={18} />
+        </ToolbarButton>
+
+        <div className="flex items-center gap-2 ml-2">
+          <input
+            type="color"
+            title="Цвет текста"
+            className="h-9 w-9 rounded-lg border border-gray-200 bg-white p-1"
+            onChange={(e) =>
+              editor.chain().focus().setColor(e.target.value).run()
+            }
+          />
+          <ToolbarButton
+            title="Очистить форматирование"
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .unsetAllMarks()
+                .clearNodes()
+                .run()
+            }
+          >
+            <RemoveFormatting size={18} />
+          </ToolbarButton>
+        </div>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          title="Ссылка"
+          isActive={editor.isActive("link")}
+          onClick={setLink}
+        >
+          <LinkIcon size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Картинка (загрузить)"
+          onClick={uploadImageByPicker}
+        >
+          <ImageIcon size={18} />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Картинка (по URL)"
+          onClick={insertImageByUrl}
+        >
+          <Minus size={18} />
+        </ToolbarButton>
+
+        <div className="ml-auto text-xs text-gray-500">
+          Можно вставлять картинки: Ctrl+V / Drag&amp;Drop
+        </div>
       </div>
 
-      <div className="rounded border p-3 bg-white">
+      <div className="mt-3">
         <EditorContent editor={editor} />
-      </div>
-
-      <div className="text-xs text-slate-500">
-        Можно вставлять картинки через Ctrl+V или перетаскиванием в редактор.
       </div>
     </div>
   );

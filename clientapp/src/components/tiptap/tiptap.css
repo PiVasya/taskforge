@@ -1,0 +1,72 @@
+/* Minimal, predictable styling for TipTap / ProseMirror content.
+   We keep it in a local css to not leak styles to the whole app. */
+
+.tiptap-content {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.tiptap-content:focus {
+  outline: none;
+}
+
+.tiptap-content p {
+  margin: 0.5rem 0;
+}
+
+.tiptap-content h1,
+.tiptap-content h2,
+.tiptap-content h3 {
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 1rem 0 0.5rem;
+}
+
+.tiptap-content h1 { font-size: 1.8rem; }
+.tiptap-content h2 { font-size: 1.5rem; }
+.tiptap-content h3 { font-size: 1.25rem; }
+
+.tiptap-content ul,
+.tiptap-content ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.tiptap-content ul { list-style: disc; }
+.tiptap-content ol { list-style: decimal; }
+
+.tiptap-content blockquote {
+  border-left: 3px solid rgba(0,0,0,0.15);
+  padding-left: 0.75rem;
+  margin: 0.75rem 0;
+  opacity: 0.9;
+}
+
+.tiptap-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95em;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+}
+
+.tiptap-content pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  padding: 0.9rem;
+  overflow-x: auto;
+}
+
+.tiptap-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin: 0.75rem 0;
+}
+
+.tiptap-content hr {
+  border: none;
+  border-top: 1px solid rgba(0,0,0,0.15);
+  margin: 1rem 0;
+}
