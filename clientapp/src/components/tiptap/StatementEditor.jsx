@@ -1,16 +1,15 @@
 import React, { useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
+import { Image } from "@tiptap/extension-image";
 
-import Underline from "@tiptap/extension-underline";
-import TextAlign from "@tiptap/extension-text-align";
-import Highlight from "@tiptap/extension-highlight";
-import TextStyle from "@tiptap/extension-text-style";
-import Color from "@tiptap/extension-color";
-import Subscript from "@tiptap/extension-subscript";
-import Superscript from "@tiptap/extension-superscript";
+import { Underline } from "@tiptap/extension-underline";
+import { TextAlign } from "@tiptap/extension-text-align";
+import { Highlight } from "@tiptap/extension-highlight";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import { Subscript } from "@tiptap/extension-subscript";
+import { Superscript } from "@tiptap/extension-superscript";
 
 import {
   Bold,
@@ -42,13 +41,21 @@ import { uploadImage } from "../../api/files";
 
 import "./tiptap.css";
 
-function ToolbarButton({
-  title,
-  isActive,
-  disabled,
-  onClick,
-  children,
-}) {
+// Важно: Link НЕ добавляем, иначе будет "Duplicate extension names ['link']"
+// StarterKit уже содержит link.
+
+function safeParseJson(str) {
+  if (!str) return null;
+  try {
+    const o = JSON.parse(str);
+    if (o && typeof o === "object" && o.type === "doc") return o;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function ToolbarButton({ title, isActive, disabled, onClick, children }) {
   return (
     <Button
       type="button"
@@ -72,8 +79,8 @@ function ToolbarDivider() {
   return <div className="w-px h-6 bg-gray-200 mx-2" />;
 }
 
-async function uploadAndInsertImage(editor, file) {
-  // Ограничим только картинками.
+async function uploadAndInsertImage(ed, file) {
+  if (!ed) return false;
   if (!file || !file.type?.startsWith("image/")) return false;
 
   try {
@@ -81,11 +88,7 @@ async function uploadAndInsertImage(editor, file) {
     const url = res?.data?.url;
     if (!url) return false;
 
-    editor
-      .chain()
-      .focus()
-      .setImage({ src: url })
-      .run();
+    ed.chain().focus().setImage({ src: url }).run();
     return true;
   } catch {
     return false;
@@ -93,7 +96,11 @@ async function uploadAndInsertImage(editor, file) {
 }
 
 export function StatementEditor({ value, onChange }) {
-  const initialContent = useMemo(() => value ?? "", [value]);
+  // если value уже JSON-doc — подставляем его, иначе считаем plain text
+  const initialContent = useMemo(() => {
+    const doc = safeParseJson(value);
+    return doc ?? (value ?? "");
+  }, [value]);
 
   const editor = useEditor({
     extensions: [
@@ -106,16 +113,6 @@ export function StatementEditor({ value, onChange }) {
       Superscript,
       TextAlign.configure({
         types: ["heading", "paragraph"],
-      }),
-      Link.configure({
-        openOnClick: false,
-        autolink: true,
-        linkOnPaste: true,
-        HTMLAttributes: {
-          rel: "noopener noreferrer nofollow",
-          target: "_blank",
-          class: "tiptap-link",
-        },
       }),
       Image.configure({
         inline: false,
@@ -132,7 +129,6 @@ export function StatementEditor({ value, onChange }) {
         const dt = event.clipboardData;
         if (!dt?.files?.length) return false;
         const file = dt.files[0];
-        // Важно: обработчик может быть async только через side-effect.
         void uploadAndInsertImage(editor, file);
         return true;
       },
@@ -145,7 +141,9 @@ export function StatementEditor({ value, onChange }) {
       },
     },
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      // Сохраняем JSON, чтобы Viewer корректно отображал
+      const json = editor.getJSON();
+      onChange(JSON.stringify(json));
     },
   });
 
@@ -155,10 +153,12 @@ export function StatementEditor({ value, onChange }) {
     const previousUrl = editor.getAttributes("link").href;
     const url = window.prompt("Введите ссылку", previousUrl || "https://");
     if (url === null) return;
+
     if (url.trim() === "") {
       editor.chain().focus().extendMarkRange("link").unsetLink().run();
       return;
     }
+
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   };
 
@@ -334,19 +334,12 @@ export function StatementEditor({ value, onChange }) {
             type="color"
             title="Цвет текста"
             className="h-9 w-9 rounded-lg border border-gray-200 bg-white p-1"
-            onChange={(e) =>
-              editor.chain().focus().setColor(e.target.value).run()
-            }
+            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
           />
           <ToolbarButton
             title="Очистить форматирование"
             onClick={() =>
-              editor
-                .chain()
-                .focus()
-                .unsetAllMarks()
-                .clearNodes()
-                .run()
+              editor.chain().focus().unsetAllMarks().clearNodes().run()
             }
           >
             <RemoveFormatting size={18} />
@@ -362,16 +355,10 @@ export function StatementEditor({ value, onChange }) {
         >
           <LinkIcon size={18} />
         </ToolbarButton>
-        <ToolbarButton
-          title="Картинка (загрузить)"
-          onClick={uploadImageByPicker}
-        >
+        <ToolbarButton title="Картинка (загрузить)" onClick={uploadImageByPicker}>
           <ImageIcon size={18} />
         </ToolbarButton>
-        <ToolbarButton
-          title="Картинка (по URL)"
-          onClick={insertImageByUrl}
-        >
+        <ToolbarButton title="Картинка (по URL)" onClick={insertImageByUrl}>
           <Minus size={18} />
         </ToolbarButton>
 
