@@ -7,6 +7,7 @@ import { Card, Button, Select, Textarea, Badge } from '../components/ui';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
 import TaskTestSolve from './TaskTestSolve';
+import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
@@ -290,7 +291,7 @@ export default function AssignmentSolvePage() {
                   ))}
               </div>
             )}
-            <div className="prose max-w-none whitespace-pre-wrap break-words">{a.description}</div>
+            <StatementViewer value={a.description} />
           </Card>
 
           <Card>

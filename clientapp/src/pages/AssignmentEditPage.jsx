@@ -12,6 +12,7 @@ import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
 import { Card, Button, Field, Input, Textarea, Select } from "../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle } from "lucide-react";
 import TaskTestEditor from "./TaskTestEditor";
+import StatementEditor from "../components/tiptap/StatementEditor";
 
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
@@ -255,12 +256,8 @@ export default function AssignmentEditPage() {
               </Field>
 
               <div className="sm:col-span-2">
-                <Field label="Описание (markdown/html)">
-                  <Textarea
-                    rows={10}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
+                <Field label="Условие задания (редактор)">
+                  <StatementEditor value={description} onChange={setDescription} />
                 </Field>
               </div>
             </div>

@@ -13,6 +13,9 @@ using taskforge.Services.Interfaces;
 using taskforge.Services.Remote;
 using taskforge.Services.Support;
 using taskforge.Hubs;
+using taskforge.Services.Files;
+using Amazon.S3;
+using Amazon;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,6 +46,29 @@ builder.Services.AddScoped<ISupportService, SupportService>();
 
 // регистрация сервиса бейджей
 builder.Services.AddScoped<IBadgeService, BadgeService>();
+
+// S3 (MinIO) хранилище для медиа (картинки в условиях, вложения и т.п.)
+builder.Services.Configure<S3StorageOptions>(builder.Configuration.GetSection("S3"));
+builder.Services.AddSingleton<IAmazonS3>(sp =>
+{
+    var opt = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<S3StorageOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opt.Endpoint) || string.IsNullOrWhiteSpace(opt.AccessKey) || string.IsNullOrWhiteSpace(opt.SecretKey) || string.IsNullOrWhiteSpace(opt.Bucket))
+    {
+        // В dev окружении можно оставить пустым, но тогда эндпоинты файлов не будут работать.
+        // Бросаем исключение только при фактическом вызове в сервисе.
+    }
+
+    var cfg = new AmazonS3Config
+    {
+        ServiceURL = opt.Endpoint,
+        ForcePathStyle = opt.UsePathStyle,
+        // Region обязателен для некоторых SDK; для MinIO обычно us-east-1
+        RegionEndpoint = RegionEndpoint.GetBySystemName(string.IsNullOrWhiteSpace(opt.Region) ? "us-east-1" : opt.Region),
+    };
+
+    return new AmazonS3Client(opt.AccessKey, opt.SecretKey, cfg);
+});
+builder.Services.AddScoped<IFileStorageService, S3FileStorageService>();
 
 // компиляторы/раннеры
 builder.Services.AddHttpClient();

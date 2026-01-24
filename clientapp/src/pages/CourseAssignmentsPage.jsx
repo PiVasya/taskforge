@@ -17,6 +17,29 @@ import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
 
+function previewAssignmentDescription(value) {
+  if (!value) return '';
+  const s = String(value);
+  try {
+    const json = JSON.parse(s);
+    if (!json || typeof json !== 'object' || json.type !== 'doc') return s;
+
+    const out = [];
+    const walk = (n) => {
+      if (!n) return;
+      if (typeof n === 'string') return;
+      if (n.type === 'text' && typeof n.text === 'string') out.push(n.text);
+      if (Array.isArray(n.content)) n.content.forEach(walk);
+    };
+    walk(json);
+
+    const text = out.join(' ').replace(/\s+/g, ' ').trim();
+    return text || '...';
+  } catch {
+    return s;
+  }
+}
+
 const SORT_OPTIONS = [
   { v: "default", label: "Стандартный" },
   { v: "title_asc", label: "A → Я" },
@@ -439,7 +462,7 @@ export default function CourseAssignmentsPage() {
 
                 {a.description && (
                   <p className="text-sm text-slate-500 line-clamp-2 mt-1">
-                    {a.description}
+                    {previewAssignmentDescription(a.description)}
                   </p>
                 )}
                 {a.tags && (

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button, Field, Input, Textarea, Select, Badge } from '../components/ui';
 import { startTaskTest, submitTaskTest } from '../api/taskTests';
 import { useNotify } from '../components/notify/NotifyProvider';
+import StatementViewer from '../components/tiptap/StatementViewer';
 
 function fmtSeconds(total) {
   if (total == null) return '';
@@ -132,9 +133,9 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
         <div>
           <h1 className="text-2xl font-semibold">{assignment?.title || 'Тест'}</h1>
           {assignment?.description && (
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap">
-              {assignment.description}
-            </p>
+            <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              <StatementViewer value={assignment.description} />
+            </div>
           )}
         </div>
         <div className="text-right">
