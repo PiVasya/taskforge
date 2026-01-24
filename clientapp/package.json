@@ -10,6 +10,7 @@
     "eject": "react-scripts eject"
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.7.4",
     "@microsoft/signalr": "^10.0.0",
     "@monaco-editor/react": "^4.7.0",
     "@tiptap/extension-image": "^3.17.0",
