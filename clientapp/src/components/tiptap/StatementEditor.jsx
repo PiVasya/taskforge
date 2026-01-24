@@ -1,6 +1,8 @@
 import React, { useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+
+import { Link } from "@tiptap/extension-link";
 import { Image } from "@tiptap/extension-image";
 
 import { Underline } from "@tiptap/extension-underline";
@@ -41,20 +43,6 @@ import { uploadImage } from "../../api/files";
 
 import "./tiptap.css";
 
-// Важно: Link НЕ добавляем, иначе будет "Duplicate extension names ['link']"
-// StarterKit уже содержит link.
-
-function safeParseJson(str) {
-  if (!str) return null;
-  try {
-    const o = JSON.parse(str);
-    if (o && typeof o === "object" && o.type === "doc") return o;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function ToolbarButton({ title, isActive, disabled, onClick, children }) {
   return (
     <Button
@@ -79,71 +67,101 @@ function ToolbarDivider() {
   return <div className="w-px h-6 bg-gray-200 mx-2" />;
 }
 
-async function uploadAndInsertImage(ed, file) {
-  if (!ed) return false;
-  if (!file || !file.type?.startsWith("image/")) return false;
+async function uploadAndInsertImageWithEditor(editor, file) {
+  if (!editor || !file || !file.type?.startsWith("image/")) return false;
 
   try {
     const res = await uploadImage(file);
     const url = res?.data?.url;
     if (!url) return false;
 
-    ed.chain().focus().setImage({ src: url }).run();
+    editor.chain().focus().setImage({ src: url }).run();
     return true;
   } catch {
     return false;
   }
 }
 
+/**
+ * Вариант для событий paste/drop, где у нас может не быть замыкания на `editor`.
+ * Берём editor из view (TipTap/ProseMirror).
+ */
+async function uploadAndInsertImageFromView(view, file) {
+  const editor = view?.editor || view?._props?.editor; // на всякий случай
+  // чаще всего в TipTap доступен: view?.editor (в зависимости от версии)
+  if (editor) return uploadAndInsertImageWithEditor(editor, file);
+
+  // fallback: пробуем получить editor из view.state / view.dispatch — без chain API это неудобно,
+  // поэтому если editor не найден — просто выходим.
+  return false;
+}
+
 export function StatementEditor({ value, onChange }) {
-  // если value уже JSON-doc — подставляем его, иначе считаем plain text
-  const initialContent = useMemo(() => {
-    const doc = safeParseJson(value);
-    return doc ?? (value ?? "");
-  }, [value]);
+  const initialContent = useMemo(() => value ?? "", [value]);
 
   const editor = useEditor({
     extensions: [
       StarterKit,
+
       Underline,
       Highlight,
       TextStyle,
       Color,
       Subscript,
       Superscript,
+
       TextAlign.configure({
         types: ["heading", "paragraph"],
       }),
+
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        linkOnPaste: true,
+        HTMLAttributes: {
+          rel: "noopener noreferrer nofollow",
+          target: "_blank",
+          class: "tiptap-link",
+        },
+      }),
+
       Image.configure({
         inline: false,
         allowBase64: false,
       }),
     ],
+
     content: initialContent,
+
     editorProps: {
       attributes: {
         class:
           "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none",
       },
+
       handlePaste: (view, event) => {
         const dt = event.clipboardData;
         if (!dt?.files?.length) return false;
         const file = dt.files[0];
-        void uploadAndInsertImage(editor, file);
+
+        // async side-effect
+        void uploadAndInsertImageFromView(view, file);
         return true;
       },
+
       handleDrop: (view, event) => {
         const dt = event.dataTransfer;
         if (!dt?.files?.length) return false;
         const file = dt.files[0];
-        void uploadAndInsertImage(editor, file);
+
+        // async side-effect
+        void uploadAndInsertImageFromView(view, file);
         return true;
       },
     },
+
     onUpdate: ({ editor }) => {
-      // Сохраняем JSON, чтобы Viewer корректно отображал
-      const json = editor.getJSON();
-      onChange(JSON.stringify(json));
+      onChange(editor.getHTML());
     },
   });
 
@@ -175,7 +193,7 @@ export function StatementEditor({ value, onChange }) {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      await uploadAndInsertImage(editor, file);
+      await uploadAndInsertImageWithEditor(editor, file);
     };
     input.click();
   };
@@ -338,9 +356,7 @@ export function StatementEditor({ value, onChange }) {
           />
           <ToolbarButton
             title="Очистить форматирование"
-            onClick={() =>
-              editor.chain().focus().unsetAllMarks().clearNodes().run()
-            }
+            onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}
           >
             <RemoveFormatting size={18} />
           </ToolbarButton>
@@ -373,3 +389,5 @@ export function StatementEditor({ value, onChange }) {
     </div>
   );
 }
+
+export default StatementEditor;
