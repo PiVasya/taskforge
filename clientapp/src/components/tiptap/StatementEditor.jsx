@@ -4,8 +4,12 @@ import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { lowlight } from 'lowlight/lib/common';
+// Bring in the lowlight-powered code block extension.  See
+// StatementViewer.jsx for details on why we import lowlight directly.
+// We no longer use the lowlight-powered code block extension.  See
+// StatementViewer.jsx for details.  The default codeBlock from
+// StarterKit is sufficient for displaying code blocks; syntax
+// highlighting can be added via CSS if desired.
 import { uploadImage } from '../../api/files';
 
 function safeParseJson(str) {
@@ -45,9 +49,14 @@ export default function StatementEditor({ value, onChange }) {
 
   const editor = useEditor({
     extensions: [
-      // отключаем встроенный codeBlock у StarterKit, потому что используем CodeBlockLowlight
-      StarterKit.configure({ codeBlock: false }),
-      CodeBlockLowlight.configure({ lowlight }),
+      // Use StarterKit as-is (including its built-in codeBlock).  We
+      // previously disabled the codeBlock and registered a
+      // lowlight-dependent extension, but the installed version of
+      // lowlight no longer exports `lib/common`, causing build
+      // failures.  Falling back to the default codeBlock avoids
+      // those issues.  If syntax highlighting is required in the
+      // future, consider using a different highlighting strategy.
+      StarterKit,
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       Image.configure({ inline: false, allowBase64: false }),
       Placeholder.configure({ placeholder: 'Опишите условие задания…' }),
@@ -55,7 +64,7 @@ export default function StatementEditor({ value, onChange }) {
     content: initialDoc,
     editorProps: {
       attributes: {
-        class: 'min-h-[220px] tiptap tiptap-editor focus:outline-none',
+        class: 'min-h-[220px] prose max-w-none focus:outline-none',
       },
       handlePaste(view, event) {
         const items = event?.clipboardData?.items;
@@ -115,11 +124,7 @@ export default function StatementEditor({ value, onChange }) {
     <button
       type="button"
       onClick={onClick}
-      className={`px-2 py-1 rounded-md border text-sm transition ${
-        active
-          ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
-          : 'bg-[rgb(var(--card))] border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800'
-      }`}
+      className={`px-2 py-1 rounded border text-sm ${active ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'}`}
     >
       {label}
     </button>
@@ -145,7 +150,7 @@ export default function StatementEditor({ value, onChange }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-[rgb(var(--card))] shadow-sm">
+      <div className="flex flex-wrap gap-2">
         {btn(editor.isActive('bold'), () => editor.chain().focus().toggleBold().run(), 'Жирный')}
         {btn(editor.isActive('italic'), () => editor.chain().focus().toggleItalic().run(), 'Курсив')}
         {btn(editor.isActive('code'), () => editor.chain().focus().toggleCode().run(), 'Код')}
@@ -158,7 +163,7 @@ export default function StatementEditor({ value, onChange }) {
         {btn(false, insertImage, 'Картинка')}
       </div>
 
-      <div className="tiptap rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-[rgb(var(--card))] shadow-sm">
+      <div className="rounded border p-3 bg-white">
         <EditorContent editor={editor} />
       </div>
 
