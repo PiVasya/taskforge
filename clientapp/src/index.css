@@ -298,3 +298,65 @@ html.pink .bg-gradient-to-b {
 .select:focus { @apply outline-none ring-2 ring-brand-500; }
 .dark .select { @apply text-slate-100 border-slate-700; }
 html.pink .select { @apply text-slate-800 border-pink-300; }
+
+/* =====================================================================
+   TipTap (условия задач)
+   В проекте нет @tailwindcss/typography, поэтому стилизуем сами.
+   ===================================================================== */
+
+/* общий контейнер (viewer/editor) */
+.tiptap {
+  @apply text-slate-800 dark:text-slate-100;
+}
+
+/* ProseMirror корень */
+.tiptap .ProseMirror {
+  @apply outline-none;
+}
+
+/* Базовая типографика */
+.tiptap .ProseMirror > * + * { margin-top: 0.75rem; }
+.tiptap .ProseMirror h1 { @apply text-2xl font-semibold tracking-tight; }
+.tiptap .ProseMirror h2 { @apply text-xl font-semibold tracking-tight; }
+.tiptap .ProseMirror h3 { @apply text-lg font-semibold tracking-tight; }
+.tiptap .ProseMirror p { @apply leading-relaxed; }
+.tiptap .ProseMirror ul { @apply list-disc pl-6; }
+.tiptap .ProseMirror ol { @apply list-decimal pl-6; }
+.tiptap .ProseMirror a { @apply underline underline-offset-2; }
+.tiptap .ProseMirror blockquote { @apply border-l-4 border-slate-300 dark:border-slate-700 pl-4 text-slate-700 dark:text-slate-200; }
+
+/* Inline code */
+.tiptap .ProseMirror code {
+  @apply px-1.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700;
+}
+
+/* Code block */
+.tiptap .ProseMirror pre {
+  @apply p-3 rounded-xl overflow-x-auto border border-slate-200 dark:border-slate-700;
+  background: rgb(var(--muted));
+}
+.tiptap .ProseMirror pre code {
+  @apply bg-transparent border-0 p-0;
+}
+
+/* lowlight/hljs классы */
+.tiptap .ProseMirror pre code.hljs { display: block; }
+
+/* Images */
+.tiptap .ProseMirror img {
+  @apply max-w-full rounded-xl border border-slate-200/60 dark:border-slate-700/60;
+}
+
+/* Placeholder */
+.tiptap .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgb(100 116 139 / 1); /* slate-500 */
+  pointer-events: none;
+  height: 0;
+}
+
+/* Выделение */
+.tiptap .ProseMirror ::selection {
+  background: color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}

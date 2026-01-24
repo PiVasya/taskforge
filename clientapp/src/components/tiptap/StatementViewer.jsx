@@ -3,6 +3,8 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { lowlight } from 'lowlight/lib/common';
 
 function safeParseJson(str) {
   if (!str) return null;
@@ -24,19 +26,19 @@ export default function StatementViewer({ value }) {
       ? {
           editable: false,
           extensions: [
-            StarterKit,
+            StarterKit.configure({ codeBlock: false }),
             CodeBlockLowlight.configure({ lowlight }),
             Link.configure({ openOnClick: true, autolink: true, linkOnPaste: true }),
             Image.configure({ inline: false, allowBase64: false }),
           ],
           content: doc,
-          editorProps: { attributes: { class: 'prose max-w-none' } },
+          editorProps: { attributes: { class: 'tiptap tiptap-viewer' } },
         }
       : null,
   );
 
   if (!doc) {
-    return <div className="prose max-w-none whitespace-pre-wrap break-words">{value}</div>;
+    return <div className="tiptap tiptap-viewer whitespace-pre-wrap break-words">{value}</div>;
   }
   if (!editor) return <div className="text-slate-500">…</div>;
   return <EditorContent editor={editor} />;
