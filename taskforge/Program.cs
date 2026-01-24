@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -62,9 +62,11 @@ builder.Services.AddSingleton<IAmazonS3>(sp =>
     {
         ServiceURL = opt.Endpoint,
         ForcePathStyle = opt.UsePathStyle,
-        // Region обязателен для некоторых SDK; для MinIO обычно us-east-1
-        RegionEndpoint = RegionEndpoint.GetBySystemName(string.IsNullOrWhiteSpace(opt.Region) ? "us-east-1" : opt.Region),
+
+        // ВАЖНО: для MinIO/LocalStack/любого кастомного S3 endpoint
+        AuthenticationRegion = opt.Region,
     };
+
 
     return new AmazonS3Client(opt.AccessKey, opt.SecretKey, cfg);
 });
