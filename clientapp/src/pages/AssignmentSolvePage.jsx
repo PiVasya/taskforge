@@ -13,7 +13,7 @@ import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
-import { compareImageTest } from '../api/imageTests';
+import { compareImageTest, compareImageTestCode } from '../api/imageTests';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -304,7 +304,7 @@ export default function AssignmentSolvePage() {
       setImgError("");
       setImgCompare(null);
       try {
-        const r = await compareImageTestCode(assignmentId, lang, code, true);
+        const r = await compareImageTestCode(assignmentId, language, code, true);
         setImgCompare(r);
         if (r?.passed) notify.success("Совпадение достаточно высокое");
         else notify.error("Совпадение ниже порога");

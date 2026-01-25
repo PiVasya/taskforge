@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.Entities;
 using taskforge.Helpers;
@@ -61,7 +62,7 @@ public sealed class ImageTestsController : ControllerBase
     {
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
-        if (a.Type != TaskAssignmentType.ImageTest) return BadRequest("Assignment is not image-test");
+        if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
 
         var userId = _currentUser.GetUserId();
@@ -81,19 +82,25 @@ public sealed class ImageTestsController : ControllerBase
         var submittedKey = await _files.UploadBytesAsync(submittedBytes, "image/png", $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
 
         // 3) Compare with reference
-        await using var refStream = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        var (refStreamRaw, _) = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        await using var refStream = refStreamRaw;
         await using var subStream = new MemoryStream(submittedBytes);
 
-        var similarity = await _similarity.ComputeSimilarityAsync(refStream, subStream, ct);
-        var passed = similarity >= a.ImageTestSimilarityThreshold;
+        var similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
+
+        // Threshold can be stored either as 0..1 or 0..100 (legacy). Normalize to percent.
+        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 70.0;
+        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
+        var passed = similarityPercent >= thresholdPercent;
 
         var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
         return Ok(new ImageTestCompareResponse(
             Ok: true,
-            SimilarityPercent: Math.Round(similarity * 100.0, 1),
-            ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
+            SimilarityPercent: Math.Round(similarityPercent, 1),
+            ThresholdPercent: Math.Round(thresholdPercent, 1),
             Passed: passed,
             ReferenceKey: a.ImageTestReferenceKey,
             SubmittedKey: submittedKey,
@@ -114,7 +121,7 @@ public sealed class ImageTestsController : ControllerBase
     {
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
-        if (a.Type != TaskAssignmentType.ImageTest) return BadRequest("Assignment is not image-test");
+        if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
@@ -134,6 +141,10 @@ public sealed class ImageTestsController : ControllerBase
         string stderr = "";
         string? runnerErr = null;
 
+        // normalize threshold (support old configs: 0..1 as fraction)
+        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
+        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
         if (req.Debug && lang == "python")
         {
             debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
@@ -148,8 +159,7 @@ public sealed class ImageTestsController : ControllerBase
                 return Ok(new ImageTestCompareResponse(
                     Ok: false,
                     SimilarityPercent: 0,
-                    ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
-                    Passed: false,
+                    ThresholdPercent: Math.Round(thresholdPercent, 1),
                     ReferenceKey: a.ImageTestReferenceKey,
                     SubmittedKey: null,
                     ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
@@ -170,8 +180,7 @@ public sealed class ImageTestsController : ControllerBase
             return Ok(new ImageTestCompareResponse(
                 Ok: false,
                 SimilarityPercent: 0,
-                ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
-                Passed: false,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
                 ReferenceKey: a.ImageTestReferenceKey,
                 SubmittedKey: null,
                 ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
@@ -185,20 +194,21 @@ public sealed class ImageTestsController : ControllerBase
         var submittedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
 
         // Compare with reference
-        await using var refStream = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        var (refStream, _) = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        await using var refS = refStream;
         await using var subStream = new MemoryStream(png);
 
-        var similarity = await _similarity.ComputeSimilarityAsync(refStream, subStream, ct);
-        var passed = similarity >= a.ImageTestSimilarityThreshold;
+        var similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
+        var passed = similarityPercent >= thresholdPercent;
 
         sw.Stop();
         _log.LogInformation("[ImageTest] compare-code done: assignment={AssignmentId} user={UserId} lang={Lang} similarity={Similarity:0.000} passed={Passed} ms={Ms}",
-            assignmentId, userId, lang, similarity, passed, sw.ElapsedMilliseconds);
+            assignmentId, userId, lang, similarityPercent, passed, sw.ElapsedMilliseconds);
 
         var response = new ImageTestCompareResponse(
             Ok: true,
-            SimilarityPercent: Math.Round(similarity * 100.0, 1),
-            ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
+            SimilarityPercent: Math.Round(similarityPercent, 1),
+            ThresholdPercent: Math.Round(thresholdPercent, 1),
             Passed: passed,
             ReferenceKey: a.ImageTestReferenceKey,
             SubmittedKey: submittedKey,
