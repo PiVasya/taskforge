@@ -393,7 +393,7 @@ export default function AssignmentSolvePage() {
                 </Button>
 
                 {imgCompare && (
-                  <div className="rounded-xl border p-3">
+	                  <div className="rounded-xl border p-3">
                     <div className="text-sm mb-2">
                       Совпадение: <b>{Math.round((imgCompare.percent ?? 0) * 10) / 10}%</b>
                       {' '}
@@ -411,26 +411,25 @@ export default function AssignmentSolvePage() {
                         <img className="h-40 w-full object-contain rounded-lg border" src={imgCompare.actualUrl} alt="Ваша" />
                       )}
                     </div>
+
+	                    {(imgCompare.stdout || imgCompare.stderr) && (
+	                      <details className="mt-2">
+	                        <summary className="cursor-pointer text-sm text-slate-600">Логи выполнения</summary>
+	                        {imgCompare.stdout && (
+	                          <div className="mt-2">
+	                            <div className="text-xs text-slate-500 mb-1">stdout</div>
+	                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2">{imgCompare.stdout}</pre>
+	                          </div>
+	                        )}
+	                        {imgCompare.stderr && (
+	                          <div className="mt-2">
+	                            <div className="text-xs text-slate-500 mb-1">stderr</div>
+	                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2 text-red-600">{imgCompare.stderr}</pre>
+	                          </div>
+	                        )}
+	                      </details>
+	                    )}
                   </div>
-
-                    {(imgCompare.stdout || imgCompare.stderr) && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-sm text-slate-600">Логи выполнения</summary>
-                        {imgCompare.stdout && (
-                          <div className="mt-2">
-                            <div className="text-xs text-slate-500 mb-1">stdout</div>
-                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2">{imgCompare.stdout}</pre>
-                          </div>
-                        )}
-                        {imgCompare.stderr && (
-                          <div className="mt-2">
-                            <div className="text-xs text-slate-500 mb-1">stderr</div>
-                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2 text-red-600">{imgCompare.stderr}</pre>
-                          </div>
-                        )}
-                      </details>
-                    )}
-
                 )}
 
                 {imgError && <div className="text-sm text-red-600">{imgError}</div>}

@@ -7,7 +7,7 @@ using taskforge.Helpers;
 using taskforge.Services.Files;
 using taskforge.Services.ImageRunners;
 using taskforge.Services.ImageTests;
-using taskforge.Services.Users;
+using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers.Assignments;
 
