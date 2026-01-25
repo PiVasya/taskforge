@@ -30,7 +30,7 @@ public sealed class FilesController : ControllerBase
 
         try
         {
-            var (key, _) = await _store.UploadImageAsync(file, ct);
+            var key = await _store.UploadImageAsync(file, "editor-images", ct);
             var url = $"/api/files/{Uri.EscapeDataString(key)}";
             return Ok(new { key, url });
         }

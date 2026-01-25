@@ -88,6 +88,8 @@ export default function AssignmentSolvePage() {
   const [imgBusy, setImgBusy] = useState(false);
   const [imgError, setImgError] = useState('');
   const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
+  const [imgMode, setImgMode] = useState("code"); // code | upload
+  const [imgIsRunning, setImgIsRunning] = useState(false);
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -293,6 +295,28 @@ export default function AssignmentSolvePage() {
       };
       input.click();
     };
+    const onRunCode = async () => {
+      if (!code?.trim()) {
+        notify.error("Вставь код, который рисует картинку");
+        return;
+      }
+      setImgIsRunning(true);
+      setImgError("");
+      setImgCompare(null);
+      try {
+        const r = await compareImageTestCode(assignmentId, lang, code, true);
+        setImgCompare(r);
+        if (r?.passed) notify.success("Совпадение достаточно высокое");
+        else notify.error("Совпадение ниже порога");
+      } catch (e) {
+        const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || "Не удалось запустить код";
+        setImgError(msg);
+        notify.error(msg);
+      } finally {
+        setImgIsRunning(false);
+      }
+    };
+
 
     return (
       <Layout>
@@ -326,6 +350,26 @@ export default function AssignmentSolvePage() {
                 </div>
               )}
               <StatementViewer value={a.description} />
+
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold">Код для рисунка (Python)</div>
+                  <button
+                    className="text-xs px-3 py-1 rounded border hover:bg-slate-50"
+                    onClick={onRunCode}
+                    disabled={imgIsRunning}
+                    title="Запускает код в sandbox-контейнере, сохраняет PNG и сравнивает с эталоном">
+                    {imgIsRunning ? 'Запуск...' : 'Запустить и сравнить'}
+                  </button>
+                </div>
+                <CodeEditor
+                  language="python"
+                  value={code}
+                  onChange={(v) => setCode(v || '')}
+                  height={320}
+                />
+              </div>
+
             </Card>
 
             <Card>
@@ -368,6 +412,25 @@ export default function AssignmentSolvePage() {
                       )}
                     </div>
                   </div>
+
+                    {(imgCompare.stdout || imgCompare.stderr) && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-sm text-slate-600">Логи выполнения</summary>
+                        {imgCompare.stdout && (
+                          <div className="mt-2">
+                            <div className="text-xs text-slate-500 mb-1">stdout</div>
+                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2">{imgCompare.stdout}</pre>
+                          </div>
+                        )}
+                        {imgCompare.stderr && (
+                          <div className="mt-2">
+                            <div className="text-xs text-slate-500 mb-1">stderr</div>
+                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2 text-red-600">{imgCompare.stderr}</pre>
+                          </div>
+                        )}
+                      </details>
+                    )}
+
                 )}
 
                 {imgError && <div className="text-sm text-red-600">{imgError}</div>}

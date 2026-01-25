@@ -10,7 +10,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     python3-full python3-venv python3-pip python3-tk \
-    xvfb ghostscript \
+	    xvfb xauth ghostscript \
     fonts-dejavu \
   && rm -rf /var/lib/apt/lists/*
 

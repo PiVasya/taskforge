@@ -1,119 +1,213 @@
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using System.ComponentModel.DataAnnotations;
-using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.Entities;
+using taskforge.Helpers;
 using taskforge.Services.Files;
-using taskforge.Services.Interfaces;
+using taskforge.Services.ImageRunners;
 using taskforge.Services.ImageTests;
+using taskforge.Services.Users;
 
 namespace taskforge.Controllers.Assignments;
 
 [ApiController]
-[Route("api/assignments/{assignmentId:guid}/image-test")]
+[Route("api/assignments/{assignmentId:guid}/image-tests")]
 [Authorize]
 public sealed class ImageTestsController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
     private readonly IFileStorageService _files;
-    private readonly ICurrentUserService _current;
-    private readonly IImageSimilarityService _sim;
+    private readonly ImageSimilarityService _similarity;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IImageRunnerClient _runner;
+    private readonly ILogger<ImageTestsController> _log;
 
-    public ImageTestsController(ApplicationDbContext db, IFileStorageService files, ICurrentUserService current, IImageSimilarityService sim)
+    public ImageTestsController(
+        ApplicationDbContext db,
+        IFileStorageService files,
+        ImageSimilarityService similarity,
+        ICurrentUserService currentUser,
+        IImageRunnerClient runner,
+        ILogger<ImageTestsController> log)
     {
         _db = db;
         _files = files;
-        _current = current;
-        _sim = sim;
+        _similarity = similarity;
+        _currentUser = currentUser;
+        _runner = runner;
+        _log = log;
     }
 
-    [HttpPost("reference")]
-    [RequestSizeLimit(10 * 1024 * 1024)]
-    public async Task<IActionResult> UploadReference([FromRoute] Guid assignmentId, [FromForm] IFormFile file, [FromForm] double? threshold, CancellationToken ct)
+    public sealed record CompareUploadedImageRequest(string SubmittedImageBase64);
+
+    public sealed record CompareCodeRequest(string Language, string Code, bool Debug = true);
+
+    public sealed record ImageTestCompareResponse(
+        bool Ok,
+        double SimilarityPercent,
+        double ThresholdPercent,
+        bool Passed,
+        string ReferenceKey,
+        string? SubmittedKey,
+        string ReferenceUrl,
+        string? SubmittedUrl,
+        string Stdout,
+        string Stderr,
+        string? RunnerError);
+
+    [HttpPost("compare-upload")]
+    public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest req, CancellationToken ct)
     {
-        if (file == null) return BadRequest(new { message = "Файл не передан" });
+        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        if (a is null) return NotFound();
+        if (a.Type != TaskAssignmentType.ImageTest) return BadRequest("Assignment is not image-test");
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
 
-        var a = await _db.TaskAssignments
-            .Include(x => x.Course)
-            .FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-        if (a == null) return NotFound(new { message = "Задание не найдено" });
+        var userId = _currentUser.GetUserId();
 
-        var userId = _current.GetUserId();
-        var isOwner = a.Course.OwnerId == userId || await _db.CourseOwners.AnyAsync(o => o.CourseId == a.CourseId && o.UserId == userId, ct);
-        if (!isOwner) return Forbid();
-
-        a.Type = TaskAssignmentTypes.Normalize(a.Type);
-        if (a.Type != TaskAssignmentTypes.ImageTest)
-            return BadRequest(new { message = "Задание не является image-test" });
-
-        var p = Math.Clamp(threshold ?? a.ImageTestSimilarityThreshold ?? 90, 0, 100);
-
+        // 1) Decode submitted image from base64 (dataURL or plain base64)
+        byte[] submittedBytes;
         try
         {
-            var prefix = $"image-tests/reference/{assignmentId:N}";
-            var (key, _) = await _files.UploadImageAsync(file, prefix, ct);
-
-            a.ImageTestReferenceKey = key;
-            a.ImageTestSimilarityThreshold = p;
-            a.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
-
-            return Ok(new
-            {
-                key,
-                threshold = p,
-                url = $"/api/private-files/{Uri.EscapeDataString(key)}"
-            });
+            submittedBytes = Base64Helper.DecodeDataUrlOrBase64(req.SubmittedImageBase64);
         }
-        catch (ValidationException ex)
+        catch
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest("Invalid base64 image");
         }
+
+        // 2) Upload submitted image
+        var submittedKey = await _files.UploadBytesAsync(submittedBytes, "image/png", $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
+
+        // 3) Compare with reference
+        await using var refStream = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        await using var subStream = new MemoryStream(submittedBytes);
+
+        var similarity = await _similarity.ComputeSimilarityAsync(refStream, subStream, ct);
+        var passed = similarity >= a.ImageTestSimilarityThreshold;
+
+        var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
+        var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
+
+        return Ok(new ImageTestCompareResponse(
+            Ok: true,
+            SimilarityPercent: Math.Round(similarity * 100.0, 1),
+            ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
+            Passed: passed,
+            ReferenceKey: a.ImageTestReferenceKey,
+            SubmittedKey: submittedKey,
+            ReferenceUrl: referenceUrl,
+            SubmittedUrl: submittedUrl,
+            Stdout: "",
+            Stderr: "",
+            RunnerError: null));
     }
 
-    [HttpPost("compare")]
-    [RequestSizeLimit(10 * 1024 * 1024)]
-    public async Task<IActionResult> Compare([FromRoute] Guid assignmentId, [FromForm] IFormFile file, CancellationToken ct)
+    /// <summary>
+    /// Главная штука: пользователь присылает код (Python/Pascal),
+    /// backend рендерит картинку внутри контейнера и сравнивает с эталоном.
+    /// Пользователь не загружает изображения вручную.
+    /// </summary>
+    [HttpPost("compare-code")]
+    public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
     {
-        if (file == null) return BadRequest(new { message = "Файл не передан" });
+        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        if (a is null) return NotFound();
+        if (a.Type != TaskAssignmentType.ImageTest) return BadRequest("Assignment is not image-test");
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
+        if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
-        var a = await _db.TaskAssignments
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-        if (a == null) return NotFound(new { message = "Задание не найдено" });
-        if (TaskAssignmentTypes.Normalize(a.Type) != TaskAssignmentTypes.ImageTest)
-            return BadRequest(new { message = "Задание не является image-test" });
-        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey))
-            return BadRequest(new { message = "Эталон не загружен" });
+        var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
+        if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
 
-        var userId = _current.GetUserId();
-        var threshold = Math.Clamp(a.ImageTestSimilarityThreshold ?? 90, 0, 100);
+        var userId = _currentUser.GetUserId();
+        var codeLen = Encoding.UTF8.GetByteCount(req.Code);
 
-        try
+        _log.LogInformation("[ImageTest] compare-code start: assignment={AssignmentId} user={UserId} lang={Lang} bytes={Bytes}", assignmentId, userId, lang, codeLen);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        ImageRunnerDebugResult? debug = null;
+        byte[]? png;
+        string stdout = "";
+        string stderr = "";
+        string? runnerErr = null;
+
+        if (req.Debug && lang == "python")
         {
-            var prefix = $"image-tests/attempts/{assignmentId:N}/{userId:N}";
-            var (actualKey, _) = await _files.UploadImageAsync(file, prefix, ct);
+            debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
+            stdout = debug.Stdout;
+            stderr = debug.Stderr;
+            runnerErr = debug.Error;
+            png = debug.PngBytes;
 
-            var (expectedStream, _) = await _files.GetAsync(a.ImageTestReferenceKey!, ct);
-            await using var es = expectedStream;
-            await using var act = file.OpenReadStream();
-
-            var percent = await _sim.GetSimilarityPercentAsync(es, act, ct);
-            var passed = percent >= threshold;
-
-            return Ok(new
+            if (!debug.Ok)
             {
-                percent,
-                passed,
-                expectedUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}",
-                actualUrl = $"/api/private-files/{Uri.EscapeDataString(actualKey)}"
-            });
+                _log.LogWarning("[ImageTest] runner debug failed: assignment={AssignmentId} user={UserId} err={Err}", assignmentId, userId, runnerErr);
+                return Ok(new ImageTestCompareResponse(
+                    Ok: false,
+                    SimilarityPercent: 0,
+                    ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
+                    Passed: false,
+                    ReferenceKey: a.ImageTestReferenceKey,
+                    SubmittedKey: null,
+                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    SubmittedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: runnerErr));
+            }
         }
-        catch (ValidationException ex)
+        else
         {
-            return BadRequest(new { message = ex.Message });
+            png = await _runner.RenderAsync(lang, req.Code, ct);
         }
+
+        if (png is null || png.Length == 0)
+        {
+            _log.LogWarning("[ImageTest] runner returned empty image: assignment={AssignmentId} user={UserId} lang={Lang}", assignmentId, userId, lang);
+            return Ok(new ImageTestCompareResponse(
+                Ok: false,
+                SimilarityPercent: 0,
+                ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
+                Passed: false,
+                ReferenceKey: a.ImageTestReferenceKey,
+                SubmittedKey: null,
+                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                SubmittedUrl: null,
+                Stdout: stdout,
+                Stderr: stderr,
+                RunnerError: runnerErr ?? "Empty image returned"));
+        }
+
+        // Upload submitted image
+        var submittedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
+
+        // Compare with reference
+        await using var refStream = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        await using var subStream = new MemoryStream(png);
+
+        var similarity = await _similarity.ComputeSimilarityAsync(refStream, subStream, ct);
+        var passed = similarity >= a.ImageTestSimilarityThreshold;
+
+        sw.Stop();
+        _log.LogInformation("[ImageTest] compare-code done: assignment={AssignmentId} user={UserId} lang={Lang} similarity={Similarity:0.000} passed={Passed} ms={Ms}",
+            assignmentId, userId, lang, similarity, passed, sw.ElapsedMilliseconds);
+
+        var response = new ImageTestCompareResponse(
+            Ok: true,
+            SimilarityPercent: Math.Round(similarity * 100.0, 1),
+            ThresholdPercent: Math.Round(a.ImageTestSimilarityThreshold * 100.0, 1),
+            Passed: passed,
+            ReferenceKey: a.ImageTestReferenceKey,
+            SubmittedKey: submittedKey,
+            ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+            SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
+            Stdout: stdout,
+            Stderr: stderr,
+            RunnerError: runnerErr);
+
+        return Ok(response);
     }
 }

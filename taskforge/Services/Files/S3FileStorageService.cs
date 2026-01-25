@@ -1,116 +1,94 @@
 using Amazon.S3;
 using Amazon.S3.Model;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
-using System.ComponentModel.DataAnnotations;
 
 namespace taskforge.Services.Files;
 
-/// <summary>
-/// Хранилище файлов через S3 API (MinIO).
-/// Сейчас используется для картинок в условиях задач (TipTap editor).
-/// </summary>
 public sealed class S3FileStorageService : IFileStorageService
 {
     private readonly IAmazonS3 _s3;
-    private readonly S3StorageOptions _opt;
-    private bool _bucketEnsured = false;
+    private readonly IConfiguration _cfg;
+    private readonly ILogger<S3FileStorageService> _log;
 
-    public S3FileStorageService(IAmazonS3 s3, IOptions<S3StorageOptions> opt)
+    public S3FileStorageService(IAmazonS3 s3, IConfiguration cfg, ILogger<S3FileStorageService> log)
     {
         _s3 = s3;
-        _opt = opt.Value;
+        _cfg = cfg;
+        _log = log;
     }
 
-    public Task<(string key, string contentType)> UploadImageAsync(IFormFile file, CancellationToken ct = default)
+    private string Bucket => _cfg["S3:Bucket"] ?? _cfg["S3__Bucket"] ?? "";
+
+    private static string NormalizeFolder(string folder)
     {
-        return UploadImageAsync(file, "task-content", ct);
+        folder = (folder ?? string.Empty).Trim();
+        folder = folder.Trim('/');
+        return folder;
     }
 
-    public async Task<(string key, string contentType)> UploadImageAsync(IFormFile file, string prefix, CancellationToken ct = default)
+    private static string MakeKey(string folder, string extension)
     {
-        if (file == null) throw new ArgumentNullException(nameof(file));
-        prefix = (prefix ?? string.Empty).Trim().Trim('/');
-        if (string.IsNullOrWhiteSpace(prefix))
-            throw new ValidationException("Prefix пустой.");
+        folder = NormalizeFolder(folder);
+        extension = string.IsNullOrWhiteSpace(extension) ? ".bin" : extension.Trim();
+        if (!extension.StartsWith('.')) extension = "." + extension;
 
-        var ctType = (file.ContentType ?? string.Empty).ToLowerInvariant();
-        var allowed = new HashSet<string>
-        {
-            "image/png",
-            "image/jpeg",
-            "image/jpg",
-            "image/webp",
-            "image/gif"
-        };
+        var file = Guid.NewGuid().ToString("N") + extension;
+        return string.IsNullOrEmpty(folder) ? file : $"{folder}/{file}";
+    }
 
-        if (!allowed.Contains(ctType))
-            throw new ValidationException("Разрешены только изображения: png, jpg, webp, gif.");
-
-        // лимит на размер (можно вынести в конфиг)
-        const long maxBytes = 10 * 1024 * 1024;
-        if (file.Length <= 0) throw new ValidationException("Файл пустой.");
-        if (file.Length > maxBytes) throw new ValidationException("Файл слишком большой (макс. 10MB).");
+    public async Task<string> UploadImageAsync(IFormFile file, string folder, CancellationToken ct = default)
+    {
+        if (file is null || file.Length <= 0)
+            throw new ArgumentException("Empty file", nameof(file));
 
         var ext = Path.GetExtension(file.FileName);
-        if (string.IsNullOrWhiteSpace(ext))
-        {
-            ext = ctType switch
-            {
-                "image/png" => ".png",
-                "image/jpeg" => ".jpg",
-                "image/jpg" => ".jpg",
-                "image/webp" => ".webp",
-                "image/gif" => ".gif",
-                _ => ".bin"
-            };
-        }
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".png";
 
-        var now = DateTime.UtcNow;
-        var key = $"{prefix}/{now:yyyy}/{now:MM}/{Guid.NewGuid():N}{ext.ToLowerInvariant()}";
-
-        await EnsureBucketAsync(ct);
-
+        var key = MakeKey(folder, ext);
         await using var stream = file.OpenReadStream();
 
         var req = new PutObjectRequest
         {
-            BucketName = _opt.Bucket,
+            BucketName = Bucket,
             Key = key,
             InputStream = stream,
-            ContentType = ctType,
-            AutoCloseStream = false
+            ContentType = file.ContentType,
         };
 
+        _log.LogInformation("[S3] PUT {Key} ({ContentType}, {Size} bytes)", key, file.ContentType, file.Length);
         await _s3.PutObjectAsync(req, ct);
-        return (key, ctType);
+        return key;
     }
 
-    private async Task EnsureBucketAsync(CancellationToken ct)
+    public async Task<string> UploadBytesAsync(byte[] bytes, string contentType, string folder, string fileExtension = ".bin", CancellationToken ct = default)
     {
-        if (_bucketEnsured) return;
-        if (string.IsNullOrWhiteSpace(_opt.Bucket)) throw new ValidationException("S3 bucket is not configured");
+        if (bytes is null || bytes.Length == 0)
+            throw new ArgumentException("Empty bytes", nameof(bytes));
 
-        var exists = await Amazon.S3.Util.AmazonS3Util.DoesS3BucketExistV2Async(_s3, _opt.Bucket);
-        if (!exists)
+        var key = MakeKey(folder, fileExtension);
+        await using var ms = new MemoryStream(bytes);
+
+        var req = new PutObjectRequest
         {
-            await _s3.PutBucketAsync(new PutBucketRequest { BucketName = _opt.Bucket }, ct);
-        }
+            BucketName = Bucket,
+            Key = key,
+            InputStream = ms,
+            ContentType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
+        };
 
-        _bucketEnsured = true;
+        _log.LogInformation("[S3] PUT {Key} ({ContentType}, {Size} bytes)", key, req.ContentType, bytes.Length);
+        await _s3.PutObjectAsync(req, ct);
+        return key;
     }
 
-    public async Task<(Stream stream, string contentType)> GetAsync(string key, CancellationToken ct = default)
+    public async Task<(Stream Stream, string ContentType)> GetAsync(string key, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(key)) throw new ValidationException("Ключ файла пустой.");
-
-        var resp = await _s3.GetObjectAsync(new GetObjectRequest
+        var req = new GetObjectRequest
         {
-            BucketName = _opt.Bucket,
-            Key = key
-        }, ct);
+            BucketName = Bucket,
+            Key = key,
+        };
 
-        // Важно: не закрывать stream до отдачи в ответ.
-        return (resp.ResponseStream, resp.Headers.ContentType ?? "application/octet-stream");
+        var resp = await _s3.GetObjectAsync(req, ct);
+        return (resp.ResponseStream, resp.Headers.ContentType);
     }
 }

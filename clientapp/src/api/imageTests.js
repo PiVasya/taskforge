@@ -22,3 +22,13 @@ export async function compareImageTest(assignmentId, file) {
   });
   return res.data;
 }
+
+// Запустить код внутри image-runner, получить PNG и сравнить с эталоном.
+export async function compareImageTestCode(assignmentId, language, code, debug = true) {
+  const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare-code`, {
+    language,
+    code,
+    debug,
+  });
+  return res.data;
+}
