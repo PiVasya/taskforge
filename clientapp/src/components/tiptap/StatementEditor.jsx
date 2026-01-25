@@ -2,16 +2,16 @@ import React, { useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
-import { Link } from "@tiptap/extension-link";
-import { Image } from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
 
-import { Underline } from "@tiptap/extension-underline";
-import { TextAlign } from "@tiptap/extension-text-align";
-import { Highlight } from "@tiptap/extension-highlight";
-import { TextStyle } from "@tiptap/extension-text-style";
-import { Color } from "@tiptap/extension-color";
-import { Subscript } from "@tiptap/extension-subscript";
-import { Superscript } from "@tiptap/extension-superscript";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import Highlight from "@tiptap/extension-highlight";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Subscript from "@tiptap/extension-subscript";
+import Superscript from "@tiptap/extension-superscript";
 
 import {
   Bold,
@@ -42,6 +42,17 @@ import { Button } from "../ui";
 import { uploadImage } from "../../api/files";
 
 import "./tiptap.css";
+
+function safeParseJson(str) {
+  if (!str) return null;
+  try {
+    const o = JSON.parse(str);
+    if (o && typeof o === "object" && o.type === "doc") return o;
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 function ToolbarButton({ title, isActive, disabled, onClick, children }) {
   return (
@@ -96,12 +107,18 @@ async function uploadAndInsertImageFromView(view, file) {
   return false;
 }
 
-export function StatementEditor({ value, onChange }) {
-  const initialContent = useMemo(() => value ?? "", [value]);
+function StatementEditor({ value, onChange }) {
+  const initialContent = useMemo(() => {
+    const doc = safeParseJson(value);
+    return doc ?? (value ?? "");
+  }, [value]);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Link добавляем отдельно (нужно custom конфиг), иначе будет duplicate extension names
+        link: false,
+      }),
 
       Underline,
       Highlight,
@@ -161,7 +178,7 @@ export function StatementEditor({ value, onChange }) {
     },
 
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      onChange(JSON.stringify(editor.getJSON()));
     },
   });
 

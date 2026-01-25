@@ -1,7 +1,15 @@
 import React, { useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Image } from "@tiptap/extension-image";
+import Image from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import Highlight from "@tiptap/extension-highlight";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Subscript from "@tiptap/extension-subscript";
+import Superscript from "@tiptap/extension-superscript";
 
 function safeParseJson(str) {
   if (!str) return null;
@@ -25,7 +33,25 @@ function PlainTextViewer({ value }) {
 function TiptapDocViewer({ doc }) {
   const editor = useEditor({
     editable: false,
-    extensions: [StarterKit, Image.configure({ inline: false, allowBase64: false })],
+    extensions: [
+      StarterKit.configure({ link: false }),
+      Underline,
+      Highlight,
+      TextStyle,
+      Color,
+      Subscript,
+      Superscript,
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+      Link.configure({
+        openOnClick: true,
+        HTMLAttributes: {
+          rel: "noopener noreferrer nofollow",
+          target: "_blank",
+          class: "tiptap-link",
+        },
+      }),
+      Image.configure({ inline: false, allowBase64: false }),
+    ],
     content: doc,
     editorProps: { attributes: { class: "prose max-w-none" } },
   });

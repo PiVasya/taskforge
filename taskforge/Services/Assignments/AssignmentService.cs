@@ -4,6 +4,7 @@ using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
 using taskforge.Services.Interfaces;
 using taskforge.Constants;
+using System.ComponentModel.DataAnnotations;
 
 namespace taskforge.Services
 {
@@ -28,7 +29,18 @@ namespace taskforge.Services
                 .Select(a => (int?)a.Sort)
                 .MaxAsync() ?? -1;
                 
-            var entity = new TaskAssignment
+	            var normalizedType = TaskAssignmentTypes.Normalize(req.Type);
+	            if (!TaskAssignmentTypes.IsSupported(normalizedType))
+	                throw new ValidationException($"Unsupported assignment type: '{req.Type}'");
+
+	            // For code-test we require at least 1 test case.
+	            if (normalizedType == TaskAssignmentTypes.CodeTest)
+	            {
+	                if (req.TestCases == null || req.TestCases.Count == 0)
+	                    throw new ValidationException("code-test assignment must have at least one test case");
+	            }
+
+	            var entity = new TaskAssignment
             {
                 Id = Guid.NewGuid(),
                 CourseId = courseId,
@@ -36,13 +48,14 @@ namespace taskforge.Services
                 Description = req.Description,
                 Difficulty = req.Difficulty,
                 Tags = req.Tags,
-                Type = TaskAssignmentTypes.Normalize(req.Type),
+	                Type = normalizedType,
                 Sort = maxSort + 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
-            if (req.TestCases != null)
+	            // Test cases are stored only for code-test.
+	            if (entity.Type == TaskAssignmentTypes.CodeTest && req.TestCases != null)
             {
                 foreach (var tc in req.TestCases)
                 {
@@ -138,9 +151,17 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can edit this assignment.");
 
-            task.Title = (request.Title ?? string.Empty).Trim();
-            task.Description = request.Description;
-            task.Type = TaskAssignmentTypes.Normalize(request.Type);
+	            task.Title = (request.Title ?? string.Empty).Trim();
+	            task.Description = request.Description;
+	            var normalizedType = TaskAssignmentTypes.Normalize(request.Type);
+	            if (!TaskAssignmentTypes.IsSupported(normalizedType))
+	                throw new ValidationException($"Unsupported assignment type: '{request.Type}'");
+
+	            var isCodeTest = normalizedType == TaskAssignmentTypes.CodeTest;
+	            if (isCodeTest && (request.TestCases == null || request.TestCases.Count == 0))
+	                throw new ValidationException("For 'code-test' assignments you must provide at least 1 test case.");
+
+	            task.Type = normalizedType;
             task.Tags = request.Tags?.Trim();
             task.Difficulty = request.Difficulty;
             task.UpdatedAt = DateTime.UtcNow;
@@ -149,7 +170,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 .Where(tc => tc.TaskAssignmentId == task.Id)
                 .ExecuteDeleteAsync();
 
-            if (request.TestCases != null && request.TestCases.Count > 0)
+	            if (isCodeTest && request.TestCases != null && request.TestCases.Count > 0)
             {
                 var newCases = request.TestCases.Select(tc => new TaskTestCase
                 {

@@ -64,6 +64,9 @@ export default function CourseAssignmentsPage() {
   // (чтобы можно было ввести число и применить по blur/Enter)
   const [posDraft, setPosDraft] = useState({});
 
+  // тип создаваемого задания (по умолчанию — code-test)
+  const [createType, setCreateType] = useState("code-test");
+
   const sortMode = params.get("sort") || "default";
 
   useEffect(() => {
@@ -261,12 +264,18 @@ export default function CourseAssignmentsPage() {
       return;
     }
     try {
-      const payload = {
+	      const type = createType;
+	      const payload = {
         title: "Новое задание",
         description: "Опишите постановку задачи…",
-        type: "code-test",
+	        type,
         difficulty: 1,
-        testCases: [{ input: "2 4", expectedOutput: "6", isHidden: false }],
+	        // Для code-test всегда кладём 1 тест по умолчанию, чтобы редактор не был пустым.
+	        // Для остальных типов тест-кейсы не требуются.
+	        testCases:
+	          type === "code-test"
+	            ? [{ input: "2 4", expectedOutput: "6", isHidden: false }]
+	            : [],
         tags: "ОАИП",
         sort: items.length,
       };
@@ -312,9 +321,22 @@ export default function CourseAssignmentsPage() {
 
           <IfEditor>
             {courseCanEdit ? (
-              <Button onClick={handleCreate}>
-              <Plus size={16} /> Создать
-              </Button>
+	              <>
+	                <select
+	                  value={createType}
+	                  onChange={(e) => setCreateType(e.target.value)}
+	                  className="border rounded-lg px-3 py-2 bg-white text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
+	                  title="Тип создаваемого задания"
+	                >
+	                  <option value="code-test">code-test</option>
+	                  <option value="test">test</option>
+	                  <option value="image-test">image-test</option>
+	                </select>
+
+	                <Button onClick={handleCreate}>
+	                  <Plus size={16} /> Создать
+	                </Button>
+	              </>
             ) : null}
           </IfEditor>
         </div>

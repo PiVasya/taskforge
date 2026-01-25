@@ -24,7 +24,9 @@ namespace taskforge.Data.Models.DTO
         public int? Sort { get; set; }
 
         // Публичные и скрытые тесты
-        [MinLength(1)]
+        // Валидация зависит от Type:
+        // - "code-test": требуется хотя бы 1 тест
+        // - "test" / "image-test": может быть пусто
         public IList<CreateTestCaseDto> TestCases { get; set; } = new List<CreateTestCaseDto>();
     }
 
