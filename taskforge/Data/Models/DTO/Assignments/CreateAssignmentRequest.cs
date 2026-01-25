@@ -10,7 +10,10 @@ namespace taskforge.Data.Models.DTO
         [Required]
         public string Description { get; set; } = string.Empty; // markdown/html
 
-        // "code-test" — текущий поддерживаемый тип
+        // Поддерживаемые типы:
+        // "code-test" — проверка тестами (классическая задача)
+        // "test" — тест/опрос
+        // "image-test" — проверка по картинке (подключим позже)
         [Required, MaxLength(30)]
         public string Type { get; set; } = "code-test";
 

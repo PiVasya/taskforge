@@ -3,6 +3,7 @@ using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
 using taskforge.Services.Interfaces;
+using taskforge.Constants;
 
 namespace taskforge.Services
 {
@@ -35,7 +36,7 @@ namespace taskforge.Services
                 Description = req.Description,
                 Difficulty = req.Difficulty,
                 Tags = req.Tags,
-                Type = (req.Type ?? "code-test").Trim(),
+                Type = TaskAssignmentTypes.Normalize(req.Type),
                 Sort = maxSort + 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -139,7 +140,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 
             task.Title = (request.Title ?? string.Empty).Trim();
             task.Description = request.Description;
-            task.Type = (request.Type ?? "code-test").Trim();
+            task.Type = TaskAssignmentTypes.Normalize(request.Type);
             task.Tags = request.Tags?.Trim();
             task.Difficulty = request.Difficulty;
             task.UpdatedAt = DateTime.UtcNow;

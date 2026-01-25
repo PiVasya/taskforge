@@ -236,6 +236,7 @@ export default function AssignmentEditPage() {
               <Field label="Тип">
                 <Select value={type} onChange={(e) => setType(e.target.value)}>
                   <option value="code-test">code-test</option>
+                  <option value="image-test">image-test</option>
                   <option value="test">test</option>
                 </Select>
               </Field>
@@ -318,6 +319,14 @@ export default function AssignmentEditPage() {
               </div>
             </Card>
           )}
+
+          {type === "image-test" && (
+            <Card>
+              <h2 className="text-xl font-semibold mb-2">Image-test</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-300">Этот тип задания будет проверяться по картинке. Настройки (эталонная картинка, допуски и т.п.) подключим на следующем шаге.</p>
+            </Card>
+          )}
+
 
           {type === 'test' && (
             <TaskTestEditor
