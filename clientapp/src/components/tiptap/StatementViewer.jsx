@@ -11,6 +11,8 @@ import { Color } from "@tiptap/extension-color";
 import { Subscript } from "@tiptap/extension-subscript";
 import { Superscript } from "@tiptap/extension-superscript";
 
+import "./tiptap.css";
+
 function safeParseJson(str) {
   if (!str) return null;
   try {
@@ -53,7 +55,11 @@ function TiptapDocViewer({ doc }) {
       Image.configure({ inline: false, allowBase64: false }),
     ],
     content: doc,
-    editorProps: { attributes: { class: "prose max-w-none" } },
+    editorProps: {
+      attributes: {
+        class: "tiptap-content tiptap-content-readonly prose max-w-none",
+      },
+    },
   });
 
   if (!editor) return <div className="text-slate-500">…</div>;

@@ -66,4 +66,30 @@ public sealed class FilesController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Приватная раздача файла по ключу. Доступ только по JWT.
+    /// Используется для image-test (эталон и результаты), чтобы ключи нельзя было
+    /// просто открывать без авторизации.
+    /// </summary>
+    [HttpGet("private-files/{*key}")]
+    public async Task<IActionResult> GetPrivate([FromRoute] string key, CancellationToken ct)
+    {
+        try
+        {
+            var decoded = Uri.UnescapeDataString(key ?? string.Empty);
+            var (stream, contentType) = await _store.GetAsync(decoded, ct);
+
+            Response.Headers.CacheControl = "private,max-age=0,no-store";
+            return File(stream, contentType);
+        }
+        catch (Amazon.S3.AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return NotFound(new { message = "Файл не найден" });
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

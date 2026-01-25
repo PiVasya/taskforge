@@ -30,7 +30,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 
-export default function Layout({ children }) {
+export default function Layout({ children, fullWidth = false }) {
   // темы: light | dark | pink
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const isDark = theme === 'dark';
@@ -397,7 +397,13 @@ export default function Layout({ children }) {
         </div>
       </header>
 
-      <main className="container-app py-8">
+      <main
+        className={
+          fullWidth
+            ? "w-full max-w-none px-4 sm:px-6 lg:px-8 py-8"
+            : "container-app py-8"
+        }
+      >
         <motion.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}

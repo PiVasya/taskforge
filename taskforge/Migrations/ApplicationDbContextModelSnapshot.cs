@@ -221,6 +221,12 @@ namespace taskforge.Migrations
                     b.Property<int>("Difficulty")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ImageTestReferenceKey")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("ImageTestSimilarityThreshold")
+                        .HasColumnType("double precision");
+
                     b.Property<int>("Sort")
                         .HasColumnType("integer");
 

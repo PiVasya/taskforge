@@ -71,6 +71,7 @@ builder.Services.AddSingleton<IAmazonS3>(sp =>
     return new AmazonS3Client(opt.AccessKey, opt.SecretKey, cfg);
 });
 builder.Services.AddScoped<IFileStorageService, S3FileStorageService>();
+builder.Services.AddScoped<taskforge.Services.ImageTests.IImageSimilarityService, taskforge.Services.ImageTests.ImageSimilarityService>();
 
 // компиляторы/раннеры
 builder.Services.AddHttpClient();

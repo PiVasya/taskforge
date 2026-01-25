@@ -54,6 +54,11 @@ namespace taskforge.Services
                 UpdatedAt = DateTime.UtcNow
             };
 
+            if (entity.Type == TaskAssignmentTypes.ImageTest)
+            {
+                entity.ImageTestSimilarityThreshold = 90;
+            }
+
 	            // Test cases are stored only for code-test.
 	            if (entity.Type == TaskAssignmentTypes.CodeTest && req.TestCases != null)
             {
@@ -132,6 +137,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             IsHidden = tc.IsHidden
         }).ToList(),
         Sort = a.Sort,
+        ImageTestReferenceKey = a.ImageTestReferenceKey,
+        ImageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
         CanEdit = a.Course.OwnerId == currentUserId
                   || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
     };
@@ -162,6 +169,17 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 	                throw new ValidationException("For 'code-test' assignments you must provide at least 1 test case.");
 
 	            task.Type = normalizedType;
+            // image-test поля
+            if (task.Type == TaskAssignmentTypes.ImageTest)
+            {
+                task.ImageTestReferenceKey = request.ImageTestReferenceKey;
+                task.ImageTestSimilarityThreshold = request.ImageTestSimilarityThreshold;
+            }
+            else
+            {
+                task.ImageTestReferenceKey = null;
+                task.ImageTestSimilarityThreshold = null;
+            }
             task.Tags = request.Tags?.Trim();
             task.Difficulty = request.Difficulty;
             task.UpdatedAt = DateTime.UtcNow;

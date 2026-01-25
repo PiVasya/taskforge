@@ -50,6 +50,26 @@
   padding: 0.15rem 0.35rem;
 }
 
+/* внутри блока кода не нужно двойное серое выделение */
+.tiptap-content pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.tiptap-link {
+  color: rgb(var(--brand));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* highlight extension */
+.tiptap-content mark {
+  background: rgba(255, 235, 59, 0.45);
+  border-radius: 6px;
+  padding: 0 0.2rem;
+}
+
 .tiptap-content pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   background: rgba(0, 0, 0, 0.06);

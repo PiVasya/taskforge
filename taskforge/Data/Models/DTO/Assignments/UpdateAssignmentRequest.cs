@@ -25,6 +25,10 @@ namespace taskforge.Data.Models.DTO
 
         public int? Sort { get; set; }
 
+        // image-test
+        public string? ImageTestReferenceKey { get; set; }
+        public double? ImageTestSimilarityThreshold { get; set; }
+
         public IList<UpdateTestCaseDto> TestCases { get; set; } = new List<UpdateTestCaseDto>();
     }
 

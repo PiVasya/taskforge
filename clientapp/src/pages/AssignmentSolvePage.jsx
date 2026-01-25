@@ -13,6 +13,7 @@ import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
+import { compareImageTest } from '../api/imageTests';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -82,6 +83,11 @@ export default function AssignmentSolvePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
+
+  // image-test state
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgError, setImgError] = useState('');
+  const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -252,6 +258,123 @@ export default function AssignmentSolvePage() {
         </div>
 
         <TaskTestSolve assignment={a} assignmentId={a.id} />
+      </Layout>
+    );
+  }
+
+  // ===== Новый тип задания: image-test =====
+  if (a.type === 'image-test') {
+    const expectedUrl = a.imageTestReferenceKey
+      ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
+      : null;
+
+    const onCompare = async () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        setImgBusy(true);
+        setImgError('');
+        setImgCompare(null);
+        try {
+          const r = await compareImageTest(assignmentId, file);
+          setImgCompare(r);
+          if (r?.passed) notify.success('Совпадение достаточно высокое');
+          else notify.error('Совпадение ниже порога');
+        } catch (e) {
+          const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Не удалось сравнить картинку';
+          setImgError(msg);
+          notify.error(msg);
+        } finally {
+          setImgBusy(false);
+        }
+      };
+      input.click();
+    };
+
+    return (
+      <Layout>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
+              <ArrowLeft size={16} /> к заданиям курса
+            </Link>
+          </div>
+          <div className="flex items-center gap-2">
+            <IfEditor>
+              <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
+                Редактировать
+              </Link>
+            </IfEditor>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-5">
+            <Card>
+              <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+              {a.tags && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {a.tags
+                    .split(',')
+                    .filter(Boolean)
+                    .map((t) => (
+                      <Badge key={t.trim()}>{t.trim()}</Badge>
+                    ))}
+                </div>
+              )}
+              <StatementViewer value={a.description} />
+            </Card>
+
+            <Card>
+              <div className="font-medium mb-3">Эталонная картинка</div>
+              {!expectedUrl ? (
+                <div className="text-slate-500">Эталон не загружен. Сообщи преподавателю / редактору курса.</div>
+              ) : (
+                <img className="max-h-[520px] w-full object-contain rounded-xl border" src={expectedUrl} alt="Эталон" />
+              )}
+            </Card>
+          </div>
+
+          <div className="space-y-4">
+            <Card>
+              <div className="grid gap-3">
+                <div className="text-sm text-slate-600">
+                  Порог: <b>{typeof a.imageTestSimilarityThreshold === 'number' ? a.imageTestSimilarityThreshold : 90}%</b>
+                </div>
+                <Button className="w-full" onClick={onCompare} disabled={imgBusy || !expectedUrl}>
+                  {imgBusy ? 'Сравниваю…' : 'Загрузить картинку и сравнить'}
+                </Button>
+
+                {imgCompare && (
+                  <div className="rounded-xl border p-3">
+                    <div className="text-sm mb-2">
+                      Совпадение: <b>{Math.round((imgCompare.percent ?? 0) * 10) / 10}%</b>
+                      {' '}
+                      {imgCompare.passed ? (
+                        <span className="text-emerald-600">(OK)</span>
+                      ) : (
+                        <span className="text-red-600">(FAIL)</span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {imgCompare.expectedUrl && (
+                        <img className="h-40 w-full object-contain rounded-lg border" src={imgCompare.expectedUrl} alt="Эталон" />
+                      )}
+                      {imgCompare.actualUrl && (
+                        <img className="h-40 w-full object-contain rounded-lg border" src={imgCompare.actualUrl} alt="Ваша" />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {imgError && <div className="text-sm text-red-600">{imgError}</div>}
+              </div>
+            </Card>
+          </div>
+        </div>
       </Layout>
     );
   }

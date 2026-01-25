@@ -13,6 +13,7 @@ import { Card, Button, Field, Input, Textarea, Select } from "../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle } from "lucide-react";
 import TaskTestEditor from "./TaskTestEditor";
 import StatementEditor from "../components/tiptap/StatementEditor";
+import { uploadImageTestReference } from "../api/imageTests";
 
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
@@ -40,6 +41,10 @@ export default function AssignmentEditPage() {
   });
   const [testQuestions, setTestQuestions] = useState([]);
 
+  // image-test
+  const [imageTestReferenceKey, setImageTestReferenceKey] = useState("");
+  const [imageTestThreshold, setImageTestThreshold] = useState(90);
+
   const [courseId, setCourseId] = useState(null);
 
   useEffect(() => {
@@ -64,6 +69,12 @@ export default function AssignmentEditPage() {
         setType(a.type || "code-test");
         setTags(a.tags || "");
         setDifficulty(Number(a.difficulty || 1));
+        setImageTestReferenceKey(a.imageTestReferenceKey || "");
+        setImageTestThreshold(
+          typeof a.imageTestSimilarityThreshold === "number"
+            ? a.imageTestSimilarityThreshold
+            : 90
+        );
         setTestCases(
           Array.isArray(a.testCases) && a.testCases.length
             ? a.testCases.map((t) => ({
@@ -138,6 +149,12 @@ export default function AssignmentEditPage() {
                 isHidden: !!t.isHidden,
               }))
             : [],
+
+        // image-test
+        imageTestReferenceKey:
+          (type || "").trim() === "image-test" ? imageTestReferenceKey || null : null,
+        imageTestSimilarityThreshold:
+          (type || "").trim() === "image-test" ? Number(imageTestThreshold) || 90 : null,
       };
 
       await updateAssignment(assignmentId, payload);
@@ -205,14 +222,14 @@ export default function AssignmentEditPage() {
 
   if (loading) {
     return (
-      <Layout>
+      <Layout fullWidth>
         <div className="text-slate-500">Загрузка…</div>
       </Layout>
     );
   }
 
   return (
-    <Layout>
+    <Layout fullWidth>
       {courseId && (
         <Link
           to={`/course/${courseId}`}
@@ -224,8 +241,23 @@ export default function AssignmentEditPage() {
 
       {err && <div className="text-red-500 font-medium mb-4">{err}</div>}
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-5">
+      {/* верхняя панель */}
+      <div className="sticky top-[64px] z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-b border-slate-200/60 dark:border-slate-800/60 mb-5">
+        <div className="flex items-center justify-end gap-2">
+          <Button onClick={save} disabled={busy}>
+            <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={remove}
+            className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+          >
+            <Trash2 size={16} /> Удалить
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-5">
           <Card>
             <h2 className="text-xl font-semibold mb-4">Основное</h2>
             <div className="grid sm:grid-cols-2 gap-4">
@@ -258,7 +290,9 @@ export default function AssignmentEditPage() {
 
               <div className="sm:col-span-2">
                 <Field label="Условие задания (редактор)">
-                  <StatementEditor value={description} onChange={setDescription} />
+                  <div className="min-h-[60vh]">
+                    <StatementEditor value={description} onChange={setDescription} />
+                  </div>
                 </Field>
               </div>
             </div>
@@ -323,7 +357,72 @@ export default function AssignmentEditPage() {
           {type === "image-test" && (
             <Card>
               <h2 className="text-xl font-semibold mb-2">Image-test</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300">Этот тип задания будет проверяться по картинке. Настройки (эталонная картинка, допуски и т.п.) подключим на следующем шаге.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+                Этот тип задания проверяется сравнением картинки. Эталон хранится приватно.
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <Field label="Порог совпадения, %">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={imageTestThreshold}
+                    onChange={(e) => setImageTestThreshold(Number(e.target.value))}
+                  />
+                </Field>
+
+                <div>
+                  <div className="label mb-2">Эталонная картинка</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      className="btn-outline"
+                      onClick={async () => {
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.onchange = async () => {
+                          const file = input.files?.[0];
+                          if (!file) return;
+                          try {
+                            const r = await uploadImageTestReference(
+                              assignmentId,
+                              file,
+                              Number(imageTestThreshold) || 90
+                            );
+                            setImageTestReferenceKey(r.key || "");
+                            if (typeof r.threshold === "number") setImageTestThreshold(r.threshold);
+                            notify.success("Эталон загружен");
+                          } catch (e) {
+                            handleApiError(e, notify, "Не удалось загрузить эталон");
+                          }
+                        };
+                        input.click();
+                      }}
+                    >
+                      Загрузить эталон
+                    </Button>
+                    {imageTestReferenceKey && (
+                      <span className="text-xs text-slate-500 break-all">
+                        {imageTestReferenceKey}
+                      </span>
+                    )}
+                  </div>
+
+                  {imageTestReferenceKey ? (
+                    <img
+                      className="mt-3 max-h-64 rounded-xl border border-slate-200 dark:border-slate-800"
+                      src={`/api/private-files/${encodeURIComponent(imageTestReferenceKey)}`}
+                      alt="Эталон"
+                    />
+                  ) : (
+                    <div className="mt-3 text-sm text-slate-500">
+                      Эталон ещё не загружен.
+                    </div>
+                  )}
+                </div>
+              </div>
             </Card>
           )}
 
@@ -338,30 +437,19 @@ export default function AssignmentEditPage() {
           )}
         </div>
 
-        <div className="space-y-4">
-          <Card>
-            <div className="flex gap-2">
-              <Button onClick={save} disabled={busy} className="flex-1">
-                <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={remove}
-                className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-              >
-                <Trash2 size={16} /> Удалить
-              </Button>
-            </div>
-          </Card>
-
-          {type === 'code-test' && (
-            <Card>
-              <div className="text-sm text-slate-500">
-                Подсказка: используйте публичные и скрытые тесты, чтобы проверки были
-                надёжными.
-              </div>
-            </Card>
-          )}
+      {/* нижняя панель (на всякий) */}
+      <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-slate-200/60 dark:border-slate-800/60 mt-6">
+        <div className="flex items-center justify-end gap-2">
+          <Button onClick={save} disabled={busy}>
+            <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={remove}
+            className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+          >
+            <Trash2 size={16} /> Удалить
+          </Button>
         </div>
       </div>
     </Layout>

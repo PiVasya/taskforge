@@ -27,6 +27,13 @@ namespace taskforge.Data.Models.Entities
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public int Sort { get; set; } = 0;
 
+        // ===== image-test =====
+        // Ключ эталонной картинки (храним именно ключ, а не публичный URL)
+        public string? ImageTestReferenceKey { get; set; }
+
+        // Порог совпадения в процентах (0..100). Если null — считается 90.
+        public double? ImageTestSimilarityThreshold { get; set; }
+
         public ICollection<TaskTestCase> TestCases { get; set; } = new List<TaskTestCase>();
         public ICollection<UserTaskSolution> Solutions { get; set; } = new List<UserTaskSolution>();
     }

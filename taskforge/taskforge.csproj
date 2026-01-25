@@ -25,6 +25,9 @@
 
   <!-- S3 compatible storage (MinIO) for editor images and other media -->
   <PackageReference Include="AWSSDK.S3" Version="3.7.403.2" />
+
+  <!-- Image compare for image-test -->
+  <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
 </ItemGroup>
 
 

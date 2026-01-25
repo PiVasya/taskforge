@@ -18,6 +18,10 @@ namespace taskforge.Data.Models.DTO
         public List<AssignmentTestCaseDto> TestCases { get; set; } = new();
         public int Sort { get; set; }
 
+        // image-test
+        public string? ImageTestReferenceKey { get; set; }
+        public double? ImageTestSimilarityThreshold { get; set; }
+
         public bool CanEdit { get; set; }   // <--- НОВОЕ
     }
 }

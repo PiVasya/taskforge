@@ -22,9 +22,17 @@ public sealed class S3FileStorageService : IFileStorageService
         _opt = opt.Value;
     }
 
-    public async Task<(string key, string contentType)> UploadImageAsync(IFormFile file, CancellationToken ct = default)
+    public Task<(string key, string contentType)> UploadImageAsync(IFormFile file, CancellationToken ct = default)
+    {
+        return UploadImageAsync(file, "task-content", ct);
+    }
+
+    public async Task<(string key, string contentType)> UploadImageAsync(IFormFile file, string prefix, CancellationToken ct = default)
     {
         if (file == null) throw new ArgumentNullException(nameof(file));
+        prefix = (prefix ?? string.Empty).Trim().Trim('/');
+        if (string.IsNullOrWhiteSpace(prefix))
+            throw new ValidationException("Prefix пустой.");
 
         var ctType = (file.ContentType ?? string.Empty).ToLowerInvariant();
         var allowed = new HashSet<string>
@@ -59,7 +67,7 @@ public sealed class S3FileStorageService : IFileStorageService
         }
 
         var now = DateTime.UtcNow;
-        var key = $"task-content/{now:yyyy}/{now:MM}/{Guid.NewGuid():N}{ext.ToLowerInvariant()}";
+        var key = $"{prefix}/{now:yyyy}/{now:MM}/{Guid.NewGuid():N}{ext.ToLowerInvariant()}";
 
         await EnsureBucketAsync(ct);
 

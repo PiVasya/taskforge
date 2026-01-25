@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
@@ -83,7 +83,8 @@ async function uploadAndInsertImageWithEditor(editor, file) {
 
   try {
     const res = await uploadImage(file);
-    const url = res?.data?.url;
+    // uploadImage() возвращает { key, url }
+    const url = res?.url;
     if (!url) return false;
 
     editor.chain().focus().setImage({ src: url }).run();
@@ -93,21 +94,27 @@ async function uploadAndInsertImageWithEditor(editor, file) {
   }
 }
 
-/**
- * Вариант для событий paste/drop, где у нас может не быть замыкания на `editor`.
- * Берём editor из view (TipTap/ProseMirror).
- */
-async function uploadAndInsertImageFromView(view, file) {
-  const editor = view?.editor || view?._props?.editor; // на всякий случай
-  // чаще всего в TipTap доступен: view?.editor (в зависимости от версии)
-  if (editor) return uploadAndInsertImageWithEditor(editor, file);
-
-  // fallback: пробуем получить editor из view.state / view.dispatch — без chain API это неудобно,
-  // поэтому если editor не найден — просто выходим.
-  return false;
+function pickFirstImageFileFromDataTransfer(dt) {
+  if (!dt) return null;
+  // 1) иногда браузер кладёт файлы сюда
+  if (dt.files && dt.files.length > 0) {
+    const f = dt.files[0];
+    if (f && f.type?.startsWith("image/")) return f;
+  }
+  // 2) часто для Ctrl+V файлы лежат в items
+  if (dt.items && dt.items.length > 0) {
+    for (const it of dt.items) {
+      if (it.kind === "file") {
+        const f = it.getAsFile();
+        if (f && f.type?.startsWith("image/")) return f;
+      }
+    }
+  }
+  return null;
 }
 
 function StatementEditor({ value, onChange }) {
+  const editorRef = useRef(null);
   const initialContent = useMemo(() => {
     const doc = safeParseJson(value);
     return doc ?? (value ?? "");
@@ -156,25 +163,25 @@ function StatementEditor({ value, onChange }) {
           "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none",
       },
 
-      handlePaste: (view, event) => {
-        const dt = event.clipboardData;
-        if (!dt?.files?.length) return false;
-        const file = dt.files[0];
-
-        // async side-effect
-        void uploadAndInsertImageFromView(view, file);
+      handlePaste: (_view, event) => {
+        const file = pickFirstImageFileFromDataTransfer(event.clipboardData);
+        if (!file) return false;
+        event.preventDefault();
+        void uploadAndInsertImageWithEditor(editorRef.current, file);
         return true;
       },
 
-      handleDrop: (view, event) => {
-        const dt = event.dataTransfer;
-        if (!dt?.files?.length) return false;
-        const file = dt.files[0];
-
-        // async side-effect
-        void uploadAndInsertImageFromView(view, file);
+      handleDrop: (_view, event) => {
+        const file = pickFirstImageFileFromDataTransfer(event.dataTransfer);
+        if (!file) return false;
+        event.preventDefault();
+        void uploadAndInsertImageWithEditor(editorRef.current, file);
         return true;
       },
+    },
+
+    onCreate: ({ editor }) => {
+      editorRef.current = editor;
     },
 
     onUpdate: ({ editor }) => {
