@@ -12,7 +12,7 @@ using taskforge.Data;
 namespace taskforge.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260125200009_ImageTestFields2")]
+    [Migration("20260125201850_ImageTestFields2")]
     partial class ImageTestFields2
     {
         /// <inheritdoc />
