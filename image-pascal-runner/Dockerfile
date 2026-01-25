@@ -10,7 +10,8 @@ WORKDIR /app
 
 # We'll use a tiny FastAPI wrapper for HTTP.
 COPY requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Use --break-system-packages to bypass Debian's PEP 668 restriction for pip
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY app ./app
 

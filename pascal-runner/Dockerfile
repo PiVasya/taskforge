@@ -7,7 +7,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends fpc \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir fastapi uvicorn
+RUN pip install --no-cache-dir --break-system-packages fastapi uvicorn
 
 COPY server.py /app/server.py
 
