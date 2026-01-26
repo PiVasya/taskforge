@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.Entities;
@@ -62,6 +63,72 @@ public sealed class ImageTestsController : ControllerBase
         string Stdout,
         string Stderr,
         string? RunnerError);
+
+    /// <summary>
+    /// Compare a user-uploaded image (multipart/form-data) against the reference image.
+    /// This endpoint accepts an uploaded file and returns similarity information.
+    /// It matches the old front-end call /image-test/compare.
+    /// </summary>
+    [HttpPost("compare")]
+    public async Task<ActionResult<ImageTestCompareResponse>> Compare(
+        [FromRoute] Guid assignmentId,
+        [FromForm] IFormFile file,
+        CancellationToken ct)
+    {
+        var trace = HttpContext.TraceIdentifier;
+        _log.LogInformation("Compare (multipart) start trace={Trace} assignmentId={AssignmentId} fileLength={Len}", trace, assignmentId, file?.Length ?? 0);
+
+        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        if (a is null) return NotFound();
+        if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
+        if (file is null || file.Length == 0) return BadRequest("File is empty");
+
+        var userId = _currentUser.GetUserId();
+
+        // Read uploaded bytes
+        byte[] submittedBytes;
+        await using (var ms = new MemoryStream())
+        {
+            await file.CopyToAsync(ms, ct);
+            submittedBytes = ms.ToArray();
+        }
+
+        // Determine mime type; fallback to file.ContentType or default to image/png
+        var mime = !string.IsNullOrWhiteSpace(file.ContentType) ? file.ContentType : "image/png";
+
+        // Upload submitted image
+        var submittedKey = await _files.UploadBytesAsync(submittedBytes, mime, $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
+
+        // Compare with reference
+        var (refStreamRaw, _) = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        await using var refStream = refStreamRaw;
+        await using var subStream = new MemoryStream(submittedBytes);
+
+        var similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
+
+        // Threshold can be stored either as 0..1 or 0..100 (legacy). Normalize to percent.
+        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 70.0;
+        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
+        var passed = similarityPercent >= thresholdPercent;
+
+        var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
+        var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
+
+        return Ok(new ImageTestCompareResponse(
+            Ok: true,
+            SimilarityPercent: Math.Round(similarityPercent, 1),
+            ThresholdPercent: Math.Round(thresholdPercent, 1),
+            Passed: passed,
+            ReferenceKey: a.ImageTestReferenceKey!,
+            SubmittedKey: submittedKey,
+            ReferenceUrl: referenceUrl,
+            SubmittedUrl: submittedUrl,
+            Stdout: string.Empty,
+            Stderr: string.Empty,
+            RunnerError: null));
+    }
 
     [HttpPost("compare-upload")]
     public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest req, CancellationToken ct)

@@ -296,27 +296,33 @@ export default function AssignmentSolvePage() {
       input.click();
     };
     const onRunCode = async () => {
+      // Always enforce Python for image-test code execution. The back‑end
+      // only supports "python" and "pascal" for image‑test assignments. Since
+      // the UI is a Python editor, hardcode the language parameter to
+      // "python" to avoid backend validation errors ("Language must be python or pascal").
+      const execLang = 'python';
+
       if (!code?.trim()) {
         notify.error("Вставь код, который рисует картинку");
         return;
       }
+
       setImgIsRunning(true);
-      setImgError("");
+      setImgError('');
       setImgCompare(null);
       try {
-        const r = await compareImageTestCode(assignmentId, language, code, true);
+        const r = await compareImageTestCode(assignmentId, execLang, code, true);
         setImgCompare(r);
-        if (r?.passed) notify.success("Совпадение достаточно высокое");
-        else notify.error("Совпадение ниже порога");
+        if (r?.passed) notify.success('Совпадение достаточно высокое');
+        else notify.error('Совпадение ниже порога');
       } catch (e) {
-        const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || "Не удалось запустить код";
+        const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Не удалось запустить код';
         setImgError(msg);
         notify.error(msg);
       } finally {
         setImgIsRunning(false);
       }
     };
-
 
     return (
       <Layout>
@@ -393,10 +399,9 @@ export default function AssignmentSolvePage() {
                 </Button>
 
                 {imgCompare && (
-	                  <div className="rounded-xl border p-3">
+                  <div className="rounded-xl border p-3">
                     <div className="text-sm mb-2">
-                      Совпадение: <b>{Math.round((imgCompare.percent ?? 0) * 10) / 10}%</b>
-                      {' '}
+                      Совпадение: <b>{Math.round((imgCompare.percent ?? 0) * 10) / 10}%</b>{' '}
                       {imgCompare.passed ? (
                         <span className="text-emerald-600">(OK)</span>
                       ) : (
@@ -412,23 +417,23 @@ export default function AssignmentSolvePage() {
                       )}
                     </div>
 
-	                    {(imgCompare.stdout || imgCompare.stderr) && (
-	                      <details className="mt-2">
-	                        <summary className="cursor-pointer text-sm text-slate-600">Логи выполнения</summary>
-	                        {imgCompare.stdout && (
-	                          <div className="mt-2">
-	                            <div className="text-xs text-slate-500 mb-1">stdout</div>
-	                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2">{imgCompare.stdout}</pre>
-	                          </div>
-	                        )}
-	                        {imgCompare.stderr && (
-	                          <div className="mt-2">
-	                            <div className="text-xs text-slate-500 mb-1">stderr</div>
-	                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2 text-red-600">{imgCompare.stderr}</pre>
-	                          </div>
-	                        )}
-	                      </details>
-	                    )}
+                    {(imgCompare.stdout || imgCompare.stderr) && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-sm text-slate-600">Логи выполнения</summary>
+                        {imgCompare.stdout && (
+                          <div className="mt-2">
+                            <div className="text-xs text-slate-500 mb-1">stdout</div>
+                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2">{imgCompare.stdout}</pre>
+                          </div>
+                        )}
+                        {imgCompare.stderr && (
+                          <div className="mt-2">
+                            <div className="text-xs text-slate-500 mb-1">stderr</div>
+                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2 text-red-600">{imgCompare.stderr}</pre>
+                          </div>
+                        )}
+                      </details>
+                    )}
                   </div>
                 )}
 
