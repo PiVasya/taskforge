@@ -42,7 +42,11 @@ public sealed class ImageTestsController : ControllerBase
         _log = log;
     }
 
-    public sealed record CompareUploadedImageRequest(string SubmittedImageBase64);
+    // Added optional MimeType property so the client can specify the uploaded image mime type.
+    public sealed record CompareUploadedImageRequest(string SubmittedImageBase64)
+    {
+        public string? MimeType { get; init; }
+    }
 
     public sealed record CompareCodeRequest(string Language, string Code, bool Debug = true);
 
@@ -63,6 +67,7 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        // Use req.MimeType for logging purposes; this may be null when not supplied.
         _log.LogInformation("CompareUpload start trace={Trace} assignmentId={AssignmentId} mime={MimeType} base64Len={Len}", trace, assignmentId, req.MimeType, req.SubmittedImageBase64?.Length ?? 0);
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
@@ -83,7 +88,9 @@ public sealed class ImageTestsController : ControllerBase
         }
 
         // 2) Upload submitted image
-        var submittedKey = await _files.UploadBytesAsync(submittedBytes, "image/png", $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
+        // Default to "image/png" if no mime type is provided by the client.
+        var mimeType = string.IsNullOrWhiteSpace(req.MimeType) ? "image/png" : req.MimeType!;
+        var submittedKey = await _files.UploadBytesAsync(submittedBytes, mimeType, $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
 
         // 3) Compare with reference
         var (refStreamRaw, _) = await _files.GetAsync(a.ImageTestReferenceKey, ct);
@@ -167,7 +174,7 @@ public sealed class ImageTestsController : ControllerBase
                     SimilarityPercent: 0,
                     ThresholdPercent: Math.Round(thresholdPercent, 1),
                     Passed: false,
-                ReferenceKey: a.ImageTestReferenceKey,
+                    ReferenceKey: a.ImageTestReferenceKey,
                     SubmittedKey: null,
                     ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                     SubmittedUrl: null,
