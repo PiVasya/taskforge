@@ -22,6 +22,43 @@ logger = logging.getLogger("python-image-runner")
 app = FastAPI(title="taskforge image python runner")
 
 
+def _runner_env(run_id: str) -> dict:
+    """Build env for subprocess.
+
+    Important: we run user code from a temp working directory (cwd=tempdir).
+    In that case `python -m app.execute` would NOT find /app/app/* unless
+    we explicitly put /app into PYTHONPATH.
+    """
+    cur = os.environ.get("PYTHONPATH", "")
+    parts = [p for p in cur.split(os.pathsep) if p]
+    if "/app" not in parts:
+        parts.insert(0, "/app")
+
+    return {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": os.pathsep.join(parts),
+        "TF_RUN_ID": run_id,
+    }
+
+
+def _dump_tempdir(run_id: str, tdir: Path, title: str) -> None:
+    try:
+        items = []
+        for it in sorted(tdir.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if it.is_dir():
+                items.append(f"[DIR] {it.name}")
+            else:
+                try:
+                    items.append(f"[FILE] {it.name} size={it.stat().st_size}")
+                except Exception:
+                    items.append(f"[FILE] {it.name} size=?")
+        logger.info("run_id=%s %s tempdir=%s items=%s", run_id, title, tdir, "; ".join(items) if items else "<empty>")
+    except Exception as e:
+        logger.warning("run_id=%s %s tempdir dump failed: %s", run_id, title, e)
+
+
 class RenderRequest(BaseModel):
     # User python code.
     code: str = Field(min_length=1)
@@ -73,6 +110,14 @@ def render(req: RenderRequest):
             str(out_png),
         ]
 
+        logger.info(
+            "run_id=%s exec cmd=%s cwd=%s PYTHONPATH=%s",
+            run_id,
+            " ".join(cmd),
+            str(tdir),
+            _runner_env(run_id).get("PYTHONPATH"),
+        )
+
         try:
             p = subprocess.run(
                 cmd,
@@ -81,10 +126,7 @@ def render(req: RenderRequest):
                 stderr=subprocess.PIPE,
                 timeout=req.timeoutSeconds,
                 check=False,
-                env={
-                    **os.environ,
-                    "PYTHONIOENCODING": "utf-8",
-                },
+                env=_runner_env(run_id),
             )
         except subprocess.TimeoutExpired:
             logger.warning("run_id=%s timeout after %ss", run_id, req.timeoutSeconds)
@@ -95,11 +137,13 @@ def render(req: RenderRequest):
         if p.returncode != 0:
             err = p.stderr.decode("utf-8", errors="replace")
             out = p.stdout.decode("utf-8", errors="replace")
+            _dump_tempdir(run_id, tdir, "FAIL")
             logger.warning("run_id=%s execution failed", run_id)
             raise HTTPException(
                 400,
                 {
                     "message": "Execution failed",
+                    "runId": run_id,
                     "stdout": out[-4000:],
                     "stderr": err[-4000:],
                 },
@@ -108,11 +152,13 @@ def render(req: RenderRequest):
         if not out_png.exists() or out_png.stat().st_size == 0:
             err = p.stderr.decode("utf-8", errors="replace")
             out = p.stdout.decode("utf-8", errors="replace")
+            _dump_tempdir(run_id, tdir, "NO_PNG")
             logger.warning("run_id=%s no image produced", run_id)
             raise HTTPException(
                 400,
                 {
                     "message": "No image produced. Create 'out.png' in the current working directory or draw with turtle.",
+                    "runId": run_id,
                     "stdout": out[-2000:],
                     "stderr": err[-2000:],
                 },
@@ -135,12 +181,22 @@ class RenderDebugResponse(BaseModel):
 @app.post("/render/base64", response_model=RenderBase64Response)
 def render_base64(req: RenderRequest):
     # Reuse binary render, but encode.
+    run_id = str(uuid.uuid4())
     with tempfile.TemporaryDirectory(prefix="tf-img-py-") as td:
         tdir = Path(td)
         user_path = tdir / "user.py"
         out_png = tdir / "out.png"
         user_path.write_text(req.code, encoding="utf-8")
         cmd = ["xvfb-run", "-a", "python", "-m", "app.execute", str(user_path), str(out_png)]
+        logger.info(
+            "run_id=%s start /render/base64 timeoutSeconds=%s codeLen=%s cmd=%s cwd=%s PYTHONPATH=%s",
+            run_id,
+            req.timeoutSeconds,
+            len(req.code),
+            " ".join(cmd),
+            str(tdir),
+            _runner_env(run_id).get("PYTHONPATH"),
+        )
         try:
             p = subprocess.run(
                 cmd,
@@ -149,14 +205,15 @@ def render_base64(req: RenderRequest):
                 stderr=subprocess.PIPE,
                 timeout=req.timeoutSeconds,
                 check=False,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                env=_runner_env(run_id),
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(408, "Execution timed out")
         if p.returncode != 0 or not out_png.exists() or out_png.stat().st_size == 0:
             err = p.stderr.decode("utf-8", errors="replace")
             out = p.stdout.decode("utf-8", errors="replace")
-            raise HTTPException(400, {"message": "Execution failed", "stdout": out[-2000:], "stderr": err[-2000:]})
+            _dump_tempdir(run_id, tdir, "FAIL")
+            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": out[-2000:], "stderr": err[-2000:]})
         b = out_png.read_bytes()
         return RenderBase64Response(pngBase64=base64.b64encode(b).decode("ascii"))
 
@@ -164,12 +221,22 @@ def render_base64(req: RenderRequest):
 @app.post("/render/debug", response_model=RenderDebugResponse)
 def render_debug(req: RenderRequest):
     """Same as /render/base64, but always returns stdout/stderr for troubleshooting."""
+    run_id = str(uuid.uuid4())
     with tempfile.TemporaryDirectory(prefix="tf-img-py-") as td:
         tdir = Path(td)
         user_path = tdir / "user.py"
         out_png = tdir / "out.png"
         user_path.write_text(req.code, encoding="utf-8")
         cmd = ["xvfb-run", "-a", "python", "-m", "app.execute", str(user_path), str(out_png)]
+        logger.info(
+            "run_id=%s start /render/debug timeoutSeconds=%s codeLen=%s cmd=%s cwd=%s PYTHONPATH=%s",
+            run_id,
+            req.timeoutSeconds,
+            len(req.code),
+            " ".join(cmd),
+            str(tdir),
+            _runner_env(run_id).get("PYTHONPATH"),
+        )
         try:
             p = subprocess.run(
                 cmd,
@@ -178,7 +245,7 @@ def render_debug(req: RenderRequest):
                 stderr=subprocess.PIPE,
                 timeout=req.timeoutSeconds,
                 check=False,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                env=_runner_env(run_id),
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(408, "Execution timed out")
@@ -187,11 +254,12 @@ def render_debug(req: RenderRequest):
         err = p.stderr.decode("utf-8", errors="replace")
 
         if p.returncode != 0 or not out_png.exists() or out_png.stat().st_size == 0:
-            raise HTTPException(400, {"message": "Execution failed", "stdout": out[-4000:], "stderr": err[-4000:]})
+            _dump_tempdir(run_id, tdir, "FAIL")
+            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": out[-4000:], "stderr": err[-4000:]})
 
         b = out_png.read_bytes()
         return RenderDebugResponse(
             pngBase64=base64.b64encode(b).decode("ascii"),
-            stdout=out[-10000:],
-            stderr=err[-10000:],
+            stdout=(out[-10000:] if out else ""),
+            stderr=(err[-10000:] if err else ""),
         )
