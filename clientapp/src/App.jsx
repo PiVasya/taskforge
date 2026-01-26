@@ -13,6 +13,7 @@ import CourseEditPage from './pages/CourseEditPage';
 import AssignmentEditPage from './pages/AssignmentEditPage';
 import AssignmentSolvePage from './pages/AssignmentSolvePage';
 import AssignmentResultsPage from './pages/AssignmentResultsPage';
+import AssignmentImageResultsPage from './pages/AssignmentImageResultsPage';
 import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
 
 import ProfilePage from './pages/ProfilePage';
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
           {/* отдельная страница результатов; открываем после сабмита */}
           <Route path="/assignment/:assignmentId/results" element={<AssignmentResultsPage />} />
+          <Route path="/assignment/:assignmentId/image-results" element={<AssignmentImageResultsPage />} />
 
           {/* при необходимости — остаётся, но кнопку на SolvePage не показываем */}
           <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />

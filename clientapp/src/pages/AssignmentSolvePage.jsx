@@ -27,11 +27,6 @@ const ALL_LANGS = [
   { value: 'java',       label: 'Java' },
 ];
 
-const IMAGE_TEST_LANGS = [
-  { value: 'python', label: 'Python' },
-  { value: 'pascal', label: 'Pascal' },
-];
-
 // Быстрая нормализация, чтобы понимать "C++", "c++", "js", "node", "c#" и т.п.
 function normalizeLang(x) {
   if (!x) return '';
@@ -90,9 +85,13 @@ export default function AssignmentSolvePage() {
   const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
 
   // image-test state
-// {percent, passed, expectedUrl, actualUrl}
-// code | upload
-// Список языков, разрешённых для курса/задания (если есть ограничения)
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgError, setImgError] = useState('');
+  const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
+  const [imgMode, setImgMode] = useState("code"); // code | upload
+  const [imgIsRunning, setImgIsRunning] = useState(false);
+
+  // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
     // Пытаемся найти ограничения в разных возможных полях,
     // чтобы фронт не падал, даже если ты назовёшь поле иначе.
@@ -107,15 +106,7 @@ export default function AssignmentSolvePage() {
   }, [a]);
 
   // То, что показываем в Select
-  
-  // ensure image-test language is valid
-  useEffect(() => {
-    if (!a) return;
-    if (a.type !== 'image-test') return;
-    const v = String(language || '').toLowerCase();
-    if (v !== 'python' && v !== 'pascal') setLanguage('python');
-  }, [a, language]);
-const langsForSelect = useMemo(() => {
+  const langsForSelect = useMemo(() => {
     if (!allowedLangs || allowedLangs.length === 0) return ALL_LANGS;
 
     // сохраняем порядок как в ALL_LANGS
@@ -167,12 +158,20 @@ const langsForSelect = useMemo(() => {
 
   // Если ограничения изменились (например, подгрузились),
   // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
+  // Для image-test — жёстко оставляем только Python/Pascal.
   useEffect(() => {
+    if (a?.type === 'image-test') {
+      if (!['python', 'pascal'].includes(language)) {
+        setLanguage('python');
+      }
+      return;
+    }
+
     if (!allowedLangs || allowedLangs.length === 0) return;
     if (!allowedLangs.includes(language)) {
       setLanguage(allowedLangs[0]);
     }
-  }, [allowedLangs, language]);
+  }, [a?.type, allowedLangs, language]);
 
   const onSubmit = async () => {
     if (!code.trim()) return;
@@ -275,89 +274,132 @@ const langsForSelect = useMemo(() => {
 
   // ===== Новый тип задания: image-test =====
   if (a.type === 'image-test') {
-    return (
-      <div className="container mx-auto max-w-5xl px-4 py-6">
-        <div className="mb-4">
-          <h1 className="text-2xl font-semibold">{a.title}</h1>
-          {a.description ? (
-            <div className="prose max-w-none mt-2 whitespace-pre-wrap">{a.description}</div>
-          ) : null}
-        </div>
+    const expectedUrl = a.imageTestReferenceKey ? `/api/files/${a.imageTestReferenceKey}` : null;
 
-        <Card className="mb-4">
-          <CardHeader>
-            <CardTitle>Настройки</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <div className="text-sm text-muted-foreground">Язык</div>
-              <Select value={language} onValueChange={setLanguage}>
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue placeholder="Выберите язык" />
-                </SelectTrigger>
-                <SelectContent>
-                  {IMAGE_TEST_LANGS.map((x) => (
-                    <SelectItem key={x.value} value={x.value}>
-                      {x.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="text-xs text-muted-foreground">
-                Для задания с картинкой доступны только Python и Pascal.
+    // Только Python и Pascal
+    const imageLangs = [
+      { value: 'python', label: 'Python' },
+      { value: 'pascal', label: 'Pascal' },
+    ];
+
+    const onSubmitImageTest = async () => {
+      setImgError(null);
+      setImgCompare(null);
+      setImgBusy(true);
+      try {
+        const resp = await compareImageTestCode(assignmentId, language, code, true);
+
+        const payload = {
+          ...resp,
+          expectedUrl: resp?.expectedUrl || expectedUrl,
+          assignmentId,
+          assignmentTitle: a.title,
+          language,
+          createdAt: new Date().toISOString(),
+        };
+
+        localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
+        window.open(`/assignment/${assignmentId}/image-results`, '_blank', 'noopener,noreferrer');
+      } catch (e) {
+        setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
+      } finally {
+        setImgBusy(false);
+      }
+    };
+
+    return (
+      <Layout>
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">{a.title}</h1>
+              {a.description && (
+                <p className="text-gray-600 whitespace-pre-wrap">{a.description}</p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button
+                variant="outline"
+                onClick={() =>
+                  window.open(
+                    `/assignment/${assignmentId}/image-results`,
+                    '_blank',
+                    'noopener,noreferrer'
+                  )
+                }
+              >
+                Открыть последние результаты
+              </Button>
+              <Link to="/assignments" className="text-sm text-gray-500 hover:underline">
+                К списку заданий
+              </Link>
+            </div>
+          </div>
+
+          {expectedUrl && (
+            <Card className="mt-6">
+              <div className="p-4">
+                <div className="font-semibold mb-3">Эталонная картинка</div>
+                <div className="rounded border overflow-hidden bg-white">
+                  <img
+                    src={expectedUrl}
+                    alt="Эталон"
+                    className="w-full max-h-[70vh] object-contain"
+                  />
+                </div>
+              </div>
+            </Card>
+          )}
+
+          <Card className="mt-6">
+            <div className="p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="font-semibold">Решение</div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">Язык:</span>
+                  <Select
+                    value={['python', 'pascal'].includes(language) ? language : 'python'}
+                    onChange={(e) => setLanguage(e.target.value)}
+                  >
+                    {imageLangs.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <CodeEditor
+                  value={code}
+                  onChange={setCode}
+                  language={language === 'pascal' ? 'pascal' : 'python'}
+                />
+              </div>
+
+              {imgError && (
+                <div className="mt-3 text-red-600 whitespace-pre-wrap">{imgError}</div>
+              )}
+
+              <div className="mt-4 flex items-center gap-3 flex-wrap">
+                <Button
+                  onClick={onSubmitImageTest}
+                  disabled={imgBusy || !code.trim()}
+                >
+                  {imgBusy ? 'Выполняю…' : 'Отправить и открыть сравнение'}
+                </Button>
+
+                <span className="text-sm text-gray-500">
+                  После отправки откроется отдельная страница: эталон, результат и процент совпадения.
+                </span>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-4">
-          <CardHeader>
-            <CardTitle>Эталон</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {a.imageTestReferenceKey ? (
-              <img
-                src={`/api/files/${a.imageTestReferenceKey}`}
-                alt="Эталонная картинка"
-                className="w-full rounded-lg border"
-              />
-            ) : (
-              <div className="text-sm text-muted-foreground">Эталонная картинка не задана</div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="mb-4">
-          <CardHeader>
-            <CardTitle>Код</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Editor
-              height="520px"
-              language={language === 'pascal' ? 'pascal' : 'python'}
-              value={code}
-              onChange={(v) => setCode(v ?? '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 14,
-                automaticLayout: true,
-              }}
-            />
-            <div className="mt-3 flex gap-2">
-              <Button onClick={onRunImageTest} disabled={submitting || !code?.trim()}>
-                {submitting ? 'Отправка...' : 'Отправить и сравнить'}
-              </Button>
-              <Button variant="secondary" onClick={() => navigate(-1)}>
-                Назад
-              </Button>
-            </div>
-
-            {error ? (
-              <div className="mt-3 text-sm text-red-600 whitespace-pre-wrap">{error}</div>
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
+          </Card>
+        </div>
+      </Layout>
     );
   }
 
