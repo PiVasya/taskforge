@@ -4,12 +4,14 @@ import time
 import runpy
 import traceback
 import subprocess
-import re
 import shutil
 from pathlib import Path
 
-from PIL import Image, ImageColor
-import ast
+
+# Captured from turtle.Screen().setup(width, height) in user code (if called).
+TARGET_W = None
+TARGET_H = None
+
 
 def log(msg: str) -> None:
     # Simple structured-ish logs; easy to grep in Actions.
@@ -51,71 +53,33 @@ def _try_capture_turtle_postscript(ps_path: Path) -> None:
 
     # turtle.getcanvas() exists on tkinter backend.
     canvas = t.getcanvas()
-    ps_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # IMPORTANT:
-    # In headless/Xvfb, winfo_width()/winfo_height() can be wrong (often ~1..200)
-    # until the window is fully "mapped". That breaks turtle coordinate system and
-    # makes the drawing appear cropped/shifted.
-    #
-    # Using the configured canvas size (cget('width'/'height')) is stable and
-    # matches Screen().setup(W,H) from user's code.
-    def _as_int(v):
-        try:
-            return int(float(v))
-        except Exception:
-            return 0
-
-    w_cfg = _as_int(canvas.cget('width'))
-    h_cfg = _as_int(canvas.cget('height'))
-    w_live = _as_int(canvas.winfo_width())
-    h_live = _as_int(canvas.winfo_height())
-
-    w = w_cfg or w_live
-    h = h_cfg or h_live
-    if w <= 0 or h <= 0:
-        w = max(w_cfg, w_live, 800)
-        h = max(h_cfg, h_live, 600)
-
-    log(f"Canvas size (cfg/live): {w_cfg}x{h_cfg} / {w_live}x{h_live} -> use {w}x{h}")
-
-    # Ensure Tk geometry is applied before exporting.
+    # In headless/Xvfb tkinter sometimes reports a tiny default canvas unless we force it.
+    # We export exactly the visible canvas area (0..W, 0..H) and set PS page size the same,
+    # otherwise ghostscript may scale/crop unpredictably.
     try:
         canvas.update_idletasks()
-        canvas.update()
     except Exception:
         pass
 
-    # Turtle/tkinter often uses a scrollregion centered around (0,0), e.g. "-210 -350 210 350".
-    # If we export with x=0,y=0 we may capture only a quadrant (and the drawing looks "cut").
-    # So we prefer exporting the full scrollregion when it's available.
-    x0 = 0
-    y0 = 0
-    pw = w
-    ph = h
-    try:
-        sr = str(canvas.cget('scrollregion') or '').strip()
-        parts = [float(p) for p in sr.split()] if sr else []
-        if len(parts) == 4:
-            sx0, sy0, sx1, sy1 = parts
-            if sx1 > sx0 and sy1 > sy0:
-                x0 = sx0
-                y0 = sy0
-                pw = sx1 - sx0
-                ph = sy1 - sy0
-                log(f"Canvas scrollregion: {sr} -> export x={x0} y={y0} w={pw} h={ph}")
-    except Exception as e:
-        log(f"Scrollregion parse failed (fallback to 0,0,w,h): {e}")
+    w = int(TARGET_W) if TARGET_W is not None else int(canvas.winfo_width())
+    h = int(TARGET_H) if TARGET_H is not None else int(canvas.winfo_height())
+    if w <= 0:
+        w = 800
+    if h <= 0:
+        h = 600
+    log(f"Canvas export size: {w}x{h} (TARGET_W/H={TARGET_W}/{TARGET_H})")
 
+    ps_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.postscript(
         file=str(ps_path),
         colormode='color',
-        x=x0,
-        y=y0,
-        width=pw,
-        height=ph,
-        pagewidth=pw,
-        pageheight=ph,
+        x=0,
+        y=0,
+        width=w,
+        height=h,
+        pagewidth=w,
+        pageheight=h,
     )
     log(f"PostScript saved: {ps_path}")
 
@@ -125,15 +89,31 @@ def _convert_ps_to_png(ps_path: Path, out_png: Path) -> None:
     log("Converting PostScript -> PNG (ghostscript)")
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # 144 dpi gives decent quality without being huge.
+    # IMPORTANT: turtle canvas lives in a fixed pixel viewport (screen.setup(W,H)).
+    # If we let ghostscript choose page size / bounding box, it may scale/crop and
+    # the resulting PNG won't match Windows output.
+    w = int(TARGET_W) if TARGET_W is not None else None
+    h = int(TARGET_H) if TARGET_H is not None else None
+
     cmd = [
         "gs",
         "-dSAFER",
         "-dBATCH",
         "-dNOPAUSE",
-        "-dEPSCrop",
         "-sDEVICE=pngalpha",
-        "-r144",
+    ]
+
+    if w is not None and h is not None and w > 0 and h > 0:
+        cmd += [
+            "-dFIXEDMEDIA",
+            f"-g{w}x{h}",
+        ]
+        log(f"gs fixed viewport: {w}x{h}")
+    else:
+        # Fallback: use a higher dpi when we don't know exact viewport.
+        cmd += ["-r144", "-dEPSCrop"]
+
+    cmd += [
         f"-sOutputFile={str(out_png)}",
         str(ps_path),
     ]
@@ -150,78 +130,53 @@ def _convert_ps_to_png(ps_path: Path, out_png: Path) -> None:
     log(f"PNG saved: {out_png} ({out_png.stat().st_size} bytes)")
 
 
-
-def _resolve_bgcolor_from_turtle() -> str | None:
-    """Best effort: read current turtle screen background color."""
+def _coerce_rgb(color):
+    """Convert turtle/bgcolor output to an (r,g,b) tuple of ints."""
     try:
-        import turtle as t
-        scr = t.Screen()
-        c = scr.bgcolor()  # when called without args returns current background
-        if isinstance(c, tuple) and len(c) >= 3:
-            r, g, b = c[:3]
-            # turtle sometimes returns 0..1 floats
-            if all(isinstance(x, float) for x in (r, g, b)):
-                return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
-            return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
-        if isinstance(c, str) and c.strip():
-            return c.strip()
-    except Exception as e:
-        log(f"bgcolor read from turtle failed: {e}")
-    return None
-
-
-def _resolve_bgcolor_from_source(user_path: Path) -> str | None:
-    """Fallback: parse screen.bgcolor(...) from user's source (string/tuple literals only)."""
-    try:
-        txt = user_path.read_text(encoding="utf-8", errors="ignore")
+        from PIL import ImageColor
     except Exception:
-        return None
+        return (255, 255, 255)
 
-    # string literal: bgcolor("navy") / bgcolor('#001122')
-    m = re.search(r"\.bgcolor\(\s*(['\"])(.*?)\1\s*\)", txt)
-    if m:
-        return m.group(2).strip()
+    if isinstance(color, tuple) and len(color) == 3:
+        r, g, b = color
+        # turtle may return floats 0..1
+        if all(isinstance(v, float) for v in (r, g, b)):
+            return (max(0, min(255, int(r * 255))),
+                    max(0, min(255, int(g * 255))),
+                    max(0, min(255, int(b * 255))))
+        return (max(0, min(255, int(r))),
+                max(0, min(255, int(g))),
+                max(0, min(255, int(b))))
 
-    # tuple literal: bgcolor((r,g,b)) or bgcolor(r,g,b)
-    m = re.search(r"\.bgcolor\(\s*(\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|\d+\s*,\s*\d+\s*,\s*\d+)\s*\)", txt)
-    if m:
-        expr = m.group(1)
+    if isinstance(color, str) and color.strip():
         try:
-            val = ast.literal_eval(expr) if expr.strip().startswith("(") else tuple(int(x.strip()) for x in expr.split(","))
-            if isinstance(val, tuple) and len(val) == 3:
-                r, g, b = val
-                return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+            return ImageColor.getrgb(color.strip())
         except Exception:
-            pass
-    return None
+            return (255, 255, 255)
+
+    return (255, 255, 255)
 
 
-def _apply_background_to_png(out_png: Path, bgcolor: str | None) -> None:
-    """If PNG has transparency, composite it onto bgcolor and save as RGB PNG."""
-    if not out_png.exists() or out_png.stat().st_size == 0:
+def _apply_background_if_transparent(out_png: Path, bgcolor) -> None:
+    """If PNG has alpha, composite it onto bgcolor and save as RGB (no transparency)."""
+    try:
+        from PIL import Image
+    except Exception as e:
+        log(f"PIL not available, skip background flatten: {e}")
         return
 
-    bg = (255, 255, 255)
-    if bgcolor:
-        try:
-            bg = ImageColor.getrgb(bgcolor)
-        except Exception as e:
-            log(f"bgcolor '{bgcolor}' is not understood by Pillow: {e}. Using white.")
-            bg = (255, 255, 255)
+    rgb = _coerce_rgb(bgcolor)
+    img = Image.open(out_png)
+    needs = (img.mode in ("RGBA", "LA")) or ("transparency" in img.info)
+    if not needs:
+        log(f"PNG has no alpha ({img.mode}), skip background flatten")
+        return
 
-    with Image.open(out_png) as im:
-        # Normalize to RGBA to access alpha
-        if im.mode not in ("RGBA", "LA"):
-            im = im.convert("RGBA")
-        else:
-            im = im.copy()
-
-        alpha = im.split()[-1]
-        # If alpha is fully opaque - still convert to RGB to remove accidental alpha channel.
-        bg_im = Image.new("RGB", im.size, bg)
-        bg_im.paste(im, mask=alpha)
-        bg_im.save(out_png, format="PNG", optimize=True)
-        log(f"Applied background {bg} to PNG and saved RGB: {out_png}")
+    log(f"Flattening PNG alpha onto bgcolor={bgcolor} rgb={rgb}")
+    rgba = img.convert("RGBA")
+    bg = Image.new("RGBA", rgba.size, rgb + (255,))
+    bg.alpha_composite(rgba)
+    bg.convert("RGB").save(out_png)
 
 
 def main() -> int:
@@ -248,35 +203,37 @@ def main() -> int:
     try:
         import turtle as t
 
-        # In headless/Xvfb runs tkinter sometimes doesn't apply requested window size,
-        # and turtle drawing gets clipped because the actual canvas stays small.
-        # We patch Screen.setup to ALSO configure the underlying canvas size.
+        # Capture screen.setup(W,H) so we can export exactly the same viewport.
         try:
-            _orig_setup = t.Screen.setup
+            _scr = t.Screen()
+            _orig_setup = _scr.setup
 
-            def _setup_with_canvas(self, width=None, height=None, startx=None, starty=None):
-                # Call original first
-                res = _orig_setup(self, width, height, startx, starty)
+            def _setup_patch(width=None, height=None, startx=None, starty=None):
+                global TARGET_W, TARGET_H
                 try:
-                    # turtle allows width/height as fractions; we only enforce when ints
-                    w = int(width) if isinstance(width, int) else None
-                    h = int(height) if isinstance(height, int) else None
-                    if w and h and hasattr(self, "cv") and self.cv is not None:
-                        # Force actual canvas size (headless Tk often ignores WM geometry).
-                        # Don't override scrollregion/world-coordinates here: turtle manages them,
-                        # and we export full scrollregion during capture.
-                        self.cv.config(width=w, height=h)
-                        try:
-                            self.cv.update_idletasks()
-                            self.cv.update()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                    if width is not None and height is not None:
+                        TARGET_W = int(width)
+                        TARGET_H = int(height)
+                        log(f"Captured Screen.setup: {TARGET_W}x{TARGET_H}")
+                except Exception as e:
+                    log(f"Screen.setup capture failed: {e}")
+
+                # Call original setup
+                res = _orig_setup(width, height, startx, starty)
+
+                # In headless/Xvfb, tkinter may ignore the requested size;
+                # force actual canvas size to match.
+                try:
+                    if TARGET_W and TARGET_H:
+                        c = t.getcanvas()
+                        c.config(width=TARGET_W, height=TARGET_H)
+                        c.update_idletasks()
+                except Exception as e:
+                    log(f"Canvas force-size failed: {e}")
+
                 return res
 
-            # type: ignore[method-assign]
-            t.Screen.setup = _setup_with_canvas
+            _scr.setup = _setup_patch  # type: ignore[method-assign]
         except Exception as e:
             log(f"WARNING: Screen.setup patch failed: {e}")
 
@@ -359,13 +316,18 @@ def main() -> int:
 
     _dump_dir(out_png.parent, "AFTER_CONVERT_PNG")
 
-    # If output has transparency, composite onto student's turtle Screen().bgcolor()
+    # If turtle exports as PNG with transparency, flatten it onto student's
+    # configured screen.bgcolor(...) so the output matches what they see locally.
     try:
-        bg = _resolve_bgcolor_from_turtle() or _resolve_bgcolor_from_source(user_path)
-        log(f"Resolved turtle bgcolor: {bg}")
-        _apply_background_to_png(out_png, bg)
+        import turtle as t
+        bg = t.Screen().bgcolor()
     except Exception as e:
-        log(f"WARNING: applying background failed: {e}")
+        bg = None
+        log(f"WARNING: could not read Screen().bgcolor(): {e}")
+    try:
+        _apply_background_if_transparent(out_png, bg)
+    except Exception as e:
+        log(f"WARNING: background flatten failed: {e}")
 
     # Try to close turtle window cleanly.
     try:
