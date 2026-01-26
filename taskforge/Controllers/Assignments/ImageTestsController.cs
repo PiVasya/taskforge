@@ -18,7 +18,7 @@ namespace taskforge.Controllers.Assignments;
 public sealed class ImageTestsController : ControllerBase
 {
     private readonly ILogger<ImageTestsController> _log;
-    private readonly AppDbContext _db;
+    private readonly ApplicationDbContext _db;
     private readonly IFileStorageService _storage;
     private readonly ICurrentUserService _currentUser;
     private readonly IImageRunnerClient _runner;
@@ -26,7 +26,7 @@ public sealed class ImageTestsController : ControllerBase
 
     public ImageTestsController(
         ILogger<ImageTestsController> log,
-        AppDbContext db,
+        ApplicationDbContext db,
         IFileStorageService storage,
         ICurrentUserService currentUser,
         IImageRunnerClient runner,
