@@ -266,15 +266,15 @@ def main() -> int:
 
     _dump_dir(out_png.parent, "AFTER_CONVERT_PNG")
 
-# If output has transparency, composite onto student's turtle Screen().bgcolor()
-try:
-    bg = _resolve_bgcolor_from_turtle() or _resolve_bgcolor_from_source(user_path)
-    log(f"Resolved turtle bgcolor: {bg}")
-    _apply_background_to_png(out_png, bg)
-except Exception as e:
-    log(f"WARNING: applying background failed: {e}")
+    # If output has transparency, composite onto student's turtle Screen().bgcolor()
+    try:
+        bg = _resolve_bgcolor_from_turtle() or _resolve_bgcolor_from_source(user_path)
+        log(f"Resolved turtle bgcolor: {bg}")
+        _apply_background_to_png(out_png, bg)
+    except Exception as e:
+        log(f"WARNING: applying background failed: {e}")
 
-# Try to close turtle window cleanly.
+    # Try to close turtle window cleanly.
     try:
         import turtle as t
         t.bye()
