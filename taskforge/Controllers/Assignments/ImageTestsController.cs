@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.Entities;
@@ -24,6 +25,7 @@ public sealed class ImageTestsController : ControllerBase
     private readonly IFileStorageService _files;
     private readonly IImageSimilarityService _similarity;
     private readonly ICurrentUserService _currentUser;
+    private readonly ICourseAccessService _access;
     private readonly IImageRunnerClient _runner;
     private readonly ILogger<ImageTestsController> _log;
 
@@ -32,6 +34,7 @@ public sealed class ImageTestsController : ControllerBase
         IFileStorageService files,
         IImageSimilarityService similarity,
         ICurrentUserService currentUser,
+        ICourseAccessService access,
         IImageRunnerClient runner,
         ILogger<ImageTestsController> log)
     {
@@ -39,8 +42,49 @@ public sealed class ImageTestsController : ControllerBase
         _files = files;
         _similarity = similarity;
         _currentUser = currentUser;
+        _access = access;
         _runner = runner;
         _log = log;
+    }
+
+    public sealed record UploadReferenceResponse(string Key, double Threshold, string ReferenceUrl);
+
+    /// <summary>
+    /// Загрузить/заменить эталон для image-test.
+    /// Клиент (редактор задания) отправляет multipart/form-data: file, threshold (0..100).
+    /// </summary>
+    [HttpPost("reference")]
+    public async Task<ActionResult<UploadReferenceResponse>> UploadReference(
+        [FromRoute] Guid assignmentId,
+        [FromForm] IFormFile file,
+        [FromForm] double threshold,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0) return BadRequest("File is empty");
+        if (threshold < 0) threshold = 0;
+        if (threshold > 100) threshold = 100;
+
+        var uid = _currentUser.GetUserId();
+        var role = _currentUser.GetRole();
+
+        var a = await _db.TaskAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+        if (a is null) return NotFound();
+
+        if (!await _access.CanEditCourseAsync(uid, role, a.CourseId))
+            return Forbid();
+
+        if (a.Type != TaskAssignmentTypes.ImageTest)
+            return BadRequest("Assignment is not image-test");
+
+        // Сохраняем эталон в storage и пишем ключ прямо в задание
+        var key = await _files.UploadImageAsync(file, $"image-tests/reference/{assignmentId}", ct);
+        a.ImageTestReferenceKey = key;
+        a.ImageTestSimilarityThreshold = threshold;
+        a.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(key)}";
+        return Ok(new UploadReferenceResponse(Key: key, Threshold: threshold, ReferenceUrl: referenceUrl));
     }
 
     // Added optional MimeType property so the client can specify the uploaded image mime type.

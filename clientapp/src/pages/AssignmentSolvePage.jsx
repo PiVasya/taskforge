@@ -274,7 +274,10 @@ export default function AssignmentSolvePage() {
 
   // ===== Новый тип задания: image-test =====
   if (a.type === 'image-test') {
-    const expectedUrl = a.imageTestReferenceKey ? `/api/files/${a.imageTestReferenceKey}` : null;
+    // Эталон хранится приватно, поэтому читаем через /api/private-files
+    const expectedUrl = a.imageTestReferenceKey
+      ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
+      : null;
 
     // Только Python и Pascal
     const imageLangs = [
@@ -283,6 +286,12 @@ export default function AssignmentSolvePage() {
     ];
 
     const onSubmitImageTest = async () => {
+      // Не даём улететь в 400 "Reference image is not configured"
+      if (!expectedUrl) {
+        setImgError('Эталонная картинка не настроена. Загрузите эталон в режиме редактирования задания.');
+        return;
+      }
+
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
@@ -291,7 +300,9 @@ export default function AssignmentSolvePage() {
 
         const payload = {
           ...resp,
-          expectedUrl: resp?.expectedUrl || expectedUrl,
+          // бек обычно возвращает referenceUrl / submittedUrl
+          expectedUrl: resp?.referenceUrl || resp?.expectedUrl || expectedUrl,
+          actualUrl: resp?.submittedUrl || resp?.submissionUrl || resp?.actualUrl,
           assignmentId,
           assignmentTitle: a.title,
           language,
@@ -380,6 +391,12 @@ export default function AssignmentSolvePage() {
                 />
               </div>
 
+              {!expectedUrl && (
+                <div className="mt-3 text-amber-700 whitespace-pre-wrap">
+                  Эталонная картинка не настроена. Открой «Редактировать» и нажми «Загрузить эталон».
+                </div>
+              )}
+
               {imgError && (
                 <div className="mt-3 text-red-600 whitespace-pre-wrap">{imgError}</div>
               )}
@@ -387,7 +404,7 @@ export default function AssignmentSolvePage() {
               <div className="mt-4 flex items-center gap-3 flex-wrap">
                 <Button
                   onClick={onSubmitImageTest}
-                  disabled={imgBusy || !code.trim()}
+                  disabled={imgBusy || !code.trim() || !expectedUrl}
                 >
                   {imgBusy ? 'Выполняю…' : 'Отправить и открыть сравнение'}
                 </Button>

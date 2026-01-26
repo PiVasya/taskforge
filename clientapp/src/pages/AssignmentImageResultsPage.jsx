@@ -46,7 +46,7 @@ export default function AssignmentImageResultsPage() {
   const passed = data?.passed;
   const title = data?.assignmentTitle || data?.title || `Задание ${assignmentId}`;
   const expectedUrl = data?.expectedUrl || data?.referenceUrl;
-  const actualUrl = data?.actualUrl || data?.submissionUrl;
+  const actualUrl = data?.actualUrl || data?.submittedUrl || data?.submissionUrl;
 
   const onBack = () => {
     // If opened as a new tab/window from the solve page, allow simple close
