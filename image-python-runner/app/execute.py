@@ -4,9 +4,12 @@ import time
 import runpy
 import traceback
 import subprocess
+import re
 import shutil
 from pathlib import Path
 
+from PIL import Image, ImageColor
+import ast
 
 def log(msg: str) -> None:
     # Simple structured-ish logs; easy to grep in Actions.
@@ -49,7 +52,10 @@ def _try_capture_turtle_postscript(ps_path: Path) -> None:
     # turtle.getcanvas() exists on tkinter backend.
     canvas = t.getcanvas()
     ps_path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.postscript(file=str(ps_path), colormode='color')
+    w = int(canvas.winfo_width() or 0)
+    h = int(canvas.winfo_height() or 0)
+    log(f"Canvas size: {w}x{h}")
+    canvas.postscript(file=str(ps_path), colormode='color', x=0, y=0, width=w, height=h)
     log(f"PostScript saved: {ps_path}")
 
 
@@ -64,6 +70,7 @@ def _convert_ps_to_png(ps_path: Path, out_png: Path) -> None:
         "-dSAFER",
         "-dBATCH",
         "-dNOPAUSE",
+        "-dEPSCrop",
         "-sDEVICE=pngalpha",
         "-r144",
         f"-sOutputFile={str(out_png)}",
@@ -80,6 +87,80 @@ def _convert_ps_to_png(ps_path: Path, out_png: Path) -> None:
     if not out_png.exists() or out_png.stat().st_size == 0:
         raise RuntimeError("ghostscript produced empty PNG")
     log(f"PNG saved: {out_png} ({out_png.stat().st_size} bytes)")
+
+
+
+def _resolve_bgcolor_from_turtle() -> str | None:
+    """Best effort: read current turtle screen background color."""
+    try:
+        import turtle as t
+        scr = t.Screen()
+        c = scr.bgcolor()  # when called without args returns current background
+        if isinstance(c, tuple) and len(c) >= 3:
+            r, g, b = c[:3]
+            # turtle sometimes returns 0..1 floats
+            if all(isinstance(x, float) for x in (r, g, b)):
+                return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+            return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+        if isinstance(c, str) and c.strip():
+            return c.strip()
+    except Exception as e:
+        log(f"bgcolor read from turtle failed: {e}")
+    return None
+
+
+def _resolve_bgcolor_from_source(user_path: Path) -> str | None:
+    """Fallback: parse screen.bgcolor(...) from user's source (string/tuple literals only)."""
+    try:
+        txt = user_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    # string literal: bgcolor("navy") / bgcolor('#001122')
+    m = re.search(r"\.bgcolor\(\s*(['\"])(.*?)\1\s*\)", txt)
+    if m:
+        return m.group(2).strip()
+
+    # tuple literal: bgcolor((r,g,b)) or bgcolor(r,g,b)
+    m = re.search(r"\.bgcolor\(\s*(\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|\d+\s*,\s*\d+\s*,\s*\d+)\s*\)", txt)
+    if m:
+        expr = m.group(1)
+        try:
+            val = ast.literal_eval(expr) if expr.strip().startswith("(") else tuple(int(x.strip()) for x in expr.split(","))
+            if isinstance(val, tuple) and len(val) == 3:
+                r, g, b = val
+                return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+        except Exception:
+            pass
+    return None
+
+
+def _apply_background_to_png(out_png: Path, bgcolor: str | None) -> None:
+    """If PNG has transparency, composite it onto bgcolor and save as RGB PNG."""
+    if not out_png.exists() or out_png.stat().st_size == 0:
+        return
+
+    bg = (255, 255, 255)
+    if bgcolor:
+        try:
+            bg = ImageColor.getrgb(bgcolor)
+        except Exception as e:
+            log(f"bgcolor '{bgcolor}' is not understood by Pillow: {e}. Using white.")
+            bg = (255, 255, 255)
+
+    with Image.open(out_png) as im:
+        # Normalize to RGBA to access alpha
+        if im.mode not in ("RGBA", "LA"):
+            im = im.convert("RGBA")
+        else:
+            im = im.copy()
+
+        alpha = im.split()[-1]
+        # If alpha is fully opaque - still convert to RGB to remove accidental alpha channel.
+        bg_im = Image.new("RGB", im.size, bg)
+        bg_im.paste(im, mask=alpha)
+        bg_im.save(out_png, format="PNG", optimize=True)
+        log(f"Applied background {bg} to PNG and saved RGB: {out_png}")
 
 
 def main() -> int:
@@ -185,7 +266,15 @@ def main() -> int:
 
     _dump_dir(out_png.parent, "AFTER_CONVERT_PNG")
 
-    # Try to close turtle window cleanly.
+# If output has transparency, composite onto student's turtle Screen().bgcolor()
+try:
+    bg = _resolve_bgcolor_from_turtle() or _resolve_bgcolor_from_source(user_path)
+    log(f"Resolved turtle bgcolor: {bg}")
+    _apply_background_to_png(out_png, bg)
+except Exception as e:
+    log(f"WARNING: applying background failed: {e}")
+
+# Try to close turtle window cleanly.
     try:
         import turtle as t
         t.bye()
