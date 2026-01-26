@@ -52,10 +52,50 @@ def _try_capture_turtle_postscript(ps_path: Path) -> None:
     # turtle.getcanvas() exists on tkinter backend.
     canvas = t.getcanvas()
     ps_path.parent.mkdir(parents=True, exist_ok=True)
-    w = int(canvas.winfo_width() or 0)
-    h = int(canvas.winfo_height() or 0)
-    log(f"Canvas size: {w}x{h}")
-    canvas.postscript(file=str(ps_path), colormode='color', x=0, y=0, width=w, height=h)
+
+    # IMPORTANT:
+    # In headless/Xvfb, winfo_width()/winfo_height() can be wrong (often ~1..200)
+    # until the window is fully "mapped". That breaks turtle coordinate system and
+    # makes the drawing appear cropped/shifted.
+    #
+    # Using the configured canvas size (cget('width'/'height')) is stable and
+    # matches Screen().setup(W,H) from user's code.
+    def _as_int(v):
+        try:
+            return int(float(v))
+        except Exception:
+            return 0
+
+    w_cfg = _as_int(canvas.cget('width'))
+    h_cfg = _as_int(canvas.cget('height'))
+    w_live = _as_int(canvas.winfo_width())
+    h_live = _as_int(canvas.winfo_height())
+
+    w = w_cfg or w_live
+    h = h_cfg or h_live
+    if w <= 0 or h <= 0:
+        w = max(w_cfg, w_live, 800)
+        h = max(h_cfg, h_live, 600)
+
+    log(f"Canvas size (cfg/live): {w_cfg}x{h_cfg} / {w_live}x{h_live} -> use {w}x{h}")
+
+    # Ensure Tk geometry is applied before exporting.
+    try:
+        canvas.update_idletasks()
+        canvas.update()
+    except Exception:
+        pass
+
+    canvas.postscript(
+        file=str(ps_path),
+        colormode='color',
+        x=0,
+        y=0,
+        width=w,
+        height=h,
+        pagewidth=w,
+        pageheight=h,
+    )
     log(f"PostScript saved: {ps_path}")
 
 
@@ -186,6 +226,35 @@ def main() -> int:
     log("Patching turtle.done/mainloop to be non-blocking")
     try:
         import turtle as t
+
+        # In headless/Xvfb runs tkinter sometimes doesn't apply requested window size,
+        # and turtle drawing gets clipped because the actual canvas stays small.
+        # We patch Screen.setup to ALSO configure the underlying canvas size.
+        try:
+            _orig_setup = t.Screen.setup
+
+            def _setup_with_canvas(self, width=None, height=None, startx=None, starty=None):
+                # Call original first
+                res = _orig_setup(self, width, height, startx, starty)
+                try:
+                    # turtle allows width/height as fractions; we only enforce when ints
+                    w = int(width) if isinstance(width, (int,)) else None
+                    h = int(height) if isinstance(height, (int,)) else None
+                    if w and h and hasattr(self, "cv") and self.cv is not None:
+                        self.cv.config(width=w, height=h)
+                        try:
+                            self.cv.update_idletasks()
+                            self.cv.update()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return res
+
+            # type: ignore[method-assign]
+            t.Screen.setup = _setup_with_canvas
+        except Exception as e:
+            log(f"WARNING: Screen.setup patch failed: {e}")
 
         def _no_block(*_a, **_kw):
             log("turtle.done/mainloop called -> ignored (non-blocking runner)")
