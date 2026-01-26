@@ -39,7 +39,7 @@ def render(req: RenderRequest):
     """Executes user python code and returns a PNG.
 
     Contract (v0): user code may either:
-      1) explicitly create /tmp/out.png (preferred), OR
+      1) explicitly create out.png in the current working directory (preferred), OR
       2) draw using turtle; we'll capture the canvas automatically.
 
     The runner is intentionally *stateless* and returns the generated image bytes.
@@ -112,7 +112,7 @@ def render(req: RenderRequest):
             raise HTTPException(
                 400,
                 {
-                    "message": "No image produced. Create out.png or draw with turtle.",
+                    "message": "No image produced. Create 'out.png' in the current working directory or draw with turtle.",
                     "stdout": out[-2000:],
                     "stderr": err[-2000:],
                 },

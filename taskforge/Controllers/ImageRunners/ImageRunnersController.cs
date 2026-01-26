@@ -37,8 +37,15 @@ public sealed class ImageRunnersController : ControllerBase
     [HttpPost("{language}/render")]
     public async Task<IActionResult> Render([FromRoute] string language, [FromBody] ImageRunnerRenderRequest req, CancellationToken ct = default)
     {
-        var png = await _imageRunner.RenderAsync(language, req.Code ?? string.Empty, ct);
-        return File(png, "image/png");
+        var code = req.Code ?? string.Empty;
+        var png = await _imageRunner.RenderAsync(language, code, ct);
+
+        if (png is { Length: > 0 })
+            return File(png, "image/png");
+
+        // Если раннер вернул пусто/NULL — возвращаем debug-ответ со stdout/stderr, чтобы видеть причину.
+        var dbg = await _imageRunner.RenderDebugAsync(language, code, ct);
+        return BadRequest(dbg);
     }
 
     [HttpPost("{language}/render/debug")]
