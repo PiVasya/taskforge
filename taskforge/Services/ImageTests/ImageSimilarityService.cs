@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Microsoft.Extensions.Logging;
 
 namespace taskforge.Services.ImageTests;
 
@@ -11,53 +13,77 @@ namespace taskforge.Services.ImageTests;
 /// </summary>
 public sealed class ImageSimilarityService : IImageSimilarityService
 {
+    private readonly ILogger<ImageSimilarityService> _log;
+
+    public ImageSimilarityService(ILogger<ImageSimilarityService> log)
+    {
+        _log = log;
+    }
+
     public async Task<double> GetSimilarityPercentAsync(Stream expected, Stream actual, CancellationToken ct = default)
     {
         if (expected == null) throw new ArgumentNullException(nameof(expected));
         if (actual == null) throw new ArgumentNullException(nameof(actual));
 
-        if (expected.CanSeek) expected.Position = 0;
-        if (actual.CanSeek) actual.Position = 0;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            _log.LogInformation("[ImageSimilarity] start | expectedSeekable={ExpectedSeekable} actualSeekable={ActualSeekable} expectedLen={ExpectedLen} actualLen={ActualLen}",
+                expected.CanSeek, actual.CanSeek,
+                expected.CanSeek ? expected.Length : null,
+                actual.CanSeek ? actual.Length : null);
 
-        using var img1 = await Image.LoadAsync<Rgba32>(expected, ct);
-        using var img2 = await Image.LoadAsync<Rgba32>(actual, ct);
+            if (expected.CanSeek) expected.Position = 0;
+            if (actual.CanSeek) actual.Position = 0;
 
-        const int size = 128;
-        img1.Mutate(x => x.Resize(size, size));
-        img2.Mutate(x => x.Resize(size, size));
+            using var img1 = await Image.LoadAsync<Rgba32>(expected, ct);
+            using var img2 = await Image.LoadAsync<Rgba32>(actual, ct);
+            _log.LogInformation("[ImageSimilarity] loaded | expected={W1}x{H1} actual={W2}x{H2}", img1.Width, img1.Height, img2.Width, img2.Height);
+
+            const int size = 128;
+            img1.Mutate(x => x.Resize(size, size));
+            img2.Mutate(x => x.Resize(size, size));
+            _log.LogInformation("[ImageSimilarity] resized | size={Size}", size);
 
         // Самый совместимый способ (и для ImageSharp 2.x, и для 3.x):
         // копируем пиксели в обычные массивы и сравниваем их.
-        var a = new Rgba32[size * size];
-        var b = new Rgba32[size * size];
+            var a = new Rgba32[size * size];
+            var b = new Rgba32[size * size];
 
-        img1.CopyPixelDataTo(a);
-        img2.CopyPixelDataTo(b);
+            img1.CopyPixelDataTo(a);
+            img2.CopyPixelDataTo(b);
 
-        double sum = 0.0;
-        int pixels = size * size;
+            double sum = 0.0;
+            int pixels = size * size;
 
-        for (int i = 0; i < pixels; i++)
-        {
-            var p = a[i];
-            var q = b[i];
+            for (int i = 0; i < pixels; i++)
+            {
+                var p = a[i];
+                var q = b[i];
 
-            sum += Math.Abs(p.R - q.R);
-            sum += Math.Abs(p.G - q.G);
-            sum += Math.Abs(p.B - q.B);
-            // альфу тоже учитываем, но слабее
-            sum += 0.5 * Math.Abs(p.A - q.A);
-        }
+                sum += Math.Abs(p.R - q.R);
+                sum += Math.Abs(p.G - q.G);
+                sum += Math.Abs(p.B - q.B);
+                // альфу тоже учитываем, но слабее
+                sum += 0.5 * Math.Abs(p.A - q.A);
+            }
 
         // Нормализация:
         // максимум на пиксель = 255*(R+G+B) + 0.5*255*(A) = 255*3.5
-        double max = pixels * (255.0 * 3.5);
-        double mae = sum / max;              // 0..1
-        double similarity = (1.0 - mae) * 100.0;
+            double max = pixels * (255.0 * 3.5);
+            double mae = sum / max;              // 0..1
+            double similarity = (1.0 - mae) * 100.0;
 
-        if (similarity < 0) similarity = 0;
-        if (similarity > 100) similarity = 100;
+            if (similarity < 0) similarity = 0;
+            if (similarity > 100) similarity = 100;
 
-        return similarity;
+            _log.LogInformation("[ImageSimilarity] done | similarity={Similarity:F2} mae={Mae:F6} ms={ElapsedMs}", similarity, mae, sw.ElapsedMilliseconds);
+            return similarity;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[ImageSimilarity] failed | ms={ElapsedMs}", sw.ElapsedMilliseconds);
+            throw;
+        }
     }
 }

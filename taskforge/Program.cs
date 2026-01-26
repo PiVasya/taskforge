@@ -72,6 +72,9 @@ builder.Services.AddSingleton<IAmazonS3>(sp =>
 });
 builder.Services.AddScoped<IFileStorageService, S3FileStorageService>();
 builder.Services.AddScoped<taskforge.Services.ImageTests.IImageSimilarityService, taskforge.Services.ImageTests.ImageSimilarityService>();
+// Некоторые контроллеры/места могут инжектить конкретный тип (например, в старых сборках).
+// Регистрируем и конкретный класс, чтобы DI не падал.
+builder.Services.AddScoped<taskforge.Services.ImageTests.ImageSimilarityService>();
 
 // image-runners (рендер изображений из кода)
 builder.Services.Configure<taskforge.Services.ImageRunners.ImageRunnersOptions>(builder.Configuration.GetSection("ImageRunners"));
