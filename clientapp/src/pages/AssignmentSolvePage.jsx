@@ -13,7 +13,7 @@ import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
-import { compareImageTest, compareImageTestCode } from '../api/imageTests';
+import { compareImageTestCode } from '../api/imageTests';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -25,6 +25,11 @@ const ALL_LANGS = [
   { value: 'javascript', label: 'JavaScript' },
   { value: 'pascal',     label: 'Pascal' },
   { value: 'java',       label: 'Java' },
+];
+
+const IMAGE_TEST_LANGS = [
+  { value: 'python', label: 'Python' },
+  { value: 'pascal', label: 'Pascal' },
 ];
 
 // Быстрая нормализация, чтобы понимать "C++", "c++", "js", "node", "c#" и т.п.
@@ -85,13 +90,9 @@ export default function AssignmentSolvePage() {
   const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
 
   // image-test state
-  const [imgBusy, setImgBusy] = useState(false);
-  const [imgError, setImgError] = useState('');
-  const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
-  const [imgMode, setImgMode] = useState("code"); // code | upload
-  const [imgIsRunning, setImgIsRunning] = useState(false);
-
-  // Список языков, разрешённых для курса/задания (если есть ограничения)
+// {percent, passed, expectedUrl, actualUrl}
+// code | upload
+// Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
     // Пытаемся найти ограничения в разных возможных полях,
     // чтобы фронт не падал, даже если ты назовёшь поле иначе.
@@ -106,7 +107,15 @@ export default function AssignmentSolvePage() {
   }, [a]);
 
   // То, что показываем в Select
-  const langsForSelect = useMemo(() => {
+  
+  // ensure image-test language is valid
+  useEffect(() => {
+    if (!a) return;
+    if (a.type !== 'image-test') return;
+    const v = String(language || '').toLowerCase();
+    if (v !== 'python' && v !== 'pascal') setLanguage('python');
+  }, [a, language]);
+const langsForSelect = useMemo(() => {
     if (!allowedLangs || allowedLangs.length === 0) return ALL_LANGS;
 
     // сохраняем порядок как в ALL_LANGS
@@ -266,187 +275,93 @@ export default function AssignmentSolvePage() {
 
   // ===== Новый тип задания: image-test =====
   if (a.type === 'image-test') {
-    const expectedUrl = a.imageTestReferenceKey
-      ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
-      : null;
-
-    const onCompare = async () => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-        setImgBusy(true);
-        setImgError('');
-        setImgCompare(null);
-        try {
-          const r = await compareImageTest(assignmentId, file);
-          setImgCompare(r);
-          if (r?.passed) notify.success('Совпадение достаточно высокое');
-          else notify.error('Совпадение ниже порога');
-        } catch (e) {
-          const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Не удалось сравнить картинку';
-          setImgError(msg);
-          notify.error(msg);
-        } finally {
-          setImgBusy(false);
-        }
-      };
-      input.click();
-    };
-    const onRunCode = async () => {
-      // Always enforce Python for image-test code execution. The back‑end
-      // only supports "python" and "pascal" for image‑test assignments. Since
-      // the UI is a Python editor, hardcode the language parameter to
-      // "python" to avoid backend validation errors ("Language must be python or pascal").
-      const execLang = 'python';
-
-      if (!code?.trim()) {
-        notify.error("Вставь код, который рисует картинку");
-        return;
-      }
-
-      setImgIsRunning(true);
-      setImgError('');
-      setImgCompare(null);
-      try {
-        const r = await compareImageTestCode(assignmentId, execLang, code, true);
-        setImgCompare(r);
-        if (r?.passed) notify.success('Совпадение достаточно высокое');
-        else notify.error('Совпадение ниже порога');
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Не удалось запустить код';
-        setImgError(msg);
-        notify.error(msg);
-      } finally {
-        setImgIsRunning(false);
-      }
-    };
-
     return (
-      <Layout>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
-              <ArrowLeft size={16} /> к заданиям курса
-            </Link>
-          </div>
-          <div className="flex items-center gap-2">
-            <IfEditor>
-              <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
-                Редактировать
-              </Link>
-            </IfEditor>
-          </div>
+      <div className="container mx-auto max-w-5xl px-4 py-6">
+        <div className="mb-4">
+          <h1 className="text-2xl font-semibold">{a.title}</h1>
+          {a.description ? (
+            <div className="prose max-w-none mt-2 whitespace-pre-wrap">{a.description}</div>
+          ) : null}
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-5">
-            <Card>
-              <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
-              {a.tags && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {a.tags
-                    .split(',')
-                    .filter(Boolean)
-                    .map((t) => (
-                      <Badge key={t.trim()}>{t.trim()}</Badge>
-                    ))}
-                </div>
-              )}
-              <StatementViewer value={a.description} />
-
-              <div className="mt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-semibold">Код для рисунка (Python)</div>
-                  <button
-                    className="text-xs px-3 py-1 rounded border hover:bg-slate-50"
-                    onClick={onRunCode}
-                    disabled={imgIsRunning}
-                    title="Запускает код в sandbox-контейнере, сохраняет PNG и сравнивает с эталоном">
-                    {imgIsRunning ? 'Запуск...' : 'Запустить и сравнить'}
-                  </button>
-                </div>
-                <CodeEditor
-                  language="python"
-                  value={code}
-                  onChange={(v) => setCode(v || '')}
-                  height={320}
-                />
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Настройки</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-sm text-muted-foreground">Язык</div>
+              <Select value={language} onValueChange={setLanguage}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Выберите язык" />
+                </SelectTrigger>
+                <SelectContent>
+                  {IMAGE_TEST_LANGS.map((x) => (
+                    <SelectItem key={x.value} value={x.value}>
+                      {x.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-muted-foreground">
+                Для задания с картинкой доступны только Python и Pascal.
               </div>
+            </div>
+          </CardContent>
+        </Card>
 
-            </Card>
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Эталон</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {a.imageTestReferenceKey ? (
+              <img
+                src={`/api/files/${a.imageTestReferenceKey}`}
+                alt="Эталонная картинка"
+                className="w-full rounded-lg border"
+              />
+            ) : (
+              <div className="text-sm text-muted-foreground">Эталонная картинка не задана</div>
+            )}
+          </CardContent>
+        </Card>
 
-            <Card>
-              <div className="font-medium mb-3">Эталонная картинка</div>
-              {!expectedUrl ? (
-                <div className="text-slate-500">Эталон не загружен. Сообщи преподавателю / редактору курса.</div>
-              ) : (
-                <img className="max-h-[520px] w-full object-contain rounded-xl border" src={expectedUrl} alt="Эталон" />
-              )}
-            </Card>
-          </div>
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Код</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Editor
+              height="520px"
+              language={language === 'pascal' ? 'pascal' : 'python'}
+              value={code}
+              onChange={(v) => setCode(v ?? '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                automaticLayout: true,
+              }}
+            />
+            <div className="mt-3 flex gap-2">
+              <Button onClick={onRunImageTest} disabled={submitting || !code?.trim()}>
+                {submitting ? 'Отправка...' : 'Отправить и сравнить'}
+              </Button>
+              <Button variant="secondary" onClick={() => navigate(-1)}>
+                Назад
+              </Button>
+            </div>
 
-          <div className="space-y-4">
-            <Card>
-              <div className="grid gap-3">
-                <div className="text-sm text-slate-600">
-                  Порог: <b>{typeof a.imageTestSimilarityThreshold === 'number' ? a.imageTestSimilarityThreshold : 90}%</b>
-                </div>
-                <Button className="w-full" onClick={onCompare} disabled={imgBusy || !expectedUrl}>
-                  {imgBusy ? 'Сравниваю…' : 'Загрузить картинку и сравнить'}
-                </Button>
-
-                {imgCompare && (
-                  <div className="rounded-xl border p-3">
-                    <div className="text-sm mb-2">
-                      Совпадение: <b>{Math.round((imgCompare.percent ?? 0) * 10) / 10}%</b>{' '}
-                      {imgCompare.passed ? (
-                        <span className="text-emerald-600">(OK)</span>
-                      ) : (
-                        <span className="text-red-600">(FAIL)</span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {imgCompare.expectedUrl && (
-                        <img className="h-40 w-full object-contain rounded-lg border" src={imgCompare.expectedUrl} alt="Эталон" />
-                      )}
-                      {imgCompare.actualUrl && (
-                        <img className="h-40 w-full object-contain rounded-lg border" src={imgCompare.actualUrl} alt="Ваша" />
-                      )}
-                    </div>
-
-                    {(imgCompare.stdout || imgCompare.stderr) && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-sm text-slate-600">Логи выполнения</summary>
-                        {imgCompare.stdout && (
-                          <div className="mt-2">
-                            <div className="text-xs text-slate-500 mb-1">stdout</div>
-                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2">{imgCompare.stdout}</pre>
-                          </div>
-                        )}
-                        {imgCompare.stderr && (
-                          <div className="mt-2">
-                            <div className="text-xs text-slate-500 mb-1">stderr</div>
-                            <pre className="whitespace-pre-wrap text-xs max-h-48 overflow-auto rounded border p-2 text-red-600">{imgCompare.stderr}</pre>
-                          </div>
-                        )}
-                      </details>
-                    )}
-                  </div>
-                )}
-
-                {imgError && <div className="text-sm text-red-600">{imgError}</div>}
-              </div>
-            </Card>
-          </div>
-        </div>
-      </Layout>
+            {error ? (
+              <div className="mt-3 text-sm text-red-600 whitespace-pre-wrap">{error}</div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
-  const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
+const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
   return (
     <Layout>

@@ -172,3 +172,70 @@ export default function AssignmentResultsPage() {
     </Layout>
   );
 }
+
+  const isImageTestResult =
+    res &&
+    (res.referenceUrl || res.submittedUrl || typeof res.similarityPercent === 'number' || typeof res.threshold === 'number');
+
+  if (isImageTestResult) {
+    const sim = Number(res?.similarityPercent ?? 0);
+    const thr = Number(res?.threshold ?? 0);
+    const passed = res?.passed === true;
+
+    return (
+      <div className="container mx-auto max-w-6xl px-4 py-6">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h1 className="text-2xl font-semibold">{a.title}</h1>
+            {a.description ? (
+              <div className="prose max-w-none mt-2 whitespace-pre-wrap">{a.description}</div>
+            ) : null}
+          </div>
+          <Button onClick={handleClose} variant="secondary">Вернуться назад</Button>
+        </div>
+
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Результат сравнения</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <div className="text-xl font-semibold">
+              Совпадение: {Number.isFinite(sim) ? sim.toFixed(2) : '0.00'}%
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Порог: {Number.isFinite(thr) ? thr.toFixed(2) : '0.00'}% • Статус: {passed ? 'Зачёт' : 'Не зачёт'}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Эталон</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {res.referenceUrl ? (
+                <img src={res.referenceUrl} alt="Эталон" className="w-full rounded-lg border" />
+              ) : (
+                <div className="text-sm text-muted-foreground">Нет ссылки на эталон</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Что получилось</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {res.submittedUrl ? (
+                <img src={res.submittedUrl} alt="Результат" className="w-full rounded-lg border" />
+              ) : (
+                <div className="text-sm text-muted-foreground">Нет ссылки на результат</div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
