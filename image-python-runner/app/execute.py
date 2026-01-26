@@ -86,15 +86,36 @@ def _try_capture_turtle_postscript(ps_path: Path) -> None:
     except Exception:
         pass
 
+    # Turtle/tkinter often uses a scrollregion centered around (0,0), e.g. "-210 -350 210 350".
+    # If we export with x=0,y=0 we may capture only a quadrant (and the drawing looks "cut").
+    # So we prefer exporting the full scrollregion when it's available.
+    x0 = 0
+    y0 = 0
+    pw = w
+    ph = h
+    try:
+        sr = str(canvas.cget('scrollregion') or '').strip()
+        parts = [float(p) for p in sr.split()] if sr else []
+        if len(parts) == 4:
+            sx0, sy0, sx1, sy1 = parts
+            if sx1 > sx0 and sy1 > sy0:
+                x0 = sx0
+                y0 = sy0
+                pw = sx1 - sx0
+                ph = sy1 - sy0
+                log(f"Canvas scrollregion: {sr} -> export x={x0} y={y0} w={pw} h={ph}")
+    except Exception as e:
+        log(f"Scrollregion parse failed (fallback to 0,0,w,h): {e}")
+
     canvas.postscript(
         file=str(ps_path),
         colormode='color',
-        x=0,
-        y=0,
-        width=w,
-        height=h,
-        pagewidth=w,
-        pageheight=h,
+        x=x0,
+        y=y0,
+        width=pw,
+        height=ph,
+        pagewidth=pw,
+        pageheight=ph,
     )
     log(f"PostScript saved: {ps_path}")
 
@@ -238,9 +259,12 @@ def main() -> int:
                 res = _orig_setup(self, width, height, startx, starty)
                 try:
                     # turtle allows width/height as fractions; we only enforce when ints
-                    w = int(width) if isinstance(width, (int,)) else None
-                    h = int(height) if isinstance(height, (int,)) else None
+                    w = int(width) if isinstance(width, int) else None
+                    h = int(height) if isinstance(height, int) else None
                     if w and h and hasattr(self, "cv") and self.cv is not None:
+                        # Force actual canvas size (headless Tk often ignores WM geometry).
+                        # Don't override scrollregion/world-coordinates here: turtle manages them,
+                        # and we export full scrollregion during capture.
                         self.cv.config(width=w, height=h)
                         try:
                             self.cv.update_idletasks()
