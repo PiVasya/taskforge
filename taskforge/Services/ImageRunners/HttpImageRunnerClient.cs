@@ -19,11 +19,7 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         _log = log;
     }
 
-    public async Task<byte[]?> RenderAsync(
-        string language,
-        string sourceCode,
-        string? correlationId = null,
-        CancellationToken ct = default)
+    public async Task<byte[]?> RenderAsync(string language, string sourceCode, CancellationToken ct = default)
     {
         var baseUrl = GetBaseUrl(language);
         var url = new Uri(new Uri(baseUrl), "/render");
@@ -33,15 +29,6 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
             Content = JsonContent.Create(BuildBody(language, sourceCode))
         };
 
-        if (!string.IsNullOrWhiteSpace(correlationId))
-        {
-            req.Headers.TryAddWithoutValidation("X-Correlation-Id", correlationId);
-        }
-
-        _log.LogInformation(
-            "[ImageRunner] -> POST {Url} lang={Lang} corr={Corr} codeChars={Chars}",
-            url, language, correlationId ?? "-", sourceCode?.Length ?? 0);
-
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         sw.Stop();
@@ -49,29 +36,22 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         if (!resp.IsSuccessStatusCode)
         {
             var err = await SafeReadBodyAsync(resp, ct);
-            _log.LogWarning(
-                "[ImageRunner] <- FAIL {Lang} {Status} in {Ms}ms corr={Corr}. Body: {Body}",
-                language, (int)resp.StatusCode, sw.ElapsedMilliseconds, correlationId ?? "-", Truncate(err));
+            _log.LogWarning("[ImageRunner] Render failed {Lang} {Status} in {Ms}ms. Body: {Body}",
+                language, (int)resp.StatusCode, sw.ElapsedMilliseconds, Truncate(err));
             return null;
         }
 
         var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
-        _log.LogInformation(
-            "[ImageRunner] <- OK {Lang} bytes={Bytes} in {Ms}ms corr={Corr}",
-            language, bytes.Length, sw.ElapsedMilliseconds, correlationId ?? "-");
+        _log.LogInformation("[ImageRunner] Render ok {Lang} bytes={Bytes} in {Ms}ms", language, bytes.Length, sw.ElapsedMilliseconds);
         return bytes;
     }
 
-    public async Task<ImageRunnerDebugResult> RenderDebugAsync(
-        string language,
-        string sourceCode,
-        string? correlationId = null,
-        CancellationToken ct = default)
+    public async Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, CancellationToken ct = default)
     {
         // Not all runners implement /render/debug.
         if (!string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
         {
-            var png = await RenderAsync(language, sourceCode, correlationId, ct);
+            var png = await RenderAsync(language, sourceCode, ct);
             return new ImageRunnerDebugResult
             {
                 Ok = png != null,
@@ -87,11 +67,6 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         {
             Content = JsonContent.Create(BuildBody(language, sourceCode))
         };
-
-        if (!string.IsNullOrWhiteSpace(correlationId))
-        {
-            req.Headers.TryAddWithoutValidation("X-Correlation-Id", correlationId);
-        }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
