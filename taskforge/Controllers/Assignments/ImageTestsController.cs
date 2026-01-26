@@ -14,6 +14,8 @@ namespace taskforge.Controllers.Assignments;
 
 [ApiController]
 [Route("api/assignments/{assignmentId:guid}/image-tests")]
+// Backward compatibility (older front builds used singular "image-test")
+[Route("api/assignments/{assignmentId:guid}/image-test")]
 [Authorize]
 public sealed class ImageTestsController : ControllerBase
 {
