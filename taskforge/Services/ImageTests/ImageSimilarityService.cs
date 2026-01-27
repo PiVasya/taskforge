@@ -127,14 +127,14 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         return new Scalar(b, g, r, a);
     }
 
-        private static Mat BuildContentMask(Mat bgra, Scalar bg)
+    private static Mat BuildContentMask(Mat bgra, Scalar bg)
     {
-        // Content = pixels that are not equal to background AND have alpha > 0 (for pngalpha renders).
-        // NOTE: Mat.Split() returns Mat[] (not IDisposable), so we use ExtractChannel.
+        // Content = pixels that are "far enough" from background AND have alpha > 0 (for pngalpha renders).
+        // Это важнее, чем точное сравнение цвета: небольшие шумы/сжатие не должны ломать маску.
 
+        // 1) alphaMask
         using var alpha = new Mat();
         alpha.Create(bgra.Rows, bgra.Cols, MatType.CV_8UC1);
-
         if (bgra.Channels() >= 4)
         {
             // Channel index 3 = alpha for BGRA.
@@ -146,15 +146,35 @@ public sealed class ImageSimilarityService : IImageSimilarityService
             alpha.SetTo(Scalar.All(255));
         }
 
-        using var bgMask = new Mat();
-        Cv2.InRange(bgra, bg, bg, bgMask); // 255 where exactly background
-
-        using var contentMask = new Mat();
-        Cv2.BitwiseNot(bgMask, contentMask); // 255 where NOT background
-
         using var alphaMask = new Mat();
         Cv2.Threshold(alpha, alphaMask, 0, 255, ThresholdTypes.Binary); // 255 where alpha > 0
 
+        // 2) contentMask by distance from background
+        using var bgr = new Mat();
+        if (bgra.Channels() == 4)
+        {
+            Cv2.CvtColor(bgra, bgr, ColorConversionCodes.BGRA2BGR);
+        }
+        else if (bgra.Channels() == 3)
+        {
+            bgra.CopyTo(bgr);
+        }
+        else
+        {
+            // На всякий: если вдруг пришёл grayscale.
+            Cv2.CvtColor(bgra, bgr, ColorConversionCodes.GRAY2BGR);
+        }
+
+        using var diff = new Mat();
+        Cv2.Absdiff(bgr, new Scalar(bg.Val0, bg.Val1, bg.Val2), diff);
+
+        using var diffGray = new Mat();
+        Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGR2GRAY);
+
+        using var contentMask = new Mat();
+        Cv2.Threshold(diffGray, contentMask, ContentDiffThreshold, 255, ThresholdTypes.Binary);
+
+        // 3) combined
         using var combined = new Mat();
         Cv2.BitwiseAnd(contentMask, alphaMask, combined);
 
@@ -167,7 +187,7 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         return combined.Clone();
     }
 
-private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
+    private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
     {
         // ORB работает в градациях серого.
         using var refGray = new Mat();

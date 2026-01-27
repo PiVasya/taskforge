@@ -9,11 +9,21 @@ RUN dotnet publish -c Release -o /out -r linux-x64 --self-contained false --no-r
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-jammy
 WORKDIR /app
 
-# OpenCvSharpExtern from NuGet is linked against libtesseract.so.4 on linux-x64.
-# Install runtime deps inside the container.
+# OpenCvSharpExtern + OpenCV libs из NuGet требуют системные зависимости.
+# Минимум: libtesseract + базовые X/GL/GLib либы, которые в aspnet-образе часто отсутствуют.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libtesseract4 \
+    && apt-get install -y --no-install-recommends \
+        libtesseract4 \
+        liblept5 \
+        libglib2.0-0 \
+        libsm6 \
+        libxrender1 \
+        libxext6 \
+        libgl1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Чтобы загрузчик находил зависимости OpenCV, лежащие рядом с OpenCvSharpExtern.so.
+ENV LD_LIBRARY_PATH=/app/runtimes/linux-x64/native:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
 
 COPY --from=build /out ./
 ENV ASPNETCORE_URLS=http://+:8080
