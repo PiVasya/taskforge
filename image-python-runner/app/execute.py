@@ -33,39 +33,210 @@ def _dump_dir(p: Path, title: str) -> None:
         log(f"{title}: dump failed: {e}")
 
 
-def _try_capture_turtle_postscript(ps_path: Path) -> None:
-    """Try to capture turtle canvas into PostScript."""
+def _safe_int(v, default: int) -> int:
+    try:
+        x = int(float(v))
+        return x if x > 0 else default
+    except Exception:
+        return default
+
+
+def _parse_ps_bounding_box(ps_path: Path) -> tuple[int, int] | None:
+    """
+    Parse %%BoundingBox: llx lly urx ury from PS/EPS.
+    Returns (width_points, height_points) in PostScript points (1/72 inch) or None.
+    """
+    try:
+        with ps_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for _ in range(200):  # header should be early
+                line = f.readline()
+                if not line:
+                    break
+                if line.startswith("%%BoundingBox:"):
+                    parts = line.strip().split()
+                    # format: %%BoundingBox: llx lly urx ury
+                    if len(parts) >= 5:
+                        llx = _safe_int(parts[1], 0)
+                        lly = _safe_int(parts[2], 0)
+                        urx = _safe_int(parts[3], 0)
+                        ury = _safe_int(parts[4], 0)
+                        w = max(0, urx - llx)
+                        h = max(0, ury - lly)
+                        if w > 0 and h > 0:
+                            return (w, h)
+                    break
+    except Exception as e:
+        log(f"WARNING: failed to parse BoundingBox: {e}")
+    return None
+
+
+def _normalize_bg_color(bg) -> tuple[int, int, int]:
+    """
+    Turtle screen.bgcolor() may return:
+      - a color name string ("navy")
+      - a hex string ("#112233")
+      - an (r,g,b) tuple in 0..1 floats OR 0..255 ints
+    Convert to (R,G,B) ints 0..255.
+    """
+    # Import here to avoid dependency if never used
+    from PIL import ImageColor
+
+    if bg is None:
+        return (255, 255, 255)
+
+    if isinstance(bg, str):
+        try:
+            return ImageColor.getrgb(bg)
+        except Exception:
+            return (255, 255, 255)
+
+    if isinstance(bg, (tuple, list)) and len(bg) >= 3:
+        r, g, b = bg[0], bg[1], bg[2]
+        try:
+            rf = float(r)
+            gf = float(g)
+            bf = float(b)
+            # 0..1 floats
+            if 0.0 <= rf <= 1.0 and 0.0 <= gf <= 1.0 and 0.0 <= bf <= 1.0:
+                return (int(rf * 255), int(gf * 255), int(bf * 255))
+            # assume 0..255
+            return (int(rf), int(gf), int(bf))
+        except Exception:
+            return (255, 255, 255)
+
+    return (255, 255, 255)
+
+
+def _bake_background_if_needed(out_png: Path, bg_color, target_size: tuple[int, int] | None) -> None:
+    """
+    If PNG has alpha, composite onto background color to avoid transparent background in UI.
+    Also optionally resize to exact target_size.
+    """
+    keep_alpha = os.getenv("TF_KEEP_ALPHA", "").strip() in ("1", "true", "True", "YES", "yes")
+    if keep_alpha:
+        log("TF_KEEP_ALPHA=1 -> keep transparency (skip background bake)")
+        return
+
+    from PIL import Image
+
+    img = Image.open(out_png)
+    try:
+        # Resize first (keeps crispness more consistent after crop)
+        if target_size and img.size != target_size:
+            log(f"Resizing PNG from {img.size} -> {target_size}")
+            img = img.resize(target_size, Image.Resampling.LANCZOS)
+
+        if img.mode in ("RGBA", "LA") or ("A" in img.getbands()):
+            rgb = _normalize_bg_color(bg_color)
+            log(f"Baking background color {bg_color} -> RGB{rgb}")
+            base = Image.new("RGBA", img.size, rgb + (255,))
+            # Ensure RGBA for alpha_composite
+            img_rgba = img.convert("RGBA")
+            out = Image.alpha_composite(base, img_rgba).convert("RGB")
+            out.save(out_png, format="PNG", optimize=True)
+            log("Background baked (saved RGB PNG, no alpha).")
+        else:
+            # No alpha; only resize may have happened
+            if target_size and img.size == target_size:
+                img.save(out_png, format="PNG", optimize=True)
+                log("Saved PNG after resize (no alpha).")
+    finally:
+        try:
+            img.close()
+        except Exception:
+            pass
+
+
+def _try_capture_turtle_postscript(ps_path: Path) -> tuple[int, int, object]:
+    """Try to capture turtle canvas into PostScript. Returns (canvas_w_px, canvas_h_px, bgcolor)."""
     import turtle as t
 
     log("Capturing turtle canvas -> PostScript")
     # Force pending drawing operations.
+    bg = None
     try:
         scr = t.Screen()
+        try:
+            bg = scr.bgcolor()
+        except Exception:
+            bg = None
         # Some code disables tracer; update() forces drawing.
         scr.update()
     except Exception as e:
         log(f"Screen() / update() failed (still trying capture): {e}")
 
-    # turtle.getcanvas() exists on tkinter backend.
     canvas = t.getcanvas()
     ps_path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.postscript(file=str(ps_path), colormode='color')
+
+    # Try to get actual canvas dimensions
+    try:
+        canvas.update_idletasks()
+    except Exception:
+        pass
+
+    cw = _safe_int(getattr(canvas, "winfo_width", lambda: 0)(), 0)
+    ch = _safe_int(getattr(canvas, "winfo_height", lambda: 0)(), 0)
+
+    # cget('width')/'height' often more stable in headless
+    try:
+        cw_opt = _safe_int(canvas.cget("width"), 0)
+        ch_opt = _safe_int(canvas.cget("height"), 0)
+        if cw_opt > 0 and ch_opt > 0:
+            cw, ch = cw_opt, ch_opt
+    except Exception:
+        pass
+
+    # Final fallback
+    if cw <= 1:
+        cw = 800
+    if ch <= 1:
+        ch = 600
+
+    log(f"Canvas size detected: {cw}x{ch}px (bg={bg})")
+
+    # Export EXACT region of the canvas to avoid A4/Letter "page" padding/shrinking.
+    canvas.postscript(
+        file=str(ps_path),
+        colormode="color",
+        x=0,
+        y=0,
+        width=cw,
+        height=ch,
+    )
     log(f"PostScript saved: {ps_path}")
+    return cw, ch, bg
 
 
-def _convert_ps_to_png(ps_path: Path, out_png: Path) -> None:
+def _convert_ps_to_png(ps_path: Path, out_png: Path, target_px: tuple[int, int] | None) -> None:
     """Convert PostScript to PNG using Ghostscript (more reliable in Docker)."""
     log("Converting PostScript -> PNG (ghostscript)")
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # 144 dpi gives decent quality without being huge.
+    # Compute DPI from BoundingBox so the raster result matches canvas px closely.
+    dpi = 144.0
+    bbox = _parse_ps_bounding_box(ps_path)
+    if bbox and target_px:
+        w_pt, h_pt = bbox
+        tw, th = target_px
+        # points -> inches: pt/72 ; pixels = inches * dpi  => dpi = pixels * 72 / pt
+        try:
+            dpi_x = (tw * 72.0) / float(w_pt)
+            dpi_y = (th * 72.0) / float(h_pt)
+            # If aspect ratio matches, dpi_x≈dpi_y. Use average, clamp sane range.
+            dpi = max(36.0, min(600.0, (dpi_x + dpi_y) / 2.0))
+            log(f"BoundingBox pt={w_pt}x{h_pt}, target px={tw}x{th} -> dpi≈{dpi:.2f}")
+        except Exception as e:
+            log(f"WARNING: DPI calc failed: {e} (using default 144)")
+
+    # -dEPSCrop is critical: it crops to BoundingBox to avoid huge page and "shrink" effect.
     cmd = [
         "gs",
         "-dSAFER",
         "-dBATCH",
         "-dNOPAUSE",
+        "-dEPSCrop",
         "-sDEVICE=pngalpha",
-        "-r144",
+        f"-r{dpi:.2f}",
         f"-sOutputFile={str(out_png)}",
         str(ps_path),
     ]
@@ -89,7 +260,7 @@ def main() -> int:
 
     user_path = Path(sys.argv[1]).resolve()
     out_png = Path(sys.argv[2]).resolve()
-    ps_path = out_png.with_suffix('.ps')
+    ps_path = out_png.with_suffix(".ps")
 
     _dump_dir(out_png.parent, "INIT")
     log(f"User file: {user_path}")
@@ -158,7 +329,6 @@ def main() -> int:
             log(f"Copied OK. bytes={out_png.stat().st_size} -> skip turtle capture")
             return 0
         log("No /tmp/out.png (or empty).")
-
     except Exception as e:
         log(f"WARNING: checking/copying /tmp/out.png failed: {e} (continuing)")
 
@@ -167,7 +337,8 @@ def main() -> int:
 
     # Capture.
     try:
-        _try_capture_turtle_postscript(ps_path)
+        cw, ch, bg = _try_capture_turtle_postscript(ps_path)
+        target_px = (cw, ch)
     except Exception:
         log("ERROR: failed to capture turtle canvas")
         print(traceback.format_exc(), flush=True)
@@ -177,13 +348,22 @@ def main() -> int:
 
     # Convert.
     try:
-        _convert_ps_to_png(ps_path, out_png)
+        _convert_ps_to_png(ps_path, out_png, target_px=target_px)
     except Exception:
         log("ERROR: failed to convert PS -> PNG")
         print(traceback.format_exc(), flush=True)
         return 1
 
     _dump_dir(out_png.parent, "AFTER_CONVERT_PNG")
+
+    # Bake background (fix "bgcolor lost") + ensure exact size.
+    try:
+        _bake_background_if_needed(out_png, bg_color=bg, target_size=target_px)
+    except Exception:
+        log("WARNING: background bake failed (keeping original PNG)")
+        print(traceback.format_exc(), flush=True)
+
+    _dump_dir(out_png.parent, "AFTER_BAKE_BG")
 
     # Try to close turtle window cleanly.
     try:
