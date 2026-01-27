@@ -63,7 +63,81 @@ class RenderRequest(BaseModel):
     # User python code.
     code: str = Field(min_length=1)
     # Hard timeout in seconds.
-    timeoutSeconds: int = Field(default=5, ge=1, le=30)
+    # NOTE: turtle drawing can be slow in headless; keep the default a bit higher.
+    # Can be overridden via request body or TF_PY_TIMEOUT_DEFAULT env var.
+    timeoutSeconds: int = Field(default=int(os.environ.get("TF_PY_TIMEOUT_DEFAULT", "15")), ge=1, le=120)
+
+
+def _tail(s: str, max_chars: int) -> str:
+    if not s:
+        return ""
+    return s if len(s) <= max_chars else ("…" + s[-max_chars:])
+
+
+def _run_subprocess(run_id: str, cmd: list[str], cwd: str, env: dict, timeout_seconds: int) -> tuple[int | None, str, str, bool]:
+    """Run child process and always capture stdout/stderr.
+
+    Why not subprocess.run(capture_output=True)?
+    - We want partial stdout/stderr on timeouts.
+    - We want to log tails to container logs in a consistent way.
+
+    Returns: (exit_code, stdout, stderr, timed_out)
+    """
+
+    p = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        out, err = p.communicate(timeout=timeout_seconds)
+        return p.returncode, out or "", err or "", False
+    except subprocess.TimeoutExpired:
+        logger.warning("run_id=%s timeout after %ss (terminating)", run_id, timeout_seconds)
+        # Try graceful terminate, then kill.
+        try:
+            p.terminate()
+        except Exception:
+            pass
+        try:
+            out, err = p.communicate(timeout=1)
+        except Exception:
+            out, err = "", ""
+        try:
+            p.kill()
+        except Exception:
+            pass
+        try:
+            out2, err2 = p.communicate(timeout=1)
+            out = (out or "") + (out2 or "")
+            err = (err or "") + (err2 or "")
+        except Exception:
+            pass
+        return None, out or "", err or "", True
+
+
+def _log_child_output(run_id: str, out: str, err: str, *, success: bool) -> None:
+    """Log child stdout/stderr into container logs.
+
+    - On failure/timeout: always log tails.
+    - On success: log only if TF_LOG_CHILD_OUTPUT_ALWAYS=1.
+    """
+    always = os.environ.get("TF_LOG_CHILD_OUTPUT_ALWAYS", "").strip().lower() in ("1", "true", "yes")
+    if success and not always:
+        return
+
+    max_chars = int(os.environ.get("TF_CHILD_LOG_TAIL_CHARS", "4000"))
+    o = _tail(out.strip(), max_chars)
+    e = _tail(err.strip(), max_chars)
+
+    if o:
+        (logger.info if success else logger.warning)("run_id=%s child stdout (tail):\n%s", run_id, o)
+    if e:
+        (logger.info if success else logger.warning)("run_id=%s child stderr (tail):\n%s", run_id, e)
 
 
 @app.get("/health")
@@ -118,51 +192,42 @@ def render(req: RenderRequest):
             _runner_env(run_id).get("PYTHONPATH"),
         )
 
-        try:
-            p = subprocess.run(
-                cmd,
-                cwd=str(tdir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=req.timeoutSeconds,
-                check=False,
-                env=_runner_env(run_id),
-            )
-        except subprocess.TimeoutExpired:
-            logger.warning("run_id=%s timeout after %ss", run_id, req.timeoutSeconds)
-            raise HTTPException(408, "Execution timed out")
+        env = _runner_env(run_id)
+        exit_code, out, err, timed_out = _run_subprocess(run_id, cmd, str(tdir), env, req.timeoutSeconds)
+        logger.info(
+            "run_id=%s runner done exitCode=%s timedOut=%s stdoutLen=%s stderrLen=%s",
+            run_id,
+            exit_code,
+            timed_out,
+            len(out),
+            len(err),
+        )
 
-        logger.info("run_id=%s runner exitCode=%s stdoutLen=%s stderrLen=%s", run_id, p.returncode, len(p.stdout), len(p.stderr))
+        if timed_out:
+            _dump_tempdir(run_id, tdir, "TIMEOUT")
+            _log_child_output(run_id, out, err, success=False)
+            raise HTTPException(408, {"message": "Execution timed out", "runId": run_id, "stdout": _tail(out, 4000), "stderr": _tail(err, 4000)})
 
-        if p.returncode != 0:
-            err = p.stderr.decode("utf-8", errors="replace")
-            out = p.stdout.decode("utf-8", errors="replace")
+        if exit_code != 0:
             _dump_tempdir(run_id, tdir, "FAIL")
-            logger.warning("run_id=%s execution failed", run_id)
-            raise HTTPException(
-                400,
-                {
-                    "message": "Execution failed",
-                    "runId": run_id,
-                    "stdout": out[-4000:],
-                    "stderr": err[-4000:],
-                },
-            )
+            _log_child_output(run_id, out, err, success=False)
+            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": _tail(out, 4000), "stderr": _tail(err, 4000)})
 
         if not out_png.exists() or out_png.stat().st_size == 0:
-            err = p.stderr.decode("utf-8", errors="replace")
-            out = p.stdout.decode("utf-8", errors="replace")
             _dump_tempdir(run_id, tdir, "NO_PNG")
-            logger.warning("run_id=%s no image produced", run_id)
+            _log_child_output(run_id, out, err, success=False)
             raise HTTPException(
                 400,
                 {
                     "message": "No image produced. Create 'out.png' in the current working directory or draw with turtle.",
                     "runId": run_id,
-                    "stdout": out[-2000:],
-                    "stderr": err[-2000:],
+                    "stdout": _tail(out, 2000),
+                    "stderr": _tail(err, 2000),
                 },
             )
+
+        # On success we log child stdout/stderr only if TF_LOG_CHILD_OUTPUT_ALWAYS=1.
+        _log_child_output(run_id, out, err, success=True)
 
         logger.info("run_id=%s ok imageBytes=%s elapsedMs=%s", run_id, out_png.stat().st_size, int((time.time()-t0)*1000))
         return FileResponse(path=str(out_png), media_type="image/png", filename="out.png")
@@ -197,23 +262,26 @@ def render_base64(req: RenderRequest):
             str(tdir),
             _runner_env(run_id).get("PYTHONPATH"),
         )
-        try:
-            p = subprocess.run(
-                cmd,
-                cwd=str(tdir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=req.timeoutSeconds,
-                check=False,
-                env=_runner_env(run_id),
-            )
-        except subprocess.TimeoutExpired:
-            raise HTTPException(408, "Execution timed out")
-        if p.returncode != 0 or not out_png.exists() or out_png.stat().st_size == 0:
-            err = p.stderr.decode("utf-8", errors="replace")
-            out = p.stdout.decode("utf-8", errors="replace")
+        env = _runner_env(run_id)
+        exit_code, out, err, timed_out = _run_subprocess(run_id, cmd, str(tdir), env, req.timeoutSeconds)
+        logger.info(
+            "run_id=%s runner done exitCode=%s timedOut=%s stdoutLen=%s stderrLen=%s",
+            run_id,
+            exit_code,
+            timed_out,
+            len(out),
+            len(err),
+        )
+
+        if timed_out:
+            _dump_tempdir(run_id, tdir, "TIMEOUT")
+            _log_child_output(run_id, out, err, success=False)
+            raise HTTPException(408, {"message": "Execution timed out", "runId": run_id, "stdout": _tail(out, 4000), "stderr": _tail(err, 4000)})
+
+        if exit_code != 0 or not out_png.exists() or out_png.stat().st_size == 0:
             _dump_tempdir(run_id, tdir, "FAIL")
-            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": out[-2000:], "stderr": err[-2000:]})
+            _log_child_output(run_id, out, err, success=False)
+            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": _tail(out, 4000), "stderr": _tail(err, 4000)})
         b = out_png.read_bytes()
         return RenderBase64Response(pngBase64=base64.b64encode(b).decode("ascii"))
 
@@ -237,25 +305,26 @@ def render_debug(req: RenderRequest):
             str(tdir),
             _runner_env(run_id).get("PYTHONPATH"),
         )
-        try:
-            p = subprocess.run(
-                cmd,
-                cwd=str(tdir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=req.timeoutSeconds,
-                check=False,
-                env=_runner_env(run_id),
-            )
-        except subprocess.TimeoutExpired:
-            raise HTTPException(408, "Execution timed out")
+        env = _runner_env(run_id)
+        exit_code, out, err, timed_out = _run_subprocess(run_id, cmd, str(tdir), env, req.timeoutSeconds)
+        logger.info(
+            "run_id=%s runner done exitCode=%s timedOut=%s stdoutLen=%s stderrLen=%s",
+            run_id,
+            exit_code,
+            timed_out,
+            len(out),
+            len(err),
+        )
 
-        out = p.stdout.decode("utf-8", errors="replace")
-        err = p.stderr.decode("utf-8", errors="replace")
+        if timed_out:
+            _dump_tempdir(run_id, tdir, "TIMEOUT")
+            _log_child_output(run_id, out, err, success=False)
+            raise HTTPException(408, {"message": "Execution timed out", "runId": run_id, "stdout": _tail(out, 4000), "stderr": _tail(err, 4000)})
 
-        if p.returncode != 0 or not out_png.exists() or out_png.stat().st_size == 0:
+        if exit_code != 0 or not out_png.exists() or out_png.stat().st_size == 0:
             _dump_tempdir(run_id, tdir, "FAIL")
-            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": out[-4000:], "stderr": err[-4000:]})
+            _log_child_output(run_id, out, err, success=False)
+            raise HTTPException(400, {"message": "Execution failed", "runId": run_id, "stdout": _tail(out, 4000), "stderr": _tail(err, 4000)})
 
         b = out_png.read_bytes()
         return RenderDebugResponse(
