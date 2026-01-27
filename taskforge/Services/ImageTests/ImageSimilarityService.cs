@@ -127,50 +127,47 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         return new Scalar(b, g, r, a);
     }
 
-    private static Mat BuildContentMask(Mat bgra, Scalar bg)
+        private static Mat BuildContentMask(Mat bgra, Scalar bg)
     {
-        // mask = (alpha > 20) OR (цвет далеко от bg)
-        var mask = new Mat(bgra.Rows, bgra.Cols, MatType.CV_8UC1, Scalar.All(0));
+        // Content = pixels that are not equal to background AND have alpha > 0 (for pngalpha renders).
+        // NOTE: Mat.Split() returns Mat[] (not IDisposable), so we use ExtractChannel.
 
-        // Если альфа есть и фон реально прозрачный — считаем контентом всё, где alpha > 20.
-        // Но в твоём кейсе фон сейчас запечён (navy), поэтому второе условие тоже важно.
-        using var channels = bgra.Split();
-        using var alpha = channels.Length >= 4 ? channels[3] : null;
+        using var alpha = new Mat();
+        alpha.Create(bgra.Rows, bgra.Cols, MatType.CV_8UC1);
 
-        if (alpha != null)
+        if (bgra.Channels() >= 4)
         {
-            using var alphaMask = new Mat();
-            Cv2.Threshold(alpha, alphaMask, 20, 255, ThresholdTypes.Binary);
-            alphaMask.CopyTo(mask);
+            // Channel index 3 = alpha for BGRA.
+            Cv2.ExtractChannel(bgra, alpha, 3);
+        }
+        else
+        {
+            // No alpha channel -> treat as fully opaque.
+            alpha.SetTo(Scalar.All(255));
         }
 
-        // |BGR - bgBGR| > threshold
-        // Делаем разницу по 3 каналам и сводим.
-        using var bgr = new Mat();
-        Cv2.CvtColor(bgra, bgr, ColorConversionCodes.BGRA2BGR);
+        using var bgMask = new Mat();
+        Cv2.InRange(bgra, bg, bg, bgMask); // 255 where exactly background
 
-        using var bgMat = new Mat(bgr.Size(), bgr.Type(), new Scalar(bg.Val0, bg.Val1, bg.Val2));
-        using var diff = new Mat();
-        Cv2.Absdiff(bgr, bgMat, diff);
+        using var contentMask = new Mat();
+        Cv2.BitwiseNot(bgMask, contentMask); // 255 where NOT background
 
-        using var diffGray = new Mat();
-        Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGR2GRAY);
+        using var alphaMask = new Mat();
+        Cv2.Threshold(alpha, alphaMask, 0, 255, ThresholdTypes.Binary); // 255 where alpha > 0
 
-        using var diffMask = new Mat();
-        Cv2.Threshold(diffGray, diffMask, ContentDiffThreshold, 255, ThresholdTypes.Binary);
+        using var combined = new Mat();
+        Cv2.BitwiseAnd(contentMask, alphaMask, combined);
 
-        // mask = mask OR diffMask
-        Cv2.BitwiseOr(mask, diffMask, mask);
+        // Light clean-up to reduce noise.
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
+        Cv2.MorphologyEx(combined, combined, MorphTypes.Open, kernel);
+        Cv2.MorphologyEx(combined, combined, MorphTypes.Close, kernel);
 
-        // Чуть чистим мелкий шум.
-        using var k = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
-        Cv2.MorphologyEx(mask, mask, MorphTypes.Open, k);
-        Cv2.MorphologyEx(mask, mask, MorphTypes.Close, k);
-
-        return mask;
+        // Caller owns the result.
+        return combined.Clone();
     }
 
-    private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
+private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
     {
         // ORB работает в градациях серого.
         using var refGray = new Mat();
@@ -178,29 +175,33 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         Cv2.CvtColor(refBgra, refGray, ColorConversionCodes.BGRA2GRAY);
         Cv2.CvtColor(actBgra, actGray, ColorConversionCodes.BGRA2GRAY);
 
-        // ORB
+        // ORB (feature matching)
         using var orb = ORB.Create(
-            nfeatures: 2500,
-            scaleFactor: 1.2f,
-            nlevels: 8,
-            edgeThreshold: 31,
-            firstLevel: 0,
-            WTA_K: 2,
-            scoreType: ORBScoreType.Harris,
-            patchSize: 31,
-            fastThreshold: 15);
+            2500,   // nFeatures
+            1.2f,   // scaleFactor
+            8,      // nLevels
+            31,     // edgeThreshold
+            0,      // firstLevel
+            2,      // WTA_K
+            ORBScoreType.Harris,
+            31,     // patchSize
+            15      // fastThreshold
+        );
 
-        orb.DetectAndCompute(refGray, refMask, out var kp1, out var des1);
-        orb.DetectAndCompute(actGray, actMask, out var kp2, out var des2);
+        KeyPoint[] kp1;
+        KeyPoint[] kp2;
+        using var des1 = new Mat();
+        using var des2 = new Mat();
 
-        using var _des1 = des1;
-        using var _des2 = des2;
+        // NOTE: In OpenCvSharp, DetectAndCompute may take descriptors as Mat (not 'out') depending on version.
+        orb.DetectAndCompute(refGray, refMask, out kp1, des1);
+        orb.DetectAndCompute(actGray, actMask, out kp2, des2);
 
-        if (_des1.Empty() || _des2.Empty() || kp1.Length == 0 || kp2.Length == 0)
+        if (des1.Empty() || des2.Empty() || kp1.Length == 0 || kp2.Length == 0)
             return null;
 
-        using var bf = new BFMatcher(NormTypes.Hamming, crossCheck: false);
-        var knn = bf.KnnMatch(_des1, _des2, k: 2);
+        using var bf = new BFMatcher(NormTypes.Hamming, false);
+        var knn = bf.KnnMatch(des1, des2, 2);
 
         var good = new List<DMatch>(512);
         foreach (var pair in knn)
@@ -224,7 +225,9 @@ public sealed class ImageSimilarityService : IImageSimilarityService
             src[i] = kp2[m.TrainIdx].Pt;
         }
 
-        using var H = Cv2.FindHomography(src, dst, HomographyMethods.Ransac, ransacReprojThreshold: 3.0);
+        using var srcArr = InputArray.Create(src);
+        using var dstArr = InputArray.Create(dst);
+        using var H = Cv2.FindHomography(srcArr, dstArr, HomographyMethods.Ransac, 3.0);
         if (H.Empty())
             return null;
 
@@ -235,9 +238,9 @@ public sealed class ImageSimilarityService : IImageSimilarityService
             warped,
             H,
             new Size(refBgra.Width, refBgra.Height),
-            flags: InterpolationFlags.Linear,
-            borderMode: BorderTypes.Constant,
-            borderValue: bg);
+            InterpolationFlags.Linear,
+            BorderTypes.Constant,
+            bg);
 
         return warped;
     }
