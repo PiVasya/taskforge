@@ -129,65 +129,54 @@ public sealed class ImageSimilarityService : IImageSimilarityService
 
     private static Mat BuildContentMask(Mat bgra, Scalar bg)
     {
-        // Content = pixels that are "far enough" from background AND have alpha > 0 (for pngalpha renders).
-        // Это важнее, чем точное сравнение цвета: небольшие шумы/сжатие не должны ломать маску.
+        // Build a mask of "content" pixels: those that differ sufficiently from the estimated
+        // background colour and are at least partially opaque. Using an absolute difference
+        // instead of exact equality makes the mask tolerant to minor JPEG artefacts or
+        // rendering noise.
 
-        // 1) alphaMask
+        // Compute absolute difference between each pixel and the background colour.
+        using var bgMat = new Mat(bgra.Size(), bgra.Type(), bg);
+        using var diff = new Mat();
+        Cv2.Absdiff(bgra, bgMat, diff);
+
+        // Convert the difference to grayscale so we can threshold on a single channel.
+        using var diffGray = new Mat();
+        Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGRA2GRAY);
+
+        // Threshold the grayscale difference: pixels with a value greater than
+        // ContentDiffThreshold are considered part of the content. Everything else is
+        // considered background.
+        using var contentMask = new Mat();
+        Cv2.Threshold(diffGray, contentMask, ContentDiffThreshold, 255, ThresholdTypes.Binary);
+
+        // Build an alpha mask (255 where alpha > 0) so we can exclude fully transparent pixels.
         using var alpha = new Mat();
-        alpha.Create(bgra.Rows, bgra.Cols, MatType.CV_8UC1);
         if (bgra.Channels() >= 4)
         {
-            // Channel index 3 = alpha for BGRA.
             Cv2.ExtractChannel(bgra, alpha, 3);
         }
         else
         {
-            // No alpha channel -> treat as fully opaque.
+            alpha.Create(bgra.Rows, bgra.Cols, MatType.CV_8UC1);
             alpha.SetTo(Scalar.All(255));
         }
-
         using var alphaMask = new Mat();
-        Cv2.Threshold(alpha, alphaMask, 0, 255, ThresholdTypes.Binary); // 255 where alpha > 0
+        Cv2.Threshold(alpha, alphaMask, 0, 255, ThresholdTypes.Binary);
 
-        // 2) contentMask by distance from background
-        using var bgr = new Mat();
-        if (bgra.Channels() == 4)
-        {
-            Cv2.CvtColor(bgra, bgr, ColorConversionCodes.BGRA2BGR);
-        }
-        else if (bgra.Channels() == 3)
-        {
-            bgra.CopyTo(bgr);
-        }
-        else
-        {
-            // На всякий: если вдруг пришёл grayscale.
-            Cv2.CvtColor(bgra, bgr, ColorConversionCodes.GRAY2BGR);
-        }
-
-        using var diff = new Mat();
-        Cv2.Absdiff(bgr, new Scalar(bg.Val0, bg.Val1, bg.Val2), diff);
-
-        using var diffGray = new Mat();
-        Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGR2GRAY);
-
-        using var contentMask = new Mat();
-        Cv2.Threshold(diffGray, contentMask, ContentDiffThreshold, 255, ThresholdTypes.Binary);
-
-        // 3) combined
+        // Combine the content mask with the alpha mask: only pixels that are both
+        // sufficiently different from the background and have alpha > 0 remain.
         using var combined = new Mat();
         Cv2.BitwiseAnd(contentMask, alphaMask, combined);
 
-        // Light clean-up to reduce noise.
+        // Light clean-up to reduce speckle noise: a small opening followed by closing.
         using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
         Cv2.MorphologyEx(combined, combined, MorphTypes.Open, kernel);
         Cv2.MorphologyEx(combined, combined, MorphTypes.Close, kernel);
 
-        // Caller owns the result.
         return combined.Clone();
     }
 
-    private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
+private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
     {
         // ORB работает в градациях серого.
         using var refGray = new Mat();
