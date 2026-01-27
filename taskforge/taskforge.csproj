@@ -28,6 +28,10 @@
 
   <!-- Image compare for image-test -->
   <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+
+  <!-- Image alignment + feature matching (ORB) for image-test -->
+  <PackageReference Include="OpenCvSharp4" Version="4.10.0.20240616" />
+  <PackageReference Include="OpenCvSharp4.runtime.linux-x64" Version="4.10.0.20240616" />
 </ItemGroup>
 
 
