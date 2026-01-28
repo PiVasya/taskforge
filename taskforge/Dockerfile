@@ -15,8 +15,14 @@ RUN apt-get update \
         liblept5 \
         libglib2.0-0 \
         libgl1 \
+        # OpenCvSharp (HighGUI) may require GTK at runtime (libgtk-x11-2.0.so.0).
+        libgtk2.0-0 \
     && ln -sf /usr/lib/x86_64-linux-gnu/libtesseract.so.5 /usr/lib/x86_64-linux-gnu/libtesseract.so.4 \
     && rm -rf /var/lib/apt/lists/*
+
+# Ensure OpenCvSharp native libraries are discoverable at runtime.
+# The NuGet runtime package puts them under /app/runtimes/linux-x64/native.
+ENV LD_LIBRARY_PATH="/app:/app/runtimes/linux-x64/native:${LD_LIBRARY_PATH}"
 
 COPY --from=build /out ./
 ENV ASPNETCORE_URLS=http://+:8080
