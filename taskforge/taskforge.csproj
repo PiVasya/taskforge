@@ -44,7 +44,16 @@
     so requesting 4.11.* leads to restore/build instability and/or runtime loader issues.
   -->
   <PackageReference Include="OpenCvSharp4" Version="4.8.0.20230708" />
-  <PackageReference Include="Sdcb.OpenCvSharp4.mini.runtime.debian.12-x64" Version="4.8.0.20231125" />
+
+  <!--
+    IMPORTANT:
+    We MUST ship a native runtime that includes the OpenCV "features2d" module.
+    The "mini" runtimes intentionally exclude some modules and caused runtime crash:
+      EntryPointNotFoundException: features2d_ORB_create
+
+    Use the full Debian 12 runtime instead.
+  -->
+  <PackageReference Include="Sdcb.OpenCvSharp4.runtime.debian.12-x64" Version="4.8.0.20231125" />
 
 </ItemGroup>
 
