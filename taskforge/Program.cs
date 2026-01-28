@@ -232,6 +232,20 @@ app.Use(async (ctx, next) =>
         ctx.Response.StatusCode = StatusCodes.Status409Conflict;
         await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт сохранения данных", detail = ex.Message });
     }
+    catch (Exception ex)
+    {
+        // ВАЖНО: иначе редкие нативные падения (OpenCV / ImageMagick и т.п.) уходят в "Unhandled" и рвут запрос.
+        // Логи делаем максимально подробными, чтобы потом можно было воспроизвести.
+        var trace = ctx.TraceIdentifier;
+        Console.WriteLine($"[Unhandled] trace={trace} {ex.GetType().Name}: {ex.Message}\n{ex}");
+        ctx.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Unhandled")
+            .LogError(ex, "Unhandled exception trace={Trace}", trace);
+
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await ctx.Response.WriteAsJsonAsync(new { message = "Внутренняя ошибка", trace });
+    }
 });
 
 app.UseCors("AllowAll");

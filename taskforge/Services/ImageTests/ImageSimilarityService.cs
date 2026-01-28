@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using taskforge.Helpers;
+using System.Runtime.InteropServices;
 
 namespace taskforge.Services.ImageTests;
 
@@ -18,6 +19,9 @@ namespace taskforge.Services.ImageTests;
 /// </summary>
 public sealed class ImageSimilarityService : IImageSimilarityService
 {
+    private const string Tag = "ImageSimilarity";
+    private static int _nativeDiagPrinted = 0;
+
     // Порог "насколько пиксель отличается от фона", чтобы считаться контентом.
     private const int ContentDiffThreshold = 18;
 
@@ -33,37 +37,106 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         var actualBytes = await ReadAllBytesAsync(actual, ct);
 
         DebugConsole.Log("ImageCompare", $"GetSimilarityPercentAsync start expectedBytes={expectedBytes.Length} actualBytes={actualBytes.Length}");
+        TryPrintNativeDiagnosticsOnce("before first OpenCvSharp call (Cv2.ImDecode)");
 
-        using var refImg = DecodeToBgra(expectedBytes);
-        using var actImg = DecodeToBgra(actualBytes);
-
-        DebugConsole.Log("ImageCompare", $"Decoded ref={refImg.Width}x{refImg.Height} act={actImg.Width}x{actImg.Height}");
-
-        // Фон берём из углов эталона.
-        var bg = EstimateBackgroundColor(refImg);
-
-        // Маски "контента".
-        using var refMask = BuildContentMask(refImg, bg);
-        using var actMask = BuildContentMask(actImg, bg);
-
-        // Если эталон вообще пустой — считаем, что любое тоже пустое.
-        var refInk = Cv2.CountNonZero(refMask);
-        if (refInk == 0)
+        Mat? refImg = null;
+        Mat? actImg = null;
+        try
         {
-            var actInk = Cv2.CountNonZero(actMask);
-            return actInk == 0 ? 100.0 : 0.0;
+            refImg = DecodeToBgra(expectedBytes);
+            actImg = DecodeToBgra(actualBytes);
+        }
+        catch (Exception ex) when (ex is DllNotFoundException || ex is TypeInitializationException)
+        {
+            // This is the most common failure mode in Docker when native OpenCV runtime
+            // doesn't match the container OS (or some system libs are missing).
+            DebugConsole.Log("ImageCompare", "OpenCvSharp native load FAILED. See diagnostic below.");
+            TryPrintNativeDiagnosticsOnce("after OpenCvSharp native load failure");
+            Console.WriteLine($"[{Tag}] OpenCvSharp native load FAILED: {ex}");
+            throw;
+        }
+        finally
+        {
+            // If only one decoded successfully, ensure we don't leak.
+            // (The 'using' pattern isn't available because we want try/catch around native loading.)
+            // We'll dispose after the main logic via 'using' blocks below.
         }
 
+        using (refImg)
+        using (actImg)
+
+        {
+            DebugConsole.Log("ImageCompare", $"Decoded ref={refImg.Width}x{refImg.Height} act={actImg.Width}x{actImg.Height}");
+
+            // Фон берём из углов эталона.
+            var bg = EstimateBackgroundColor(refImg);
+
+        // Маски "контента".
+            using var refMask = BuildContentMask(refImg, bg);
+            using var actMask = BuildContentMask(actImg, bg);
+
+        // Если эталон вообще пустой — считаем, что любое тоже пустое.
+            var refInk = Cv2.CountNonZero(refMask);
+            if (refInk == 0)
+            {
+                var actInk = Cv2.CountNonZero(actMask);
+                return actInk == 0 ? 100.0 : 0.0;
+            }
+
         // Пытаемся ORB-align.
-        using var aligned = TryAlignByOrb(refImg, actImg, refMask, actMask, bg);
+            using var aligned = TryAlignByOrb(refImg, actImg, refMask, actMask, bg);
 
         // aligned == null => фолбэк без выравнивания.
-        if (aligned == null)
-            return CompareByContent(refImg, actImg, refMask, actMask);
+            if (aligned == null)
+                return CompareByContent(refImg, actImg, refMask, actMask);
 
         // Для aligned строим маску контента заново (после warp).
-        using var alignedMask = BuildContentMask(aligned, bg);
-        return CompareByContent(refImg, aligned, refMask, alignedMask);
+            using var alignedMask = BuildContentMask(aligned, bg);
+            return CompareByContent(refImg, aligned, refMask, alignedMask);
+        }
+    }
+
+    private static void TryPrintNativeDiagnosticsOnce(string reason)
+    {
+        if (Interlocked.Exchange(ref _nativeDiagPrinted, 1) == 1) return;
+
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            var ldPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? "<null>";
+            var rid = RuntimeInformation.RuntimeIdentifier;
+            var os = RuntimeInformation.OSDescription;
+            var arch = RuntimeInformation.ProcessArchitecture;
+
+            Console.WriteLine($"[{Tag}] OpenCvSharp native diagnostics ({reason})");
+            Console.WriteLine($"[{Tag}] OS={os} RID={rid} Arch={arch}");
+            Console.WriteLine($"[{Tag}] AppBase={baseDir}");
+            Console.WriteLine($"[{Tag}] LD_LIBRARY_PATH={ldPath}");
+
+            var candidates = new[] { "OpenCvSharpExtern.so", "libOpenCvSharpExtern.so" };
+            foreach (var c in candidates)
+            {
+                var p = Path.Combine(baseDir, c);
+                Console.WriteLine($"[{Tag}] native file {c} exists={File.Exists(p)} path={p}");
+            }
+
+            // Helpful when native files are copied into subfolders.
+            var runtimesDir = Path.Combine(baseDir, "runtimes");
+            Console.WriteLine($"[{Tag}] runtimes dir exists={Directory.Exists(runtimesDir)} path={runtimesDir}");
+            if (Directory.Exists(runtimesDir))
+            {
+                // Do not spam: print only a small listing.
+                var files = Directory.EnumerateFiles(runtimesDir, "*.so", SearchOption.AllDirectories)
+                    .Take(30)
+                    .ToArray();
+                Console.WriteLine($"[{Tag}] runtimes/*.so sampleCount={files.Length}");
+                foreach (var f in files) Console.WriteLine($"[{Tag}] so: {f}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{Tag}] Failed to print native diagnostics: {ex}");
+        }
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream s, CancellationToken ct)

@@ -331,8 +331,36 @@ public sealed class ImageTestsController : ControllerBase
         await using var refS = refStream;
         await using var subStream = new MemoryStream(png);
 
-        var similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
-        var passed = similarityPercent >= thresholdPercent;
+        DebugConsole.Log("ImageTests", $"[ImageTest] similarity start: assignment={assignmentId} user={userId} refKey={a.ImageTestReferenceKey} subKey={submittedKey} threshold={thresholdPercent:0.0}% refBytes={(refS.CanSeek ? refS.Length : -1)} subBytes={png.Length}");
+
+        double similarityPercent;
+        bool passed;
+        try
+        {
+            similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
+            passed = similarityPercent >= thresholdPercent;
+        }
+        catch (Exception ex)
+        {
+            // IMPORTANT: image-test сравнение не должно валить весь запрос (и тем более весь контейнер)
+            // Логи ниже максимально подробные, чтобы проще дебажить native/OpenCV проблемы.
+            _log.LogError(ex, "[ImageTest] similarity failed: assignment={AssignmentId} user={UserId} lang={Lang} refKey={RefKey} subKey={SubKey}",
+                assignmentId, userId, lang, a.ImageTestReferenceKey, submittedKey);
+            DebugConsole.Log("ImageTests", $"[ImageTest] similarity FAILED: {ex.GetType().Name}: {ex.Message}");
+
+            return Ok(new ImageTestCompareResponse(
+                Ok: false,
+                SimilarityPercent: 0,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
+                Passed: false,
+                ReferenceKey: a.ImageTestReferenceKey,
+                SubmittedKey: submittedKey,
+                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
+                Stdout: stdout,
+                Stderr: stderr,
+                RunnerError: runnerErr ?? $"Image similarity failed: {ex.GetType().Name}: {ex.Message}"));
+        }
 
         sw.Stop();
         _log.LogInformation("[ImageTest] compare-code done: assignment={AssignmentId} user={UserId} lang={Lang} similarity={Similarity:0.000} passed={Passed} ms={Ms}",

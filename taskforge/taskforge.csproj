@@ -30,17 +30,21 @@
   <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
 
   <!-- Image alignment + feature matching (ORB) for image-test -->
-  <!-- Pin to a NuGet-published build to avoid NU1603 (older build removed from feed). -->
-  <PackageReference Include="OpenCvSharp4" Version="4.11.*" />
   <!--
-    OpenCV native runtime.
-
     IMPORTANT:
-    - Sdcb.OpenCvSharp4.mini.runtime.debian.12-x64 is a legacy package (stuck on OpenCV 4.8.x on NuGet)
-      and has no 4.11.* versions, which breaks `dotnet restore` (NU1102).
-    - Use the generic glibc build instead; it runs fine on Debian 12 (bookworm) base images.
+    OpenCvSharp needs BOTH:
+      1) Managed wrapper package: OpenCvSharp4
+      2) Native runtime package: Sdcb.OpenCvSharp4.mini.runtime.*
+
+    The runtime package must match the container OS. The API container uses Debian 12 (bookworm),
+    so we MUST use the Debian 12 native runtime package.
+
+    Why we pin to 4.8.x:
+    The Debian 12 mini-runtime package is currently published on NuGet only for OpenCV 4.8.x,
+    so requesting 4.11.* leads to restore/build instability and/or runtime loader issues.
   -->
-  <PackageReference Include="Sdcb.OpenCvSharp4.mini.runtime.linux-x64" Version="4.11.0.35" />
+  <PackageReference Include="OpenCvSharp4" Version="4.8.0.20230708" />
+  <PackageReference Include="Sdcb.OpenCvSharp4.mini.runtime.debian.12-x64" Version="4.8.0.20231125" />
 
 </ItemGroup>
 
