@@ -184,8 +184,10 @@ public sealed class ImageTestsController : ControllerBase
         }
         catch (ImageAnalyzerUnavailableException)
         {
-            var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
-            var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
+            // NOTE: avoid names referenceUrl/submittedUrl in this nested scope because
+            // they are declared later in the same method block.
+            var referenceUrl503 = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
+            var submittedUrl503 = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
                 Ok: false,
@@ -194,8 +196,8 @@ public sealed class ImageTestsController : ControllerBase
                 Passed: false,
                 ReferenceKey: a.ImageTestReferenceKey!,
                 SubmittedKey: submittedKey,
-                ReferenceUrl: referenceUrl,
-                SubmittedUrl: submittedUrl,
+                ReferenceUrl: referenceUrl503,
+                SubmittedUrl: submittedUrl503,
                 Stdout: string.Empty,
                 Stderr: string.Empty,
                 RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
@@ -265,8 +267,10 @@ public sealed class ImageTestsController : ControllerBase
         }
         catch (ImageAnalyzerUnavailableException)
         {
-            var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
-            var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
+            // NOTE: avoid names referenceUrl/submittedUrl in this nested scope because
+            // they are declared later in the same method block.
+            var referenceUrl503 = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
+            var submittedUrl503 = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
                 Ok: false,
@@ -275,8 +279,8 @@ public sealed class ImageTestsController : ControllerBase
                 Passed: false,
                 ReferenceKey: a.ImageTestReferenceKey!,
                 SubmittedKey: submittedKey,
-                ReferenceUrl: referenceUrl,
-                SubmittedUrl: submittedUrl,
+                ReferenceUrl: referenceUrl503,
+                SubmittedUrl: submittedUrl503,
                 Stdout: "",
                 Stderr: "",
                 RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
