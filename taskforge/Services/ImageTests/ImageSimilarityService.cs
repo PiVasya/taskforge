@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using OpenCvSharp;
 
 namespace taskforge.Services.ImageTests;
@@ -17,6 +18,15 @@ namespace taskforge.Services.ImageTests;
 /// </summary>
 public sealed class ImageSimilarityService : IImageSimilarityService
 {
+    private readonly ILogger<ImageSimilarityService> _log;
+    private readonly ImageTestsDebugOptions _opt;
+
+    public ImageSimilarityService(ILogger<ImageSimilarityService> log, IOptions<ImageTestsDebugOptions> opt)
+    {
+        _log = log;
+        _opt = opt.Value;
+    }
+
     // Порог "насколько пиксель отличается от фона", чтобы считаться контентом.
     private const int ContentDiffThreshold = 18;
 
@@ -28,37 +38,80 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         if (expected == null) throw new ArgumentNullException(nameof(expected));
         if (actual == null) throw new ArgumentNullException(nameof(actual));
 
+        var swTotal = System.Diagnostics.Stopwatch.StartNew();
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, "Similarity start");
+
         var expectedBytes = await ReadAllBytesAsync(expected, ct);
         var actualBytes = await ReadAllBytesAsync(actual, ct);
+
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole,
+            $"Bytes expected={expectedBytes.Length} actual={actualBytes.Length}");
 
         using var refImg = DecodeToBgra(expectedBytes);
         using var actImg = DecodeToBgra(actualBytes);
 
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole,
+            $"Decoded ref: {refImg.Width}x{refImg.Height} ch={refImg.Channels()} type={refImg.Type()} | act: {actImg.Width}x{actImg.Height} ch={actImg.Channels()} type={actImg.Type()}");
+
         // Фон берём из углов эталона.
         var bg = EstimateBackgroundColor(refImg);
+
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole,
+            $"Estimated background BGRA=({bg.Val0:0},{bg.Val1:0},{bg.Val2:0},{bg.Val3:0})");
 
         // Маски "контента".
         using var refMask = BuildContentMask(refImg, bg);
         using var actMask = BuildContentMask(actImg, bg);
 
+        if (_opt.DumpIntermediate)
+        {
+            DumpMat("ref", refImg);
+            DumpMat("act", actImg);
+            DumpMat("refMask", refMask);
+            DumpMat("actMask", actMask);
+        }
+
         // Если эталон вообще пустой — считаем, что любое тоже пустое.
         var refInk = Cv2.CountNonZero(refMask);
+        var actInk0 = Cv2.CountNonZero(actMask);
+
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole,
+            $"Ink ref={refInk} act={actInk0}");
         if (refInk == 0)
         {
-            var actInk = Cv2.CountNonZero(actMask);
-            return actInk == 0 ? 100.0 : 0.0;
+            var r0 = actInk0 == 0 ? 100.0 : 0.0;
+            ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"Ref is empty => similarity={r0:0.0}");
+            return r0;
         }
 
         // Пытаемся ORB-align.
+        var swAlign = System.Diagnostics.Stopwatch.StartNew();
         using var aligned = TryAlignByOrb(refImg, actImg, refMask, actMask, bg);
+        swAlign.Stop();
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole,
+            aligned == null ? $"ORB align failed (ms={swAlign.ElapsedMilliseconds})" : $"ORB align ok (ms={swAlign.ElapsedMilliseconds})");
 
         // aligned == null => фолбэк без выравнивания.
         if (aligned == null)
-            return CompareByContent(refImg, actImg, refMask, actMask);
+        {
+            var r = CompareByContent(refImg, actImg, refMask, actMask, dumpPrefix: "fallback");
+            swTotal.Stop();
+            ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"Similarity done (fallback) => {r:0.00}% totalMs={swTotal.ElapsedMilliseconds}");
+            return r;
+        }
 
         // Для aligned строим маску контента заново (после warp).
         using var alignedMask = BuildContentMask(aligned, bg);
-        return CompareByContent(refImg, aligned, refMask, alignedMask);
+        if (_opt.DumpIntermediate)
+        {
+            DumpMat("aligned", aligned);
+            DumpMat("alignedMask", alignedMask);
+        }
+
+        var res = CompareByContent(refImg, aligned, refMask, alignedMask, dumpPrefix: "aligned");
+        swTotal.Stop();
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"Similarity done => {res:0.00}% totalMs={swTotal.ElapsedMilliseconds}");
+        return res;
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream s, CancellationToken ct)
@@ -176,7 +229,7 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         return combined.Clone();
     }
 
-private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
+    private Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
     {
         // ORB работает в градациях серого.
         using var refGray = new Mat();
@@ -206,6 +259,8 @@ private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat act
         orb.DetectAndCompute(refGray, refMask, out kp1, des1);
         orb.DetectAndCompute(actGray, actMask, out kp2, des2);
 
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"ORB kp ref={kp1.Length} act={kp2.Length} des1Empty={des1.Empty()} des2Empty={des2.Empty()}");
+
         if (des1.Empty() || des2.Empty() || kp1.Length == 0 || kp2.Length == 0)
             return null;
 
@@ -221,6 +276,8 @@ private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat act
             if (m1.Distance < 0.75f * m2.Distance)
                 good.Add(m1);
         }
+
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"ORB matches good={good.Count} min={MinGoodMatches}");
 
         if (good.Count < MinGoodMatches)
             return null;
@@ -240,6 +297,8 @@ private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat act
         if (H.Empty())
             return null;
 
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, "Homography OK");
+
         // Warp actual -> reference size
         var warped = new Mat();
         Cv2.WarpPerspective(
@@ -254,7 +313,7 @@ private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat act
         return warped;
     }
 
-    private static double CompareByContent(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask)
+    private double CompareByContent(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, string dumpPrefix)
     {
         // Делаем "мягкую" маску эталона, чтобы небольшие сдвиги/границы не убивали процент.
         using var refMaskDilated = new Mat();
@@ -296,6 +355,9 @@ private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat act
         double extraRatio = refInk > 0 ? (double)extraInk / refInk : 1.0;
         double missingRatio = refInk > 0 ? (double)missingInk / refInk : 1.0;
 
+        ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole,
+            $"Compare: meanL1={meanL1:0.0000} extraInk={extraInk} missingInk={missingInk} refInk={refInk} extraRatio={extraRatio:0.0000} missingRatio={missingRatio:0.0000}");
+
         // Итоговая ошибка.
         // Цвет — основной фактор, лишнее/пропущенное — штрафы.
         var error = meanL1
@@ -308,8 +370,42 @@ private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat act
 
         if (similarity < 0) similarity = 0;
         if (similarity > 100) similarity = 100;
+
+        if (_opt.DumpIntermediate)
+        {
+            DumpMat($"{dumpPrefix}_diff", diff);
+            DumpMat($"{dumpPrefix}_extra", extra);
+            DumpMat($"{dumpPrefix}_missing", missing);
+        }
+
         return similarity;
     }
 
     private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
+
+    private void DumpMat(string name, Mat mat)
+    {
+        try
+        {
+            if (!_opt.DumpIntermediate) return;
+            Directory.CreateDirectory(_opt.DumpDir);
+
+            var trace = ImageTestTraceContext.Current;
+            var safeTrace = string.IsNullOrWhiteSpace(trace)
+                ? "no-trace"
+                : string.Concat(trace.Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_'));
+
+            var ts = DateTime.UtcNow.ToString("yyyyMMdd_HHmmssfff");
+            var path = Path.Combine(_opt.DumpDir, $"{safeTrace}_{ts}_{name}.png");
+
+            Cv2.ImEncode(".png", mat, out var bytes);
+            File.WriteAllBytes(path, bytes);
+            ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"Dump saved: {path} ({bytes.Length} bytes)");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to dump Mat {Name}", name);
+            ImageTestTraceContext.ConsoleLog(_opt.VerboseConsole, $"Dump failed for {name}: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
 }

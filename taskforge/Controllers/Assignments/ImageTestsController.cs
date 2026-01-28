@@ -120,7 +120,10 @@ public sealed class ImageTestsController : ControllerBase
         CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        using var tscope = taskforge.Services.ImageTests.ImageTestTraceContext.Begin($"{trace}-a:{assignmentId}");
+
         _log.LogInformation("Compare (multipart) start trace={Trace} assignmentId={AssignmentId} fileLength={Len}", trace, assignmentId, file?.Length ?? 0);
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"Compare(multipart) start fileLen={file?.Length ?? 0}");
 
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
@@ -149,7 +152,9 @@ public sealed class ImageTestsController : ControllerBase
         await using var refStream = refStreamRaw;
         await using var subStream = new MemoryStream(submittedBytes);
 
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, "Calling similarity service...");
         var similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"Similarity returned {similarityPercent:0.00}%");
 
         // Threshold can be stored either as 0..1 or 0..100 (legacy). Normalize to percent.
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 70.0;
@@ -178,8 +183,11 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        using var tscope = taskforge.Services.ImageTests.ImageTestTraceContext.Begin($"{trace}-a:{assignmentId}");
+
         // Use req.MimeType for logging purposes; this may be null when not supplied.
         _log.LogInformation("CompareUpload start trace={Trace} assignmentId={AssignmentId} mime={MimeType} base64Len={Len}", trace, assignmentId, req.MimeType, req.SubmittedImageBase64?.Length ?? 0);
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"CompareUpload start mime={req.MimeType ?? "(null)"} base64Len={req.SubmittedImageBase64?.Length ?? 0}");
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
@@ -208,7 +216,9 @@ public sealed class ImageTestsController : ControllerBase
         await using var refStream = refStreamRaw;
         await using var subStream = new MemoryStream(submittedBytes);
 
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, "Calling similarity service...");
         var similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"Similarity returned {similarityPercent:0.00}%");
 
         // Threshold can be stored either as 0..1 or 0..100 (legacy). Normalize to percent.
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 70.0;
@@ -242,7 +252,10 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        using var tscope = taskforge.Services.ImageTests.ImageTestTraceContext.Begin($"{trace}-a:{assignmentId}");
+
         _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req.Language, req.Code?.Length ?? 0);
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"CompareCode start lang={req.Language} codeLen={req.Code?.Length ?? 0} debug={req.Debug}");
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
@@ -316,6 +329,8 @@ public sealed class ImageTestsController : ControllerBase
                 RunnerError: runnerErr ?? "Empty image returned"));
         }
 
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"Runner returned png bytes={png.Length} stdoutLen={stdout.Length} stderrLen={stderr.Length} err={(runnerErr ?? "-")}");
+
         // Upload submitted image
         var submittedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/submissions/{userId}/{assignmentId}", ".png", ct);
 
@@ -325,6 +340,7 @@ public sealed class ImageTestsController : ControllerBase
         await using var subStream = new MemoryStream(png);
 
         var similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
+        taskforge.Services.ImageTests.ImageTestTraceContext.ConsoleLog(true, $"Similarity returned {similarityPercent:0.00}% threshold={thresholdPercent:0.0}%");
         var passed = similarityPercent >= thresholdPercent;
 
         sw.Stop();

@@ -42,11 +42,16 @@ RUN if [ -f /usr/lib/x86_64-linux-gnu/libtesseract.so.5 ] && [ ! -f /usr/lib/x86
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-COPY . .
-WORKDIR /src/taskforge
+# NOTE: GitHub Actions builds this image with `context: ./taskforge`
+# so the csproj lives at `/src/taskforge.csproj` (NOT `/src/taskforge/taskforge.csproj`).
+#
+# Copy csproj first for better layer caching.
+COPY ./*.csproj ./
+RUN dotnet restore "./taskforge.csproj"
 
-RUN dotnet restore "taskforge.csproj"
-RUN dotnet publish "taskforge.csproj" -c Release -o /app/out --no-restore
+# Copy the rest of the source.
+COPY . ./
+RUN dotnet publish "./taskforge.csproj" -c Release -o /app/out --no-restore
 
 
 FROM base AS final
