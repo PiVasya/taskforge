@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using taskforge.Helpers;
 
 namespace taskforge.Services.ImageRunners;
 
@@ -24,6 +25,8 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         var baseUrl = GetBaseUrl(language);
         var url = new Uri(new Uri(baseUrl), "/render");
 
+        DebugConsole.Log("ImageRunner", $"RenderAsync start lang={language} baseUrl={baseUrl} codeLen={sourceCode?.Length ?? 0}");
+
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = JsonContent.Create(BuildBody(language, sourceCode))
@@ -36,12 +39,14 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         if (!resp.IsSuccessStatusCode)
         {
             var err = await SafeReadBodyAsync(resp, ct);
+            DebugConsole.Log("ImageRunner", $"RenderAsync fail lang={language} status={(int)resp.StatusCode} ms={sw.ElapsedMilliseconds} body={Truncate(err)}");
             _log.LogWarning("[ImageRunner] Render failed {Lang} {Status} in {Ms}ms. Body: {Body}",
                 language, (int)resp.StatusCode, sw.ElapsedMilliseconds, Truncate(err));
             return null;
         }
 
         var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+        DebugConsole.Log("ImageRunner", $"RenderAsync ok lang={language} bytes={bytes.Length} ms={sw.ElapsedMilliseconds}");
         _log.LogInformation("[ImageRunner] Render ok {Lang} bytes={Bytes} in {Ms}ms", language, bytes.Length, sw.ElapsedMilliseconds);
         return bytes;
     }
