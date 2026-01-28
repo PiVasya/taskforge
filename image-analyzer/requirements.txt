@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+pillow==10.4.0
+numpy==2.0.2
+
+# Neural similarity (OpenCLIP)
+open_clip_torch==2.30.0
+
+# Perceptual hash
+imagehash==4.3.1
