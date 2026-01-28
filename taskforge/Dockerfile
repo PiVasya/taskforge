@@ -43,10 +43,9 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 COPY . .
-WORKDIR /src/taskforge
-
-RUN dotnet restore "taskforge.csproj"
-RUN dotnet publish "taskforge.csproj" -c Release -o /app/out --no-restore
+WORKDIR /src
+RUN dotnet restore "./taskforge.csproj"
+RUN dotnet publish "./taskforge.csproj" -c Release -o /app/out --no-restore
 
 
 FROM base AS final
