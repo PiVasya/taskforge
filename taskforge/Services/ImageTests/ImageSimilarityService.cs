@@ -1,413 +1,140 @@
-using OpenCvSharp;
-using taskforge.Helpers;
-using System.Runtime.InteropServices;
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace taskforge.Services.ImageTests;
 
 /// <summary>
-/// Сравнение изображений для image-test.
+/// Pure-managed image similarity implementation.
 ///
-/// Цель: быть устойчивым к небольшим сдвигам/масштабам.
+/// Why:
+/// - OpenCvSharp requires native dependencies (ffmpeg, OpenCV runtime) which frequently break inside
+///   slim containers.
+/// - For typical "did the student render the expected picture" checks, perceptual hashing is
+///   sufficient and is dramatically easier to ship.
 ///
-/// Алгоритм (основной):
-/// 1) Достаём ключевые точки ORB на эталоне и решении.
-/// 2) Матчим, строим гомографию (RANSAC) и выравниваем (warp) решение в систему координат эталона.
-/// 3) Считаем ошибку ТОЛЬКО по "контенту" (по маске отличий от фона), плюс штраф за лишний контент.
+/// Algorithm:
+/// - Decode images with ImageSharp (managed).
+/// - Compute 64-bit difference hash (dHash) on a 9x8 grayscale thumbnail.
+/// - Similarity% = 100 * (1 - HammingDistance(hashA, hashB)/64).
 ///
-/// Фолбэк: если ORB не смог выровнять, используем сравнение по контенту без выравнивания,
-/// но всё равно с маской и штрафом за пустую/лишнюю картинку.
+/// Notes:
+/// - dHash is robust to small resizes / color shifts, but not to big rotations/crops.
+/// - Keep your task's threshold realistic (e.g., 85-95 depending on how strict you want it).
 /// </summary>
 public sealed class ImageSimilarityService : IImageSimilarityService
 {
-    private const string Tag = "ImageSimilarity";
-    private static int _nativeDiagPrinted = 0;
+    private readonly ILogger<ImageSimilarityService> _logger;
 
-    // Порог "насколько пиксель отличается от фона", чтобы считаться контентом.
-    private const int ContentDiffThreshold = 18;
-
-    // Минимум good matches, чтобы доверять гомографии.
-    private const int MinGoodMatches = 12;
-
-    public async Task<double> GetSimilarityPercentAsync(Stream expected, Stream actual, CancellationToken ct = default)
+    public ImageSimilarityService(ILogger<ImageSimilarityService> logger)
     {
-        if (expected == null) throw new ArgumentNullException(nameof(expected));
-        if (actual == null) throw new ArgumentNullException(nameof(actual));
-
-        var expectedBytes = await ReadAllBytesAsync(expected, ct);
-        var actualBytes = await ReadAllBytesAsync(actual, ct);
-
-        DebugConsole.Log("ImageCompare", $"GetSimilarityPercentAsync start expectedBytes={expectedBytes.Length} actualBytes={actualBytes.Length}");
-        TryPrintNativeDiagnosticsOnce("before first OpenCvSharp call (Cv2.ImDecode)");
-
-        Mat? refImg = null;
-        Mat? actImg = null;
-        try
-        {
-            refImg = DecodeToBgra(expectedBytes);
-            actImg = DecodeToBgra(actualBytes);
-        }
-        catch (Exception ex) when (ex is DllNotFoundException || ex is TypeInitializationException)
-        {
-            // This is the most common failure mode in Docker when native OpenCV runtime
-            // doesn't match the container OS (or some system libs are missing).
-            DebugConsole.Log("ImageCompare", "OpenCvSharp native load FAILED. See diagnostic below.");
-            TryPrintNativeDiagnosticsOnce("after OpenCvSharp native load failure");
-            Console.WriteLine($"[{Tag}] OpenCvSharp native load FAILED: {ex}");
-            throw;
-        }
-        finally
-        {
-            // If only one decoded successfully, ensure we don't leak.
-            // (The 'using' pattern isn't available because we want try/catch around native loading.)
-            // We'll dispose after the main logic via 'using' blocks below.
-        }
-
-        using (refImg)
-        using (actImg)
-
-        {
-            DebugConsole.Log("ImageCompare", $"Decoded ref={refImg.Width}x{refImg.Height} act={actImg.Width}x{actImg.Height}");
-
-            // Фон берём из углов эталона.
-            var bg = EstimateBackgroundColor(refImg);
-
-        // Маски "контента".
-            using var refMask = BuildContentMask(refImg, bg);
-            using var actMask = BuildContentMask(actImg, bg);
-
-        // Если эталон вообще пустой — считаем, что любое тоже пустое.
-            var refInk = Cv2.CountNonZero(refMask);
-            if (refInk == 0)
-            {
-                var actInk = Cv2.CountNonZero(actMask);
-                return actInk == 0 ? 100.0 : 0.0;
-            }
-
-        // Пытаемся ORB-align.
-            using var aligned = TryAlignByOrb(refImg, actImg, refMask, actMask, bg);
-
-        // aligned == null => фолбэк без выравнивания.
-            if (aligned == null)
-                return CompareByContent(refImg, actImg, refMask, actMask);
-
-        // Для aligned строим маску контента заново (после warp).
-            using var alignedMask = BuildContentMask(aligned, bg);
-            return CompareByContent(refImg, aligned, refMask, alignedMask);
-        }
+        _logger = logger;
     }
 
-    private static void TryPrintNativeDiagnosticsOnce(string reason)
+    public async Task<double> GetSimilarityPercentAsync(
+        Stream expected,
+        Stream actual,
+        CancellationToken ct)
     {
-        if (Interlocked.Exchange(ref _nativeDiagPrinted, 1) == 1) return;
-
         try
         {
-            var baseDir = AppContext.BaseDirectory;
-            var ldPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? "<null>";
-            var rid = RuntimeInformation.RuntimeIdentifier;
-            var os = RuntimeInformation.OSDescription;
-            var arch = RuntimeInformation.ProcessArchitecture;
+            ct.ThrowIfCancellationRequested();
 
-            Console.WriteLine($"[{Tag}] OpenCvSharp native diagnostics ({reason})");
-            Console.WriteLine($"[{Tag}] OS={os} RID={rid} Arch={arch}");
-            Console.WriteLine($"[{Tag}] AppBase={baseDir}");
-            Console.WriteLine($"[{Tag}] LD_LIBRARY_PATH={ldPath}");
+            // Decode both images.
+            using var expImg = await LoadAsRgbaAsync(expected, ct);
+            using var actImg = await LoadAsRgbaAsync(actual, ct);
 
-            var candidates = new[] { "OpenCvSharpExtern.so", "libOpenCvSharpExtern.so" };
-            foreach (var c in candidates)
-            {
-                var p = Path.Combine(baseDir, c);
-                Console.WriteLine($"[{Tag}] native file {c} exists={File.Exists(p)} path={p}");
-            }
+            var h1 = ComputeDHash64(expImg);
+            var h2 = ComputeDHash64(actImg);
 
-            // Helpful when native files are copied into subfolders.
-            var runtimesDir = Path.Combine(baseDir, "runtimes");
-            Console.WriteLine($"[{Tag}] runtimes dir exists={Directory.Exists(runtimesDir)} path={runtimesDir}");
-            if (Directory.Exists(runtimesDir))
-            {
-                // Do not spam: print only a small listing.
-                var files = Directory.EnumerateFiles(runtimesDir, "*.so", SearchOption.AllDirectories)
-                    .Take(30)
-                    .ToArray();
-                Console.WriteLine($"[{Tag}] runtimes/*.so sampleCount={files.Length}");
-                foreach (var f in files) Console.WriteLine($"[{Tag}] so: {f}");
-            }
+            var dist = HammingDistance(h1, h2);
+            var similarity = (1.0 - (dist / 64.0)) * 100.0;
+
+            // Clamp to [0..100]
+            if (similarity < 0) similarity = 0;
+            if (similarity > 100) similarity = 100;
+            return similarity;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{Tag}] Failed to print native diagnostics: {ex}");
+            _logger.LogWarning(ex, "[ImageSimilarity] Failed to compare images. Returning 0% similarity.");
+            return 0;
         }
     }
 
-    private static async Task<byte[]> ReadAllBytesAsync(Stream s, CancellationToken ct)
+    private static async Task<Image<Rgba32>> LoadAsRgbaAsync(Stream s, CancellationToken ct)
     {
-        if (s.CanSeek) s.Position = 0;
+        // ImageSharp requires seekable stream for some formats; ensure we have one.
+        if (s.CanSeek)
+        {
+            s.Position = 0;
+            return await Image.LoadAsync<Rgba32>(s, ct);
+        }
+
         using var ms = new MemoryStream();
         await s.CopyToAsync(ms, ct);
-        return ms.ToArray();
+        ms.Position = 0;
+        return await Image.LoadAsync<Rgba32>(ms, ct);
     }
 
-    private static Mat DecodeToBgra(byte[] bytes)
+    private static ulong ComputeDHash64(Image<Rgba32> src)
     {
-        // Unchanged: чтобы не потерять альфу, если она есть.
-        var m = Cv2.ImDecode(bytes, ImreadModes.Unchanged);
-        if (m.Empty()) throw new InvalidOperationException("Failed to decode image");
+        // dHash uses a 9x8 image so we can compare adjacent pixels horizontally
+        // and produce 8*8 = 64 bits.
+        using var img = src.Clone(ctx => ctx
+            .Resize(new ResizeOptions
+            {
+                Size = new Size(9, 8),
+                Mode = ResizeMode.Stretch,
+                Sampler = KnownResamplers.Bicubic
+            })
+            .Grayscale());
 
-        if (m.Channels() == 4)
-            return m;
+        // Access pixels row by row.
+        ulong hash = 0;
+        var bitIndex = 0;
 
-        if (m.Channels() == 3)
+        img.ProcessPixelRows(accessor =>
         {
-            var bgra = new Mat();
-            Cv2.CvtColor(m, bgra, ColorConversionCodes.BGR2BGRA);
-            m.Dispose();
-            return bgra;
-        }
+            for (var y = 0; y < 8; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < 8; x++)
+                {
+                    // After Grayscale(), R=G=B, so compare R.
+                    var left = row[x].R;
+                    var right = row[x + 1].R;
+                    if (left < right)
+                    {
+                        hash |= (1UL << bitIndex);
+                    }
+                    bitIndex++;
+                }
+            }
+        });
 
-        if (m.Channels() == 1)
-        {
-            var bgra = new Mat();
-            Cv2.CvtColor(m, bgra, ColorConversionCodes.GRAY2BGRA);
-            m.Dispose();
-            return bgra;
-        }
-
-        // На всякий.
-        return m;
+        return hash;
     }
 
-    private static Scalar EstimateBackgroundColor(Mat bgra)
+    private static int HammingDistance(ulong a, ulong b)
     {
-        // Берём 4 угла и медиану по каналам.
-        var w = bgra.Width;
-        var h = bgra.Height;
-
-        var pts = new[]
+        // Popcount for x64.
+        var x = a ^ b;
+        var count = 0;
+        while (x != 0)
         {
-            bgra.At<Vec4b>(0, 0),
-            bgra.At<Vec4b>(0, w - 1),
-            bgra.At<Vec4b>(h - 1, 0),
-            bgra.At<Vec4b>(h - 1, w - 1),
-        };
-
-        static byte Med(byte a, byte b, byte c, byte d)
-        {
-            Span<byte> s = stackalloc byte[4] { a, b, c, d };
-            s.Sort();
-            return (byte)((s[1] + s[2]) / 2);
+            x &= (x - 1);
+            count++;
         }
-
-        var b = Med(pts[0].Item0, pts[1].Item0, pts[2].Item0, pts[3].Item0);
-        var g = Med(pts[0].Item1, pts[1].Item1, pts[2].Item1, pts[3].Item1);
-        var r = Med(pts[0].Item2, pts[1].Item2, pts[2].Item2, pts[3].Item2);
-        var a = Med(pts[0].Item3, pts[1].Item3, pts[2].Item3, pts[3].Item3);
-
-        return new Scalar(b, g, r, a);
+        return count;
     }
-
-    private static Mat BuildContentMask(Mat bgra, Scalar bg)
-    {
-        // Build a mask of "content" pixels: those that differ sufficiently from the estimated
-        // background colour and are at least partially opaque. Using an absolute difference
-        // instead of exact equality makes the mask tolerant to minor JPEG artefacts or
-        // rendering noise.
-
-        // Compute absolute difference between each pixel and the background colour.
-        using var bgMat = new Mat(bgra.Size(), bgra.Type(), bg);
-        using var diff = new Mat();
-        Cv2.Absdiff(bgra, bgMat, diff);
-
-        // Convert the difference to grayscale so we can threshold on a single channel.
-        using var diffGray = new Mat();
-        Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGRA2GRAY);
-
-        // Threshold the grayscale difference: pixels with a value greater than
-        // ContentDiffThreshold are considered part of the content. Everything else is
-        // considered background.
-        using var contentMask = new Mat();
-        Cv2.Threshold(diffGray, contentMask, ContentDiffThreshold, 255, ThresholdTypes.Binary);
-
-        // Build an alpha mask (255 where alpha > 0) so we can exclude fully transparent pixels.
-        using var alpha = new Mat();
-        if (bgra.Channels() >= 4)
-        {
-            Cv2.ExtractChannel(bgra, alpha, 3);
-        }
-        else
-        {
-            alpha.Create(bgra.Rows, bgra.Cols, MatType.CV_8UC1);
-            alpha.SetTo(Scalar.All(255));
-        }
-        using var alphaMask = new Mat();
-        Cv2.Threshold(alpha, alphaMask, 0, 255, ThresholdTypes.Binary);
-
-        // Combine the content mask with the alpha mask: only pixels that are both
-        // sufficiently different from the background and have alpha > 0 remain.
-        using var combined = new Mat();
-        Cv2.BitwiseAnd(contentMask, alphaMask, combined);
-
-        // Light clean-up to reduce speckle noise: a small opening followed by closing.
-        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
-        Cv2.MorphologyEx(combined, combined, MorphTypes.Open, kernel);
-        Cv2.MorphologyEx(combined, combined, MorphTypes.Close, kernel);
-
-        return combined.Clone();
-    }
-
-private static Mat? TryAlignByOrb(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask, Scalar bg)
-    {
-        DebugConsole.Log("ImageCompare", $"TryAlignByOrb: ref={refBgra.Width}x{refBgra.Height} act={actBgra.Width}x{actBgra.Height}");
-        // ORB работает в градациях серого.
-        using var refGray = new Mat();
-        using var actGray = new Mat();
-        Cv2.CvtColor(refBgra, refGray, ColorConversionCodes.BGRA2GRAY);
-        Cv2.CvtColor(actBgra, actGray, ColorConversionCodes.BGRA2GRAY);
-
-        // ORB (feature matching)
-        using var orb = ORB.Create(
-            2500,   // nFeatures
-            1.2f,   // scaleFactor
-            8,      // nLevels
-            31,     // edgeThreshold
-            0,      // firstLevel
-            2,      // WTA_K
-            ORBScoreType.Harris,
-            31,     // patchSize
-            15      // fastThreshold
-        );
-
-        KeyPoint[] kp1;
-        KeyPoint[] kp2;
-        using var des1 = new Mat();
-        using var des2 = new Mat();
-
-        // NOTE: In OpenCvSharp, DetectAndCompute may take descriptors as Mat (not 'out') depending on version.
-        orb.DetectAndCompute(refGray, refMask, out kp1, des1);
-        orb.DetectAndCompute(actGray, actMask, out kp2, des2);
-
-        DebugConsole.Log("ImageCompare", $"ORB keypoints: ref={kp1.Length} act={kp2.Length} des1Empty={des1.Empty()} des2Empty={des2.Empty()}");
-
-        DebugConsole.Log("ImageCompare", $"ORB: kp1={kp1.Length} kp2={kp2.Length} des1Empty={des1.Empty()} des2Empty={des2.Empty()}");
-
-        if (des1.Empty() || des2.Empty() || kp1.Length == 0 || kp2.Length == 0)
-        {
-            DebugConsole.Log("ImageCompare", "ORB: not enough keypoints/descriptors -> skip alignment");
-            return null;
-        }
-
-        using var bf = new BFMatcher(NormTypes.Hamming, false);
-        var knn = bf.KnnMatch(des1, des2, 2);
-
-        var good = new List<DMatch>(512);
-        foreach (var pair in knn)
-        {
-            if (pair.Length < 2) continue;
-            var m1 = pair[0];
-            var m2 = pair[1];
-            if (m1.Distance < 0.75f * m2.Distance)
-                good.Add(m1);
-        }
-
-        DebugConsole.Log("ImageCompare", $"ORB: knnPairs={knn.Length} goodMatches={good.Count} (min={MinGoodMatches})");
-
-        if (good.Count < MinGoodMatches)
-        {
-            DebugConsole.Log("ImageCompare", "ORB: not enough good matches -> skip alignment");
-            return null;
-        }
-
-        var src = new Point2f[good.Count]; // actual
-        var dst = new Point2f[good.Count]; // reference
-        for (int i = 0; i < good.Count; i++)
-        {
-            var m = good[i];
-            dst[i] = kp1[m.QueryIdx].Pt;
-            src[i] = kp2[m.TrainIdx].Pt;
-        }
-
-        using var srcArr = InputArray.Create(src);
-        using var dstArr = InputArray.Create(dst);
-        using var H = Cv2.FindHomography(srcArr, dstArr, HomographyMethods.Ransac, 3.0);
-        if (H.Empty())
-        {
-            DebugConsole.Log("ImageCompare", "ORB: homography empty -> skip alignment");
-            return null;
-        }
-
-        DebugConsole.Log("ImageCompare", "ORB: homography computed, warping actual image");
-
-        // Warp actual -> reference size
-        var warped = new Mat();
-        Cv2.WarpPerspective(
-            actBgra,
-            warped,
-            H,
-            new Size(refBgra.Width, refBgra.Height),
-            InterpolationFlags.Linear,
-            BorderTypes.Constant,
-            bg);
-
-        return warped;
-    }
-
-    private static double CompareByContent(Mat refBgra, Mat actBgra, Mat refMask, Mat actMask)
-    {
-        // Делаем "мягкую" маску эталона, чтобы небольшие сдвиги/границы не убивали процент.
-        using var refMaskDilated = new Mat();
-        using var k = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(7, 7));
-        Cv2.Dilate(refMask, refMaskDilated, k);
-
-        // Разница по цвету внутри refMaskDilated.
-        using var refBgr = new Mat();
-        using var actBgr = new Mat();
-        Cv2.CvtColor(refBgra, refBgr, ColorConversionCodes.BGRA2BGR);
-        Cv2.CvtColor(actBgra, actBgr, ColorConversionCodes.BGRA2BGR);
-
-        using var diff = new Mat();
-        Cv2.Absdiff(refBgr, actBgr, diff);
-
-        // Суммируем по 3 каналам.
-        var diffMean = Cv2.Mean(diff, refMaskDilated);
-        var meanL1 = (diffMean.Val0 + diffMean.Val1 + diffMean.Val2) / (255.0 * 3.0); // 0..1
-
-        // Штраф за "лишний" контент: то, что есть в решении, но нет в эталоне.
-        using var extra = new Mat();
-        using var refInv = new Mat();
-        Cv2.BitwiseNot(refMaskDilated, refInv);
-        Cv2.BitwiseAnd(actMask, refInv, extra);
-
-        var refInk = Cv2.CountNonZero(refMask);
-        var extraInk = Cv2.CountNonZero(extra);
-
-        // Штраф за "пропущенный" контент (эталон есть, решения нет).
-        using var missing = new Mat();
-        using var actMaskDilated = new Mat();
-        Cv2.Dilate(actMask, actMaskDilated, k);
-        using var actInv = new Mat();
-        Cv2.BitwiseNot(actMaskDilated, actInv);
-        Cv2.BitwiseAnd(refMask, actInv, missing);
-        var missingInk = Cv2.CountNonZero(missing);
-
-        // Нормируем штрафы относительно площади контента эталона.
-        double extraRatio = refInk > 0 ? (double)extraInk / refInk : 1.0;
-        double missingRatio = refInk > 0 ? (double)missingInk / refInk : 1.0;
-
-        DebugConsole.Log("ImageCompare", $"CompareByContent: refInk={refInk} extraInk={extraInk} missingInk={missingInk} meanL1={meanL1:F4} extraRatio={extraRatio:F4} missingRatio={missingRatio:F4}");
-
-        // Итоговая ошибка.
-        // Цвет — основной фактор, лишнее/пропущенное — штрафы.
-        var error = meanL1
-                    + 0.65 * Clamp01(extraRatio)
-                    + 0.45 * Clamp01(missingRatio);
-
-        // Ограничиваем до [0..1]
-        error = Clamp01(error);
-        var similarity = (1.0 - error) * 100.0;
-
-        if (similarity < 0) similarity = 0;
-        if (similarity > 100) similarity = 100;
-        return similarity;
-    }
-
-    private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
 }

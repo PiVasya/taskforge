@@ -29,36 +29,10 @@
   <!-- Image compare for image-test -->
   <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
 
-  <!-- Image alignment + feature matching (ORB) for image-test -->
   <!--
-    IMPORTANT:
-    OpenCvSharp needs BOTH:
-      1) Managed wrapper package: OpenCvSharp4
-      2) Native runtime package: OpenCvSharp4.unofficial.runtime.* (Linux)
-
-    The runtime package must match the container OS. The API container uses Debian 12 (bookworm),
-    so we MUST use the Debian 12 native runtime package.
-
-    Why we pin to 4.8.x:
-    The Debian 12 mini-runtime package is currently published on NuGet only for OpenCV 4.8.x,
-    so requesting 4.11.* leads to restore/build instability and/or runtime loader issues.
+    Image similarity is implemented in pure managed code (ImageSharp).
+    This keeps the API container lightweight and avoids native OpenCV / ffmpeg dependency issues.
   -->
-  <!-- OpenCV (managed wrapper) -->
-  <PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
-
-  <!--
-    IMPORTANT:
-    We MUST ship a native runtime that includes the OpenCV "features2d" module.
-    The "mini" runtimes intentionally exclude some modules and caused runtime crash:
-      EntryPointNotFoundException: features2d_ORB_create
-
-    Use the full Debian 12 runtime instead.
-  -->
-  <!--
-    Native runtime built for Ubuntu 24.04 (ships native OpenCV + deps).
-    This avoids Debian Bookworm ffmpeg SONAME mismatch (e.g., libavcodec.so.*).
-  -->
-  <PackageReference Include="OpenCvSharp4.unofficial.runtime.ubuntu.24.04-x64" Version="4.12.0.20250708" />
 
 </ItemGroup>
 
