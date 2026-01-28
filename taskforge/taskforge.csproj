@@ -31,8 +31,9 @@
 
   <!-- Image alignment + feature matching (ORB) for image-test -->
   <!-- Pin to a NuGet-published build to avoid NU1603 (older build removed from feed). -->
-  <PackageReference Include="OpenCvSharp4" Version="4.10.0.20241107" />
-  <PackageReference Include="OpenCvSharp4.runtime.linux-x64" Version="4.10.0.20241107" />
+  <PackageReference Include="OpenCvSharp4" Version="4.10.0.20240717" />
+  <PackageReference Include="OpenCvSharp4.runtime.linux-x64" Version="4.10.0.20240717" />
+
 </ItemGroup>
 
 
