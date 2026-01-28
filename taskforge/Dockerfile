@@ -1,24 +1,21 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 COPY . ./
-RUN dotnet restore
+RUN dotnet restore -r linux-x64
 RUN dotnet publish -c Release -o /out -r linux-x64 --self-contained false --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 
-# Runtime deps for OpenCvSharpExtern (image comparison only, no OCR).
+# OpenCvSharpExtern (from NuGet) is linked against libtesseract.so.4 on linux-x64.
+# Debian bookworm provides libtesseract.so.5, so we install it and add a compatibility symlink.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libtesseract5 \
         liblept5 \
         libglib2.0-0 \
         libgl1 \
-    && TESS5="$(ldconfig -p | awk '/libtesseract\.so\.5/{print $NF; exit}')" \
-    && if [ -n "$TESS5" ]; then \
-           TESS_DIR="${TESS5%/*}"; \
-           if [ ! -e "$TESS_DIR/libtesseract.so.4" ]; then ln -s "$TESS5" "$TESS_DIR/libtesseract.so.4"; fi; \
-       fi \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libtesseract.so.5 /usr/lib/x86_64-linux-gnu/libtesseract.so.4 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out ./
