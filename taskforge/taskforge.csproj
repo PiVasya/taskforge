@@ -34,26 +34,20 @@
     IMPORTANT:
     OpenCvSharp needs BOTH:
       1) Managed wrapper package: OpenCvSharp4
-      2) Native runtime package: Sdcb.OpenCvSharp4.mini.runtime.*
+      2) Native runtime package (libOpenCvSharpExtern.so) compatible with Linux
 
-    The runtime package must match the container OS. The API container uses Debian 12 (bookworm),
-    so we MUST use the Debian 12 native runtime package.
-
-    Why we pin to 4.8.x:
-    The Debian 12 mini-runtime package is currently published on NuGet only for OpenCV 4.8.x,
-    so requesting 4.11.* leads to restore/build instability and/or runtime loader issues.
+    We use the official Linux runtime package and keep versions aligned.
+    (The Sdcb "mini" runtime does NOT include the features2d module, so ORB would fail.)
   -->
-  <PackageReference Include="OpenCvSharp4" Version="4.8.0.20230708" />
+  <!-- OpenCV (used by ImageTests: decoding, diffing, ORB align, etc.) -->
+  <PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
 
   <!--
-    IMPORTANT:
-    We MUST ship a native runtime that includes the OpenCV "features2d" module.
-    The "mini" runtimes intentionally exclude some modules and caused runtime crash:
-      EntryPointNotFoundException: features2d_ORB_create
-
-    Use the full Debian 12 runtime instead.
+    Runtime native binaries for Linux.
+    This is the standard/most common way people deploy OpenCvSharp in Linux containers:
+    keep managed + runtime package versions aligned.
   -->
-  <PackageReference Include="Sdcb.OpenCvSharp4.runtime.debian.12-x64" Version="4.8.0.20231125" />
+  <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.11.0.20250507" />
 
 </ItemGroup>
 
