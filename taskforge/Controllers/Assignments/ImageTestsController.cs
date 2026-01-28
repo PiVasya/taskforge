@@ -95,6 +95,24 @@ public sealed class ImageTestsController : ControllerBase
 
     public sealed record CompareCodeRequest(string Language, string Code, bool Debug = true);
 
+    /// <summary>
+    /// "Пробный запуск" рисовалки: просто рендер без сравнения.
+    /// По желанию можно включить сравнение с эталоном.
+    /// </summary>
+    public sealed record RunCodeRequest(string Language, string Code, bool Debug = true, bool CompareWithReference = false);
+
+    public sealed record ImageTestRunResponse(
+        bool Ok,
+        string? RenderedKey,
+        string? RenderedUrl,
+        string Stdout,
+        string Stderr,
+        string? RunnerError,
+        double? SimilarityPercent,
+        double? ThresholdPercent,
+        bool? Passed,
+        string? ReferenceUrl);
+
     public sealed record ImageTestCompareResponse(
         bool Ok,
         double SimilarityPercent,
@@ -155,11 +173,33 @@ public sealed class ImageTestsController : ControllerBase
 
         DebugConsole.Log("ImageTests", $"Fetched reference trace={trace} referenceKey={a.ImageTestReferenceKey}");
 
-        var similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
-
         // Threshold can be stored either as 0..1 or 0..100 (legacy). Normalize to percent.
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 70.0;
         if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
+        double similarityPercent;
+        try
+        {
+            similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
+        }
+        catch (ImageAnalyzerUnavailableException)
+        {
+            var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
+            var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
+
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
+                Ok: false,
+                SimilarityPercent: 0,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
+                Passed: false,
+                ReferenceKey: a.ImageTestReferenceKey!,
+                SubmittedKey: submittedKey,
+                ReferenceUrl: referenceUrl,
+                SubmittedUrl: submittedUrl,
+                Stdout: string.Empty,
+                Stderr: string.Empty,
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
+        }
 
         var passed = similarityPercent >= thresholdPercent;
 
@@ -214,11 +254,33 @@ public sealed class ImageTestsController : ControllerBase
         await using var refStream = refStreamRaw;
         await using var subStream = new MemoryStream(submittedBytes);
 
-        var similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
-
         // Threshold can be stored either as 0..1 or 0..100 (legacy). Normalize to percent.
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 70.0;
         if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
+        double similarityPercent;
+        try
+        {
+            similarityPercent = await _similarity.GetSimilarityPercentAsync(refStream, subStream, ct);
+        }
+        catch (ImageAnalyzerUnavailableException)
+        {
+            var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
+            var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
+
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
+                Ok: false,
+                SimilarityPercent: 0,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
+                Passed: false,
+                ReferenceKey: a.ImageTestReferenceKey!,
+                SubmittedKey: submittedKey,
+                ReferenceUrl: referenceUrl,
+                SubmittedUrl: submittedUrl,
+                Stdout: "",
+                Stderr: "",
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
+        }
 
         var passed = similarityPercent >= thresholdPercent;
 
@@ -237,6 +299,143 @@ public sealed class ImageTestsController : ControllerBase
             Stdout: "",
             Stderr: "",
             RunnerError: null));
+    }
+
+    /// <summary>
+    /// Пробный запуск рисовалки: прогнать код в runner-е и вернуть полученную картинку.
+    /// Сравнение с эталоном отключено по умолчанию, но его можно включить флагом CompareWithReference.
+    /// </summary>
+    [HttpPost("run-code")]
+    public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest req, CancellationToken ct)
+    {
+        var trace = HttpContext.TraceIdentifier;
+        _log.LogInformation("RunCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len} debug={Debug} compare={Compare}",
+            trace, assignmentId, req.Language, req.Code?.Length ?? 0, req.Debug, req.CompareWithReference);
+
+        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        if (a is null) return NotFound();
+        if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
+        if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
+
+        var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
+        if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
+
+        var userId = _currentUser.GetUserId();
+
+        ImageRunnerDebugResult? debug = null;
+        byte[]? png;
+        string stdout = "";
+        string stderr = "";
+        string? runnerErr = null;
+
+        if (req.Debug && lang == "python")
+        {
+            debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
+            stdout = debug.Stdout;
+            stderr = debug.Stderr;
+            runnerErr = debug.Error;
+            png = debug.PngBytes;
+
+            if (!debug.Ok)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: runnerErr,
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
+        }
+        else
+        {
+            png = await _runner.RenderAsync(lang, req.Code, ct);
+        }
+
+        if (png is null || png.Length == 0)
+        {
+            return Ok(new ImageTestRunResponse(
+                Ok: false,
+                RenderedKey: null,
+                RenderedUrl: null,
+                Stdout: stdout,
+                Stderr: stderr,
+                RunnerError: runnerErr ?? "Empty image returned",
+                SimilarityPercent: null,
+                ThresholdPercent: null,
+                Passed: null,
+                ReferenceUrl: null));
+        }
+
+        // Upload rendered image
+        var renderedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/previews/{userId}/{assignmentId}", ".png", ct);
+        var renderedUrl = $"/api/private-files/{Uri.EscapeDataString(renderedKey)}";
+
+        // If no comparison requested, we're done.
+        if (!req.CompareWithReference)
+        {
+            return Ok(new ImageTestRunResponse(
+                Ok: true,
+                RenderedKey: renderedKey,
+                RenderedUrl: renderedUrl,
+                Stdout: stdout,
+                Stderr: stderr,
+                RunnerError: runnerErr,
+                SimilarityPercent: null,
+                ThresholdPercent: null,
+                Passed: null,
+                ReferenceUrl: null));
+        }
+
+        // Comparison requested.
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey))
+            return BadRequest("Reference image is not configured");
+
+        // Normalize threshold (support old configs: 0..1 as fraction)
+        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
+        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
+        var (refStream, _) = await _files.GetAsync(a.ImageTestReferenceKey, ct);
+        await using var refS = refStream;
+        await using var subStream = new MemoryStream(png);
+
+        double similarityPercent;
+        bool passed;
+        try
+        {
+            similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
+            passed = similarityPercent >= thresholdPercent;
+        }
+        catch (ImageAnalyzerUnavailableException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestRunResponse(
+                Ok: false,
+                RenderedKey: renderedKey,
+                RenderedUrl: renderedUrl,
+                Stdout: stdout,
+                Stderr: stderr,
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
+                SimilarityPercent: null,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
+                Passed: null,
+                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}"));
+        }
+
+        return Ok(new ImageTestRunResponse(
+            Ok: true,
+            RenderedKey: renderedKey,
+            RenderedUrl: renderedUrl,
+            Stdout: stdout,
+            Stderr: stderr,
+            RunnerError: runnerErr,
+            SimilarityPercent: Math.Round(similarityPercent, 1),
+            ThresholdPercent: Math.Round(thresholdPercent, 1),
+            Passed: passed,
+            ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}"));
     }
 
     /// <summary>
@@ -339,6 +538,21 @@ public sealed class ImageTestsController : ControllerBase
         {
             similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
             passed = similarityPercent >= thresholdPercent;
+        }
+        catch (ImageAnalyzerUnavailableException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
+                Ok: false,
+                SimilarityPercent: 0,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
+                Passed: false,
+                ReferenceKey: a.ImageTestReferenceKey,
+                SubmittedKey: submittedKey,
+                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
+                Stdout: stdout,
+                Stderr: stderr,
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
         }
         catch (Exception ex)
         {

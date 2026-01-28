@@ -14,6 +14,7 @@ using taskforge.Services.Remote;
 using taskforge.Services.Support;
 using taskforge.Hubs;
 using taskforge.Services.Files;
+using taskforge.Services.ImageTests;
 using Amazon.S3;
 using Amazon;
 
@@ -71,7 +72,24 @@ builder.Services.AddSingleton<IAmazonS3>(sp =>
     return new AmazonS3Client(opt.AccessKey, opt.SecretKey, cfg);
 });
 builder.Services.AddScoped<IFileStorageService, S3FileStorageService>();
-builder.Services.AddScoped<taskforge.Services.ImageTests.IImageSimilarityService, taskforge.Services.ImageTests.ImageSimilarityService>();
+
+// image similarity (external analyzer + fallback)
+builder.Services.Configure<ImageAnalyzerOptions>(builder.Configuration.GetSection("ImageAnalyzer"));
+builder.Services.AddHttpClient<IImageAnalyzerClient, HttpImageAnalyzerClient>((sp, c) =>
+{
+    var opt = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ImageAnalyzerOptions>>().Value;
+
+    if (!string.IsNullOrWhiteSpace(opt.Url))
+    {
+        var url = opt.Url.TrimEnd('/') + "/";
+        c.BaseAddress = new Uri(url);
+    }
+
+    var timeoutSeconds = opt.TimeoutSeconds <= 0 ? 25 : opt.TimeoutSeconds;
+    c.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+});
+
+builder.Services.AddScoped<IImageSimilarityService, ImageSimilarityService>();
 
 // image-runners (рендер изображений из кода)
 builder.Services.Configure<taskforge.Services.ImageRunners.ImageRunnersOptions>(builder.Configuration.GetSection("ImageRunners"));

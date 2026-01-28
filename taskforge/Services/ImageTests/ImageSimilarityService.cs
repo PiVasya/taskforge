@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -30,10 +32,17 @@ namespace taskforge.Services.ImageTests;
 public sealed class ImageSimilarityService : IImageSimilarityService
 {
     private readonly ILogger<ImageSimilarityService> _logger;
+    private readonly IImageAnalyzerClient _analyzer;
+    private readonly ImageAnalyzerOptions _opt;
 
-    public ImageSimilarityService(ILogger<ImageSimilarityService> logger)
+    public ImageSimilarityService(
+        ILogger<ImageSimilarityService> logger,
+        IImageAnalyzerClient analyzer,
+        IOptions<ImageAnalyzerOptions> opt)
     {
         _logger = logger;
+        _analyzer = analyzer;
+        _opt = opt.Value;
     }
 
     public async Task<double> GetSimilarityPercentAsync(
@@ -45,9 +54,45 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         {
             ct.ThrowIfCancellationRequested();
 
-            // Decode both images.
-            using var expImg = await LoadAsRgbaAsync(expected, ct);
-            using var actImg = await LoadAsRgbaAsync(actual, ct);
+            // Read bytes once to support both: external analyzer and local fallback.
+            var expBytes = await ReadAllBytesAsync(expected, ct);
+            var actBytes = await ReadAllBytesAsync(actual, ct);
+
+            // Prefer external analyzer (OpenCLIP) if configured.
+            // IMPORTANT: when analyzer is enabled, we do NOT fall back to dHash (it's too weak for real tasks).
+            // If analyzer is down, we throw a special exception so the API can return 503 and the front can show a notification.
+            if (_opt.Enabled && !string.IsNullOrWhiteSpace(_opt.Url))
+            {
+                try
+                {
+                    var r = await _analyzer.CompareAsync(expBytes, actBytes, ct);
+                    if (r is null)
+                        throw new ImageAnalyzerUnavailableException("Analyzer returned empty result");
+
+                    // Analyzer returns 0..1. Convert to 0..100.
+                    var simPct = r.CombinedSimilarity * 100.0;
+                    if (simPct < 0) simPct = 0;
+                    if (simPct > 100) simPct = 100;
+                    return simPct;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (ImageAnalyzerUnavailableException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[ImageSimilarity] External analyzer failed.");
+                    throw new ImageAnalyzerUnavailableException("External analyzer failed", ex);
+                }
+            }
+
+            // Local fallback: decode both images.
+            using var expImg = await LoadAsRgbaAsync(new MemoryStream(expBytes), ct);
+            using var actImg = await LoadAsRgbaAsync(new MemoryStream(actBytes), ct);
 
             var h1 = ComputeDHash64(expImg);
             var h2 = ComputeDHash64(actImg);
@@ -64,11 +109,33 @@ public sealed class ImageSimilarityService : IImageSimilarityService
         {
             throw;
         }
+        catch (ImageAnalyzerUnavailableException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[ImageSimilarity] Failed to compare images. Returning 0% similarity.");
             return 0;
         }
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream s, CancellationToken ct)
+    {
+        if (s is MemoryStream ms)
+        {
+            // Ensure position doesn't matter.
+            return ms.ToArray();
+        }
+
+        if (s.CanSeek)
+        {
+            s.Position = 0;
+        }
+
+        using var buf = new MemoryStream();
+        await s.CopyToAsync(buf, ct);
+        return buf.ToArray();
     }
 
     private static async Task<Image<Rgba32>> LoadAsRgbaAsync(Stream s, CancellationToken ct)
