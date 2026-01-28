@@ -31,23 +31,16 @@
 
   <!-- Image alignment + feature matching (ORB) for image-test -->
   <!--
-    IMPORTANT:
     OpenCvSharp needs BOTH:
       1) Managed wrapper package: OpenCvSharp4
-      2) Native runtime package (libOpenCvSharpExtern.so) compatible with Linux
+      2) Native runtime package: OpenCvSharp4.official.runtime.*
 
-    We use the official Linux runtime package and keep versions aligned.
-    (The Sdcb "mini" runtime does NOT include the features2d module, so ORB would fail.)
+    Why we use Ubuntu (jammy) based .NET images in Docker:
+    OpenCvSharp4.official.runtime.linux-x64 depends on Ubuntu 22.04 (libavcodec58, ...).
+    Debian 12 uses libavcodec59, which breaks native loading.
   -->
-  <!-- OpenCV (used by ImageTests: decoding, diffing, ORB align, etc.) -->
-  <PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
-
-  <!--
-    Runtime native binaries for Linux.
-    This is the standard/most common way people deploy OpenCvSharp in Linux containers:
-    keep managed + runtime package versions aligned.
-  -->
-  <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.11.0.20250507" />
+  <PackageReference Include="OpenCvSharp4" Version="4.8.0.20230708" />
+  <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.8.0.20231125" />
 
 </ItemGroup>
 

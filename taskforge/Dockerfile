@@ -1,13 +1,12 @@
 # NOTE
-# We intentionally use the Debian-based .NET images here.
-# OpenCvSharp native bits are provided by Sdcb.OpenCvSharp4.mini.runtime.debian.12-x64
-# (see taskforge.csproj), which matches Debian 12/Bookworm library SONAMEs
-# (libavcodec59, libavformat59, etc.).
+# OpenCvSharp4.official.runtime.linux-x64 brings the OpenCvSharpExtern binary.
+# That binary is built against Ubuntu 22.04 (Jammy) FFmpeg sonames (libavcodec.so.58, etc.).
+# Using the Jammy-flavoured .NET images avoids the classic Debian 12 (Bookworm) mismatch
+# (Bookworm ships libavcodec.so.59), which otherwise causes DllNotFoundException at runtime.
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-jammy AS base
 WORKDIR /app
 
-# Runtime deps for OpenCvSharp (Debian 12), image/OCR tooling, and common headless rendering.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libglib2.0-0 \
@@ -16,30 +15,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libfontconfig1 \
     libfreetype6 \
-    libjpeg62-turbo \
+    libjpeg-turbo8 \
     libpng16-16 \
-    libtiff6 \
+    libtiff5 \
     libwebp7 \
     libopenjp2-7 \
     libgtk2.0-0 \
     libdc1394-25 \
-    libavcodec59 \
-    libavformat59 \
-    libavutil57 \
-    libswscale6 \
-    libswresample4 \
+    libavcodec58 \
+    libavformat58 \
+    libavutil56 \
+    libswscale5 \
+    libswresample3 \
     tesseract-ocr \
-    libtesseract5 \
+    libtesseract4 \
     liblept5 \
   && rm -rf /var/lib/apt/lists/*
 
-# Some libs look for older sonames. Provide compatibility symlink when needed.
-RUN if [ -f /usr/lib/x86_64-linux-gnu/libtesseract.so.5 ] && [ ! -f /usr/lib/x86_64-linux-gnu/libtesseract.so.4 ]; then \
-      ln -s /usr/lib/x86_64-linux-gnu/libtesseract.so.5 /usr/lib/x86_64-linux-gnu/libtesseract.so.4; \
-    fi
 
-
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0-jammy AS build
 WORKDIR /src
 
 COPY . .
