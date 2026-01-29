@@ -1,7 +1,12 @@
 fastapi==0.115.6
 uvicorn[standard]==0.30.6
 pillow==10.4.0
-numpy==2.0.2
+
+# IMPORTANT: torch 2.2.x isn't compatible with numpy 2.x API in many environments
+numpy==1.26.4
+
+# Needed for FastAPI File(...) / multipart form uploads
+python-multipart==0.0.9
 
 # Neural similarity (OpenCLIP)
 open_clip_torch==2.30.0
