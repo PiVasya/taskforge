@@ -15,7 +15,11 @@ RUN apt-get update \
 # Official download link: https://pascalabc.net/downloads/PABCNETC.zip
 RUN mkdir -p /opt/pabcnetc \
   && wget -O /tmp/PABCNETC.zip https://pascalabc.net/downloads/PABCNETC.zip \
-  && unzip -q /tmp/PABCNETC.zip -d /opt/pabcnetc \
+  # PABCNETC.zip contains some files with non-UTF filenames; Info-ZIP 'unzip' may exit with code 1
+  # while still extracting everything ("mismatching local filename" warning).
+  && (unzip -q /tmp/PABCNETC.zip -d /opt/pabcnetc || true) \
+  # Ensure the compiler is actually present so the build fails only when extraction truly failed.
+  && test -n "$(find /opt/pabcnetc -maxdepth 4 -iname 'pabcnetc.exe' -print -quit)" \
   && rm -f /tmp/PABCNETC.zip
 
 # Some Mono apps expect a writable registry path inside containers
