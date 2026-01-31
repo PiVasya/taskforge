@@ -185,6 +185,16 @@ namespace taskforge.Data
                 .HasColumnType("timestamp with time zone");
 
             // 🔹 UserQuotaBucket (token bucket quotas)
+            // NOTE: some Npgsql EF Core versions don't have UseXminAsConcurrencyToken().
+            // Use a shadow property mapped to Postgres system column xmin as an optimistic
+            // concurrency token.
+            modelBuilder.Entity<UserQuotaBucket>()
+                .Property<uint>("xmin")
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
+
             modelBuilder.Entity<UserQuotaBucket>()
                 .HasIndex(x => new { x.UserId, x.BucketType })
                 .IsUnique();

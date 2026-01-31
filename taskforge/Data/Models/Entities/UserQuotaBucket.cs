@@ -36,9 +36,6 @@ public sealed class UserQuotaBucket
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 
-    /// <summary>
-    /// Оптимистическая конкуренция.
-    /// </summary>
-    [Timestamp]
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+    // Оптимистическая конкуренция реализуется через системную колонку Postgres "xmin"
+    // (см. ApplicationDbContext: UseXminAsConcurrencyToken()).
 }
