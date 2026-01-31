@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Button, Card, Badge } from '../components/ui';
 import { getMyImageSolutionDetails } from '../api/imageSolutions';
-import { getMyImageSolutionDetails } from '../api/imageSolutions';
 
 function safeJsonParse(s) {
   try {
