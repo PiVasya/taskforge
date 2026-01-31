@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using taskforge.Constants;
+using taskforge.Filters;
 using taskforge.Data;
 using taskforge.Data.Models.DTO.TaskTests;
 using taskforge.Services.Interfaces;
@@ -51,6 +53,7 @@ namespace taskforge.Controllers.Assignments
         }
 
         [HttpPost("{assignmentId:guid}/submit")]
+        [RequireQuota(QuotaBuckets.Tasks)]
         public async Task<IActionResult> Submit(Guid assignmentId, [FromBody] TaskTestSubmitRequestDto request)
         {
             var userId = _current.GetUserId();

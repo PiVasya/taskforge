@@ -15,6 +15,7 @@ using taskforge.Services.Support;
 using taskforge.Hubs;
 using taskforge.Services.Files;
 using taskforge.Services.ImageTests;
+using taskforge.Services.Quotas;
 using Amazon.S3;
 using Amazon;
 
@@ -28,6 +29,9 @@ builder.Logging.AddConsole();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+// квоты (token bucket)
+builder.Services.AddScoped<IQuotaService, QuotaService>();
 
 // доступ к курсам / видимость / owners / группы
 builder.Services.AddScoped<ICourseAccessService, taskforge.Services.Courses.CourseAccessService>();

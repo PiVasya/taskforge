@@ -1,5 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
+using taskforge.Constants;
+using taskforge.Filters;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -111,7 +113,8 @@ public sealed class ImageTestsController : ControllerBase
         double? SimilarityPercent,
         double? ThresholdPercent,
         bool? Passed,
-        string? ReferenceUrl);
+        string? ReferenceUrl,
+        Guid? SolutionId = null);
 
     public sealed record ImageTestCompareResponse(
         bool Ok,
@@ -124,7 +127,48 @@ public sealed class ImageTestsController : ControllerBase
         string? SubmittedUrl,
         string Stdout,
         string Stderr,
-        string? RunnerError);
+        string? RunnerError,
+        Guid? SolutionId = null);
+
+    private async Task<Guid> SaveImageSolutionAsync(
+        Guid userId,
+        TaskAssignment a,
+        string kind,
+        bool isTrial,
+        string? language,
+        string? submittedCode,
+        string? submittedKey,
+        double? similarityPercent,
+        double? thresholdPercent,
+        bool? passed,
+        string stdout,
+        string stderr,
+        string? runnerError,
+        CancellationToken ct)
+    {
+        var s = new UserImageTaskSolution
+        {
+            UserId = userId,
+            TaskAssignmentId = a.Id,
+            Kind = kind,
+            IsTrial = isTrial,
+            Language = language,
+            SubmittedCode = submittedCode,
+            ReferenceKey = a.ImageTestReferenceKey,
+            SubmittedKey = submittedKey,
+            SimilarityPercent = similarityPercent,
+            ThresholdPercent = thresholdPercent,
+            Passed = passed,
+            Stdout = stdout ?? string.Empty,
+            Stderr = stderr ?? string.Empty,
+            RunnerError = runnerError,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+
+        _db.UserImageTaskSolutions.Add(s);
+        await _db.SaveChangesAsync(ct);
+        return s.Id;
+    }
 
     /// <summary>
     /// Compare a user-uploaded image (multipart/form-data) against the reference image.
@@ -132,6 +176,7 @@ public sealed class ImageTestsController : ControllerBase
     /// It matches the old front-end call /image-test/compare.
     /// </summary>
     [HttpPost("compare")]
+    [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestCompareResponse>> Compare(
         [FromRoute] Guid assignmentId,
         [FromForm] IFormFile file,
@@ -208,6 +253,22 @@ public sealed class ImageTestsController : ControllerBase
         var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
+        var solutionId = await SaveImageSolutionAsync(
+            userId,
+            a,
+            kind: "upload",
+            isTrial: false,
+            language: null,
+            submittedCode: null,
+            submittedKey: submittedKey,
+            similarityPercent: similarityPercent,
+            thresholdPercent: thresholdPercent,
+            passed: passed,
+            stdout: string.Empty,
+            stderr: string.Empty,
+            runnerError: null,
+            ct);
+
         return Ok(new ImageTestCompareResponse(
             Ok: true,
             SimilarityPercent: Math.Round(similarityPercent, 1),
@@ -219,10 +280,12 @@ public sealed class ImageTestsController : ControllerBase
             SubmittedUrl: submittedUrl,
             Stdout: string.Empty,
             Stderr: string.Empty,
-            RunnerError: null));
+            RunnerError: null,
+            SolutionId: solutionId));
     }
 
     [HttpPost("compare-upload")]
+    [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
@@ -291,6 +354,22 @@ public sealed class ImageTestsController : ControllerBase
         var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
+        var solutionId = await SaveImageSolutionAsync(
+            userId,
+            a,
+            kind: "upload",
+            isTrial: false,
+            language: null,
+            submittedCode: null,
+            submittedKey: submittedKey,
+            similarityPercent: similarityPercent,
+            thresholdPercent: thresholdPercent,
+            passed: passed,
+            stdout: string.Empty,
+            stderr: string.Empty,
+            runnerError: null,
+            ct);
+
         return Ok(new ImageTestCompareResponse(
             Ok: true,
             SimilarityPercent: Math.Round(similarityPercent, 1),
@@ -302,7 +381,8 @@ public sealed class ImageTestsController : ControllerBase
             SubmittedUrl: submittedUrl,
             Stdout: "",
             Stderr: "",
-            RunnerError: null));
+            RunnerError: null,
+            SolutionId: solutionId));
     }
 
     /// <summary>
@@ -310,6 +390,7 @@ public sealed class ImageTestsController : ControllerBase
     /// Сравнение с эталоном отключено по умолчанию, но его можно включить флагом CompareWithReference.
     /// </summary>
     [HttpPost("run-code")]
+    [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
@@ -379,55 +460,22 @@ public sealed class ImageTestsController : ControllerBase
         var renderedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/previews/{userId}/{assignmentId}", ".png", ct);
         var renderedUrl = $"/api/private-files/{Uri.EscapeDataString(renderedKey)}";
 
-        // If no comparison requested, we're done.
-        if (!req.CompareWithReference)
-        {
-            return Ok(new ImageTestRunResponse(
-                Ok: true,
-                RenderedKey: renderedKey,
-                RenderedUrl: renderedUrl,
-                Stdout: stdout,
-                Stderr: stderr,
-                RunnerError: runnerErr,
-                SimilarityPercent: null,
-                ThresholdPercent: null,
-                Passed: null,
-                ReferenceUrl: null));
-        }
-
-        // Comparison requested.
-        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey))
-            return BadRequest("Reference image is not configured");
-
-        // Normalize threshold (support old configs: 0..1 as fraction)
-        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
-        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
-
-        var (refStream, _) = await _files.GetAsync(a.ImageTestReferenceKey, ct);
-        await using var refS = refStream;
-        await using var subStream = new MemoryStream(png);
-
-        double similarityPercent;
-        bool passed;
-        try
-        {
-            similarityPercent = await _similarity.GetSimilarityPercentAsync(refS, subStream, ct);
-            passed = similarityPercent >= thresholdPercent;
-        }
-        catch (ImageAnalyzerUnavailableException)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestRunResponse(
-                Ok: false,
-                RenderedKey: renderedKey,
-                RenderedUrl: renderedUrl,
-                Stdout: stdout,
-                Stderr: stderr,
-                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
-                SimilarityPercent: null,
-                ThresholdPercent: Math.Round(thresholdPercent, 1),
-                Passed: null,
-                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}"));
-        }
+        // Пробник: только рендер, без сравнения.
+        var solutionId = await SaveImageSolutionAsync(
+            userId,
+            a,
+            kind: "code",
+            isTrial: true,
+            language: lang,
+            submittedCode: req.Code,
+            submittedKey: renderedKey,
+            similarityPercent: null,
+            thresholdPercent: null,
+            passed: null,
+            stdout: stdout,
+            stderr: stderr,
+            runnerError: runnerErr,
+            ct);
 
         return Ok(new ImageTestRunResponse(
             Ok: true,
@@ -436,10 +484,11 @@ public sealed class ImageTestsController : ControllerBase
             Stdout: stdout,
             Stderr: stderr,
             RunnerError: runnerErr,
-            SimilarityPercent: Math.Round(similarityPercent, 1),
-            ThresholdPercent: Math.Round(thresholdPercent, 1),
-            Passed: passed,
-            ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}"));
+            SimilarityPercent: null,
+            ThresholdPercent: null,
+            Passed: null,
+            ReferenceUrl: null,
+            SolutionId: solutionId));
     }
 
     /// <summary>
@@ -448,6 +497,7 @@ public sealed class ImageTestsController : ControllerBase
     /// Пользователь не загружает изображения вручную.
     /// </summary>
     [HttpPost("compare-code")]
+    [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
@@ -545,6 +595,22 @@ public sealed class ImageTestsController : ControllerBase
         }
         catch (ImageAnalyzerUnavailableException)
         {
+            var solutionId503 = await SaveImageSolutionAsync(
+                userId,
+                a,
+                kind: "code",
+                isTrial: false,
+                language: lang,
+                submittedCode: req.Code,
+                submittedKey: submittedKey,
+                similarityPercent: null,
+                thresholdPercent: thresholdPercent,
+                passed: null,
+                stdout: stdout,
+                stderr: stderr,
+                runnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
+                ct);
+
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
                 Ok: false,
                 SimilarityPercent: 0,
@@ -556,7 +622,8 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
                 Stdout: stdout,
                 Stderr: stderr,
-                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
+                SolutionId: solutionId503));
         }
         catch (Exception ex)
         {
@@ -565,6 +632,22 @@ public sealed class ImageTestsController : ControllerBase
             _log.LogError(ex, "[ImageTest] similarity failed: assignment={AssignmentId} user={UserId} lang={Lang} refKey={RefKey} subKey={SubKey}",
                 assignmentId, userId, lang, a.ImageTestReferenceKey, submittedKey);
             DebugConsole.Log("ImageTests", $"[ImageTest] similarity FAILED: {ex.GetType().Name}: {ex.Message}");
+
+            var solutionIdFail = await SaveImageSolutionAsync(
+                userId,
+                a,
+                kind: "code",
+                isTrial: false,
+                language: lang,
+                submittedCode: req.Code,
+                submittedKey: submittedKey,
+                similarityPercent: null,
+                thresholdPercent: thresholdPercent,
+                passed: null,
+                stdout: stdout,
+                stderr: stderr,
+                runnerError: runnerErr ?? $"Image similarity failed: {ex.GetType().Name}: {ex.Message}",
+                ct);
 
             return Ok(new ImageTestCompareResponse(
                 Ok: false,
@@ -577,12 +660,29 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
                 Stdout: stdout,
                 Stderr: stderr,
-                RunnerError: runnerErr ?? $"Image similarity failed: {ex.GetType().Name}: {ex.Message}"));
+                RunnerError: runnerErr ?? $"Image similarity failed: {ex.GetType().Name}: {ex.Message}",
+                SolutionId: solutionIdFail));
         }
 
         sw.Stop();
         _log.LogInformation("[ImageTest] compare-code done: assignment={AssignmentId} user={UserId} lang={Lang} similarity={Similarity:0.000} passed={Passed} ms={Ms}",
             assignmentId, userId, lang, similarityPercent, passed, sw.ElapsedMilliseconds);
+
+        var solutionId = await SaveImageSolutionAsync(
+            userId,
+            a,
+            kind: "code",
+            isTrial: false,
+            language: lang,
+            submittedCode: req.Code,
+            submittedKey: submittedKey,
+            similarityPercent: similarityPercent,
+            thresholdPercent: thresholdPercent,
+            passed: passed,
+            stdout: stdout,
+            stderr: stderr,
+            runnerError: runnerErr,
+            ct);
 
         var response = new ImageTestCompareResponse(
             Ok: true,
@@ -595,8 +695,18 @@ public sealed class ImageTestsController : ControllerBase
             SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
             Stdout: stdout,
             Stderr: stderr,
-            RunnerError: runnerErr);
+            RunnerError: runnerErr,
+            SolutionId: solutionId);
 
         return Ok(response);
     }
+
+    /// <summary>
+    /// Псевдоним для фронта: финальная отправка решения (рендер + сравнение).
+    /// По сути это то же самое, что compare-code.
+    /// </summary>
+    [HttpPost("submit-code")]
+    [RequireQuota(QuotaBuckets.Tasks)]
+    public Task<ActionResult<ImageTestCompareResponse>> SubmitCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
+        => CompareCode(assignmentId, req, ct);
 }

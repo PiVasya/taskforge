@@ -90,3 +90,24 @@
   border-top: 1px solid rgba(0,0,0,0.15);
   margin: 1rem 0;
 }
+
+/* ===== Dark theme overrides (Tailwind uses .dark on html/body) ===== */
+.dark .tiptap-content blockquote {
+  border-left: 3px solid rgba(255,255,255,0.18);
+}
+
+.dark .tiptap-content code {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.dark .tiptap-content pre {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.dark .tiptap-content hr {
+  border-top: 1px solid rgba(255,255,255,0.18);
+}
+
+.dark .tiptap-content mark {
+  background: rgba(255, 235, 59, 0.22);
+}

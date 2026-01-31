@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using taskforge.Constants;
+using taskforge.Filters;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
@@ -26,6 +28,7 @@ namespace taskforge.Controllers
         }
 
         [HttpGet("top-solutions")]
+        [RequireQuota(QuotaBuckets.Top)]
         public async Task<IActionResult> GetTopSolutions([FromRoute] Guid assignmentId, [FromQuery] int top = 20)
         {
             var userId = _current.GetUserId();
@@ -44,6 +47,7 @@ namespace taskforge.Controllers
         }
 
         [HttpPost("submit")]
+        [RequireQuota(QuotaBuckets.Tasks)]
         public async Task<IActionResult> Submit([FromRoute] Guid assignmentId, [FromBody] SubmitSolutionRequest req)
         {
             var userId = _current.GetUserId();

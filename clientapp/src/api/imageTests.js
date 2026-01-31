@@ -32,3 +32,23 @@ export async function compareImageTestCode(assignmentId, language, code, debug =
   });
   return res.data;
 }
+
+// Пробный прогон: только рендер, без сравнения с эталоном.
+export async function runImageTestCode(assignmentId, language, code, debug = true) {
+  const res = await api.post(`/api/assignments/${assignmentId}/image-test/run-code`, {
+    language,
+    code,
+    debug,
+  });
+  return res.data;
+}
+
+// Финальная отправка: рендер + сравнение (то же самое, что compare-code).
+export async function submitImageTestCode(assignmentId, language, code, debug = true) {
+  const res = await api.post(`/api/assignments/${assignmentId}/image-test/submit-code`, {
+    language,
+    code,
+    debug,
+  });
+  return res.data;
+}

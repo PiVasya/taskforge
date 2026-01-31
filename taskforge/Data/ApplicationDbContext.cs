@@ -22,6 +22,8 @@ namespace taskforge.Data
         public DbSet<TaskAssignment> TaskAssignments { get; set; } = null!;
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
+        public DbSet<UserImageTaskSolution> UserImageTaskSolutions { get; set; } = null!;
+        public DbSet<UserQuotaBucket> UserQuotaBuckets { get; set; } = null!;
         public DbSet<SupportTicket> SupportTickets { get; set; } = null!;
         public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
 
@@ -173,6 +175,32 @@ namespace taskforge.Data
             modelBuilder.Entity<UserTaskSolution>()
                 .Property(s => s.SubmittedAt)
                 .HasColumnType("timestamp with time zone");
+
+            // 🔹 UserImageTaskSolution
+            modelBuilder.Entity<UserImageTaskSolution>()
+                .HasIndex(x => new { x.UserId, x.TaskAssignmentId, x.CreatedAtUtc });
+
+            modelBuilder.Entity<UserImageTaskSolution>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            // 🔹 UserQuotaBucket (token bucket quotas)
+            modelBuilder.Entity<UserQuotaBucket>()
+                .HasIndex(x => new { x.UserId, x.BucketType })
+                .IsUnique();
+
+            modelBuilder.Entity<UserQuotaBucket>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserQuotaBucket>()
+                .Property(x => x.UpdatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserQuotaBucket>()
+                .Property(x => x.LastRefillAtUtc)
+                .HasColumnType("timestamp with time zone");
+
 
             // 🔹 Badge
             modelBuilder.Entity<Badge>()

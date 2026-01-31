@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Button, Card, Badge } from '../components/ui';
+import { getMyImageSolutionDetails } from '../api/imageSolutions';
+import { getMyImageSolutionDetails } from '../api/imageSolutions';
 
 function safeJsonParse(s) {
   try {
@@ -34,19 +36,60 @@ function pickSimilarity(obj) {
 export default function AssignmentImageResultsPage() {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const storageKey = useMemo(() => `image-results:${assignmentId}`, [assignmentId]);
   const [data, setData] = useState(null);
 
+  const solutionId = useMemo(() => {
+    const sp = new URLSearchParams(location.search);
+    const v = sp.get('solutionId');
+    return v || null;
+  }, [location.search]);
+
   useEffect(() => {
-    setData(safeJsonParse(localStorage.getItem(storageKey)));
-  }, [storageKey]);
+    let cancelled = false;
+
+    async function load() {
+      if (solutionId) {
+        try {
+          const d = await getMyImageSolutionDetails(solutionId);
+          if (cancelled) return;
+          setData({
+            assignmentTitle: d.assignmentTitle,
+            isTrial: d.isTrial,
+            passed: d.passed,
+            similarityPercent: d.similarityPercent,
+            thresholdPercent: d.thresholdPercent,
+            referenceUrl: d.referenceUrl,
+            submittedUrl: d.submittedUrl,
+            stdout: d.stdout,
+            stderr: d.stderr,
+            runnerError: d.runnerError,
+            createdAtUtc: d.createdAtUtc,
+          });
+          return;
+        } catch {
+          // fallback to localStorage
+        }
+      }
+
+      if (cancelled) return;
+      setData(safeJsonParse(localStorage.getItem(storageKey)));
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [storageKey, solutionId]);
 
   const percent = useMemo(() => toPercent(pickSimilarity(data)), [data]);
   const passed = data?.passed;
   const title = data?.assignmentTitle || data?.title || `Задание ${assignmentId}`;
   const expectedUrl = data?.expectedUrl || data?.referenceUrl;
   const actualUrl = data?.actualUrl || data?.submittedUrl || data?.submissionUrl;
+  const isTrial = Boolean(data?.isTrial);
 
   const onBack = () => {
     // If opened as a new tab/window from the solve page, allow simple close
@@ -64,6 +107,7 @@ export default function AssignmentImageResultsPage() {
           <div>
             <h1 className="text-2xl font-semibold">{title}</h1>
             <div className="flex items-center gap-2 mt-2">
+              {isTrial && <Badge variant="secondary">Пробник</Badge>}
               {passed === true && <Badge variant="success">Пройдено</Badge>}
               {passed === false && <Badge variant="destructive">Не пройдено</Badge>}
               {percent !== null && (

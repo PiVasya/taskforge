@@ -26,7 +26,7 @@ function safeParseJson(str) {
 
 function PlainTextViewer({ value }) {
   return (
-    <div className="prose max-w-none whitespace-pre-wrap break-words">
+    <div className="prose max-w-none whitespace-pre-wrap break-words text-slate-900 dark:text-slate-100 dark:prose-invert">
       {value || ""}
     </div>
   );
@@ -57,7 +57,7 @@ function TiptapDocViewer({ doc }) {
     content: doc,
     editorProps: {
       attributes: {
-        class: "tiptap-content tiptap-content-readonly prose max-w-none",
+        class: "tiptap-content tiptap-content-readonly prose max-w-none text-slate-900 dark:text-slate-100 dark:prose-invert",
       },
     },
   });

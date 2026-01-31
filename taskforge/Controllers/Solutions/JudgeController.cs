@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading.Tasks;
 using taskforge.Data.Models.DTO.Solutions;
+using taskforge.Constants;
+using taskforge.Filters;
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers
@@ -22,6 +24,7 @@ namespace taskforge.Controllers
         }
 
         [HttpPost("run")]
+        [RequireQuota(QuotaBuckets.Tasks)]
         public async Task<ActionResult<JudgeResponseDto>> Run([FromBody] JudgeRequestDto req)
         {
             if (req == null || req.AssignmentId == Guid.Empty || string.IsNullOrWhiteSpace(req.Source))

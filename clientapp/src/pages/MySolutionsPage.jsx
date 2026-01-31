@@ -5,6 +5,7 @@ import { Card, Button, Badge } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { getMySolutions, getMySolutionDetails } from '../api/solutions';
 import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTestAttempts';
+import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
 import { useNotify } from '../components/notify/NotifyProvider';
 
 const FILTER_OPTIONS = [
@@ -30,6 +31,11 @@ export default function MySolutionsPage() {
   const [testDetails, setTestDetails] = useState({});
   const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(null);
 
+  const [imageSolutions, setImageSolutions] = useState([]);
+  const [imageListLoading, setImageListLoading] = useState(false);
+  const [imageDetails, setImageDetails] = useState({});
+  const [expandedImageId, setExpandedImageId] = useState(null);
+
   const loadSolutions = async () => {
     setListLoading(true);
     try {
@@ -54,9 +60,22 @@ export default function MySolutionsPage() {
     }
   };
 
+  const loadImageSolutions = async () => {
+    setImageListLoading(true);
+    try {
+      const list = await getMyImageSolutions({ days: filterDays });
+      setImageSolutions(Array.isArray(list) ? list : []);
+    } catch (e) {
+      console.error('Failed to load my image solutions', e);
+    } finally {
+      setImageListLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadSolutions();
     loadTestAttempts();
+    loadImageSolutions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDays]);
 
@@ -76,6 +95,32 @@ export default function MySolutionsPage() {
     list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return list;
   }, [solutions]);
+
+  const displayedImageSolutions = useMemo(() => {
+    const list = [...imageSolutions];
+    list.sort((a, b) => new Date(b.createdAtUtc) - new Date(a.createdAtUtc));
+    return list;
+  }, [imageSolutions]);
+
+  const handleToggleImageSolution = async (id) => {
+    if (expandedImageId === id) {
+      setExpandedImageId(null);
+      return;
+    }
+
+    if (!imageDetails[id]) {
+      try {
+        const full = await getMyImageSolutionDetails(id);
+        setImageDetails((prev) => ({ ...prev, [id]: full }));
+      } catch (e) {
+        console.error('Failed to load image solution details', e);
+        notify.error('Не удалось загрузить решение по картинке');
+        return;
+      }
+    }
+
+    setExpandedImageId(id);
+  };
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {
@@ -242,6 +287,9 @@ export default function MySolutionsPage() {
             <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>
               Тесты
             </Button>
+            <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>
+              Картинки
+            </Button>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">
@@ -259,12 +307,16 @@ export default function MySolutionsPage() {
 
           {tab === 'code' && listLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
           {tab === 'tests' && testListLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
+          {tab === 'images' && imageListLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
 
           {tab === 'code' && !listLoading && !displayedSolutions.length && (
             <div className="text-slate-500 dark:text-slate-400">За выбранный период решений нет.</div>
           )}
           {tab === 'tests' && !testListLoading && !displayedAttempts.length && (
             <div className="text-slate-500 dark:text-slate-400">За выбранный период попыток тестов нет.</div>
+          )}
+          {tab === 'images' && !imageListLoading && !displayedImageSolutions.length && (
+            <div className="text-slate-500 dark:text-slate-400">За выбранный период решений по картинкам нет.</div>
           )}
         </Card>
 
@@ -356,6 +408,109 @@ export default function MySolutionsPage() {
                     </div>
 
                     {expanded ? renderAttemptReview(dto) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+        {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
+          <Card className="p-4 space-y-4">
+            <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+              Всего решений по картинкам: {displayedImageSolutions.length}
+            </div>
+
+            <div className="space-y-6">
+              {displayedImageSolutions.map((it) => {
+                const full = imageDetails[it.id] || null;
+                const expanded = expandedImageId === it.id && full;
+                const dt = new Date(it.createdAtUtc).toLocaleString();
+
+                const openResult = () => {
+                  window.open(`/assignment/${it.assignmentId}/image-results?solutionId=${it.id}`, '_blank');
+                };
+
+                return (
+                  <div key={it.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-[rgb(var(--card))]">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div>
+                        <div className="font-medium">{it.assignmentTitle}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          {dt}
+                          {it.language ? ` • ${it.language}` : ''}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {it.isTrial ? <Badge intent="secondary">Пробник</Badge> : null}
+                        {it.passed === true ? <Badge intent="success">Пройдено</Badge> : null}
+                        {it.passed === false ? <Badge intent="danger">Не пройдено</Badge> : null}
+                        {typeof it.similarityPercent === 'number' ? (
+                          <Badge intent={it.passed ? 'success' : 'danger'}>
+                            {Math.round(it.similarityPercent * 10) / 10}%
+                          </Badge>
+                        ) : null}
+                        <Button variant="outline" onClick={openResult}>Открыть</Button>
+                        <Button onClick={() => handleToggleImageSolution(it.id)}>
+                          {expandedImageId === it.id ? 'Скрыть' : 'Подробнее'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {expanded ? (
+                      <div className="mt-4 space-y-4">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <Card className="p-3">
+                            <div className="text-sm font-medium mb-2">Эталон</div>
+                            {full.referenceUrl ? (
+                              <img src={full.referenceUrl} alt="Эталон" className="w-full rounded-lg border" />
+                            ) : (
+                              <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
+                            )}
+                          </Card>
+                          <Card className="p-3">
+                            <div className="text-sm font-medium mb-2">Результат</div>
+                            {full.submittedUrl ? (
+                              <img src={full.submittedUrl} alt="Результат" className="w-full rounded-lg border" />
+                            ) : (
+                              <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
+                            )}
+                          </Card>
+                        </div>
+
+                        {full.submittedCode ? (
+                          <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                            <CodeEditor
+                              language={full.language || it.language || 'text'}
+                              value={full.submittedCode}
+                              readOnly
+                              onChange={() => {}}
+                              height={320}
+                            />
+                          </div>
+                        ) : null}
+
+                        {(full.stdout || full.stderr || full.runnerError) ? (
+                          <Card className="p-3 space-y-2">
+                            {full.runnerError ? (
+                              <div className="text-sm text-rose-700 dark:text-rose-300">{full.runnerError}</div>
+                            ) : null}
+                            {full.stdout ? (
+                              <div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">stdout</div>
+                                <pre className="text-xs whitespace-pre-wrap break-words mt-1">{full.stdout}</pre>
+                              </div>
+                            ) : null}
+                            {full.stderr ? (
+                              <div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">stderr</div>
+                                <pre className="text-xs whitespace-pre-wrap break-words mt-1">{full.stderr}</pre>
+                              </div>
+                            ) : null}
+                          </Card>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

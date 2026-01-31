@@ -13,7 +13,7 @@ import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
-import { compareImageTestCode } from '../api/imageTests';
+import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -274,19 +274,50 @@ export default function AssignmentSolvePage() {
 
   // ===== Новый тип задания: image-test =====
   if (a.type === 'image-test') {
-    // Эталон хранится приватно, поэтому читаем через /api/private-files
     const expectedUrl = a.imageTestReferenceKey
       ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
       : null;
 
-    // Только Python и Pascal
     const imageLangs = [
       { value: 'python', label: 'Python' },
       { value: 'pascal', label: 'Pascal' },
     ];
 
+    const openResults = (solutionId) => {
+      const url = solutionId
+        ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
+        : `/assignment/${assignmentId}/image-results`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+
+    const onTrialImageTest = async () => {
+      setImgError(null);
+      setImgCompare(null);
+      setImgBusy(true);
+      try {
+        const resp = await runImageTestCode(assignmentId, language, code, true);
+
+        const payload = {
+          ...resp,
+          expectedUrl: expectedUrl,
+          actualUrl: resp?.renderedUrl || resp?.submittedUrl || resp?.actualUrl,
+          assignmentId,
+          assignmentTitle: a.title,
+          language,
+          isTrial: true,
+          createdAt: new Date().toISOString(),
+        };
+
+        localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
+        openResults(resp?.solutionId);
+      } catch (e) {
+        setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
+      } finally {
+        setImgBusy(false);
+      }
+    };
+
     const onSubmitImageTest = async () => {
-      // Не даём улететь в 400 "Reference image is not configured"
       if (!expectedUrl) {
         setImgError('Эталонная картинка не настроена. Загрузите эталон в режиме редактирования задания.');
         return;
@@ -296,21 +327,21 @@ export default function AssignmentSolvePage() {
       setImgCompare(null);
       setImgBusy(true);
       try {
-        const resp = await compareImageTestCode(assignmentId, language, code, true);
+        const resp = await submitImageTestCode(assignmentId, language, code, true);
 
         const payload = {
           ...resp,
-          // бек обычно возвращает referenceUrl / submittedUrl
-          expectedUrl: resp?.referenceUrl || resp?.expectedUrl || expectedUrl,
-          actualUrl: resp?.submittedUrl || resp?.submissionUrl || resp?.actualUrl,
+          expectedUrl: resp?.referenceUrl || expectedUrl,
+          actualUrl: resp?.submittedUrl || resp?.actualUrl,
           assignmentId,
           assignmentTitle: a.title,
           language,
+          isTrial: false,
           createdAt: new Date().toISOString(),
         };
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        window.open(`/assignment/${assignmentId}/image-results`, '_blank', 'noopener,noreferrer');
+        openResults(resp?.solutionId);
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
       } finally {
@@ -320,101 +351,127 @@ export default function AssignmentSolvePage() {
 
     return (
       <Layout>
-        <div className="container mx-auto px-4 py-8">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">{a.title}</h1>
-              {a.description && (
-                <p className="text-gray-600 whitespace-pre-wrap">{a.description}</p>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button
-                variant="outline"
-                onClick={() =>
-                  window.open(
-                    `/assignment/${assignmentId}/image-results`,
-                    '_blank',
-                    'noopener,noreferrer'
-                  )
-                }
-              >
-                Открыть последние результаты
-              </Button>
-              <Link to="/assignments" className="text-sm text-gray-500 hover:underline">
-                К списку заданий
-              </Link>
-            </div>
+        {/* верхняя панель — как у code-test */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
+              <ArrowLeft size={16} /> к заданиям курса
+            </Link>
           </div>
+          <div className="flex items-center gap-2">
+            <IfEditor>
+              <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
+                Редактировать
+              </Link>
+            </IfEditor>
+          </div>
+        </div>
 
-          {expectedUrl && (
-            <Card className="mt-6">
-              <div className="p-4">
-                <div className="font-semibold mb-3">Эталонная картинка</div>
-                <div className="rounded border overflow-hidden bg-white">
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* левая часть: текст задачи + эталон */}
+          <div className="lg:col-span-2 space-y-5">
+            <Card>
+              <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+              {a.tags && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {a.tags
+                    .split(',')
+                    .filter(Boolean)
+                    .map((t) => (
+                      <Badge key={t.trim()}>{t.trim()}</Badge>
+                    ))}
+                </div>
+              )}
+              <StatementViewer value={a.description} />
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-medium">Эталон</div>
+              </div>
+
+              {expectedUrl ? (
+                <div className="rounded border overflow-hidden bg-white dark:bg-slate-950">
                   <img
                     src={expectedUrl}
                     alt="Эталон"
                     className="w-full max-h-[70vh] object-contain"
                   />
                 </div>
-              </div>
+              ) : (
+                <div className="text-slate-500">
+                  Эталонная картинка не настроена. Открой «Редактировать» и нажми «Загрузить эталон».
+                </div>
+              )}
             </Card>
-          )}
+          </div>
 
-          <Card className="mt-6">
-            <div className="p-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="font-semibold">Решение</div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">Язык:</span>
+          {/* правая часть: редактор и запуск — как у code-test */}
+          <div className="space-y-4">
+            <Card>
+              <div className="grid gap-3">
+                <div>
+                  <label className="label">Язык</label>
                   <Select
                     value={['python', 'pascal'].includes(language) ? language : 'python'}
                     onChange={(e) => setLanguage(e.target.value)}
                   >
                     {imageLangs.map((l) => (
-                      <option key={l.value} value={l.value}>
-                        {l.label}
-                      </option>
+                      <option key={l.value} value={l.value}>{l.label}</option>
                     ))}
                   </Select>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Для image-test доступны только Python и Pascal.
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-3">
-                <CodeEditor
-                  value={code}
-                  onChange={setCode}
-                  language={language === 'pascal' ? 'pascal' : 'python'}
-                />
-              </div>
-
-              {!expectedUrl && (
-                <div className="mt-3 text-amber-700 whitespace-pre-wrap">
-                  Эталонная картинка не настроена. Открой «Редактировать» и нажми «Загрузить эталон».
+                <div>
+                  <label className="label">Код</label>
+                  <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                    <CodeEditor
+                      value={code}
+                      onChange={setCode}
+                      language={language === 'pascal' ? 'pascal' : 'python'}
+                    />
+                  </div>
                 </div>
-              )}
 
-              {imgError && (
-                <div className="mt-3 text-red-600 whitespace-pre-wrap">{imgError}</div>
-              )}
+                {imgError ? (
+                  <div className="text-rose-700 dark:text-rose-300 whitespace-pre-wrap">
+                    {imgError}
+                  </div>
+                ) : null}
 
-              <div className="mt-4 flex items-center gap-3 flex-wrap">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={onTrialImageTest}
+                    disabled={imgBusy || !code.trim()}
+                  >
+                    {imgBusy ? 'Выполняю…' : 'Пробник (только рендер)'}
+                  </Button>
+
+                  <Button
+                    onClick={onSubmitImageTest}
+                    disabled={imgBusy || !code.trim() || !expectedUrl}
+                  >
+                    {imgBusy ? 'Выполняю…' : 'Отправить (сравнение)'}
+                  </Button>
+                </div>
+
                 <Button
-                  onClick={onSubmitImageTest}
-                  disabled={imgBusy || !code.trim() || !expectedUrl}
+                  variant="outline"
+                  onClick={() => openResults(null)}
                 >
-                  {imgBusy ? 'Выполняю…' : 'Отправить и открыть сравнение'}
+                  Открыть последние результаты
                 </Button>
 
-                <span className="text-sm text-gray-500">
-                  После отправки откроется отдельная страница: эталон, результат и процент совпадения.
-                </span>
+                <div className="text-xs text-slate-500">
+                  Пробник возвращает картинку без сравнения. Отправка выполняет сравнение с эталоном.
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          </div>
         </div>
       </Layout>
     );

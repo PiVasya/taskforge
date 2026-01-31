@@ -160,7 +160,7 @@ function StatementEditor({ value, onChange }) {
     editorProps: {
       attributes: {
         class:
-          "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none",
+          "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100",
       },
 
       handlePaste: (_view, event) => {
