@@ -1,9 +1,14 @@
 import api from './http';
 
+function emitQuotaChanged() {
+  try { window.dispatchEvent(new Event('quota:changed')); } catch {}
+}
+
 // Отправка решения задания на проверку
 // Backend: POST /api/assignments/{assignmentId}/submit
 export async function submitSolution(assignmentId, payload) {
   const res = await api.post(`/api/assignments/${assignmentId}/submit`, payload);
+  emitQuotaChanged();
   return res.data;
 }
 

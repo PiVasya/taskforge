@@ -9,6 +9,7 @@ namespace taskforge.Data.Models.DTO
         public string Title { get; set; } = string.Empty;
         public string? Description { get; set; }
         public int Difficulty { get; set; }
+        public int Rating { get; set; }
         public string? Tags { get; set; }
         public string Type { get; set; } = "code-test";
         public DateTime CreatedAt { get; set; }

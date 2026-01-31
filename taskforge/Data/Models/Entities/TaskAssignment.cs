@@ -23,6 +23,10 @@ namespace taskforge.Data.Models.Entities
         public string? Tags { get; set; } // можно хранить через запятую
         public int Difficulty { get; set; } = 1; // 1=легко, 2=средне, 3=сложно
 
+        // Рейтинг (вес) задания для топа. Если не задан — 1.
+        // Используется при подсчёте мест в лидерборде.
+        public int Rating { get; set; } = 1;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public int Sort { get; set; } = 0;

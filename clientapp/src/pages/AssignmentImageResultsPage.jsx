@@ -91,11 +91,20 @@ export default function AssignmentImageResultsPage() {
   const isTrial = Boolean(data?.isTrial);
 
   const onBack = () => {
-    // If opened as a new tab/window from the solve page, allow simple close
+    // Если страница открыта в новой вкладке — можно закрыть.
     if (window.opener) {
       window.close();
       return;
     }
+
+    // Иначе возвращаемся именно туда, откуда пришли (обычно — на страницу с кодом).
+    // Это даёт ожидаемое поведение кнопки «Назад»: закрыть просмотр и вернуться к решению.
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    // Фолбэк, если истории нет.
     navigate(`/assignment/${assignmentId}`);
   };
 

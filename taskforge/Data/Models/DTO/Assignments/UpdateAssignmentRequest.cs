@@ -21,6 +21,11 @@ namespace taskforge.Data.Models.DTO
         [Range(1, 3)]
         public int Difficulty { get; set; } = 1;
 
+        // Рейтинг (вес) задания для топа. Если не указан — будет 1.
+        // Любое целое число >= 0.
+        [Range(0, int.MaxValue)]
+        public int? Rating { get; set; }
+
         public string? Tags { get; set; }
 
         public int? Sort { get; set; }

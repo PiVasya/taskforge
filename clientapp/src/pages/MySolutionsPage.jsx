@@ -18,11 +18,15 @@ const FILTER_OPTIONS = [
 export default function MySolutionsPage() {
   const notify = useNotify();
 
+  const PAGE_SIZE = 50;
+
   const [tab, setTab] = useState('code');
 
   const [solutions, setSolutions] = useState([]);
   const [filterDays, setFilterDays] = useState(null);
   const [listLoading, setListLoading] = useState(false);
+  const [solHasMore, setSolHasMore] = useState(true);
+  const [solSkip, setSolSkip] = useState(0);
   const [details, setDetails] = useState({});
   const [expandedId, setExpandedId] = useState(null);
 
@@ -36,11 +40,24 @@ export default function MySolutionsPage() {
   const [imageDetails, setImageDetails] = useState({});
   const [expandedImageId, setExpandedImageId] = useState(null);
 
-  const loadSolutions = async () => {
+  const loadSolutions = async ({ reset = false } = {}) => {
     setListLoading(true);
     try {
-      const list = await getMySolutions({ days: filterDays });
-      setSolutions(Array.isArray(list) ? list : []);
+      const skip = reset ? 0 : solSkip;
+      const list = await getMySolutions({ days: filterDays, skip, take: PAGE_SIZE });
+
+      const arr = Array.isArray(list) ? list : [];
+
+      if (reset) {
+        setSolutions(arr);
+        setSolSkip(arr.length);
+      } else {
+        setSolutions((prev) => [...prev, ...arr]);
+        setSolSkip((prev) => prev + arr.length);
+      }
+
+      // если пришло меньше PAGE_SIZE — страниц больше нет
+      setSolHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
       console.error('Failed to load my solutions', e);
     } finally {
@@ -73,7 +90,10 @@ export default function MySolutionsPage() {
   };
 
   useEffect(() => {
-    loadSolutions();
+    // При смене фильтра начинаем с первой страницы.
+    setSolSkip(0);
+    setSolHasMore(true);
+    loadSolutions({ reset: true });
     loadTestAttempts();
     loadImageSolutions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,10 +340,10 @@ export default function MySolutionsPage() {
           )}
         </Card>
 
-        {tab === 'code' && !listLoading && displayedSolutions.length > 0 && (
+        {tab === 'code' && displayedSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
             <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-              Всего решений по коду: {displayedSolutions.length}
+              Показано решений по коду: {displayedSolutions.length}
             </div>
 
             <div className="space-y-6">
@@ -370,6 +390,18 @@ export default function MySolutionsPage() {
                 );
               })}
             </div>
+
+            {solHasMore && (
+              <div className="pt-2 flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => loadSolutions({ reset: false })}
+                  disabled={listLoading}
+                >
+                  {listLoading ? 'Загрузка…' : 'Загрузить ещё'}
+                </Button>
+              </div>
+            )}
           </Card>
         )}
 

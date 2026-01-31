@@ -29,6 +29,7 @@ export default function AssignmentEditPage() {
   const [type, setType] = useState("code-test");
   const [tags, setTags] = useState("");
   const [difficulty, setDifficulty] = useState(1);
+  const [rating, setRating] = useState(1);
   const [testCases, setTestCases] = useState([]);
 
   const [testSettings, setTestSettings] = useState({
@@ -69,6 +70,7 @@ export default function AssignmentEditPage() {
         setType(a.type || "code-test");
         setTags(a.tags || "");
         setDifficulty(Number(a.difficulty || 1));
+        setRating(typeof a.rating === "number" ? a.rating : Number(a.rating || 1));
         setImageTestReferenceKey(a.imageTestReferenceKey || "");
         setImageTestThreshold(
           typeof a.imageTestSimilarityThreshold === "number"
@@ -139,6 +141,7 @@ export default function AssignmentEditPage() {
         type: (type || "code-test").trim(),
         tags: (tags || "").trim(),
         difficulty: Number(difficulty) || 1,
+        rating: Number(rating) >= 0 ? Number(rating) : 1,
         // для type=test на бэке тест-кейсы не нужны: просто отправляем пустой массив,
         // чтобы при смене типа старые тест-кейсы были удалены
         testCases:
@@ -241,21 +244,7 @@ export default function AssignmentEditPage() {
 
       {err && <div className="text-red-500 font-medium mb-4">{err}</div>}
 
-      {/* верхняя панель */}
-      <div className="sticky top-[64px] z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-b border-slate-200/60 dark:border-slate-800/60 mb-5">
-        <div className="flex items-center justify-end gap-2">
-          <Button onClick={save} disabled={busy}>
-            <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={remove}
-            className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-          >
-            <Trash2 size={16} /> Удалить
-          </Button>
-        </div>
-      </div>
+      {/* верхнюю панель убрали: остаётся только нижняя (как просили) */}
 
       <div className="space-y-5">
           <Card>
@@ -282,6 +271,15 @@ export default function AssignmentEditPage() {
                   <option value={2}>средне</option>
                   <option value={3}>сложно</option>
                 </Select>
+              </Field>
+
+              <Field label="Рейтинг">
+                <Input
+                  type="number"
+                  min={0}
+                  value={rating}
+                  onChange={(e) => setRating(e.target.value)}
+                />
               </Field>
 
               <Field label="Теги (через запятую)">

@@ -29,6 +29,7 @@ import {
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
+import { getMyQuotas } from '../api/quotas';
 
 export default function Layout({ children, fullWidth = false }) {
   // темы: light | dark | pink
@@ -38,6 +39,71 @@ export default function Layout({ children, fullWidth = false }) {
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
   const nav = useNavigate();
+
+  // ===== Квоты (5 отправок решений и 5 загрузок топа) =====
+  const [quotas, setQuotas] = useState(null);
+
+  useEffect(() => {
+    if (!access) {
+      setQuotas(null);
+      return;
+    }
+
+    let alive = true;
+    const load = async () => {
+      try {
+        const q = await getMyQuotas();
+        if (alive) setQuotas(q);
+      } catch {
+        // не шумим: квоты — вспомогательная инфа
+      }
+    };
+
+    load();
+
+    const onQuotaChanged = () => load();
+    window.addEventListener('quota:changed', onQuotaChanged);
+
+    // лёгкая подстраховка: обновляем раз в минуту
+    const timer = setInterval(load, 60_000);
+
+    return () => {
+      alive = false;
+      window.removeEventListener('quota:changed', onQuotaChanged);
+      clearInterval(timer);
+    };
+  }, [access]);
+
+  const QuotaPill = () => {
+    if (!access) return null;
+    const t = quotas?.tasks;
+    const top = quotas?.top;
+
+    // если API ещё не вернуло данные — показываем нейтрально
+    const tasksText = t ? `${t.remaining}/${t.capacity}` : '—/—';
+    const topText = top ? `${top.remaining}/${top.capacity}` : '—/—';
+
+    const title = [
+      t
+        ? `Решения: ${t.remaining}/${t.capacity}${t.retryAfterSeconds ? ` • ждать ${t.retryAfterSeconds}с` : ''}`
+        : 'Решения: —',
+      top
+        ? `Топ: ${top.remaining}/${top.capacity}${top.retryAfterSeconds ? ` • ждать ${top.retryAfterSeconds}с` : ''}`
+        : 'Топ: —',
+    ].join('\n');
+
+    return (
+      <div
+        className="hidden md:inline-flex items-center gap-2 rounded-xl border border-slate-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-900/40 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200"
+        title={title}
+      >
+        <span className="opacity-70">Квоты</span>
+        <span className="font-medium">реш: {tasksText}</span>
+        <span className="opacity-40">•</span>
+        <span className="font-medium">топ: {topText}</span>
+      </div>
+    );
+  };
 
   // цикл: light → dark → pink → light
   const cycleTheme = () =>
@@ -102,6 +168,9 @@ export default function Layout({ children, fullWidth = false }) {
 
           {/* Правая панель — крупные экраны */}
           <div className="hidden xl:flex items-center gap-2">
+            {/* квоты (видны только авторизованным) */}
+            <QuotaPill />
+
             {/* переключатель темы */}
             <button
               className="btn-outline"

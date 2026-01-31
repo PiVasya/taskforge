@@ -47,6 +47,7 @@ namespace taskforge.Services
                 Title = (req.Title ?? string.Empty).Trim(),
                 Description = req.Description,
                 Difficulty = req.Difficulty,
+                Rating = req.Rating ?? 1,
                 Tags = req.Tags,
 	                Type = normalizedType,
                 Sort = maxSort + 1,
@@ -93,9 +94,14 @@ namespace taskforge.Services
             Difficulty = a.Difficulty,
             Tags = a.Tags,
             CreatedAt = a.CreatedAt,
+            // Важно: "решено" должно работать для всех типов заданий.
+            // - code-test: Solution.PassedAllTests
+            // - test: UserTaskTestAttempts.Passed
+            // - image-test: UserImageTaskSolutions.Passed == true (как правило финальная отправка)
             SolvedByCurrentUser =
                 a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
-                || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed),
+                || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
+                || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false),
             Sort = a.Sort,
             CanEdit = a.Course.OwnerId == currentUserId
                       || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
@@ -121,6 +127,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         Title = a.Title,
         Description = a.Description,
         Difficulty = a.Difficulty,
+        Rating = a.Rating,
         Tags = a.Tags,
         Type = a.Type,
         CreatedAt = a.CreatedAt,
@@ -128,7 +135,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
         SolvedByCurrentUser =
             a.Solutions.Any(s => s.PassedAllTests)
-            || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed),
+            || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
+            || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false),
         TestCases = a.TestCases.OrderBy(tc => tc.Id).Select(tc => new AssignmentTestCaseDto
         {
             Id = tc.Id,
@@ -182,6 +190,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             }
             task.Tags = request.Tags?.Trim();
             task.Difficulty = request.Difficulty;
+            task.Rating = request.Rating ?? 1;
             task.UpdatedAt = DateTime.UtcNow;
 
             await _db.Set<TaskTestCase>()

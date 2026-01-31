@@ -1,6 +1,6 @@
 ﻿// src/pages/AssignmentSolvePage.jsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import Layout from '../components/Layout';
 import { Card, Button, Select, Textarea, Badge } from '../components/ui';
@@ -71,6 +71,7 @@ function parseAllowedLanguages(raw) {
 
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
+  const nav = useNavigate();
   const notify = useNotify();
 
   const [a, setA] = useState(null);
@@ -283,11 +284,14 @@ export default function AssignmentSolvePage() {
       { value: 'pascal', label: 'Pascal' },
     ];
 
+    // ВАЖНО: раньше тут был window.open() после await — браузер часто блокирует попап,
+    // из-за чего пользователя «иногда не кидает» на страницу с двумя картинками.
+    // Делаем обычную навигацию внутри SPA: тогда кнопка "Назад" вернёт на страницу с кодом.
     const openResults = (solutionId) => {
       const url = solutionId
         ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
         : `/assignment/${assignmentId}/image-results`;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      nav(url);
     };
 
     const onTrialImageTest = async () => {

@@ -89,11 +89,17 @@ namespace taskforge.Services
                 q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
 
             var data = await q
-                .GroupBy(s => new { s.UserId, s.TaskAssignmentId })
-                .Select(g => g.Key)
+                .Select(s => new { s.UserId, s.TaskAssignmentId, Rating = s.TaskAssignment.Rating })
+                .Distinct()
                 .GroupBy(x => x.UserId)
-                .Select(g => new { UserId = g.Key, Solved = g.Count() })
-                .OrderByDescending(x => x.Solved)
+                .Select(g => new
+                {
+                    UserId = g.Key,
+                    Solved = g.Count(),
+                    Score = g.Sum(x => x.Rating)
+                })
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.Solved)
                 .Take(Math.Clamp(top, 1, 100))
                 .ToListAsync();
 
@@ -112,7 +118,8 @@ namespace taskforge.Services
                     Email = u.Email,
                     FirstName = u.FirstName,
                     LastName = u.LastName,
-                    Solved = d.Solved
+                    Solved = d.Solved,
+                    Score = d.Score
                 };
             }).ToList();
         }

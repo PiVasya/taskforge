@@ -93,29 +93,93 @@ namespace taskforge.Services
             }
 
             var codeRows = await codeQ
-                .Select(s => new { s.UserId, s.TaskAssignmentId, SubmittedAt = (DateTime?)s.SubmittedAt })
+                .Select(s => new
+                {
+                    s.UserId,
+                    s.TaskAssignmentId,
+                    Rating = s.TaskAssignment.Rating,
+                    SubmittedAt = (DateTime?)s.SubmittedAt
+                })
                 .ToListAsync();
 
             var testRows = await testQ
-                .Select(t => new { t.UserId, TaskAssignmentId = t.TaskAssignmentId, SubmittedAt = t.SubmittedAt })
+                .Select(t => new
+                {
+                    t.UserId,
+                    TaskAssignmentId = t.TaskAssignmentId,
+                    Rating = t.TaskAssignment.Rating,
+                    SubmittedAt = t.SubmittedAt
+                })
                 .ToListAsync();
 
-            var allSolved = codeRows.Concat(testRows).ToList();
+            // image-test решения (финальные, не пробник)
+            var imageQ = _db.UserImageTaskSolutions
+                .AsNoTracking()
+                .Where(s => s.Passed == true && s.IsTrial == false)
+                .Include(s => s.TaskAssignment)
+                .Where(s => courseId.HasValue
+                    ? s.TaskAssignment.CourseId == courseId.Value
+                    : accessibleCourseIds.Contains(s.TaskAssignment.CourseId));
+
+            if (days.HasValue && days.Value > 0)
+            {
+                var since = DateTime.UtcNow.AddDays(-days.Value);
+                imageQ = imageQ.Where(s => s.CreatedAtUtc >= since);
+            }
+
+            if (groupId.HasValue)
+            {
+                imageQ = imageQ.Where(s => memberIdsQuery.Contains(s.UserId));
+            }
+
+            var imageRows = await imageQ
+                .Select(s => new
+                {
+                    s.UserId,
+                    TaskAssignmentId = s.TaskAssignmentId,
+                    Rating = s.TaskAssignment.Rating,
+                    SubmittedAt = (DateTime?)s.CreatedAtUtc
+                })
+                .ToListAsync();
+
+            var allSolved = codeRows
+                .Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt })
+                .Concat(testRows.Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt }))
+                .Concat(imageRows.Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt }))
+                .ToList();
             if (allSolved.Count == 0)
                 return Array.Empty<LeaderboardEntryDto>();
 
-            // агрегация по пользователю
+            // агрегация по пользователю.
+            // Важно: рейтинг считаем по УНИКАЛЬНЫМ решённым заданиям (distinct по TaskAssignmentId).
             var aggregated = allSolved
                 .GroupBy(x => x.UserId)
-                .Select(g => new
+                .Select(g =>
                 {
-                    UserId = g.Key,
-                    SolvedAssignments = g.Select(x => x.TaskAssignmentId).Distinct().Count(),
-                    TotalAttempts = codeRows.Count(x => x.UserId == g.Key) + testRows.Count(x => x.UserId == g.Key),
-                    LastSubmitAt = (DateTime?)g.Max(x => x.SubmittedAt)
+                    var distinctAssignments = g
+                        .GroupBy(x => x.TaskAssignmentId)
+                        .Select(ag => new
+                        {
+                            TaskAssignmentId = ag.Key,
+                            Rating = ag.Max(z => z.Rating),
+                            LastSubmitAt = ag.Max(z => z.SubmittedAt)
+                        })
+                        .ToList();
+
+                    return new
+                    {
+                        UserId = g.Key,
+                        SolvedAssignments = distinctAssignments.Count,
+                        Score = distinctAssignments.Sum(x => x.Rating),
+                        TotalAttempts = codeRows.Count(x => x.UserId == g.Key)
+                                     + testRows.Count(x => x.UserId == g.Key)
+                                     + imageRows.Count(x => x.UserId == g.Key),
+                        LastSubmitAt = (DateTime?)distinctAssignments.Max(x => x.LastSubmitAt)
+                    };
                 })
                 .Where(x => x.SolvedAssignments > 0)
-                .OrderByDescending(x => x.SolvedAssignments)
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.SolvedAssignments)
                 .ThenBy(x => x.LastSubmitAt ?? DateTime.MaxValue)
                 .ToList();
 
@@ -198,6 +262,7 @@ namespace taskforge.Services
                     LastName = user.LastName,
                     Solved = row.SolvedAssignments,
                     SolvedAssignments = row.SolvedAssignments,
+                    Score = row.Score,
                     TotalAttempts = row.TotalAttempts,
                     LastSubmitAt = row.LastSubmitAt,
                     AvatarUrl = user.ProfilePictureUrl,

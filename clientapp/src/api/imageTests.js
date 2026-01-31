@@ -1,5 +1,9 @@
 import api from './http';
 
+function emitQuotaChanged() {
+  try { window.dispatchEvent(new Event('quota:changed')); } catch {}
+}
+
 // Загрузить/заменить эталонную картинку для image-test.
 // threshold — порог совпадения в процентах (0..100)
 export async function uploadImageTestReference(assignmentId, file, threshold = 90) {
@@ -20,6 +24,7 @@ export async function compareImageTest(assignmentId, file) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare`, fd, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
+  emitQuotaChanged();
   return res.data;
 }
 
@@ -30,6 +35,7 @@ export async function compareImageTestCode(assignmentId, language, code, debug =
     code,
     debug,
   });
+  emitQuotaChanged();
   return res.data;
 }
 
@@ -40,6 +46,7 @@ export async function runImageTestCode(assignmentId, language, code, debug = tru
     code,
     debug,
   });
+  emitQuotaChanged();
   return res.data;
 }
 
@@ -50,5 +57,6 @@ export async function submitImageTestCode(assignmentId, language, code, debug = 
     code,
     debug,
   });
+  emitQuotaChanged();
   return res.data;
 }

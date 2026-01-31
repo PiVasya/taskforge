@@ -270,6 +270,7 @@ export default function CourseAssignmentsPage() {
         description: "Опишите постановку задачи…",
 	        type,
         difficulty: 1,
+        rating: 1,
 	        // Для code-test всегда кладём 1 тест по умолчанию, чтобы редактор не был пустым.
 	        // Для остальных типов тест-кейсы не требуются.
 	        testCases:

@@ -39,6 +39,9 @@ namespace taskforge.Data.Models.DTO
         /// <summary>Количество решённых заданий (публичный рейтинг).</summary>
         public int SolvedAssignments { get; set; }
 
+        /// <summary>Суммарный рейтинг (вес) решённых заданий. Используется для сортировки в топе.</summary>
+        public int Score { get; set; }
+
         /// <summary>Общее количество отправок решений.</summary>
         public int TotalAttempts { get; set; }
 
