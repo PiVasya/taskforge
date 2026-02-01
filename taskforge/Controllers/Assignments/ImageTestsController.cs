@@ -410,7 +410,8 @@ public sealed class ImageTestsController : ControllerBase
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
-        var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
+		var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
+		_log.LogInformation("RunCode normalized trace={Trace} assignmentId={AssignmentId} lang={Lang}", trace, assignmentId, lang);
         if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
         // normalize threshold (support old configs: 0..1 as fraction)
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
@@ -419,6 +420,8 @@ public sealed class ImageTestsController : ControllerBase
         var validationErr = ValidateImageTestProgram(lang, req.Code);
         if (validationErr is not null)
         {
+			_log.LogWarning("RunCode validation failed trace={Trace} assignmentId={AssignmentId} lang={Lang}. Msg={Msg}",
+				trace, assignmentId, lang, validationErr);
             // Quota bucket is already consumed by [RequireQuota], but we can return a clear message
             var referenceUrl = string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)
                 ? null
@@ -454,8 +457,21 @@ public sealed class ImageTestsController : ControllerBase
             runnerErr = debug.Error;
             png = debug.PngBytes;
 
+			_log.LogInformation(
+				"RunCode runner result trace={Trace} assignmentId={AssignmentId} lang={Lang} ok={Ok} pngBytes={Bytes} stdoutLen={OutLen} stderrLen={ErrLen} errLen={ErrLen2}",
+				trace,
+				assignmentId,
+				lang,
+				debug.Ok,
+				png?.Length ?? 0,
+				(stdout ?? string.Empty).Length,
+				(stderr ?? string.Empty).Length,
+				(runnerErr ?? string.Empty).Length);
+
             if (!debug.Ok)
             {
+				_log.LogWarning("RunCode runner failed trace={Trace} assignmentId={AssignmentId} lang={Lang}. Err={Err}",
+					trace, assignmentId, lang, runnerErr);
                 return Ok(new ImageTestRunResponse(
                     Ok: false,
                     RenderedKey: null,
@@ -478,6 +494,8 @@ public sealed class ImageTestsController : ControllerBase
 
         if (png is null || png.Length == 0)
         {
+			_log.LogWarning("RunCode empty image trace={Trace} assignmentId={AssignmentId} lang={Lang} runnerErr={Err}",
+				trace, assignmentId, lang, runnerErr);
             return Ok(new ImageTestRunResponse(
                 Ok: false,
                 RenderedKey: null,
@@ -494,6 +512,8 @@ public sealed class ImageTestsController : ControllerBase
         }
 
         // Upload rendered image
+		_log.LogInformation("RunCode uploading image trace={Trace} assignmentId={AssignmentId} lang={Lang} bytes={Bytes}",
+			trace, assignmentId, lang, png.Length);
         var renderedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/previews/{userId}/{assignmentId}", ".png", ct);
         var renderedUrl = $"/api/private-files/{Uri.EscapeDataString(renderedKey)}";
 
@@ -569,6 +589,8 @@ public sealed class ImageTestsController : ControllerBase
 		var validationErr = ValidateImageTestProgram(lang, req.Code);
 		if (validationErr is not null)
 		{
+			_log.LogWarning("CompareCode validation failed trace={Trace} assignmentId={AssignmentId} lang={Lang}. Msg={Msg}",
+				trace, assignmentId, lang, validationErr);
 			var referenceUrl = string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)
 				? string.Empty
 				: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
