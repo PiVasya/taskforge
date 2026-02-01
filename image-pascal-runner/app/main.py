@@ -25,7 +25,7 @@ SCREEN_D = int(os.getenv("TF_SCREEN_D", "24"))
 
 # How long to let the program run before we capture the screen (seconds)
 CAPTURE_DELAY = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
-AFTER_ENTER_DELAY = float(os.getenv("TF_AFTER_ENTER_DELAY", "1.2"))
+AFTER_ENTER_DELAY = float(os.getenv("TF_AFTER_ENTER_DELAY", "10"))
 WINDOW_WAIT_SECONDS = float(os.getenv("TF_WINDOW_WAIT_SECONDS", "2.0"))
 
 
@@ -47,6 +47,7 @@ def render(req: RenderRequest):
     '''
     src_lower = (req.source or "").lower()
     needs_enter = ("uses drawman" in src_lower) or ("drawman;" in src_lower)
+    print(f"[runner] needs_enter={needs_enter} timeout={req.timeout_seconds}s")
 
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
         td_path = Path(td)
@@ -105,12 +106,30 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
     done
 
     if [ -n "$win" ]; then
+      echo "[runner] window found: $win"
       xdotool windowactivate "$win" 2>/dev/null || true
-      # Start DrawMan (Run/Stop is bound to Enter)
-      xdotool key --window "$win" Return 2>/dev/null || true
-    fi
+      xdotool windowfocus "$win" 2>/dev/null || true
 
-    sleep {AFTER_ENTER_DELAY}
+      # 1) Try keyboard (some builds bind Run to Enter)
+      xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
+      xdotool key --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
+
+      # 2) Also click the "Пуск" button area (more reliable than key focus)
+      # Click near bottom-left of the window: x=70, y=HEIGHT-25
+      eval "$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)"
+      if [ -n "${HEIGHT:-}" ]; then
+        y=$((HEIGHT-25))
+        if [ "$y" -lt 0 ]; then y=10; fi
+        xdotool mousemove --window "$win" 70 "$y" click 1 2>/dev/null || true
+        echo "[runner] clicked start button at (70,$y) in window $win"
+      fi
+
+      # Give DrawMan time to run before screenshot
+      sleep {AFTER_ENTER_DELAY}
+    else
+      echo "[runner] needs_enter=1 but window not found"
+      sleep {CAPTURE_DELAY}
+    fi
   else
     sleep {CAPTURE_DELAY}
   fi
@@ -134,6 +153,9 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "run timeout")
+
+        if rp.stdout:
+            print("[runner] run.sh output (tail):\n" + _tail(rp.stdout))
 
         if rp.returncode != 0:
             log_path = td_path / "program.log"
