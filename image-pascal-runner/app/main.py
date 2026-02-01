@@ -25,6 +25,8 @@ SCREEN_D = int(os.getenv("TF_SCREEN_D", "24"))
 
 # How long to let the program run before we capture the screen (seconds)
 CAPTURE_DELAY = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
+AFTER_ENTER_DELAY = float(os.getenv("TF_AFTER_ENTER_DELAY", "1.2"))
+WINDOW_WAIT_SECONDS = float(os.getenv("TF_WINDOW_WAIT_SECONDS", "2.0"))
 
 
 @app.get("/health")
@@ -43,6 +45,9 @@ def render(req: RenderRequest):
     The user code does NOT need to save any image.
     We capture the virtual screen and return it as out.png.
     '''
+    src_lower = (req.source or "").lower()
+    needs_enter = ("uses drawman" in src_lower) or ("drawman;" in src_lower)
+
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
         td_path = Path(td)
         src_path = td_path / "main.pas"
@@ -84,7 +89,31 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
   mono "{exe_path}" > program.log 2>&1 &
   pid=$!
 
-  sleep {CAPTURE_DELAY}
+  NEEDS_ENTER={1 if needs_enter else 0}
+  if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
+    win=""
+    # Wait a bit for DrawMan window to appear
+    for i in $(seq 1 25); do
+      win=$(xdotool search --onlyvisible --name "Поле" 2>/dev/null | tail -n 1 || true)
+      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Чертежник" 2>/dev/null | tail -n 1 || true)
+      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Исполнитель" 2>/dev/null | tail -n 1 || true)
+      [ -n "$win" ] || win=$(xdotool search --onlyvisible 2>/dev/null | tail -n 1 || true)
+      if [ -n "$win" ]; then
+        break
+      fi
+      sleep 0.1
+    done
+
+    if [ -n "$win" ]; then
+      xdotool windowactivate "$win" 2>/dev/null || true
+      # Start DrawMan (Run/Stop is bound to Enter)
+      xdotool key --window "$win" Return 2>/dev/null || true
+    fi
+
+    sleep {AFTER_ENTER_DELAY}
+  else
+    sleep {CAPTURE_DELAY}
+  fi
 
   import -window root "{out_png}" >/dev/null 2>&1 || true
   convert "{out_png}" -trim +repage "{out_png}" >/dev/null 2>&1 || true

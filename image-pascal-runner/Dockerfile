@@ -6,7 +6,7 @@ RUN apt-get update \
     ca-certificates wget curl unzip \
     python3 python3-pip \
     mono-complete libgdiplus \
-    xvfb xauth \
+    xvfb xauth xdotool \
     imagemagick \
     fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/*
