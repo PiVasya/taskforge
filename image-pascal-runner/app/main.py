@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="taskforge image pascal runner (PascalABC.NET GraphABC/DrawMan)")
@@ -36,7 +36,7 @@ def _tail(s: str, n: int = 4000) -> str:
     return s[-n:] if s else ""
 
 
-@app.post("/render", response_class=FileResponse)
+@app.post("/render")
 def render(req: RenderRequest):
     '''
     Compiles and runs PascalABC.NET code headlessly (Xvfb).
@@ -124,8 +124,9 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
                 f"program.log:\n{_tail(log)}",
             )
 
-        return FileResponse(
-            path=str(out_png),
-            media_type="image/png",
-            filename="out.png",
-        )
+        # IMPORTANT:
+        # Do NOT return FileResponse from a TemporaryDirectory: Starlette streams the file later,
+        # but the temp folder is deleted right after we return from this function -> 500.
+        # Read bytes now and return them.
+        png_bytes = out_png.read_bytes()
+        return Response(content=png_bytes, media_type="image/png")
