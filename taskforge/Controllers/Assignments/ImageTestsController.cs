@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
@@ -184,6 +185,7 @@ public sealed class ImageTestsController : ControllerBase
         CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        Guid? solutionId = null;
         DebugConsole.Log("ImageTests", $"Compare(multipart) start trace={trace} assignmentId={assignmentId} fileLength={file?.Length ?? 0}");
         _log.LogInformation("Compare (multipart) start trace={Trace} assignmentId={AssignmentId} fileLength={Len}", trace, assignmentId, file?.Length ?? 0);
 
@@ -399,6 +401,7 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        Guid? solutionId = null;
         _log.LogInformation("RunCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len} debug={Debug} compare={Compare}",
             trace, assignmentId, req.Language, req.Code?.Length ?? 0, req.Debug, req.CompareWithReference);
 
@@ -432,7 +435,7 @@ public sealed class ImageTestsController : ControllerBase
                 ThresholdPercent: Math.Round(thresholdPercent, 1),
                 Passed: null,
                 ReferenceUrl: referenceUrl,
-                SolutionId: req.SolutionId));
+                SolutionId: null));
         }
 
         var userId = _currentUser.GetUserId();
@@ -534,6 +537,13 @@ public sealed class ImageTestsController : ControllerBase
     [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
+        ImageRunnerDebugResult? debug = null;
+        string stdout = string.Empty;
+        string stderr = string.Empty;
+        string? runnerErr = null;
+        byte[]? png = null;
+
         var trace = HttpContext.TraceIdentifier;
         DebugConsole.Log("ImageTests", $"CompareCode start trace={trace} assignmentId={assignmentId} lang={req.Language} codeLen={req.Code?.Length ?? 0} debug={req.Debug}");
         _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req.Language, req.Code?.Length ?? 0);
