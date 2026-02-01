@@ -90,20 +90,33 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
   mono "{exe_path}" > program.log 2>&1 &
   pid=$!
 
+  # Give GUI a moment to initialize (important for DrawMan).
+  sleep 0.4
+
   NEEDS_ENTER={1 if needs_enter else 0}
   if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
+    # Best-effort: try sending Enter to the currently focused window first.
+    # In a fresh Xvfb session the app window often becomes focused by itself.
+    xdotool key Return 2>/dev/null || true
     win=""
-    # Wait a bit for DrawMan window to appear
-    for i in $(seq 1 25); do
-      win=$(xdotool search --onlyvisible --name "Поле" 2>/dev/null | tail -n 1 || true)
-      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Чертежник" 2>/dev/null | tail -n 1 || true)
-      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Исполнитель" 2>/dev/null | tail -n 1 || true)
-      [ -n "$win" ] || win=$(xdotool search --onlyvisible 2>/dev/null | tail -n 1 || true)
-      if [ -n "$win" ]; then
-        break
-      fi
-      sleep 0.1
-    done
+	    # Prefer searching by PID (most reliable), then fallback to title patterns.
+	    # NOTE: we must stay within render timeout, so we keep this wait short.
+	    for i in $(seq 1 40); do
+	      win=$(xdotool search --onlyvisible --pid "$pid" 2>/dev/null | tail -n 1 || true)
+	      if [ -z "$win" ]; then
+	        # Sometimes GUI window belongs to a child process
+	        for cpid in $(pgrep -P "$pid" 2>/dev/null || true); do
+	          win=$(xdotool search --onlyvisible --pid "$cpid" 2>/dev/null | tail -n 1 || true)
+	          [ -n "$win" ] && break
+	        done
+	      fi
+	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Поле" 2>/dev/null | tail -n 1 || true)
+	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Чертежник" 2>/dev/null | tail -n 1 || true)
+	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Исполнитель" 2>/dev/null | tail -n 1 || true)
+	      [ -n "$win" ] || win=$(xdotool search --onlyvisible 2>/dev/null | tail -n 1 || true)
+	      [ -n "$win" ] && break
+	      sleep 0.1
+	    done
 
     if [ -n "$win" ]; then
       echo "[runner] window found: $win"
@@ -128,6 +141,11 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
       sleep {AFTER_ENTER_DELAY}
     else
       echo "[runner] needs_enter=1 but window not found"
+	      echo "[runner] visible windows (id -> title):"
+	      for w in $(xdotool search --onlyvisible --name ".*" 2>/dev/null | tail -n 10 || true); do
+	        title=$(xdotool getwindowname "$w" 2>/dev/null || true)
+	        echo "[runner]   $w -> $title"
+	      done
       sleep {CAPTURE_DELAY}
     fi
   else
