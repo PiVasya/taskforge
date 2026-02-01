@@ -133,7 +133,9 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         return language switch
         {
             "python" => new { code = sourceCode },
-            "pascal" => new { source = sourceCode },
+            // Pascal runner expects the same contract as python: { "code": "..." }
+            // (otherwise FastAPI returns 422: missing body.code)
+            "pascal" => new { code = sourceCode },
             _ => new { code = sourceCode }
         };
     }
