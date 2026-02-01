@@ -117,7 +117,7 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
       # 2) Also click the "Пуск" button area (more reliable than key focus)
       # Click near bottom-left of the window: x=70, y=HEIGHT-25
       eval "$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)"
-      if [ -n "${HEIGHT:-}" ]; then
+      if [ -n "${{HEIGHT:-}}" ]; then
         y=$((HEIGHT-25))
         if [ "$y" -lt 0 ]; then y=10; fi
         xdotool mousemove --window "$win" 70 "$y" click 1 2>/dev/null || true
