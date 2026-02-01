@@ -246,7 +246,9 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: submittedUrl503,
                 Stdout: string.Empty,
                 Stderr: string.Empty,
-                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
+
+                SolutionId: null));
         }
 
         var passed = similarityPercent >= thresholdPercent;
@@ -347,7 +349,9 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: submittedUrl503,
                 Stdout: "",
                 Stderr: "",
-                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
+
+                SolutionId: null));
         }
 
         var passed = similarityPercent >= thresholdPercent;
@@ -405,24 +409,30 @@ public sealed class ImageTestsController : ControllerBase
 
         var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
         if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
+        // normalize threshold (support old configs: 0..1 as fraction)
+        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
+        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
 
         var validationErr = ValidateImageTestProgram(lang, req.Code);
         if (validationErr is not null)
         {
             // Quota bucket is already consumed by [RequireQuota], but we can return a clear message
+            var referenceUrl = string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)
+                ? null
+                : $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
+
             return Ok(new ImageTestRunResponse(
                 Ok: false,
-				RenderedKey: null,
-                SimilarityPercent: null,
-                ThresholdPercent: null,
-                Passed: null,
-                ReferencePngBase64: null,
-                UserPngBase64: null,
+                RenderedKey: null,
+                RenderedUrl: null,
                 Stdout: string.Empty,
                 Stderr: string.Empty,
                 RunnerError: validationErr,
-                ReferenceUrl: null,
-                SolutionId: null));
+                SimilarityPercent: null,
+                ThresholdPercent: Math.Round(thresholdPercent, 1),
+                Passed: null,
+                ReferenceUrl: referenceUrl,
+                SolutionId: req.SolutionId));
         }
 
         var userId = _currentUser.GetUserId();
@@ -453,7 +463,9 @@ public sealed class ImageTestsController : ControllerBase
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
-                    ReferenceUrl: null));
+                    ReferenceUrl: null,
+
+                    SolutionId: solutionId));
             }
         }
         else
@@ -473,7 +485,9 @@ public sealed class ImageTestsController : ControllerBase
                 SimilarityPercent: null,
                 ThresholdPercent: null,
                 Passed: null,
-                ReferenceUrl: null));
+                ReferenceUrl: null,
+
+                SolutionId: solutionId));
         }
 
         // Upload rendered image
@@ -537,37 +551,33 @@ public sealed class ImageTestsController : ControllerBase
 
         _log.LogInformation("[ImageTest] compare-code start: assignment={AssignmentId} user={UserId} lang={Lang} bytes={Bytes}", assignmentId, userId, lang, codeLen);
 
+
+		// normalize threshold (support old configs: 0..1 as fraction)
+		var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
+		if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
 		var validationErr = ValidateImageTestProgram(lang, req.Code);
 		if (validationErr is not null)
 		{
-			var refUrl = _storage.GetPublicUrl(a.ImageTestReferenceKey!);
-			var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
-			if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+			var referenceUrl = string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)
+				? string.Empty
+				: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
 
 			return Ok(new ImageTestCompareResponse(
 				Ok: false,
-				ReferenceUrl: refUrl,
-				RenderedUrl: null,
+				SimilarityPercent: 0,
+				ThresholdPercent: Math.Round(thresholdPercent, 1),
+				Passed: false,
+				ReferenceKey: a.ImageTestReferenceKey ?? string.Empty,
+				SubmittedKey: null,
+				ReferenceUrl: referenceUrl,
+				SubmittedUrl: null,
 				Stdout: string.Empty,
 				Stderr: string.Empty,
 				RunnerError: validationErr,
-				SimilarityPercent: null,
-				ThresholdPercent: thresholdPercent,
-				Passed: false
+				SolutionId: null
 			));
 		}
-
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-
-        ImageRunnerDebugResult? debug = null;
-        byte[]? png;
-        string stdout = "";
-        string stderr = "";
-        string? runnerErr = null;
-
-        // normalize threshold (support old configs: 0..1 as fraction)
-        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
-        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
 
 		if (req.Debug)
         {
@@ -591,7 +601,9 @@ public sealed class ImageTestsController : ControllerBase
                     SubmittedUrl: null,
                     Stdout: stdout,
                     Stderr: stderr,
-                    RunnerError: runnerErr));
+                    RunnerError: runnerErr,
+
+                    SolutionId: null));
             }
         }
 		else
@@ -613,7 +625,9 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: null,
                 Stdout: stdout,
                 Stderr: stderr,
-                RunnerError: runnerErr ?? "Empty image returned"));
+                RunnerError: runnerErr ?? "Empty image returned",
+
+                SolutionId: null));
         }
 
         // Upload submitted image
