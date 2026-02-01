@@ -258,7 +258,7 @@ public sealed class ImageTestsController : ControllerBase
         var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
-        var solutionId = await SaveImageSolutionAsync(
+        solutionId = await SaveImageSolutionAsync(
             userId,
             a,
             kind: "upload",
@@ -498,7 +498,7 @@ public sealed class ImageTestsController : ControllerBase
         var renderedUrl = $"/api/private-files/{Uri.EscapeDataString(renderedKey)}";
 
         // Пробник: только рендер, без сравнения.
-        var solutionId = await SaveImageSolutionAsync(
+        solutionId = await SaveImageSolutionAsync(
             userId,
             a,
             kind: "code",
