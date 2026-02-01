@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using taskforge.Constants;
 using taskforge.Filters;
@@ -185,7 +183,6 @@ public sealed class ImageTestsController : ControllerBase
         CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
-        Guid? solutionId = null;
         DebugConsole.Log("ImageTests", $"Compare(multipart) start trace={trace} assignmentId={assignmentId} fileLength={file?.Length ?? 0}");
         _log.LogInformation("Compare (multipart) start trace={Trace} assignmentId={AssignmentId} fileLength={Len}", trace, assignmentId, file?.Length ?? 0);
 
@@ -248,9 +245,7 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: submittedUrl503,
                 Stdout: string.Empty,
                 Stderr: string.Empty,
-                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
-
-                SolutionId: null));
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
         }
 
         var passed = similarityPercent >= thresholdPercent;
@@ -258,7 +253,7 @@ public sealed class ImageTestsController : ControllerBase
         var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
-        solutionId = await SaveImageSolutionAsync(
+        var solutionId = await SaveImageSolutionAsync(
             userId,
             a,
             kind: "upload",
@@ -351,9 +346,7 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: submittedUrl503,
                 Stdout: "",
                 Stderr: "",
-                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
-
-                SolutionId: null));
+                RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже."));
         }
 
         var passed = similarityPercent >= thresholdPercent;
@@ -401,7 +394,6 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
-        Guid? solutionId = null;
         _log.LogInformation("RunCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len} debug={Debug} compare={Compare}",
             trace, assignmentId, req.Language, req.Code?.Length ?? 0, req.Debug, req.CompareWithReference);
 
@@ -410,36 +402,8 @@ public sealed class ImageTestsController : ControllerBase
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
-		var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
-		_log.LogInformation("RunCode normalized trace={Trace} assignmentId={AssignmentId} lang={Lang}", trace, assignmentId, lang);
+        var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
         if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
-        // normalize threshold (support old configs: 0..1 as fraction)
-        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
-        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
-
-        var validationErr = ValidateImageTestProgram(lang, req.Code);
-        if (validationErr is not null)
-        {
-			_log.LogWarning("RunCode validation failed trace={Trace} assignmentId={AssignmentId} lang={Lang}. Msg={Msg}",
-				trace, assignmentId, lang, validationErr);
-            // Quota bucket is already consumed by [RequireQuota], but we can return a clear message
-            var referenceUrl = string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)
-                ? null
-                : $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
-
-            return Ok(new ImageTestRunResponse(
-                Ok: false,
-                RenderedKey: null,
-                RenderedUrl: null,
-                Stdout: string.Empty,
-                Stderr: string.Empty,
-                RunnerError: validationErr,
-                SimilarityPercent: null,
-                ThresholdPercent: Math.Round(thresholdPercent, 1),
-                Passed: null,
-                ReferenceUrl: referenceUrl,
-                SolutionId: null));
-        }
 
         var userId = _currentUser.GetUserId();
 
@@ -449,7 +413,7 @@ public sealed class ImageTestsController : ControllerBase
         string stderr = "";
         string? runnerErr = null;
 
-        if (req.Debug)
+        if (req.Debug && lang == "python")
         {
             debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
             stdout = debug.Stdout;
@@ -457,21 +421,8 @@ public sealed class ImageTestsController : ControllerBase
             runnerErr = debug.Error;
             png = debug.PngBytes;
 
-			_log.LogInformation(
-				"RunCode runner result trace={Trace} assignmentId={AssignmentId} lang={Lang} ok={Ok} pngBytes={Bytes} stdoutLen={OutLen} stderrLen={ErrLen} errLen={ErrLen2}",
-				trace,
-				assignmentId,
-				lang,
-				debug.Ok,
-				png?.Length ?? 0,
-				(stdout ?? string.Empty).Length,
-				(stderr ?? string.Empty).Length,
-				(runnerErr ?? string.Empty).Length);
-
             if (!debug.Ok)
             {
-				_log.LogWarning("RunCode runner failed trace={Trace} assignmentId={AssignmentId} lang={Lang}. Err={Err}",
-					trace, assignmentId, lang, runnerErr);
                 return Ok(new ImageTestRunResponse(
                     Ok: false,
                     RenderedKey: null,
@@ -482,9 +433,7 @@ public sealed class ImageTestsController : ControllerBase
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
-                    ReferenceUrl: null,
-
-                    SolutionId: solutionId));
+                    ReferenceUrl: null));
             }
         }
         else
@@ -494,8 +443,6 @@ public sealed class ImageTestsController : ControllerBase
 
         if (png is null || png.Length == 0)
         {
-			_log.LogWarning("RunCode empty image trace={Trace} assignmentId={AssignmentId} lang={Lang} runnerErr={Err}",
-				trace, assignmentId, lang, runnerErr);
             return Ok(new ImageTestRunResponse(
                 Ok: false,
                 RenderedKey: null,
@@ -506,19 +453,15 @@ public sealed class ImageTestsController : ControllerBase
                 SimilarityPercent: null,
                 ThresholdPercent: null,
                 Passed: null,
-                ReferenceUrl: null,
-
-                SolutionId: solutionId));
+                ReferenceUrl: null));
         }
 
         // Upload rendered image
-		_log.LogInformation("RunCode uploading image trace={Trace} assignmentId={AssignmentId} lang={Lang} bytes={Bytes}",
-			trace, assignmentId, lang, png.Length);
         var renderedKey = await _files.UploadBytesAsync(png, "image/png", $"image-tests/previews/{userId}/{assignmentId}", ".png", ct);
         var renderedUrl = $"/api/private-files/{Uri.EscapeDataString(renderedKey)}";
 
         // Пробник: только рендер, без сравнения.
-        solutionId = await SaveImageSolutionAsync(
+        var solutionId = await SaveImageSolutionAsync(
             userId,
             a,
             kind: "code",
@@ -557,13 +500,6 @@ public sealed class ImageTestsController : ControllerBase
     [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
     {
-        var sw = Stopwatch.StartNew();
-        ImageRunnerDebugResult? debug = null;
-        string stdout = string.Empty;
-        string stderr = string.Empty;
-        string? runnerErr = null;
-        byte[]? png = null;
-
         var trace = HttpContext.TraceIdentifier;
         DebugConsole.Log("ImageTests", $"CompareCode start trace={trace} assignmentId={assignmentId} lang={req.Language} codeLen={req.Code?.Length ?? 0} debug={req.Debug}");
         _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req.Language, req.Code?.Length ?? 0);
@@ -581,37 +517,19 @@ public sealed class ImageTestsController : ControllerBase
 
         _log.LogInformation("[ImageTest] compare-code start: assignment={AssignmentId} user={UserId} lang={Lang} bytes={Bytes}", assignmentId, userId, lang, codeLen);
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
-		// normalize threshold (support old configs: 0..1 as fraction)
-		var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
-		if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+        ImageRunnerDebugResult? debug = null;
+        byte[]? png;
+        string stdout = "";
+        string stderr = "";
+        string? runnerErr = null;
 
-		var validationErr = ValidateImageTestProgram(lang, req.Code);
-		if (validationErr is not null)
-		{
-			_log.LogWarning("CompareCode validation failed trace={Trace} assignmentId={AssignmentId} lang={Lang}. Msg={Msg}",
-				trace, assignmentId, lang, validationErr);
-			var referenceUrl = string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)
-				? string.Empty
-				: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
+        // normalize threshold (support old configs: 0..1 as fraction)
+        var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
+        if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
 
-			return Ok(new ImageTestCompareResponse(
-				Ok: false,
-				SimilarityPercent: 0,
-				ThresholdPercent: Math.Round(thresholdPercent, 1),
-				Passed: false,
-				ReferenceKey: a.ImageTestReferenceKey ?? string.Empty,
-				SubmittedKey: null,
-				ReferenceUrl: referenceUrl,
-				SubmittedUrl: null,
-				Stdout: string.Empty,
-				Stderr: string.Empty,
-				RunnerError: validationErr,
-				SolutionId: null
-			));
-		}
-
-		if (req.Debug)
+        if (req.Debug && lang == "python")
         {
             debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
             stdout = debug.Stdout;
@@ -633,12 +551,10 @@ public sealed class ImageTestsController : ControllerBase
                     SubmittedUrl: null,
                     Stdout: stdout,
                     Stderr: stderr,
-                    RunnerError: runnerErr,
-
-                    SolutionId: null));
+                    RunnerError: runnerErr));
             }
         }
-		else
+        else
         {
             png = await _runner.RenderAsync(lang, req.Code, ct);
         }
@@ -657,9 +573,7 @@ public sealed class ImageTestsController : ControllerBase
                 SubmittedUrl: null,
                 Stdout: stdout,
                 Stderr: stderr,
-                RunnerError: runnerErr ?? "Empty image returned",
-
-                SolutionId: null));
+                RunnerError: runnerErr ?? "Empty image returned"));
         }
 
         // Upload submitted image
@@ -795,35 +709,4 @@ public sealed class ImageTestsController : ControllerBase
     [RequireQuota(QuotaBuckets.Tasks)]
     public Task<ActionResult<ImageTestCompareResponse>> SubmitCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
         => CompareCode(assignmentId, req, ct);
-
-	private static string? ValidateImageTestProgram(string language, string? code)
-	{
-		var s = code ?? string.Empty;
-		if (string.IsNullOrWhiteSpace(s)) return "Код пустой";
-
-		if (string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
-		{
-			// Accept both `import turtle` and `from turtle import *`
-			if (!Regex.IsMatch(s, @"\b(import\s+turtle|from\s+turtle\s+import)\b", RegexOptions.IgnoreCase))
-				return "Для проверки картинок в Python нужно рисовать через turtle. Добавь `import turtle` (или `from turtle import ...`) и используй turtle-графику.";
-			return null;
-		}
-
-		if (string.Equals(language, "pascal", StringComparison.OrdinalIgnoreCase))
-		{
-			// Supported units for drawing in PascalABC.NET
-			var hasGraph = s.IndexOf("GraphABC", StringComparison.OrdinalIgnoreCase) >= 0
-			           || s.IndexOf("GraphWPF", StringComparison.OrdinalIgnoreCase) >= 0
-			           || s.IndexOf("ABCObjects", StringComparison.OrdinalIgnoreCase) >= 0;
-			var hasDrawMan = s.IndexOf("DrawMan", StringComparison.OrdinalIgnoreCase) >= 0
-			           || s.IndexOf("Drawman", StringComparison.OrdinalIgnoreCase) >= 0;
-			var hasTurtle = Regex.IsMatch(s, @"\bTurtle\b", RegexOptions.IgnoreCase);
-
-			if (!hasGraph && !hasDrawMan && !hasTurtle)
-				return "Для проверки картинок в Pascal нужно рисовать через один из модулей: GraphABC / GraphWPF / ABCObjects / Turtle / DrawMan. Сейчас в коде их не найдено.";
-			return null;
-		}
-
-		return null;
-	}
 }

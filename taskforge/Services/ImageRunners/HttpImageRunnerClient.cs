@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using taskforge.Helpers;
 
@@ -55,11 +54,7 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
     public async Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, CancellationToken ct = default)
     {
         // Not all runners implement /render/debug.
-        // We support it for Python and Pascal (both return stdout/stderr + base64 image).
-        var supportsDebug = string.Equals(language, "python", StringComparison.OrdinalIgnoreCase)
-                         || string.Equals(language, "pascal", StringComparison.OrdinalIgnoreCase);
-
-        if (!supportsDebug)
+        if (!string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
         {
             var png = await RenderAsync(language, sourceCode, ct);
             return new ImageRunnerDebugResult
@@ -84,42 +79,19 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
 
         if (resp.IsSuccessStatusCode)
         {
-            var contentType = resp.Content.Headers.ContentType?.ToString() ?? "";
-            var contentLength = resp.Content.Headers.ContentLength;
             var json = await resp.Content.ReadAsStringAsync(ct);
+            var ok = JsonSerializer.Deserialize<RenderDebugResponse>(json, JsonOpts);
 
-            // Many runners respond with snake_case fields. We parse manually to be resilient.
-            var parsed = TryParseRenderDebugJson(json);
+            var pngBytes = ok?.PngBase64 != null ? Convert.FromBase64String(ok.PngBase64) : null;
 
-            if (!parsed.Ok)
-            {
-                _log.LogWarning("[ImageRunner] RenderDebug success but invalid payload {Lang} ct={Ct} len={Len} in {Ms}ms. Payload: {Body}",
-                    language, contentType, contentLength ?? json.Length, sw.ElapsedMilliseconds, Truncate(json));
-
-                return new ImageRunnerDebugResult
-                {
-                    Ok = false,
-                    Error = parsed.Error ?? "Runner returned invalid payload",
-                    Stdout = parsed.Stdout ?? string.Empty,
-                    Stderr = parsed.Stderr ?? string.Empty,
-                    PngBytes = null
-                };
-            }
-
-            _log.LogInformation("[ImageRunner] RenderDebug ok {Lang} bytes={Bytes} stdoutLen={OutLen} stderrLen={ErrLen} ct={Ct} in {Ms}ms",
-                language,
-                parsed.PngBytes?.Length ?? 0,
-                (parsed.Stdout ?? string.Empty).Length,
-                (parsed.Stderr ?? string.Empty).Length,
-                contentType,
-                sw.ElapsedMilliseconds);
+            _log.LogInformation("[ImageRunner] RenderDebug ok {Lang} bytes={Bytes} in {Ms}ms", language, pngBytes?.Length ?? 0, sw.ElapsedMilliseconds);
 
             return new ImageRunnerDebugResult
             {
                 Ok = true,
-                Stdout = parsed.Stdout ?? string.Empty,
-                Stderr = parsed.Stderr ?? string.Empty,
-                PngBytes = parsed.PngBytes
+                Stdout = ok?.Stdout ?? string.Empty,
+                Stderr = ok?.Stderr ?? string.Empty,
+                PngBytes = pngBytes
             };
         }
 
@@ -157,9 +129,7 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         return language switch
         {
             "python" => new { code = sourceCode },
-            // Pascal runner expects the same contract as python: { "code": "..." }
-            // (otherwise FastAPI returns 422: missing body.code)
-            "pascal" => new { code = sourceCode },
+            "pascal" => new { source = sourceCode },
             _ => new { code = sourceCode }
         };
     }
@@ -196,85 +166,9 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
 
     private sealed class RenderDebugResponse
     {
-        [JsonPropertyName("pngBase64")] public string? PngBase64 { get; set; }
-        [JsonPropertyName("png_base64")] public string? PngBase64Snake { get; set; }
-        [JsonPropertyName("stdout")] public string? Stdout { get; set; }
-        [JsonPropertyName("stderr")] public string? Stderr { get; set; }
-    }
-
-    private sealed record ParsedRenderDebug(bool Ok, byte[]? PngBytes, string? Stdout, string? Stderr, string? Error);
-
-    private static ParsedRenderDebug TryParseRenderDebugJson(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-            return new ParsedRenderDebug(false, null, null, null, "Runner returned empty body");
-
-        // First try simple DTO mapping (supports pngBase64; snake_case via explicit property too)
-        try
-        {
-            var dto = JsonSerializer.Deserialize<RenderDebugResponse>(json, JsonOpts);
-            var b64 = dto?.PngBase64 ?? dto?.PngBase64Snake;
-            if (!string.IsNullOrWhiteSpace(b64))
-            {
-                var bytes = Convert.FromBase64String(b64);
-                return new ParsedRenderDebug(true, bytes, dto?.Stdout, dto?.Stderr, null);
-            }
-        }
-        catch
-        {
-            // ignore and try manual parse
-        }
-
-        // Manual parse with multiple candidate keys.
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            string? stdout = TryGetString(root, "stdout") ?? TryGetString(root, "out");
-            string? stderr = TryGetString(root, "stderr") ?? TryGetString(root, "err");
-            string? err = TryGetString(root, "error") ?? TryGetString(root, "message");
-
-            var b64 = TryGetString(root, "pngBase64")
-                   ?? TryGetString(root, "png_base64")
-                   ?? TryGetString(root, "png")
-                   ?? TryGetString(root, "imageBase64")
-                   ?? TryGetString(root, "image_base64")
-                   ?? TryGetString(root, "image");
-
-            if (string.IsNullOrWhiteSpace(b64))
-                return new ParsedRenderDebug(false, null, stdout, stderr, err ?? "No image field in runner response");
-
-            byte[] bytes;
-            try
-            {
-                bytes = Convert.FromBase64String(b64);
-            }
-            catch (FormatException)
-            {
-                return new ParsedRenderDebug(false, null, stdout, stderr, "Image field is not valid base64");
-            }
-
-            return new ParsedRenderDebug(true, bytes, stdout, stderr, null);
-        }
-        catch
-        {
-            return new ParsedRenderDebug(false, null, null, null, "Failed to parse runner JSON");
-        }
-    }
-
-    private static string? TryGetString(JsonElement root, string name)
-    {
-        if (root.ValueKind != JsonValueKind.Object) return null;
-        if (!root.TryGetProperty(name, out var el)) return null;
-        return el.ValueKind switch
-        {
-            JsonValueKind.String => el.GetString(),
-            JsonValueKind.Number => el.GetRawText(),
-            JsonValueKind.True => "true",
-            JsonValueKind.False => "false",
-            _ => el.GetRawText()
-        };
+        public string? PngBase64 { get; set; }
+        public string? Stdout { get; set; }
+        public string? Stderr { get; set; }
     }
 
     private static readonly JsonSerializerOptions JsonOpts = new()
