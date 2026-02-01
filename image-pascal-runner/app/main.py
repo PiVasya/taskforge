@@ -1,132 +1,195 @@
+import base64
 import os
+import re
+import shutil
 import subprocess
 import tempfile
-from pathlib import Path
+import time
+import uuid
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
-app = FastAPI(title="taskforge image pascal runner (PascalABC.NET GraphABC/DrawMan)")
+app = FastAPI(title="image-pascal-runner")
 
 
 class RenderRequest(BaseModel):
-    source: str = Field(..., description="PascalABC.NET source code (can use GraphABC / DrawMan)")
-    timeout_seconds: int = Field(8, ge=1, le=60)
+    code: str
+    # Optional tuning (kept compatible with python runner shape)
+    width: int | None = None
+    height: int | None = None
+    # debug flag isn't used here; use /render/debug endpoint instead
 
 
-# PascalABC.NET console compiler (under Mono)
-PABCNETC = os.getenv("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
+def _detect_drawing_kind(src: str) -> str | None:
+    s = src.lower()
+    # Most common PascalABC.NET drawing libs for school tasks
+    if "drawman" in s or "drawman" in s or "drawman;" in s or "uses drawman" in s or "uses drawman" in s:
+        return "drawman"
+    if "graphabc" in s:
+        return "graphabc"
+    if re.search(r"\buses\s+turtle\b", s) or "turtle" in s:
+        # PascalABC.NET turtle unit
+        return "turtle"
+    if "abcobjects" in s:
+        return "abcobjects"
+    if "graphwpf" in s:
+        return "graphwpf"
+    return None
 
-# Headless screen size (root screenshot will have this size)
-SCREEN_W = int(os.getenv("TF_SCREEN_W", "1024"))
-SCREEN_H = int(os.getenv("TF_SCREEN_H", "768"))
-SCREEN_D = int(os.getenv("TF_SCREEN_D", "24"))
 
-# How long to let the program run before we capture the screen (seconds)
-CAPTURE_DELAY = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
-
-
-@app.get("/health")
-def health():
-    return {"ok": True}
+def _validate_source(src: str) -> str | None:
+    kind = _detect_drawing_kind(src)
+    if kind is None:
+        return (
+            "В коде не найдено ни одного поддерживаемого графического модуля PascalABC.NET. "
+            "Для проверки картинок используйте один из вариантов: uses GraphABC; или uses DrawMan; "
+            "или uses Turtle; (также поддерживаются ABCObjects/GraphWPF)."
+        )
+    return None
 
 
-def _tail(s: str, n: int = 4000) -> str:
-    return s[-n:] if s else ""
+def _run(cmd: list[str], timeout: int = 30) -> tuple[int, str, str]:
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+        return 124, out, (err + "\n[timeout]")
+    return p.returncode, out, err
+
+
+def _xvfb_script(exe_path: str, png_path: str, kind: str) -> str:
+    # DrawMan часто стартует в режиме "ожидание Enter". Нажмём Enter автоматически.
+    # Плюс подождём чуть дольше, чтобы успел дорисовать.
+    press_enter = ""
+    extra_sleep = "0.7"
+    if kind == "drawman":
+        press_enter = r"""
+for i in $(seq 1 50); do
+  # Try common window names first
+  win=$(xdotool search --onlyvisible --name 'DrawMan' 2>/dev/null | head -n1 || true)
+  if [ -z "$win" ]; then
+    win=$(xdotool search --onlyvisible --name '.*Поле.*' 2>/dev/null | head -n1 || true)
+  fi
+  if [ -z "$win" ]; then
+    win=$(xdotool search --onlyvisible --name '.*' 2>/dev/null | tail -n1 || true)
+  fi
+  if [ -n "$win" ]; then
+    xdotool windowactivate "$win" 2>/dev/null || true
+    xdotool key --window "$win" Return 2>/dev/null || xdotool key Return 2>/dev/null || true
+    break
+  fi
+  sleep 0.1
+done
+"""
+        extra_sleep = "1.2"
+
+    return rf"""#!/usr/bin/env bash
+set -e
+
+mono "{exe_path}" > /tmp/app_stdout.txt 2> /tmp/app_stderr.txt &
+APP_PID=$!
+
+# Give GUI time to show
+sleep 0.4
+
+{press_enter}
+
+sleep {extra_sleep}
+
+# Screenshot whole virtual screen
+import -window root "{png_path}" >/dev/null 2>&1 || true
+
+# Cleanup process (don't hang container)
+kill $APP_PID >/dev/null 2>&1 || true
+wait $APP_PID >/dev/null 2>&1 || true
+"""
+
+
+def _render_impl(code: str) -> tuple[bytes | None, str, str, str | None]:
+    """Returns: (png_bytes, stdout, stderr, error_message)"""
+
+    err_msg = _validate_source(code)
+    if err_msg:
+        return None, "", "", err_msg
+
+    kind = _detect_drawing_kind(code) or "unknown"
+
+    workdir = tempfile.mkdtemp(prefix="pascal_render_")
+    try:
+        src_path = os.path.join(workdir, "main.pas")
+        exe_path = os.path.join(workdir, "app.exe")
+        png_path = os.path.join(workdir, f"out_{uuid.uuid4().hex}.png")
+
+        with open(src_path, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        # Compile
+        # pabcnetc is installed in image at /opt/pabcnetc/pabcnetc.exe
+        rc, out, err = _run(["mono", "/opt/pabcnetc/pabcnetc.exe", "/OutputDir:" + workdir, src_path], timeout=60)
+        if rc != 0 or not os.path.exists(exe_path):
+            msg = "Ошибка компиляции PascalABC.NET"
+            return None, out, err, msg
+
+        # Run inside Xvfb and take screenshot
+        script_path = os.path.join(workdir, "run.sh")
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(_xvfb_script(exe_path, png_path, kind))
+        os.chmod(script_path, 0o755)
+
+        rc2, out2, err2 = _run(["xvfb-run", "-a", "-s", "-screen 0 800x600x24", script_path], timeout=20)
+        stdout = (out or "") + ("\n" + out2 if out2 else "")
+        stderr = (err or "") + ("\n" + err2 if err2 else "")
+
+        if not os.path.exists(png_path) or os.path.getsize(png_path) < 2000:
+            # Usually means nothing got drawn or window didn't appear
+            msg = "Не удалось получить изображение (окно не появилось или ничего не нарисовано)."
+            return None, stdout, stderr, msg
+
+        with open(png_path, "rb") as f:
+            return f.read(), stdout, stderr, None
+
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 @app.post("/render")
 def render(req: RenderRequest):
-    '''
-    Compiles and runs PascalABC.NET code headlessly (Xvfb).
-    The user code does NOT need to save any image.
-    We capture the virtual screen and return it as out.png.
-    '''
-    with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
-        td_path = Path(td)
-        src_path = td_path / "main.pas"
-        out_png = td_path / "out.png"
+    png, stdout, stderr, err = _render_impl(req.code)
+    if err is not None:
+        # Match python-runner style: { detail: { message, stdout, stderr } }
+        raise Exception({"message": err, "stdout": stdout, "stderr": stderr})
 
-        src_path.write_text(req.source, encoding="utf-8")
+    # Write to temp file for FileResponse
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    try:
+        tmp.write(png)
+        tmp.flush()
+        return FileResponse(tmp.name, media_type="image/png")
+    finally:
+        tmp.close()
 
-        # Compile (PascalABC.NET)
-        try:
-            cp = subprocess.run(
-                ["mono", PABCNETC, str(src_path)],
-                cwd=td,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "compile timeout")
 
-        if cp.returncode != 0:
-            raise HTTPException(400, f"compile failed:\n{_tail(cp.stdout)}")
+@app.post("/render/debug")
+def render_debug(req: RenderRequest):
+    png, stdout, stderr, err = _render_impl(req.code)
+    # Always 200 in debug mode so backend can show logs
+    png_b64 = base64.b64encode(png).decode("ascii") if png else None
+    return {
+        "pngBase64": png_b64,
+        "stdout": stdout,
+        "stderr": (stderr + ("\n" + err if err else "")) if (stderr or err) else "",
+    }
 
-        exe_path = td_path / "main.exe"
-        if not exe_path.exists():
-            exes = list(td_path.glob("*.exe"))
-            if exes:
-                exe_path = exes[0]
-            else:
-                raise HTTPException(500, "compile succeeded but no .exe produced")
 
-        # Run headlessly and capture screenshot.
-        script = f'''
-set -euo pipefail
-cd "{td}"
-
-xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
-  set -euo pipefail
-  mono "{exe_path}" > program.log 2>&1 &
-  pid=$!
-
-  sleep {CAPTURE_DELAY}
-
-  import -window root "{out_png}" >/dev/null 2>&1 || true
-  convert "{out_png}" -trim +repage "{out_png}" >/dev/null 2>&1 || true
-
-  kill $pid >/dev/null 2>&1 || true
-  wait $pid >/dev/null 2>&1 || true
-'
-'''
-
-        try:
-            rp = subprocess.run(
-                ["bash", "-lc", script],
-                cwd=td,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=req.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "run timeout")
-
-        if rp.returncode != 0:
-            log_path = td_path / "program.log"
-            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
-            raise HTTPException(
-                400,
-                f"runtime error:\n{_tail(rp.stdout)}\n\nprogram.log:\n{_tail(log)}",
-            )
-
-        if not out_png.exists() or out_png.stat().st_size == 0:
-            log_path = td_path / "program.log"
-            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
-            raise HTTPException(
-                400,
-                "failed to capture image (out.png not produced). "
-                "Your program likely did not open a window / draw anything.\n\n"
-                f"program.log:\n{_tail(log)}",
-            )
-
-        # IMPORTANT:
-        # Do NOT return FileResponse from a TemporaryDirectory: Starlette streams the file later,
-        # but the temp folder is deleted right after we return from this function -> 500.
-        # Read bytes now and return them.
-        png_bytes = out_png.read_bytes()
-        return Response(content=png_bytes, media_type="image/png")
+# Convert our internal Exception raised above into proper FastAPI HTTP error
+@app.exception_handler(Exception)
+async def _exception_handler(_, exc: Exception):
+    # If we raised `Exception(dict)` above, it's stored in args[0]
+    if exc.args and isinstance(exc.args[0], dict) and {"message", "stdout", "stderr"}.issubset(exc.args[0].keys()):
+        return JSONResponse(status_code=400, content={"detail": exc.args[0]})
+    # Default
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})

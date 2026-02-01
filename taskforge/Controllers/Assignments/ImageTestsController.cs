@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using taskforge.Constants;
 using taskforge.Filters;
@@ -405,6 +406,25 @@ public sealed class ImageTestsController : ControllerBase
         var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
         if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
 
+        var validationErr = ValidateImageTestProgram(lang, req.Code);
+        if (validationErr is not null)
+        {
+            // Quota bucket is already consumed by [RequireQuota], but we can return a clear message
+            return Ok(new ImageTestRunResponse(
+                Ok: false,
+				RenderedKey: null,
+                SimilarityPercent: null,
+                ThresholdPercent: null,
+                Passed: null,
+                ReferencePngBase64: null,
+                UserPngBase64: null,
+                Stdout: string.Empty,
+                Stderr: string.Empty,
+                RunnerError: validationErr,
+                ReferenceUrl: null,
+                SolutionId: null));
+        }
+
         var userId = _currentUser.GetUserId();
 
         ImageRunnerDebugResult? debug = null;
@@ -413,7 +433,7 @@ public sealed class ImageTestsController : ControllerBase
         string stderr = "";
         string? runnerErr = null;
 
-        if (req.Debug && lang == "python")
+        if (req.Debug)
         {
             debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
             stdout = debug.Stdout;
@@ -517,6 +537,26 @@ public sealed class ImageTestsController : ControllerBase
 
         _log.LogInformation("[ImageTest] compare-code start: assignment={AssignmentId} user={UserId} lang={Lang} bytes={Bytes}", assignmentId, userId, lang, codeLen);
 
+		var validationErr = ValidateImageTestProgram(lang, req.Code);
+		if (validationErr is not null)
+		{
+			var refUrl = _storage.GetPublicUrl(a.ImageTestReferenceKey!);
+			var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
+			if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
+
+			return Ok(new ImageTestCompareResponse(
+				Ok: false,
+				ReferenceUrl: refUrl,
+				RenderedUrl: null,
+				Stdout: string.Empty,
+				Stderr: string.Empty,
+				RunnerError: validationErr,
+				SimilarityPercent: null,
+				ThresholdPercent: thresholdPercent,
+				Passed: false
+			));
+		}
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         ImageRunnerDebugResult? debug = null;
@@ -529,7 +569,7 @@ public sealed class ImageTestsController : ControllerBase
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
         if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
 
-        if (req.Debug && lang == "python")
+		if (req.Debug)
         {
             debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
             stdout = debug.Stdout;
@@ -554,7 +594,7 @@ public sealed class ImageTestsController : ControllerBase
                     RunnerError: runnerErr));
             }
         }
-        else
+		else
         {
             png = await _runner.RenderAsync(lang, req.Code, ct);
         }
@@ -709,4 +749,35 @@ public sealed class ImageTestsController : ControllerBase
     [RequireQuota(QuotaBuckets.Tasks)]
     public Task<ActionResult<ImageTestCompareResponse>> SubmitCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
         => CompareCode(assignmentId, req, ct);
+
+	private static string? ValidateImageTestProgram(string language, string? code)
+	{
+		var s = code ?? string.Empty;
+		if (string.IsNullOrWhiteSpace(s)) return "Код пустой";
+
+		if (string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
+		{
+			// Accept both `import turtle` and `from turtle import *`
+			if (!Regex.IsMatch(s, @"\b(import\s+turtle|from\s+turtle\s+import)\b", RegexOptions.IgnoreCase))
+				return "Для проверки картинок в Python нужно рисовать через turtle. Добавь `import turtle` (или `from turtle import ...`) и используй turtle-графику.";
+			return null;
+		}
+
+		if (string.Equals(language, "pascal", StringComparison.OrdinalIgnoreCase))
+		{
+			// Supported units for drawing in PascalABC.NET
+			var hasGraph = s.IndexOf("GraphABC", StringComparison.OrdinalIgnoreCase) >= 0
+			           || s.IndexOf("GraphWPF", StringComparison.OrdinalIgnoreCase) >= 0
+			           || s.IndexOf("ABCObjects", StringComparison.OrdinalIgnoreCase) >= 0;
+			var hasDrawMan = s.IndexOf("DrawMan", StringComparison.OrdinalIgnoreCase) >= 0
+			           || s.IndexOf("Drawman", StringComparison.OrdinalIgnoreCase) >= 0;
+			var hasTurtle = Regex.IsMatch(s, @"\bTurtle\b", RegexOptions.IgnoreCase);
+
+			if (!hasGraph && !hasDrawMan && !hasTurtle)
+				return "Для проверки картинок в Pascal нужно рисовать через один из модулей: GraphABC / GraphWPF / ABCObjects / Turtle / DrawMan. Сейчас в коде их не найдено.";
+			return null;
+		}
+
+		return null;
+	}
 }

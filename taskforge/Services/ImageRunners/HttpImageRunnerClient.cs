@@ -54,7 +54,11 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
     public async Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, CancellationToken ct = default)
     {
         // Not all runners implement /render/debug.
-        if (!string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
+        // We support it for Python and Pascal (both return stdout/stderr + base64 image).
+        var supportsDebug = string.Equals(language, "python", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(language, "pascal", StringComparison.OrdinalIgnoreCase);
+
+        if (!supportsDebug)
         {
             var png = await RenderAsync(language, sourceCode, ct);
             return new ImageRunnerDebugResult
