@@ -297,21 +297,18 @@ export default function CourseAssignmentsPage() {
   return (
     <Layout>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Layers size={22} /> Задания курса
-        </h1>
+        <div className="flex items-center gap-3 min-w-0">
+          <Link to="/courses" className="btn-outline" title="Вернуться к курсам">
+            ← Курсы
+          </Link>
+          <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
+            <Layers size={22} /> Задания курса
+          </h1>
+        </div>
 
         <div className="flex items-center gap-3">
           <div>
-            <select
-              value={sortMode}
-              onChange={(e) => setSortMode(e.target.value)}
-              className="border rounded-lg px-3 py-2
-                        bg-white text-slate-900 border-slate-300
-                        dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600
-                        focus:outline-none focus:ring-2 focus:ring-sky-500/60"
-              title="Сортировка"
-            >
+            <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input" title="Сортировка">
               {SORT_OPTIONS.map((o) => (
                 <option key={o.v} value={o.v}>
                   {o.label}
@@ -323,12 +320,7 @@ export default function CourseAssignmentsPage() {
           <IfEditor>
             {courseCanEdit ? (
 	              <>
-	                <select
-	                  value={createType}
-	                  onChange={(e) => setCreateType(e.target.value)}
-	                  className="border rounded-lg px-3 py-2 bg-white text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
-	                  title="Тип создаваемого задания"
-	                >
+	                <select value={createType} onChange={(e) => setCreateType(e.target.value)} className="input" title="Тип создаваемого задания">
 	                  <option value="code-test">code-test</option>
 	                  <option value="test">test</option>
 	                  <option value="image-test">image-test</option>

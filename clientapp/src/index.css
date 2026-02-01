@@ -167,19 +167,21 @@ select.input {
   padding-right: 2.25rem; /* место под стрелку */
 }
 select:focus,
-select.input:focus { @apply outline-none ring-2 ring-brand-500; }
+select.input:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
 
 /* Тёмная тема для select — тоже через var(--card) */
 .dark select,
 .dark select.input { @apply bg-[rgb(var(--card))] text-slate-100 border-slate-700; }
-.dark select:focus,
-.dark select.input:focus { @apply ring-brand-400; }
+/* dark/pink подхватываются автоматически через var(--accent) */
 
 /* Розовая тема для select — НЕ задаём фон, он уже из var(--card) */
 html.pink select,
 html.pink select.input { @apply text-slate-800 border-pink-300; }
-html.pink select:focus,
-html.pink select.input:focus { @apply ring-pink-500; }
+/* pink подхватывается автоматически через var(--accent) */
 
 /* Firefox normalize for inputs */
 @-moz-document url-prefix() {
@@ -248,16 +250,15 @@ html.pink select:-webkit-autofill {
   box-shadow: inset 0 0 0 1000px rgb(255 241 246);
 }
 
-/* Фокус под тему */
+/* Фокус под тему (через var(--accent), без "синевы" в pink) */
 input:focus,
 textarea:focus,
-select:focus { @apply outline-none ring-2 ring-brand-500; }
-.dark input:focus,
-.dark textarea:focus,
-.dark select:focus { @apply ring-brand-400; }
-html.pink input:focus,
-html.pink textarea:focus,
-html.pink select:focus { @apply ring-pink-500; }
+select:focus,
+.select:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
 
 /* Monaco: убираем фокус-ринг у внутреннего textarea */
 .monaco-editor .inputarea:focus {
@@ -295,6 +296,5 @@ html.pink .bg-gradient-to-b {
   background-size: 1rem 1rem;
   padding-right: 2.25rem;
 }
-.select:focus { @apply outline-none ring-2 ring-brand-500; }
 .dark .select { @apply text-slate-100 border-slate-700; }
 html.pink .select { @apply text-slate-800 border-pink-300; }

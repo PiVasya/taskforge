@@ -227,9 +227,6 @@ namespace taskforge.Migrations
                     b.Property<double?>("ImageTestSimilarityThreshold")
                         .HasColumnType("double precision");
 
-                    b.Property<int>("Rating")
-                        .HasColumnType("integer");
-
                     b.Property<int>("Sort")
                         .HasColumnType("integer");
 

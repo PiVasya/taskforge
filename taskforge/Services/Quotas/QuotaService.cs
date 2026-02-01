@@ -17,7 +17,7 @@ public sealed class QuotaService : IQuotaService
 
     // NOTE: Named arguments in C# are case-sensitive.
     private static readonly BucketConfig TasksCfg = new(QuotaBuckets.Tasks, Capacity: 5, RefillInterval: TimeSpan.FromSeconds(30));
-    private static readonly BucketConfig TopCfg = new(QuotaBuckets.Top, Capacity: 1, RefillInterval: TimeSpan.FromMinutes(30));
+    private static readonly BucketConfig TopCfg = new(QuotaBuckets.Top, Capacity: 5, RefillInterval: TimeSpan.FromMinutes(30));
 
     public QuotaService(ApplicationDbContext db)
     {

@@ -18,6 +18,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// ===== Quota tunnel (без лишних запросов) =====
+// Бэк возвращает заголовки X-Quota-* и Retry-After — пробрасываем их в UI через событие.
+function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
+  try {
+    if (typeof window === 'undefined') return;
+    const h = headers || {};
+    const bucket = (h['x-quota-bucket'] || h['X-Quota-Bucket'] || fallbackBucket || '').toString();
+    if (!bucket) return;
+
+    const remRaw = h['x-quota-remaining'] ?? h['X-Quota-Remaining'];
+    const capRaw = h['x-quota-capacity'] ?? h['X-Quota-Capacity'];
+    const retryRaw = h['retry-after'] ?? h['Retry-After'] ?? fallbackRetry;
+
+    const remaining = remRaw == null ? undefined : Number(remRaw);
+    const capacity = capRaw == null ? undefined : Number(capRaw);
+    const retryAfterSeconds = retryRaw == null ? undefined : Number(retryRaw);
+
+    window.dispatchEvent(
+      new CustomEvent('quota:update', {
+        detail: { bucket, remaining, capacity, retryAfterSeconds },
+      })
+    );
+  } catch {
+    // ignore
+  }
+}
+
 // Attach Authorization header when we have an in-memory access token.
 // This makes auth robust even if cookies are blocked by browser policy.
 api.interceptors.request.use((config) => {
@@ -43,16 +70,48 @@ function resolveQueue(err) {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // обновляем квоты из заголовков (если есть)
+    emitQuotaFromHeaders(response?.headers);
+    return response;
+  },
   async (error) => {
     const original = error.config || {};
+
+    // quota: не даём пользователю видеть "Request failed with status code 429"
+    const status = error?.response?.status;
+    if (status === 429) {
+      const bucket = error?.response?.data?.bucket;
+      const retry =
+        error?.response?.data?.retryAfterSeconds ??
+        (error?.response?.headers && (error.response.headers['retry-after'] || error.response.headers['Retry-After']));
+
+      emitQuotaFromHeaders(error?.response?.headers, bucket, retry);
+
+      const retrySec = retry ? Number(retry) : null;
+      const niceBucket = bucket === 'top' ? 'топ' : bucket === 'tasks' ? 'решения' : 'лимит';
+      const msg = retrySec
+        ? `Лимит исчерпан (${niceBucket}). Подождите ${retrySec} сек.`
+        : `Лимит исчерпан (${niceBucket}). Попробуйте позже.`;
+
+      // чтобы в UI никогда не показывалось "status code 429"
+      error.message = msg;
+      if (error.response && typeof error.response.data === 'object' && error.response.data) {
+        // часть страниц читает data.error
+        if (!error.response.data.error) error.response.data.error = msg;
+        // часть страниц читает data.message
+        if (error.response.data.message === 'Quota exceeded') error.response.data.message = msg;
+      }
+    } else {
+      // даже на обычных ответах можем обновить квоты (если бэк их прислал)
+      emitQuotaFromHeaders(error?.response?.headers);
+    }
 
     // prevent infinite loops
     if (original.__skipAuthRefresh) {
       return Promise.reject(error);
     }
 
-    const status = error?.response?.status;
     if (status !== 401) {
       return Promise.reject(error);
     }

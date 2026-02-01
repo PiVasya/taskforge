@@ -6,7 +6,7 @@
 // помещены ссылки на страницы и действия. На широких экранах админские
 // ссылки прячутся за отдельной кнопкой с тремя точками.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Moon,
@@ -25,6 +25,7 @@ import {
   MoreHorizontal,
   Award,
   LifeBuoy,
+  ChevronDown,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -43,38 +44,56 @@ export default function Layout({ children, fullWidth = false }) {
   // ===== Квоты (5 отправок решений и 5 загрузок топа) =====
   const [quotas, setQuotas] = useState(null);
 
+  // "туннель" как у саппорта: квоты обновляются событиями (без спама запросами)
+  const [quotaOpen, setQuotaOpen] = useState(false);
+  const quotaRef = useRef(null);
+
   useEffect(() => {
     if (!access) {
       setQuotas(null);
+      setQuotaOpen(false);
       return;
     }
 
     let alive = true;
-    const load = async () => {
+
+    // 1) разово подгружаем с сервера (чтобы было видно сразу после входа)
+    (async () => {
       try {
         const q = await getMyQuotas();
         if (alive) setQuotas(q);
       } catch {
         // не шумим: квоты — вспомогательная инфа
       }
+    })();
+
+    // 2) дальше обновляемся через события из axios-интерцептора ("туннель")
+    const onQuotaUpdate = (ev) => {
+      const d = ev?.detail;
+      if (!d?.bucket) return;
+      setQuotas((prev) => {
+        const next = { ...(prev || {}) };
+        const key = d.bucket === 'tasks' ? 'tasks' : d.bucket === 'top' ? 'top' : null;
+        if (!key) return prev;
+        next[key] = {
+          remaining: Number.isFinite(d.remaining) ? d.remaining : prev?.[key]?.remaining,
+          capacity: Number.isFinite(d.capacity) ? d.capacity : prev?.[key]?.capacity,
+          retryAfterSeconds: Number.isFinite(d.retryAfterSeconds)
+            ? d.retryAfterSeconds
+            : prev?.[key]?.retryAfterSeconds,
+        };
+        return next;
+      });
     };
-
-    load();
-
-    const onQuotaChanged = () => load();
-    window.addEventListener('quota:changed', onQuotaChanged);
-
-    // лёгкая подстраховка: обновляем раз в минуту
-    const timer = setInterval(load, 60_000);
+    window.addEventListener('quota:update', onQuotaUpdate);
 
     return () => {
       alive = false;
-      window.removeEventListener('quota:changed', onQuotaChanged);
-      clearInterval(timer);
+      window.removeEventListener('quota:update', onQuotaUpdate);
     };
   }, [access]);
 
-  const QuotaPill = () => {
+  const QuotaPill = ({ compact = false } = {}) => {
     if (!access) return null;
     const t = quotas?.tasks;
     const top = quotas?.top;
@@ -93,14 +112,48 @@ export default function Layout({ children, fullWidth = false }) {
     ].join('\n');
 
     return (
-      <div
-        className="hidden md:inline-flex items-center gap-2 rounded-xl border border-slate-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-900/40 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200"
-        title={title}
-      >
-        <span className="opacity-70">Квоты</span>
-        <span className="font-medium">реш: {tasksText}</span>
-        <span className="opacity-40">•</span>
-        <span className="font-medium">топ: {topText}</span>
+      <div className="relative" ref={quotaRef}>
+        <button
+          type="button"
+          className={
+            `${compact ? '' : 'hidden md:inline-flex '}items-center gap-2 rounded-xl border ` +
+            'border-slate-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-900/40 ' +
+            'px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-900/60'
+          }
+          title={title}
+          onClick={() => setQuotaOpen((v) => !v)}
+        >
+          <span className="opacity-70">Квоты</span>
+          <span className="font-medium">реш: {tasksText}</span>
+          <span className="opacity-40">•</span>
+          <span className="font-medium">топ: {topText}</span>
+          <ChevronDown size={14} className={`opacity-60 transition ${quotaOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {quotaOpen && (
+          <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-[rgb(var(--card))] shadow-soft p-3 z-50 text-xs">
+            <div className="font-semibold mb-2">Квоты</div>
+            <div className="space-y-1 text-slate-700 dark:text-slate-200">
+              <div className="flex items-center justify-between">
+                <span className="opacity-75">Решения</span>
+                <span className="font-medium">{tasksText}</span>
+              </div>
+              {t?.retryAfterSeconds ? (
+                <div className="text-slate-500 dark:text-slate-400">Ждать: {t.retryAfterSeconds} сек.</div>
+              ) : null}
+
+              <div className="h-px bg-slate-200/60 dark:bg-slate-800/60 my-2" />
+
+              <div className="flex items-center justify-between">
+                <span className="opacity-75">Топ</span>
+                <span className="font-medium">{topText}</span>
+              </div>
+              {top?.retryAfterSeconds ? (
+                <div className="text-slate-500 dark:text-slate-400">Ждать: {top.retryAfterSeconds} сек.</div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -134,11 +187,13 @@ export default function Layout({ children, fullWidth = false }) {
     const onDocClick = (e) => {
       if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false);
       if (adminRef.current && !adminRef.current.contains(e.target)) setAdminOpen(false);
+      if (quotaRef.current && !quotaRef.current.contains(e.target)) setQuotaOpen(false);
     };
     const onEsc = (e) => {
       if (e.key === 'Escape') {
         setMoreOpen(false);
         setAdminOpen(false);
+        setQuotaOpen(false);
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -149,25 +204,50 @@ export default function Layout({ children, fullWidth = false }) {
     };
   }, []);
 
+  // ===== Автосворачивание навигации в "..." при переполнении =====
+  const headerRowRef = useRef(null);
+  const [forceCompact, setForceCompact] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = headerRowRef.current;
+    if (!el) return;
+
+    const check = () => {
+      try {
+        // если строка не помещается — включаем компактный режим
+        const overflow = el.scrollWidth > el.clientWidth + 4;
+        setForceCompact(overflow);
+      } catch {
+        // ignore
+      }
+    };
+
+    check();
+    const ro = new ResizeObserver(() => check());
+    ro.observe(el);
+    return () => {
+      try { ro.disconnect(); } catch {}
+    };
+  }, [access, isAdmin, canEdit, isEditorMode, theme, quotas]);
+
   return (
     <div className="min-h-screen">
       {/* фоновой градиент */}
       <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
       <header className="sticky top-0 z-20 border-b border-slate-200/70 dark:border-slate-800/70 backdrop-blur bg-white/70 dark:bg-slate-900/60">
-        <div className="container-app flex h-16 items-center justify-between gap-2">
+        <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
           {/* Логотип и название */}
           <Link to="/courses" className="flex min-w-0 items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-brand-600 text-white grid place-items-center shadow-soft">
               <PanelsTopLeft size={18} />
             </div>
             <div className="font-semibold truncate">TaskForge</div>
-            <span className="hidden xl:inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 ml-2">
-              <BookOpen size={16} /> Платформа задач
-            </span>
+            {/* подпись "Платформа задач" убрали — она съедает место и ломает хедер */}
           </Link>
 
           {/* Правая панель — крупные экраны */}
-          <div className="hidden xl:flex items-center gap-2">
+          <div className={`hidden xl:flex items-center gap-2 ${forceCompact ? 'xl:hidden' : ''}`}
+          >
             {/* квоты (видны только авторизованным) */}
             <QuotaPill />
 
@@ -302,7 +382,9 @@ export default function Layout({ children, fullWidth = false }) {
           </div>
 
           {/* Мобильное меню — одна кнопка "..." */}
-          <div className="relative xl:hidden" ref={moreRef}>
+          <div className={`relative ${forceCompact ? '' : 'xl:hidden'}`} ref={moreRef}>
+            {/* квоты в компактном режиме тоже показываем */}
+            {forceCompact ? <QuotaPill compact /> : null}
             <button
               className="btn-outline"
               aria-haspopup="menu"

@@ -31,6 +31,11 @@ export function handleApiError(err, notify, fallbackMessage) {
       notify.warn(serverMsg || 'Не найдено');
       return;
     }
+    if (status === 429) {
+      // quota exceeded: показываем дружелюбно (без "status code 429")
+      notify.warn(serverMsg || 'Лимит исчерпан. Попробуйте позже.');
+      return;
+    }
     if (status >= 500) {
       notify.error('Ошибка сервера. Попробуйте позже.');
       return;

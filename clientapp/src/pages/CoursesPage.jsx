@@ -84,7 +84,7 @@ export default function CoursesPage() {
             <Link
               key={c.id}
               to={href}
-              className="block group focus:outline-none focus:ring-2 focus:ring-sky-500 rounded-2xl"
+              className="block group focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))] rounded-2xl"
             >
               <Card
                 className={
