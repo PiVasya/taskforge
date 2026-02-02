@@ -102,106 +102,97 @@ def render(req: RenderRequest):
                 raise HTTPException(500, "compile succeeded but no .exe produced")
 
         # Run headlessly and capture screenshot.
-        script = f'''
-set -euo pipefail
-cd "{td}"
+        # For DrawMan, the drawing starts after the user presses Enter ("Пуск (Enter)").
+        # We emulate that with xdotool (best-effort).
+        win_wait_seconds = float(os.getenv("TF_WIN_WAIT", "8.0"))
+        after_enter_delay = float(os.getenv("TF_AFTER_ENTER_DELAY", "2.0"))
 
-xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
-  set -euo pipefail
-  mono "{exe_path}" > program.log 2>&1 &
-  pid=$!
+        inner_script = f"""#!/usr/bin/env bash
+set -e
+cd \"{td}\"
 
-  # Give GUI a moment to initialize (important for DrawMan).
-  sleep 0.4
+mono \"{exe_path}\" > program.log 2>&1 &
+pid=$!
 
-	  NEEDS_ENTER={1 if needs_enter else 0}
-	  if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
-	    # Best-effort: try sending Enter to the currently focused window first.
-	    # In a fresh Xvfb session the app window often becomes focused by itself.
-	    xdotool key Return 2>/dev/null || true
-	    win=""
-	    # Prefer searching by PID (most reliable), then fallback to scanning visible windows.
-	    # IMPORTANT: xdotool search requires a pattern; without it search returns nothing.
-	    for i in $(seq 1 {win_wait_iters}); do
-	      win=$(xdotool search --onlyvisible --pid "$pid" --name ".*" 2>/dev/null | tail -n 1 || true)
-	      if [ -z "$win" ]; then
-	        # Sometimes GUI window belongs to a child process
-	        for cpid in $(pgrep -P "$pid" 2>/dev/null || true); do
-	          win=$(xdotool search --onlyvisible --pid "$cpid" --name ".*" 2>/dev/null | tail -n 1 || true)
-	          [ -n "$win" ] && break
-	        done
-	      fi
-	
-	      # If PID search didn't work, scan all visible windows and pick the most relevant by title.
-	      if [ -z "$win" ]; then
-	        for w in $(xdotool search --onlyvisible --name ".*" 2>/dev/null || true); do
-	          title=$(xdotool getwindowname "$w" 2>/dev/null || true)
-	          case "$title" in
-	            *Чертежник*|*Поле*|*Исполнитель*)
-	              win="$w"; break
-	              ;;
-	          esac
-	        done
-	      fi
-	
-	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name ".*" 2>/dev/null | tail -n 1 || true)
-	      [ -n "$win" ] && break
-	      sleep 0.1
-	    done
+# Give GUI a moment to initialize (important for DrawMan).
+sleep 0.4
 
-	    if [ -n "$win" ]; then
-	      echo "[runner] window found: $win"
-	      xdotool windowactivate "$win" 2>/dev/null || true
-	      xdotool windowfocus "$win" 2>/dev/null || true
-	
-	      # Ensure the window receives input
-	      xdotool mousemove --window "$win" 100 100 click 1 2>/dev/null || true
-	
-	      # 1) Try keyboard (some builds bind Run to Enter)
-	      xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
-	      xdotool key --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
-	
-	      # 2) Also click the "Пуск" button area (more reliable than key focus)
-	      # Click near bottom-left of the window: x=70, y=HEIGHT-25
-	      eval "$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)"
-	      if [ -n "${{HEIGHT:-}}" ]; then
-	        y=$((HEIGHT-25))
-	        if [ "$y" -lt 0 ]; then y=10; fi
-	        xdotool mousemove --window "$win" 70 "$y" click 1 2>/dev/null || true
-	        echo "[runner] clicked start button at (70,$y) in window $win"
-	      fi
+NEEDS_ENTER={'1' if needs_enter else '0'}
 
-      # Give DrawMan time to run before screenshot
-  sleep {after_enter_delay}
-    else
-      echo "[runner] needs_enter=1 but window not found"
-	      echo "[runner] visible windows (id -> title):"
-	      for w in $(xdotool search --onlyvisible --name ".*" 2>/dev/null | tail -n 10 || true); do
-	        title=$(xdotool getwindowname "$w" 2>/dev/null || true)
-	        echo "[runner]   $w -> $title"
-	      done
-sleep {capture_delay}
+if [ \"$NEEDS_ENTER\" = \"1\" ] && command -v xdotool >/dev/null 2>&1; then
+  win=\"\"
+  end=$(( $(date +%s) + {int(max(1.0, float(win_wait_seconds)))} ))
+  while [ $(date +%s) -lt $end ]; do
+    # Try to find DrawMan/Field windows (titles are usually in Russian).
+    win=$(xdotool search --onlyvisible --name \"Чертежник|Поле|Исполнитель\" 2>/dev/null | head -n 1 || true)
+    [ -n \"$win\" ] && break
+    sleep 0.1
+  done
+
+  if [ -n \"$win\" ]; then
+    echo \"[runner] window found: $win\"
+    xdotool windowactivate \"$win\" 2>/dev/null || true
+    xdotool windowfocus \"$win\" 2>/dev/null || true
+
+    # Click inside the window to ensure it has focus.
+    xdotool mousemove --window \"$win\" 120 120 click 1 2>/dev/null || true
+
+    # Press Enter (some setups react to Return, some to KP_Enter).
+    xdotool key --window \"$win\" --clearmodifiers Return 2>/dev/null || true
+    xdotool key --window \"$win\" --clearmodifiers KP_Enter 2>/dev/null || true
+
+    # Also try clicking the "Пуск" button area (bottom left).
+    eval \"$(xdotool getwindowgeometry --shell \"$win\" 2>/dev/null || true)\"
+    if [ -n \"${HEIGHT:-}\" ]; then
+      y=$((HEIGHT-25))
+      [ \"$y\" -lt 0 ] && y=10
+      xdotool mousemove --window \"$win\" 70 \"$y\" click 1 2>/dev/null || true
+      echo \"[runner] clicked start button in window $win\"
     fi
+
+    sleep {after_enter_delay}
   else
+    echo \"[runner] needs_enter=1 but window not found\"
+    echo \"[runner] visible windows (id -> title):\"
+    for w in $(xdotool search --onlyvisible --name \".*\" 2>/dev/null | tail -n 12 || true); do
+      title=$(xdotool getwindowname \"$w\" 2>/dev/null || true)
+      echo \"[runner]   $w -> $title\"
+    done
     sleep {capture_delay}
   fi
+else
+  sleep {capture_delay}
+fi
 
-  import -window root "{out_png}" >/dev/null 2>&1 || true
-  convert "{out_png}" -trim +repage "{out_png}" >/dev/null 2>&1 || true
+# Screenshot whole virtual screen
+import -window root \"{out_png}\" >/dev/null 2>&1 || true
+convert \"{out_png}\" -trim +repage \"{out_png}\" >/dev/null 2>&1 || true
 
-  kill $pid >/dev/null 2>&1 || true
-  wait $pid >/dev/null 2>&1 || true
-'
-'''
+# Cleanup process (don't hang container)
+kill $pid >/dev/null 2>&1 || true
+wait $pid >/dev/null 2>&1 || true
+"""
+
+        run_sh = td_path / "run.sh"
+        run_sh.write_text(inner_script, encoding="utf-8")
+        os.chmod(run_sh, 0o755)
+
+        cmd = [
+            "xvfb-run",
+            "-a",
+            "-s",
+            f"-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}",
+            str(run_sh),
+        ]
 
         try:
             rp = subprocess.run(
-                ["bash", "-lc", script],
+                cmd,
                 cwd=td,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-        timeout=run_timeout,
+                timeout=run_timeout,
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "run timeout")
