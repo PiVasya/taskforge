@@ -46,7 +46,7 @@ public sealed class ImageRunnersController : ControllerBase
         catch (ImageRunnerHttpException ex)
         {
             // Главное: НЕ теряем тело ответа раннера.
-            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.Body });
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.ResponseBody });
         }
 
         if (png is { Length: > 0 })
@@ -60,7 +60,7 @@ public sealed class ImageRunnersController : ControllerBase
         }
         catch (ImageRunnerHttpException ex)
         {
-            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.Body });
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.ResponseBody });
         }
     }
 
@@ -74,7 +74,7 @@ public sealed class ImageRunnersController : ControllerBase
         }
         catch (ImageRunnerHttpException ex)
         {
-            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.Body });
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.ResponseBody });
         }
     }
 

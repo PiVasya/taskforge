@@ -457,21 +457,7 @@ public sealed class ImageTestsController : ControllerBase
                     RenderedUrl: null,
                     Stdout: stdout,
                     Stderr: stderr,
-                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}",
-                    SimilarityPercent: null,
-                    ThresholdPercent: null,
-                    Passed: null,
-                    ReferenceUrl: null));
-            }
-            catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
-            {
-                return Ok(new ImageTestRunResponse(
-                    Ok: false,
-                    RenderedKey: null,
-                    RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
-                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}",
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.ResponseBody}",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
@@ -539,7 +525,7 @@ public sealed class ImageTestsController : ControllerBase
                     RenderedUrl: null,
                     Stdout: stdout,
                     Stderr: stderr,
-                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}",
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.ResponseBody}",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
@@ -698,7 +684,7 @@ public sealed class ImageTestsController : ControllerBase
             }
             catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
             {
-                runnerErr = $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}";
+                runnerErr = $"Image runner failed ({(int)ex.StatusCode}): {ex.ResponseBody}";
                 return Ok(new ImageTestCompareResponse(
                     Ok: false,
                     SimilarityPercent: 0,
