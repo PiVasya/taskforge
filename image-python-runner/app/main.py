@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 
@@ -121,14 +121,11 @@ def _run_subprocess(run_id: str, cmd: list[str], cwd: str, env: dict, timeout_se
 
 
 def _log_child_output(run_id: str, out: str, err: str, *, success: bool) -> None:
-    """Log child stdout/stderr into container logs.
+    """Log child stdout/stderr into *container logs*.
 
-    - On failure/timeout: always log tails.
-    - On success: log only if TF_LOG_CHILD_OUTPUT_ALWAYS=1.
+    Требование проекта: логи должны быть ВСЕГДА, без флагов в запросе.
+    Поэтому печатаем хвост stdout/stderr и при успехе тоже (ограничиваем длину).
     """
-    always = os.environ.get("TF_LOG_CHILD_OUTPUT_ALWAYS", "").strip().lower() in ("1", "true", "yes")
-    if success and not always:
-        return
 
     max_chars = int(os.environ.get("TF_CHILD_LOG_TAIL_CHARS", "4000"))
     o = _tail(out.strip(), max_chars)
@@ -145,7 +142,7 @@ def health():
     return {"ok": True}
 
 
-@app.post("/render", response_class=FileResponse)
+@app.post("/render")
 def render(req: RenderRequest):
     """Executes user python code and returns a PNG.
 
@@ -226,11 +223,16 @@ def render(req: RenderRequest):
                 },
             )
 
-        # On success we log child stdout/stderr only if TF_LOG_CHILD_OUTPUT_ALWAYS=1.
+        # ALWAYS log child output into container logs.
         _log_child_output(run_id, out, err, success=True)
 
-        logger.info("run_id=%s ok imageBytes=%s elapsedMs=%s", run_id, out_png.stat().st_size, int((time.time()-t0)*1000))
-        return FileResponse(path=str(out_png), media_type="image/png", filename="out.png")
+        # IMPORTANT:
+        # Do NOT return FileResponse from a TemporaryDirectory:
+        # the temp folder is deleted right after we return from this function,
+        # but FileResponse streams the file later -> empty/failed response.
+        png_bytes = out_png.read_bytes()
+        logger.info("run_id=%s ok imageBytes=%s elapsedMs=%s", run_id, len(png_bytes), int((time.time()-t0)*1000))
+        return Response(content=png_bytes, media_type="image/png")
 
 
 class RenderBase64Response(BaseModel):

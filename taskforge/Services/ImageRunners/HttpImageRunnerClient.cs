@@ -51,7 +51,9 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
             DebugConsole.Log("ImageRunner", $"RenderAsync fail lang={language} status={(int)resp.StatusCode} ms={sw.ElapsedMilliseconds} body={Truncate(err)}");
             _log.LogWarning("[ImageRunner] Render failed {Lang} {Status} in {Ms}ms. Body: {Body}",
                 language, (int)resp.StatusCode, sw.ElapsedMilliseconds, Truncate(err));
-            return null;
+            // ВАЖНО: не возвращаем null, иначе контроллер покажет "Empty image returned".
+            // Прокидываем тело ответа (там детальная причина: compile/runtime).
+            throw new ImageRunnerHttpException(language, resp.StatusCode, err);
         }
 
         var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
@@ -65,13 +67,28 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         // Not all runners implement /render/debug.
         if (!string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
         {
-            var png = await RenderAsync(language, sourceCode, ct);
-            return new ImageRunnerDebugResult
+            try
             {
-                Ok = png != null,
-                Error = png == null ? "Render failed" : null,
-                PngBytes = png
-            };
+                var png = await RenderAsync(language, sourceCode, ct);
+                return new ImageRunnerDebugResult
+                {
+                    Ok = png != null,
+                    Error = png == null ? "Render failed" : null,
+                    PngBytes = png
+                };
+            }
+            catch (ImageRunnerHttpException ex)
+            {
+                // Сохраняем тело ошибки раннера.
+                return new ImageRunnerDebugResult
+                {
+                    Ok = false,
+                    Error = ex.ResponseBody,
+                    Stdout = string.Empty,
+                    Stderr = string.Empty,
+                    PngBytes = null
+                };
+            }
         }
 
         var baseUrl = GetBaseUrl(language);

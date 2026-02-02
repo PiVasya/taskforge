@@ -13,7 +13,9 @@ app = FastAPI(title="taskforge image pascal runner (MEGA DEBUG GraphABC/DrawMan)
 class RenderRequest(BaseModel):
     source: str = Field(..., description="PascalABC.NET source code (GraphABC / DrawMan)")
     timeout_seconds: int = Field(20, ge=1, le=120)
-    debug: bool = Field(False, description="Enable mega verbose logs (runner + program.log tails)")
+    # Оставлено для обратной совместимости, но НЕ используется.
+    # По требованию: МЕГА-ЛОГИ ВСЕГДА, без флагов в запросе.
+    debug: bool = Field(False, description="(ignored) logs are always on")
 
 
 PABCNETC = os.getenv("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
@@ -61,7 +63,6 @@ def _build_bash_script(
     exe_path: Path,
     out_png: Path,
     needs_enter: bool,
-    debug: bool,
     run_timeout: int,
 ) -> str:
     # Keep delays inside the total budget.
@@ -72,16 +73,10 @@ def _build_bash_script(
     win_wait_seconds = max(3.0, min(WINDOW_WAIT_SECONDS_DEFAULT, run_timeout * 0.7))
     win_wait_seconds = min(win_wait_seconds, max(1.0, run_timeout - 1.0))
 
-    # Trim policy
-    # - if TF_TRIM=1 => always
-    # - if TF_TRIM=0 => never
-    # - else => only when debug=False
-    if TRIM_ENV == "1":
-        do_trim = True
-    elif TRIM_ENV == "0":
-        do_trim = False
-    else:
-        do_trim = not debug
+    # Trim policy:
+    # По умолчанию TRIM ВЫКЛЮЧЕН, потому что иногда даёт "пустую" картинку.
+    # Включать можно только через TF_TRIM=1.
+    do_trim = TRIM_ENV == "1"
 
     return f"""#!/usr/bin/env bash
 set -e
@@ -97,7 +92,7 @@ exec > >(tee -a "{td}/runner.log") 2>&1
 now_s() {{ date +"%H:%M:%S"; }}
 log() {{ echo "[runner] $(now_s) $*"; }}
 
-DEBUG={'1' if debug else '0'}
+DEBUG=1
 NEEDS_ENTER={'1' if needs_enter else '0'}
 DO_TRIM={'1' if do_trim else '0'}
 
@@ -107,11 +102,7 @@ CAPTURE_DELAY="{capture_delay}"
 
 have() {{ command -v "$1" >/dev/null 2>&1; }}
 
-dbg() {{
-  if [ "$DEBUG" = "1" ]; then
-    log "DBG: $*"
-  fi
-}}
+dbg() {{ log "DBG: $*"; }}
 
 log "===== runner start ====="
 log "pid search needs_enter=$NEEDS_ENTER debug=$DEBUG do_trim=$DO_TRIM"
@@ -378,7 +369,8 @@ def render(req: RenderRequest):
     src = req.source or ""
     mode = _detect_mode(src)
     needs_enter = mode == "DrawMan"
-    debug = bool(req.debug)
+    # По требованию: МЕГА-ЛОГИ ВСЕГДА, без флагов в запросе.
+    debug = True
 
     run_timeout = int(req.timeout_seconds or 1)
     if run_timeout < 1:
@@ -408,7 +400,7 @@ def render(req: RenderRequest):
             raise HTTPException(504, "compile timeout")
 
         _log(f"compile done exitCode={cp.returncode}")
-        if cp.stdout and debug:
+        if cp.stdout:
             _log("compile output (tail):\n" + _tail(cp.stdout))
 
         if cp.returncode != 0:

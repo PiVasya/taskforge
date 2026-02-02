@@ -433,6 +433,34 @@ public sealed class ImageTestsController : ControllerBase
                     Passed: null,
                     ReferenceUrl: null));
             }
+            catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
+            catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
             catch (HttpRequestException ex)
             {
                 return Ok(new ImageTestRunResponse(
@@ -482,6 +510,20 @@ public sealed class ImageTestsController : ControllerBase
                     Stdout: stdout,
                     Stderr: stderr,
                     RunnerError: "Image runner timed out",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
+            catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
@@ -625,6 +667,22 @@ public sealed class ImageTestsController : ControllerBase
             catch (TaskCanceledException)
             {
                 runnerErr = "Render timeout";
+                return Ok(new ImageTestCompareResponse(
+                    Ok: false,
+                    SimilarityPercent: 0,
+                    ThresholdPercent: Math.Round(thresholdPercent, 1),
+                    Passed: false,
+                    ReferenceKey: a.ImageTestReferenceKey,
+                    SubmittedKey: null,
+                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    SubmittedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: runnerErr));
+            }
+            catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
+            {
+                runnerErr = $"Image runner failed ({(int)ex.StatusCode}): {ex.Body}";
                 return Ok(new ImageTestCompareResponse(
                     Ok: false,
                     SimilarityPercent: 0,

@@ -38,21 +38,44 @@ public sealed class ImageRunnersController : ControllerBase
     public async Task<IActionResult> Render([FromRoute] string language, [FromBody] ImageRunnerRenderRequest req, CancellationToken ct = default)
     {
         var code = req.Code ?? string.Empty;
-        var png = await _imageRunner.RenderAsync(language, code, ct);
+        byte[]? png;
+        try
+        {
+            png = await _imageRunner.RenderAsync(language, code, ct);
+        }
+        catch (ImageRunnerHttpException ex)
+        {
+            // Главное: НЕ теряем тело ответа раннера.
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.Body });
+        }
 
         if (png is { Length: > 0 })
             return File(png, "image/png");
 
         // Если раннер вернул пусто/NULL — возвращаем debug-ответ со stdout/stderr, чтобы видеть причину.
-        var dbg = await _imageRunner.RenderDebugAsync(language, code, ct);
-        return BadRequest(dbg);
+        try
+        {
+            var dbg = await _imageRunner.RenderDebugAsync(language, code, ct);
+            return BadRequest(dbg);
+        }
+        catch (ImageRunnerHttpException ex)
+        {
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.Body });
+        }
     }
 
     [HttpPost("{language}/render/debug")]
     public async Task<IActionResult> RenderDebug([FromRoute] string language, [FromBody] ImageRunnerRenderRequest req, CancellationToken ct = default)
     {
-        var r = await _imageRunner.RenderDebugAsync(language, req.Code ?? string.Empty, ct);
-        return Ok(r);
+        try
+        {
+            var r = await _imageRunner.RenderDebugAsync(language, req.Code ?? string.Empty, ct);
+            return Ok(r);
+        }
+        catch (ImageRunnerHttpException ex)
+        {
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.Body });
+        }
     }
 
     private async Task<object> SafePingAsync(string lang, CancellationToken ct)
