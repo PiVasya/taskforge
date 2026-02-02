@@ -202,7 +202,7 @@ blast_enter() {{
   xdotool key --clearmodifiers KP_Enter 2>/dev/null || true
 
   xdotool key --window "$win" --delay 120 --clearmodifiers Return Return KP_Enter 2>/dev/null || true
-  xdotool type --window "$win" --clearmodifiers $'\\n' 2>/dev/null || true
+  xdotool type --window "$win" --clearmodifiers $'\n' 2>/dev/null || true
 }}
 
 click_start_area() {{
@@ -280,7 +280,7 @@ if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
         try_start_window "$w"
       done
 
-      log "waiting after enter: ${AFTER_ENTER_INT}s"
+      log "waiting after enter: $AFTER_ENTER_INT s"
       sleep "$AFTER_ENTER_INT"
     fi
   fi
