@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="taskforge image pascal runner (MEGA DEBUG GraphABC/DrawMan)")
 
+
 class RenderRequest(BaseModel):
     source: str = Field(..., description="PascalABC.NET source code (GraphABC / DrawMan)")
     timeout_seconds: int = Field(20, ge=1, le=120)
@@ -29,7 +30,7 @@ CAPTURE_DELAY_DEFAULT = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
 AFTER_ENTER_DELAY_DEFAULT = float(os.getenv("TF_AFTER_ENTER_DELAY", "10.0"))
 WINDOW_WAIT_SECONDS_DEFAULT = float(os.getenv("TF_WINDOW_WAIT_SECONDS", "14.0"))
 
-# If TF_TRIM=1 -> always trim. If TF_TRIM=0 -> never trim. If unset -> trim only when debug=False.
+# If TF_TRIM=1 -> trim enabled. Default OFF (avoid empty image due to -trim).
 TRIM_ENV = os.getenv("TF_TRIM")  # "1" / "0" / None
 
 RUN_LANG = os.getenv("TF_LANG", "C.UTF-8")
@@ -63,6 +64,7 @@ def _build_bash_script(
     exe_path: Path,
     out_png: Path,
     needs_enter: bool,
+    debug: bool,  # IMPORTANT: keep param (even if always True) to avoid TypeError
     run_timeout: int,
 ) -> str:
     # Keep delays inside the total budget.
@@ -74,8 +76,7 @@ def _build_bash_script(
     win_wait_seconds = min(win_wait_seconds, max(1.0, run_timeout - 1.0))
 
     # Trim policy:
-    # По умолчанию TRIM ВЫКЛЮЧЕН, потому что иногда даёт "пустую" картинку.
-    # Включать можно только через TF_TRIM=1.
+    # Default OFF (trim sometimes causes "empty" image). Enable only via TF_TRIM=1.
     do_trim = TRIM_ENV == "1"
 
     return f"""#!/usr/bin/env bash
@@ -86,12 +87,13 @@ export LC_ALL="{RUN_LC_ALL}"
 
 cd "{td}"
 
-# redirect ALL runner output to runner.log AND stdout
+# redirect ALL runner output to runner.log AND stdout (container logs)
 exec > >(tee -a "{td}/runner.log") 2>&1
 
 now_s() {{ date +"%H:%M:%S"; }}
 log() {{ echo "[runner] $(now_s) $*"; }}
 
+# Logs ALWAYS ON by requirement
 DEBUG=1
 NEEDS_ENTER={'1' if needs_enter else '0'}
 DO_TRIM={'1' if do_trim else '0'}
@@ -369,6 +371,7 @@ def render(req: RenderRequest):
     src = req.source or ""
     mode = _detect_mode(src)
     needs_enter = mode == "DrawMan"
+
     # По требованию: МЕГА-ЛОГИ ВСЕГДА, без флагов в запросе.
     debug = True
 
@@ -420,7 +423,7 @@ def render(req: RenderRequest):
             exe_path=exe_path,
             out_png=out_png,
             needs_enter=needs_enter,
-            debug=debug,
+            debug=debug,  # <-- now accepted (no TypeError)
             run_timeout=run_timeout,
         )
 
@@ -448,7 +451,6 @@ def render(req: RenderRequest):
             )
         except subprocess.TimeoutExpired:
             _log("RUN TIMEOUT")
-            # attach logs if available
             log_path = td_path / "program.log"
             log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
             raise HTTPException(504, "run timeout\n\nprogram.log:\n" + _tail(log))
@@ -458,35 +460,25 @@ def render(req: RenderRequest):
 
         _log(f"run done exitCode={rp.returncode}")
 
-        # Always print program.log tail in debug
-        if debug:
-            pl = td_path / "program.log"
-            prog = pl.read_text(encoding="utf-8", errors="replace") if pl.exists() else ""
-            _log("DEBUG program.log (tail):\n" + _tail(prog))
+        # Always print program.log + runner.log tails (logs are ALWAYS ON)
+        pl = td_path / "program.log"
+        prog = pl.read_text(encoding="utf-8", errors="replace") if pl.exists() else ""
+        _log("program.log (tail):\n" + _tail(prog))
 
-            rl = td_path / "runner.log"
-            runner_log = rl.read_text(encoding="utf-8", errors="replace") if rl.exists() else ""
-            _log("DEBUG runner.log (tail):\n" + _tail(runner_log))
+        rl = td_path / "runner.log"
+        runner_log = rl.read_text(encoding="utf-8", errors="replace") if rl.exists() else ""
+        _log("runner.log (tail):\n" + _tail(runner_log))
 
         if rp.returncode != 0:
-            log_path = td_path / "program.log"
-            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
-            _log("RUNTIME FAILED, program.log (tail):\n" + _tail(log))
-            raise HTTPException(400, f"runtime error:\n{_tail(rp.stdout)}\n\nprogram.log:\n{_tail(log)}")
+            raise HTTPException(400, f"runtime error:\n{_tail(rp.stdout)}\n\nprogram.log:\n{_tail(prog)}")
 
         if not out_png.exists() or out_png.stat().st_size == 0:
-            log_path = td_path / "program.log"
-            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
-            runner_log_path = td_path / "runner.log"
-            runner_log = runner_log_path.read_text(encoding="utf-8", errors="replace") if runner_log_path.exists() else ""
             _log("OUT.PNG missing/empty")
-            if debug:
-                _log("runner.log (tail):\n" + _tail(runner_log))
             raise HTTPException(
                 400,
                 "failed to capture image (out.png not produced).\n\n"
                 f"runner.log:\n{_tail(runner_log)}\n\n"
-                f"program.log:\n{_tail(log)}",
+                f"program.log:\n{_tail(prog)}",
             )
 
         total = time.perf_counter() - t0
