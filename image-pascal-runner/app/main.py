@@ -44,18 +44,21 @@ def _tail(s: str, n: int = 4000) -> str:
     return s[-n:] if s else ""
 
 
-def _detect_mode(src_lower: str) -> str:
-    # Order matters: DrawMan tasks should be treated as DrawMan even if they also mention GraphABC
-    if ("uses drawman" in src_lower) or ("drawman;" in src_lower):
-        return "DrawMan"
-    if ("uses graphabc" in src_lower) or ("graphabc;" in src_lower):
-        return "GraphABC"
-    return "Unknown"
-
-
 def _log(msg: str) -> None:
-    # Single prefix, easy to grep in docker logs
+    # Simple single-line logs (good for docker logs)
     print(f"[pascal-image-runner] {msg}", flush=True)
+
+
+def _detect_mode(src: str) -> str:
+    s = (src or "").lower()
+    has_drawman = ("uses drawman" in s) or ("drawman;" in s)
+    has_graphabc = ("uses graphabc" in s) or ("graphabc;" in s)
+
+    if has_drawman:
+        return "DrawMan"
+    if has_graphabc:
+        return "GraphABC"
+    return "Pascal"
 
 
 @app.post("/render")
@@ -65,14 +68,13 @@ def render(req: RenderRequest):
     The user code does NOT need to save any image.
     We capture the virtual screen and return it as out.png.
     """
-    t0 = time.monotonic()
+    t0 = time.perf_counter()
 
-    src = req.source or ""
-    src_lower = src.lower()
+    src_lower = (req.source or "").lower()
+    mode = _detect_mode(req.source or "")
+    needs_enter = ("uses drawman" in src_lower) or ("drawman;" in src_lower)
 
-    mode = _detect_mode(src_lower)
-    needs_enter = (mode == "DrawMan")
-
+    # Time budget for the whole run (compile+run+capture) in this request.
     run_timeout = int(req.timeout_seconds or 1)
     if run_timeout < 1:
         run_timeout = 1
@@ -88,8 +90,8 @@ def render(req: RenderRequest):
 
     _log(
         f"start mode={mode} needs_enter={needs_enter} timeout={run_timeout}s "
-        f"capture_delay={capture_delay:.2f}s after_enter_delay={after_enter_delay:.2f}s win_wait={win_wait_seconds:.2f}s "
-        f"code_len={len(src)}"
+        f"capture_delay={capture_delay:.2f}s after_enter_delay={after_enter_delay:.2f}s "
+        f"win_wait={win_wait_seconds:.2f}s code_len={len(req.source or '')}"
     )
 
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
@@ -97,10 +99,10 @@ def render(req: RenderRequest):
         src_path = td_path / "main.pas"
         out_png = td_path / "out.png"
 
-        src_path.write_text(src, encoding="utf-8")
+        src_path.write_text(req.source, encoding="utf-8")
 
-        # --- Compile ---
-        t_compile0 = time.monotonic()
+        # Compile (PascalABC.NET)
+        t_compile0 = time.perf_counter()
         try:
             cp = subprocess.run(
                 ["mono", PABCNETC, str(src_path)],
@@ -112,9 +114,9 @@ def render(req: RenderRequest):
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "compile timeout")
+        t_compile1 = time.perf_counter()
 
-        compile_sec = time.monotonic() - t_compile0
-        _log(f"compile done exitCode={cp.returncode} compileSec={compile_sec:.3f}s")
+        _log(f"compile done exitCode={cp.returncode} compileSec={(t_compile1 - t_compile0):.3f}s")
 
         if cp.returncode != 0:
             raise HTTPException(400, f"compile failed:\n{_tail(cp.stdout)}")
@@ -127,32 +129,26 @@ def render(req: RenderRequest):
             else:
                 raise HTTPException(500, "compile succeeded but no .exe produced")
 
-        # --- Run headlessly and capture screenshot ---
-        # For DrawMan, the drawing starts after user presses Enter ("Пуск (Enter)").
+        # Run headlessly and capture screenshot.
+        # For DrawMan, the drawing starts after the user presses Enter ("Пуск (Enter)").
         # We emulate that via xdotool:
-        #   1) find windows (prefer PID search)
-        #   2) choose best window (Чертежник > Поле > first titled)
-        #   3) focus + click (CRITICAL)
-        #   4) send Enter + click "Пуск" area (bottom-left)
-        #   5) wait after_enter_delay, then screenshot
+        #   - find window by PID (title-regex can be flaky for Cyrillic)
+        #   - activate + click inside (ensure focus)
+        #   - send Enter
+        #   - click bottom-left start button area (safety net)
+        #   - wait for drawing, screenshot
         inner_script = f"""#!/usr/bin/env bash
 set -e
-
-log() {{ echo "[pascal-image-runner][runner] $1"; }}
 
 export LANG="{RUN_LANG}"
 export LC_ALL="{RUN_LC_ALL}"
 
 cd "{td}"
 
-start_ts=$(date +%s)
-
-log "run start mode={mode} needs_enter={'1' if needs_enter else '0'}"
-
 mono "{exe_path}" > program.log 2>&1 &
 pid=$!
 
-log "spawned mono pid=$pid"
+# Give GUI a moment to initialize (important for DrawMan/WinForms).
 sleep 0.7
 
 NEEDS_ENTER={'1' if needs_enter else '0'}
@@ -160,131 +156,116 @@ WIN_WAIT="{win_wait_seconds}"
 AFTER_ENTER="{after_enter_delay}"
 CAPTURE_DELAY="{capture_delay}"
 
-# Convert float seconds to integer (portable)
+# Convert float seconds to integer
 WIN_WAIT_INT=$(echo "$WIN_WAIT" | cut -d. -f1)
-[ -z "$WIN_WAIT_INT" ] && WIN_WAIT_INT=10
+if [ -z "$WIN_WAIT_INT" ]; then WIN_WAIT_INT=10; fi
 
 wins=""
 win=""
 
-pick_window() {{
-  local wins_list="$1"
-  local w=""
-  local title=""
-
-  # Prefer main window "Чертежник", skip help
-  for w in $wins_list; do
-    title=$(xdotool getwindowname "$w" 2>/dev/null || true)
-    case "$title" in
-      *Справка* ) continue;;
-    esac
-    case "$title" in
-      *Чертежник* ) echo "$w"; return 0;;
-    esac
-  done
-
-  # Then prefer "Поле"
-  for w in $wins_list; do
-    title=$(xdotool getwindowname "$w" 2>/dev/null || true)
-    case "$title" in
-      *Справка* ) continue;;
-    esac
-    case "$title" in
-      *Поле* ) echo "$w"; return 0;;
-    esac
-  done
-
-  # Then first with non-empty title
-  for w in $wins_list; do
-    title=$(xdotool getwindowname "$w" 2>/dev/null || true)
-    if [ -n "$title" ]; then
-      echo "$w"; return 0
-    fi
-  done
-
-  # Fallback: just first
-  echo "$wins_list" | head -n 1
-}}
-
 if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
-  log "DrawMan: waiting for windows by pid=$pid up to ${WIN_WAIT}s"
+  echo "[runner] DrawMan: waiting for windows by pid=$pid up to $WIN_WAIT s"
 
   end=$(( $(date +%s) + WIN_WAIT_INT ))
   while [ $(date +%s) -lt $end ]; do
-    wins=$(xdotool search --onlyvisible --pid "$pid" 2>/dev/null || true)
-    [ -n "$wins" ] && break
+    # Prefer PID search (avoids Cyrillic regex issues)
+    wins=$(xdotool search --onlyvisible --pid $pid 2>/dev/null || true)
+    if [ -n "$wins" ]; then break; fi
     sleep 0.1
   done
 
+  # Fallback: any visible windows (rare, but keeps behavior robust)
   if [ -z "$wins" ]; then
-    log "DrawMan: no windows found by PID; falling back to global visible windows"
     wins=$(xdotool search --onlyvisible --name ".*" 2>/dev/null || true)
   fi
 
   if [ -n "$wins" ]; then
-    log "visible candidate windows:"
+    echo "[runner] visible candidate windows:"
     for w in $wins; do
-      title=$(xdotool getwindowname "$w" 2>/dev/null || true)
-      log "  $w -> $title"
+      title=$(xdotool getwindowname $w 2>/dev/null || true)
+      echo "[runner]   $w -> $title"
     done
 
-    win=$(pick_window "$wins")
+    # Pick best window:
+    # - Prefer "Чертежник" (main window)
+    # - Otherwise "Поле"
+    # - Otherwise first non-empty title
+    for w in $wins; do
+      title=$(xdotool getwindowname $w 2>/dev/null || true)
+      case "$title" in *Справка* ) continue;; esac
+      case "$title" in *Чертежник* ) win=$w; break;; esac
+    done
+
+    if [ -z "$win" ]; then
+      for w in $wins; do
+        title=$(xdotool getwindowname $w 2>/dev/null || true)
+        case "$title" in *Справка* ) continue;; esac
+        case "$title" in *Поле* ) win=$w; break;; esac
+      done
+    fi
+
+    if [ -z "$win" ]; then
+      for w in $wins; do
+        title=$(xdotool getwindowname $w 2>/dev/null || true)
+        if [ -n "$title" ]; then win=$w; break; fi
+      done
+    fi
+
+    if [ -z "$win" ]; then
+      win=$(echo "$wins" | head -n 1)
+    fi
+
     if [ -n "$win" ]; then
-      log "window chosen: $win"
-      xdotool windowactivate "$win" 2>/dev/null || true
-      xdotool windowraise "$win" 2>/dev/null || true
-      xdotool windowfocus "$win" 2>/dev/null || true
+      echo "[runner] window chosen: $win"
+      echo "[runner] focusing + click inside window"
+
+      xdotool windowactivate $win 2>/dev/null || true
+      xdotool windowraise $win 2>/dev/null || true
+      xdotool windowfocus $win 2>/dev/null || true
       sleep 0.1
 
-      # CRITICAL: click inside the window so WinForms actually receives keyboard
-      xdotool mousemove --window "$win" 140 120 click 1 2>/dev/null || true
+      # Click inside to ensure focus (this is the key part for WinForms)
+      xdotool mousemove --window $win 140 120 click 1 2>/dev/null || true
       sleep 0.1
 
-      log "sending Enter"
-      xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
-      xdotool key --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
-      sleep 0.2
+      echo "[runner] sending Enter"
+      xdotool key --window $win --clearmodifiers Return 2>/dev/null || true
+      xdotool key --window $win --clearmodifiers KP_Enter 2>/dev/null || true
 
-      # Click "Пуск (Enter)" area (bottom-left). One robust guess.
-      geom=$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)
+      # Safety net: click near bottom-left (Start button area "Пуск (Enter)")
+      geom=$(xdotool getwindowgeometry --shell $win 2>/dev/null || true)
       H=$(echo "$geom" | grep '^HEIGHT=' | cut -d= -f2)
       if [ -n "$H" ]; then
-        y=$((H-55))
-        [ "$y" -lt 10 ] && y=10
-        log "clicking start-area (H=$H) x=70 y=$y"
-        xdotool mousemove --window "$win" 70 "$y" click 1 2>/dev/null || true
+        y=$((H-45))
+        echo "[runner] clicking start area (H=$H) y=$y"
+        xdotool mousemove --window $win 70 $y click 1 2>/dev/null || true
       fi
 
-      # One more Enter after click (cheap, helps sometimes)
-      xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
+      # One more Enter after clicking start area
+      xdotool key --window $win --clearmodifiers Return 2>/dev/null || true
+      xdotool key --window $win --clearmodifiers KP_Enter 2>/dev/null || true
 
-      log "waiting after enter: ${AFTER_ENTER}s"
+      echo "[runner] waiting after enter: $AFTER_ENTER s"
       sleep "$AFTER_ENTER"
     else
-      log "could not choose a window from list"
+      echo "[runner] DrawMan: could not choose any window"
       sleep "$CAPTURE_DELAY"
     fi
   else
-    log "window list empty; just sleeping capture_delay"
+    echo "[runner] DrawMan: no windows found (pid=$pid); capture anyway"
     sleep "$CAPTURE_DELAY"
   fi
 else
-  # GraphABC or unknown: usually draws immediately
-  log "no Enter needed; sleeping capture_delay=${CAPTURE_DELAY}s"
   sleep "$CAPTURE_DELAY"
 fi
 
-log "capturing screenshot"
+# Screenshot whole virtual screen
 import -window root "{out_png}" >/dev/null 2>&1 || true
 convert "{out_png}" -trim +repage "{out_png}" >/dev/null 2>&1 || true
 
-log "cleanup: killing pid=$pid"
-kill "$pid" >/dev/null 2>&1 || true
-wait "$pid" >/dev/null 2>&1 || true
-
-end_ts=$(date +%s)
-dur=$(( end_ts - start_ts ))
-log "run finished seconds=${dur}"
+# Cleanup process (don't hang container)
+kill $pid >/dev/null 2>&1 || true
+wait $pid >/dev/null 2>&1 || true
 """
 
         run_sh = td_path / "run.sh"
@@ -299,7 +280,7 @@ log "run finished seconds=${dur}"
             str(run_sh),
         ]
 
-        t_run0 = time.monotonic()
+        t_run0 = time.perf_counter()
         try:
             rp = subprocess.run(
                 cmd,
@@ -311,37 +292,41 @@ log "run finished seconds=${dur}"
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "run timeout")
-        run_sec = time.monotonic() - t_run0
+        t_run1 = time.perf_counter()
 
+        run_sec = t_run1 - t_run0
+
+        # Always print runner output tail for debugging (but keep it short)
         if rp.stdout:
-            _log("runner output (tail):\n" + _tail(rp.stdout))
+            _log("run.sh output (tail):\n" + _tail(rp.stdout))
 
         _log(f"run done exitCode={rp.returncode} runSec={run_sec:.3f}s")
 
         if rp.returncode != 0:
             log_path = td_path / "program.log"
-            log_txt = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
             raise HTTPException(
                 400,
-                f"runtime error:\n{_tail(rp.stdout)}\n\nprogram.log:\n{_tail(log_txt)}",
+                f"runtime error:\n{_tail(rp.stdout)}\n\nprogram.log:\n{_tail(log)}",
             )
 
         if not out_png.exists() or out_png.stat().st_size == 0:
             log_path = td_path / "program.log"
-            log_txt = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
             raise HTTPException(
                 400,
                 "failed to capture image (out.png not produced). "
                 "Your program likely did not open a window / draw anything.\n\n"
-                f"program.log:\n{_tail(log_txt)}",
+                f"program.log:\n{_tail(log)}",
             )
 
-        total_sec = time.monotonic() - t0
-        _log(f"done mode={mode} totalSec={total_sec:.3f}s (compile={compile_sec:.3f}s run={run_sec:.3f}s)")
+        total_sec = time.perf_counter() - t0
+        if mode == "DrawMan":
+            _log(f"draw complete: DrawMan render OK totalSec={total_sec:.3f}s")
+        elif mode == "GraphABC":
+            _log(f"draw complete: GraphABC render OK totalSec={total_sec:.3f}s")
+        else:
+            _log(f"draw complete: Pascal render OK totalSec={total_sec:.3f}s")
 
-        # IMPORTANT:
-        # Do NOT return FileResponse from a TemporaryDirectory: Starlette streams the file later,
-        # but the temp folder is deleted right after we return from this function -> 500.
-        # Read bytes now and return them.
         png_bytes = out_png.read_bytes()
         return Response(content=png_bytes, media_type="image/png")
