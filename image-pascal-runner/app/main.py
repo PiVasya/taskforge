@@ -15,12 +15,15 @@ class RenderRequest(BaseModel):
     timeout_seconds: int = Field(20, ge=1, le=60)
 
 
+# PascalABC.NET console compiler (under Mono)
 PABCNETC = os.getenv("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
 
+# Headless screen size (root screenshot will have this size)
 SCREEN_W = int(os.getenv("TF_SCREEN_W", "1024"))
 SCREEN_H = int(os.getenv("TF_SCREEN_H", "768"))
 SCREEN_D = int(os.getenv("TF_SCREEN_D", "24"))
 
+# Default timing (can be overridden by env)
 CAPTURE_DELAY_DEFAULT = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
 AFTER_ENTER_DELAY_DEFAULT = float(os.getenv("TF_AFTER_ENTER_DELAY", "10.0"))
 WINDOW_WAIT_SECONDS_DEFAULT = float(os.getenv("TF_WINDOW_WAIT_SECONDS", "10.0"))
@@ -37,16 +40,27 @@ def _tail(s: str, n: int = 4000) -> str:
 
 @app.post("/render")
 def render(req: RenderRequest):
+    """
+    Compiles and runs PascalABC.NET code headlessly (Xvfb).
+    The user code does NOT need to save any image.
+    We capture the virtual screen and return it as out.png.
+
+    IMPORTANT: DrawMan обычно НЕ начинает рисовать, пока не нажать "Пуск (Enter)".
+    Мы пытаемся эмулировать Enter/клик максимально надёжно, НЕ полагаясь на кириллический title-regex,
+    потому что в контейнере часто нет корректных UTF-8 locale и xdotool search --name по кириллице ломается.
+    """
     src_lower = (req.source or "").lower()
-    needs_enter = ("uses drawman" in src_lower) or ("drawman;" in src_lower)
+    needs_enter = ("drawman" in src_lower)
 
     run_timeout = int(req.timeout_seconds or 1)
     if run_timeout < 1:
         run_timeout = 1
 
-    after_enter_delay = min(AFTER_ENTER_DELAY_DEFAULT, max(0.5, run_timeout - 1.0))
-    capture_delay = min(CAPTURE_DELAY_DEFAULT, max(0.2, run_timeout - 0.5))
+    # Keep delays inside the total budget
+    after_enter_delay = min(AFTER_ENTER_DELAY_DEFAULT, max(0.5, run_timeout - 1.2))
+    capture_delay = min(CAPTURE_DELAY_DEFAULT, max(0.2, run_timeout - 0.6))
 
+    # Allow time for window to appear (Mono can be slow)
     win_wait_seconds = max(WINDOW_WAIT_SECONDS_DEFAULT, min(15.0, run_timeout * 0.7))
     win_wait_seconds = min(win_wait_seconds, max(1.0, run_timeout - 1.0))
 
@@ -62,7 +76,7 @@ def render(req: RenderRequest):
 
         src_path.write_text(req.source, encoding="utf-8")
 
-        # Compile
+        # Compile (PascalABC.NET)
         try:
             cp = subprocess.run(
                 ["mono", PABCNETC, str(src_path)],
@@ -86,7 +100,6 @@ def render(req: RenderRequest):
             else:
                 raise HTTPException(500, "compile succeeded but no .exe produced")
 
-        # Run in Xvfb and (if DrawMan) smash Enter in many ways.
         inner_script = f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -95,8 +108,7 @@ cd "{td}"
 mono "{exe_path}" > program.log 2>&1 &
 pid=$!
 
-# let GUI initialize
-sleep 0.7
+sleep 0.8
 
 NEEDS_ENTER={'1' if needs_enter else '0'}
 WIN_WAIT="{win_wait_seconds}"
@@ -107,6 +119,18 @@ log() {{
   echo "[runner] $*"
 }}
 
+to_int() {{
+  local v="$1"
+  local i="${{v%.*}}"
+  if [ -z "$i" ]; then i=1; fi
+  if ! [[ "$i" =~ ^[0-9]+$ ]]; then i=1; fi
+  if [ "$i" -lt 1 ]; then i=1; fi
+  echo "$i"
+}}
+
+WIN_WAIT_INT="$(to_int "$WIN_WAIT")"
+AFTER_ENTER_INT="$(to_int "$AFTER_ENTER")"
+
 show_visible_windows() {{
   log "visible windows (id -> title):"
   for w in $(xdotool search --onlyvisible --name ".*" 2>/dev/null | tail -n 25 || true); do
@@ -115,100 +139,93 @@ show_visible_windows() {{
   done
 }}
 
-# Pick best window among list: prefer "Чертежник", then "Поле", else first
-pick_window_by_title() {{
+pick_best_window() {{
   local wins="$1"
-  local w=""
-  local title=""
   local best=""
-  local best2=""
+  local best_area=0
+  local best_field=""
+  local best_field_area=0
 
   for w in $wins; do
+    local title=""
     title="$(xdotool getwindowname "$w" 2>/dev/null || true)"
-    echo "[runner]   candidate: $w -> $title"
-    if echo "$title" | grep -qi "Чертежник"; then
-      best="$w"
-      break
+
+    local WIDTH=""
+    local HEIGHT=""
+    eval "$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)"
+    if [ -z "${{WIDTH:-}}" ] || [ -z "${{HEIGHT:-}}" ]; then
+      continue
     fi
-    if [ -z "$best2" ] && echo "$title" | grep -qi "Поле"; then
-      best2="$w"
+    local area=$((WIDTH*HEIGHT))
+
+    echo "[runner]   candidate: $w area=$area title=$title"
+
+    if echo "$title" | grep -Eq '[0-9]+x[0-9]+'; then
+      if [ "$area" -gt "$best_field_area" ]; then
+        best_field="$w"
+        best_field_area="$area"
+      fi
+    fi
+
+    if [ "$area" -gt "$best_area" ]; then
+      best="$w"
+      best_area="$area"
     fi
   done
 
-  if [ -n "$best" ]; then
+  if [ -n "$best_field" ]; then
+    echo "$best_field"
+  else
     echo "$best"
-    return
   fi
-  if [ -n "$best2" ]; then
-    echo "$best2"
-    return
-  fi
-  echo "$(echo "$wins" | awk 'NR==1{{print $1}}')"
 }}
 
-focus_and_click() {{
+focus_click() {{
   local win="$1"
   xdotool windowactivate "$win" 2>/dev/null || true
   xdotool windowfocus "$win" 2>/dev/null || true
-  # click inside canvas
-  xdotool mousemove --window "$win" 120 120 click 1 2>/dev/null || true
+  xdotool mousemove --window "$win" 140 140 click 1 2>/dev/null || true
   sleep 0.08
 }}
 
-# "Million ways" to press Enter
 blast_enter() {{
   local win="$1"
-
-  # 1) direct key on window
   xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
   xdotool key --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
+  xdotool key --window "$win" --clearmodifiers ISO_Enter 2>/dev/null || true
 
-  # 2) keydown/keyup
   xdotool keydown --window "$win" --clearmodifiers Return 2>/dev/null || true
   sleep 0.03
-  xdotool keyup   --window "$win" --clearmodifiers Return 2>/dev/null || true
+  xdotool keyup --window "$win" --clearmodifiers Return 2>/dev/null || true
 
-  xdotool keydown --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
-  sleep 0.03
-  xdotool keyup   --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
-
-  # 3) send to focused window (no --window)
   xdotool key --clearmodifiers Return 2>/dev/null || true
   xdotool key --clearmodifiers KP_Enter 2>/dev/null || true
 
-  # 4) small delayed sequences (sometimes Mono misses the first)
   xdotool key --window "$win" --delay 120 --clearmodifiers Return Return KP_Enter 2>/dev/null || true
-
-  # 5) type newline (may be ignored but cheap)
   xdotool type --window "$win" --clearmodifiers $'\\n' 2>/dev/null || true
-  xdotool type --clearmodifiers $'\\n' 2>/dev/null || true
 }}
 
-# Click likely "Пуск (Enter)" area (bottom-left button strip)
 click_start_area() {{
   local win="$1"
+  local WIDTH=""
+  local HEIGHT=""
   eval "$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)"
-
   if [ -n "${{HEIGHT:-}}" ]; then
     local y=$((HEIGHT-25))
-    [ "$y" -lt 0 ] && y=10
-
-    # try few x positions around the first button
-    xdotool mousemove --window "$win" 60 "$y" click 1 2>/dev/null || true
-    xdotool mousemove --window "$win" 80 "$y" click 1 2>/dev/null || true
-    xdotool mousemove --window "$win" 100 "$y" click 1 2>/dev/null || true
-    log "clicked start area in window $win (y=$y)"
+    [ "$y" -lt 10 ] && y=10
+    xdotool mousemove --window "$win" 60  "$y" click 1 2>/dev/null || true
+    xdotool mousemove --window "$win" 85  "$y" click 1 2>/dev/null || true
+    xdotool mousemove --window "$win" 110 "$y" click 1 2>/dev/null || true
+    log "clicked start area (y=$y)"
   fi
 }}
 
-try_start_drawman() {{
+try_start_window() {{
   local win="$1"
-  log "trying to start DrawMan in window $win"
-
-  # do several rounds: focus -> enter blast -> click start -> enter blast
+  log "try start window=$win"
   local i=0
-  while [ $i -lt 4 ]; do
-    focus_and_click "$win"
+  while [ $i -lt 5 ]; do
+    focus_click "$win"
     blast_enter "$win"
     click_start_area "$win"
     blast_enter "$win"
@@ -217,13 +234,17 @@ try_start_drawman() {{
   done
 }}
 
-find_windows_for_pid() {{
-  # wait up to WIN_WAIT seconds; keep polling, because --sync with pid is not always reliable
-  local end=$(( $(date +%s) + ${{
-WIN_WAIT%.*}} ))
+find_windows() {{
+  local deadline=$(( $(date +%s) + WIN_WAIT_INT ))
   local wins=""
-  while [ $(date +%s) -lt $end ]; do
+
+  while [ $(date +%s) -lt "$deadline" ]; do
     wins="$(xdotool search --onlyvisible --pid "$pid" 2>/dev/null || true)"
+    if [ -n "$wins" ]; then
+      echo "$wins"
+      return
+    fi
+    wins="$(xdotool search --onlyvisible --name ".*" 2>/dev/null || true)"
     if [ -n "$wins" ]; then
       echo "$wins"
       return
@@ -234,36 +255,39 @@ WIN_WAIT%.*}} ))
 }}
 
 if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
-  log "needs_enter=1; searching windows by PID=$pid (wait up to $WIN_WAIT s)"
+  log "needs_enter=1; searching windows (wait up to $WIN_WAIT s)"
+  wins="$(find_windows)"
 
-  wins="$(find_windows_for_pid)"
   if [ -z "$wins" ]; then
-    log "needs_enter=1 but no windows found by PID"
+    log "no windows found"
     show_visible_windows
     sleep "$CAPTURE_DELAY"
   else
-    log "windows for PID:"
-    win="$(pick_window_by_title "$wins")"
-    if [ -n "$win" ]; then
-      # also try to start on ALL pid windows, not only chosen (some apps have separate tool windows)
+    log "found windows: $(echo "$wins" | wc -w)"
+    best="$(pick_best_window "$wins")"
+    if [ -z "$best" ]; then
+      log "could not pick best window"
+      show_visible_windows
+      sleep "$CAPTURE_DELAY"
+    else
+      try_start_window "$best"
+
+      n=0
       for w in $wins; do
-        try_start_drawman "$w"
+        [ "$w" = "$best" ] && continue
+        n=$((n+1))
+        [ "$n" -gt 4 ] && break
+        try_start_window "$w"
       done
 
-      # final focus on best window and wait for drawing
-      focus_and_click "$win"
-      blast_enter "$win"
-      sleep "$AFTER_ENTER"
-    else
-      log "could not pick a window from PID list"
-      sleep "$CAPTURE_DELAY"
+      log "waiting after enter: ${AFTER_ENTER_INT}s"
+      sleep "$AFTER_ENTER_INT"
     fi
   fi
 else
   sleep "$CAPTURE_DELAY"
 fi
 
-# Screenshot whole virtual screen
 import -window root "{out_png}" >/dev/null 2>&1 || true
 convert "{out_png}" -trim +repage "{out_png}" >/dev/null 2>&1 || true
 
