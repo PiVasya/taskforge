@@ -12,7 +12,8 @@ app = FastAPI(title="taskforge image pascal runner (PascalABC.NET GraphABC/DrawM
 
 class RenderRequest(BaseModel):
     source: str = Field(..., description="PascalABC.NET source code (can use GraphABC / DrawMan)")
-    timeout_seconds: int = Field(8, ge=1, le=60)
+    # 8 seconds is often not enough for DrawMan tasks (they start on Enter and may draw for a while).
+    timeout_seconds: int = Field(20, ge=1, le=60)
 
 
 # PascalABC.NET console compiler (under Mono)
@@ -47,7 +48,27 @@ def render(req: RenderRequest):
     '''
     src_lower = (req.source or "").lower()
     needs_enter = ("uses drawman" in src_lower) or ("drawman;" in src_lower)
-    print(f"[runner] needs_enter={needs_enter} timeout={req.timeout_seconds}s")
+
+    # Time budget for the whole run (compile+run+capture) in this request.
+    # NOTE: DrawMan needs extra time because it only starts after "Enter".
+    run_timeout = int(req.timeout_seconds or 1)
+    if run_timeout < 1:
+        run_timeout = 1
+
+    # Clamp all sleeps so we never exceed the timeout budget.
+    # Leave a small tail (1s) for the final screenshot + cleanup.
+    after_enter_delay = min(AFTER_ENTER_DELAY, max(0.5, run_timeout - 1.0))
+    capture_delay = min(CAPTURE_DELAY, max(0.2, run_timeout - 0.5))
+
+    # Window discovery sometimes takes longer on Mono; allow up to ~40% of budget.
+    win_wait_seconds = max(WINDOW_WAIT_SECONDS, min(8.0, run_timeout * 0.4))
+    win_wait_seconds = min(win_wait_seconds, max(0.5, run_timeout - 1.0))
+    win_wait_iters = max(10, int(win_wait_seconds / 0.1))
+
+    print(
+        f"[runner] needs_enter={needs_enter} timeout={run_timeout}s "
+        f"capture_delay={capture_delay}s after_enter_delay={after_enter_delay}s win_wait={win_wait_seconds}s"
+    )
 
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
         td_path = Path(td)
@@ -101,7 +122,7 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
     win=""
 	    # Prefer searching by PID (most reliable), then fallback to title patterns.
 	    # NOTE: we must stay within render timeout, so we keep this wait short.
-	    for i in $(seq 1 40); do
+for i in $(seq 1 {win_wait_iters}); do
 	      win=$(xdotool search --onlyvisible --pid "$pid" 2>/dev/null | tail -n 1 || true)
 	      if [ -z "$win" ]; then
 	        # Sometimes GUI window belongs to a child process
@@ -138,7 +159,7 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
       fi
 
       # Give DrawMan time to run before screenshot
-      sleep {AFTER_ENTER_DELAY}
+  sleep {after_enter_delay}
     else
       echo "[runner] needs_enter=1 but window not found"
 	      echo "[runner] visible windows (id -> title):"
@@ -146,10 +167,10 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
 	        title=$(xdotool getwindowname "$w" 2>/dev/null || true)
 	        echo "[runner]   $w -> $title"
 	      done
-      sleep {CAPTURE_DELAY}
+sleep {capture_delay}
     fi
   else
-    sleep {CAPTURE_DELAY}
+    sleep {capture_delay}
   fi
 
   import -window root "{out_png}" >/dev/null 2>&1 || true
@@ -167,7 +188,7 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=req.timeout_seconds,
+        timeout=run_timeout,
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "run timeout")
