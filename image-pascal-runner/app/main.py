@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -57,6 +58,34 @@ def _detect_mode(src: str) -> str:
     if "uses graphabc" in s or "graphabc;" in s:
         return "GraphABC"
     return "Pascal"
+
+
+def _normalize_pascal_source(src: str) -> tuple[str, list[str]]:
+    """Normalize common PascalABC.NET unit naming issues on Linux.
+
+    Why this exists:
+      - The Pascal source language itself is case-insensitive.
+      - But inside this container we compile via pabcnetc.exe on a Linux filesystem,
+        and some unit resolution ends up effectively case-sensitive.
+      - In practice, `uses DrawMan;` may fail with: "Unit 'DrawMan' not found",
+        while `uses Drawman;` works.
+
+    We keep the normalization very small/safe: only fix known library unit tokens.
+
+    Returns: (normalized_source, list_of_changes)
+    """
+
+    changes: list[str] = []
+    s = src or ""
+
+    # Fix DrawMan casing (most common source of "Unit not found" in this container)
+    # - use whole-word match to avoid accidental partial replacements.
+    before = s
+    s = re.sub(r"(?i)\bDrawMan\b", "Drawman", s)
+    if s != before:
+        changes.append("normalized unit name: DrawMan -> Drawman")
+
+    return s, changes
 
 
 def _build_bash_script(
@@ -368,7 +397,8 @@ exit 0
 @app.post("/render")
 def render(req: RenderRequest):
     t0 = time.perf_counter()
-    src = req.source or ""
+    src_in = req.source or ""
+    src, norm_changes = _normalize_pascal_source(src_in)
     mode = _detect_mode(src)
     needs_enter = mode == "DrawMan"
 
@@ -379,7 +409,19 @@ def render(req: RenderRequest):
     if run_timeout < 1:
         run_timeout = 1
 
-    _log(f"start mode={mode} needs_enter={needs_enter} timeout={run_timeout}s debug={debug} codeLen={len(src)}")
+    _log(
+        f"start mode={mode} needs_enter={needs_enter} timeout={run_timeout}s debug={debug} "
+        f"codeLen={len(src)} (originalLen={len(src_in)})"
+    )
+    if norm_changes:
+        for c in norm_changes:
+            _log(f"normalize: {c}")
+    # Log some env that often matters for unit resolution / tooling
+    _log(
+        "env: "
+        f"PABCNETC={PABCNETC} TF_SCREEN={SCREEN_W}x{SCREEN_H}x{SCREEN_D} "
+        f"TF_TRIM={TRIM_ENV!r} LANG={RUN_LANG} LC_ALL={RUN_LC_ALL}"
+    )
 
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
         td_path = Path(td)
@@ -387,6 +429,7 @@ def render(req: RenderRequest):
         out_png = td_path / "out.png"
 
         src_path.write_text(src, encoding="utf-8")
+        _log(f"write source: {src_path} bytes={src_path.stat().st_size}")
 
         # Compile (separate timeout)
         try:

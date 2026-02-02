@@ -405,6 +405,22 @@ public sealed class ImageTestsController : ControllerBase
         var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
         if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
 
+        // Guardrail: users sometimes paste Pascal into a Python editor (or vice versa).
+        // That leads to confusing errors like Python SyntaxError for Pascal comments.
+        // We auto-correct the language for image-tests based on simple heuristics.
+        // (Better UX than returning a misleading runner error.)
+        var code = req.Code ?? string.Empty;
+        if (lang == "python" && LooksLikePascal(code))
+        {
+            _log.LogWarning("RunCode language auto-correct: python -> pascal (trace={Trace} assignmentId={AssignmentId})", trace, assignmentId);
+            lang = "pascal";
+        }
+        else if (lang == "pascal" && LooksLikePython(code))
+        {
+            _log.LogWarning("RunCode language auto-correct: pascal -> python (trace={Trace} assignmentId={AssignmentId})", trace, assignmentId);
+            lang = "python";
+        }
+
         var userId = _currentUser.GetUserId();
 
         ImageRunnerDebugResult? debug = null;
@@ -417,7 +433,7 @@ public sealed class ImageTestsController : ControllerBase
         {
             try
             {
-                debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
+                debug = await _runner.RenderDebugAsync(lang, code, ct);
             }
             catch (TaskCanceledException)
             {
@@ -854,6 +870,31 @@ public sealed class ImageTestsController : ControllerBase
             SolutionId: solutionId);
 
         return Ok(response);
+    }
+
+    private static bool LooksLikePascal(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return false;
+        var s = code.TrimStart();
+        // Very cheap heuristics; we only use them as a safety net.
+        if (s.StartsWith("uses ", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.StartsWith("begin", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("end.", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("GraphABC", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("Drawman", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("DrawMan", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static bool LooksLikePython(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return false;
+        var s = code.TrimStart();
+        if (s.StartsWith("import ", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.StartsWith("from ", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("def ", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("print(", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     /// <summary>
