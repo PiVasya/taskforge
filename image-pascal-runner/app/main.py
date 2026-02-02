@@ -74,24 +74,18 @@ def render(req: RenderRequest):
     mode = _detect_mode(req.source or "")
     needs_enter = ("uses drawman" in src_lower) or ("drawman;" in src_lower)
 
-    # Time budget for the whole run (compile+run+capture) in this request.
-    run_timeout = int(req.timeout_seconds or 1)
-    if run_timeout < 1:
-        run_timeout = 1
+    # Time budget for the whole request (compile + run + capture).
+    total_timeout = int(req.timeout_seconds or 1)
+    if total_timeout < 1:
+        total_timeout = 1
 
-    # Keep delays inside the total budget.
-    # Leave a small tail (~1s) for screenshot + cleanup.
-    after_enter_delay = min(AFTER_ENTER_DELAY_DEFAULT, max(0.5, run_timeout - 1.0))
-    capture_delay = min(CAPTURE_DELAY_DEFAULT, max(0.2, run_timeout - 0.5))
-
-    # Window discovery can be slow on Mono/WinForms.
-    win_wait_seconds = max(WINDOW_WAIT_SECONDS_DEFAULT, min(14.0, run_timeout * 0.7))
-    win_wait_seconds = min(win_wait_seconds, max(1.0, run_timeout - 1.0))
+    # We will compute actual delays after compilation (because compile time eats the budget).
+    after_enter_delay = AFTER_ENTER_DELAY_DEFAULT
+    capture_delay = CAPTURE_DELAY_DEFAULT
+    win_wait_seconds = WINDOW_WAIT_SECONDS_DEFAULT
 
     _log(
-        f"start mode={mode} needs_enter={needs_enter} timeout={run_timeout}s "
-        f"capture_delay={capture_delay:.2f}s after_enter_delay={after_enter_delay:.2f}s "
-        f"win_wait={win_wait_seconds:.2f}s code_len={len(req.source or '')}"
+        f"start mode={mode} needs_enter={needs_enter} timeout={total_timeout}s code_len={len(req.source or '')}"
     )
 
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
@@ -104,19 +98,22 @@ def render(req: RenderRequest):
         # Compile (PascalABC.NET)
         t_compile0 = time.perf_counter()
         try:
+            # Keep compile timeout within the total request timeout.
+            compile_timeout = min(30, max(5, total_timeout - 2))
             cp = subprocess.run(
                 ["mono", PABCNETC, str(src_path)],
                 cwd=td,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=30,
+                timeout=compile_timeout,
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "compile timeout")
         t_compile1 = time.perf_counter()
 
-        _log(f"compile done exitCode={cp.returncode} compileSec={(t_compile1 - t_compile0):.3f}s")
+        compile_sec = (t_compile1 - t_compile0)
+        _log(f"compile done exitCode={cp.returncode} compileSec={compile_sec:.3f}s")
 
         if cp.returncode != 0:
             raise HTTPException(400, f"compile failed:\n{_tail(cp.stdout)}")
@@ -128,6 +125,35 @@ def render(req: RenderRequest):
                 exe_path = exes[0]
             else:
                 raise HTTPException(500, "compile succeeded but no .exe produced")
+
+        # Recompute remaining budget for execution.
+        # Leave a small tail for screenshot + process shutdown.
+        remaining = max(1.5, float(total_timeout) - compile_sec - 1.0)
+        exec_timeout = int(max(1, remaining))
+
+        # Compute delays so that they fit inside exec_timeout.
+        # (Old values could sum to > exec_timeout and cause premature HttpClient timeouts.)
+        capture_delay = min(CAPTURE_DELAY_DEFAULT, max(0.2, remaining * 0.10))
+        if needs_enter:
+            after_enter_delay = min(AFTER_ENTER_DELAY_DEFAULT, max(0.5, remaining * 0.35))
+        else:
+            after_enter_delay = 0.0
+
+        win_wait_seconds = min(14.0, max(WINDOW_WAIT_SECONDS_DEFAULT, remaining * 0.35))
+
+        # If sum of waits is still too large, scale them down (keep capture_delay minimal).
+        max_wait_total = max(0.5, remaining - 0.3)
+        wait_sum = win_wait_seconds + after_enter_delay + capture_delay
+        if wait_sum > max_wait_total and wait_sum > 0:
+            k = max_wait_total / wait_sum
+            win_wait_seconds *= k
+            after_enter_delay *= k
+            capture_delay *= k
+
+        _log(
+            f"budget total={total_timeout}s compile={compile_sec:.2f}s exec={exec_timeout}s "
+            f"delays win_wait={win_wait_seconds:.2f}s after_enter={after_enter_delay:.2f}s capture_delay={capture_delay:.2f}s"
+        )
 
         # Run headlessly and capture screenshot.
         # For DrawMan, the drawing starts after the user presses Enter ("Пуск (Enter)").
@@ -288,7 +314,8 @@ wait $pid >/dev/null 2>&1 || true
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=run_timeout,
+                # `timeout_seconds` - общий бюджет (compile+run). Здесь ограничиваемся остатком.
+                timeout=max(1, int(total_timeout - compile_sec)),
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "run timeout")

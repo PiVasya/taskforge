@@ -8,5 +8,7 @@ public sealed class ImageRunnersOptions
     /// <summary>
     /// Таймаут на запрос к image-runner, мс.
     /// </summary>
-    public int TimeoutMs { get; set; } = 15000;
+    // Pascal-рендер может занимать дольше (компиляция + запуск GUI + Enter + скриншот).
+    // В проде это значение можно переопределить через конфиг/ENV.
+    public int TimeoutMs { get; set; } = 45000;
 }

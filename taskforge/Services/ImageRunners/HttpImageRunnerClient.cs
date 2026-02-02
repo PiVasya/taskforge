@@ -18,6 +18,10 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         _http = http;
         _opt = opt.Value;
         _log = log;
+
+        // PascalABC.NET/DrawMan/GraphABC рендер часто включает компиляцию + ожидание окна,
+        // поэтому делаем HTTP-таймаут более щадящим (управляется конфигом ImageRunners.TimeoutMs).
+        _http.Timeout = TimeSpan.FromMilliseconds(Math.Max(5_000, _opt.TimeoutMs));
     }
 
     public async Task<byte[]?> RenderAsync(string language, string sourceCode, CancellationToken ct = default)
@@ -25,11 +29,16 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         var baseUrl = GetBaseUrl(language);
         var url = new Uri(new Uri(baseUrl), "/render");
 
+        // Общая логика: timeoutSeconds < HttpClient.Timeout.
+        // Python-runner ждёт поле timeoutSeconds, pascal-runner — timeout_seconds.
+        // Отправляем оба, чтобы не упираться в различия протокола.
+        var timeoutSeconds = Math.Clamp((_opt.TimeoutMs / 1000) - 5, 5, 60);
+
         DebugConsole.Log("ImageRunner", $"RenderAsync start lang={language} baseUrl={baseUrl} codeLen={sourceCode?.Length ?? 0}");
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(BuildBody(language, sourceCode))
+            Content = JsonContent.Create(BuildBody(language, sourceCode, timeoutSeconds))
         };
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -68,9 +77,11 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         var baseUrl = GetBaseUrl(language);
         var url = new Uri(new Uri(baseUrl), "/render/debug");
 
+        var timeoutSeconds = Math.Clamp((_opt.TimeoutMs / 1000) - 5, 5, 60);
+
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(BuildBody(language, sourceCode))
+            Content = JsonContent.Create(BuildBody(language, sourceCode, timeoutSeconds))
         };
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -123,14 +134,16 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         };
     }
 
-    private static object BuildBody(string language, string sourceCode)
+    private static object BuildBody(string language, string sourceCode, int timeoutSeconds)
     {
         language = language?.Trim().ToLowerInvariant() ?? "";
         return language switch
         {
-            "python" => new { code = sourceCode },
-            "pascal" => new { source = sourceCode },
-            _ => new { code = sourceCode }
+            // python-image-runner: timeoutSeconds
+            // pascal-image-runner: timeout_seconds
+            "python" => new { code = sourceCode, timeoutSeconds, timeout_seconds = timeoutSeconds },
+            "pascal" => new { source = sourceCode, timeoutSeconds, timeout_seconds = timeoutSeconds },
+            _ => new { code = sourceCode, timeoutSeconds, timeout_seconds = timeoutSeconds }
         };
     }
 

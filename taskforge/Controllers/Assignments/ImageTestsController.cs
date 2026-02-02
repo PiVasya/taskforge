@@ -415,7 +415,38 @@ public sealed class ImageTestsController : ControllerBase
 
         if (req.Debug && lang == "python")
         {
-            debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
+            try
+            {
+                debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
+            }
+            catch (TaskCanceledException)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: "Image runner timed out",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
+            catch (HttpRequestException ex)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: $"Image runner request failed: {ex.Message}",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
             stdout = debug.Stdout;
             stderr = debug.Stderr;
             runnerErr = debug.Error;
@@ -438,7 +469,38 @@ public sealed class ImageTestsController : ControllerBase
         }
         else
         {
-            png = await _runner.RenderAsync(lang, req.Code, ct);
+            try
+            {
+                png = await _runner.RenderAsync(lang, req.Code, ct);
+            }
+            catch (TaskCanceledException)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: "Image runner timed out",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
+            catch (HttpRequestException ex)
+            {
+                return Ok(new ImageTestRunResponse(
+                    Ok: false,
+                    RenderedKey: null,
+                    RenderedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: $"Image runner request failed: {ex.Message}",
+                    SimilarityPercent: null,
+                    ThresholdPercent: null,
+                    Passed: null,
+                    ReferenceUrl: null));
+            }
         }
 
         if (png is null || png.Length == 0)
@@ -556,7 +618,42 @@ public sealed class ImageTestsController : ControllerBase
         }
         else
         {
-            png = await _runner.RenderAsync(lang, req.Code, ct);
+            try
+            {
+                png = await _runner.RenderAsync(lang, req.Code, ct);
+            }
+            catch (TaskCanceledException)
+            {
+                runnerErr = "Render timeout";
+                return Ok(new ImageTestCompareResponse(
+                    Ok: false,
+                    SimilarityPercent: 0,
+                    ThresholdPercent: Math.Round(thresholdPercent, 1),
+                    Passed: false,
+                    ReferenceKey: a.ImageTestReferenceKey,
+                    SubmittedKey: null,
+                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    SubmittedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: runnerErr));
+            }
+            catch (HttpRequestException ex)
+            {
+                runnerErr = $"Runner HTTP error: {ex.Message}";
+                return Ok(new ImageTestCompareResponse(
+                    Ok: false,
+                    SimilarityPercent: 0,
+                    ThresholdPercent: Math.Round(thresholdPercent, 1),
+                    Passed: false,
+                    ReferenceKey: a.ImageTestReferenceKey,
+                    SubmittedKey: null,
+                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    SubmittedUrl: null,
+                    Stdout: stdout,
+                    Stderr: stderr,
+                    RunnerError: runnerErr));
+            }
         }
 
         if (png is null || png.Length == 0)
