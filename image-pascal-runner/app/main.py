@@ -124,7 +124,13 @@ if [ \"$NEEDS_ENTER\" = \"1\" ] && command -v xdotool >/dev/null 2>&1; then
   end=$(( $(date +%s) + {int(max(1.0, float(win_wait_seconds)))} ))
   while [ $(date +%s) -lt $end ]; do
     # Try to find DrawMan/Field windows (titles are usually in Russian).
-    win=$(xdotool search --onlyvisible --name \"Чертежник|Поле|Исполнитель\" 2>/dev/null | head -n 1 || true)
+    win=$(xdotool search --onlyvisible --name ".*Чертежник.*" 2>/dev/null | head -n 1 || true)
+    if [ -z "$win" ]; then
+      win=$(xdotool search --onlyvisible --name ".*Поле.*" 2>/dev/null | head -n 1 || true)
+    fi
+    if [ -z "$win" ]; then
+      win=$(xdotool search --onlyvisible --name ".*Исполнитель.*" 2>/dev/null | head -n 1 || true)
+    fi
     [ -n \"$win\" ] && break
     sleep 0.1
   done
@@ -143,7 +149,7 @@ if [ \"$NEEDS_ENTER\" = \"1\" ] && command -v xdotool >/dev/null 2>&1; then
 
     # Also try clicking the "Пуск" button area (bottom left).
     eval \"$(xdotool getwindowgeometry --shell \"$win\" 2>/dev/null || true)\"
-    if [ -n \"${HEIGHT:-}\" ]; then
+    if [ -n \"${{HEIGHT:-}}\" ]; then
       y=$((HEIGHT-25))
       [ \"$y\" -lt 0 ] && y=10
       xdotool mousemove --window \"$win\" 70 \"$y\" click 1 2>/dev/null || true
