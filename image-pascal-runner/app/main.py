@@ -114,49 +114,62 @@ xvfb-run -a -s "-screen 0 {SCREEN_W}x{SCREEN_H}x{SCREEN_D}" bash -lc '
   # Give GUI a moment to initialize (important for DrawMan).
   sleep 0.4
 
-  NEEDS_ENTER={1 if needs_enter else 0}
-  if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
-    # Best-effort: try sending Enter to the currently focused window first.
-    # In a fresh Xvfb session the app window often becomes focused by itself.
-    xdotool key Return 2>/dev/null || true
-    win=""
-	    # Prefer searching by PID (most reliable), then fallback to title patterns.
-	    # NOTE: we must stay within render timeout, so we keep this wait short.
-for i in $(seq 1 {win_wait_iters}); do
-	      win=$(xdotool search --onlyvisible --pid "$pid" 2>/dev/null | tail -n 1 || true)
+	  NEEDS_ENTER={1 if needs_enter else 0}
+	  if [ "$NEEDS_ENTER" = "1" ] && command -v xdotool >/dev/null 2>&1; then
+	    # Best-effort: try sending Enter to the currently focused window first.
+	    # In a fresh Xvfb session the app window often becomes focused by itself.
+	    xdotool key Return 2>/dev/null || true
+	    win=""
+	    # Prefer searching by PID (most reliable), then fallback to scanning visible windows.
+	    # IMPORTANT: xdotool search requires a pattern; without it search returns nothing.
+	    for i in $(seq 1 {win_wait_iters}); do
+	      win=$(xdotool search --onlyvisible --pid "$pid" --name ".*" 2>/dev/null | tail -n 1 || true)
 	      if [ -z "$win" ]; then
 	        # Sometimes GUI window belongs to a child process
 	        for cpid in $(pgrep -P "$pid" 2>/dev/null || true); do
-	          win=$(xdotool search --onlyvisible --pid "$cpid" 2>/dev/null | tail -n 1 || true)
+	          win=$(xdotool search --onlyvisible --pid "$cpid" --name ".*" 2>/dev/null | tail -n 1 || true)
 	          [ -n "$win" ] && break
 	        done
 	      fi
-	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Поле" 2>/dev/null | tail -n 1 || true)
-	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Чертежник" 2>/dev/null | tail -n 1 || true)
-	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name "Исполнитель" 2>/dev/null | tail -n 1 || true)
-	      [ -n "$win" ] || win=$(xdotool search --onlyvisible 2>/dev/null | tail -n 1 || true)
+	
+	      # If PID search didn't work, scan all visible windows and pick the most relevant by title.
+	      if [ -z "$win" ]; then
+	        for w in $(xdotool search --onlyvisible --name ".*" 2>/dev/null || true); do
+	          title=$(xdotool getwindowname "$w" 2>/dev/null || true)
+	          case "$title" in
+	            *Чертежник*|*Поле*|*Исполнитель*)
+	              win="$w"; break
+	              ;;
+	          esac
+	        done
+	      fi
+	
+	      [ -n "$win" ] || win=$(xdotool search --onlyvisible --name ".*" 2>/dev/null | tail -n 1 || true)
 	      [ -n "$win" ] && break
 	      sleep 0.1
 	    done
 
-    if [ -n "$win" ]; then
-      echo "[runner] window found: $win"
-      xdotool windowactivate "$win" 2>/dev/null || true
-      xdotool windowfocus "$win" 2>/dev/null || true
-
-      # 1) Try keyboard (some builds bind Run to Enter)
-      xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
-      xdotool key --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
-
-      # 2) Also click the "Пуск" button area (more reliable than key focus)
-      # Click near bottom-left of the window: x=70, y=HEIGHT-25
-      eval "$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)"
-      if [ -n "${{HEIGHT:-}}" ]; then
-        y=$((HEIGHT-25))
-        if [ "$y" -lt 0 ]; then y=10; fi
-        xdotool mousemove --window "$win" 70 "$y" click 1 2>/dev/null || true
-        echo "[runner] clicked start button at (70,$y) in window $win"
-      fi
+	    if [ -n "$win" ]; then
+	      echo "[runner] window found: $win"
+	      xdotool windowactivate "$win" 2>/dev/null || true
+	      xdotool windowfocus "$win" 2>/dev/null || true
+	
+	      # Ensure the window receives input
+	      xdotool mousemove --window "$win" 100 100 click 1 2>/dev/null || true
+	
+	      # 1) Try keyboard (some builds bind Run to Enter)
+	      xdotool key --window "$win" --clearmodifiers Return 2>/dev/null || true
+	      xdotool key --window "$win" --clearmodifiers KP_Enter 2>/dev/null || true
+	
+	      # 2) Also click the "Пуск" button area (more reliable than key focus)
+	      # Click near bottom-left of the window: x=70, y=HEIGHT-25
+	      eval "$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)"
+	      if [ -n "${{HEIGHT:-}}" ]; then
+	        y=$((HEIGHT-25))
+	        if [ "$y" -lt 0 ]; then y=10; fi
+	        xdotool mousemove --window "$win" 70 "$y" click 1 2>/dev/null || true
+	        echo "[runner] clicked start button at (70,$y) in window $win"
+	      fi
 
       # Give DrawMan time to run before screenshot
   sleep {after_enter_delay}
