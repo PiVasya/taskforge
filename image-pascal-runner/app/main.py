@@ -31,20 +31,20 @@ RUN_LC_ALL = os.getenv("TF_LC_ALL", "C.UTF-8")
 
 WINDOW_WAIT_DEFAULT = float(os.getenv("TF_WINDOW_WAIT", "14.0"))
 
-# IMPORTANT: для DrawMan лучше побольше, иначе “замок” не успевает
-AFTER_START_DEFAULT = float(os.getenv("TF_AFTER_START", os.getenv("TF_AFTER_ENTER_DELAY", "12.0")))
+# Для DrawMan обычно нужно больше времени
+AFTER_START_DEFAULT = float(os.getenv("TF_AFTER_START", "14.0"))
 CAPTURE_DELAY_DEFAULT = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
 
 TRIM_DEFAULT = os.getenv("TF_TRIM", "0").strip()  # 1/0
 
-# КЛЮЧЕВОЕ: клавиши по умолчанию ВЫКЛ (иначе mono может падать)
+# КЛЮЧЕВОЕ: клавиши по умолчанию ВЫКЛ (иначе mono/WinForms может падать)
 SEND_KEYS_DEFAULT = os.getenv("TF_SEND_KEYS", "0").strip()  # 1/0
 
 # stability wait (ждём пока изображение перестанет меняться)
 STABLE_PCT = float(os.getenv("TF_STABLE_DIFF_PCT", "0.005"))  # %
 STABLE_NEED = int(os.getenv("TF_STABLE_NEED", "3"))
 STABLE_SLEEP = float(os.getenv("TF_STABLE_SLEEP", "0.7"))
-STABLE_MAX_SEC = float(os.getenv("TF_STABLE_MAX", "12.0"))  # увеличил по умолчанию
+STABLE_MAX_SEC = float(os.getenv("TF_STABLE_MAX", "16.0"))  # по умолчанию побольше
 
 
 @app.get("/health")
@@ -85,7 +85,6 @@ def _build_bash_script(
     stable_sleep: float,
     stable_max: float,
 ) -> str:
-    # Это f-string: любые { } внутри awk должны быть {{ }}
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -165,7 +164,7 @@ send_enter() {{
   if [ "$SEND_KEYS" != "1" ]; then
     return
   fi
-  # ВНИМАНИЕ: это часто валит mono/WinForms (X11Keyboard). Поэтому по умолчанию SEND_KEYS=0.
+  # ВНИМАНИЕ: это может валить mono/WinForms. Поэтому SEND_KEYS=0 по умолчанию.
   xdotool key --window "$w" --clearmodifiers Return 2>/dev/null || true
   xdotool key --window "$w" --clearmodifiers KP_Enter 2>/dev/null || true
 }}
@@ -252,46 +251,59 @@ fi
 log "DrawMan: chosen window=$win"
 focus_and_click "$win"
 
-# ---------
-# 1) SPEED UP: click far right on speed slider area (inside main window)
-# (это важно: иначе DrawMan может идти по шагам и “замок” не успевает)
-# ---------
 geom=$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)
 W=$(echo "$geom" | grep '^WIDTH=' | cut -d= -f2 || true)
 H=$(echo "$geom" | grep '^HEIGHT=' | cut -d= -f2 || true)
-if [ -n "$W" ] && [ -n "$H" ] && [ "$W" -gt 0 ] && [ "$H" -gt 0 ]; then
-  sx=$((W-90))
-  sy=$((H-38))
-  log "speed click: x=$sx y=$sy (W=$W H=$H)"
-  xdotool mousemove --window "$win" "$sx" "$sy" click 1 2>/dev/null || true
-  sleep 0.2
+if [ -z "$W" ]; then W="0"; fi
+if [ -z "$H" ]; then H="0"; fi
+
+# 1) ускоряем: клики по области скорости (правый низ)
+if [ "$W" -gt 0 ] && [ "$H" -gt 0 ]; then
+  sx1=$((W-90)); sy1=$((H-38))
+  sx2=$((W-40)); sy2=$((H-38))
+  log "speed click(s): ($sx1,$sy1) and ($sx2,$sy2) (W=$W H=$H)"
+  xdotool mousemove --window "$win" "$sx1" "$sy1" click 1 2>/dev/null || true
+  sleep 0.15
+  xdotool mousemove --window "$win" "$sx2" "$sy2" click 1 2>/dev/null || true
+  sleep 0.15
 fi
 
-# ---------
-# 2) START: click the actual button window "Пуск (Enter)" if exists
-# ---------
+# 2) старт: САМОЕ НАДЕЖНОЕ — клики по координатам зоны кнопки "Пуск" в главном окне
+#    (window-id кнопки иногда не прожимается)
+if [ "$H" -gt 0 ]; then
+  y1=$((H-45)); y2=$((H-55)); y3=$((H-65)); y4=$((H-75))
+else
+  y1=418; y2=408; y3=398; y4=388
+fi
+
+log "start clicks in main window: x=70,110,150 y=$y1,$y2,$y3,$y4"
+for x in 70 110 150; do
+  for y in $y1 $y2 $y3 $y4; do
+    xdotool mousemove --window "$win" "$x" "$y" click 1 2>/dev/null || true
+    sleep 0.08
+  done
+done
+
+# 3) запасной вариант: если нашли отдельное окно "Пуск (Enter)" — попробуем и его
 start_btn=""
 for w in $wins; do
   title=$(xdotool getwindowname $w 2>/dev/null || true)
   case "$title" in *"Пуск (Enter)"* ) start_btn=$w;; esac
 done
-
 if [ -n "$start_btn" ]; then
-  log "clicking Start button by window-id: $start_btn"
+  log "extra: clicking Start button by window-id: $start_btn"
   xdotool windowactivate "$start_btn" 2>/dev/null || true
   xdotool click --window "$start_btn" 1 2>/dev/null || true
-  sleep 0.2
-else
-  log "Start button window not found -> (optional) enter"
-  send_enter "$win"
+  sleep 0.15
 fi
+
+# 4) (опционально) Enter — ТОЛЬКО если включили TF_SEND_KEYS=1
+send_enter "$win"
 
 log "waiting AFTER_START=$AFTER_START s"
 sleep "$AFTER_START"
 
-# ---------
-# Stability wait: ждём пока картинка перестанет меняться
-# ---------
+# Stability wait
 if [ "$STABLE_MAX_INT" -gt 0 ] && have compare && have identify; then
   log "stability wait enabled (max=$STABLE_MAX s)"
   stableCnt=0
@@ -332,13 +344,12 @@ if [ "$STABLE_MAX_INT" -gt 0 ] && have compare && have identify; then
   done
 fi
 
-# FINAL capture
 log "taking FINAL screenshot out.png"
 shot_root "{out_png}"
 trim_png "{out_png}"
 log "out size=$(stat -c%s "{out_png}" 2>/dev/null || echo 0)"
 
-# Если mono упал и out слишком маленький -> отдаём pre (чтобы не было чёрного)
+# Если out явно плохой — вернём pre (чтобы не было “пустого”)
 outSize=$(stat -c%s "{out_png}" 2>/dev/null || echo 0)
 preSize=$(stat -c%s "$PRE" 2>/dev/null || echo 0)
 if [ "$outSize" -lt 1000 ] && [ "$preSize" -gt "$outSize" ]; then
@@ -416,10 +427,10 @@ def render(req: RenderRequest):
                 raise HTTPException(500, "compile succeeded but no .exe produced")
 
         # Run budget
-        remaining = max(8.0, float(total_timeout) - compile_sec - 1.0)
-        run_timeout = int(max(8, remaining))
+        remaining = max(10.0, float(total_timeout) - compile_sec - 1.0)
+        run_timeout = int(max(10, remaining))
 
-        win_wait = min(WINDOW_WAIT_DEFAULT, max(8.0, remaining * 0.5))
+        win_wait = min(WINDOW_WAIT_DEFAULT, max(10.0, remaining * 0.5))
         after_start = float(AFTER_START_DEFAULT)
         capture_delay = float(CAPTURE_DELAY_DEFAULT)
 
