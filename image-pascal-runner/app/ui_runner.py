@@ -8,12 +8,57 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, List, Tuple
 
 
 # =========================================================
 # LOGGING: максимально подробные логи в stdout контейнера
 # =========================================================
 _LOG = logging.getLogger("tf.pascal.ui")
+
+
+def _start_window_manager(*, env: dict, log_prefix: str = "") -> Optional[subprocess.Popen]:
+    """Start a lightweight WM inside Xvfb.
+
+    Under bare Xvfb (no WM), xdotool windowactivate/windowfocus is unreliable
+    and may produce errors like "Your windowmanager claims not to support
+    _NET_ACTIVE_WINDOW". DrawMan often needs actual focus to accept Enter/Space.
+    """
+
+    for cmd in ("openbox", "fluxbox", "xfwm4", "metacity"):
+        if shutil.which(cmd):
+            try:
+                _LOG.debug("%sWM_START cmd=%s", log_prefix, cmd)
+                p = subprocess.Popen(
+                    [cmd],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                # give WM a moment to become ready
+                time.sleep(0.35)
+                return p
+            except Exception as e:
+                _LOG.debug("%sWM_START failed cmd=%s err=%r", log_prefix, cmd, e)
+                continue
+    _LOG.debug("%sWM_START skipped (no WM found)", log_prefix)
+    return None
+
+
+def _stop_proc(p: Optional[subprocess.Popen], *, name: str, log_prefix: str = "") -> None:
+    if not p:
+        return
+    try:
+        _LOG.debug("%sSTOP %s pid=%s", log_prefix, name, p.pid)
+        p.terminate()
+        try:
+            p.wait(timeout=1.5)
+        except Exception:
+            p.kill()
+    except Exception:
+        pass
+
+
 _LOG.setLevel(logging.DEBUG)
 if not _LOG.handlers:
     h = logging.StreamHandler(sys.stdout)
@@ -89,6 +134,30 @@ def _digits_only(tokens: list[str]) -> list[str]:
     return [t for t in tokens if t.strip().isdigit()]
 
 
+def _xdotool_get_geometry(win: str, *, env: dict, log_prefix: str = "") -> tuple[int, int, int, int] | None:
+    cp = _run_cmd(["xdotool", "getwindowgeometry", "--shell", win], env=env, timeout=3)
+    if cp.returncode != 0:
+        return None
+    vals = {}
+    for line in (cp.stdout or "").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            vals[k.strip()] = v.strip()
+    try:
+        x = int(vals.get("X", "0"))
+        y = int(vals.get("Y", "0"))
+        w = int(vals.get("WIDTH", "0"))
+        h = int(vals.get("HEIGHT", "0"))
+        return x, y, w, h
+    except Exception:
+        return None
+
+
+def _xdotool_get_name(win: str, *, env: dict, log_prefix: str = "") -> str:
+    cp = _run_cmd(["xdotool", "getwindowname", win], env=env, timeout=3)
+    return (cp.stdout or "").strip()
+
+
 def _xdotool_search(pid: int, name_regex: str, max_wait: float, *, env: dict, log_prefix: str = "") -> str | None:
     if not _which("xdotool", log_prefix=log_prefix):
         return None
@@ -110,6 +179,39 @@ def _xdotool_search(pid: int, name_regex: str, max_wait: float, *, env: dict, lo
                 name_tokens.append(t)
     if not name_tokens:
         name_tokens = [name_regex]
+    name_re = None
+    try:
+        name_re = re.compile(name_regex, re.IGNORECASE)
+    except Exception:
+        name_re = None
+
+    def pick_best(wins: list[str]) -> str:
+        """Choose the most likely real app window.
+
+        xdotool may return multiple windows for one PID (splash, helper, tiny 10x10,
+        etc.). We pick:
+          1) any window whose title matches name_regex (if we can read the title)
+          2) otherwise the largest window by area.
+        """
+        best = wins[0]
+        best_area = -1
+        best_match = False
+        for w in wins:
+            geo = _xdotool_get_geometry(w, env=env, log_prefix=log_prefix)
+            if geo:
+                _, _, ww, hh = geo
+                area = ww * hh
+            else:
+                area = 0
+            title = _xdotool_get_name(w, env=env, log_prefix=log_prefix)
+            is_match = bool(name_re.search(title)) if (name_re and title) else False
+            if is_match and not best_match:
+                best, best_area, best_match = w, area, True
+                continue
+            if is_match == best_match and area > best_area:
+                best, best_area = w, area
+        return best
+
     while time.time() < deadline:
         attempt += 1
 
@@ -120,15 +222,17 @@ def _xdotool_search(pid: int, name_regex: str, max_wait: float, *, env: dict, lo
         cp = _run(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env, log_prefix=log_prefix)
         wins = _digits_only(cp.stdout.split())
         if wins:
-            _LOG.debug("%s WIN_FOUND by pid attempt=%s => %s", log_prefix, attempt, wins[0])
-            return wins[0]
+            chosen = pick_best(wins)
+            _LOG.debug("%s WIN_FOUND by pid attempt=%s => %s (all=%s)", log_prefix, attempt, chosen, wins)
+            return chosen
 
         for token in name_tokens:
             cp = _run(["xdotool", "search", "--all", "--name", token], timeout=3, env=env, log_prefix=log_prefix)
             wins = _digits_only(cp.stdout.split())
             if wins:
-                _LOG.debug("%s WIN_FOUND by name token=%r attempt=%s => %s", log_prefix, token, attempt, wins[0])
-                return wins[0]
+                chosen = pick_best(wins)
+                _LOG.debug("%s WIN_FOUND by name token=%r attempt=%s => %s (all=%s)", log_prefix, token, attempt, chosen, wins)
+                return chosen
 
         _LOG.debug("%s WIN_SEARCH attempt=%s not found; sleep 100ms", log_prefix, attempt)
         time.sleep(0.1)
@@ -138,34 +242,22 @@ def _xdotool_search(pid: int, name_regex: str, max_wait: float, *, env: dict, lo
 
 def _xdotool_focus(win: str, *, env: dict, log_prefix: str = "") -> None:
     _LOG.debug("%s FOCUS win=%s", log_prefix, win)
+    # With a WM, this usually works. If it doesn't, we still proceed with a click.
+    _run(["xdotool", "windowmap", win], timeout=4, env=env, log_prefix=log_prefix)
+    _run(["xdotool", "windowraise", win], timeout=4, env=env, log_prefix=log_prefix)
     _run(["xdotool", "windowactivate", "--sync", win], timeout=4, env=env, log_prefix=log_prefix)
     _run(["xdotool", "windowfocus", win], timeout=4, env=env, log_prefix=log_prefix)
+    _xdotool_click_center(win, env=env, log_prefix=log_prefix)
 
 
 def _xdotool_click_center(win: str, *, env: dict, log_prefix: str = "") -> tuple[int, int, int, int] | None:
     if not _which("xdotool", log_prefix=log_prefix):
         return None
 
-    cp = _run(["xdotool", "getwindowgeometry", "--shell", win], timeout=3, env=env, log_prefix=log_prefix)
-    geo = cp.stdout
-
-    vals: dict[str, int] = {}
-    for line in geo.splitlines():
-        if "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip().upper()
-        v = v.strip()
-        if k in ("X", "Y", "WIDTH", "HEIGHT"):
-            try:
-                vals[k] = int(v)
-            except Exception:
-                pass
-
-    if not all(k in vals for k in ("X", "Y", "WIDTH", "HEIGHT")):
+    g = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+    if not g:
         return None
-
-    x, y, w, h = vals["X"], vals["Y"], vals["WIDTH"], vals["HEIGHT"]
+    x, y, w, h = g
     cx, cy = x + max(10, w // 2), y + max(10, h // 2)
     _LOG.debug("%s CLICK_CENTER geo=(%s,%s,%s,%s) center=(%s,%s)", log_prefix, x, y, w, h, cx, cy)
 
@@ -303,6 +395,9 @@ def run_ui_and_capture(
     xvfb_budget = min(3.0, max(1.0, timeout_seconds * 0.2))
     xvfb_proc, xenv = _start_xvfb(xvfb_screen, timeout=xvfb_budget, log_prefix=log_prefix)
 
+    # Start a window manager inside Xvfb (crucial for reliable focus/activate).
+    wm_proc = _start_window_manager(env=xenv, log_prefix=log_prefix)
+
     mono_proc: subprocess.Popen | None = None
     try:
         # Run program
@@ -374,6 +469,7 @@ def run_ui_and_capture(
                     pass
 
         # stop xvfb
+        _stop_proc(wm_proc, name="wm", log_prefix=log_prefix)
         try:
             _LOG.debug("%s STOP xvfb pid=%s", log_prefix, xvfb_proc.pid)
             xvfb_proc.send_signal(signal.SIGTERM)

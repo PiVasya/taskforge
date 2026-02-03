@@ -7,6 +7,7 @@ RUN apt-get update \
     python3 python3-pip \
     mono-complete libgdiplus \
     xvfb xauth xdotool x11-utils \
+    openbox \
     imagemagick \
     fonts-dejavu-core \
     libgtk2.0-0 \
