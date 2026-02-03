@@ -6,9 +6,10 @@ RUN apt-get update \
     ca-certificates wget curl unzip \
     python3 python3-pip \
     mono-complete libgdiplus \
-    xvfb xauth xdotool \
+    xvfb xauth xdotool x11-utils \
     imagemagick \
     fonts-dejavu-core \
+    libgtk2.0-0 \
   && rm -rf /var/lib/apt/lists/*
 
 # Install PascalABC.NET console compiler (pabcnetc.exe)
