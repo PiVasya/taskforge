@@ -14,7 +14,7 @@ app = FastAPI(title="taskforge pascal image runner (GraphABC / DrawMan)")
 class RenderRequest(BaseModel):
     source: str = Field(..., description="PascalABC.NET source code (GraphABC / DrawMan)")
     timeout_seconds: int = Field(20, ge=1, le=120)
-    debug: bool = Field(False, description="Verbose runner logs + extra screenshots")
+    debug: bool = Field(False, description="Verbose runner logs")
 
 
 # ----------------------------
@@ -30,17 +30,21 @@ RUN_LANG = os.getenv("TF_LANG", "C.UTF-8")
 RUN_LC_ALL = os.getenv("TF_LC_ALL", "C.UTF-8")
 
 WINDOW_WAIT_DEFAULT = float(os.getenv("TF_WINDOW_WAIT", "14.0"))
-AFTER_START_DEFAULT = float(os.getenv("TF_AFTER_START", os.getenv("TF_AFTER_ENTER_DELAY", "10.0")))
+
+# IMPORTANT: для DrawMan лучше побольше, иначе “замок” не успевает
+AFTER_START_DEFAULT = float(os.getenv("TF_AFTER_START", os.getenv("TF_AFTER_ENTER_DELAY", "12.0")))
 CAPTURE_DELAY_DEFAULT = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
 
-TRIM_DEFAULT = os.getenv("TF_TRIM", "0").strip()          # 1/0
-SEND_KEYS_DEFAULT = os.getenv("TF_SEND_KEYS", "1").strip()  # 1/0 (по умолчанию ВКЛ)
+TRIM_DEFAULT = os.getenv("TF_TRIM", "0").strip()  # 1/0
 
-# stability wait
-STABLE_PCT = float(os.getenv("TF_STABLE_DIFF_PCT", "0.005"))   # % изменений для "стабильно"
-STABLE_NEED = int(os.getenv("TF_STABLE_NEED", "3"))            # сколько подряд стабильных кадров
-STABLE_SLEEP = float(os.getenv("TF_STABLE_SLEEP", "0.7"))      # пауза между кадрами
-STABLE_MAX_SEC = float(os.getenv("TF_STABLE_MAX", "8.0"))      # макс секунд ожидания (0 = выкл)
+# КЛЮЧЕВОЕ: клавиши по умолчанию ВЫКЛ (иначе mono может падать)
+SEND_KEYS_DEFAULT = os.getenv("TF_SEND_KEYS", "0").strip()  # 1/0
+
+# stability wait (ждём пока изображение перестанет меняться)
+STABLE_PCT = float(os.getenv("TF_STABLE_DIFF_PCT", "0.005"))  # %
+STABLE_NEED = int(os.getenv("TF_STABLE_NEED", "3"))
+STABLE_SLEEP = float(os.getenv("TF_STABLE_SLEEP", "0.7"))
+STABLE_MAX_SEC = float(os.getenv("TF_STABLE_MAX", "12.0"))  # увеличил по умолчанию
 
 
 @app.get("/health")
@@ -81,10 +85,7 @@ def _build_bash_script(
     stable_sleep: float,
     stable_max: float,
 ) -> str:
-    # !!! ВНИМАНИЕ !!!
-    # Это f-string, поэтому ЛЮБЫЕ { } в bash/awk должны быть экранированы как {{ }}
-    # Здесь это уже сделано.
-
+    # Это f-string: любые { } внутри awk должны быть {{ }}
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -96,8 +97,6 @@ cd "{td}"
 now_s() {{ date +"%H:%M:%S"; }}
 log() {{ echo "[runner] $(now_s) $*"; }}
 have() {{ command -v "$1" >/dev/null 2>&1; }}
-
-log "===== runner start ====="
 
 NEEDS_ENTER={'1' if needs_enter else '0'}
 DEBUG={'1' if debug else '0'}
@@ -116,20 +115,6 @@ STABLE_MAX="{stable_max}"
 WIN_WAIT_INT=$(echo "$WIN_WAIT" | cut -d. -f1); if [ -z "$WIN_WAIT_INT" ]; then WIN_WAIT_INT=14; fi
 STABLE_MAX_INT=$(echo "$STABLE_MAX" | cut -d. -f1); if [ -z "$STABLE_MAX_INT" ]; then STABLE_MAX_INT=0; fi
 
-log "needs_enter=$NEEDS_ENTER do_trim=$DO_TRIM send_keys=$SEND_KEYS"
-log "timeouts: WIN_WAIT=$WIN_WAIT AFTER_START=$AFTER_START CAPTURE_DELAY=$CAPTURE_DELAY"
-log "stable: diffPct=$STABLE_PCT need=$STABLE_NEED sleep=$STABLE_SLEEP max=$STABLE_MAX"
-log "tools: xdotool=$(have xdotool && echo yes || echo no) import=$(have import && echo yes || echo no) convert=$(have convert && echo yes || echo no) identify=$(have identify && echo yes || echo no) compare=$(have compare && echo yes || echo no)"
-
-mono "{exe_path}" > program.log 2>&1 &
-pid=$!
-log "mono pid=$pid"
-
-sleep 0.7
-
-# -----------------------------
-# helpers
-# -----------------------------
 shot_root() {{
   local file="$1"
   if have import; then
@@ -141,13 +126,6 @@ trim_png() {{
   local file="$1"
   if [ "$DO_TRIM" = "1" ] && have convert; then
     convert "$file" -trim +repage "$file" >/dev/null 2>&1 || true
-  fi
-}}
-
-identify_line() {{
-  local file="$1"
-  if have identify; then
-    identify -verbose "$file" 2>/dev/null | head -n 1 || true
   fi
 }}
 
@@ -187,23 +165,30 @@ send_enter() {{
   if [ "$SEND_KEYS" != "1" ]; then
     return
   fi
+  # ВНИМАНИЕ: это часто валит mono/WinForms (X11Keyboard). Поэтому по умолчанию SEND_KEYS=0.
   xdotool key --window "$w" --clearmodifiers Return 2>/dev/null || true
   xdotool key --window "$w" --clearmodifiers KP_Enter 2>/dev/null || true
-  xdotool key --window "$w" --clearmodifiers ISO_Enter 2>/dev/null || true
-  xdotool keydown --window "$w" Return 2>/dev/null || true
-  xdotool keyup --window "$w" Return 2>/dev/null || true
 }}
 
-# -----------------------------
-# PRE shot
-# -----------------------------
-log "taking PRE screenshot"
+log "===== runner start ====="
+log "needs_enter=$NEEDS_ENTER do_trim=$DO_TRIM send_keys=$SEND_KEYS"
+log "timeouts: WIN_WAIT=$WIN_WAIT AFTER_START=$AFTER_START CAPTURE_DELAY=$CAPTURE_DELAY"
+log "stable: diffPct=$STABLE_PCT need=$STABLE_NEED sleep=$STABLE_SLEEP max=$STABLE_MAX"
+log "tools: xdotool=$(have xdotool && echo yes || echo no) import=$(have import && echo yes || echo no) convert=$(have convert && echo yes || echo no) identify=$(have identify && echo yes || echo no) compare=$(have compare && echo yes || echo no)"
+
+mono "{exe_path}" > program.log 2>&1 &
+pid=$!
+log "mono pid=$pid"
+
+sleep 0.7
+
 PRE="{td}/pre.png"
+log "taking PRE screenshot"
 shot_root "$PRE"
 trim_png "$PRE"
-log "screenshot: $PRE size=$(stat -c%s "$PRE" 2>/dev/null || echo 0) identify='$(identify_line "$PRE")'"
+log "pre size=$(stat -c%s "$PRE" 2>/dev/null || echo 0)"
 
-# non-DrawMan
+# Non-DrawMan
 if [ "$NEEDS_ENTER" != "1" ]; then
   sleep "$CAPTURE_DELAY"
   shot_root "{out_png}"
@@ -215,19 +200,15 @@ if [ "$NEEDS_ENTER" != "1" ]; then
 fi
 
 if ! have xdotool; then
-  log "xdotool missing; cannot start DrawMan. capturing anyway."
+  log "xdotool missing; cannot control DrawMan. capture anyway."
   sleep "$CAPTURE_DELAY"
   shot_root "{out_png}"
   trim_png "{out_png}"
-  log "===== runner end (OK no-xdotool) ====="
   kill $pid >/dev/null 2>&1 || true
   wait $pid >/dev/null 2>&1 || true
   exit 0
 fi
 
-# -----------------------------
-# find windows
-# -----------------------------
 wins=""
 win=""
 
@@ -243,11 +224,10 @@ while [ $(date +%s) -lt $end ]; do
 done
 
 if [ -z "$wins" ]; then
-  log "DrawMan: no windows found. capturing anyway."
+  log "DrawMan: no windows found. capture anyway."
   sleep "$CAPTURE_DELAY"
   shot_root "{out_png}"
   trim_png "{out_png}"
-  log "===== runner end (OK no-windows) ====="
   kill $pid >/dev/null 2>&1 || true
   wait $pid >/dev/null 2>&1 || true
   exit 0
@@ -259,19 +239,12 @@ for w in $wins; do
   log "  $w -> $title"
 done
 
-# choose main window
+# Choose main window (Чертежник)
 for w in $wins; do
   title=$(xdotool getwindowname $w 2>/dev/null || true)
   case "$title" in *Справка* ) continue;; esac
   case "$title" in *Чертежник* ) win=$w; break;; esac
 done
-if [ -z "$win" ]; then
-  for w in $wins; do
-    title=$(xdotool getwindowname $w 2>/dev/null || true)
-    case "$title" in *Справка* ) continue;; esac
-    case "$title" in *Поле* ) win=$w; break;; esac
-  done
-fi
 if [ -z "$win" ]; then
   win=$(echo "$wins" | head -n 1)
 fi
@@ -279,9 +252,24 @@ fi
 log "DrawMan: chosen window=$win"
 focus_and_click "$win"
 
-# -----------------------------
-# click Start button RELIABLY by window-id (важно!)
-# -----------------------------
+# ---------
+# 1) SPEED UP: click far right on speed slider area (inside main window)
+# (это важно: иначе DrawMan может идти по шагам и “замок” не успевает)
+# ---------
+geom=$(xdotool getwindowgeometry --shell "$win" 2>/dev/null || true)
+W=$(echo "$geom" | grep '^WIDTH=' | cut -d= -f2 || true)
+H=$(echo "$geom" | grep '^HEIGHT=' | cut -d= -f2 || true)
+if [ -n "$W" ] && [ -n "$H" ] && [ "$W" -gt 0 ] && [ "$H" -gt 0 ]; then
+  sx=$((W-90))
+  sy=$((H-38))
+  log "speed click: x=$sx y=$sy (W=$W H=$H)"
+  xdotool mousemove --window "$win" "$sx" "$sy" click 1 2>/dev/null || true
+  sleep 0.2
+fi
+
+# ---------
+# 2) START: click the actual button window "Пуск (Enter)" if exists
+# ---------
 start_btn=""
 for w in $wins; do
   title=$(xdotool getwindowname $w 2>/dev/null || true)
@@ -294,17 +282,16 @@ if [ -n "$start_btn" ]; then
   xdotool click --window "$start_btn" 1 2>/dev/null || true
   sleep 0.2
 else
-  log "Start button window not found -> pressing Enter"
+  log "Start button window not found -> (optional) enter"
+  send_enter "$win"
 fi
-
-send_enter "$win"
 
 log "waiting AFTER_START=$AFTER_START s"
 sleep "$AFTER_START"
 
-# -----------------------------
-# stability wait (чтобы не фоткать слишком рано)
-# -----------------------------
+# ---------
+# Stability wait: ждём пока картинка перестанет меняться
+# ---------
 if [ "$STABLE_MAX_INT" -gt 0 ] && have compare && have identify; then
   log "stability wait enabled (max=$STABLE_MAX s)"
   stableCnt=0
@@ -345,16 +332,21 @@ if [ "$STABLE_MAX_INT" -gt 0 ] && have compare && have identify; then
   done
 fi
 
-# -----------------------------
-# FINAL shot
-# -----------------------------
+# FINAL capture
 log "taking FINAL screenshot out.png"
 shot_root "{out_png}"
 trim_png "{out_png}"
-log "screenshot: {out_png} size=$(stat -c%s "{out_png}" 2>/dev/null || echo 0) identify='$(identify_line "{out_png}")'"
+log "out size=$(stat -c%s "{out_png}" 2>/dev/null || echo 0)"
+
+# Если mono упал и out слишком маленький -> отдаём pre (чтобы не было чёрного)
+outSize=$(stat -c%s "{out_png}" 2>/dev/null || echo 0)
+preSize=$(stat -c%s "$PRE" 2>/dev/null || echo 0)
+if [ "$outSize" -lt 1000 ] && [ "$preSize" -gt "$outSize" ]; then
+  log "out.png looks bad (size=$outSize). using pre.png (size=$preSize)"
+  cp "$PRE" "{out_png}" >/dev/null 2>&1 || true
+fi
 
 log "===== runner end (OK) ====="
-
 kill $pid >/dev/null 2>&1 || true
 wait $pid >/dev/null 2>&1 || true
 exit 0
@@ -424,14 +416,13 @@ def render(req: RenderRequest):
                 raise HTTPException(500, "compile succeeded but no .exe produced")
 
         # Run budget
-        remaining = max(6.0, float(total_timeout) - compile_sec - 1.0)
-        run_timeout = int(max(6, remaining))
+        remaining = max(8.0, float(total_timeout) - compile_sec - 1.0)
+        run_timeout = int(max(8, remaining))
 
-        win_wait = min(WINDOW_WAIT_DEFAULT, max(6.0, remaining * 0.5))
+        win_wait = min(WINDOW_WAIT_DEFAULT, max(8.0, remaining * 0.5))
         after_start = float(AFTER_START_DEFAULT)
         capture_delay = float(CAPTURE_DELAY_DEFAULT)
 
-        # если timeout маленький — поджимаем
         if after_start > remaining - 2.0:
             after_start = max(2.0, remaining - 2.0)
 
