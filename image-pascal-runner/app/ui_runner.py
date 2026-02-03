@@ -7,11 +7,16 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 
-# Tool paths (expected in image)
+# -------------------------
+# TOOLS / BINARIES
+# -------------------------
 XDOTOOL = os.getenv("TF_XDOTOOL", "xdotool")
 IMPORT = os.getenv("TF_IMPORT", "import")      # ImageMagick
 CONVERT = os.getenv("TF_CONVERT", "convert")   # ImageMagick
 MONO = os.getenv("TF_MONO", "mono")
+
+XVFB = os.getenv("TF_XVFB", "Xvfb")
+XDPYINFO = os.getenv("TF_XDPYINFO", "xdpyinfo")
 
 DISPLAY = os.getenv("DISPLAY", ":99")
 RUN_LANG = os.getenv("TF_LANG", "C.UTF-8")
@@ -41,17 +46,6 @@ def _env_base() -> dict:
     return e
 
 
-def _require_tools():
-    missing = []
-    for t in [XDOTOOL, IMPORT, CONVERT]:
-        if shutil.which(t) is None:
-            missing.append(t)
-    if shutil.which(MONO) is None:
-        missing.append(MONO)
-    if missing:
-        raise RuntimeError(f"Missing tools in container: {', '.join(missing)}")
-
-
 def _run_cmd(cmd, *, env=None, timeout=10, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
@@ -68,6 +62,91 @@ def _log(program_log: Path, msg: str):
     program_log.parent.mkdir(parents=True, exist_ok=True)
     with program_log.open("a", encoding="utf-8", errors="replace") as f:
         f.write(f"{ts} | {msg}\n")
+
+
+def _require_tools():
+    missing = []
+    for t in [XDOTOOL, IMPORT, CONVERT, XDPYINFO, XVFB]:
+        if shutil.which(t) is None:
+            missing.append(t)
+    if shutil.which(MONO) is None:
+        missing.append(MONO)
+    if missing:
+        raise RuntimeError(f"Missing tools in container: {', '.join(missing)}")
+
+
+def _display_ready(env: dict, program_log: Path) -> bool:
+    cp = _run_cmd([XDPYINFO, "-display", env.get("DISPLAY", DISPLAY)], env=env, timeout=2)
+    ok = cp.returncode == 0
+    if not ok:
+        _log(program_log, f"xdpyinfo NOT ready rc={cp.returncode} err={cp.stderr.strip()[:200]}")
+    return ok
+
+
+def _ensure_xvfb(env: dict, xvfb_screen: str, program_log: Path, log_prefix: str) -> subprocess.Popen:
+    """
+    Ensure X server exists on DISPLAY. If not, start Xvfb and wait until ready.
+    Returns xvfb process (may be running newly started). If already ready, returns None.
+    """
+    if _display_ready(env, program_log):
+        _log(program_log, f"{log_prefix} X display already ready: {env.get('DISPLAY')}")
+        return None
+
+    disp = env.get("DISPLAY", DISPLAY)
+    screen = xvfb_screen or "1024x768x24"
+
+    # clean stale lock if exists (sometimes after crash)
+    # for :99 -> /tmp/.X99-lock
+    try:
+        if disp.startswith(":"):
+            lock = Path("/tmp") / f".X{disp[1:]}-lock"
+            if lock.exists():
+                _log(program_log, f"{log_prefix} removing stale lock {lock}")
+                lock.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    cmd = [
+        XVFB,
+        disp,
+        "-screen", "0", screen,
+        "-nolisten", "tcp",
+        "-ac",
+    ]
+    _log(program_log, f"{log_prefix} starting Xvfb: {' '.join(cmd)}")
+
+    p = subprocess.Popen(
+        cmd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        if _display_ready(env, program_log):
+            _log(program_log, f"{log_prefix} Xvfb ready on {disp}")
+            return p
+        time.sleep(0.2)
+
+    # dump xvfb output tail if any
+    try:
+        out = ""
+        if p.stdout:
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    break
+                out += line
+                if len(out) > 2000:
+                    out = out[-2000:]
+        if out:
+            _log(program_log, f"{log_prefix} Xvfb output tail:\n{out}")
+    except Exception:
+        pass
+
+    raise RuntimeError(f"Xvfb did not become ready on DISPLAY={disp}")
 
 
 def _xdotool_window_exists(win: str, *, env: dict) -> bool:
@@ -201,63 +280,64 @@ def run_ui_and_capture(
     elif mode_norm == "graphabc":
         strat = UiStrategy(window_name_regex=GRAPHABC_REGEX)
     else:
-        # Даже если "Pascal", обычно нет окна -> тогда невозможно "картинку".
-        # Но оставим попытку найти окно по общему regex.
         strat = UiStrategy(window_name_regex=DRAWMAN_REGEX + "|" + GRAPHABC_REGEX)
 
     _log(program_log, f"{log_prefix} run_ui_and_capture start mode={mode} exe={exe_path} timeout={timeout_seconds}s screen={xvfb_screen} trim={trim}")
     _log(program_log, f"{log_prefix} env DISPLAY={env.get('DISPLAY')} LANG={env.get('LANG')} LC_ALL={env.get('LC_ALL')}")
 
-    # запуск программы
-    cmd = [MONO, str(exe_path)]
-    _log(program_log, f"{log_prefix} POPEN cmd={' '.join(cmd)} cwd={exe_path.parent}")
-
-    p = subprocess.Popen(
-        cmd,
-        env=env,
-        cwd=str(exe_path.parent),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-
-    t_start = time.time()
+    xvfb_proc = None
     try:
-        # ждём окно
-        win = _safe_get_win(p.pid, strat, env=env, program_log=program_log)
-        if not win:
-            raise RuntimeError(f"Window not found for pid={p.pid}, regex={strat.window_name_regex}")
+        # ВАЖНО: гарантируем Xvfb (иначе WinForms/GraphABC падает с "Could not open display")
+        xvfb_proc = _ensure_xvfb(env, xvfb_screen, program_log, log_prefix)
 
-        _xdotool_focus(win, env=env, program_log=program_log)
-        _xdotool_click_center(win, env=env, program_log=program_log)
+        # запуск программы
+        cmd = [MONO, str(exe_path)]
+        _log(program_log, f"{log_prefix} POPEN cmd={' '.join(cmd)} cwd={exe_path.parent}")
 
-        # ВАЖНО: DrawMan — НЕ жмём Space вообще. Только Enter один раз.
-        if mode_norm == "drawman":
-            win = _safe_key(p.pid, win, "Return", strat, env=env, program_log=program_log)
+        p = subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=str(exe_path.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        t_start = time.time()
+        try:
+            # ждём окно
+            win = _safe_get_win(p.pid, strat, env=env, program_log=program_log)
             if not win:
-                raise RuntimeError("Failed to send Enter to DrawMan window")
+                raise RuntimeError(f"Window not found for pid={p.pid}, regex={strat.window_name_regex}")
 
-        # немного подождать чтобы дорисовало
-        time.sleep(strat.draw_wait_seconds)
+            _xdotool_focus(win, env=env, program_log=program_log)
+            _xdotool_click_center(win, env=env, program_log=program_log)
 
-        # скрин+кроп
-        try:
-            _capture_root_crop(win, out_png, env=env, trim=trim, program_log=program_log)
-        except Exception as e:
-            _log(program_log, f"{log_prefix} capture failed with trim={trim}: {e} -> retry without trim")
-            _capture_root_crop(win, out_png, env=env, trim=False, program_log=program_log)
+            # DrawMan — НЕ жмём Space. Только Enter один раз.
+            if mode_norm == "drawman":
+                win = _safe_key(p.pid, win, "Return", strat, env=env, program_log=program_log)
+                if not win:
+                    raise RuntimeError("Failed to send Enter to DrawMan window")
 
-        if not out_png.exists() or out_png.stat().st_size == 0:
-            raise RuntimeError("Capture produced empty out.png")
+            # подождать чтобы дорисовало
+            time.sleep(strat.draw_wait_seconds)
 
-        _log(program_log, f"{log_prefix} OK out_png={out_png} bytes={out_png.stat().st_size}")
+            # скрин+кроп
+            try:
+                _capture_root_crop(win, out_png, env=env, trim=trim, program_log=program_log)
+            except Exception as e:
+                _log(program_log, f"{log_prefix} capture failed with trim={trim}: {e} -> retry without trim")
+                _capture_root_crop(win, out_png, env=env, trim=False, program_log=program_log)
 
-    finally:
-        # сливаем stdout процесса в program.log (хвост)
-        try:
-            if p.stdout:
-                try:
-                    # не блочимся бесконечно
+            if not out_png.exists() or out_png.stat().st_size == 0:
+                raise RuntimeError("Capture produced empty out.png")
+
+            _log(program_log, f"{log_prefix} OK out_png={out_png} bytes={out_png.stat().st_size}")
+
+        finally:
+            # сливаем stdout процесса в program.log (хвост)
+            try:
+                if p.stdout:
                     out = ""
                     while True:
                         if time.time() - t_start > max(1, timeout_seconds):
@@ -270,20 +350,31 @@ def run_ui_and_capture(
                             out = out[-20000:]
                     if out:
                         _log(program_log, f"{log_prefix} program stdout_tail:\n{out}")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        # убиваем процесс (DrawMan/GraphABC обычно висит до закрытия окна)
-        try:
-            if p.poll() is None:
-                _log(program_log, f"{log_prefix} terminate pid={p.pid}")
-                p.terminate()
+            # убиваем процесс (DrawMan/GraphABC часто висит)
+            try:
+                if p.poll() is None:
+                    _log(program_log, f"{log_prefix} terminate pid={p.pid}")
+                    p.terminate()
+                    try:
+                        p.wait(timeout=2)
+                    except Exception:
+                        _log(program_log, f"{log_prefix} kill pid={p.pid}")
+                        p.kill()
+            except Exception:
+                pass
+
+    finally:
+        # гасим Xvfb, если мы его поднимали сами
+        if xvfb_proc is not None:
+            try:
+                _log(program_log, f"{log_prefix} stop Xvfb pid={xvfb_proc.pid}")
+                xvfb_proc.terminate()
                 try:
-                    p.wait(timeout=2)
+                    xvfb_proc.wait(timeout=2)
                 except Exception:
-                    _log(program_log, f"{log_prefix} kill pid={p.pid}")
-                    p.kill()
-        except Exception:
-            pass
+                    xvfb_proc.kill()
+            except Exception:
+                pass
