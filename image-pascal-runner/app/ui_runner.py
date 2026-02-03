@@ -13,7 +13,7 @@ import shutil
 
 
 # =========================================================
-# LOGGING: максимально подробные логи в stdout контейнера
+# LOGGING: максимально подробные логи в stdout контейнера 
 # =========================================================
 _LOG = logging.getLogger("tf.pascal.ui")
 def _run_cmd(cmd, env=None, timeout=10, cwd=None):
