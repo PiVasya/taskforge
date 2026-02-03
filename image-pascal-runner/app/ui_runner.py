@@ -155,6 +155,54 @@ def _has_cmd(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def _parse_xvfb_screen(screen: str) -> tuple[int, int] | None:
+    """Parse '1024x768x24' -> (1024, 768)."""
+    m = re.match(r"^\s*(\d+)x(\d+)x(\d+)\s*$", screen)
+    if not m:
+        return None
+    try:
+        return int(m.group(1)), int(m.group(2))
+    except Exception:
+        return None
+
+
+def _xwininfo_tree_windows(*, env: dict, log_prefix: str = "") -> list[tuple[str, str, int, int, int, int]]:
+    """Return [(win_dec, title, w, h, x, y), ...] from `xwininfo -root -tree`.
+
+    This is a fallback for cases when xdotool only sees a tiny helper window.
+    """
+    if not _has_cmd("xwininfo"):
+        return []
+    try:
+        cp = _run_cmd(["xwininfo", "-root", "-tree"], env=env, timeout=3)
+    except Exception:
+        return []
+    if cp.returncode != 0:
+        return []
+
+    out: list[tuple[str, str, int, int, int, int]] = []
+    # Example line (varies):
+    #  0x3e00007 "Castle (symmetric)": ("main.exe" "Main.exe")  400x400+90+88  +90+88
+    rx = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+\"([^\"]*)\".*?\s(\d+)x(\d+)\+(-?\d+)\+(-?\d+)")
+    for line in (cp.stdout or "").splitlines():
+        m = rx.search(line)
+        if not m:
+            continue
+        hid, title, ws, hs, xs, ys = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6)
+        try:
+            win_dec = str(int(hid, 16))
+            w = int(ws)
+            h = int(hs)
+            x = int(xs)
+            y = int(ys)
+            out.append((win_dec, title.strip(), w, h, x, y))
+        except Exception:
+            continue
+    if out:
+        _LOG.debug("%s XWININFO_TREE windows=%s", log_prefix, len(out))
+    return out
+
+
 
 def _xdotool_get_geometry(win: str, *, env: dict, log_prefix: str = "") -> tuple[int, int, int, int] | None:
     cp = _run_cmd(["xdotool", "getwindowgeometry", "--shell", win], env=env, timeout=3)
@@ -197,6 +245,7 @@ def _xdotool_search(
     env: dict,
     log_prefix: str = "",
     timeout: float | None = None,
+    screen_size: tuple[int, int] | None = None,
 ) -> str | None:
     if not _which("xdotool", log_prefix=log_prefix):
         return None
@@ -233,54 +282,127 @@ def _xdotool_search(
     def pick_best(wins: list[str]) -> str:
         """Choose the most likely real app window.
 
-        xdotool may return multiple windows for one PID (splash, helper, tiny 10x10,
-        etc.). We pick:
-          1) any window whose title matches name_regex (if we can read the title)
-          2) otherwise the largest window by area.
+        IMPORTANT: PascalABC/GraphABC/DrawMan may create multiple windows or
+        windows owned by a different PID. xdotool also often returns tiny helper
+        windows (10x10, 1x1, etc.). We therefore score windows by:
+          1) title match against name_regex (if available)
+          2) usable size (prefer larger)
+        while aggressively ignoring tiny windows unless there is no alternative.
         """
-        best = wins[0]
-        best_area = -1
-        best_match = False
-        for w in wins:
-            geo = _xdotool_get_geometry(w, env=env, log_prefix=log_prefix)
+
+        def _score(win: str) -> tuple[int, int]:
+            geo = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
             if geo:
                 _, _, ww, hh = geo
-                area = ww * hh
+                area = max(0, ww) * max(0, hh)
             else:
+                ww = hh = 0
                 area = 0
-            title = _xdotool_get_name(w, env=env, log_prefix=log_prefix)
-            is_match = bool(name_re.search(title)) if (name_re and title) else False
-            if is_match and not best_match:
-                best, best_area, best_match = w, area, True
-                continue
-            if is_match == best_match and area > best_area:
-                best, best_area = w, area
+
+            title = _xdotool_get_name(win, env=env, log_prefix=log_prefix)
+            title_match = 1 if (name_re and title and name_re.search(title)) else 0
+
+            # Penalize extremely small "helper" windows.
+            if ww < 80 or hh < 80:
+                area = area // 100
+
+            # Penalize desktop/root-sized unnamed windows (common with WMs in Xvfb).
+            if screen_size and (not title or title.strip() == ""):
+                sw, sh = screen_size
+                if sw > 0 and sh > 0 and ww >= int(sw * 0.92) and hh >= int(sh * 0.92):
+                    area = area // 50
+
+            return (title_match, area)
+
+        best = wins[0]
+        best_score = _score(best)
+        for w in wins[1:]:
+            sc = _score(w)
+            if sc > best_score:
+                best, best_score = w, sc
         return best
+
+    def _gather_candidates() -> list[str]:
+        """Gather window ids from multiple heuristics."""
+        found: list[str] = []
+
+        # 1) By PID (may include helpers).
+        cp = _run(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env, log_prefix=log_prefix)
+        for w in _digits_only(cp.stdout.split()):
+            if w not in found:
+                found.append(w)
+
+        # 2) By name tokens (more reliable when window PID differs).
+        for token in name_tokens:
+            cp = _run(["xdotool", "search", "--all", "--name", token], timeout=3, env=env, log_prefix=log_prefix)
+            for w in _digits_only(cp.stdout.split()):
+                if w not in found:
+                    found.append(w)
+
+        return found
+
+    def _is_usable(win: str) -> bool:
+        geo = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+        if not geo:
+            return False
+        _, _, ww, hh = geo
+        if ww >= 120 and hh >= 120:
+            return True
+        # allow smaller only if title matches strongly
+        title = _xdotool_get_name(win, env=env, log_prefix=log_prefix)
+        return bool(name_re and title and name_re.search(title))
 
     while time.time() < deadline:
         attempt += 1
 
-        # IMPORTANT:
-        # Under Xvfb we may run without a window manager. In that case a top-level
-        # window can exist but not be considered "visible" by xdotool.
-        # Using --onlyvisible makes the search flaky (DrawMan is exactly this case).
-        cp = _run(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env, log_prefix=log_prefix)
-        wins = _digits_only(cp.stdout.split())
+        wins = _gather_candidates()
         if wins:
             chosen = pick_best(wins)
-            _LOG.debug("%s WIN_FOUND by pid attempt=%s => %s (all=%s)", log_prefix, attempt, chosen, wins)
-            return chosen
-
-        for token in name_tokens:
-            cp = _run(["xdotool", "search", "--all", "--name", token], timeout=3, env=env, log_prefix=log_prefix)
-            wins = _digits_only(cp.stdout.split())
-            if wins:
-                chosen = pick_best(wins)
-                _LOG.debug("%s WIN_FOUND by name token=%r attempt=%s => %s (all=%s)", log_prefix, token, attempt, chosen, wins)
+            geo = _xdotool_get_geometry(chosen, env=env, log_prefix=log_prefix)
+            _LOG.debug("%s WIN_CANDIDATES attempt=%s chosen=%s geo=%s all=%s", log_prefix, attempt, chosen, geo, wins)
+            # If we only see a tiny helper window, keep waiting/searching.
+            if _is_usable(chosen):
                 return chosen
+            _LOG.debug("%s WIN_TOO_SMALL attempt=%s chosen=%s; retry", log_prefix, attempt, chosen)
 
-        _LOG.debug("%s WIN_SEARCH attempt=%s not found; sleep 100ms", log_prefix, attempt)
-        time.sleep(0.1)
+            # Sometimes xdotool only sees a tiny stub window for the process.
+            # As a fallback, scan Xvfb's window tree via xwininfo and try to
+            # locate a bigger window whose title matches our regex.
+            try:
+                xwins = _xwininfo_tree_windows(env=env, log_prefix=log_prefix)
+                if xwins:
+                    # filter by title regex and usability
+                    candidates: list[tuple[int, str, int, int, int, int]] = []
+                    for wi in xwins:
+                        title = wi[1] or ""
+                        if name_re and not name_re.search(title):
+                            continue
+                        candidates.append(wi)
+                    # fall back to any windows if regex didn't match (better than 10x10)
+                    if not candidates:
+                        candidates = xwins
+                    # choose biggest usable
+                    best = None
+                    best_area = -1
+                    for wid_int, title, x, y, w, h in candidates:
+                        area = w * h
+                        if (w < 80 or h < 80):
+                            continue
+                        # avoid grabbing the full-screen root/desktop
+                        if screen_size and w >= screen_size[0] - 5 and h >= screen_size[1] - 5:
+                            continue
+                        if area > best_area:
+                            best_area = area
+                            best = wid_int
+                    if best is not None:
+                        best_dec = str(best)
+                        _LOG.debug("%s XWININFO_FALLBACK picked=%s", log_prefix, best_dec)
+                        return best_dec
+            except Exception as e:
+                _LOG.debug("%s XWININFO_FALLBACK error=%r", log_prefix, e)
+
+        _LOG.debug("%s WIN_SEARCH attempt=%s not found/usable; sleep 120ms", log_prefix, attempt)
+        time.sleep(0.12)
 
     return None
 
@@ -366,6 +488,31 @@ def _capture_root(out_png: Path, trim: bool, *, env: dict, log_prefix: str = "")
         cp2 = _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=15, env=env, log_prefix=log_prefix)
         if cp2.returncode != 0:
             raise RuntimeError("convert -trim failed")
+
+
+def _capture_window(win: str, out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
+    """Capture a specific X11 window to PNG.
+
+    Uses ImageMagick `import -window <id>` which accepts either decimal or hex window ids.
+    We pass hex to be safe.
+    """
+
+    if not _which("import", log_prefix=log_prefix):
+        raise RuntimeError("ImageMagick import not found")
+
+    try:
+        wid_hex = hex(int(str(win), 10))
+    except Exception:
+        # already hex-like or unknown; just pass through
+        wid_hex = str(win)
+
+    _LOG.debug("%s CAPTURE window=%s => %s", log_prefix, wid_hex, out_png)
+    cp = _run(["import", "-window", wid_hex, str(out_png)], timeout=15, env=env, log_prefix=log_prefix)
+    if cp.returncode != 0:
+        raise RuntimeError("import -window failed")
+
+    if trim and _which("convert", log_prefix=log_prefix):
+        _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=20, env=env, log_prefix=log_prefix)
 
 
 def _capture_root_crop(win: str, out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
@@ -459,6 +606,7 @@ def run_ui_and_capture(
 
     strat = STRATEGIES.get(mode) or STRATEGIES["Pascal"]
     timeout_seconds = max(3, min(120, int(timeout_seconds)))
+    screen_size = _parse_xvfb_screen(xvfb_screen)
 
     _LOG.debug(
         "%s UI_START mode=%s regex=%s draw_wait=%.3f timeout=%ss screen=%s exe=%s",
@@ -503,7 +651,14 @@ def run_ui_and_capture(
         win_wait = float(os.getenv("TF_WINDOW_WAIT", "10.0"))
         win_wait = max(1.0, min(20.0, win_wait))
         _LOG.debug("%s WINDOW_SEARCH wait=%ss", log_prefix, win_wait)
-        win = _xdotool_search(mono_proc.pid, strat.window_name_regex, max_wait=min(win_wait, timeout_seconds - 1), env=xenv, log_prefix=log_prefix)
+        win = _xdotool_search(
+            mono_proc.pid,
+            strat.window_name_regex,
+            max_wait=min(win_wait, timeout_seconds - 1),
+            env=xenv,
+            log_prefix=log_prefix,
+            screen_size=screen_size,
+        )
         _LOG.debug("%s WINDOW_SEARCH result=%s", log_prefix, win)
 
         if win is not None:
