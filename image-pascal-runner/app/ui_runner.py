@@ -1,71 +1,55 @@
 import os
-import re
 import shutil
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel, Field
-
-app = FastAPI(title="taskforge image pascal runner (DrawMan safe capture)")
-
-# -------------------------
-# ENV / CONFIG
-# -------------------------
-PABCNETC = os.getenv("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
-
-SCREEN_W = int(os.getenv("TF_SCREEN_W", "1024"))
-SCREEN_H = int(os.getenv("TF_SCREEN_H", "768"))
-SCREEN_D = int(os.getenv("TF_SCREEN_D", "24"))
-
-RUN_LANG = os.getenv("TF_LANG", "C.UTF-8")
-RUN_LC_ALL = os.getenv("TF_LC_ALL", "C.UTF-8")
-
-DISPLAY = os.getenv("DISPLAY", ":99")
-
-# Strategy tuning
-DRAW_WAIT_SECONDS = float(os.getenv("TF_DRAWMAN_DRAW_WAIT", "0.6"))
-WIN_SEARCH_WAIT_SECONDS = float(os.getenv("TF_DRAWMAN_WIN_WAIT", "14.0"))
-
-# Regex for DrawMan window title (tweak if needed)
-DEFAULT_DRAWMAN_WINDOW_REGEX = os.getenv("TF_DRAWMAN_WIN_REGEX", r"DrawMan|Робот|Черепаха|Рисователь")
-
-# Mono runner (most containers run PascalABC.NET output through mono)
-MONO = os.getenv("TF_MONO", "mono")
 
 # Tool paths (expected in image)
 XDOTOOL = os.getenv("TF_XDOTOOL", "xdotool")
 IMPORT = os.getenv("TF_IMPORT", "import")      # ImageMagick
 CONVERT = os.getenv("TF_CONVERT", "convert")   # ImageMagick
+MONO = os.getenv("TF_MONO", "mono")
 
+DISPLAY = os.getenv("DISPLAY", ":99")
+RUN_LANG = os.getenv("TF_LANG", "C.UTF-8")
+RUN_LC_ALL = os.getenv("TF_LC_ALL", "C.UTF-8")
 
-class RenderRequest(BaseModel):
-    source: str = Field(..., description="PascalABC.NET source code (GraphABC / DrawMan)")
-    timeout_seconds: int = Field(20, ge=1, le=120)
-    debug: bool = Field(False, description="Enable verbose logs")
+# Strategy tuning
+DRAW_WAIT_SECONDS = float(os.getenv("TF_DRAW_WAIT", "0.6"))
+WIN_SEARCH_WAIT_SECONDS = float(os.getenv("TF_WIN_WAIT", "14.0"))
+
+# Regex per mode
+DRAWMAN_REGEX = os.getenv("TF_DRAWMAN_WIN_REGEX", r"DrawMan|Робот|Черепаха|Рисователь")
+GRAPHABC_REGEX = os.getenv("TF_GRAPHABC_WIN_REGEX", r"GraphABC|Графика|Графический")
 
 
 @dataclass
 class UiStrategy:
-    window_name_regex: str = DEFAULT_DRAWMAN_WINDOW_REGEX
+    window_name_regex: str
     win_search_wait: float = WIN_SEARCH_WAIT_SECONDS
     draw_wait_seconds: float = DRAW_WAIT_SECONDS
 
 
-# -------------------------
-# Helpers
-# -------------------------
 def _env_base() -> dict:
     e = os.environ.copy()
     e["DISPLAY"] = DISPLAY
     e["LANG"] = RUN_LANG
     e["LC_ALL"] = RUN_LC_ALL
     return e
+
+
+def _require_tools():
+    missing = []
+    for t in [XDOTOOL, IMPORT, CONVERT]:
+        if shutil.which(t) is None:
+            missing.append(t)
+    if shutil.which(MONO) is None:
+        missing.append(MONO)
+    if missing:
+        raise RuntimeError(f"Missing tools in container: {', '.join(missing)}")
 
 
 def _run_cmd(cmd, *, env=None, timeout=10, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
@@ -79,16 +63,11 @@ def _run_cmd(cmd, *, env=None, timeout=10, cwd: Optional[str] = None) -> subproc
     )
 
 
-def _require_tools():
-    missing = []
-    for t in [XDOTOOL, IMPORT, CONVERT]:
-        if shutil.which(t) is None:
-            missing.append(t)
-    if shutil.which(MONO) is None:
-        # mono might be optional depending on how you run compiled output
-        missing.append(MONO)
-    if missing:
-        raise HTTPException(status_code=500, detail=f"Missing tools in container: {', '.join(missing)}")
+def _log(program_log: Path, msg: str):
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    program_log.parent.mkdir(parents=True, exist_ok=True)
+    with program_log.open("a", encoding="utf-8", errors="replace") as f:
+        f.write(f"{ts} | {msg}\n")
 
 
 def _xdotool_window_exists(win: str, *, env: dict) -> bool:
@@ -96,72 +75,61 @@ def _xdotool_window_exists(win: str, *, env: dict) -> bool:
     return cp.returncode == 0 and (cp.stdout or "").strip() != ""
 
 
-def _xdotool_search_by_pid(pid: int, name_regex: str, *, env: dict, max_wait: float) -> Optional[str]:
-    """
-    Search for first window matching pid+regex.
-    """
+def _xdotool_search_by_pid(pid: int, name_regex: str, *, env: dict, max_wait: float, program_log: Path) -> Optional[str]:
     deadline = time.time() + max_wait
     while time.time() < deadline:
         cp = _run_cmd([XDOTOOL, "search", "--pid", str(pid), "--name", name_regex], env=env, timeout=2)
         if cp.returncode == 0:
             wins = [w.strip() for w in (cp.stdout or "").split() if w.strip()]
             if wins:
+                _log(program_log, f"win found pid={pid} regex={name_regex} win={wins[0]}")
                 return wins[0]
         time.sleep(0.2)
+    _log(program_log, f"win NOT found pid={pid} regex={name_regex} (waited {max_wait}s)")
     return None
 
 
-def _xdotool_focus(win: str, *, env: dict):
+def _xdotool_focus(win: str, *, env: dict, program_log: Path):
+    _log(program_log, f"focus win={win}")
     _run_cmd([XDOTOOL, "windowactivate", "--sync", win], env=env, timeout=4)
 
 
-def _xdotool_click_center(win: str, *, env: dict):
-    # Move to center and click (helps when focus is flaky)
+def _xdotool_click_center(win: str, *, env: dict, program_log: Path):
+    _log(program_log, f"click center win={win}")
     _run_cmd([XDOTOOL, "mousemove", "--window", win, "50%", "50%"], env=env, timeout=3)
     _run_cmd([XDOTOOL, "click", "--window", win, "1"], env=env, timeout=3)
 
 
-def _safe_get_win(pid: int, strat: UiStrategy, *, env: dict) -> Optional[str]:
-    return _xdotool_search_by_pid(pid, strat.window_name_regex, env=env, max_wait=strat.win_search_wait)
+def _safe_get_win(pid: int, strat: UiStrategy, *, env: dict, program_log: Path) -> Optional[str]:
+    return _xdotool_search_by_pid(pid, strat.window_name_regex, env=env, max_wait=strat.win_search_wait, program_log=program_log)
 
 
-def _safe_key(pid: int, win: Optional[str], key: str, strat: UiStrategy, *, env: dict) -> Optional[str]:
-    """
-    Send key to window reliably:
-    - if win missing/dead => re-search
-    - if send fails => re-search once and retry
-    """
+def _safe_key(pid: int, win: Optional[str], key: str, strat: UiStrategy, *, env: dict, program_log: Path) -> Optional[str]:
     if (not win) or (not _xdotool_window_exists(win, env=env)):
-        win = _safe_get_win(pid, strat, env=env)
+        win = _safe_get_win(pid, strat, env=env, program_log=program_log)
         if not win:
             return None
 
+    _log(program_log, f"send key='{key}' win={win}")
     cp = _run_cmd([XDOTOOL, "key", "--window", win, "--clearmodifiers", key], env=env, timeout=2)
     if cp.returncode == 0:
         return win
 
-    # retry once with re-search (window may have died)
-    win2 = _safe_get_win(pid, strat, env=env)
+    # retry once
+    win2 = _safe_get_win(pid, strat, env=env, program_log=program_log)
     if not win2:
         return win
+    _log(program_log, f"retry key='{key}' win={win2}")
     _run_cmd([XDOTOOL, "key", "--window", win2, "--clearmodifiers", key], env=env, timeout=2)
     return win2
 
 
-def _xdotool_get_geometry(win: str, *, env: dict) -> Optional[Tuple[int, int, int, int]]:
-    """
-    Returns (x, y, w, h) from:
-    xdotool getwindowgeometry --shell <win>
-    """
+def _xdotool_get_geometry(win: str, *, env: dict, program_log: Path) -> Optional[Tuple[int, int, int, int]]:
     cp = _run_cmd([XDOTOOL, "getwindowgeometry", "--shell", win], env=env, timeout=3)
     if cp.returncode != 0:
+        _log(program_log, f"getwindowgeometry failed win={win} err={cp.stderr.strip()[:300]}")
         return None
 
-    # Example output:
-    # X=123
-    # Y=45
-    # WIDTH=800
-    # HEIGHT=600
     x = y = w = h = None
     for line in (cp.stdout or "").splitlines():
         line = line.strip()
@@ -174,17 +142,15 @@ def _xdotool_get_geometry(win: str, *, env: dict) -> Optional[Tuple[int, int, in
         elif line.startswith("HEIGHT="):
             h = int(line[7:])
     if None in (x, y, w, h):
+        _log(program_log, f"geometry parse failed win={win} stdout={cp.stdout!r}")
         return None
+
+    _log(program_log, f"geometry win={win} x={x} y={y} w={w} h={h}")
     return x, y, w, h
 
 
-def _capture_root_crop(win: str, out_png: Path, *, env: dict, trim: bool = True):
-    """
-    Stable capture:
-      import -window root root.png
-      convert root.png -crop WxH+X+Y (+trim) out.png
-    """
-    g = _xdotool_get_geometry(win, env=env)
+def _capture_root_crop(win: str, out_png: Path, *, env: dict, trim: bool, program_log: Path):
+    g = _xdotool_get_geometry(win, env=env, program_log=program_log)
     if not g:
         raise RuntimeError("Cannot get window geometry")
     x, y, w, h = g
@@ -193,7 +159,8 @@ def _capture_root_crop(win: str, out_png: Path, *, env: dict, trim: bool = True)
 
     root_png = out_png.with_suffix(".root.png")
 
-    cp1 = _run_cmd([IMPORT, "-window", "root", str(root_png)], env=env, timeout=15)
+    _log(program_log, f"capture root -> {root_png}")
+    cp1 = _run_cmd([IMPORT, "-window", "root", str(root_png)], env=env, timeout=20)
     if cp1.returncode != 0:
         raise RuntimeError(f"import root failed: {cp1.stderr.strip()[:400]}")
 
@@ -203,134 +170,120 @@ def _capture_root_crop(win: str, out_png: Path, *, env: dict, trim: bool = True)
         cmd += ["-trim", "+repage"]
     cmd += [str(out_png)]
 
-    cp2 = _run_cmd(cmd, env=env, timeout=20)
+    _log(program_log, f"convert crop -> {out_png} cmd={' '.join(cmd)}")
+    cp2 = _run_cmd(cmd, env=env, timeout=30)
     if cp2.returncode != 0:
         raise RuntimeError(f"convert crop failed: {cp2.stderr.strip()[:400]}")
 
 
-def _compile_pascal(source: str, workdir: Path) -> Path:
+def run_ui_and_capture(
+    *,
+    exe_path: Path,
+    out_png: Path,
+    program_log: Path,
+    mode: str,
+    xvfb_screen: str,
+    timeout_seconds: int,
+    trim: bool,
+    log_prefix: str = "",
+):
     """
-    Compile PascalABC.NET source into .exe (or .dll depending on pabcnetc).
-    We assume pabcnetc.exe is present and usable.
+    Expected by app/main.py
+
+    mode: DrawMan | GraphABC | Pascal
     """
-    src = workdir / "main.pas"
-    src.write_text(source, encoding="utf-8")
-
-    # Typical CLI: pabcnetc.exe main.pas
-    # Output usually main.exe in same folder.
-    cp = _run_cmd([PABCNETC, str(src)], env=_env_base(), timeout=60, cwd=str(workdir))
-    if cp.returncode != 0:
-        msg = (cp.stdout or "") + "\n" + (cp.stderr or "")
-        raise HTTPException(status_code=400, detail=f"Compile failed:\n{msg[-2000:]}")
-
-    exe = workdir / "main.exe"
-    if not exe.exists():
-        # Some builds output .dll; try detect
-        dll = workdir / "main.dll"
-        if dll.exists():
-            return dll
-        # fallback: any exe in dir
-        exes = list(workdir.glob("*.exe"))
-        if exes:
-            return exes[0]
-        raise HTTPException(status_code=500, detail="Compile succeeded but output not found (no main.exe/main.dll).")
-    return exe
-
-
-def _run_program_capture(exe_path: Path, timeout_seconds: int, debug: bool) -> bytes:
-    """
-    Run compiled program under X (DrawMan/GraphABC).
-    For DrawMan we:
-      - start process
-      - find window by pid + regex
-      - focus+click
-      - press Enter ONCE (no Space spam)
-      - wait
-      - capture root and crop to window
-    """
+    _require_tools()
     env = _env_base()
-    strat = UiStrategy()
 
-    with tempfile.TemporaryDirectory(prefix="tf_out_") as td:
-        td_path = Path(td)
-        out_png = td_path / "out.png"
+    mode_norm = (mode or "").strip().lower()
+    if mode_norm == "drawman":
+        strat = UiStrategy(window_name_regex=DRAWMAN_REGEX)
+    elif mode_norm == "graphabc":
+        strat = UiStrategy(window_name_regex=GRAPHABC_REGEX)
+    else:
+        # Даже если "Pascal", обычно нет окна -> тогда невозможно "картинку".
+        # Но оставим попытку найти окно по общему regex.
+        strat = UiStrategy(window_name_regex=DRAWMAN_REGEX + "|" + GRAPHABC_REGEX)
 
-        # Run program
-        # If it's a dll: mono main.dll, if exe: mono main.exe
-        cmd = [MONO, str(exe_path)]
-        p = subprocess.Popen(
-            cmd,
-            env=env,
-            cwd=str(exe_path.parent),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+    _log(program_log, f"{log_prefix} run_ui_and_capture start mode={mode} exe={exe_path} timeout={timeout_seconds}s screen={xvfb_screen} trim={trim}")
+    _log(program_log, f"{log_prefix} env DISPLAY={env.get('DISPLAY')} LANG={env.get('LANG')} LC_ALL={env.get('LC_ALL')}")
 
+    # запуск программы
+    cmd = [MONO, str(exe_path)]
+    _log(program_log, f"{log_prefix} POPEN cmd={' '.join(cmd)} cwd={exe_path.parent}")
+
+    p = subprocess.Popen(
+        cmd,
+        env=env,
+        cwd=str(exe_path.parent),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    t_start = time.time()
+    try:
+        # ждём окно
+        win = _safe_get_win(p.pid, strat, env=env, program_log=program_log)
+        if not win:
+            raise RuntimeError(f"Window not found for pid={p.pid}, regex={strat.window_name_regex}")
+
+        _xdotool_focus(win, env=env, program_log=program_log)
+        _xdotool_click_center(win, env=env, program_log=program_log)
+
+        # ВАЖНО: DrawMan — НЕ жмём Space вообще. Только Enter один раз.
+        if mode_norm == "drawman":
+            win = _safe_key(p.pid, win, "Return", strat, env=env, program_log=program_log)
+            if not win:
+                raise RuntimeError("Failed to send Enter to DrawMan window")
+
+        # немного подождать чтобы дорисовало
+        time.sleep(strat.draw_wait_seconds)
+
+        # скрин+кроп
         try:
-            win = _safe_get_win(p.pid, strat, env=env)
-            if not win:
-                # dump stderr for debugging
+            _capture_root_crop(win, out_png, env=env, trim=trim, program_log=program_log)
+        except Exception as e:
+            _log(program_log, f"{log_prefix} capture failed with trim={trim}: {e} -> retry without trim")
+            _capture_root_crop(win, out_png, env=env, trim=False, program_log=program_log)
+
+        if not out_png.exists() or out_png.stat().st_size == 0:
+            raise RuntimeError("Capture produced empty out.png")
+
+        _log(program_log, f"{log_prefix} OK out_png={out_png} bytes={out_png.stat().st_size}")
+
+    finally:
+        # сливаем stdout процесса в program.log (хвост)
+        try:
+            if p.stdout:
                 try:
-                    _, err = p.communicate(timeout=1)
-                except Exception:
-                    err = ""
-                raise HTTPException(status_code=500, detail=f"DrawMan window not found (pid={p.pid}).\n{err[-2000:]}")
-
-            _xdotool_focus(win, env=env)
-            _xdotool_click_center(win, env=env)
-
-            # IMPORTANT: DO NOT PRESS SPACE (step) – it causes Thread.Resume crashes when thread ended.
-            win = _safe_key(p.pid, win, "Return", strat, env=env)
-            if not win:
-                raise HTTPException(status_code=500, detail="Failed to send Enter to DrawMan window (window missing).")
-
-            time.sleep(strat.draw_wait_seconds)
-
-            # Stable capture
-            try:
-                _capture_root_crop(win, out_png, env=env, trim=True)
-            except Exception as e:
-                # last resort: attempt capture without trim
-                try:
-                    _capture_root_crop(win, out_png, env=env, trim=False)
-                except Exception:
-                    raise HTTPException(status_code=500, detail=f"Capture failed: {e}")
-
-            if not out_png.exists():
-                raise HTTPException(status_code=500, detail="Capture produced no output file.")
-
-            data = out_png.read_bytes()
-            if len(data) < 300:  # guard against empty PNG stubs
-                raise HTTPException(status_code=500, detail=f"Capture PNG too small ({len(data)} bytes). Likely blank/failed.")
-
-            return data
-
-        finally:
-            # stop process (avoid zombies)
-            try:
-                p.terminate()
-            except Exception:
-                pass
-            try:
-                p.wait(timeout=2)
-            except Exception:
-                try:
-                    p.kill()
+                    # не блочимся бесконечно
+                    out = ""
+                    while True:
+                        if time.time() - t_start > max(1, timeout_seconds):
+                            break
+                        line = p.stdout.readline()
+                        if not line:
+                            break
+                        out += line
+                        if len(out) > 20000:
+                            out = out[-20000:]
+                    if out:
+                        _log(program_log, f"{log_prefix} program stdout_tail:\n{out}")
                 except Exception:
                     pass
+        except Exception:
+            pass
 
-
-# -------------------------
-# API
-# -------------------------
-@app.post("/render")
-def render(req: RenderRequest):
-    _require_tools()
-
-    with tempfile.TemporaryDirectory(prefix="tf_work_") as td:
-        wd = Path(td)
-        exe = _compile_pascal(req.source, wd)
-        png_bytes = _run_program_capture(exe, req.timeout_seconds, req.debug)
-
-    return Response(content=png_bytes, media_type="image/png")
+        # убиваем процесс (DrawMan/GraphABC обычно висит до закрытия окна)
+        try:
+            if p.poll() is None:
+                _log(program_log, f"{log_prefix} terminate pid={p.pid}")
+                p.terminate()
+                try:
+                    p.wait(timeout=2)
+                except Exception:
+                    _log(program_log, f"{log_prefix} kill pid={p.pid}")
+                    p.kill()
+        except Exception:
+            pass
