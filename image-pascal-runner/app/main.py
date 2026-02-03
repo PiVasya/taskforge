@@ -17,9 +17,6 @@ class RenderRequest(BaseModel):
     debug: bool = Field(False, description="Verbose runner logs")
 
 
-# ----------------------------
-# Env / settings
-# ----------------------------
 PABCNETC = os.getenv("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
 
 SCREEN_W = int(os.getenv("TF_SCREEN_W", "1024"))
@@ -31,20 +28,14 @@ RUN_LC_ALL = os.getenv("TF_LC_ALL", "C.UTF-8")
 
 WINDOW_WAIT_DEFAULT = float(os.getenv("TF_WINDOW_WAIT", "14.0"))
 
-# Для DrawMan обычно нужно больше времени
-AFTER_START_DEFAULT = float(os.getenv("TF_AFTER_START", "14.0"))
+# минимум ждать после нажатия "Пуск" до начала ожидания завершения
+AFTER_START_DEFAULT = float(os.getenv("TF_AFTER_START", "2.0"))
 CAPTURE_DELAY_DEFAULT = float(os.getenv("TF_CAPTURE_DELAY", "0.8"))
 
 TRIM_DEFAULT = os.getenv("TF_TRIM", "0").strip()  # 1/0
 
-# КЛЮЧЕВОЕ: клавиши по умолчанию ВЫКЛ (иначе mono/WinForms может падать)
+# КЛЮЧЕВОЕ: клавиши по умолчанию ВЫКЛ (mono/WinForms может падать)
 SEND_KEYS_DEFAULT = os.getenv("TF_SEND_KEYS", "0").strip()  # 1/0
-
-# stability wait (ждём пока изображение перестанет меняться)
-STABLE_PCT = float(os.getenv("TF_STABLE_DIFF_PCT", "0.005"))  # %
-STABLE_NEED = int(os.getenv("TF_STABLE_NEED", "3"))
-STABLE_SLEEP = float(os.getenv("TF_STABLE_SLEEP", "0.7"))
-STABLE_MAX_SEC = float(os.getenv("TF_STABLE_MAX", "16.0"))  # по умолчанию побольше
 
 
 @app.get("/health")
@@ -80,10 +71,7 @@ def _build_bash_script(
     capture_delay: float,
     do_trim: bool,
     send_keys: bool,
-    stable_pct: float,
-    stable_need: int,
-    stable_sleep: float,
-    stable_max: float,
+    wait_finish_max: float,
 ) -> str:
     return f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -105,14 +93,10 @@ SEND_KEYS={'1' if send_keys else '0'}
 WIN_WAIT="{win_wait}"
 AFTER_START="{after_start}"
 CAPTURE_DELAY="{capture_delay}"
-
-STABLE_PCT="{stable_pct}"
-STABLE_NEED="{stable_need}"
-STABLE_SLEEP="{stable_sleep}"
-STABLE_MAX="{stable_max}"
+WAIT_FINISH_MAX="{wait_finish_max}"
 
 WIN_WAIT_INT=$(echo "$WIN_WAIT" | cut -d. -f1); if [ -z "$WIN_WAIT_INT" ]; then WIN_WAIT_INT=14; fi
-STABLE_MAX_INT=$(echo "$STABLE_MAX" | cut -d. -f1); if [ -z "$STABLE_MAX_INT" ]; then STABLE_MAX_INT=0; fi
+WAIT_FINISH_MAX_INT=$(echo "$WAIT_FINISH_MAX" | cut -d. -f1); if [ -z "$WAIT_FINISH_MAX_INT" ]; then WAIT_FINISH_MAX_INT=15; fi
 
 shot_root() {{
   local file="$1"
@@ -126,27 +110,6 @@ trim_png() {{
   if [ "$DO_TRIM" = "1" ] && have convert; then
     convert "$file" -trim +repage "$file" >/dev/null 2>&1 || true
   fi
-}}
-
-diff_pct() {{
-  local a="$1"
-  local b="$2"
-  if ! have compare || ! have identify; then
-    echo "0"
-    return
-  fi
-  local w h total ae
-  w=$(identify -format "%w" "$a" 2>/dev/null || echo "0")
-  h=$(identify -format "%h" "$a" 2>/dev/null || echo "0")
-  total=$(( w * h ))
-  if [ "$total" -le 0 ]; then
-    echo "0"
-    return
-  fi
-  ae=$(compare -metric AE "$a" "$b" null: 2>&1 || true)
-  ae=$(echo "$ae" | tr -cd "0-9")
-  if [ -z "$ae" ]; then ae="0"; fi
-  awk -v ae="$ae" -v total="$total" 'BEGIN {{ printf "%.6f", (ae/total)*100.0 }}'
 }}
 
 focus_and_click() {{
@@ -164,16 +127,14 @@ send_enter() {{
   if [ "$SEND_KEYS" != "1" ]; then
     return
   fi
-  # ВНИМАНИЕ: это может валить mono/WinForms. Поэтому SEND_KEYS=0 по умолчанию.
   xdotool key --window "$w" --clearmodifiers Return 2>/dev/null || true
   xdotool key --window "$w" --clearmodifiers KP_Enter 2>/dev/null || true
 }}
 
 log "===== runner start ====="
 log "needs_enter=$NEEDS_ENTER do_trim=$DO_TRIM send_keys=$SEND_KEYS"
-log "timeouts: WIN_WAIT=$WIN_WAIT AFTER_START=$AFTER_START CAPTURE_DELAY=$CAPTURE_DELAY"
-log "stable: diffPct=$STABLE_PCT need=$STABLE_NEED sleep=$STABLE_SLEEP max=$STABLE_MAX"
-log "tools: xdotool=$(have xdotool && echo yes || echo no) import=$(have import && echo yes || echo no) convert=$(have convert && echo yes || echo no) identify=$(have identify && echo yes || echo no) compare=$(have compare && echo yes || echo no)"
+log "timeouts: WIN_WAIT=$WIN_WAIT AFTER_START=$AFTER_START CAPTURE_DELAY=$CAPTURE_DELAY WAIT_FINISH_MAX=$WAIT_FINISH_MAX"
+log "tools: xdotool=$(have xdotool && echo yes || echo no) import=$(have import && echo yes || echo no) convert=$(have convert && echo yes || echo no)"
 
 mono "{exe_path}" > program.log 2>&1 &
 pid=$!
@@ -215,9 +176,6 @@ log "DrawMan: waiting windows by pid=$pid up to $WIN_WAIT s"
 end=$(( $(date +%s) + WIN_WAIT_INT ))
 while [ $(date +%s) -lt $end ]; do
   wins=$(xdotool search --onlyvisible --pid $pid 2>/dev/null || true)
-  if [ -z "$wins" ]; then
-    wins=$(xdotool search --onlyvisible --name ".*" 2>/dev/null || true)
-  fi
   if [ -n "$wins" ]; then break; fi
   sleep 0.1
 done
@@ -257,19 +215,21 @@ H=$(echo "$geom" | grep '^HEIGHT=' | cut -d= -f2 || true)
 if [ -z "$W" ]; then W="0"; fi
 if [ -z "$H" ]; then H="0"; fi
 
-# 1) ускоряем: клики по области скорости (правый низ)
+# 1) SPEED: тянем ползунок скорости вправо (самый надежный способ)
 if [ "$W" -gt 0 ] && [ "$H" -gt 0 ]; then
-  sx1=$((W-90)); sy1=$((H-38))
-  sx2=$((W-40)); sy2=$((H-38))
-  log "speed click(s): ($sx1,$sy1) and ($sx2,$sy2) (W=$W H=$H)"
-  xdotool mousemove --window "$win" "$sx1" "$sy1" click 1 2>/dev/null || true
-  sleep 0.15
-  xdotool mousemove --window "$win" "$sx2" "$sy2" click 1 2>/dev/null || true
+  sy=$((H-38))
+  x_from=$((W-160))
+  x_to=$((W-25))
+  log "speed drag: ($x_from,$sy) -> ($x_to,$sy) (W=$W H=$H)"
+  xdotool mousemove --window "$win" "$x_from" "$sy" mousedown 1 2>/dev/null || true
+  sleep 0.10
+  xdotool mousemove --window "$win" "$x_to" "$sy" 2>/dev/null || true
+  sleep 0.10
+  xdotool mouseup 1 2>/dev/null || true
   sleep 0.15
 fi
 
-# 2) старт: САМОЕ НАДЕЖНОЕ — клики по координатам зоны кнопки "Пуск" в главном окне
-#    (window-id кнопки иногда не прожимается)
+# 2) START: клики по координатам зоны кнопки "Пуск"
 if [ "$H" -gt 0 ]; then
   y1=$((H-45)); y2=$((H-55)); y3=$((H-65)); y4=$((H-75))
 else
@@ -291,65 +251,39 @@ for w in $wins; do
   case "$title" in *"Пуск (Enter)"* ) start_btn=$w;; esac
 done
 if [ -n "$start_btn" ]; then
-  log "extra: clicking Start button by window-id: $start_btn"
+  log "extra: click Start button by window-id: $start_btn"
   xdotool windowactivate "$start_btn" 2>/dev/null || true
   xdotool click --window "$start_btn" 1 2>/dev/null || true
   sleep 0.15
 fi
 
-# 4) (опционально) Enter — ТОЛЬКО если включили TF_SEND_KEYS=1
+# 4) (опасно) Enter — только если TF_SEND_KEYS=1
 send_enter "$win"
 
-log "waiting AFTER_START=$AFTER_START s"
+# Даем чуть времени стартануть
+log "sleep AFTER_START=$AFTER_START s"
 sleep "$AFTER_START"
 
-# Stability wait
-if [ "$STABLE_MAX_INT" -gt 0 ] && have compare && have identify; then
-  log "stability wait enabled (max=$STABLE_MAX s)"
-  stableCnt=0
-  startT=$(date +%s)
+# ГЛАВНОЕ: ЖДЕМ ЗАВЕРШЕНИЯ ПРОЦЕССА (иначе мы его убиваем слишком рано)
+log "waiting for process to finish up to $WAIT_FINISH_MAX s"
+end2=$(( $(date +%s) + WAIT_FINISH_MAX_INT ))
+while kill -0 $pid >/dev/null 2>&1; do
+  if [ $(date +%s) -ge $end2 ]; then
+    log "finish wait max reached"
+    break
+  fi
+  sleep 0.25
+done
 
-  prev="{td}/stab_prev.png"
-  cur="{td}/stab_cur.png"
-
-  shot_root "$prev"; trim_png "$prev"
-
-  while true; do
-    sleep "$STABLE_SLEEP"
-    shot_root "$cur"; trim_png "$cur"
-
-    pct=$(diff_pct "$prev" "$cur")
-    ok=$(awk -v p="$pct" -v t="$STABLE_PCT" 'BEGIN {{ if (p+0 <= t+0) print 1; else print 0; }}')
-    log "stability: diffPct=$pct threshold=$STABLE_PCT ok=$ok stableCnt=$stableCnt/$STABLE_NEED"
-
-    if [ "$ok" = "1" ]; then
-      stableCnt=$((stableCnt+1))
-    else
-      stableCnt=0
-    fi
-
-    cp "$cur" "$prev" >/dev/null 2>&1 || true
-
-    if [ "$stableCnt" -ge "$STABLE_NEED" ]; then
-      log "stability: ✅ stable reached"
-      break
-    fi
-
-    now=$(date +%s)
-    elapsed=$((now - startT))
-    if [ "$elapsed" -ge "$STABLE_MAX_INT" ]; then
-      log "stability: max reached -> stop waiting"
-      break
-    fi
-  done
-fi
+# еще небольшой буфер перед скрином
+sleep "$CAPTURE_DELAY"
 
 log "taking FINAL screenshot out.png"
 shot_root "{out_png}"
 trim_png "{out_png}"
 log "out size=$(stat -c%s "{out_png}" 2>/dev/null || echo 0)"
 
-# Если out явно плохой — вернём pre (чтобы не было “пустого”)
+# Если out явно плохой — вернём pre
 outSize=$(stat -c%s "{out_png}" 2>/dev/null || echo 0)
 preSize=$(stat -c%s "$PRE" 2>/dev/null || echo 0)
 if [ "$outSize" -lt 1000 ] && [ "$preSize" -gt "$outSize" ]; then
@@ -357,9 +291,11 @@ if [ "$outSize" -lt 1000 ] && [ "$preSize" -gt "$outSize" ]; then
   cp "$PRE" "{out_png}" >/dev/null 2>&1 || true
 fi
 
-log "===== runner end (OK) ====="
+log "cleanup: stopping process if still alive"
 kill $pid >/dev/null 2>&1 || true
 wait $pid >/dev/null 2>&1 || true
+
+log "===== runner end (OK) ====="
 exit 0
 """
 
@@ -382,8 +318,7 @@ def render(req: RenderRequest):
     _log(f"start mode={mode} needs_enter={needs_enter} timeout={total_timeout}s debug={debug} codeLen={len(src)}")
     _log(
         f"env: PABCNETC={PABCNETC} TF_SCREEN={SCREEN_W}x{SCREEN_H}x{SCREEN_D} "
-        f"TF_TRIM={TRIM_DEFAULT} TF_SEND_KEYS={SEND_KEYS_DEFAULT} "
-        f"stable(pct={STABLE_PCT},need={STABLE_NEED},sleep={STABLE_SLEEP},max={STABLE_MAX_SEC})"
+        f"TF_TRIM={TRIM_DEFAULT} TF_SEND_KEYS={SEND_KEYS_DEFAULT}"
     )
 
     with tempfile.TemporaryDirectory(prefix="tfr-img-pabcnet-") as td:
@@ -434,8 +369,9 @@ def render(req: RenderRequest):
         after_start = float(AFTER_START_DEFAULT)
         capture_delay = float(CAPTURE_DELAY_DEFAULT)
 
-        if after_start > remaining - 2.0:
-            after_start = max(2.0, remaining - 2.0)
+        # Сколько максимум ждать завершения после старта (чтобы замок успел)
+        # берем почти весь run_timeout
+        wait_finish_max = max(4.0, float(run_timeout) - 2.0)
 
         bash_script = _build_bash_script(
             td=td,
@@ -448,10 +384,7 @@ def render(req: RenderRequest):
             capture_delay=capture_delay,
             do_trim=do_trim,
             send_keys=send_keys,
-            stable_pct=STABLE_PCT,
-            stable_need=STABLE_NEED,
-            stable_sleep=STABLE_SLEEP,
-            stable_max=STABLE_MAX_SEC,
+            wait_finish_max=wait_finish_max,
         )
 
         run_sh = td_path / "run.sh"
