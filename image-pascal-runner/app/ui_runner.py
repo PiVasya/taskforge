@@ -3,6 +3,7 @@ import shlex
 import signal
 import subprocess
 import time
+import re
 import logging
 import sys
 import threading
@@ -149,6 +150,11 @@ def _digits_only(tokens: list[str]) -> list[str]:
     # xdotool window ids are decimal numbers
     return [t for t in tokens if t.strip().isdigit()]
 
+def _has_cmd(name: str) -> bool:
+    """Cheap availability check for external commands."""
+    return shutil.which(name) is not None
+
+
 
 def _xdotool_get_geometry(win: str, *, env: dict, log_prefix: str = "") -> tuple[int, int, int, int] | None:
     cp = _run_cmd(["xdotool", "getwindowgeometry", "--shell", win], env=env, timeout=3)
@@ -172,6 +178,15 @@ def _xdotool_get_geometry(win: str, *, env: dict, log_prefix: str = "") -> tuple
 def _xdotool_get_name(win: str, *, env: dict, log_prefix: str = "") -> str:
     cp = _run_cmd(["xdotool", "getwindowname", win], env=env, timeout=3)
     return (cp.stdout or "").strip()
+
+
+def _xdotool_get_activewindow(*, env: dict, log_prefix: str = "") -> Optional[str]:
+    """Return current active window id (decimal) inside DISPLAY."""
+    cp = _run_cmd(["xdotool", "getactivewindow"], env=env, timeout=2)
+    if cp.returncode != 0:
+        return None
+    win = (cp.stdout or "").strip()
+    return win if win.isdigit() else None
 
 
 def _xdotool_search(
@@ -300,6 +315,16 @@ def _drawman_start(win: str, geo: tuple[int, int, int, int] | None, *, env: dict
     if not _which("xdotool", log_prefix=log_prefix):
         return
 
+    # Try to hit the 'Пуск (Enter)' button area first (more reliable than keys-only on some WMs).
+    if geo is not None:
+        x, y, w, h = geo
+        px = x + 70
+        py = y + h - 55
+        _LOG.debug("%s DRAWMAN_START pre-click PUSK area (%s,%s)", log_prefix, px, py)
+        _run(["xdotool", "mousemove", str(px), str(py)], timeout=2, env=env, log_prefix=log_prefix)
+        _run(["xdotool", "click", "1"], timeout=2, env=env, log_prefix=log_prefix)
+        time.sleep(0.12)
+
     _LOG.debug("%s DRAWMAN_START step1: Enter x3", log_prefix)
     for i in range(3):
         _LOG.debug("%s DRAWMAN_START Enter iter=%s", log_prefix, i + 1)
@@ -341,6 +366,33 @@ def _capture_root(out_png: Path, trim: bool, *, env: dict, log_prefix: str = "")
         cp2 = _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=15, env=env, log_prefix=log_prefix)
         if cp2.returncode != 0:
             raise RuntimeError("convert -trim failed")
+
+
+def _capture_root_crop(win: str, out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
+    """Fallback capture: grab root, then crop to window geometry to avoid black borders."""
+    tmp_root = out_png.with_suffix(out_png.suffix + ".root.png")
+    _capture_root(tmp_root, trim=False, env=env, log_prefix=log_prefix)
+
+    geo = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+    if geo and _which("convert", log_prefix=log_prefix):
+        x, y, w, h = geo
+        _LOG.debug("%s CROP root->win geo=%s", log_prefix, geo)
+        cp = _run(["convert", str(tmp_root), "-crop", f"{w}x{h}+{x}+{y}", "+repage", str(out_png)], timeout=20, env=env, log_prefix=log_prefix)
+        if cp.returncode != 0:
+            # if crop fails, keep root
+            tmp_root.replace(out_png)
+    else:
+        # no geometry/convert: keep root
+        tmp_root.replace(out_png)
+
+    if trim and _which("convert", log_prefix=log_prefix):
+        _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=20, env=env, log_prefix=log_prefix)
+
+    try:
+        if tmp_root.exists():
+            tmp_root.unlink()
+    except Exception:
+        pass
 
 
 def _start_xvfb(xvfb_screen: str, timeout: float, *, log_prefix: str = "") -> tuple[subprocess.Popen, dict]:
@@ -444,7 +496,7 @@ def run_ui_and_capture(
         _LOG.debug("%s MONO_PID=%s", log_prefix, mono_proc.pid)
 
         # Give UI a moment
-        time.sleep(0.6)
+        time.sleep(0.9)
         _LOG.debug("%s after initial sleep 0.6s", log_prefix)
 
         # Find window
@@ -456,6 +508,13 @@ def run_ui_and_capture(
 
         if win is not None:
             _xdotool_focus(win, env=xenv, log_prefix=log_prefix)
+            # Sometimes xdotool search returns a child/frame window. After activation,
+            # use the actual active to send keys/capture.
+            active = _xdotool_get_activewindow(env=xenv, log_prefix=log_prefix)
+            if active and active != win:
+                _LOG.debug("%s ACTIVE_WIN switch %s -> %s", log_prefix, win, active)
+                win = active
+
             geo = _xdotool_click_center(win, env=xenv, log_prefix=log_prefix)
             _LOG.debug("%s WINDOW_GEO=%s", log_prefix, geo)
             if strat.mode == "DrawMan":
@@ -468,7 +527,15 @@ def run_ui_and_capture(
         _LOG.debug("%s DRAW_WAIT sleep %.3fs", log_prefix, wait_s)
         time.sleep(wait_s)
 
-        _capture_root(out_png, trim=trim, env=xenv, log_prefix=log_prefix)
+        # Capture
+        if win is not None:
+            try:
+                _capture_window(win, out_png, trim=trim, env=xenv, log_prefix=log_prefix)
+            except Exception as e:
+                _LOG.warning(f"{log_prefix}CAPTURE_WINDOW failed: {e}; falling back to root crop")
+                _capture_root_crop(win, out_png, trim=trim, env=xenv, log_prefix=log_prefix)
+        else:
+            _capture_root(out_png, trim=trim, env=xenv, log_prefix=log_prefix)
 
         # log sizes
         if out_png.exists():
