@@ -13,32 +13,23 @@ RUN apt-get update \
     libgtk2.0-0 \
   && rm -rf /var/lib/apt/lists/*
 
-# Install PascalABC.NET console compiler (pabcnetc.exe)
-# Official download link: https://pascalabc.net/downloads/PABCNETC.zip
+# ============================================================
+# Variant A: PABCNETC.zip is stored INSIDE the repository
+# Put file here (example path):
+#   image-pascal-runner/vendor/PABCNETC.zip
+# ============================================================
+
+# Copy local archive into the image (no network download -> no 403)
+COPY vendor/PABCNETC.zip /tmp/PABCNETC.zip
+
+# Extract PascalABC.NET console compiler (pabcnetc.exe)
 RUN mkdir -p /opt/pabcnetc \
-  # Some environments (e.g. GitHub Actions) get 403 on direct downloads unless a browser-like User-Agent/Referer is set. \
-  && (curl -fL --retry 3 --retry-all-errors \
-        -A "Mozilla/5.0" \
-        -e "https://pascalabc.net/ssyilki-dlya-skachivaniya" \
-        -o /tmp/PABCNETC.zip \
-        https://pascalabc.net/downloads/PABCNETC.zip \
-      || curl -fL --retry 3 --retry-all-errors \
-        -A "Mozilla/5.0" \
-        -e "https://pascalabc.net/ssyilki-dlya-skachivaniya" \
-        -o /tmp/PABCNETC.zip \
-        http://pascalabc.net/downloads/PABCNETC.zip \
-      || wget --tries=3 --timeout=30 \
-        --user-agent="Mozilla/5.0" \
-        --referer="https://pascalabc.net/ssyilki-dlya-skachivaniya" \
-        -O /tmp/PABCNETC.zip \
-        https://pascalabc.net/downloads/PABCNETC.zip) \
-  # PABCNETC.zip contains some files with non-UTF filenames; Info-ZIP 'unzip' may exit with code 1 \
-  # while still extracting everything ("mismatching local filename" warning). \
+  # PABCNETC.zip contains some files with non-UTF filenames; Info-ZIP 'unzip' may exit with code 1
+  # while still extracting everything ("mismatching local filename" warning).
   && (unzip -q /tmp/PABCNETC.zip -d /opt/pabcnetc || true) \
-  # Ensure the compiler is actually present so the build fails only when extraction truly failed. \
+  # Ensure the compiler is actually present so the build fails only when extraction truly failed.
   && test -n "$(find /opt/pabcnetc -maxdepth 6 -iname 'pabcnetc.exe' -print -quit)" \
   && rm -f /tmp/PABCNETC.zip
-
 
 # Some Mono apps expect a writable registry path inside containers
 ENV MONO_REGISTRY_PATH=/tmp/mono-registry
