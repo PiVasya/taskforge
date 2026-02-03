@@ -16,6 +16,21 @@ import shutil
 # LOGGING: максимально подробные логи в stdout контейнера
 # =========================================================
 _LOG = logging.getLogger("tf.pascal.ui")
+def _run_cmd(cmd, env=None, timeout=10, cwd=None):
+    """
+    Запуск команды с захватом stdout/stderr.
+    Возвращает subprocess.CompletedProcess (cp.returncode / cp.stdout / cp.stderr).
+    """
+    return subprocess.run(
+        cmd,
+        env=env,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _start_window_manager(*, env: dict, log_prefix: str = "") -> Optional[subprocess.Popen]:
