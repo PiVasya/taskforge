@@ -95,20 +95,40 @@ def _xdotool_search(pid: int, name_regex: str, max_wait: float, *, env: dict, lo
 
     deadline = time.time() + max_wait
     attempt = 0
+
+    # xdotool uses POSIX regex. Depending on build flags, alternation like "a|b" may
+    # not work as expected. We therefore derive a few simple tokens and try them one
+    # by one as a fallback.
+    name_tokens: list[str] = []
+    cleaned = name_regex.strip()
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        cleaned = cleaned[1:-1].strip()
+    if "|" in cleaned:
+        for t in cleaned.split("|"):
+            t = t.strip()
+            if t:
+                name_tokens.append(t)
+    if not name_tokens:
+        name_tokens = [name_regex]
     while time.time() < deadline:
         attempt += 1
 
-        cp = _run(["xdotool", "search", "--onlyvisible", "--pid", str(pid)], timeout=2, env=env, log_prefix=log_prefix)
+        # IMPORTANT:
+        # Under Xvfb we may run without a window manager. In that case a top-level
+        # window can exist but not be considered "visible" by xdotool.
+        # Using --onlyvisible makes the search flaky (DrawMan is exactly this case).
+        cp = _run(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env, log_prefix=log_prefix)
         wins = _digits_only(cp.stdout.split())
         if wins:
             _LOG.debug("%s WIN_FOUND by pid attempt=%s => %s", log_prefix, attempt, wins[0])
             return wins[0]
 
-        cp = _run(["xdotool", "search", "--onlyvisible", "--name", name_regex], timeout=2, env=env, log_prefix=log_prefix)
-        wins = _digits_only(cp.stdout.split())
-        if wins:
-            _LOG.debug("%s WIN_FOUND by name attempt=%s => %s", log_prefix, attempt, wins[0])
-            return wins[0]
+        for token in name_tokens:
+            cp = _run(["xdotool", "search", "--all", "--name", token], timeout=3, env=env, log_prefix=log_prefix)
+            wins = _digits_only(cp.stdout.split())
+            if wins:
+                _LOG.debug("%s WIN_FOUND by name token=%r attempt=%s => %s", log_prefix, token, attempt, wins[0])
+                return wins[0]
 
         _LOG.debug("%s WIN_SEARCH attempt=%s not found; sleep 100ms", log_prefix, attempt)
         time.sleep(0.1)
