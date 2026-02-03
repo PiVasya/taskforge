@@ -174,88 +174,96 @@ def _xdotool_get_name(win: str, *, env: dict, log_prefix: str = "") -> str:
     return (cp.stdout or "").strip()
 
 
-def _xdotool_search(pid: int, name_regex: str, max_wait: float, *, env: dict, log_prefix: str = "") -> str | None:
-    if not _which("xdotool", log_prefix=log_prefix):
+def _xdotool_search(pid: int, name_regex: str, env: dict, timeout: float, *, log_prefix: str = "") -> Optional[str]:
+    _LOG.debug(f"{log_prefix}WINDOW_SEARCH wait={timeout:.1f}s")
+    if not _has_cmd("xdotool"):
+        _LOG.warning(f"{log_prefix}xdotool not available")
         return None
 
-    deadline = time.time() + max_wait
-    attempt = 0
-
-    # xdotool uses POSIX regex. Depending on build flags, alternation like "a|b" may
-    # not work as expected. We therefore derive a few simple tokens and try them one
-    # by one as a fallback.
-    name_tokens: list[str] = []
-    cleaned = name_regex.strip()
-    if cleaned.startswith("(") and cleaned.endswith(")"):
-        cleaned = cleaned[1:-1].strip()
-    if "|" in cleaned:
-        for t in cleaned.split("|"):
-            t = t.strip()
-            if t:
-                name_tokens.append(t)
-    if not name_tokens:
-        name_tokens = [name_regex]
-    name_re = None
-    try:
-        name_re = re.compile(name_regex, re.IGNORECASE)
-    except Exception:
-        name_re = None
+    def _get_window_name(win: str) -> str:
+        rc, out, _ = _run_cmd(["xdotool", "getwindowname", win], timeout=2, env=env)
+        return out.strip() if rc == 0 else ""
 
     def pick_best(wins: list[str]) -> str:
-        """Choose the most likely real app window.
+        # Prefer windows whose title matches name_regex; otherwise choose largest by geometry.
+        matches: list[str] = []
+        for win in wins:
+            title = _get_window_name(win)
+            if title and re.search(name_regex, title, flags=re.IGNORECASE):
+                matches.append(win)
 
-        xdotool may return multiple windows for one PID (splash, helper, tiny 10x10,
-        etc.). We pick:
-          1) any window whose title matches name_regex (if we can read the title)
-          2) otherwise the largest window by area.
-        """
-        best = wins[0]
+        candidates = matches or wins
+        best = candidates[0]
         best_area = -1
-        best_match = False
-        for w in wins:
-            geo = _xdotool_get_geometry(w, env=env, log_prefix=log_prefix)
-            if geo:
-                _, _, ww, hh = geo
-                area = ww * hh
-            else:
-                area = 0
-            title = _xdotool_get_name(w, env=env, log_prefix=log_prefix)
-            is_match = bool(name_re.search(title)) if (name_re and title) else False
-            if is_match and not best_match:
-                best, best_area, best_match = w, area, True
+        for win in candidates:
+            geo = _xdotool_get_geometry(win, env=env)
+            if not geo:
                 continue
-            if is_match == best_match and area > best_area:
-                best, best_area = w, area
+            area = geo[2] * geo[3]
+            if area > best_area:
+                best_area = area
+                best = win
         return best
+
+    # Some UIs appear as a tiny placeholder window first (e.g., 10x10) and then resize.
+    # We keep polling until we see a window of a reasonable size, otherwise we may focus/capture the wrong thing.
+    MIN_W, MIN_H = 200, 150
+    best_candidate: Optional[str] = None
+    best_area: int = -1
+
+    deadline = time.time() + timeout
+    attempt = 0
 
     while time.time() < deadline:
         attempt += 1
 
-        # IMPORTANT:
-        # Under Xvfb we may run without a window manager. In that case a top-level
-        # window can exist but not be considered "visible" by xdotool.
-        # Using --onlyvisible makes the search flaky (DrawMan is exactly this case).
-        cp = _run(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env, log_prefix=log_prefix)
-        wins = _digits_only(cp.stdout.split())
-        if wins:
-            chosen = pick_best(wins)
-            _LOG.debug("%s WIN_FOUND by pid attempt=%s => %s (all=%s)", log_prefix, attempt, chosen, wins)
-            return chosen
+        # 1) Prefer windows owned by the process
+        rc, out, err = _run_cmd(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env)
+        if rc == 0 and out.strip():
+            wins = out.strip().split()
+            win = pick_best(wins)
+            geo = _xdotool_get_geometry(win, env=env)
+            if geo:
+                area = geo[2] * geo[3]
+                if area > best_area:
+                    best_area, best_candidate = area, win
+                if geo[2] >= MIN_W and geo[3] >= MIN_H:
+                    _LOG.debug(f"{log_prefix}WIN_FOUND by pid attempt={attempt} => {win} geo={geo} (all={wins})")
+                    return win
+                _LOG.debug(f"{log_prefix}WIN_TINY by pid attempt={attempt} => {win} geo={geo} (waiting for resize)")
+            else:
+                # No geometry info; accept.
+                _LOG.debug(f"{log_prefix}WIN_FOUND by pid attempt={attempt} => {win} (no-geo)")
+                return win
 
-        for token in name_tokens:
-            cp = _run(["xdotool", "search", "--all", "--name", token], timeout=3, env=env, log_prefix=log_prefix)
-            wins = _digits_only(cp.stdout.split())
-            if wins:
-                chosen = pick_best(wins)
-                _LOG.debug("%s WIN_FOUND by name token=%r attempt=%s => %s (all=%s)", log_prefix, token, attempt, chosen, wins)
-                return chosen
+        # 2) Fallback: global search by title tokens from regex (useful if the window is reparented)
+        tokens = [t.strip(" ()") for t in name_regex.split("|") if t.strip(" ()")]
+        for t in tokens:
+            rc2, out2, _ = _run_cmd(["xdotool", "search", "--all", "--name", t], timeout=2, env=env)
+            if rc2 == 0 and out2.strip():
+                wins2 = out2.strip().split()
+                win2 = pick_best(wins2)
+                geo2 = _xdotool_get_geometry(win2, env=env)
+                if geo2:
+                    area2 = geo2[2] * geo2[3]
+                    if area2 > best_area:
+                        best_area, best_candidate = area2, win2
+                    if geo2[2] >= MIN_W and geo2[3] >= MIN_H:
+                        _LOG.debug(f"{log_prefix}WIN_FOUND by name token='{t}' attempt={attempt} => {win2} geo={geo2}")
+                        return win2
+                    _LOG.debug(f"{log_prefix}WIN_TINY by name token='{t}' attempt={attempt} => {win2} geo={geo2} (waiting)")
+                else:
+                    _LOG.debug(f"{log_prefix}WIN_FOUND by name token='{t}' attempt={attempt} => {win2} (no-geo)")
+                    return win2
 
-        _LOG.debug("%s WIN_SEARCH attempt=%s not found; sleep 100ms", log_prefix, attempt)
-        time.sleep(0.1)
+        time.sleep(0.15)
 
+    if best_candidate:
+        _LOG.debug(f"{log_prefix}WINDOW_SEARCH fallback => {best_candidate} area={best_area}")
+        return best_candidate
+
+    _LOG.warning(f"{log_prefix}WINDOW_SEARCH failed (timeout={timeout:.1f}s)")
     return None
-
-
 def _xdotool_focus(win: str, *, env: dict, log_prefix: str = "") -> None:
     _LOG.debug("%s FOCUS win=%s", log_prefix, win)
     # With a WM, this usually works. If it doesn't, we still proceed with a click.
@@ -311,6 +319,19 @@ def _drawman_start(win: str, geo: tuple[int, int, int, int] | None, *, env: dict
         _run(["xdotool", "click", "1"], timeout=2, env=env, log_prefix=log_prefix)
         time.sleep(0.1)
         _run(["xdotool", "key", "--window", win, "Return"], timeout=2, env=env, log_prefix=log_prefix)
+
+
+def _capture_window(win: str, out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
+    if not _has_cmd("import"):
+        raise RuntimeError("ImageMagick 'import' not found")
+
+    _LOG.debug(f"{log_prefix}CAPTURE win={win} => {out_png}")
+    rc, _, err = _run_cmd(["import", "-window", win, str(out_png)], timeout=15, env=env)
+    if rc != 0:
+        raise RuntimeError(f"capture failed rc={rc}: {err.strip()}")
+
+    if trim:
+        _trim_png(out_png, env=env, log_prefix=log_prefix)
 
 
 def _capture_root(out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
@@ -454,7 +475,11 @@ def run_ui_and_capture(
         _LOG.debug("%s DRAW_WAIT sleep %.3fs", log_prefix, wait_s)
         time.sleep(wait_s)
 
-        _capture_root(out_png, trim=trim, env=xenv, log_prefix=log_prefix)
+        try:
+            _capture_window(win, out_png, trim=trim, env=xenv, log_prefix=log_prefix)
+        except Exception as e:
+            _LOG.warning(f"{log_prefix}CAPTURE_WINDOW failed: {e}; falling back to root capture")
+            _capture_root(out_png, trim=trim, env=xenv, log_prefix=log_prefix)
 
         # log sizes
         if out_png.exists():
