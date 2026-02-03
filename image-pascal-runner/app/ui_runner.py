@@ -1,336 +1,737 @@
 import os
-import re
-import shutil
+import shlex
+import signal
 import subprocess
-import tempfile
 import time
+import re
+import logging
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
-
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel, Field
-
-app = FastAPI(title="taskforge image pascal runner (DrawMan safe capture)")
-
-# -------------------------
-# ENV / CONFIG
-# -------------------------
-PABCNETC = os.getenv("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
-
-SCREEN_W = int(os.getenv("TF_SCREEN_W", "1024"))
-SCREEN_H = int(os.getenv("TF_SCREEN_H", "768"))
-SCREEN_D = int(os.getenv("TF_SCREEN_D", "24"))
-
-RUN_LANG = os.getenv("TF_LANG", "C.UTF-8")
-RUN_LC_ALL = os.getenv("TF_LC_ALL", "C.UTF-8")
-
-DISPLAY = os.getenv("DISPLAY", ":99")
-
-# Strategy tuning
-DRAW_WAIT_SECONDS = float(os.getenv("TF_DRAWMAN_DRAW_WAIT", "0.6"))
-WIN_SEARCH_WAIT_SECONDS = float(os.getenv("TF_DRAWMAN_WIN_WAIT", "14.0"))
-
-# Regex for DrawMan window title (tweak if needed)
-DEFAULT_DRAWMAN_WINDOW_REGEX = os.getenv("TF_DRAWMAN_WIN_REGEX", r"DrawMan|Робот|Черепаха|Рисователь")
-
-# Mono runner (most containers run PascalABC.NET output through mono)
-MONO = os.getenv("TF_MONO", "mono")
-
-# Tool paths (expected in image)
-XDOTOOL = os.getenv("TF_XDOTOOL", "xdotool")
-IMPORT = os.getenv("TF_IMPORT", "import")      # ImageMagick
-CONVERT = os.getenv("TF_CONVERT", "convert")   # ImageMagick
+from typing import Optional, List, Tuple
+import shutil
 
 
-class RenderRequest(BaseModel):
-    source: str = Field(..., description="PascalABC.NET source code (GraphABC / DrawMan)")
-    timeout_seconds: int = Field(20, ge=1, le=120)
-    debug: bool = Field(False, description="Enable verbose logs")
-
-
-@dataclass
-class UiStrategy:
-    window_name_regex: str = DEFAULT_DRAWMAN_WINDOW_REGEX
-    win_search_wait: float = WIN_SEARCH_WAIT_SECONDS
-    draw_wait_seconds: float = DRAW_WAIT_SECONDS
-
-
-# -------------------------
-# Helpers
-# -------------------------
-def _env_base() -> dict:
-    e = os.environ.copy()
-    e["DISPLAY"] = DISPLAY
-    e["LANG"] = RUN_LANG
-    e["LC_ALL"] = RUN_LC_ALL
-    return e
-
-
-def _run_cmd(cmd, *, env=None, timeout=10, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
+# =========================================================
+# LOGGING: максимально подробные логи в stdout контейнера
+# =========================================================
+_LOG = logging.getLogger("tf.pascal.ui")
+def _run_cmd(cmd, env=None, timeout=10, cwd=None):
+    """
+    Запуск команды с захватом stdout/stderr.
+    Возвращает subprocess.CompletedProcess (cp.returncode / cp.stdout / cp.stderr).
+    """
     return subprocess.run(
         cmd,
         env=env,
         cwd=cwd,
-        timeout=timeout,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        timeout=timeout,
+        check=False,
     )
 
 
-def _require_tools():
-    missing = []
-    for t in [XDOTOOL, IMPORT, CONVERT]:
-        if shutil.which(t) is None:
-            missing.append(t)
-    if shutil.which(MONO) is None:
-        # mono might be optional depending on how you run compiled output
-        missing.append(MONO)
-    if missing:
-        raise HTTPException(status_code=500, detail=f"Missing tools in container: {', '.join(missing)}")
+def _start_window_manager(*, env: dict, log_prefix: str = "") -> Optional[subprocess.Popen]:
+    """Start a lightweight WM inside Xvfb.
 
-
-def _xdotool_window_exists(win: str, *, env: dict) -> bool:
-    cp = _run_cmd([XDOTOOL, "getwindowname", win], env=env, timeout=2)
-    return cp.returncode == 0 and (cp.stdout or "").strip() != ""
-
-
-def _xdotool_search_by_pid(pid: int, name_regex: str, *, env: dict, max_wait: float) -> Optional[str]:
+    Under bare Xvfb (no WM), xdotool windowactivate/windowfocus is unreliable
+    and may produce errors like "Your windowmanager claims not to support
+    _NET_ACTIVE_WINDOW". DrawMan often needs actual focus to accept Enter/Space.
     """
-    Search for first window matching pid+regex.
-    """
-    deadline = time.time() + max_wait
-    while time.time() < deadline:
-        cp = _run_cmd([XDOTOOL, "search", "--pid", str(pid), "--name", name_regex], env=env, timeout=2)
-        if cp.returncode == 0:
-            wins = [w.strip() for w in (cp.stdout or "").split() if w.strip()]
-            if wins:
-                return wins[0]
-        time.sleep(0.2)
+
+    for cmd in ("openbox", "fluxbox", "xfwm4", "metacity"):
+        if shutil.which(cmd):
+            try:
+                _LOG.debug("%sWM_START cmd=%s", log_prefix, cmd)
+                p = subprocess.Popen(
+                    [cmd],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                # give WM a moment to become ready
+                time.sleep(0.35)
+                return p
+            except Exception as e:
+                _LOG.debug("%sWM_START failed cmd=%s err=%r", log_prefix, cmd, e)
+                continue
+    _LOG.debug("%sWM_START skipped (no WM found)", log_prefix)
     return None
 
 
-def _xdotool_focus(win: str, *, env: dict):
-    _run_cmd([XDOTOOL, "windowactivate", "--sync", win], env=env, timeout=4)
+def _stop_proc(p: Optional[subprocess.Popen], *, name: str, log_prefix: str = "") -> None:
+    if not p:
+        return
+    try:
+        _LOG.debug("%sSTOP %s pid=%s", log_prefix, name, p.pid)
+        p.terminate()
+        try:
+            p.wait(timeout=1.5)
+        except Exception:
+            p.kill()
+    except Exception:
+        pass
 
 
-def _xdotool_click_center(win: str, *, env: dict):
-    # Move to center and click (helps when focus is flaky)
-    _run_cmd([XDOTOOL, "mousemove", "--window", win, "50%", "50%"], env=env, timeout=3)
-    _run_cmd([XDOTOOL, "click", "--window", win, "1"], env=env, timeout=3)
+_LOG.setLevel(logging.DEBUG)
+if not _LOG.handlers:
+    h = logging.StreamHandler(sys.stdout)
+    h.setLevel(logging.DEBUG)
+    h.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    _LOG.addHandler(h)
+    _LOG.propagate = False
 
 
-def _safe_get_win(pid: int, strat: UiStrategy, *, env: dict) -> Optional[str]:
-    return _xdotool_search_by_pid(pid, strat.window_name_regex, env=env, max_wait=strat.win_search_wait)
+@dataclass
+class UiStrategy:
+    mode: str
+    window_name_regex: str
+    draw_wait_seconds: float
 
 
-def _safe_key(pid: int, win: Optional[str], key: str, strat: UiStrategy, *, env: dict) -> Optional[str]:
+STRATEGIES = {
+    "DrawMan": UiStrategy(
+        mode="DrawMan",
+        window_name_regex=r"(Чертежник|Поле|DrawMan|ПаскальАБЦ|PascalABC)",
+        draw_wait_seconds=float(os.getenv("TF_DRAWMAN_DRAW_WAIT", "9.5")),
+    ),
+    "GraphABC": UiStrategy(
+        mode="GraphABC",
+        window_name_regex=r"(GraphABC|PascalABC)",
+        draw_wait_seconds=float(os.getenv("TF_GRAPHABC_DRAW_WAIT", "0.8")),
+    ),
+    "Pascal": UiStrategy(
+        mode="Pascal",
+        window_name_regex=r"(PascalABC)",
+        draw_wait_seconds=float(os.getenv("TF_PASCAL_DRAW_WAIT", "0.6")),
+    ),
+}
+
+
+def _merge_env(env: dict | None) -> dict:
+    if env is None:
+        return os.environ.copy()
+    out = os.environ.copy()
+    out.update(env)
+    return out
+
+
+def _run(cmd: list[str], timeout: float | None = None, *, env: dict | None = None, log_prefix: str = "") -> subprocess.CompletedProcess:
+    _LOG.debug("%s CMD %s (timeout=%s) ENV_DISPLAY=%s", log_prefix, cmd, timeout, (env or {}).get("DISPLAY"))
+    cp = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=timeout,
+        env=_merge_env(env),
+    )
+    out = (cp.stdout or "").strip()
+    _LOG.debug("%s RC=%s OUT_LEN=%s", log_prefix, cp.returncode, len(cp.stdout or ""))
+    if out:
+        head = out[:2000]
+        tail = out[-4000:] if len(out) > 4000 else ""
+        _LOG.debug("%s OUT_HEAD:\n%s", log_prefix, head)
+        if tail:
+            _LOG.debug("%s OUT_TAIL:\n%s", log_prefix, tail)
+    return cp
+
+
+def _which(name: str, *, log_prefix: str = "") -> bool:
+    ok = subprocess.call(["bash", "-lc", f"command -v {shlex.quote(name)} >/dev/null 2>&1"]) == 0
+    _LOG.debug("%s WHICH %s => %s", log_prefix, name, ok)
+    return ok
+
+
+def _digits_only(tokens: list[str]) -> list[str]:
+    # xdotool window ids are decimal numbers
+    return [t for t in tokens if t.strip().isdigit()]
+
+def _has_cmd(name: str) -> bool:
+    """Cheap availability check for external commands."""
+    return shutil.which(name) is not None
+
+
+def _parse_xvfb_screen(screen: str) -> tuple[int, int] | None:
+    """Parse '1024x768x24' -> (1024, 768)."""
+    m = re.match(r"^\s*(\d+)x(\d+)x(\d+)\s*$", screen)
+    if not m:
+        return None
+    try:
+        return int(m.group(1)), int(m.group(2))
+    except Exception:
+        return None
+
+
+def _xwininfo_tree_windows(*, env: dict, log_prefix: str = "") -> list[tuple[str, str, int, int, int, int]]:
+    """Return [(win_dec, title, w, h, x, y), ...] from `xwininfo -root -tree`.
+
+    This is a fallback for cases when xdotool only sees a tiny helper window.
     """
-    Send key to window reliably:
-    - if win missing/dead => re-search
-    - if send fails => re-search once and retry
-    """
-    if (not win) or (not _xdotool_window_exists(win, env=env)):
-        win = _safe_get_win(pid, strat, env=env)
-        if not win:
-            return None
+    if not _has_cmd("xwininfo"):
+        return []
+    try:
+        cp = _run_cmd(["xwininfo", "-root", "-tree"], env=env, timeout=3)
+    except Exception:
+        return []
+    if cp.returncode != 0:
+        return []
 
-    cp = _run_cmd([XDOTOOL, "key", "--window", win, "--clearmodifiers", key], env=env, timeout=2)
-    if cp.returncode == 0:
-        return win
+    out: list[tuple[str, str, int, int, int, int]] = []
+    # Example line (varies):
+    #  0x3e00007 "Castle (symmetric)": ("main.exe" "Main.exe")  400x400+90+88  +90+88
+    rx = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+\"([^\"]*)\".*?\s(\d+)x(\d+)\+(-?\d+)\+(-?\d+)")
+    for line in (cp.stdout or "").splitlines():
+        m = rx.search(line)
+        if not m:
+            continue
+        hid, title, ws, hs, xs, ys = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6)
+        try:
+            win_dec = str(int(hid, 16))
+            w = int(ws)
+            h = int(hs)
+            x = int(xs)
+            y = int(ys)
+            out.append((win_dec, title.strip(), w, h, x, y))
+        except Exception:
+            continue
+    if out:
+        _LOG.debug("%s XWININFO_TREE windows=%s", log_prefix, len(out))
+    return out
 
-    # retry once with re-search (window may have died)
-    win2 = _safe_get_win(pid, strat, env=env)
-    if not win2:
-        return win
-    _run_cmd([XDOTOOL, "key", "--window", win2, "--clearmodifiers", key], env=env, timeout=2)
-    return win2
 
 
-def _xdotool_get_geometry(win: str, *, env: dict) -> Optional[Tuple[int, int, int, int]]:
-    """
-    Returns (x, y, w, h) from:
-    xdotool getwindowgeometry --shell <win>
-    """
-    cp = _run_cmd([XDOTOOL, "getwindowgeometry", "--shell", win], env=env, timeout=3)
+def _xdotool_get_geometry(win: str, *, env: dict, log_prefix: str = "") -> tuple[int, int, int, int] | None:
+    cp = _run_cmd(["xdotool", "getwindowgeometry", "--shell", win], env=env, timeout=3)
     if cp.returncode != 0:
         return None
-
-    # Example output:
-    # X=123
-    # Y=45
-    # WIDTH=800
-    # HEIGHT=600
-    x = y = w = h = None
+    vals = {}
     for line in (cp.stdout or "").splitlines():
-        line = line.strip()
-        if line.startswith("X="):
-            x = int(line[2:])
-        elif line.startswith("Y="):
-            y = int(line[2:])
-        elif line.startswith("WIDTH="):
-            w = int(line[6:])
-        elif line.startswith("HEIGHT="):
-            h = int(line[7:])
-    if None in (x, y, w, h):
+        if "=" in line:
+            k, v = line.split("=", 1)
+            vals[k.strip()] = v.strip()
+    try:
+        x = int(vals.get("X", "0"))
+        y = int(vals.get("Y", "0"))
+        w = int(vals.get("WIDTH", "0"))
+        h = int(vals.get("HEIGHT", "0"))
+        return x, y, w, h
+    except Exception:
         return None
+
+
+def _xdotool_get_name(win: str, *, env: dict, log_prefix: str = "") -> str:
+    cp = _run_cmd(["xdotool", "getwindowname", win], env=env, timeout=3)
+    return (cp.stdout or "").strip()
+
+
+def _xdotool_get_activewindow(*, env: dict, log_prefix: str = "") -> Optional[str]:
+    """Return current active window id (decimal) inside DISPLAY."""
+    cp = _run_cmd(["xdotool", "getactivewindow"], env=env, timeout=2)
+    if cp.returncode != 0:
+        return None
+    win = (cp.stdout or "").strip()
+    return win if win.isdigit() else None
+
+
+def _xdotool_search(
+    pid: int,
+    name_regex: str,
+    max_wait: float | None = None,
+    *,
+    env: dict,
+    log_prefix: str = "",
+    timeout: float | None = None,
+    screen_size: tuple[int, int] | None = None,
+) -> str | None:
+    if not _which("xdotool", log_prefix=log_prefix):
+        return None
+
+    # Backward/forward compatibility:
+    # - older callers pass `max_wait`
+    # - some forks pass `timeout` instead
+    if max_wait is None:
+        max_wait = timeout if timeout is not None else 10.0
+
+    deadline = time.time() + float(max_wait)
+    attempt = 0
+
+    # xdotool uses POSIX regex. Depending on build flags, alternation like "a|b" may
+    # not work as expected. We therefore derive a few simple tokens and try them one
+    # by one as a fallback.
+    name_tokens: list[str] = []
+    cleaned = name_regex.strip()
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        cleaned = cleaned[1:-1].strip()
+    if "|" in cleaned:
+        for t in cleaned.split("|"):
+            t = t.strip()
+            if t:
+                name_tokens.append(t)
+    if not name_tokens:
+        name_tokens = [name_regex]
+    name_re = None
+    try:
+        name_re = re.compile(name_regex, re.IGNORECASE)
+    except Exception:
+        name_re = None
+
+    def pick_best(wins: list[str]) -> str:
+        """Choose the most likely real app window.
+
+        IMPORTANT: PascalABC/GraphABC/DrawMan may create multiple windows or
+        windows owned by a different PID. xdotool also often returns tiny helper
+        windows (10x10, 1x1, etc.). We therefore score windows by:
+          1) title match against name_regex (if available)
+          2) usable size (prefer larger)
+        while aggressively ignoring tiny windows unless there is no alternative.
+        """
+
+        def _score(win: str) -> tuple[int, int]:
+            geo = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+            if geo:
+                _, _, ww, hh = geo
+                area = max(0, ww) * max(0, hh)
+            else:
+                ww = hh = 0
+                area = 0
+
+            title = _xdotool_get_name(win, env=env, log_prefix=log_prefix)
+            title_match = 1 if (name_re and title and name_re.search(title)) else 0
+
+            # Penalize extremely small "helper" windows.
+            if ww < 80 or hh < 80:
+                area = area // 100
+
+            # Penalize desktop/root-sized unnamed windows (common with WMs in Xvfb).
+            if screen_size and (not title or title.strip() == ""):
+                sw, sh = screen_size
+                if sw > 0 and sh > 0 and ww >= int(sw * 0.92) and hh >= int(sh * 0.92):
+                    area = area // 50
+
+            return (title_match, area)
+
+        best = wins[0]
+        best_score = _score(best)
+        for w in wins[1:]:
+            sc = _score(w)
+            if sc > best_score:
+                best, best_score = w, sc
+        return best
+
+    def _gather_candidates() -> list[str]:
+        """Gather window ids from multiple heuristics."""
+        found: list[str] = []
+
+        # 1) By PID (may include helpers).
+        cp = _run(["xdotool", "search", "--all", "--pid", str(pid)], timeout=3, env=env, log_prefix=log_prefix)
+        for w in _digits_only(cp.stdout.split()):
+            if w not in found:
+                found.append(w)
+
+        # 2) By name tokens (more reliable when window PID differs).
+        for token in name_tokens:
+            cp = _run(["xdotool", "search", "--all", "--name", token], timeout=3, env=env, log_prefix=log_prefix)
+            for w in _digits_only(cp.stdout.split()):
+                if w not in found:
+                    found.append(w)
+
+        return found
+
+    def _is_usable(win: str) -> bool:
+        geo = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+        if not geo:
+            return False
+        _, _, ww, hh = geo
+        if ww >= 120 and hh >= 120:
+            return True
+        # allow smaller only if title matches strongly
+        title = _xdotool_get_name(win, env=env, log_prefix=log_prefix)
+        return bool(name_re and title and name_re.search(title))
+
+    while time.time() < deadline:
+        attempt += 1
+
+        wins = _gather_candidates()
+        if wins:
+            chosen = pick_best(wins)
+            geo = _xdotool_get_geometry(chosen, env=env, log_prefix=log_prefix)
+            _LOG.debug("%s WIN_CANDIDATES attempt=%s chosen=%s geo=%s all=%s", log_prefix, attempt, chosen, geo, wins)
+            # If we only see a tiny helper window, keep waiting/searching.
+            if _is_usable(chosen):
+                return chosen
+            _LOG.debug("%s WIN_TOO_SMALL attempt=%s chosen=%s; retry", log_prefix, attempt, chosen)
+
+            # Sometimes xdotool only sees a tiny stub window for the process.
+            # As a fallback, scan Xvfb's window tree via xwininfo and try to
+            # locate a bigger window whose title matches our regex.
+            try:
+                xwins = _xwininfo_tree_windows(env=env, log_prefix=log_prefix)
+                if xwins:
+                    # filter by title regex and usability
+                    candidates: list[tuple[int, str, int, int, int, int]] = []
+                    for wi in xwins:
+                        title = wi[1] or ""
+                        if name_re and not name_re.search(title):
+                            continue
+                        candidates.append(wi)
+                    # fall back to any windows if regex didn't match (better than 10x10)
+                    if not candidates:
+                        candidates = xwins
+                    # choose biggest usable
+                    best = None
+                    best_area = -1
+                    for wid_int, title, x, y, w, h in candidates:
+                        area = w * h
+                        if (w < 80 or h < 80):
+                            continue
+                        # avoid grabbing the full-screen root/desktop
+                        if screen_size and w >= screen_size[0] - 5 and h >= screen_size[1] - 5:
+                            continue
+                        if area > best_area:
+                            best_area = area
+                            best = wid_int
+                    if best is not None:
+                        best_dec = str(best)
+                        _LOG.debug("%s XWININFO_FALLBACK picked=%s", log_prefix, best_dec)
+                        return best_dec
+            except Exception as e:
+                _LOG.debug("%s XWININFO_FALLBACK error=%r", log_prefix, e)
+
+        _LOG.debug("%s WIN_SEARCH attempt=%s not found/usable; sleep 120ms", log_prefix, attempt)
+        time.sleep(0.12)
+
+    return None
+
+
+def _xdotool_focus(win: str, *, env: dict, log_prefix: str = "") -> None:
+    _LOG.debug("%s FOCUS win=%s", log_prefix, win)
+    # With a WM, this usually works. If it doesn't, we still proceed with a click.
+    _run(["xdotool", "windowmap", win], timeout=4, env=env, log_prefix=log_prefix)
+    _run(["xdotool", "windowraise", win], timeout=4, env=env, log_prefix=log_prefix)
+    _run(["xdotool", "windowactivate", "--sync", win], timeout=4, env=env, log_prefix=log_prefix)
+    _run(["xdotool", "windowfocus", win], timeout=4, env=env, log_prefix=log_prefix)
+    _xdotool_click_center(win, env=env, log_prefix=log_prefix)
+
+
+def _xdotool_click_center(win: str, *, env: dict, log_prefix: str = "") -> tuple[int, int, int, int] | None:
+    if not _which("xdotool", log_prefix=log_prefix):
+        return None
+
+    g = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+    if not g:
+        return None
+    x, y, w, h = g
+    cx, cy = x + max(10, w // 2), y + max(10, h // 2)
+    _LOG.debug("%s CLICK_CENTER geo=(%s,%s,%s,%s) center=(%s,%s)", log_prefix, x, y, w, h, cx, cy)
+
+    _run(["xdotool", "mousemove", str(cx), str(cy)], timeout=3, env=env, log_prefix=log_prefix)
+    _run(["xdotool", "click", "1"], timeout=3, env=env, log_prefix=log_prefix)
     return x, y, w, h
 
 
-def _capture_root_crop(win: str, out_png: Path, *, env: dict, trim: bool = True):
-    """
-    Stable capture:
-      import -window root root.png
-      convert root.png -crop WxH+X+Y (+trim) out.png
-    """
-    g = _xdotool_get_geometry(win, env=env)
-    if not g:
-        raise RuntimeError("Cannot get window geometry")
-    x, y, w, h = g
-    if w <= 0 or h <= 0:
-        raise RuntimeError(f"Bad geometry: {g}")
+def _drawman_start(win: str, geo: tuple[int, int, int, int] | None, *, env: dict, log_prefix: str = "") -> None:
+    if not _which("xdotool", log_prefix=log_prefix):
+        return
 
-    root_png = out_png.with_suffix(".root.png")
+    # Try to hit the 'Пуск (Enter)' button area first (more reliable than keys-only on some WMs).
+    if geo is not None:
+        x, y, w, h = geo
+        px = x + 70
+        py = y + h - 55
+        _LOG.debug("%s DRAWMAN_START pre-click PUSK area (%s,%s)", log_prefix, px, py)
+        _run(["xdotool", "mousemove", str(px), str(py)], timeout=2, env=env, log_prefix=log_prefix)
+        _run(["xdotool", "click", "1"], timeout=2, env=env, log_prefix=log_prefix)
+        time.sleep(0.12)
 
-    cp1 = _run_cmd([IMPORT, "-window", "root", str(root_png)], env=env, timeout=15)
-    if cp1.returncode != 0:
-        raise RuntimeError(f"import root failed: {cp1.stderr.strip()[:400]}")
+    _LOG.debug("%s DRAWMAN_START step1: Enter x3", log_prefix)
+    for i in range(3):
+        _LOG.debug("%s DRAWMAN_START Enter iter=%s", log_prefix, i + 1)
+        _run(["xdotool", "key", "--window", win, "Return"], timeout=2, env=env, log_prefix=log_prefix)
+        _run(["xdotool", "key", "--window", win, "KP_Enter"], timeout=2, env=env, log_prefix=log_prefix)
+        time.sleep(0.15)
 
-    crop_arg = f"{w}x{h}+{x}+{y}"
-    cmd = [CONVERT, str(root_png), "-crop", crop_arg, "+repage"]
-    if trim:
-        cmd += ["-trim", "+repage"]
-    cmd += [str(out_png)]
+    space_count = int(os.getenv("TF_DRAWMAN_SPACE_COUNT", "50"))
+    space_count = max(10, min(500, space_count))
+    _LOG.debug("%s DRAWMAN_START step2: spam spaces count=%s", log_prefix, space_count)
+    for i in range(space_count):
+        # ЛОГИ НА КАЖДЫЙ МИЛЛИМЕТР: логируем каждый пробел
+        _LOG.debug("%s DRAWMAN_START space i=%s/%s", log_prefix, i + 1, space_count)
+        _run(["xdotool", "key", "--window", win, "space"], timeout=2, env=env, log_prefix=log_prefix)
+        time.sleep(0.02)
 
-    cp2 = _run_cmd(cmd, env=env, timeout=20)
-    if cp2.returncode != 0:
-        raise RuntimeError(f"convert crop failed: {cp2.stderr.strip()[:400]}")
+    if geo is not None:
+        x, y, w, h = geo
+        px = x + 40
+        py = y + h - 20
+        _LOG.debug("%s DRAWMAN_START step3: click start area (%s,%s)", log_prefix, px, py)
+        _run(["xdotool", "mousemove", str(px), str(py)], timeout=2, env=env, log_prefix=log_prefix)
+        _run(["xdotool", "click", "1"], timeout=2, env=env, log_prefix=log_prefix)
+        time.sleep(0.1)
+        _run(["xdotool", "key", "--window", win, "Return"], timeout=2, env=env, log_prefix=log_prefix)
 
 
-def _compile_pascal(source: str, workdir: Path) -> Path:
-    """
-    Compile PascalABC.NET source into .exe (or .dll depending on pabcnetc).
-    We assume pabcnetc.exe is present and usable.
-    """
-    src = workdir / "main.pas"
-    src.write_text(source, encoding="utf-8")
+def _capture_root(out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
+    if not _which("import", log_prefix=log_prefix):
+        raise RuntimeError("ImageMagick import not found")
 
-    # Typical CLI: pabcnetc.exe main.pas
-    # Output usually main.exe in same folder.
-    cp = _run_cmd([PABCNETC, str(src)], env=_env_base(), timeout=60, cwd=str(workdir))
+    _LOG.debug("%s CAPTURE root => %s", log_prefix, out_png)
+    cp = _run(["import", "-window", "root", str(out_png)], timeout=15, env=env, log_prefix=log_prefix)
     if cp.returncode != 0:
-        msg = (cp.stdout or "") + "\n" + (cp.stderr or "")
-        raise HTTPException(status_code=400, detail=f"Compile failed:\n{msg[-2000:]}")
+        raise RuntimeError("import failed")
 
-    exe = workdir / "main.exe"
-    if not exe.exists():
-        # Some builds output .dll; try detect
-        dll = workdir / "main.dll"
-        if dll.exists():
-            return dll
-        # fallback: any exe in dir
-        exes = list(workdir.glob("*.exe"))
-        if exes:
-            return exes[0]
-        raise HTTPException(status_code=500, detail="Compile succeeded but output not found (no main.exe/main.dll).")
-    return exe
+    if trim and _which("convert", log_prefix=log_prefix):
+        _LOG.debug("%s TRIM png via convert", log_prefix)
+        cp2 = _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=15, env=env, log_prefix=log_prefix)
+        if cp2.returncode != 0:
+            raise RuntimeError("convert -trim failed")
 
 
-def _run_program_capture(exe_path: Path, timeout_seconds: int, debug: bool) -> bytes:
+def _capture_window(win: str, out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
+    """Capture a specific X11 window to PNG.
+
+    Uses ImageMagick `import -window <id>` which accepts either decimal or hex window ids.
+    We pass hex to be safe.
     """
-    Run compiled program under X (DrawMan/GraphABC).
-    For DrawMan we:
-      - start process
-      - find window by pid + regex
-      - focus+click
-      - press Enter ONCE (no Space spam)
-      - wait
-      - capture root and crop to window
-    """
-    env = _env_base()
-    strat = UiStrategy()
 
-    with tempfile.TemporaryDirectory(prefix="tf_out_") as td:
-        td_path = Path(td)
-        out_png = td_path / "out.png"
+    if not _which("import", log_prefix=log_prefix):
+        raise RuntimeError("ImageMagick import not found")
 
-        # Run program
-        # If it's a dll: mono main.dll, if exe: mono main.exe
-        cmd = [MONO, str(exe_path)]
-        p = subprocess.Popen(
-            cmd,
-            env=env,
-            cwd=str(exe_path.parent),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+    try:
+        wid_hex = hex(int(str(win), 10))
+    except Exception:
+        # already hex-like or unknown; just pass through
+        wid_hex = str(win)
 
+    _LOG.debug("%s CAPTURE window=%s => %s", log_prefix, wid_hex, out_png)
+    cp = _run(["import", "-window", wid_hex, str(out_png)], timeout=15, env=env, log_prefix=log_prefix)
+    if cp.returncode != 0:
+        raise RuntimeError("import -window failed")
+
+    if trim and _which("convert", log_prefix=log_prefix):
+        _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=20, env=env, log_prefix=log_prefix)
+
+
+def _capture_root_crop(win: str, out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
+    """Fallback capture: grab root, then crop to window geometry to avoid black borders."""
+    tmp_root = out_png.with_suffix(out_png.suffix + ".root.png")
+    _capture_root(tmp_root, trim=False, env=env, log_prefix=log_prefix)
+
+    geo = _xdotool_get_geometry(win, env=env, log_prefix=log_prefix)
+    if geo and _which("convert", log_prefix=log_prefix):
+        x, y, w, h = geo
+        _LOG.debug("%s CROP root->win geo=%s", log_prefix, geo)
+        cp = _run(["convert", str(tmp_root), "-crop", f"{w}x{h}+{x}+{y}", "+repage", str(out_png)], timeout=20, env=env, log_prefix=log_prefix)
+        if cp.returncode != 0:
+            # if crop fails, keep root
+            tmp_root.replace(out_png)
+    else:
+        # no geometry/convert: keep root
+        tmp_root.replace(out_png)
+
+    if trim and _which("convert", log_prefix=log_prefix):
+        _run(["convert", str(out_png), "-trim", "+repage", str(out_png)], timeout=20, env=env, log_prefix=log_prefix)
+
+    try:
+        if tmp_root.exists():
+            tmp_root.unlink()
+    except Exception:
+        pass
+
+
+def _start_xvfb(xvfb_screen: str, timeout: float, *, log_prefix: str = "") -> tuple[subprocess.Popen, dict]:
+    # Prefer fixed display so debug is predictable; allow override
+    display = os.getenv("TF_DISPLAY", ":99")
+    display_num = display.lstrip(":")
+
+    cmd = ["Xvfb", display, "-screen", "0", xvfb_screen, "-nolisten", "tcp", "-ac"]
+    _LOG.debug("%s XVFB_START cmd=%s", log_prefix, cmd)
+
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+
+    def _pump():
         try:
-            win = _safe_get_win(p.pid, strat, env=env)
-            if not win:
-                # dump stderr for debugging
-                try:
-                    _, err = p.communicate(timeout=1)
-                except Exception:
-                    err = ""
-                raise HTTPException(status_code=500, detail=f"DrawMan window not found (pid={p.pid}).\n{err[-2000:]}")
+            if p.stdout is None:
+                return
+            for line in p.stdout:
+                s = (line or "").rstrip("\n")
+                if s:
+                    _LOG.debug("%s XVFB_LINE %s", log_prefix, s)
+        except Exception as e:
+            _LOG.debug("%s XVFB_PUMP_ERR %s", log_prefix, e)
 
-            _xdotool_focus(win, env=env)
-            _xdotool_click_center(win, env=env)
+    threading.Thread(target=_pump, daemon=True).start()
 
-            # IMPORTANT: DO NOT PRESS SPACE (step) – it causes Thread.Resume crashes when thread ended.
-            win = _safe_key(p.pid, win, "Return", strat, env=env)
-            if not win:
-                raise HTTPException(status_code=500, detail="Failed to send Enter to DrawMan window (window missing).")
+    env = os.environ.copy()
+    env["DISPLAY"] = display
 
-            time.sleep(strat.draw_wait_seconds)
+    # Wait until socket appears
+    sock = Path("/tmp/.X11-unix") / f"X{display_num}"
+    deadline = time.time() + timeout
+    _LOG.debug("%s XVFB_WAIT sock=%s timeout=%.2fs", log_prefix, sock, timeout)
+    while time.time() < deadline:
+        if sock.exists():
+            _LOG.debug("%s XVFB_READY sock_exists=True", log_prefix)
+            return p, env
+        if p.poll() is not None:
+            _LOG.debug("%s XVFB_EXITED early rc=%s", log_prefix, p.returncode)
+            break
+        time.sleep(0.05)
 
-            # Stable capture
+    # try xdpyinfo if available for extra hint
+    if _which("xdpyinfo", log_prefix=log_prefix):
+        _run(["xdpyinfo", "-display", display], timeout=2, env=env, log_prefix=log_prefix)
+
+    raise RuntimeError("Xvfb did not become ready")
+
+
+def run_ui_and_capture(
+    *,
+    exe_path: Path,
+    out_png: Path,
+    program_log: Path,
+    mode: str,
+    xvfb_screen: str,
+    timeout_seconds: int,
+    trim: bool,
+    log_prefix: str = "",
+) -> None:
+    """Run compiled exe with a real Xvfb server (NOT xvfb-run) so that:
+    - xdotool/import/convert see DISPLAY
+    - no 'Can't open display: (null)'
+    """
+
+    strat = STRATEGIES.get(mode) or STRATEGIES["Pascal"]
+    timeout_seconds = max(3, min(120, int(timeout_seconds)))
+    screen_size = _parse_xvfb_screen(xvfb_screen)
+
+    _LOG.debug(
+        "%s UI_START mode=%s regex=%s draw_wait=%.3f timeout=%ss screen=%s exe=%s",
+        log_prefix,
+        strat.mode,
+        strat.window_name_regex,
+        strat.draw_wait_seconds,
+        timeout_seconds,
+        xvfb_screen,
+        exe_path,
+    )
+
+    td = exe_path.parent
+
+    # Start Xvfb
+    xvfb_budget = min(3.0, max(1.0, timeout_seconds * 0.2))
+    xvfb_proc, xenv = _start_xvfb(xvfb_screen, timeout=xvfb_budget, log_prefix=log_prefix)
+
+    # Start a window manager inside Xvfb (crucial for reliable focus/activate).
+    wm_proc = _start_window_manager(env=xenv, log_prefix=log_prefix)
+
+    mono_proc: subprocess.Popen | None = None
+    try:
+        # Run program
+        _LOG.debug("%s MONO_START cwd=%s exe=%s program_log=%s DISPLAY=%s", log_prefix, td, exe_path, program_log, xenv.get("DISPLAY"))
+        with open(program_log, "w", encoding="utf-8", errors="replace") as f:
+            mono_proc = subprocess.Popen(
+                ["mono", str(exe_path)],
+                cwd=str(td),
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                env=xenv,
+            )
+
+        _LOG.debug("%s MONO_PID=%s", log_prefix, mono_proc.pid)
+
+        # Give UI a moment
+        time.sleep(0.9)
+        _LOG.debug("%s after initial sleep 0.6s", log_prefix)
+
+        # Find window
+        win_wait = float(os.getenv("TF_WINDOW_WAIT", "10.0"))
+        win_wait = max(1.0, min(20.0, win_wait))
+        _LOG.debug("%s WINDOW_SEARCH wait=%ss", log_prefix, win_wait)
+        win = _xdotool_search(
+            mono_proc.pid,
+            strat.window_name_regex,
+            max_wait=min(win_wait, timeout_seconds - 1),
+            env=xenv,
+            log_prefix=log_prefix,
+            screen_size=screen_size,
+        )
+        _LOG.debug("%s WINDOW_SEARCH result=%s", log_prefix, win)
+
+        if win is not None:
+            _xdotool_focus(win, env=xenv, log_prefix=log_prefix)
+            # Sometimes xdotool search returns a child/frame window. After activation,
+            # use the actual active to send keys/capture.
+            active = _xdotool_get_activewindow(env=xenv, log_prefix=log_prefix)
+            if active and active != win:
+                _LOG.debug("%s ACTIVE_WIN switch %s -> %s", log_prefix, win, active)
+                win = active
+
+            geo = _xdotool_click_center(win, env=xenv, log_prefix=log_prefix)
+            _LOG.debug("%s WINDOW_GEO=%s", log_prefix, geo)
+            if strat.mode == "DrawMan":
+                _drawman_start(win, geo, env=xenv, log_prefix=log_prefix)
+        else:
+            _LOG.debug("%s WINDOW_NOT_FOUND: skipping focus/start", log_prefix)
+
+        # wait for draw
+        wait_s = max(0.2, min(strat.draw_wait_seconds, max(0.5, timeout_seconds - 1.0)))
+        _LOG.debug("%s DRAW_WAIT sleep %.3fs", log_prefix, wait_s)
+        time.sleep(wait_s)
+
+        # Capture
+        if win is not None:
             try:
-                _capture_root_crop(win, out_png, env=env, trim=True)
+                _capture_window(win, out_png, trim=trim, env=xenv, log_prefix=log_prefix)
             except Exception as e:
-                # last resort: attempt capture without trim
-                try:
-                    _capture_root_crop(win, out_png, env=env, trim=False)
-                except Exception:
-                    raise HTTPException(status_code=500, detail=f"Capture failed: {e}")
+                _LOG.warning(f"{log_prefix}CAPTURE_WINDOW failed: {e}; falling back to root crop")
+                _capture_root_crop(win, out_png, trim=trim, env=xenv, log_prefix=log_prefix)
+        else:
+            _capture_root(out_png, trim=trim, env=xenv, log_prefix=log_prefix)
 
-            if not out_png.exists():
-                raise HTTPException(status_code=500, detail="Capture produced no output file.")
+        # log sizes
+        if out_png.exists():
+            _LOG.debug("%s out_png exists size=%s", log_prefix, out_png.stat().st_size)
+        else:
+            _LOG.debug("%s out_png does NOT exist", log_prefix)
 
-            data = out_png.read_bytes()
-            if len(data) < 300:  # guard against empty PNG stubs
-                raise HTTPException(status_code=500, detail=f"Capture PNG too small ({len(data)} bytes). Likely blank/failed.")
+        if program_log.exists():
+            txt = program_log.read_text(encoding="utf-8", errors="replace")
+            if txt.strip():
+                _LOG.debug("%s program.log tail:\n%s", log_prefix, txt[-12000:])
 
-            return data
-
-        finally:
-            # stop process (avoid zombies)
+    finally:
+        # stop mono
+        if mono_proc is not None:
             try:
-                p.terminate()
+                _LOG.debug("%s STOP mono pid=%s", log_prefix, mono_proc.pid)
+                mono_proc.send_signal(signal.SIGTERM)
             except Exception:
                 pass
             try:
-                p.wait(timeout=2)
+                mono_proc.wait(timeout=1)
             except Exception:
                 try:
-                    p.kill()
+                    _LOG.debug("%s KILL mono pid=%s", log_prefix, mono_proc.pid)
+                    mono_proc.kill()
                 except Exception:
                     pass
 
-
-# -------------------------
-# API
-# -------------------------
-@app.post("/render")
-def render(req: RenderRequest):
-    _require_tools()
-
-    with tempfile.TemporaryDirectory(prefix="tf_work_") as td:
-        wd = Path(td)
-        exe = _compile_pascal(req.source, wd)
-        png_bytes = _run_program_capture(exe, req.timeout_seconds, req.debug)
-
-    return Response(content=png_bytes, media_type="image/png")
+        # stop xvfb
+        _stop_proc(wm_proc, name="wm", log_prefix=log_prefix)
+        try:
+            _LOG.debug("%s STOP xvfb pid=%s", log_prefix, xvfb_proc.pid)
+            xvfb_proc.send_signal(signal.SIGTERM)
+        except Exception:
+            pass
+        try:
+            xvfb_proc.wait(timeout=1)
+        except Exception:
+            try:
+                _LOG.debug("%s KILL xvfb pid=%s", log_prefix, xvfb_proc.pid)
+                xvfb_proc.kill()
+            except Exception:
+                pass
