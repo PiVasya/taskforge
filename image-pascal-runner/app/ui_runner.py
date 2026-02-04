@@ -1,5 +1,6 @@
 import os
 import shlex
+import select
 import signal
 import subprocess
 import time
@@ -93,20 +94,12 @@ class UiStrategy:
 
 
 STRATEGIES = {
-    "DrawMan": UiStrategy(
-        mode="DrawMan",
-        window_name_regex=r"(Чертежник|Поле|DrawMan|ПаскальАБЦ|PascalABC)",
-        draw_wait_seconds=float(os.getenv("TF_DRAWMAN_DRAW_WAIT", "9.5")),
-    ),
+    # IMPORTANT: This image runner supports GraphABC only.
     "GraphABC": UiStrategy(
         mode="GraphABC",
-        window_name_regex=r"(GraphABC|PascalABC)",
+        # Window titles vary across PascalABC.NET builds and locales; keep it broad.
+        window_name_regex=r"(GraphABC|PascalABC|PascalABC\.NET|ABC|main\.pas)",
         draw_wait_seconds=float(os.getenv("TF_GRAPHABC_DRAW_WAIT", "0.8")),
-    ),
-    "Pascal": UiStrategy(
-        mode="Pascal",
-        window_name_regex=r"(PascalABC)",
-        draw_wait_seconds=float(os.getenv("TF_PASCAL_DRAW_WAIT", "0.6")),
     ),
 }
 
@@ -433,47 +426,6 @@ def _xdotool_click_center(win: str, *, env: dict, log_prefix: str = "") -> tuple
     return x, y, w, h
 
 
-def _drawman_start(win: str, geo: tuple[int, int, int, int] | None, *, env: dict, log_prefix: str = "") -> None:
-    if not _which("xdotool", log_prefix=log_prefix):
-        return
-
-    # Try to hit the 'Пуск (Enter)' button area first (more reliable than keys-only on some WMs).
-    if geo is not None:
-        x, y, w, h = geo
-        px = x + 70
-        py = y + h - 55
-        _LOG.debug("%s DRAWMAN_START pre-click PUSK area (%s,%s)", log_prefix, px, py)
-        _run(["xdotool", "mousemove", str(px), str(py)], timeout=2, env=env, log_prefix=log_prefix)
-        _run(["xdotool", "click", "1"], timeout=2, env=env, log_prefix=log_prefix)
-        time.sleep(0.12)
-
-    _LOG.debug("%s DRAWMAN_START step1: Enter x3", log_prefix)
-    for i in range(3):
-        _LOG.debug("%s DRAWMAN_START Enter iter=%s", log_prefix, i + 1)
-        _run(["xdotool", "key", "--window", win, "Return"], timeout=2, env=env, log_prefix=log_prefix)
-        _run(["xdotool", "key", "--window", win, "KP_Enter"], timeout=2, env=env, log_prefix=log_prefix)
-        time.sleep(0.15)
-
-    space_count = int(os.getenv("TF_DRAWMAN_SPACE_COUNT", "50"))
-    space_count = max(10, min(500, space_count))
-    _LOG.debug("%s DRAWMAN_START step2: spam spaces count=%s", log_prefix, space_count)
-    for i in range(space_count):
-        # ЛОГИ НА КАЖДЫЙ МИЛЛИМЕТР: логируем каждый пробел
-        _LOG.debug("%s DRAWMAN_START space i=%s/%s", log_prefix, i + 1, space_count)
-        _run(["xdotool", "key", "--window", win, "space"], timeout=2, env=env, log_prefix=log_prefix)
-        time.sleep(0.02)
-
-    if geo is not None:
-        x, y, w, h = geo
-        px = x + 40
-        py = y + h - 20
-        _LOG.debug("%s DRAWMAN_START step3: click start area (%s,%s)", log_prefix, px, py)
-        _run(["xdotool", "mousemove", str(px), str(py)], timeout=2, env=env, log_prefix=log_prefix)
-        _run(["xdotool", "click", "1"], timeout=2, env=env, log_prefix=log_prefix)
-        time.sleep(0.1)
-        _run(["xdotool", "key", "--window", win, "Return"], timeout=2, env=env, log_prefix=log_prefix)
-
-
 def _capture_root(out_png: Path, trim: bool, *, env: dict, log_prefix: str = "") -> None:
     if not _which("import", log_prefix=log_prefix):
         raise RuntimeError("ImageMagick import not found")
@@ -543,14 +495,49 @@ def _capture_root_crop(win: str, out_png: Path, trim: bool, *, env: dict, log_pr
 
 
 def _start_xvfb(xvfb_screen: str, timeout: float, *, log_prefix: str = "") -> tuple[subprocess.Popen, dict]:
-    # Prefer fixed display so debug is predictable; allow override
-    display = os.getenv("TF_DISPLAY", ":99")
-    display_num = display.lstrip(":")
+    """Start Xvfb reliably.
 
-    cmd = ["Xvfb", display, "-screen", "0", xvfb_screen, "-nolisten", "tcp", "-ac"]
+    Why: on some hosts /tmp/.X11-unix/X99 can remain stale from a killed Xvfb.
+    If we only check for socket existence, GraphABC/WinForms may fail with
+    "Could not open display" even though the socket file exists.
+
+    Strategy:
+    - If TF_DISPLAY is NOT set: start Xvfb with -displayfd so it picks a free display.
+    - If TF_DISPLAY is set: use that fixed display, but still wait for readiness.
+    """
+
+    fixed_display = (os.getenv("TF_DISPLAY") or "").strip()
+    use_displayfd = fixed_display == ""
+
+    if use_displayfd:
+        cmd = ["Xvfb", "-screen", "0", xvfb_screen, "-nolisten", "tcp", "-ac", "-displayfd", "1"]
+    else:
+        cmd = ["Xvfb", fixed_display, "-screen", "0", xvfb_screen, "-nolisten", "tcp", "-ac"]
+
     _LOG.debug("%s XVFB_START cmd=%s", log_prefix, cmd)
-
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+
+    display = fixed_display
+    if use_displayfd:
+        # Read chosen display number from Xvfb stdout
+        if p.stdout is None:
+            raise RuntimeError("Xvfb stdout not available")
+        deadline = time.time() + min(5.0, max(0.5, timeout))
+        line = ""
+        while time.time() < deadline:
+            if p.poll() is not None:
+                break
+            r, _, _ = select.select([p.stdout], [], [], 0.25)
+            if not r:
+                continue
+            line = (p.stdout.readline() or "").strip()
+            if line.isdigit():
+                display = f":{line}"
+                break
+        if not display:
+            raise RuntimeError(f"Xvfb did not report display via -displayfd (last='{line}')")
+
+    display_num = display.lstrip(":")
 
     def _pump():
         try:
@@ -568,20 +555,26 @@ def _start_xvfb(xvfb_screen: str, timeout: float, *, log_prefix: str = "") -> tu
     env = os.environ.copy()
     env["DISPLAY"] = display
 
-    # Wait until socket appears
     sock = Path("/tmp/.X11-unix") / f"X{display_num}"
     deadline = time.time() + timeout
-    _LOG.debug("%s XVFB_WAIT sock=%s timeout=%.2fs", log_prefix, sock, timeout)
+    _LOG.debug("%s XVFB_WAIT display=%s sock=%s timeout=%.2fs", log_prefix, display, sock, timeout)
     while time.time() < deadline:
-        if sock.exists():
-            _LOG.debug("%s XVFB_READY sock_exists=True", log_prefix)
-            return p, env
         if p.poll() is not None:
             _LOG.debug("%s XVFB_EXITED early rc=%s", log_prefix, p.returncode)
             break
+        if sock.exists():
+            # Optional: verify display responds if we have a probing tool
+            if _which("xdpyinfo", log_prefix=log_prefix):
+                cp = _run(["xdpyinfo", "-display", display], timeout=2, env=env, log_prefix=log_prefix)
+                if cp.returncode == 0:
+                    _LOG.debug("%s XVFB_READY xdpyinfo_ok=True", log_prefix)
+                    return p, env
+            else:
+                _LOG.debug("%s XVFB_READY sock_exists=True", log_prefix)
+                return p, env
         time.sleep(0.05)
 
-    # try xdpyinfo if available for extra hint
+    # last hint
     if _which("xdpyinfo", log_prefix=log_prefix):
         _run(["xdpyinfo", "-display", display], timeout=2, env=env, log_prefix=log_prefix)
 
@@ -604,7 +597,9 @@ def run_ui_and_capture(
     - no 'Can't open display: (null)'
     """
 
-    strat = STRATEGIES.get(mode) or STRATEGIES["Pascal"]
+    if mode != "GraphABC":
+        raise RuntimeError(f"Unsupported mode: {mode}. GraphABC only.")
+    strat = STRATEGIES["GraphABC"]
     timeout_seconds = max(3, min(120, int(timeout_seconds)))
     screen_size = _parse_xvfb_screen(xvfb_screen)
 
@@ -672,8 +667,6 @@ def run_ui_and_capture(
 
             geo = _xdotool_click_center(win, env=xenv, log_prefix=log_prefix)
             _LOG.debug("%s WINDOW_GEO=%s", log_prefix, geo)
-            if strat.mode == "DrawMan":
-                _drawman_start(win, geo, env=xenv, log_prefix=log_prefix)
         else:
             _LOG.debug("%s WINDOW_NOT_FOUND: skipping focus/start", log_prefix)
 

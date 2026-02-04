@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from .ui_runner import run_ui_and_capture
 
 
-app = FastAPI(title="taskforge pascal image runner (GraphABC / DrawMan)")
+app = FastAPI(title="taskforge pascal image runner (GraphABC only)")
 
 # =========================================================
 # LOGGING: максимально подробно, всё в stdout контейнера
@@ -30,7 +30,7 @@ if not _LOG.handlers:
 
 
 class RenderRequest(BaseModel):
-    # PascalABC.NET source code (GraphABC / DrawMan)
+    # PascalABC.NET source code (GraphABC)
     source: str = Field(..., description="PascalABC.NET source code")
     # Runner total budget (compile+run)
     timeout_seconds: int = Field(20, ge=1, le=120)
@@ -86,12 +86,11 @@ def health():
 
 
 def _detect_mode(src: str) -> str:
+    """Image runner supports GraphABC only (DrawMan is intentionally disabled)."""
     s = (src or "").lower()
-    if "uses drawman" in s or "drawman;" in s:
-        return "DrawMan"
-    if "uses graphabc" in s or "graphabc;" in s:
-        return "GraphABC"
-    return "Pascal"
+    if "drawman" in s:
+        return "UNSUPPORTED_DRAWMAN"
+    return "GraphABC"
 
 
 def _tail(s: str, n: int = 8000) -> str:
@@ -108,6 +107,11 @@ def render(req: RenderRequest):
     t0 = time.perf_counter()
     src = req.source or ""
     mode = _detect_mode(src)
+    if mode == "UNSUPPORTED_DRAWMAN":
+        raise HTTPException(
+            400,
+            "DrawMan is not supported in pascal image runner. Use GraphABC (uses GraphABC; ...) for picture tasks.",
+        )
     total_timeout = int(req.timeout_seconds or 20)
     total_timeout = max(1, min(120, total_timeout))
 
