@@ -1,4 +1,4 @@
-﻿// src/pages/AssignmentSolvePage.jsx
+// src/pages/AssignmentSolvePage.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
@@ -95,14 +95,21 @@ export default function AssignmentSolvePage() {
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
     // Пытаемся найти ограничения в разных возможных полях,
-    // чтобы фронт не падал, даже если ты назовёшь поле иначе.
+    // чтобы фронт не падал, даже если поле назовёшь иначе.
     const raw =
       a?.allowedLanguages ??
+      a?.allowedLanguagesCsv ??
       a?.courseAllowedLanguages ??
       a?.course?.allowedLanguages ??
       null;
 
     const parsed = parseAllowedLanguages(raw);
+
+    // image-test: если ограничений нет — дефолт только python/pascal
+    if (String(a?.type || '').trim() === 'image-test') {
+      return parsed.length > 0 ? parsed : ['python', 'pascal'];
+    }
+
     return parsed;
   }, [a]);
 
@@ -134,11 +141,15 @@ export default function AssignmentSolvePage() {
           data?.courseAllowedLanguages ??
           data?.course?.allowedLanguages
         );
+        // image-test: если ограничений нет — дефолт только python/pascal
+        const effectiveAllowed = (String(data?.type || '').trim() === 'image-test')
+          ? (parsedAllowed.length > 0 ? parsedAllowed : ['python','pascal'])
+          : parsedAllowed;
 
         let nextLang = defaultLangFromApi;
 
-        if (parsedAllowed.length > 0 && !parsedAllowed.includes(nextLang)) {
-          nextLang = parsedAllowed[0];
+        if (effectiveAllowed.length > 0 && !effectiveAllowed.includes(nextLang)) {
+          nextLang = effectiveAllowed[0];
         }
 
         setLanguage(nextLang);
@@ -159,20 +170,12 @@ export default function AssignmentSolvePage() {
 
   // Если ограничения изменились (например, подгрузились),
   // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
-  // Для image-test — жёстко оставляем только Python/Pascal.
   useEffect(() => {
-    if (a?.type === 'image-test') {
-      if (!['python', 'pascal'].includes(language)) {
-        setLanguage('python');
-      }
-      return;
-    }
-
     if (!allowedLangs || allowedLangs.length === 0) return;
     if (!allowedLangs.includes(language)) {
       setLanguage(allowedLangs[0]);
     }
-  }, [a?.type, allowedLangs, language]);
+  }, [allowedLangs, language]);
 
   const onSubmit = async () => {
     if (!code.trim()) return;

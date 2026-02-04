@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace taskforge.Data.Models.DTO
 {
@@ -16,6 +16,10 @@ namespace taskforge.Data.Models.DTO
         // "image-test" — проверка по картинке (подключим позже)
         [Required, MaxLength(30)]
         public string Type { get; set; } = "code-test";
+
+        // Разрешённые языки решения для code-test / image-test.
+        // Пример: ["cpp","python"]
+        public IList<string>? AllowedLanguages { get; set; }
 
         [Range(1, 3)]
         public int Difficulty { get; set; } = 1;

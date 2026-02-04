@@ -402,10 +402,12 @@ public sealed class ImageTestsController : ControllerBase
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
-        var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
-        if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
+                var allowedLangs = GetAllowedImageLangs(a);
 
-        // Guardrail: users sometimes paste Pascal into a Python editor (or vice versa).
+        var lang = NormalizeLang(req.Language ?? string.Empty);
+        if (!allowedLangs.Contains(lang))
+            return BadRequest($"Language is not allowed for this task. Allowed: {string.Join(", ", allowedLangs)}");
+// Guardrail: users sometimes paste Pascal into a Python editor (or vice versa).
         // That leads to confusing errors like Python SyntaxError for Pascal comments.
         // We auto-correct the language for image-tests based on simple heuristics.
         // (Better UX than returning a misleading runner error.)
@@ -615,10 +617,12 @@ public sealed class ImageTestsController : ControllerBase
         if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
-        var lang = (req.Language ?? string.Empty).Trim().ToLowerInvariant();
-        if (lang is not ("python" or "pascal")) return BadRequest("Language must be python or pascal");
+                var allowedLangs = GetAllowedImageLangs(a);
 
-        var userId = _currentUser.GetUserId();
+        var lang = NormalizeLang(req.Language ?? string.Empty);
+        if (!allowedLangs.Contains(lang))
+            return BadRequest($"Language is not allowed for this task. Allowed: {string.Join(", ", allowedLangs)}");
+var userId = _currentUser.GetUserId();
         var codeLen = Encoding.UTF8.GetByteCount(req.Code);
 
         _log.LogInformation("[ImageTest] compare-code start: assignment={AssignmentId} user={UserId} lang={Lang} bytes={Bytes}", assignmentId, userId, lang, codeLen);
@@ -857,6 +861,46 @@ public sealed class ImageTestsController : ControllerBase
 
         return Ok(response);
     }
+
+
+    private static readonly HashSet<string> SupportedImageRunnerLangs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "python", "pascal"
+    };
+
+    private static string NormalizeLang(string x)
+    {
+        var s = (x ?? string.Empty).Trim().ToLowerInvariant();
+        if (s == "py" || s == "python") return "python";
+        if (s == "pas" || s == "pascal" || s == "pascalabc" || s == "pascalabcnet") return "pascal";
+        return s;
+    }
+
+    private static HashSet<string> GetAllowedImageLangs(taskforge.Data.Models.Entities.TaskAssignment a)
+    {
+        // Если в задании задан csv — берём пересечение с тем, что реально умеет раннер.
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var csv = a.AllowedLanguagesCsv;
+
+        if (!string.IsNullOrWhiteSpace(csv))
+        {
+            foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var n = NormalizeLang(part);
+                if (SupportedImageRunnerLangs.Contains(n)) set.Add(n);
+            }
+        }
+
+        // дефолт
+        if (set.Count == 0)
+        {
+            set.Add("python");
+            set.Add("pascal");
+        }
+
+        return set;
+    }
+
 
     private static bool LooksLikePascal(string code)
     {

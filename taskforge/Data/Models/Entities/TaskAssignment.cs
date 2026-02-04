@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 namespace taskforge.Data.Models.Entities
 {
     public class TaskAssignment
@@ -19,6 +19,10 @@ namespace taskforge.Data.Models.Entities
         // Тип задания (пока только "code-test", позже "quiz", "match", ...)
         [Required, MaxLength(50)]
         public string Type { get; set; } = "code-test";
+
+        // CSV список разрешённых языков решения (например: "cpp,python,csharp")
+        // Если null/пусто — ограничений нет (кроме image-test, где по умолчанию python/pascal).
+        public string? AllowedLanguagesCsv { get; set; }
 
         public string? Tags { get; set; } // можно хранить через запятую
         public int Difficulty { get; set; } = 1; // 1=легко, 2=средне, 3=сложно

@@ -11,6 +11,9 @@ import {
   deleteUser,
   deleteSolution,
   getAdminUserGroupIds,
+  getUserImageSolutions,
+  getAdminImageSolutionDetails,
+  deleteAdminImageSolution,
 } from '../../api/admin';
 import { getUserTaskTestAttempts, getAdminTaskTestAttemptReview } from '../../api/taskTestAttempts';
 import { deleteAdminTaskTestAttempt } from '../../api/taskTestAttempts';
@@ -26,7 +29,7 @@ const FILTER_OPTIONS = [
 ];
 
 export default function AdminSolutionsPage() {
-  const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'groups'
+  const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'images' | 'groups'
 
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
@@ -44,6 +47,11 @@ export default function AdminSolutionsPage() {
   const [testListLoading, setTestListLoading] = useState(false);
   const [testDetailsMap, setTestDetailsMap] = useState({});
   const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(null);
+
+  const [imageSolutions, setImageSolutions] = useState([]);
+  const [imageListLoading, setImageListLoading] = useState(false);
+  const [imageDetailsMap, setImageDetailsMap] = useState({});
+  const [expandedImageId, setExpandedImageId] = useState(null);
 
   const [groups, setGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
@@ -77,6 +85,24 @@ export default function AdminSolutionsPage() {
       console.error('Failed to load solutions', e);
     } finally {
       setListLoading(false);
+    }
+  };
+
+  const loadImageSolutions = async () => {
+    if (!userId) {
+      setImageSolutions([]);
+      return;
+    }
+    setImageListLoading(true);
+    try {
+      const data = await getUserImageSolutions(userId, { days: filterDays });
+      setImageSolutions(Array.isArray(data) ? data : []);
+      setExpandedImageId(null);
+      setImageDetailsMap({});
+    } catch (e) {
+      console.error('Failed to load image solutions', e);
+    } finally {
+      setImageListLoading(false);
     }
   };
 
@@ -128,6 +154,7 @@ export default function AdminSolutionsPage() {
     if (userId) {
       loadSolutions();
       loadTestAttempts();
+      loadImageSolutions();
       loadUserGroups();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,6 +182,12 @@ export default function AdminSolutionsPage() {
     list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return list;
   }, [testAttempts]);
+
+  const displayedImageSolutions = useMemo(() => {
+    const list = [...(imageSolutions || [])];
+    list.sort((a, b) => new Date(b.createdAtUtc) - new Date(a.createdAtUtc));
+    return list;
+  }, [imageSolutions]);
 
   const userGroupSet = useMemo(() => new Set(userGroupIds || []), [userGroupIds]);
 
@@ -185,6 +218,26 @@ export default function AdminSolutionsPage() {
     }
 
     setExpandedId(id);
+  };
+
+
+  const handleToggleImageSolution = async (id) => {
+    if (expandedImageId === id) {
+      setExpandedImageId(null);
+      return;
+    }
+
+    if (!imageDetailsMap[id]) {
+      try {
+        const dto = await getAdminImageSolutionDetails(id);
+        setImageDetailsMap((prev) => ({ ...prev, [id]: dto }));
+      } catch (e) {
+        console.error('Failed to load image solution details', e);
+        return;
+      }
+    }
+
+    setExpandedImageId(id);
   };
 
   const handleToggleTestAttempt = async (attempt) => {
@@ -400,6 +453,9 @@ export default function AdminSolutionsPage() {
             <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>
               Тесты
             </Button>
+            <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>
+              Картинки
+            </Button>
             <Button variant={tab === 'groups' ? 'primary' : 'outline'} onClick={() => setTab('groups')}>
               Группы
             </Button>
@@ -462,6 +518,7 @@ export default function AdminSolutionsPage() {
               <Button
                 onClick={() => {
                   if (tab === 'tests') return loadTestAttempts();
+                  if (tab === 'images') return loadImageSolutions();
                   if (tab === 'groups') return loadUserGroups();
                   return loadSolutions();
                 }}
@@ -469,9 +526,11 @@ export default function AdminSolutionsPage() {
               >
                 {tab === 'tests'
                   ? 'Загрузить попытки тестов'
-                  : tab === 'groups'
-                    ? 'Обновить группы'
-                    : 'Загрузить решения'}
+                  : tab === 'images'
+                    ? 'Загрузить решения (картинки)'
+                    : tab === 'groups'
+                      ? 'Обновить группы'
+                      : 'Загрузить решения'}
               </Button>
               {tab === 'code' && (
                 <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
@@ -499,6 +558,9 @@ export default function AdminSolutionsPage() {
           <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
         )}
         {tab === 'tests' && testListLoading && (
+          <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+        )}
+        {tab === 'images' && imageListLoading && (
           <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
         )}
 
@@ -572,7 +634,131 @@ export default function AdminSolutionsPage() {
           </Card>
         )}
 
-        {tab === 'tests' && !testListLoading && displayedAttempts.length > 0 && (
+        
+        {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
+          <Card className="p-4 space-y-4">
+            <div className="text-sm text-slate-600 dark:text-slate-300">
+              Всего решений по картинкам: {displayedImageSolutions.length}
+            </div>
+
+            <div className="space-y-6">
+              {displayedImageSolutions.map((item) => {
+                const full = imageDetailsMap[item.id] || null;
+                const expanded = expandedImageId === item.id && full;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="font-medium">
+                          {item.assignmentTitle}{' '}
+                          <span className="text-sm text-slate-500">({item.kind}{item.isTrial ? ', пробник' : ''})</span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {new Date(item.createdAtUtc).toLocaleString()} • {item.language || '—'}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {item.passed === true ? (
+                          <Badge intent="success">Зачёт</Badge>
+                        ) : item.passed === false ? (
+                          <Badge intent="danger">Не зачтено</Badge>
+                        ) : (
+                          <Badge intent="secondary">Без сравнения</Badge>
+                        )}
+
+                        {typeof item.similarityPercent === 'number' ? (
+                          <Badge intent="secondary">
+                            {Math.round(item.similarityPercent)}% (порог {Math.round(item.thresholdPercent || 0)}%)
+                          </Badge>
+                        ) : null}
+
+                        <Button variant="outline" onClick={() => handleToggleImageSolution(item.id)}>
+                          {expanded ? 'Скрыть' : 'Открыть'}
+                        </Button>
+
+                        <Button
+                          intent="danger"
+                          variant="outline"
+                          onClick={async () => {
+                            const ok = window.confirm('Удалить это решение (картинки)?');
+                            if (!ok) return;
+                            try {
+                              await deleteAdminImageSolution(item.id);
+                              await loadImageSolutions();
+                            } catch (e) {
+                              console.error('Failed to delete image solution', e);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {expanded ? (
+                      <div className="mt-4 space-y-4">
+                        {full.runnerError ? (
+                          <div className="text-sm text-red-600 whitespace-pre-wrap">{full.runnerError}</div>
+                        ) : null}
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Эталон</div>
+                            {full.referenceUrl ? (
+                              <img src={full.referenceUrl} alt="reference" className="w-full rounded-lg border border-slate-200 dark:border-slate-700" />
+                            ) : (
+                              <div className="text-sm text-slate-500">—</div>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Результат</div>
+                            {full.submittedUrl ? (
+                              <img src={full.submittedUrl} alt="submitted" className="w-full rounded-lg border border-slate-200 dark:border-slate-700" />
+                            ) : (
+                              <div className="text-sm text-slate-500">—</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {full.submittedCode ? (
+                          <div className="space-y-2">
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Код</div>
+                            <CodeEditor value={full.submittedCode} language={full.language || 'python'} readOnly />
+                          </div>
+                        ) : null}
+
+                        {(full.stdout || full.stderr) ? (
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">stdout</div>
+                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                                {full.stdout || ''}
+                              </pre>
+                            </div>
+                            <div>
+                              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">stderr</div>
+                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                                {full.stderr || ''}
+                              </pre>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+{tab === 'tests' && !testListLoading && displayedAttempts.length > 0 && (
           <Card className="p-4 space-y-4">
             <div className="text-sm text-slate-600 dark:text-slate-300">
               Всего попыток тестов: {displayedAttempts.length}

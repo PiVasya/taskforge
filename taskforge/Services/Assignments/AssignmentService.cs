@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
@@ -40,6 +40,10 @@ namespace taskforge.Services
 	                    throw new ValidationException("code-test assignment must have at least one test case");
 	            }
 
+                var allowedCsv = NormalizeAllowedLanguagesCsv(req.AllowedLanguages, normalizedType);
+                if (req.AllowedLanguages != null && string.IsNullOrWhiteSpace(allowedCsv))
+                    throw new ValidationException("allowedLanguages must contain at least one supported language");
+
 	            var entity = new TaskAssignment
             {
                 Id = Guid.NewGuid(),
@@ -52,7 +56,8 @@ namespace taskforge.Services
 	                Type = normalizedType,
                 Sort = maxSort + 1,
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow,
+                AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv) ? null : allowedCsv
             };
 
             if (entity.Type == TaskAssignmentTypes.ImageTest)
@@ -130,6 +135,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         Rating = a.Rating,
         Tags = a.Tags,
         Type = a.Type,
+        AllowedLanguages = ParseAllowedLanguages(a.AllowedLanguagesCsv, a.Type),
         CreatedAt = a.CreatedAt,
         PublicTestCount = a.TestCases.Count(x => !x.IsHidden),
         HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
@@ -176,7 +182,12 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 	            if (isCodeTest && (request.TestCases == null || request.TestCases.Count == 0))
 	                throw new ValidationException("For 'code-test' assignments you must provide at least 1 test case.");
 
+                var allowedCsv2 = NormalizeAllowedLanguagesCsv(request.AllowedLanguages, normalizedType);
+                if (request.AllowedLanguages != null && string.IsNullOrWhiteSpace(allowedCsv2))
+                    throw new ValidationException("allowedLanguages must contain at least one supported language");
+
 	            task.Type = normalizedType;
+                task.AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv2) ? null : allowedCsv2;
             // image-test поля
             if (task.Type == TaskAssignmentTypes.ImageTest)
             {

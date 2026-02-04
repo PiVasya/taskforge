@@ -99,3 +99,32 @@ export async function deleteUserSolutions(userId, { courseId, assignmentId } = {
 export async function deleteUser(userId) {
   await api.delete(`/api/admin/users/${userId}`);
 }
+
+
+/**
+ * Список image-решений пользователя.
+ * GET /api/admin/users/{userId}/image-solutions
+ */
+export async function getUserImageSolutions(userId, { days = null } = {}) {
+  const { data } = await api.get(`/api/admin/users/${userId}/image-solutions`, {
+    params: { days },
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Детали одного image-решения.
+ * GET /api/admin/image-solutions/{id}
+ */
+export async function getAdminImageSolutionDetails(id) {
+  const { data } = await api.get(`/api/admin/image-solutions/${id}`);
+  return data;
+}
+
+/**
+ * Удалить одно image-решение.
+ * DELETE /api/admin/image-solutions/{id}
+ */
+export async function deleteAdminImageSolution(id) {
+  await api.delete(`/api/admin/image-solutions/${id}`);
+}

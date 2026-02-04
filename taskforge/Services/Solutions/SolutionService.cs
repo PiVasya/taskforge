@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,6 +22,36 @@ namespace taskforge.Services
         private readonly ApplicationDbContext _db;
         private readonly ICompilerService _compiler;
         private readonly IHttpContextAccessor _http;
+
+
+        private static readonly HashSet<string> KnownLangs = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "cpp","python","csharp","javascript","pascal","java"
+        };
+
+        private static string NormalizeLang(string x)
+        {
+            var s = (x ?? string.Empty).Trim().ToLowerInvariant();
+            if (s == "c++" || s == "cpp") return "cpp";
+            if (s == "c#" || s == "cs" || s == "csharp") return "csharp";
+            if (s == "py" || s == "python") return "python";
+            if (s == "js" || s == "node" || s == "javascript") return "javascript";
+            if (s == "pas" || s == "pascal" || s == "pascalabc" || s == "pascalabcnet") return "pascal";
+            if (s == "java") return "java";
+            return s;
+        }
+
+        private static HashSet<string> ParseAllowed(string? csv)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(csv)) return set;
+            foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var n = NormalizeLang(part);
+                if (KnownLangs.Contains(n)) set.Add(n);
+            }
+            return set;
+        }
 
         private bool CanRevealHidden()
         {
@@ -55,6 +85,16 @@ namespace taskforge.Services
                 .FirstOrDefaultAsync(x => x.Id == assignmentId);
 
             if (a == null) throw new InvalidOperationException("Задание не найдено");
+
+            // allowed languages restriction (если задано в задании)
+            var allowed = ParseAllowed(a.AllowedLanguagesCsv);
+            if (allowed.Count > 0)
+            {
+                var lang = NormalizeLang(req.Language);
+                if (!allowed.Contains(lang))
+                    throw new InvalidOperationException($"Язык запрещён для этого задания: {req.Language}");
+                req.Language = lang;
+            }
 
             var orderedCases = a.TestCases
                 .OrderBy(tc => tc.Id)

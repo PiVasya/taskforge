@@ -1,4 +1,4 @@
-﻿﻿import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -14,6 +14,25 @@ import { Save, Trash2, ArrowLeft, PlusCircle } from "lucide-react";
 import TaskTestEditor from "./TaskTestEditor";
 import StatementEditor from "../components/tiptap/StatementEditor";
 import { uploadImageTestReference } from "../api/imageTests";
+
+
+
+// Разрешённые языки решения (настраиваются в задании)
+const LANGS_BY_TYPE = {
+  "code-test": [
+    { value: "cpp", label: "C++" },
+    { value: "python", label: "Python" },
+    { value: "csharp", label: "C#" },
+    { value: "javascript", label: "JavaScript" },
+    { value: "pascal", label: "Pascal" },
+    { value: "java", label: "Java" },
+  ],
+  // image-test поддерживает только языки, которые умеют рендерить картинку
+  "image-test": [
+    { value: "python", label: "Python" },
+    { value: "pascal", label: "Pascal" },
+  ],
+};
 
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
@@ -46,11 +65,22 @@ export default function AssignmentEditPage() {
   const [imageTestReferenceKey, setImageTestReferenceKey] = useState("");
   const [imageTestThreshold, setImageTestThreshold] = useState(90);
 
+  // allowed languages
+  const [allowedLanguages, setAllowedLanguages] = useState([]);
+  const [langToAdd, setLangToAdd] = useState(\"\");
+
   const [courseId, setCourseId] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
+      // проверка языков
+      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
+        notify.error("Выберите хотя бы один разрешённый язык");
+        setBusy(false);
+        return;
+      }
+
         setLoading(true);
         setErr("");
         const a = await getAssignment(assignmentId); // должен вернуть { ..., canEdit, testCases, ... }
@@ -90,6 +120,13 @@ export default function AssignmentEditPage() {
         // если это тест — подтягиваем настройки/вопросы
         if ((a.type || "").trim() === "test") {
           try {
+      // проверка языков
+      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
+        notify.error("Выберите хотя бы один разрешённый язык");
+        setBusy(false);
+        return;
+      }
+
             const te = await getTaskTestEdit(assignmentId);
             setTestSettings(te.settings || {
               shuffleQuestions: true,
@@ -114,6 +151,21 @@ export default function AssignmentEditPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentId, nav]); // убрали notify из зависимостей
 
+
+  // при смене типа — удаляем несовместимые языки
+  useEffect(() => {
+    const opts = LANGS_BY_TYPE[type] || null;
+    if (!opts) {
+      // для типа "test" языки не нужны
+      setAllowedLanguages([]);
+      setLangToAdd("");
+      return;
+    }
+    const allowedSet = new Set(opts.map((x) => x.value));
+    setAllowedLanguages((prev) => (Array.isArray(prev) ? prev.filter((x) => allowedSet.has(x)) : []));
+    setLangToAdd("");
+  }, [type]);
+
   const addTest = () =>
     setTestCases((prev) => [
       ...prev,
@@ -135,10 +187,18 @@ export default function AssignmentEditPage() {
     setBusy(true);
     setErr("");
     try {
+      // проверка языков
+      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
+        notify.error("Выберите хотя бы один разрешённый язык");
+        setBusy(false);
+        return;
+      }
+
       const payload = {
         title: title.trim(),
         description,
         type: (type || "code-test").trim(),
+        allowedLanguages: (LANGS_BY_TYPE[(type || "").trim()] ? allowedLanguages : null),
         tags: (tags || "").trim(),
         difficulty: Number(difficulty) || 1,
         rating: Number(rating) >= 0 ? Number(rating) : 1,
@@ -207,6 +267,13 @@ export default function AssignmentEditPage() {
     if (!ok) return;
 
     try {
+      // проверка языков
+      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
+        notify.error("Выберите хотя бы один разрешённый язык");
+        setBusy(false);
+        return;
+      }
+
       await deleteAssignment(assignmentId);
       notify.success("Задание удалено");
       if (courseId) nav(`/course/${courseId}`);
@@ -384,6 +451,13 @@ export default function AssignmentEditPage() {
                           const file = input.files?.[0];
                           if (!file) return;
                           try {
+      // проверка языков
+      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
+        notify.error("Выберите хотя бы один разрешённый язык");
+        setBusy(false);
+        return;
+      }
+
                             const r = await uploadImageTestReference(
                               assignmentId,
                               file,

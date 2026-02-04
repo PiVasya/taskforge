@@ -12,6 +12,7 @@ namespace taskforge.Data.Models.DTO
         public int Rating { get; set; }
         public string? Tags { get; set; }
         public string Type { get; set; } = "code-test";
+        public List<string> AllowedLanguages { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public int PublicTestCount { get; set; }
         public int HiddenTestCount { get; set; }
