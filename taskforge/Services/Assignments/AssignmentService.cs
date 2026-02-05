@@ -41,8 +41,11 @@ namespace taskforge.Services
 	            }
 
                 var allowedCsv = NormalizeAllowedLanguagesCsv(req.AllowedLanguages, normalizedType);
-                if (req.AllowedLanguages != null && string.IsNullOrWhiteSpace(allowedCsv))
-                    throw new ValidationException("allowedLanguages must contain at least one supported language");
+
+                // Пустой список/NULL => ограничений нет (разрешены все поддерживаемые языки для типа задания).
+                // Ошибка только если пользователь прислал НЕпустой список, но после нормализации не осталось ни одного поддерживаемого языка.
+                if (req.AllowedLanguages != null && req.AllowedLanguages.Any(x => !string.IsNullOrWhiteSpace(x)) && string.IsNullOrWhiteSpace(allowedCsv))
+                    throw new ValidationException("allowedLanguages contains no supported languages");
 
 	            var entity = new TaskAssignment
             {
@@ -183,8 +186,9 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 	                throw new ValidationException("For 'code-test' assignments you must provide at least 1 test case.");
 
                 var allowedCsv2 = NormalizeAllowedLanguagesCsv(request.AllowedLanguages, normalizedType);
-                if (request.AllowedLanguages != null && string.IsNullOrWhiteSpace(allowedCsv2))
-                    throw new ValidationException("allowedLanguages must contain at least one supported language");
+
+                if (request.AllowedLanguages != null && request.AllowedLanguages.Any(x => !string.IsNullOrWhiteSpace(x)) && string.IsNullOrWhiteSpace(allowedCsv2))
+                    throw new ValidationException("allowedLanguages contains no supported languages");
 
 	            task.Type = normalizedType;
                 task.AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv2) ? null : allowedCsv2;

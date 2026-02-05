@@ -208,9 +208,6 @@ namespace taskforge.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("AllowedLanguagesCsv")
-                        .HasColumnType("text");
-
                     b.Property<Guid>("CourseId")
                         .HasColumnType("uuid");
 

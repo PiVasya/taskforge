@@ -74,12 +74,6 @@ export default function AssignmentEditPage() {
   useEffect(() => {
     (async () => {
       try {
-      // проверка языков
-      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
-        notify.error("Выберите хотя бы один разрешённый язык");
-        setBusy(false);
-        return;
-      }
 
         setLoading(true);
         setErr("");
@@ -98,6 +92,7 @@ export default function AssignmentEditPage() {
         setTitle(a.title || "");
         setDescription(a.description || "");
         setType(a.type || "code-test");
+        setAllowedLanguages(Array.isArray(a.allowedLanguages) ? a.allowedLanguages : []);
         setTags(a.tags || "");
         setDifficulty(Number(a.difficulty || 1));
         setRating(typeof a.rating === "number" ? a.rating : Number(a.rating || 1));
@@ -120,12 +115,6 @@ export default function AssignmentEditPage() {
         // если это тест — подтягиваем настройки/вопросы
         if ((a.type || "").trim() === "test") {
           try {
-      // проверка языков
-      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
-        notify.error("Выберите хотя бы один разрешённый язык");
-        setBusy(false);
-        return;
-      }
 
             const te = await getTaskTestEdit(assignmentId);
             setTestSettings(te.settings || {
@@ -187,18 +176,12 @@ export default function AssignmentEditPage() {
     setBusy(true);
     setErr("");
     try {
-      // проверка языков
-      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
-        notify.error("Выберите хотя бы один разрешённый язык");
-        setBusy(false);
-        return;
-      }
 
       const payload = {
         title: title.trim(),
         description,
         type: (type || "code-test").trim(),
-        allowedLanguages: (LANGS_BY_TYPE[(type || "").trim()] ? allowedLanguages : null),
+        allowedLanguages: (LANGS_BY_TYPE[(type || "").trim()] && Array.isArray(allowedLanguages) && allowedLanguages.length > 0) ? allowedLanguages : null,
         tags: (tags || "").trim(),
         difficulty: Number(difficulty) || 1,
         rating: Number(rating) >= 0 ? Number(rating) : 1,
@@ -267,12 +250,6 @@ export default function AssignmentEditPage() {
     if (!ok) return;
 
     try {
-      // проверка языков
-      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
-        notify.error("Выберите хотя бы один разрешённый язык");
-        setBusy(false);
-        return;
-      }
 
       await deleteAssignment(assignmentId);
       notify.success("Задание удалено");
@@ -328,6 +305,64 @@ export default function AssignmentEditPage() {
                   <option value="test">test</option>
                 </Select>
               </Field>
+
+              {(type === "code-test" || type === "image-test") && (
+                <Field label="Разрешённые языки (если пусто — разрешены все)">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select value={langToAdd} onChange={(e) => setLangToAdd(e.target.value)}>
+                        <option value="">-- выбрать язык --</option>
+                        {(LANGS_BY_TYPE[(type || "").trim()] || [])
+                          .filter((o) => !allowedLanguages.includes(o.value))
+                          .map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                      </Select>
+                      <Button
+                        type="button"
+                        className="btn-outline"
+                        disabled={!langToAdd}
+                        onClick={() => {
+                          if (!langToAdd) return;
+                          setAllowedLanguages((prev) => (prev.includes(langToAdd) ? prev : [...prev, langToAdd]));
+                          setLangToAdd("");
+                        }}
+                      >
+                        <PlusCircle size={16} /> Добавить
+                      </Button>
+                      <div className="text-xs text-slate-500">
+                        Оставь список пустым, чтобы разрешить все доступные языки для этого типа.
+                      </div>
+                    </div>
+
+                    {allowedLanguages.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {allowedLanguages.map((v) => {
+                          const o = (LANGS_BY_TYPE[(type || "").trim()] || []).find((x) => x.value === v);
+                          const label = o?.label || v;
+                          return (
+                            <span
+                              key={v}
+                              className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-800 text-sm"
+                            >
+                              {label}
+                              <button
+                                type="button"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => setAllowedLanguages((prev) => prev.filter((x) => x !== v))}
+                                title="Удалить"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </Field>
+              )}
+
 
               <Field label="Сложность">
                 <Select
@@ -451,12 +486,6 @@ export default function AssignmentEditPage() {
                           const file = input.files?.[0];
                           if (!file) return;
                           try {
-      // проверка языков
-      if (LANGS_BY_TYPE[(type || "").trim()] && (!Array.isArray(allowedLanguages) || allowedLanguages.length === 0)) {
-        notify.error("Выберите хотя бы один разрешённый язык");
-        setBusy(false);
-        return;
-      }
 
                             const r = await uploadImageTestReference(
                               assignmentId,
