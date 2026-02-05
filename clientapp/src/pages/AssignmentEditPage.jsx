@@ -67,7 +67,7 @@ export default function AssignmentEditPage() {
 
   // allowed languages
   const [allowedLanguages, setAllowedLanguages] = useState([]);
-  const [langToAdd, setLangToAdd] = useState(\"\");
+  const [langToAdd, setLangToAdd] = useState("");
 
   const [courseId, setCourseId] = useState(null);
 

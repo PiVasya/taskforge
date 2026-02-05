@@ -258,5 +258,78 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             task.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
         }
+
+        // ===== allowed languages helpers =====
+
+        private static string? NormalizeAllowedLanguagesCsv(IEnumerable<string>? langs, string assignmentType)
+        {
+            if (langs == null)
+                return null;
+
+            var supported = GetSupportedLanguagesSet(assignmentType);
+            var arr = langs
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(NormalizeLanguage)
+                .Where(x => x != null && supported.Contains(x))
+                .Distinct()
+                .ToArray();
+
+            return arr.Length == 0 ? null : string.Join(",", arr!);
+        }
+
+        private static List<string>? ParseAllowedLanguages(string? csv, string assignmentType)
+        {
+            if (string.IsNullOrWhiteSpace(csv))
+                return null;
+
+            var supported = GetSupportedLanguagesSet(assignmentType);
+            var arr = csv
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => NormalizeLanguage(x))
+                .Where(x => x != null && supported.Contains(x))
+                .Distinct()
+                .ToList();
+
+            return arr.Count == 0 ? null : arr!;
+        }
+
+        private static HashSet<string> GetSupportedLanguagesSet(string assignmentType)
+        {
+            var t = TaskAssignmentTypes.Normalize(assignmentType);
+            if (t == TaskAssignmentTypes.ImageTest)
+            {
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "python",
+                    "pascal"
+                };
+            }
+
+            // code-test (и любые будущие code-типы): поддерживаем языки компилятора
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "cpp",
+                "csharp",
+                "python",
+                "javascript",
+                "java",
+                "pascal"
+            };
+        }
+
+        private static string? NormalizeLanguage(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s))
+                return null;
+
+            var v = s.Trim().ToLowerInvariant();
+            if (v == "py" || v == "python") return "python";
+            if (v == "pas" || v == "pascal" || v == "pascalabc" || v == "pascalabcnet" || v == "pascalabc.net") return "pascal";
+            if (v == "cs" || v == "c#" || v == "csharp") return "csharp";
+            if (v == "c++" || v == "cpp") return "cpp";
+            if (v == "js" || v == "javascript") return "javascript";
+            if (v == "java") return "java";
+            return null;
+        }
     }
 }

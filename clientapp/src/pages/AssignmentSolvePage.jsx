@@ -287,17 +287,24 @@ export default function AssignmentSolvePage() {
       { value: 'pascal', label: 'Pascal' },
     ];
 
-    // ВАЖНО: раньше тут был window.open() после await — браузер часто блокирует попап,
-    // из-за чего пользователя «иногда не кидает» на страницу с двумя картинками.
-    // Делаем обычную навигацию внутри SPA: тогда кнопка "Назад" вернёт на страницу с кодом.
-    const openResults = (solutionId) => {
-      const url = solutionId
+    // Открываем страницу результатов В НОВОЙ вкладке, как у обычных code-test.
+    // Важно: чтобы браузер не блокировал попап, окно надо открыть синхронно (до await).
+    const buildResultsUrl = (solutionId) => (
+      solutionId
         ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
-        : `/assignment/${assignmentId}/image-results`;
-      nav(url);
+        : `/assignment/${assignmentId}/image-results`
+    );
+
+    const openResultsWindow = () => {
+      try {
+        return window.open('about:blank', '_blank');
+      } catch {
+        return null;
+      }
     };
 
     const onTrialImageTest = async () => {
+      const w = openResultsWindow();
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
@@ -316,9 +323,12 @@ export default function AssignmentSolvePage() {
         };
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        openResults(resp?.solutionId);
+        const url = buildResultsUrl(resp?.solutionId);
+        if (w && !w.closed) w.location.href = url;
+        else window.open(url, '_blank');
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
+        try { if (w && !w.closed) w.close(); } catch {}
       } finally {
         setImgBusy(false);
       }
@@ -329,6 +339,8 @@ export default function AssignmentSolvePage() {
         setImgError('Эталонная картинка не настроена. Загрузите эталон в режиме редактирования задания.');
         return;
       }
+
+      const w = openResultsWindow();
 
       setImgError(null);
       setImgCompare(null);
@@ -348,9 +360,12 @@ export default function AssignmentSolvePage() {
         };
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        openResults(resp?.solutionId);
+        const url = buildResultsUrl(resp?.solutionId);
+        if (w && !w.closed) w.location.href = url;
+        else window.open(url, '_blank');
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
+        try { if (w && !w.closed) w.close(); } catch {}
       } finally {
         setImgBusy(false);
       }
