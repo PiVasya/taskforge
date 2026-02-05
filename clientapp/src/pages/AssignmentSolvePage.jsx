@@ -303,6 +303,15 @@ export default function AssignmentSolvePage() {
       }
     };
 
+    // Открыть страницу результатов (последние или по конкретному solutionId) в новой вкладке.
+    // Важно: чтобы браузер не блокировал попап, окно открываем синхронно.
+    const openResults = (solutionId) => {
+      const w = openResultsWindow();
+      const url = buildResultsUrl(solutionId);
+      if (w && !w.closed) w.location.href = url;
+      else window.open(url, '_blank');
+    };
+
     const onTrialImageTest = async () => {
       const w = openResultsWindow();
       setImgError(null);
