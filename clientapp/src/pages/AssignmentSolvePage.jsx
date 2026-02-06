@@ -11,7 +11,7 @@ import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
-import { submitSolution, listMySolutions } from '../api/solutions';
+import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 
@@ -72,50 +72,22 @@ function parseAllowedLanguages(raw) {
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
+
+  // image-test: ссылка на страницу сравнения картинок (открывается в новой вкладке)
+  const buildImageResultsUrl = React.useCallback((solutionId) => (
+    solutionId
+      ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
+      : `/assignment/${assignmentId}/image-results`
+  ), [assignmentId]);
+
+  const openImageResults = React.useCallback((solutionId) => {
+    const url = buildImageResultsUrl(solutionId);
+    let w = null;
+    try { w = window.open(url, '_blank'); } catch { w = null; }
+    // Если попап заблокирован — открываем в текущей вкладке, чтобы пользователь всё равно увидел результаты
+    if (!w) nav(url);
+  }, [buildImageResultsUrl, nav]);
   const notify = useNotify();
-
-  const openInNewTab = (url) => {
-    try {
-      const w = window.open(url, '_blank', 'noopener,noreferrer');
-      if (w) w.opener = null;
-    } catch {
-      // ignore
-    }
-  };
-
-  const renderMyAttempts = () => (
-    <div className="card mt-3">
-      <div className="card-header">Мои попытки</div>
-      <div className="card-body">
-        {myAttemptsLoading ? (
-          <div>Загрузка...</div>
-        ) : myAttempts.length === 0 ? (
-          <div className="text-muted">Пока нет попыток</div>
-        ) : (
-          <div className="list-group">
-            {myAttempts.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-                onClick={() => {
-                  if (a?.type === 'image-test') {
-                    openInNewTab(`/assignment/${assignmentId}/image-results?solutionId=${s.id}`);
-                  } else {
-                    openInNewTab(`/assignment/${assignmentId}/results?solutionId=${s.id}`);
-                  }
-                }}
-              >
-                <span>{new Date(s.createdAtUtc || s.createdAt || Date.now()).toLocaleString()}</span>
-                <span className="badge bg-secondary">{s.passed === true ? 'OK' : s.passed === false ? 'FAIL' : ''}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -134,9 +106,6 @@ export default function AssignmentSolvePage() {
   const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
   const [imgMode, setImgMode] = useState("code"); // code | upload
   const [imgIsRunning, setImgIsRunning] = useState(false);
-  const [myAttempts, setMyAttempts] = useState([]);
-  const [myAttemptsLoading, setMyAttemptsLoading] = useState(false);
-
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -213,26 +182,6 @@ export default function AssignmentSolvePage() {
     })();
     return () => { alive = false; };
   }, [assignmentId]);
-
-  useEffect(() => {
-    if (!a?.id) return;
-    setMyAttemptsLoading(true);
-    (async () => {
-      try {
-        if (a.type === 'image-test') {
-          const list = await getMyImageSolutions({ assignmentId: a.id, days: 365 });
-          setMyAttempts(Array.isArray(list) ? list.slice(0, 10) : []);
-        } else {
-          const list = await listMySolutions({ assignmentId: a.id, skip: 0, take: 10 });
-          setMyAttempts(Array.isArray(list) ? list : []);
-        }
-      } catch {
-        setMyAttempts([]);
-      } finally {
-        setMyAttemptsLoading(false);
-      }
-    })();
-  }, [a?.id, a?.type]);
 
   // Если ограничения изменились (например, подгрузились),
   // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
@@ -352,27 +301,8 @@ export default function AssignmentSolvePage() {
       { value: 'python', label: 'Python' },
       { value: 'pascal', label: 'Pascal' },
     ];
-
-    // Открываем страницу результатов В НОВОЙ вкладке, как у обычных code-test.
-    // Важно: чтобы браузер не блокировал попап, окно надо открыть синхронно (до await).
-    const buildResultsUrl = (solutionId) => (
-      solutionId
-        ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
-        : `/assignment/${assignmentId}/image-results`
-    );
-    const openResultsWindow = () => {
-      try {
-        const w = window.open('about:blank', '_blank', 'noopener,noreferrer');
-        if (w) w.opener = null;
-        return w;
-      } catch {
-        return null;
-      }
-    };
-
-
     const onTrialImageTest = async () => {
-      const w = openResultsWindow();
+      const w = window.open("about:blank", "_blank", "noopener,noreferrer");
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
@@ -391,7 +321,7 @@ export default function AssignmentSolvePage() {
         };
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        const url = buildResultsUrl(resp?.solutionId);
+        const url = buildImageResultsUrl(resp?.solutionId);
         if (w && !w.closed) w.location.href = url;
         else window.open(url, '_blank');
       } catch (e) {
@@ -408,7 +338,7 @@ export default function AssignmentSolvePage() {
         return;
       }
 
-      const w = openResultsWindow();
+      const w = window.open("about:blank", "_blank", "noopener,noreferrer");
 
       setImgError(null);
       setImgCompare(null);
@@ -428,7 +358,7 @@ export default function AssignmentSolvePage() {
         };
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        const url = buildResultsUrl(resp?.solutionId);
+        const url = buildImageResultsUrl(resp?.solutionId);
         if (w && !w.closed) w.location.href = url;
         else window.open(url, '_blank');
       } catch (e) {
@@ -551,7 +481,7 @@ export default function AssignmentSolvePage() {
 
                 <Button
                   variant="outline"
-                  onClick={() => { if (latestSolutionId) openInNewTab(`/assignment/${assignmentId}/image-results?solutionId=${latestSolutionId}`); else openInNewTab(`/assignment/${assignmentId}/image-results`); }}
+                  onClick={() => openImageResults(null)}
                 >
                   Открыть последние результаты
                 </Button>
@@ -699,7 +629,6 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
               {error && <div className="text-sm text-red-600">{error}</div>}
             </div>
           </Card>
-        {renderMyAttempts()}
         </div>
       </div>
     </Layout>

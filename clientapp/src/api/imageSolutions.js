@@ -1,10 +1,7 @@
 import api from './http';
 
-export async function getMyImageSolutions({ days, assignmentId } = {}) {
-  const params = {};
-  if (days) params.days = days;
-  if (assignmentId) params.assignmentId = assignmentId;
-  const res = await api.get('/api/me/image-solutions', { params });
+export async function getMyImageSolutions({ days } = {}) {
+  const res = await api.get('/api/me/image-solutions', { params: days ? { days } : {} });
   return res.data;
 }
 

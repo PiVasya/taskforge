@@ -1,7 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using taskforge.Data;
+using taskforge.Database;
+using taskforge.DTO.Solutions;
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers.Me;
@@ -20,111 +26,42 @@ public sealed class MyImageSolutionsController : ControllerBase
         _current = current;
     }
 
-    public sealed record MyImageSolutionListItem(
-        Guid Id,
-        Guid AssignmentId,
-        string AssignmentTitle,
-        bool IsTrial,
-        string Kind,
-        string? Language,
-        bool? Passed,
-        double? SimilarityPercent,
-        double? ThresholdPercent,
-        DateTime CreatedAtUtc);
-
-    public sealed record MyImageSolutionDetails(
-        Guid Id,
-        Guid AssignmentId,
-        string AssignmentTitle,
-        bool IsTrial,
-        string Kind,
-        string? Language,
-        string? SubmittedCode,
-        bool? Passed,
-        double? SimilarityPercent,
-        double? ThresholdPercent,
-        string? ReferenceUrl,
-        string? SubmittedUrl,
-        string Stdout,
-        string Stderr,
-        string? RunnerError,
-        DateTime CreatedAtUtc);
-
     [HttpGet]
-    public async Task<ActionResult<List<MyImageSolutionListItem>>> List([FromQuery] int? days, [FromQuery] Guid? assignmentId, CancellationToken ct)
+    public async Task<ActionResult<List<MyImageSolutionListItem>>> List(
+        [FromQuery] int? days,
+        [FromQuery] int skip = 0,
+        [FromQuery] int take = 50,
+        CancellationToken ct = default)
     {
+        if (skip < 0) skip = 0;
+        if (take < 1) take = 1;
+        if (take > 200) take = 200;
+
         var userId = _current.GetUserId();
-        var q = _db.UserImageTaskSolutions
-            .AsNoTracking()
-            .Where(x => x.UserId == userId)
-            .Include(x => x.TaskAssignment)
-            .AsQueryable();
 
-        if (days.HasValue && days.Value > 0)
+        var q = _db.ImageSolutions.AsNoTracking().Where(s => s.UserId == userId);
+        if (days is > 0)
         {
-            var from = DateTime.UtcNow.AddDays(-days.Value);
-            q = q.Where(x => x.CreatedAtUtc >= from);
+            var since = DateTime.UtcNow.AddDays(-days.Value);
+            q = q.Where(s => s.CreatedAt >= since);
         }
 
-        if (assignmentId.HasValue)
-        {
-            q = q.Where(x => x.TaskAssignmentId == assignmentId.Value);
-        }
-
-        var list = await q
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .Select(x => new MyImageSolutionListItem(
-                x.Id,
-                x.TaskAssignmentId,
-                x.TaskAssignment.Title,
-                x.IsTrial,
-                x.Kind,
-                x.Language,
-                x.Passed,
-                x.SimilarityPercent,
-                x.ThresholdPercent,
-                x.CreatedAtUtc))
+        var items = await q
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip(skip)
+            .Take(take)
+            .Select(s => new MyImageSolutionListItem
+            {
+                Id = s.Id,
+                AssignmentId = s.AssignmentId,
+                AssignmentTitle = s.Assignment.Title,
+                Status = s.Status,
+                Score = s.Score,
+                Error = s.Error,
+                CreatedAt = s.CreatedAt
+            })
             .ToListAsync(ct);
 
-        return Ok(list);
-    }
-
-    [HttpGet("{id:guid}")]
-    public async Task<ActionResult<MyImageSolutionDetails>> Details([FromRoute] Guid id, CancellationToken ct)
-    {
-        var userId = _current.GetUserId();
-
-        var s = await _db.UserImageTaskSolutions
-            .AsNoTracking()
-            .Include(x => x.TaskAssignment)
-            .FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
-
-        if (s is null) return NotFound();
-
-        string? referenceUrl = string.IsNullOrWhiteSpace(s.ReferenceKey)
-            ? null
-            : $"/api/private-files/{Uri.EscapeDataString(s.ReferenceKey)}";
-
-        string? submittedUrl = string.IsNullOrWhiteSpace(s.SubmittedKey)
-            ? null
-            : $"/api/private-files/{Uri.EscapeDataString(s.SubmittedKey)}";
-
-        return Ok(new MyImageSolutionDetails(
-            s.Id,
-            s.TaskAssignmentId,
-            s.TaskAssignment.Title,
-            s.IsTrial,
-            s.Kind,
-            s.Language,
-            s.SubmittedCode,
-            s.Passed,
-            s.SimilarityPercent,
-            s.ThresholdPercent,
-            referenceUrl,
-            submittedUrl,
-            s.Stdout ?? string.Empty,
-            s.Stderr ?? string.Empty,
-            s.RunnerError,
-            s.CreatedAtUtc));
+        return Ok(items);
     }
 }

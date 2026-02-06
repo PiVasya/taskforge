@@ -26,8 +26,13 @@ public sealed class MyQuotasController : ControllerBase
         var userId = _current.GetUserId();
         var (tasks, top) = await _quotas.GetStatusAsync(userId, ct);
 
+        // Единый лимитер: "top" и "tasks" фактически одно и то же.
+        // Возвращаем обе секции для обратной совместимости фронта.
+        top = tasks;
+
         return Ok(new
         {
+            unified = true,
             tasks = new
             {
                 remaining = tasks.Remaining,
