@@ -11,12 +11,9 @@ import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment } from '../api/assignments';
-import { submitSolution } from '../api/solutions';
-import { listMySolutions } from '../api/solutions';
+import { submitSolution, listMySolutions } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
-import { listMyTaskTestAttempts } from '../api/taskTestAttempts';
-import { getMyImageSolutions } from '../api/imageSolutions';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -77,6 +74,49 @@ export default function AssignmentSolvePage() {
   const nav = useNavigate();
   const notify = useNotify();
 
+  const openInNewTab = (url) => {
+    try {
+      const w = window.open(url, '_blank', 'noopener,noreferrer');
+      if (w) w.opener = null;
+    } catch {
+      // ignore
+    }
+  };
+
+  const renderMyAttempts = () => (
+    <div className="card mt-3">
+      <div className="card-header">Мои попытки</div>
+      <div className="card-body">
+        {myAttemptsLoading ? (
+          <div>Загрузка...</div>
+        ) : myAttempts.length === 0 ? (
+          <div className="text-muted">Пока нет попыток</div>
+        ) : (
+          <div className="list-group">
+            {myAttempts.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                onClick={() => {
+                  if (a?.type === 'image-test') {
+                    openInNewTab(`/assignment/${assignmentId}/image-results?solutionId=${s.id}`);
+                  } else {
+                    openInNewTab(`/assignment/${assignmentId}/results?solutionId=${s.id}`);
+                  }
+                }}
+              >
+                <span>{new Date(s.createdAtUtc || s.createdAt || Date.now()).toLocaleString()}</span>
+                <span className="badge bg-secondary">{s.passed === true ? 'OK' : s.passed === false ? 'FAIL' : ''}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -94,12 +134,9 @@ export default function AssignmentSolvePage() {
   const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
   const [imgMode, setImgMode] = useState("code"); // code | upload
   const [imgIsRunning, setImgIsRunning] = useState(false);
+  const [myAttempts, setMyAttempts] = useState([]);
+  const [myAttemptsLoading, setMyAttemptsLoading] = useState(false);
 
-  // history (last attempts for this assignment)
-  const [showHistory, setShowHistory] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState('');
-  const [historyItems, setHistoryItems] = useState([]); // shape depends on assignment type
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -147,7 +184,6 @@ export default function AssignmentSolvePage() {
         // Если API прислал ограничения — применяем их
         const parsedAllowed = parseAllowedLanguages(
           data?.allowedLanguages ??
-          data?.allowedLanguagesCsv ??
           data?.courseAllowedLanguages ??
           data?.course?.allowedLanguages
         );
@@ -178,6 +214,26 @@ export default function AssignmentSolvePage() {
     return () => { alive = false; };
   }, [assignmentId]);
 
+  useEffect(() => {
+    if (!a?.id) return;
+    setMyAttemptsLoading(true);
+    (async () => {
+      try {
+        if (a.type === 'image-test') {
+          const list = await getMyImageSolutions({ assignmentId: a.id, days: 365 });
+          setMyAttempts(Array.isArray(list) ? list.slice(0, 10) : []);
+        } else {
+          const list = await listMySolutions({ assignmentId: a.id, skip: 0, take: 10 });
+          setMyAttempts(Array.isArray(list) ? list : []);
+        }
+      } catch {
+        setMyAttempts([]);
+      } finally {
+        setMyAttemptsLoading(false);
+      }
+    })();
+  }, [a?.id, a?.type]);
+
   // Если ограничения изменились (например, подгрузились),
   // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
   useEffect(() => {
@@ -186,47 +242,6 @@ export default function AssignmentSolvePage() {
       setLanguage(allowedLangs[0]);
     }
   }, [allowedLangs, language]);
-
-  // Load last attempts for this assignment (on demand)
-  useEffect(() => {
-    let alive = true;
-
-    if (!showHistory || !a?.id) return;
-
-    (async () => {
-      setHistoryLoading(true);
-      setHistoryError('');
-      try {
-        const type = String(a?.type || '').trim();
-
-        if (type === 'test') {
-          const items = await listMyTaskTestAttempts(a.id, { take: 10 });
-          if (!alive) return;
-          setHistoryItems(items || []);
-          return;
-        }
-
-        if (type === 'image-test') {
-          const items = await getMyImageSolutions({ assignmentId: a.id, take: 10, days: 30 });
-          if (!alive) return;
-          setHistoryItems(items || []);
-          return;
-        }
-
-        // default: code solutions
-        const items = await listMySolutions({ assignmentId: a.id, take: 10 });
-        if (!alive) return;
-        setHistoryItems(items || []);
-      } catch (e) {
-        const msg = e?.response?.data?.error || e?.message || 'Не удалось загрузить историю попыток';
-        if (alive) setHistoryError(msg);
-      } finally {
-        if (alive) setHistoryLoading(false);
-      }
-    })();
-
-    return () => { alive = false; };
-  }, [showHistory, a?.id]);
 
   const onSubmit = async () => {
     if (!code.trim()) return;
@@ -345,23 +360,16 @@ export default function AssignmentSolvePage() {
         ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
         : `/assignment/${assignmentId}/image-results`
     );
-
     const openResultsWindow = () => {
       try {
-        return window.open('about:blank', '_blank');
+        const w = window.open('about:blank', '_blank', 'noopener,noreferrer');
+        if (w) w.opener = null;
+        return w;
       } catch {
         return null;
       }
     };
 
-    // Открыть страницу результатов (последние или по конкретному solutionId) в новой вкладке.
-    // Важно: чтобы браузер не блокировал попап, окно открываем синхронно.
-    const openResults = (solutionId) => {
-      const w = openResultsWindow();
-      const url = buildResultsUrl(solutionId);
-      if (w && !w.closed) w.location.href = url;
-      else window.open(url, '_blank');
-    };
 
     const onTrialImageTest = async () => {
       const w = openResultsWindow();
@@ -541,41 +549,12 @@ export default function AssignmentSolvePage() {
                   </Button>
                 </div>
 
-                {/* История попыток */}
                 <Button
-                  variant={showHistory ? 'secondary' : 'outline'}
-                  onClick={() => setShowHistory((v) => !v)}
+                  variant="outline"
+                  onClick={() => { if (latestSolutionId) openInNewTab(`/assignment/${assignmentId}/image-results?solutionId=${latestSolutionId}`); else openInNewTab(`/assignment/${assignmentId}/image-results`); }}
                 >
-                  {showHistory ? 'Спрятать историю' : 'Показать историю'}
+                  Открыть последние результаты
                 </Button>
-
-                {showHistory ? (
-                  <div className="border rounded-lg p-3 space-y-2">
-                    {historyLoading ? (
-                      <div className="text-sm text-slate-500">Загружаю…</div>
-                    ) : historyError ? (
-                      <div className="text-sm text-rose-600">{historyError}</div>
-                    ) : (historyData?.imageSolutions || []).length === 0 ? (
-                      <div className="text-sm text-slate-500">Пока нет попыток.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {(historyData.imageSolutions || []).map((s) => (
-                          <div key={s.id} className="flex items-center justify-between gap-3">
-                            <div className="text-sm">
-                              <div className="font-medium">{new Date(s.createdAt).toLocaleString()}</div>
-                              <div className="text-slate-500">
-                                diff: {s.diffPercent?.toFixed ? s.diffPercent.toFixed(2) : s.diffPercent}%
-                              </div>
-                            </div>
-                            <Button size="sm" variant="outline" onClick={() => openResults(s.id)}>
-                              Открыть
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
 
                 <div className="text-xs text-slate-500">
                   Пробник возвращает картинку без сравнения. Отправка выполняет сравнение с эталоном.
@@ -718,60 +697,9 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
               )}
 
               {error && <div className="text-sm text-red-600">{error}</div>}
-
-              {/* История попыток */}
-              <div className="pt-2 border-t">
-                <Button
-                  className="w-full"
-                  variant={showHistory ? 'secondary' : 'ghost'}
-                  onClick={() => setShowHistory((v) => !v)}
-                >
-                  {showHistory ? 'Скрыть историю попыток' : 'Показать историю попыток'}
-                </Button>
-
-                {showHistory && (
-                  <div className="mt-3 space-y-2">
-                    {historyLoading && <div className="text-sm text-slate-500">Загрузка…</div>}
-                    {historyError && <div className="text-sm text-red-600">{historyError}</div>}
-
-                    {!historyLoading && !historyError && (historyData?.solutions?.length ?? 0) === 0 && (
-                      <div className="text-sm text-slate-500">Пока нет попыток.</div>
-                    )}
-
-                    {(historyData?.solutions ?? []).map((s) => (
-                      <div key={s.id} className="rounded border p-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs text-slate-500">
-                            {new Date(s.createdAt).toLocaleString()}
-                            {s.language ? ` • ${s.language}` : ''}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              if (s?.sourceCode) setCode(s.sourceCode);
-                              setShowHistory(false);
-                            }}
-                          >
-                            Открыть
-                          </Button>
-                        </div>
-                        {typeof s.passed === 'boolean' && (
-                          <div className="mt-1 text-sm">
-                            {s.passed ? (
-                              <span className="text-emerald-700">Успех</span>
-                            ) : (
-                              <span className="text-red-700">Ошибки</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           </Card>
+        {renderMyAttempts()}
         </div>
       </div>
     </Layout>

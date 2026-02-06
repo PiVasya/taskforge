@@ -51,11 +51,7 @@ public sealed class MyImageSolutionsController : ControllerBase
         DateTime CreatedAtUtc);
 
     [HttpGet]
-    public async Task<ActionResult<List<MyImageSolutionListItem>>> List(
-        [FromQuery] int? days,
-        [FromQuery] Guid? assignmentId,
-        [FromQuery] int? take,
-        CancellationToken ct)
+    public async Task<ActionResult<List<MyImageSolutionListItem>>> List([FromQuery] int? days, [FromQuery] Guid? assignmentId, CancellationToken ct)
     {
         var userId = _current.GetUserId();
         var q = _db.UserImageTaskSolutions
@@ -71,13 +67,12 @@ public sealed class MyImageSolutionsController : ControllerBase
         }
 
         if (assignmentId.HasValue)
+        {
             q = q.Where(x => x.TaskAssignmentId == assignmentId.Value);
-
-        var limit = Math.Clamp(take ?? 200, 1, 500);
+        }
 
         var list = await q
             .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(limit)
             .Select(x => new MyImageSolutionListItem(
                 x.Id,
                 x.TaskAssignmentId,
