@@ -193,9 +193,8 @@ function StatementEditor({ value, onChange }) {
     },
   });
 
-  if (!editor) return null;
-
   // Контекст-меню (ПКМ) — выносим туда «редкие» вещи (размер/цвет текста)
+  // ВАЖНО: hooks должны вызываться всегда в одном порядке, поэтому ранний return ниже.
   useEffect(() => {
     if (!ctxMenu.open) return;
 
@@ -216,6 +215,8 @@ function StatementEditor({ value, onChange }) {
       document.removeEventListener("keydown", onKeydown);
     };
   }, [ctxMenu.open]);
+
+  if (!editor) return null;
 
   const setLink = () => {
     const previousUrl = editor.getAttributes("link").href;
