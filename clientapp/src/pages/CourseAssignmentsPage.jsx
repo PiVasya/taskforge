@@ -298,9 +298,9 @@ export default function CourseAssignmentsPage() {
     <Layout>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3 min-w-0">
-          <Link to="/courses" className="btn-outline" title="Вернуться к курсам">
+          <Button variant="outline" title="Вернуться к курсам" onClick={() => nav("/courses")}>
             ← Курсы
-          </Link>
+          </Button>
           <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
             <Layers size={22} /> Задания курса
           </h1>

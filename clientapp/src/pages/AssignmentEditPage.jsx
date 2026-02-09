@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 
 import Layout from "../components/Layout";
 import { useNotify } from "../components/notify/NotifyProvider";
@@ -278,12 +278,13 @@ export default function AssignmentEditPage() {
   return (
     <Layout fullWidth>
       {courseId && (
-        <Link
-          to={`/course/${courseId}`}
-          className="inline-flex items-center gap-2 text-brand-600 hover:underline mb-5"
+        <Button
+          variant="ghost"
+          className="inline-flex items-center gap-2 mb-5"
+          onClick={() => nav(`/course/${courseId}`)}
         >
           <ArrowLeft size={16} /> к заданиям курса
-        </Link>
+        </Button>
       )}
 
       {err && <div className="text-red-500 font-medium mb-4">{err}</div>}

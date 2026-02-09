@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
@@ -117,6 +117,7 @@ function pickFirstImageFileFromDataTransfer(dt) {
 
 function StatementEditor({ value, onChange }) {
   const editorRef = useRef(null);
+  const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
   const initialContent = useMemo(() => {
     const doc = safeParseJson(value);
     return doc ?? (value ?? "");
@@ -193,6 +194,28 @@ function StatementEditor({ value, onChange }) {
   });
 
   if (!editor) return null;
+
+  // Контекст-меню (ПКМ) — выносим туда «редкие» вещи (размер/цвет текста)
+  useEffect(() => {
+    if (!ctxMenu.open) return;
+
+    const close = () => setCtxMenu((s) => ({ ...s, open: false }));
+    const onKeydown = (e) => {
+      if (e.key === "Escape") close();
+    };
+
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKeydown);
+
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKeydown);
+    };
+  }, [ctxMenu.open]);
 
   const setLink = () => {
     const previousUrl = editor.getAttributes("link").href;
@@ -272,26 +295,7 @@ function StatementEditor({ value, onChange }) {
             <option value="h3">H3</option>
           </select>
 
-          <select
-            title="Размер текста"
-            className="h-9 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-sm"
-            value={editor.getAttributes("textStyle")?.fontSize || ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (!v) editor.chain().focus().unsetFontSize().run();
-              else editor.chain().focus().setFontSize(v).run();
-            }}
-          >
-            <option value="">Размер</option>
-            <option value="12">12</option>
-            <option value="14">14</option>
-            <option value="16">16</option>
-            <option value="18">18</option>
-            <option value="20">20</option>
-            <option value="24">24</option>
-            <option value="28">28</option>
-            <option value="32">32</option>
-          </select>
+          {/* Размер/цвет текста вынесены в контекст-меню по ПКМ */}
         </div>
 
         <ToolbarButton
@@ -424,12 +428,6 @@ function StatementEditor({ value, onChange }) {
         </ToolbarButton>
 
         <div className="flex items-center gap-2 ml-2">
-          <input
-            type="color"
-            title="Цвет текста"
-            className="h-9 w-9 rounded-lg border border-gray-200 bg-white p-1"
-            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-          />
           <ToolbarButton
             title="Очистить форматирование"
             onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}
@@ -459,8 +457,89 @@ function StatementEditor({ value, onChange }) {
         </div>
       </div>
 
-      <div className="mt-3">
+      <div
+        className="mt-3"
+        onContextMenu={(e) => {
+          const inside = e.target.closest(".tiptap");
+          if (!inside) return;
+          e.preventDefault();
+
+          const menuW = 260;
+          const menuH = 160;
+          let x = e.clientX;
+          let y = e.clientY;
+          if (x + menuW > window.innerWidth - 8) x = window.innerWidth - menuW - 8;
+          if (y + menuH > window.innerHeight - 8) y = window.innerHeight - menuH - 8;
+
+          setCtxMenu({ open: true, x, y });
+        }}
+      >
         <EditorContent editor={editor} />
+
+        {ctxMenu.open && (
+          <div
+            role="menu"
+            style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
+            className="min-w-[260px] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 shadow-2xl p-2"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="px-2 py-1 text-xs text-slate-500">Формат</div>
+
+            <div className="px-2 py-2">
+              <div className="text-xs text-slate-500 mb-1">Размер текста</div>
+              <select
+                className="w-full h-9 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-sm"
+                value={editor.getAttributes("textStyle")?.fontSize || ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) editor.chain().focus().unsetFontSize().run();
+                  else editor.chain().focus().setFontSize(v).run();
+                }}
+              >
+                <option value="">По умолчанию</option>
+                <option value="12">12</option>
+                <option value="14">14</option>
+                <option value="16">16</option>
+                <option value="18">18</option>
+                <option value="20">20</option>
+                <option value="24">24</option>
+                <option value="28">28</option>
+                <option value="32">32</option>
+              </select>
+            </div>
+
+            <div className="px-2 py-2">
+              <div className="text-xs text-slate-500 mb-1">Цвет текста</div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  className="h-9 w-12 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-1"
+                  value={editor.getAttributes("textStyle")?.color || "#000000"}
+                  onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+                />
+                <button
+                  type="button"
+                  className="h-9 px-3 rounded-lg text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => editor.chain().focus().unsetColor().run()}
+                >
+                  Сбросить
+                </button>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-200 dark:bg-slate-800 my-1" />
+            <button
+              type="button"
+              className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() => {
+                editor.chain().focus().unsetAllMarks().clearNodes().run();
+                setCtxMenu((s) => ({ ...s, open: false }));
+              }}
+            >
+              Очистить форматирование
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

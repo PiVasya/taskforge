@@ -314,9 +314,13 @@ export default function AssignmentSolvePage() {
         {/* верхняя панель */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-1"
+              onClick={() => nav(`/course/${a.courseId}`)}
+            >
               <ArrowLeft size={16} /> к заданиям курса
-            </Link>
+            </Button>
           </div>
           <div className="flex items-center gap-2">
             <IfEditor>
@@ -415,9 +419,13 @@ export default function AssignmentSolvePage() {
         {/* верхняя панель — как у code-test */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-1"
+              onClick={() => nav(`/course/${a.courseId}`)}
+            >
               <ArrowLeft size={16} /> к заданиям курса
-            </Link>
+            </Button>
           </div>
           <div className="flex items-center gap-2">
             <IfEditor>
@@ -543,9 +551,13 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
       {/* верхняя панель */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
+          <Button
+            variant="ghost"
+            className="inline-flex items-center gap-1"
+            onClick={() => nav(`/course/${a.courseId}`)}
+          >
             <ArrowLeft size={16} /> к заданиям курса
-          </Link>
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           <IfEditor>
