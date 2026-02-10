@@ -20,9 +20,18 @@ namespace taskforge.Services.Courses
         private static bool IsEditor(string? role)
             => string.Equals(role, AppRoles.Editor, StringComparison.OrdinalIgnoreCase);
 
+        private Task<bool> IsOwnerAsync(Guid userId, Guid courseId)
+            => _db.CourseOwners.AsNoTracking().AnyAsync(x => x.CourseId == courseId && x.UserId == userId);
+
         public async Task<bool> CanViewCourseAsync(Guid userId, string? role, Guid courseId)
         {
-            if (IsAdmin(role) || IsEditor(role))
+            // Admin can view everything.
+            if (IsAdmin(role))
+                return true;
+
+            // Владелец курса всегда может его просматривать.
+            // Роль Editor НЕ даёт автоматического доступа к чужим курсам.
+            if (await IsOwnerAsync(userId, courseId))
                 return true;
 
             var course = await _db.Courses
@@ -43,7 +52,7 @@ namespace taskforge.Services.Courses
                 return true;
 
             if (!course.HasGroups)
-                return false; // private без групп — только Admin/Editor
+                return false; // private без групп — только Admin/Owner
 
             var userGroupIds = await _db.UserGroupMembers
                 .AsNoTracking()
@@ -56,24 +65,19 @@ namespace taskforge.Services.Courses
 
         public async Task<bool> CanEditCourseAsync(Guid userId, string? role, Guid courseId)
         {
-            if (IsAdmin(role))
-                return true;
-
-            if (!IsEditor(role))
-                return false;
-
-            // Editor может редактировать только если owner
-            return await _db.CourseOwners
-                .AsNoTracking()
-                .AnyAsync(x => x.CourseId == courseId && x.UserId == userId);
+            // Максимально жёстко: редактировать может только владелец курса.
+            // Даже Admin НЕ может редактировать чужие курсы.
+            // Роль Editor также не даёт права редактировать чужие курсы.
+            _ = role; // role намеренно не используется в проверке прав редактирования
+            return await IsOwnerAsync(userId, courseId);
         }
 
         public async Task<IReadOnlyList<Guid>> GetAccessibleCourseIdsAsync(Guid userId, string? role)
         {
-            if (IsAdmin(role) || IsEditor(role))
-            {
+            if (IsAdmin(role))
                 return await _db.Courses.AsNoTracking().Select(c => c.Id).ToListAsync();
-            }
+
+            // Editor: same visibility as a normal user. Свои курсы показываем всегда (по ownership).
 
             var userGroupIds = _db.UserGroupMembers
                 .AsNoTracking()
@@ -83,8 +87,12 @@ namespace taskforge.Services.Courses
             return await _db.Courses
                 .AsNoTracking()
                 .Where(c =>
+                    // public
                     c.IsPublic
+                    // group-visible
                     || (c.VisibleGroups.Any() && c.VisibleGroups.Any(v => userGroupIds.Contains(v.GroupId)))
+                    // own (private тоже должны быть видны владельцу)
+                    || c.Owners.Any(o => o.UserId == userId)
                 )
                 .Select(c => c.Id)
                 .ToListAsync();

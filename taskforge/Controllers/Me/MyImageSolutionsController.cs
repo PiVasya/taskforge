@@ -52,9 +52,6 @@ public sealed class MyImageSolutionsController : ControllerBase
         DateTime CreatedAtUtc
     );
 
-    private static int ToIntPercent(double? value)
-        => (int)Math.Round(value ?? 0d, MidpointRounding.AwayFromZero);
-
     /// <summary>
     /// Список image-решений текущего пользователя.
     /// days: сколько дней назад смотреть (по умолчанию 30). Если days=0 или меньше — без ограничения по дате.
@@ -96,10 +93,10 @@ public sealed class MyImageSolutionsController : ControllerBase
                 x.Id,
                 x.TaskAssignmentId,
                 x.TaskAssignment.Title,
-                x.Language ?? string.Empty,
+                x.Language,
                 x.IsTrial,
-                x.Passed ?? false,
-                ToIntPercent(x.SimilarityPercent),
+                x.Passed,
+                x.SimilarityPercent,
                 x.CreatedAtUtc
             ))
             .ToListAsync(ct);
@@ -123,18 +120,18 @@ public sealed class MyImageSolutionsController : ControllerBase
         if (s is null)
             return NotFound();
 
-        string? referenceUrl = s.ReferenceKey is null ? null : $"/api/private-files/{s.ReferenceKey}";
-        string? submittedUrl = s.SubmittedKey is null ? null : $"/api/private-files/{s.SubmittedKey}";
+        string? referenceUrl = s.ReferenceStorageKey is null ? null : $"/api/private-files/{s.ReferenceStorageKey}";
+        string? submittedUrl = s.SubmittedStorageKey is null ? null : $"/api/private-files/{s.SubmittedStorageKey}";
 
         return Ok(new MyImageSolutionDetails(
             s.Id,
             s.TaskAssignmentId,
             s.TaskAssignment.Title,
-            s.Language ?? string.Empty,
+            s.Language,
             s.IsTrial,
-            s.Passed ?? false,
-            ToIntPercent(s.SimilarityPercent),
-            ToIntPercent(s.ThresholdPercent),
+            s.Passed,
+            s.SimilarityPercent,
+            s.ThresholdPercent,
             s.RunnerError,
             s.Stdout,
             s.Stderr,

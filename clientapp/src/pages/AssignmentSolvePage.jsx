@@ -10,7 +10,7 @@ import TaskTestSolve from './TaskTestSolve';
 import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
-import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
+import { getAssignment } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
@@ -91,9 +91,6 @@ export default function AssignmentSolvePage() {
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Следующее задание в курсе (по Sort)
-  const [nextA, setNextA] = useState(null); // {id,title} | null
 
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
@@ -186,44 +183,6 @@ export default function AssignmentSolvePage() {
     return () => { alive = false; };
   }, [assignmentId]);
 
-  // Вычисляем "следующее задание" в текущем курсе (по Sort).
-  // Если текущего уже нет в списке — просто скрываем кнопку.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (!a?.courseId || !a?.id) {
-        if (alive) setNextA(null);
-        return;
-      }
-      try {
-        const list = await getAssignmentsByCourse(a.courseId);
-        if (!alive) return;
-
-        const ordered = (Array.isArray(list) ? list : [])
-          .slice()
-          .sort((x, y) => {
-            const sx = Number(x?.sort ?? 0);
-            const sy = Number(y?.sort ?? 0);
-            if (sx !== sy) return sx - sy;
-            return String(x?.title ?? '').localeCompare(String(y?.title ?? ''));
-          });
-
-        const idx = ordered.findIndex(x => String(x?.id) === String(a.id));
-        const n = (idx >= 0) ? ordered[idx + 1] : null;
-        if (n?.id) setNextA({ id: n.id, title: n.title || 'Следующее задание' });
-        else setNextA(null);
-      } catch {
-        if (alive) setNextA(null);
-      }
-    })();
-    return () => { alive = false; };
-  }, [a?.courseId, a?.id]);
-
-  const goNextAssignment = React.useCallback(() => {
-    if (!nextA?.id) return;
-    nav(`/assignment/${nextA.id}`);
-  }, [nextA?.id, nav]);
-
   // Если ограничения изменились (например, подгрузились),
   // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
   useEffect(() => {
@@ -314,13 +273,9 @@ export default function AssignmentSolvePage() {
         {/* верхняя панель */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              className="inline-flex items-center gap-1"
-              onClick={() => nav(`/course/${a.courseId}`)}
-            >
+            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
               <ArrowLeft size={16} /> к заданиям курса
-            </Button>
+            </Link>
           </div>
           <div className="flex items-center gap-2">
             <IfEditor>
@@ -419,13 +374,9 @@ export default function AssignmentSolvePage() {
         {/* верхняя панель — как у code-test */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              className="inline-flex items-center gap-1"
-              onClick={() => nav(`/course/${a.courseId}`)}
-            >
+            <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
               <ArrowLeft size={16} /> к заданиям курса
-            </Button>
+            </Link>
           </div>
           <div className="flex items-center gap-2">
             <IfEditor>
@@ -511,6 +462,23 @@ export default function AssignmentSolvePage() {
                   </div>
                 ) : null}
 
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={onTrialImageTest}
+                    disabled={imgBusy || !code.trim()}
+                  >
+                    {imgBusy ? 'Выполняю…' : 'Пробник (только рендер)'}
+                  </Button>
+
+                  <Button
+                    onClick={onSubmitImageTest}
+                    disabled={imgBusy || !code.trim() || !expectedUrl}
+                  >
+                    {imgBusy ? 'Выполняю…' : 'Отправить (сравнение)'}
+                  </Button>
+                </div>
+
                 <Button
                   variant="outline"
                   onClick={() => openImageResults(null)}
@@ -525,21 +493,6 @@ export default function AssignmentSolvePage() {
             </Card>
           </div>
         </div>
-
-        {/* Плавающие действия (как "Сохранить" в редакторе) */}
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
-          {nextA?.id && (
-            <Button variant="outline" onClick={goNextAssignment} title={nextA?.title || 'Следующее задание'}>
-              Следующее задание
-            </Button>
-          )}
-          <Button variant="outline" onClick={onTrialImageTest} disabled={imgBusy || !code.trim()}>
-            {imgBusy ? 'Выполняю…' : 'Пробник'}
-          </Button>
-          <Button onClick={onSubmitImageTest} disabled={imgBusy || !code.trim() || !expectedUrl}>
-            {imgBusy ? 'Выполняю…' : 'Отправить (сравнение)'}
-          </Button>
-        </div>
       </Layout>
     );
   }
@@ -551,13 +504,9 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
       {/* верхняя панель */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            className="inline-flex items-center gap-1"
-            onClick={() => nav(`/course/${a.courseId}`)}
-          >
+          <Link to={`/course/${a.courseId}`} className="text-brand-600 hover:underline flex items-center gap-1">
             <ArrowLeft size={16} /> к заданиям курса
-          </Button>
+          </Link>
         </div>
         <div className="flex items-center gap-2">
           <IfEditor>
@@ -656,6 +605,13 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                 )}
               </div>
 
+              <div>
+                <Button className="w-full" onClick={onSubmit} disabled={submitting || !code.trim()}>
+                  <Play size={16} className="mr-1" />
+                  {submitting ? 'Отправка…' : 'Отправить'}
+                </Button>
+              </div>
+
               {result && (
                 <div className="flex items-center gap-2 text-sm">
                   {result.__allPassed ? (
@@ -674,19 +630,6 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
             </div>
           </Card>
         </div>
-      </div>
-
-      {/* Плавающие действия (как "Сохранить" в редакторе) */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
-        {nextA?.id && (
-          <Button variant="outline" onClick={goNextAssignment} title={nextA?.title || 'Следующее задание'}>
-            Следующее задание
-          </Button>
-        )}
-        <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
-          <Play size={16} className="mr-1" />
-          {submitting ? 'Отправка…' : 'Отправить'}
-        </Button>
       </div>
     </Layout>
   );

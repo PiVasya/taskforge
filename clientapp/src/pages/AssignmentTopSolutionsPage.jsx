@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Button, Card } from '../components/ui';
+import { Card } from '../components/ui';
 import { getAssignment, getTopSolutions } from '../api/assignments';
 
 /**
@@ -10,7 +10,6 @@ import { getAssignment, getTopSolutions } from '../api/assignments';
  */
 export default function AssignmentTopSolutionsPage() {
   const { assignmentId } = useParams();
-  const nav = useNavigate();
   const [assignment, setAssignment] = useState(null);
   const [solutions, setSolutions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -53,9 +52,12 @@ export default function AssignmentTopSolutionsPage() {
   return (
     <Layout>
       <div className="mb-6">
-        <Button variant="outline" onClick={() => nav(`/assignment/${assignmentId}`)}>
+        <Link
+          to={`/assignment/${assignmentId}`}
+          className="text-brand-600 hover:underline"
+        >
           ← Назад к заданию
-        </Button>
+        </Link>
       </div>
       <Card>
         <h1 className="text-2xl font-semibold mb-4">

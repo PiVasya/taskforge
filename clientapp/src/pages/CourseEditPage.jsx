@@ -6,7 +6,7 @@ import { Field, Input, Textarea, Button, Card, Badge } from '../components/ui';
 import { getCourse, updateCourse, deleteCourse } from '../api/courses';
 import { getGroups } from '../api/groups';
 import { searchUsersOnce } from '../api/admin';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Save, Trash2, ArrowLeft, Layers, UserPlus, X } from 'lucide-react';
 
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -170,9 +170,9 @@ export default function CourseEditPage() {
           <Layers size={20} />
           <h1 className="text-2xl font-semibold">Редактирование курса</h1>
         </div>
-        <Button variant="ghost" className="inline-flex items-center gap-2" onClick={() => nav(`/course/${courseId}`)}>
+        <Link to={`/course/${courseId}`} className="text-brand-600 hover:underline">
           <ArrowLeft className="inline" size={16} /> к заданиям
-        </Button>
+        </Link>
       </div>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
