@@ -52,6 +52,9 @@ public sealed class MyImageSolutionsController : ControllerBase
         DateTime CreatedAtUtc
     );
 
+    private static int PercentToInt(double? value)
+        => value is null ? 0 : (int)Math.Round(value.Value);
+
     /// <summary>
     /// Список image-решений текущего пользователя.
     /// days: сколько дней назад смотреть (по умолчанию 30). Если days=0 или меньше — без ограничения по дате.
@@ -93,10 +96,10 @@ public sealed class MyImageSolutionsController : ControllerBase
                 x.Id,
                 x.TaskAssignmentId,
                 x.TaskAssignment.Title,
-                x.Language,
+                x.Language ?? string.Empty,
                 x.IsTrial,
-                x.Passed,
-                x.SimilarityPercent,
+                x.Passed ?? false,
+                PercentToInt(x.SimilarityPercent),
                 x.CreatedAtUtc
             ))
             .ToListAsync(ct);
@@ -120,18 +123,19 @@ public sealed class MyImageSolutionsController : ControllerBase
         if (s is null)
             return NotFound();
 
-        string? referenceUrl = s.ReferenceStorageKey is null ? null : $"/api/private-files/{s.ReferenceStorageKey}";
-        string? submittedUrl = s.SubmittedStorageKey is null ? null : $"/api/private-files/{s.SubmittedStorageKey}";
+        // В сущности используются ReferenceKey / SubmittedKey
+        string? referenceUrl = s.ReferenceKey is null ? null : $"/api/private-files/{s.ReferenceKey}";
+        string? submittedUrl = s.SubmittedKey is null ? null : $"/api/private-files/{s.SubmittedKey}";
 
         return Ok(new MyImageSolutionDetails(
             s.Id,
             s.TaskAssignmentId,
             s.TaskAssignment.Title,
-            s.Language,
+            s.Language ?? string.Empty,
             s.IsTrial,
-            s.Passed,
-            s.SimilarityPercent,
-            s.ThresholdPercent,
+            s.Passed ?? false,
+            PercentToInt(s.SimilarityPercent),
+            PercentToInt(s.ThresholdPercent),
             s.RunnerError,
             s.Stdout,
             s.Stderr,
