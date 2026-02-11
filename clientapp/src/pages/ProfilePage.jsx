@@ -179,7 +179,7 @@ export default function ProfilePage() {
               <div className="grid gap-4 md:grid-cols-2">
                 {/* Имя */}
                 <div>
-                  <label className="text-sm text-slate-500">Имя</label>
+                  <label className="text-sm text-neutral-500">Имя</label>
                   <Input
                     value={profile.firstName || ''}
                     onChange={(e) =>
@@ -189,7 +189,7 @@ export default function ProfilePage() {
                 </div>
                 {/* Фамилия */}
                 <div>
-                  <label className="text-sm text-slate-500">Фамилия</label>
+                  <label className="text-sm text-neutral-500">Фамилия</label>
                   <Input
                     value={profile.lastName || ''}
                     onChange={(e) =>
@@ -199,12 +199,12 @@ export default function ProfilePage() {
                 </div>
                 {/* Email (для просмотра) */}
                 <div>
-                  <label className="text-sm text-slate-500">Email</label>
+                  <label className="text-sm text-neutral-500">Email</label>
                   <Input type="email" value={profile.email || ''} disabled />
                 </div>
                 {/* Телефон */}
                 <div>
-                  <label className="text-sm text-slate-500">Телефон</label>
+                  <label className="text-sm text-neutral-500">Телефон</label>
                   <Input
                     placeholder="+375 (__) ___-__-__"
                     value={profile.phoneNumber || ''}
@@ -215,7 +215,7 @@ export default function ProfilePage() {
                 </div>
                 {/* Ссылка на аватар */}
                 <div className="md:col-span-2">
-                  <label className="text-sm text-slate-500">Ссылка на аватар</label>
+                  <label className="text-sm text-neutral-500">Ссылка на аватар</label>
                   <Input
                     placeholder="https://example.com/avatar.jpg"
                     value={profile.profilePictureUrl || ''}
@@ -230,7 +230,7 @@ export default function ProfilePage() {
             <Card className="p-4 space-y-4">
               <h2 className="font-semibold">О себе</h2>
               <div>
-                <label className="text-sm text-slate-500">Краткое описание</label>
+                <label className="text-sm text-neutral-500">Краткое описание</label>
                 <Textarea
                   rows={4}
                   placeholder="Например: студент ИТ, люблю C#, делаю проекты на TaskForge…"
@@ -240,7 +240,7 @@ export default function ProfilePage() {
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="text-sm text-slate-500">Город / место учёбы</label>
+                  <label className="text-sm text-neutral-500">Город / место учёбы</label>
                   <Input
                     placeholder="Минск, БГУИР, ITD-21"
                     value={extra.location}
@@ -248,7 +248,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-slate-500">Образование / группа</label>
+                  <label className="text-sm text-neutral-500">Образование / группа</label>
                   <Input
                     placeholder="Факультет АИС, ITD-21"
                     value={extra.education}
@@ -257,13 +257,13 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm text-slate-500">Навыки</label>
+                <label className="text-sm text-neutral-500">Навыки</label>
                 <Input
                   placeholder="C#, C++, SQL, React"
                   value={extra.skillsText}
                   onChange={handleChangeExtra('skillsText')}
                 />
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-neutral-400">
                   Перечисли через запятую — они будут показаны в профиле и топе.
                 </p>
               </div>
@@ -273,7 +273,7 @@ export default function ProfilePage() {
               <h2 className="font-semibold">Ссылки</h2>
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm text-slate-500">GitHub</label>
+                  <label className="text-sm text-neutral-500">GitHub</label>
                   <Input
                     placeholder="https://github.com/..."
                     value={extra.github}
@@ -281,7 +281,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-slate-500">Telegram</label>
+                  <label className="text-sm text-neutral-500">Telegram</label>
                   <Input
                     placeholder="@ник или ссылка"
                     value={extra.telegram}
@@ -289,7 +289,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-slate-500">Личный сайт / портфолио</label>
+                  <label className="text-sm text-neutral-500">Личный сайт / портфолио</label>
                   <Input
                     placeholder="https://..."
                     value={extra.website}
@@ -302,18 +302,18 @@ export default function ProfilePage() {
             <Card className="p-4 flex items-center justify-between gap-4">
               <div>
                 <div className="font-medium">Показывать меня в топе</div>
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-neutral-500">
                   Если выключить, профиль не будет отображаться в общем рейтинге.
                 </div>
               </div>
               <label className="inline-flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  className="h-4 w-4 rounded border-neutral-300 text-brand-600 focus:ring-brand-500"
                   checked={extra.showInLeaderboard}
                   onChange={handleChangeExtra('showInLeaderboard')}
                 />
-                <span className="text-sm text-slate-700 dark:text-slate-200">Включено</span>
+                <span className="text-sm text-neutral-700 dark:text-neutral-200">Включено</span>
               </label>
             </Card>
             <div className="flex justify-end">
@@ -338,7 +338,7 @@ export default function ProfilePage() {
             )}
             <form onSubmit={handleEmailSubmit} className="space-y-4">
               <div>
-                <label className="text-sm text-slate-500">Новый email</label>
+                <label className="text-sm text-neutral-500">Новый email</label>
                 <Input
                   type="email"
                   value={emailForm.newEmail}
@@ -349,7 +349,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-500">Текущий пароль</label>
+                <label className="text-sm text-neutral-500">Текущий пароль</label>
                 <Input
                   type="password"
                   value={emailForm.password}
@@ -381,7 +381,7 @@ export default function ProfilePage() {
             )}
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
               <div>
-                <label className="text-sm text-slate-500">Текущий пароль</label>
+                <label className="text-sm text-neutral-500">Текущий пароль</label>
                 <Input
                   type="password"
                   value={passwordForm.currentPassword}
@@ -391,7 +391,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-500">Новый пароль</label>
+                <label className="text-sm text-neutral-500">Новый пароль</label>
                 <Input
                   type="password"
                   value={passwordForm.newPassword}
@@ -401,7 +401,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-500">Повторите новый пароль</label>
+                <label className="text-sm text-neutral-500">Повторите новый пароль</label>
                 <Input
                   type="password"
                   value={passwordForm.confirmNewPassword}

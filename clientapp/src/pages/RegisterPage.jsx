@@ -136,7 +136,7 @@ export default function RegisterPage() {
                     </form>
 
                     {/* Политика конфиденциальности */}
-                    <div className="mt-4 text-sm text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                    <div className="mt-4 text-sm text-neutral-600 dark:text-neutral-400 flex items-start gap-2">
                         <input
                             id="policyAgreement"
                             type="checkbox"
@@ -155,7 +155,7 @@ export default function RegisterPage() {
                         </label>
                     </div>
 
-                    <div className="mt-4 text-sm text-slate-500">
+                    <div className="mt-4 text-sm text-neutral-500">
                         Уже есть аккаунт?{" "}
                         <Link to="/login" className="text-brand-600 hover:underline">
                             <LogIn className="inline -mt-1 mr-1" size={16} />

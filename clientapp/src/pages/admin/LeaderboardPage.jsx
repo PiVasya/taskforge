@@ -82,7 +82,7 @@ export default function LeaderboardPage() {
     <Layout>
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold">Топ студентов</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Нажми на участника, чтобы открыть его профиль.
         </p>
 

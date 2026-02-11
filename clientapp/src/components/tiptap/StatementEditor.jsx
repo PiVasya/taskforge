@@ -66,8 +66,8 @@ function ToolbarButton({ title, isActive, disabled, onClick, children }) {
       className={
         "h-9 w-9 inline-flex items-center justify-center rounded-lg transition-colors " +
         (isActive
-          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-          : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800") +
+          ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+          : "text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800") +
         (disabled ? " opacity-40 cursor-not-allowed" : "")
       }
     >
@@ -77,7 +77,7 @@ function ToolbarButton({ title, isActive, disabled, onClick, children }) {
 }
 
 function ToolbarDivider() {
-  return <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-2" />;
+  return <div className="w-px h-6 bg-neutral-200 dark:bg-neutral-700 mx-2" />;
 }
 
 async function uploadAndInsertImageWithEditor(editor, file) {
@@ -164,7 +164,7 @@ function StatementEditor({ value, onChange }) {
     editorProps: {
       attributes: {
         class:
-          "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100",
+          "tiptap-content min-h-[260px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-neutral-900 outline-none dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100",
       },
 
       handlePaste: (_view, event) => {
@@ -251,7 +251,7 @@ function StatementEditor({ value, onChange }) {
 
   return (
     <div className="w-full">
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/60 px-3 py-2 backdrop-blur">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/60 px-3 py-2 backdrop-blur">
         <ToolbarButton
           title="Отменить"
           disabled={!editor.can().chain().focus().undo().run()}
@@ -272,7 +272,7 @@ function StatementEditor({ value, onChange }) {
         <div className="flex items-center gap-2">
           <select
             title="Стиль текста"
-            className="h-9 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-sm"
+            className="h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
             value={
               editor.isActive("heading", { level: 1 })
                 ? "h1"
@@ -481,15 +481,15 @@ function StatementEditor({ value, onChange }) {
           <div
             role="menu"
             style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
-            className="min-w-[260px] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 shadow-2xl p-2"
+            className="min-w-[260px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 shadow-2xl p-2"
             onClick={(ev) => ev.stopPropagation()}
           >
-            <div className="px-2 py-1 text-xs text-slate-500">Формат</div>
+            <div className="px-2 py-1 text-xs text-neutral-500">Формат</div>
 
             <div className="px-2 py-2">
-              <div className="text-xs text-slate-500 mb-1">Размер текста</div>
+              <div className="text-xs text-neutral-500 mb-1">Размер текста</div>
               <select
-                className="w-full h-9 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-sm"
+                className="w-full h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
                 value={editor.getAttributes("textStyle")?.fontSize || ""}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -510,17 +510,17 @@ function StatementEditor({ value, onChange }) {
             </div>
 
             <div className="px-2 py-2">
-              <div className="text-xs text-slate-500 mb-1">Цвет текста</div>
+              <div className="text-xs text-neutral-500 mb-1">Цвет текста</div>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  className="h-9 w-12 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-1"
+                  className="h-9 w-12 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-1"
                   value={editor.getAttributes("textStyle")?.color || "#000000"}
                   onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
                 />
                 <button
                   type="button"
-                  className="h-9 px-3 rounded-lg text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="h-9 px-3 rounded-lg text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
                   onClick={() => editor.chain().focus().unsetColor().run()}
                 >
                   Сбросить
@@ -528,10 +528,10 @@ function StatementEditor({ value, onChange }) {
               </div>
             </div>
 
-            <div className="h-px bg-slate-200 dark:bg-slate-800 my-1" />
+            <div className="h-px bg-neutral-200 dark:bg-neutral-800 my-1" />
             <button
               type="button"
-              className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
               onClick={() => {
                 editor.chain().focus().unsetAllMarks().clearNodes().run();
                 setCtxMenu((s) => ({ ...s, open: false }));

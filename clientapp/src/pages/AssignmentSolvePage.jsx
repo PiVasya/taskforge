@@ -295,7 +295,7 @@ export default function AssignmentSolvePage() {
   if (loading) {
     return (
       <Layout>
-        <div className="text-slate-500">Загрузка…</div>
+        <div className="text-neutral-500">Загрузка…</div>
       </Layout>
     );
   }
@@ -460,7 +460,7 @@ export default function AssignmentSolvePage() {
               </div>
 
               {expectedUrl ? (
-                <div className="rounded border overflow-hidden bg-white dark:bg-slate-950">
+                <div className="rounded border overflow-hidden bg-white dark:bg-neutral-950">
                   <img
                     src={expectedUrl}
                     alt="Эталон"
@@ -468,7 +468,7 @@ export default function AssignmentSolvePage() {
                   />
                 </div>
               ) : (
-                <div className="text-slate-500">
+                <div className="text-neutral-500">
                   Эталонная картинка не настроена. Открой «Редактировать» и нажми «Загрузить эталон».
                 </div>
               )}
@@ -489,14 +489,14 @@ export default function AssignmentSolvePage() {
                       <option key={l.value} value={l.value}>{l.label}</option>
                     ))}
                   </Select>
-                  <div className="text-xs text-slate-500 mt-1">
+                  <div className="text-xs text-neutral-500 mt-1">
                     Для image-test доступны только Python и Pascal.
                   </div>
                 </div>
 
                 <div>
                   <label className="label">Код</label>
-                  <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                  <div className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700">
                     <CodeEditor
                       value={code}
                       onChange={setCode}
@@ -518,7 +518,7 @@ export default function AssignmentSolvePage() {
                   Открыть последние результаты
                 </Button>
 
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-neutral-500">
                   Пробник возвращает картинку без сравнения. Отправка выполняет сравнение с эталоном.
                 </div>
               </div>
@@ -592,19 +592,19 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
             </div>
 
             {publicTests.length === 0 ? (
-              <div className="text-slate-500">У задания нет публичных тестов.</div>
+              <div className="text-neutral-500">У задания нет публичных тестов.</div>
             ) : (
               <div className="space-y-3">
                 {publicTests.map((t, i) => {
                   const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                   return (
                     <div key={i} className="rounded border p-3">
-                      <div className="text-xs text-slate-500 mb-1">Ввод</div>
+                      <div className="text-xs text-neutral-500 mb-1">Ввод</div>
                       <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
 
                       {(expectedText ?? '') !== '' && (
                         <>
-                          <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
+                          <div className="text-xs text-neutral-500 mt-2 mb-1">Ожидаемый вывод</div>
                           <pre className="whitespace-pre-wrap text-sm">{expectedText}</pre>
                         </>
                       )}
@@ -630,7 +630,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
                 {/* маленькая подсказка, если ограничения включены */}
                 {allowedLangs && allowedLangs.length > 0 && (
-                  <div className="text-xs text-slate-500 mt-1">
+                  <div className="text-xs text-neutral-500 mt-1">
                     Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
                   </div>
                 )}

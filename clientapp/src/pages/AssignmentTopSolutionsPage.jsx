@@ -38,7 +38,7 @@ export default function AssignmentTopSolutionsPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="text-slate-500">Загрузка…</div>
+        <div className="text-neutral-500">Загрузка…</div>
       </Layout>
     );
   }
@@ -62,22 +62,22 @@ export default function AssignmentTopSolutionsPage() {
           Топ решений — {assignment?.title}
         </h1>
         {solutions.length === 0 ? (
-          <div className="text-slate-500">Решений пока нет.</div>
+          <div className="text-neutral-500">Решений пока нет.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800">
+            <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-700 text-sm">
+              <thead className="bg-neutral-50 dark:bg-neutral-800">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">#</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">Пользователь</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">Успешно</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">Провалено</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">Отправлено</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">Язык</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500">Код</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">#</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Пользователь</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Успешно</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Провалено</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Отправлено</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Язык</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Код</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
                 {solutions.map((sol, i) => (
                   <tr key={i}>
                     <td className="px-3 py-2">{i + 1}</td>

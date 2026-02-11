@@ -250,7 +250,7 @@ export default function MySolutionsPage() {
             const options = Array.isArray(q.options) ? q.options : [];
 
             return (
-              <div key={q.id || i} className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-[rgb(var(--card))]">
+              <div key={q.id || i} className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-4 bg-[rgb(var(--card))]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="font-medium">
                     {i + 1}.{' '}
@@ -300,11 +300,11 @@ export default function MySolutionsPage() {
                 {(type === 'text' || type === 'fill') && !split && (
                   <div className="mt-3 space-y-2 text-sm">
                     <div>
-                      <span className="text-slate-500 dark:text-slate-400">Ваш ответ:</span> {userText || <i>—</i>}
+                      <span className="text-neutral-500 dark:text-neutral-400">Ваш ответ:</span> {userText || <i>—</i>}
                     </div>
                     {Array.isArray(q.acceptedAnswers) && q.acceptedAnswers.length > 0 && (
                       <div>
-                        <span className="text-slate-500 dark:text-slate-400">Правильные ответы:</span>{' '}
+                        <span className="text-neutral-500 dark:text-neutral-400">Правильные ответы:</span>{' '}
                         {q.acceptedAnswers.join(', ')}
                       </div>
                     )}
@@ -355,24 +355,24 @@ export default function MySolutionsPage() {
             ))}
           </div>
 
-          {tab === 'code' && listLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
-          {tab === 'tests' && testListLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
-          {tab === 'images' && imageListLoading && <div className="text-slate-500 dark:text-slate-400">Загрузка…</div>}
+          {tab === 'code' && listLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
+          {tab === 'tests' && testListLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
+          {tab === 'images' && imageListLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
 
           {tab === 'code' && !listLoading && !displayedSolutions.length && (
-            <div className="text-slate-500 dark:text-slate-400">За выбранный период решений нет.</div>
+            <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений нет.</div>
           )}
           {tab === 'tests' && !testListLoading && !displayedAttempts.length && (
-            <div className="text-slate-500 dark:text-slate-400">За выбранный период попыток тестов нет.</div>
+            <div className="text-neutral-500 dark:text-neutral-400">За выбранный период попыток тестов нет.</div>
           )}
           {tab === 'images' && !imageListLoading && !displayedImageSolutions.length && (
-            <div className="text-slate-500 dark:text-slate-400">За выбранный период решений по картинкам нет.</div>
+            <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений по картинкам нет.</div>
           )}
         </Card>
 
         {tab === 'code' && displayedSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">
               Показано решений по коду: {displayedSolutions.length}
             </div>
 
@@ -383,14 +383,14 @@ export default function MySolutionsPage() {
                 return (
                   <div
                     key={item.id}
-                    className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div>
                         <div className="font-medium">
                           {item.courseTitle} • {item.assignmentTitle}
                         </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">
                           {new Date(item.submittedAt).toLocaleString()} • {item.language}
                         </div>
                       </div>
@@ -406,7 +406,7 @@ export default function MySolutionsPage() {
                       </div>
                     </div>
                     {showCode && (
-                      <div className="mt-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                      <div className="mt-3 rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700">
                         <CodeEditor
                           language={full.language || item.language}
                           value={full.submittedCode || ''}
@@ -437,7 +437,7 @@ export default function MySolutionsPage() {
 
         {tab === 'tests' && !testListLoading && displayedAttempts.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">
               Всего попыток тестов: {displayedAttempts.length}
             </div>
 
@@ -447,11 +447,11 @@ export default function MySolutionsPage() {
                 const dto = testDetails[id] || null;
                 const expanded = expandedTestAttemptId === id;
                 return (
-                  <div key={id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-[rgb(var(--card))]">
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium">{a.courseTitle} • {a.assignmentTitle}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">
                           {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
                         </div>
                       </div>
@@ -491,7 +491,7 @@ export default function MySolutionsPage() {
 
         {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">
               Всего решений по картинкам: {displayedImageSolutions.length}
             </div>
 
@@ -506,11 +506,11 @@ export default function MySolutionsPage() {
                 };
 
                 return (
-                  <div key={it.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-[rgb(var(--card))]">
+                  <div key={it.id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium">{it.assignmentTitle}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">
                           {dt}
                           {it.language ? ` • ${it.language}` : ''}
                         </div>
@@ -539,7 +539,7 @@ export default function MySolutionsPage() {
                             {full.referenceUrl ? (
                               <img src={full.referenceUrl} alt="Эталон" className="w-full rounded-lg border" />
                             ) : (
-                              <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
+                              <div className="text-sm text-neutral-500 dark:text-neutral-400">—</div>
                             )}
                           </Card>
                           <Card className="p-3">
@@ -547,13 +547,13 @@ export default function MySolutionsPage() {
                             {full.submittedUrl ? (
                               <img src={full.submittedUrl} alt="Результат" className="w-full rounded-lg border" />
                             ) : (
-                              <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
+                              <div className="text-sm text-neutral-500 dark:text-neutral-400">—</div>
                             )}
                           </Card>
                         </div>
 
                         {full.submittedCode ? (
-                          <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                          <div className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700">
                             <CodeEditor
                               language={full.language || it.language || 'text'}
                               value={full.submittedCode}
@@ -571,13 +571,13 @@ export default function MySolutionsPage() {
                             ) : null}
                             {full.stdout ? (
                               <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">stdout</div>
+                                <div className="text-xs text-neutral-500 dark:text-neutral-400">stdout</div>
                                 <pre className="text-xs whitespace-pre-wrap break-words mt-1">{full.stdout}</pre>
                               </div>
                             ) : null}
                             {full.stderr ? (
                               <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">stderr</div>
+                                <div className="text-xs text-neutral-500 dark:text-neutral-400">stderr</div>
                                 <pre className="text-xs whitespace-pre-wrap break-words mt-1">{full.stderr}</pre>
                               </div>
                             ) : null}

@@ -71,7 +71,7 @@ export default function PublicProfilePage() {
                   <img
                     src={profile.avatarUrl}
                     alt={profile.displayName}
-                    className="h-20 w-20 rounded-full object-cover border border-slate-300/60 dark:border-slate-700/60"
+                    className="h-20 w-20 rounded-full object-cover border border-neutral-300/60 dark:border-neutral-700/60"
                   />
                 ) : (
                   <div className="h-20 w-20 rounded-full bg-gradient-to-br from-fuchsia-500 to-pink-500 grid place-items-center text-white text-3xl font-semibold">
@@ -87,7 +87,7 @@ export default function PublicProfilePage() {
                   </h1>
 
                   {typeof profile.rank === 'number' && (
-                    <div className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-medium">
+                    <div className="inline-flex items-center gap-1 rounded-full bg-neutral-100 dark:bg-neutral-800 px-3 py-1 text-xs font-medium">
                       <Trophy size={14} />
                       <span>#{profile.rank} в топе</span>
                     </div>
@@ -95,21 +95,21 @@ export default function PublicProfilePage() {
                 </div>
 
                 {profile.location && (
-                  <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400">
                     <MapPin size={14} />
                     <span>{profile.location}</span>
                   </div>
                 )}
 
                 {profile.education && (
-                  <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400">
                     <BookOpen size={14} />
                     <span>{profile.education}</span>
                   </div>
                 )}
 
                 {profile.bio && (
-                  <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 whitespace-pre-line">
+                  <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-2 whitespace-pre-line">
                     {profile.bio}
                   </p>
                 )}
@@ -127,7 +127,7 @@ export default function PublicProfilePage() {
                           <img
                             src={b.imageUrl}
                             alt={b.name}
-                            className="h-6 w-6 object-contain rounded border border-slate-200 dark:border-slate-700"
+                            className="h-6 w-6 object-contain rounded border border-neutral-200 dark:border-neutral-700"
                           />
                         )}
                       </span>
@@ -171,7 +171,7 @@ export default function PublicProfilePage() {
                             href={profile.github}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
+                            className="inline-flex items-center gap-2 text-neutral-600 dark:text-neutral-300 hover:text-brand-600"
                           >
                             <Github size={16} />
                             <span>GitHub</span>
@@ -190,7 +190,7 @@ export default function PublicProfilePage() {
                             }
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
+                            className="inline-flex items-center gap-2 text-neutral-600 dark:text-neutral-300 hover:text-brand-600"
                           >
                             <Send size={16} />
                             <span>Telegram</span>
@@ -202,7 +202,7 @@ export default function PublicProfilePage() {
                             href={profile.website}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-brand-600"
+                            className="inline-flex items-center gap-2 text-neutral-600 dark:text-neutral-300 hover:text-brand-600"
                           >
                             <Globe2 size={16} />
                             <span>Сайт / портфолио</span>
@@ -210,7 +210,7 @@ export default function PublicProfilePage() {
                         )}
 
                         {!hasGithub && !hasTelegram && !hasWebsite && (
-                          <div className="text-xs text-slate-400">
+                          <div className="text-xs text-neutral-400">
                             Пользователь не добавил ссылки.
                           </div>
                         )}
@@ -236,7 +236,7 @@ export default function PublicProfilePage() {
               <Card className="p-4 space-y-2">
                 <h2 className="font-semibold text-sm">Бейджи</h2>
                 {badgesLoading && (
-                  <div className="text-xs text-slate-400">Загрузка…</div>
+                  <div className="text-xs text-neutral-400">Загрузка…</div>
                 )}
                 {!badgesLoading && badges.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
@@ -250,7 +250,7 @@ export default function PublicProfilePage() {
                           <img
                             src={b.imageUrl}
                             alt={b.name}
-                            className="h-8 w-8 object-contain rounded border border-slate-200 dark:border-slate-700"
+                            className="h-8 w-8 object-contain rounded border border-neutral-200 dark:border-neutral-700"
                           />
                         )}
                       </span>

@@ -270,7 +270,7 @@ export default function AssignmentEditPage() {
   if (loading) {
     return (
       <Layout fullWidth>
-        <div className="text-slate-500">Загрузка…</div>
+        <div className="text-neutral-500">Загрузка…</div>
       </Layout>
     );
   }
@@ -331,7 +331,7 @@ export default function AssignmentEditPage() {
                       >
                         <PlusCircle size={16} /> Добавить
                       </Button>
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-neutral-500">
                         Оставь список пустым, чтобы разрешить все доступные языки для этого типа.
                       </div>
                     </div>
@@ -344,7 +344,7 @@ export default function AssignmentEditPage() {
                           return (
                             <span
                               key={v}
-                              className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-800 text-sm"
+                              className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-800 text-sm"
                             >
                               {label}
                               <button
@@ -412,7 +412,7 @@ export default function AssignmentEditPage() {
                 {testCases.map((t, idx) => (
                   <div
                     key={idx}
-                    className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-[rgb(var(--card))]"
+                    className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="grid sm:grid-cols-2 gap-4">
                       <Field label="Input">
@@ -458,7 +458,7 @@ export default function AssignmentEditPage() {
           {type === "image-test" && (
             <Card>
               <h2 className="text-xl font-semibold mb-2">Image-test</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+              <p className="text-sm text-neutral-600 dark:text-neutral-300 mb-4">
                 Этот тип задания проверяется сравнением картинки. Эталон хранится приватно.
               </p>
 
@@ -506,7 +506,7 @@ export default function AssignmentEditPage() {
                       Загрузить эталон
                     </Button>
                     {imageTestReferenceKey && (
-                      <span className="text-xs text-slate-500 break-all">
+                      <span className="text-xs text-neutral-500 break-all">
                         {imageTestReferenceKey}
                       </span>
                     )}
@@ -514,12 +514,12 @@ export default function AssignmentEditPage() {
 
                   {imageTestReferenceKey ? (
                     <img
-                      className="mt-3 max-h-64 rounded-xl border border-slate-200 dark:border-slate-800"
+                      className="mt-3 max-h-64 rounded-xl border border-neutral-200 dark:border-neutral-800"
                       src={`/api/private-files/${encodeURIComponent(imageTestReferenceKey)}`}
                       alt="Эталон"
                     />
                   ) : (
-                    <div className="mt-3 text-sm text-slate-500">
+                    <div className="mt-3 text-sm text-neutral-500">
                       Эталон ещё не загружен.
                     </div>
                   )}
@@ -540,7 +540,7 @@ export default function AssignmentEditPage() {
         </div>
 
       {/* нижняя панель (на всякий) */}
-      <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-slate-200/60 dark:border-slate-800/60 mt-6">
+      <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-neutral-200/60 dark:border-neutral-800/60 mt-6">
         <div className="flex items-center justify-end gap-2">
           <Button onClick={save} disabled={busy}>
             <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}

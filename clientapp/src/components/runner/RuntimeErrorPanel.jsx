@@ -12,7 +12,7 @@ export default function RuntimeErrorPanel({ run, source }) {
     const from = Math.max(0, idx - 2);
     const to = Math.min(lines.length - 1, idx + 2);
     return (
-      <pre className="mt-3 text-sm bg-slate-900 text-slate-100 rounded-xl p-3 overflow-auto">
+      <pre className="mt-3 text-sm bg-neutral-900 text-neutral-100 rounded-xl p-3 overflow-auto">
         {lines.slice(from, to + 1).map((ln, i) => {
           const no = from + i + 1;
           const highlight = no === line ? "bg-amber-500/20" : "";
@@ -50,7 +50,7 @@ export default function RuntimeErrorPanel({ run, source }) {
       {renderSnippet()}
 
       {showRaw && run.stderr && (
-        <pre className="mt-3 text-xs bg-white/70 dark:bg-slate-900/30 rounded p-3 whitespace-pre-wrap overflow-auto">
+        <pre className="mt-3 text-xs bg-white/70 dark:bg-neutral-900/30 rounded p-3 whitespace-pre-wrap overflow-auto">
           {run.stderr}
         </pre>
       )}

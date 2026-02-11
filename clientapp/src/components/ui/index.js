@@ -2,7 +2,7 @@
     <div className="field">
         {label && <label className="label">{label}</label>}
         {children}
-        {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
+        {hint && <div className="text-xs text-neutral-500 mt-1">{hint}</div>}
     </div>
 );
 

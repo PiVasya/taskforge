@@ -183,20 +183,20 @@ export default function SupportChatPage() {
           <Card>
             <div className="space-y-4 mb-4">
               {messages.length === 0 ? (
-                <div className="text-slate-500 dark:text-slate-400">Пока нет сообщений.</div>
+                <div className="text-neutral-500 dark:text-neutral-400">Пока нет сообщений.</div>
               ) : (
                 messages.map((m) => (
                   <div key={m.id || `${m.createdAt}-${m.text}`} className={m.isFromAdmin ? 'text-right' : 'text-left'}>
                     <div
                       className={
                         m.isFromAdmin
-                          ? 'bg-slate-100 dark:bg-slate-800 inline-block p-3 rounded-xl'
+                          ? 'bg-neutral-100 dark:bg-neutral-800 inline-block p-3 rounded-xl'
                           : 'bg-brand-100 dark:bg-brand-900 inline-block p-3 rounded-xl'
                       }
                     >
                       {m.text}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1">{m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}</div>
+                    <div className="text-xs text-neutral-500 mt-1">{m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}</div>
                   </div>
                 ))
               )}

@@ -6,7 +6,7 @@ export default function ProtectedRoute() {
     const { access, ready } = useAuth();
     const loc = useLocation();
 
-    if (!ready) return <div className="container-app py-10 text-slate-500">Загрузка…</div>;
+    if (!ready) return <div className="container-app py-10 text-neutral-500">Загрузка…</div>;
     if (!access) return <Navigate to="/login" replace state={{ from: loc }} />;
     return <Outlet />;
 }

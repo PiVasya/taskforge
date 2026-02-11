@@ -198,7 +198,7 @@ export default function AdminBadgesPage() {
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap gap-3 items-end">
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
+              <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Поиск пользователя
               </div>
               <div className="flex gap-2">
@@ -216,7 +216,7 @@ export default function AdminBadgesPage() {
               </div>
             </div>
             <div className="space-y-1 min-w-[220px]">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Пользователь</div>
+              <div className="text-xs uppercase tracking-wide text-neutral-500">Пользователь</div>
               <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
                 <option value="">— не выбрано —</option>
                 {users.map((u) => (
@@ -228,7 +228,7 @@ export default function AdminBadgesPage() {
             </div>
           </div>
           {selectedUser && (
-            <div className="text-xs text-slate-600 dark:text-slate-300">
+            <div className="text-xs text-neutral-600 dark:text-neutral-300">
               Выбран: <span className="font-mono">{selectedUser.email}</span>
             </div>
           )}
@@ -239,7 +239,7 @@ export default function AdminBadgesPage() {
           <h2 className="text-lg font-semibold">Создать новый бейдж</h2>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
-              <div className="text-sm text-slate-500">Название</div>
+              <div className="text-sm text-neutral-500">Название</div>
               <Input
                 placeholder="Название бейджа"
                 value={newName}
@@ -247,7 +247,7 @@ export default function AdminBadgesPage() {
               />
             </div>
             <div>
-              <div className="text-sm text-slate-500">Описание</div>
+              <div className="text-sm text-neutral-500">Описание</div>
               <Input
                 placeholder="Описание (необязательно)"
                 value={newDesc}
@@ -255,7 +255,7 @@ export default function AdminBadgesPage() {
               />
             </div>
             <div>
-              <div className="text-sm text-slate-500">SVG-файл</div>
+              <div className="text-sm text-neutral-500">SVG-файл</div>
               <input
                 type="file"
                 accept="image/svg+xml"
@@ -266,7 +266,7 @@ export default function AdminBadgesPage() {
                     setNewFile(null);
                   }
                 }}
-                className="block w-full text-sm text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer focus:outline-none file:bg-slate-100 dark:file:bg-slate-800 file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
+                className="block w-full text-sm text-neutral-700 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 rounded-lg cursor-pointer focus:outline-none file:bg-neutral-100 dark:file:bg-neutral-800 file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
               />
             </div>
           </div>
@@ -284,30 +284,30 @@ export default function AdminBadgesPage() {
         <Card className="p-4 space-y-4">
           <h2 className="text-lg font-semibold">Список бейджей</h2>
           {badgesLoading ? (
-            <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+            <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
           ) : badges.length === 0 ? (
-            <div className="text-slate-600 dark:text-slate-300">Пока нет созданных бейджей</div>
+            <div className="text-neutral-600 dark:text-neutral-300">Пока нет созданных бейджей</div>
           ) : (
             <div className="space-y-3">
               {badges.map((b) => (
                 <div
                   key={b.id}
-                  className="flex items-center justify-between border border-slate-200 dark:border-slate-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
+                  className="flex items-center justify-between border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {b.imageUrl && (
                       <img
                         src={b.imageUrl}
                         alt={b.name}
-                        className="h-10 w-10 rounded border border-slate-200 dark:border-slate-700 object-contain"
+                        className="h-10 w-10 rounded border border-neutral-200 dark:border-neutral-700 object-contain"
                       />
                     )}
                     <div className="min-w-0">
-                      <div className="font-medium text-slate-900 dark:text-slate-50 truncate">
+                      <div className="font-medium text-neutral-900 dark:text-neutral-50 truncate">
                         {b.name}
                       </div>
                       {b.description && (
-                        <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                        <div className="text-xs text-neutral-600 dark:text-neutral-400 truncate">
                           {b.description}
                         </div>
                       )}
@@ -349,30 +349,30 @@ export default function AdminBadgesPage() {
                 : ''}
             </h2>
             {userBadgesLoading ? (
-              <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+              <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
             ) : userBadges.length === 0 ? (
-              <div className="text-slate-600 dark:text-slate-300">У пользователя пока нет бейджей</div>
+              <div className="text-neutral-600 dark:text-neutral-300">У пользователя пока нет бейджей</div>
             ) : (
               <div className="space-y-3">
                 {userBadges.map((b) => (
                   <div
                     key={b.id}
-                    className="flex items-center justify-between border border-slate-200 dark:border-slate-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
+                    className="flex items-center justify-between border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       {b.imageUrl && (
                         <img
                           src={b.imageUrl}
                           alt={b.name}
-                          className="h-8 w-8 rounded border border-slate-200 dark:border-slate-700 object-contain"
+                          className="h-8 w-8 rounded border border-neutral-200 dark:border-neutral-700 object-contain"
                         />
                       )}
                       <div className="min-w-0">
-                        <div className="font-medium text-slate-900 dark:text-slate-50 truncate">
+                        <div className="font-medium text-neutral-900 dark:text-neutral-50 truncate">
                           {b.name}
                         </div>
                         {b.description && (
-                          <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                          <div className="text-xs text-neutral-600 dark:text-neutral-400 truncate">
                             {b.description}
                           </div>
                         )}

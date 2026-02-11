@@ -62,7 +62,7 @@ export default function AssignmentResultsPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="text-slate-500">Загрузка…</div>
+        <div className="text-neutral-500">Загрузка…</div>
       </Layout>
     );
   }
@@ -83,7 +83,7 @@ export default function AssignmentResultsPage() {
           </div>
         </div>
         <Card>
-          <div className="text-slate-500 p-3">Нет данных для отображения.</div>
+          <div className="text-neutral-500 p-3">Нет данных для отображения.</div>
         </Card>
       </Layout>
     );
@@ -136,28 +136,28 @@ export default function AssignmentResultsPage() {
 
                   {'input' in c || 'Input' in c ? (
                     <>
-                      <div className="text-xs text-slate-500 mb-1">Ввод</div>
+                      <div className="text-xs text-neutral-500 mb-1">Ввод</div>
                       <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input ?? c.Input)}</pre>
                     </>
                   ) : null}
 
                   {(expectedText ?? '') !== '' && (
                     <>
-                      <div className="text-xs text-slate-500 mt-2 mb-1">Ожидаемый вывод</div>
+                      <div className="text-xs text-neutral-500 mt-2 mb-1">Ожидаемый вывод</div>
                       <pre className="whitespace-pre-wrap text-sm">{displayClean(expectedText)}</pre>
                     </>
                   )}
 
                   {(actualText ?? '') !== '' && (
                     <>
-                      <div className="text-xs text-slate-500 mt-2 mb-1">Фактически</div>
+                      <div className="text-xs text-neutral-500 mt-2 mb-1">Фактически</div>
                       <pre className="whitespace-pre-wrap text-sm">{displayClean(actualText)}</pre>
                     </>
                   )}
 
                   {(c.compileStderr || c.stderr || c.error) && (
                     <div className="mt-2">
-                      <div className="text-xs text-slate-500 mb-1">Ошибки</div>
+                      <div className="text-xs text-neutral-500 mb-1">Ошибки</div>
                       <pre className="whitespace-pre-wrap text-xs text-red-600">
                         {displayClean(c.compileStderr || c.stderr || c.error)}
                       </pre>

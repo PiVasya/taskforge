@@ -37,7 +37,7 @@ export default function SupportPage() {
     <Layout>
       <div className="max-w-xl mx-auto">
         <h1 className="text-2xl font-semibold mb-6">Связь с техподдержкой</h1>
-        <p className="mb-6 text-slate-600 dark:text-slate-400 text-sm">
+        <p className="mb-6 text-neutral-600 dark:text-neutral-400 text-sm">
           Если у вас вопрос, вы нашли ошибку или хотите предложить улучшение —
           заполните форму ниже. Мы постараемся ответить как можно скорее.
         </p>

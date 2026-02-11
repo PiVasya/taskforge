@@ -14,12 +14,12 @@ export default function LeaderboardCard({ entry }) {
   // градиенты для топ-3 мест
   const rankColors = {
     1: 'from-amber-400 to-yellow-500',
-    2: 'from-slate-300 to-slate-100',
+    2: 'from-neutral-300 to-neutral-100',
     3: 'from-orange-400 to-amber-500',
   };
   const rankBg =
     rankColors[entry.rank] ||
-    'from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800';
+    'from-neutral-200 to-neutral-300 dark:from-neutral-700 dark:to-neutral-800';
 
   const hasBadges = Array.isArray(entry.badges) && entry.badges.length > 0;
 
@@ -27,12 +27,12 @@ export default function LeaderboardCard({ entry }) {
     <button
       type="button"
       onClick={handleOpenProfile}
-      className="group relative w-full text-left rounded-2xl border border-slate-200/70 dark:border-slate-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
+      className="group relative w-full text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
     >
       {/* Ранг */}
       <div className="absolute -top-3 left-0">
         <div
-          className={`inline-flex items-center gap-1 rounded-2xl bg-gradient-to-br ${rankBg} px-3 py-1 text-xs font-semibold text-slate-900 shadow-md`}
+          className={`inline-flex items-center gap-1 rounded-2xl bg-gradient-to-br ${rankBg} px-3 py-1 text-xs font-semibold text-neutral-900 shadow-md`}
         >
           <Trophy size={14} />
           <span>#{entry.rank}</span>
@@ -45,7 +45,7 @@ export default function LeaderboardCard({ entry }) {
           <img
             src={entry.avatarUrl}
             alt={entry.displayName}
-            className="h-14 w-14 rounded-full object-cover border border-slate-300/60 dark:border-slate-700/60"
+            className="h-14 w-14 rounded-full object-cover border border-neutral-300/60 dark:border-neutral-700/60"
           />
         ) : (
           <div className="h-14 w-14 rounded-full bg-gradient-to-br from-fuchsia-500 to-pink-500 grid place-items-center text-white text-xl font-semibold">
@@ -87,13 +87,13 @@ export default function LeaderboardCard({ entry }) {
 
         {/* Доп. инфа: локация / образование */}
         {entry.location && (
-          <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             <MapPin size={12} />
             <span className="truncate">{entry.location}</span>
           </div>
         )}
         {entry.education && (
-          <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             <BookOpen size={12} />
             <span className="truncate">{entry.education}</span>
           </div>
@@ -103,10 +103,10 @@ export default function LeaderboardCard({ entry }) {
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           {/* Решённые задания */}
           <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
-            <span className="font-semibold text-slate-700 dark:text-slate-200">
+            <span className="font-semibold text-neutral-700 dark:text-neutral-200">
               {entry.solvedAssignments}
             </span>
-            <span className="text-slate-500 dark:text-slate-400">
+            <span className="text-neutral-500 dark:text-neutral-400">
               решённых&nbsp;заданий
             </span>
           </span>
@@ -114,10 +114,10 @@ export default function LeaderboardCard({ entry }) {
           {/* Всего попыток */}
           {typeof entry.totalAttempts === 'number' && (
             <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
+              <span className="font-semibold text-neutral-700 dark:text-neutral-200">
                 {entry.totalAttempts}
               </span>
-              <span className="text-slate-500 dark:text-slate-400">попыток</span>
+              <span className="text-neutral-500 dark:text-neutral-400">попыток</span>
             </span>
           )}
 
@@ -125,7 +125,7 @@ export default function LeaderboardCard({ entry }) {
           {entry.lastSubmitAt && (
             <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
               <Clock size={12} />
-              <span className="text-slate-500 dark:text-slate-400">
+              <span className="text-neutral-500 dark:text-neutral-400">
                 Активен:{' '}
                 {new Date(entry.lastSubmitAt).toLocaleDateString(undefined, {
                   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

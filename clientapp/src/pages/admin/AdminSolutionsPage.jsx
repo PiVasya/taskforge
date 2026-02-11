@@ -290,7 +290,7 @@ export default function AdminSolutionsPage() {
             const options = Array.isArray(q.options) ? q.options : [];
 
             return (
-              <div key={q.id || i} className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-[rgb(var(--card))]">
+              <div key={q.id || i} className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-4 bg-[rgb(var(--card))]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="font-medium">
                     {i + 1}.{' '}
@@ -340,11 +340,11 @@ export default function AdminSolutionsPage() {
                 {(type === 'text' || type === 'fill') && !split && (
                   <div className="mt-3 space-y-2 text-sm">
                     <div>
-                      <span className="text-slate-500 dark:text-slate-400">Ответ:</span> {userText || <i>—</i>}
+                      <span className="text-neutral-500 dark:text-neutral-400">Ответ:</span> {userText || <i>—</i>}
                     </div>
                     {Array.isArray(q.acceptedAnswers) && q.acceptedAnswers.length > 0 && (
                       <div>
-                        <span className="text-slate-500 dark:text-slate-400">Правильные ответы:</span>{' '}
+                        <span className="text-neutral-500 dark:text-neutral-400">Правильные ответы:</span>{' '}
                         {q.acceptedAnswers.join(', ')}
                       </div>
                     )}
@@ -463,7 +463,7 @@ export default function AdminSolutionsPage() {
 
           <div className="flex flex-wrap gap-3 items-end">
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
+              <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Поиск пользователя
               </div>
               <div className="flex gap-2">
@@ -482,7 +482,7 @@ export default function AdminSolutionsPage() {
             </div>
 
             <div className="space-y-1 min-w-[220px]">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
+              <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Пользователь
               </div>
               <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
@@ -496,7 +496,7 @@ export default function AdminSolutionsPage() {
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
+              <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Период
               </div>
               <Select
@@ -548,25 +548,25 @@ export default function AdminSolutionsPage() {
           </div>
 
           {selectedUser && (
-            <div className="text-xs text-slate-600 dark:text-slate-300">
+            <div className="text-xs text-neutral-600 dark:text-neutral-300">
               Выбран: <span className="font-mono">{selectedUser.email}</span>
             </div>
           )}
         </Card>
 
         {tab === 'code' && listLoading && (
-          <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+          <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
         {tab === 'tests' && testListLoading && (
-          <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+          <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
         {tab === 'images' && imageListLoading && (
-          <div className="text-slate-600 dark:text-slate-300">Загрузка…</div>
+          <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
 
         {tab === 'code' && !listLoading && displayedSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-600 dark:text-slate-300">
+            <div className="text-sm text-neutral-600 dark:text-neutral-300">
               Всего решений по коду: {displayedSolutions.length}
             </div>
 
@@ -578,14 +578,14 @@ export default function AdminSolutionsPage() {
                 return (
                   <div
                     key={item.id}
-                    className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div>
-                        <div className="font-medium text-slate-900 dark:text-slate-50">
+                        <div className="font-medium text-neutral-900 dark:text-neutral-50">
                           {item.courseTitle} • {item.assignmentTitle}
                         </div>
-                        <div className="text-xs text-slate-600 dark:text-slate-400">
+                        <div className="text-xs text-neutral-600 dark:text-neutral-400">
                           {new Date(item.submittedAt).toLocaleString()} • {item.language}
                         </div>
                       </div>
@@ -617,7 +617,7 @@ export default function AdminSolutionsPage() {
                     </div>
 
                     {showCode && (
-                      <div className="mt-3 rounded-xl overflow-hidden border border-slate-700">
+                      <div className="mt-3 rounded-xl overflow-hidden border border-neutral-700">
                         <CodeEditor
                           language={full.language || item.language}
                           value={full.submittedCode || ''}
@@ -637,7 +637,7 @@ export default function AdminSolutionsPage() {
         
         {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-600 dark:text-slate-300">
+            <div className="text-sm text-neutral-600 dark:text-neutral-300">
               Всего решений по картинкам: {displayedImageSolutions.length}
             </div>
 
@@ -649,15 +649,15 @@ export default function AdminSolutionsPage() {
                 return (
                   <div
                     key={item.id}
-                    className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="space-y-1">
                         <div className="font-medium">
                           {item.assignmentTitle}{' '}
-                          <span className="text-sm text-slate-500">({item.kind}{item.isTrial ? ', пробник' : ''})</span>
+                          <span className="text-sm text-neutral-500">({item.kind}{item.isTrial ? ', пробник' : ''})</span>
                         </div>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-neutral-500">
                           {new Date(item.createdAtUtc).toLocaleString()} • {item.language || '—'}
                         </div>
                       </div>
@@ -708,27 +708,27 @@ export default function AdminSolutionsPage() {
 
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="space-y-2">
-                            <div className="text-xs uppercase tracking-wide text-slate-500">Эталон</div>
+                            <div className="text-xs uppercase tracking-wide text-neutral-500">Эталон</div>
                             {full.referenceUrl ? (
-                              <img src={full.referenceUrl} alt="reference" className="w-full rounded-lg border border-slate-200 dark:border-slate-700" />
+                              <img src={full.referenceUrl} alt="reference" className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700" />
                             ) : (
-                              <div className="text-sm text-slate-500">—</div>
+                              <div className="text-sm text-neutral-500">—</div>
                             )}
                           </div>
 
                           <div className="space-y-2">
-                            <div className="text-xs uppercase tracking-wide text-slate-500">Результат</div>
+                            <div className="text-xs uppercase tracking-wide text-neutral-500">Результат</div>
                             {full.submittedUrl ? (
-                              <img src={full.submittedUrl} alt="submitted" className="w-full rounded-lg border border-slate-200 dark:border-slate-700" />
+                              <img src={full.submittedUrl} alt="submitted" className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700" />
                             ) : (
-                              <div className="text-sm text-slate-500">—</div>
+                              <div className="text-sm text-neutral-500">—</div>
                             )}
                           </div>
                         </div>
 
                         {full.submittedCode ? (
                           <div className="space-y-2">
-                            <div className="text-xs uppercase tracking-wide text-slate-500">Код</div>
+                            <div className="text-xs uppercase tracking-wide text-neutral-500">Код</div>
                             <CodeEditor value={full.submittedCode} language={full.language || 'python'} readOnly />
                           </div>
                         ) : null}
@@ -736,14 +736,14 @@ export default function AdminSolutionsPage() {
                         {(full.stdout || full.stderr) ? (
                           <div className="grid gap-4 md:grid-cols-2">
                             <div>
-                              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">stdout</div>
-                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                              <div className="text-xs uppercase tracking-wide text-neutral-500 mb-1">stdout</div>
+                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
                                 {full.stdout || ''}
                               </pre>
                             </div>
                             <div>
-                              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">stderr</div>
-                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                              <div className="text-xs uppercase tracking-wide text-neutral-500 mb-1">stderr</div>
+                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
                                 {full.stderr || ''}
                               </pre>
                             </div>
@@ -760,7 +760,7 @@ export default function AdminSolutionsPage() {
 
 {tab === 'tests' && !testListLoading && displayedAttempts.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-slate-600 dark:text-slate-300">
+            <div className="text-sm text-neutral-600 dark:text-neutral-300">
               Всего попыток тестов: {displayedAttempts.length}
             </div>
 
@@ -771,13 +771,13 @@ export default function AdminSolutionsPage() {
                 const expanded = expandedTestAttemptId === id;
 
                 return (
-                  <div key={id} className="border border-slate-200 dark:border-slate-800/40 rounded-xl p-4 bg-[rgb(var(--card))]">
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
-                        <div className="font-medium text-slate-900 dark:text-slate-50">
+                        <div className="font-medium text-neutral-900 dark:text-neutral-50">
                           {a.courseTitle} • {a.assignmentTitle}
                         </div>
-                        <div className="text-xs text-slate-600 dark:text-slate-400">
+                        <div className="text-xs text-neutral-600 dark:text-neutral-400">
                           {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
                         </div>
                       </div>
@@ -814,27 +814,27 @@ export default function AdminSolutionsPage() {
         )}
 
         {tab === 'code' && !listLoading && !displayedSolutions.length && selectedUser && (
-          <Card className="p-4 text-slate-600 dark:text-slate-400">
+          <Card className="p-4 text-neutral-600 dark:text-neutral-400">
             Для этого пользователя нет решений по коду за выбранный период.
           </Card>
         )}
 
         {tab === 'tests' && !testListLoading && !displayedAttempts.length && selectedUser && (
-          <Card className="p-4 text-slate-600 dark:text-slate-400">
+          <Card className="p-4 text-neutral-600 dark:text-neutral-400">
             Для этого пользователя нет попыток тестов за выбранный период.
           </Card>
         )}
 
         {tab === 'groups' && selectedUser && (
           <Card className="p-4 space-y-4">
-            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
               <Users size={18} />
               <span>Группы пользователя</span>
             </div>
 
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1 min-w-[260px]">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Добавить в группу</div>
+                <div className="text-xs uppercase tracking-wide text-neutral-500">Добавить в группу</div>
                 <Select value={groupToAdd} onChange={(e) => setGroupToAdd(e.target.value)} disabled={groupsLoading}>
                   <option value="">— выберите группу —</option>
                   {groups
@@ -858,7 +858,7 @@ export default function AdminSolutionsPage() {
 
             <div className="space-y-2">
               {userGroupIds.length === 0 ? (
-                <div className="text-slate-600 dark:text-slate-400">Пользователь не состоит ни в одной группе.</div>
+                <div className="text-neutral-600 dark:text-neutral-400">Пользователь не состоит ни в одной группе.</div>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {groups
@@ -866,7 +866,7 @@ export default function AdminSolutionsPage() {
                     .map((g) => (
                       <div
                         key={g.id}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-sm"
+                        className="inline-flex items-center gap-2 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-sm"
                       >
                         <span className="font-medium">{g.name}</span>
                         <span className="text-xs opacity-70">({g.code})</span>

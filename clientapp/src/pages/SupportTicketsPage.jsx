@@ -46,20 +46,20 @@ export default function SupportTicketsPage() {
           ) : tickets.length === 0 ? (
             <div>У вас ещё нет обращений.</div>
           ) : (
-            <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
               {tickets.map((t) => (
                 <li key={t.id} className="p-4 flex justify-between items-center">
                   <div>
                     <div className="font-semibold">#{String(t.id).slice(0, 8)}</div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-sm text-neutral-500 dark:text-neutral-400">
                       Тип: {t.type} · {t.isClosed ? 'закрыто' : 'открыто'} · сообщений: {t.messagesCount ?? '—'}
                     </div>
                     {t.lastMessagePreview ? (
-                      <div className="text-sm text-slate-600 dark:text-slate-300 mt-1 line-clamp-2">
+                      <div className="text-sm text-neutral-600 dark:text-neutral-300 mt-1 line-clamp-2">
                         {t.lastMessagePreview}
                       </div>
                     ) : null}
-                    <div className="text-xs text-slate-400 dark:text-slate-500">
+                    <div className="text-xs text-neutral-400 dark:text-neutral-500">
                       Обновлено {t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—'}
                     </div>
                   </div>

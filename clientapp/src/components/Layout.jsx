@@ -118,8 +118,8 @@ export default function Layout({ children, fullWidth = false }) {
           type="button"
           className={
             `${compact ? '' : 'hidden md:inline-flex '}items-center gap-2 rounded-xl border ` +
-            'border-slate-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-900/40 ' +
-            'px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-900/60'
+            'border-neutral-200/70 dark:border-neutral-800/70 bg-white/60 dark:bg-neutral-900/40 ' +
+            'px-3 py-1.5 text-xs text-neutral-700 dark:text-neutral-200 hover:bg-white/80 dark:hover:bg-neutral-900/60'
           }
           title={title}
           onClick={() => setQuotaOpen((v) => !v)}
@@ -132,25 +132,25 @@ export default function Layout({ children, fullWidth = false }) {
         </button>
 
         {quotaOpen && (
-          <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-[rgb(var(--card))] shadow-soft p-3 z-50 text-xs">
+          <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-3 z-50 text-xs">
             <div className="font-semibold mb-2">Квоты</div>
-            <div className="space-y-1 text-slate-700 dark:text-slate-200">
+            <div className="space-y-1 text-neutral-700 dark:text-neutral-200">
               <div className="flex items-center justify-between">
                 <span className="opacity-75">Решения</span>
                 <span className="font-medium">{tasksText}</span>
               </div>
               {t?.retryAfterSeconds ? (
-                <div className="text-slate-500 dark:text-slate-400">Ждать: {t.retryAfterSeconds} сек.</div>
+                <div className="text-neutral-500 dark:text-neutral-400">Ждать: {t.retryAfterSeconds} сек.</div>
               ) : null}
 
-              <div className="h-px bg-slate-200/60 dark:bg-slate-800/60 my-2" />
+              <div className="h-px bg-neutral-200/60 dark:bg-neutral-800/60 my-2" />
 
               <div className="flex items-center justify-between">
                 <span className="opacity-75">Топ</span>
                 <span className="font-medium">{topText}</span>
               </div>
               {top?.retryAfterSeconds ? (
-                <div className="text-slate-500 dark:text-slate-400">Ждать: {top.retryAfterSeconds} сек.</div>
+                <div className="text-neutral-500 dark:text-neutral-400">Ждать: {top.retryAfterSeconds} сек.</div>
               ) : null}
             </div>
           </div>
@@ -241,7 +241,7 @@ export default function Layout({ children, fullWidth = false }) {
     <div className="min-h-screen">
       {/* фоновой градиент */}
       <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
-      <header className="sticky top-0 z-20 border-b border-slate-200/70 dark:border-slate-800/70 backdrop-blur bg-white/70 dark:bg-slate-900/60">
+      <header className="sticky top-0 z-20 border-b border-neutral-200/70 dark:border-neutral-800/70 backdrop-blur bg-white/70 dark:bg-neutral-900/60">
         <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
           {/* Логотип и название */}
           <Link to="/courses" className="flex min-w-0 items-center gap-3">
@@ -331,7 +331,7 @@ export default function Layout({ children, fullWidth = false }) {
                 {adminOpen && (
                   <div
                     role="menu"
-                    className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
+                    className="absolute right-0 mt-2 w-56 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
                   >
                     <Link
                       role="menuitem"
@@ -410,7 +410,7 @@ export default function Layout({ children, fullWidth = false }) {
             {moreOpen && (
               <div
                 role="menu"
-                className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
+                className="absolute right-0 mt-2 w-56 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
               >
                 {/* Цвет */}
                 <button
@@ -583,8 +583,8 @@ export default function Layout({ children, fullWidth = false }) {
         </motion.div>
       </main>
 
-      <footer className="mt-12 border-t border-slate-200/70 dark:border-slate-800/70">
-        <div className="container-app py-6 text-sm text-slate-500 dark:text-slate-400 flex items-center justify-between">
+      <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70">
+        <div className="container-app py-6 text-sm text-neutral-500 dark:text-neutral-400 flex items-center justify-between">
           {/* слева */}
           <div>© {new Date().getFullYear()} TaskForge</div>
 
@@ -592,7 +592,7 @@ export default function Layout({ children, fullWidth = false }) {
           {access && (
             <Link
               to={isAdmin ? "/admin/support" : "/support"}
-              className="inline-flex items-center gap-2 hover:text-slate-700 dark:hover:text-slate-200 transition"
+              className="inline-flex items-center gap-2 hover:text-neutral-700 dark:hover:text-neutral-200 transition"
               title="Техподдержка"
             >
               <LifeBuoy size={16} className="opacity-70" />

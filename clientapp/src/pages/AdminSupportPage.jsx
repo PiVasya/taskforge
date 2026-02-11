@@ -40,26 +40,26 @@ export default function AdminSupportPage() {
           ) : tickets.length === 0 ? (
             <div>Нет обращений.</div>
           ) : (
-            <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
               {tickets.map((t) => (
                 <li key={t.id} className="p-4 flex justify-between items-center">
                   <div>
                     <div className="font-semibold">#{String(t.id).slice(0, 8)}</div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-sm text-neutral-500 dark:text-neutral-400">
                       Тип: {t.type} · {t.isClosed ? 'закрыто' : 'открыто'}
                     </div>
                     {t.user && (
-                      <div className="text-xs text-slate-400 dark:text-slate-500">
+                      <div className="text-xs text-neutral-400 dark:text-neutral-500">
                         Пользователь: {t.user?.firstName} {t.user?.lastName}
                         {t.user?.email ? ` (${t.user.email})` : ''}
                       </div>
                     )}
                     {t.lastMessagePreview && (
-                      <div className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-[44rem]">
+                      <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-1 max-w-[44rem]">
                         {t.lastMessagePreview}
                       </div>
                     )}
-                    <div className="text-xs text-slate-400 dark:text-slate-500">
+                    <div className="text-xs text-neutral-400 dark:text-neutral-500">
                       Обновлено {t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—'}
                     </div>
                   </div>

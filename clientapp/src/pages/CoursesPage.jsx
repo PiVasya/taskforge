@@ -74,7 +74,7 @@ export default function CoursesPage() {
       </Card>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-slate-500">Загрузка…</div>}
+      {loading && <div className="text-neutral-500">Загрузка…</div>}
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((c) => {
@@ -105,10 +105,10 @@ export default function CoursesPage() {
                   <div>
                     <div className="text-lg font-semibold">{c.title}</div>
                     {c.description && (
-                      <p className="text-sm text-slate-500 mt-1 line-clamp-2">{c.description}</p>
+                      <p className="text-sm text-neutral-500 mt-1 line-clamp-2">{c.description}</p>
                     )}
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
                       <Badge>Заданий: {c.assignmentCount ?? "—"}</Badge>
                       <Badge>Тестов: {c.testCount ?? "—"}</Badge>
                       {typeof c.solvedCountForCurrentUser === "number" && (
@@ -129,7 +129,7 @@ export default function CoursesPage() {
       </div>
 
       {!loading && filtered.length === 0 && (
-        <div className="card-muted p-8 mt-6 text-center text-slate-500">Пусто</div>
+        <div className="card-muted p-8 mt-6 text-center text-neutral-500">Пусто</div>
       )}
     </Layout>
   );

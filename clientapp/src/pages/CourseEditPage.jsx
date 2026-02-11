@@ -176,7 +176,7 @@ export default function CourseEditPage() {
       </div>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-slate-500 mb-4">Загрузка…</div>}
+      {loading && <div className="text-neutral-500 mb-4">Загрузка…</div>}
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -201,12 +201,12 @@ export default function CourseEditPage() {
                 <label className="flex items-center gap-3 select-none">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300"
+                    className="h-4 w-4 rounded border-neutral-300"
                     checked={isPublic}
                     onChange={(e) => setIsPublic(e.target.checked)}
                   />
                   <span className="text-sm">
-                    Публичный курс <span className="text-slate-500">(виден всем)</span>
+                    Публичный курс <span className="text-neutral-500">(виден всем)</span>
                   </span>
                 </label>
               </div>
@@ -214,16 +214,16 @@ export default function CourseEditPage() {
               {!isPublic && (
                 <div className="sm:col-span-2">
                   <div className="text-sm font-medium mb-2">Группы видимости</div>
-                  <div className="text-xs text-slate-500 mb-3">
+                  <div className="text-xs text-neutral-500 mb-3">
                     Если группы не выбраны — курс виден только Admin и Editor.
                   </div>
 
                   {groups.length === 0 ? (
-                    <div className="text-sm text-slate-500">Группы не загружены.</div>
+                    <div className="text-sm text-neutral-500">Группы не загружены.</div>
                   ) : (
                     <div className="grid sm:grid-cols-2 gap-2">
                       {groups.map((g) => (
-                        <label key={g.id} className="flex items-center gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <label key={g.id} className="flex items-center gap-2 p-2 rounded-xl border border-neutral-200 dark:border-neutral-700">
                           <input
                             type="checkbox"
                             className="h-4 w-4"
@@ -232,7 +232,7 @@ export default function CourseEditPage() {
                           />
                           <div className="min-w-0">
                             <div className="text-sm font-medium truncate">{g.name}</div>
-                            <div className="text-xs text-slate-500 truncate">{g.code}</div>
+                            <div className="text-xs text-neutral-500 truncate">{g.code}</div>
                           </div>
                           {g.isActive === false ? <Badge intent="secondary">Неактивна</Badge> : null}
                         </label>
@@ -248,16 +248,16 @@ export default function CourseEditPage() {
             <div className="flex items-center justify-between gap-3 mb-2">
               <div>
                 <div className="text-sm font-medium">Владельцы курса (owners)</div>
-                <div className="text-xs text-slate-500">Editor может редактировать курс только если он в owners.</div>
+                <div className="text-xs text-neutral-500">Editor может редактировать курс только если он в owners.</div>
               </div>
             </div>
 
             <div className="flex flex-wrap gap-2 mb-3">
               {(ownerIds || []).length === 0 ? (
-                <span className="text-sm text-slate-500">Нет владельцев</span>
+                <span className="text-sm text-neutral-500">Нет владельцев</span>
               ) : (
                 ownerIds.map((id) => (
-                  <span key={id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-sm">
+                  <span key={id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-700 text-sm">
                     <span className="font-mono text-xs">{String(id)}</span>
                     <button className="opacity-70 hover:opacity-100" onClick={() => removeOwner(id)} title="Убрать владельца">
                       <X size={14} />
@@ -282,17 +282,17 @@ export default function CourseEditPage() {
                 </div>
 
                 {ownerCandidates.length > 0 && (
-                  <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                  <div className="border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden">
                     {ownerCandidates.map((u) => (
                       <button
                         key={u.id}
                         type="button"
-                        className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-3"
+                        className="w-full text-left px-4 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800 flex items-center justify-between gap-3"
                         onClick={() => addOwnerId(u.id)}
                       >
                         <div className="min-w-0">
                           <div className="text-sm font-medium truncate">{u.displayName || u.email || u.id}</div>
-                          <div className="text-xs text-slate-500 truncate">{u.email || u.id}</div>
+                          <div className="text-xs text-neutral-500 truncate">{u.email || u.id}</div>
                         </div>
                         {ownerIdSet.has(String(u.id).toLowerCase()) ? <Badge intent="secondary">уже</Badge> : <Badge intent="success">Добавить</Badge>}
                       </button>
@@ -302,7 +302,7 @@ export default function CourseEditPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-neutral-500">
                   Добавление владельцев доступно через ввод GUID пользователя.
                 </div>
                 <div className="flex gap-2">

@@ -26,7 +26,7 @@ function safeParseJson(str) {
 
 function PlainTextViewer({ value }) {
   return (
-    <div className="prose max-w-none whitespace-pre-wrap break-words text-slate-900 dark:text-slate-100 dark:prose-invert">
+    <div className="prose max-w-none whitespace-pre-wrap break-words text-neutral-900 dark:text-neutral-100 dark:prose-invert">
       {value || ""}
     </div>
   );
@@ -57,12 +57,12 @@ function TiptapDocViewer({ doc }) {
     content: doc,
     editorProps: {
       attributes: {
-        class: "tiptap-content tiptap-content-readonly prose max-w-none text-slate-900 dark:text-slate-100 dark:prose-invert",
+        class: "tiptap-content tiptap-content-readonly prose max-w-none text-neutral-900 dark:text-neutral-100 dark:prose-invert",
       },
     },
   });
 
-  if (!editor) return <div className="text-slate-500">…</div>;
+  if (!editor) return <div className="text-neutral-500">…</div>;
   return <EditorContent editor={editor} />;
 }
 

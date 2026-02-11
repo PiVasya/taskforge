@@ -133,14 +133,14 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
         <div>
           <h1 className="text-2xl font-semibold">{assignment?.title || 'Тест'}</h1>
           {assignment?.description && (
-            <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
               <StatementViewer value={assignment.description} />
             </div>
           )}
         </div>
         <div className="text-right">
           {startData && (
-            <div className="text-sm text-slate-600 dark:text-slate-400">
+            <div className="text-sm text-neutral-600 dark:text-neutral-400">
               Попытка: <b>{startData.attemptNumber}</b> / {startData.maxAttempts}
             </div>
           )}
@@ -157,7 +157,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
       {!startData && (
         <Card>
           <div className="space-y-3">
-            <div className="text-sm text-slate-600 dark:text-slate-400">
+            <div className="text-sm text-neutral-600 dark:text-neutral-400">
               Чтобы начать, нажми кнопку. Вопросы/варианты могут быть в случайном порядке.
             </div>
             <div className="flex gap-3">
@@ -181,7 +181,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
               <div className="text-lg font-semibold">
                 Результат: {result.scorePercent}% ({result.correctQuestions}/{result.totalQuestions})
               </div>
-              <div className="text-sm text-slate-600 dark:text-slate-400">
+              <div className="text-sm text-neutral-600 dark:text-neutral-400">
                 Порог: {result.passPercent}%.{' '}
                 {result.timeExpired ? '⏱️ Время вышло — попытка не засчитана.' : (result.passed ? '✅ Засчитано.' : '❌ Не засчитано.')}
               </div>
@@ -286,7 +286,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
                         </label>
                       );
                     })}
-                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                    <div className="text-xs text-neutral-600 dark:text-neutral-400">
                       Можно выбрать несколько вариантов.
                     </div>
                   </div>

@@ -348,7 +348,7 @@ export default function CourseAssignmentsPage() {
       </Card>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-slate-500">Загрузка…</div>}
+      {loading && <div className="text-neutral-500">Загрузка…</div>}
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((a, idx) => {
@@ -384,7 +384,7 @@ export default function CourseAssignmentsPage() {
 	                      e.stopPropagation();
 	                    }}
 	                  >
-	                    <span className="text-xs text-slate-400">№</span>
+	                    <span className="text-xs text-neutral-400">№</span>
 	                    <Input
 	                      type="number"
 	                      inputMode="numeric"
@@ -473,12 +473,12 @@ export default function CourseAssignmentsPage() {
                 </div>
 
                 {a.description && (
-                  <p className="text-sm text-slate-500 line-clamp-2 mt-1">
+                  <p className="text-sm text-neutral-500 line-clamp-2 mt-1">
                     {previewAssignmentDescription(a.description)}
                   </p>
                 )}
                 {a.tags && (
-                  <div className="mt-2 text-xs text-slate-400">{a.tags}</div>
+                  <div className="mt-2 text-xs text-neutral-400">{a.tags}</div>
                 )}
               </div>
             </div>
@@ -518,7 +518,7 @@ export default function CourseAssignmentsPage() {
       </div>
 
       {!loading && filtered.length === 0 && (
-        <div className="card-muted p-8 text-center text-slate-500 mt-6">
+        <div className="card-muted p-8 text-center text-neutral-500 mt-6">
           Пока заданий нет. Создайте первое ✨
         </div>
       )}

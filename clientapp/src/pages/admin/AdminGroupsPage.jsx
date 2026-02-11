@@ -157,7 +157,7 @@ export default function AdminGroupsPage() {
       </div>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-slate-500 mb-4">Загрузка…</div>}
+      {loading && <div className="text-neutral-500 mb-4">Загрузка…</div>}
 
       <Card className="mb-6">
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по названию / коду…" />
@@ -273,7 +273,7 @@ export default function AdminGroupsPage() {
       </div>
 
       {!loading && filtered.length === 0 && (
-        <div className="card-muted p-8 mt-6 text-center text-slate-500">Пока групп нет.</div>
+        <div className="card-muted p-8 mt-6 text-center text-neutral-500">Пока групп нет.</div>
       )}
     </Layout>
   );

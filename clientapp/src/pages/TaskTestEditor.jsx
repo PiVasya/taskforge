@@ -91,7 +91,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
 
       return (
         <div className="space-y-3">
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-neutral-600">
             Варианты ответа ({isMulti ? 'пометь правильные' : 'пометь правильный'})
           </div>
           <div className="space-y-2">
@@ -154,7 +154,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     const answers = Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [];
     return (
       <div className="space-y-3">
-        <div className="text-sm text-slate-600">
+        <div className="text-sm text-neutral-600">
           Допустимые ответы (по одному на строку)
         </div>
         <Textarea
@@ -279,7 +279,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
               </div>
             ))}
           </div>
-          <div className="text-xs text-slate-500 mt-2">Пусто = без таймера.</div>
+          <div className="text-xs text-neutral-500 mt-2">Пусто = без таймера.</div>
         </div>
       </Card>
 
@@ -290,7 +290,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         </div>
 
         {qList.length === 0 ? (
-          <div className="text-slate-500 mt-3">Вопросов пока нет</div>
+          <div className="text-neutral-500 mt-3">Вопросов пока нет</div>
         ) : (
           <div className="space-y-4 mt-4">
             {qList.map((q, idx) => (
@@ -298,7 +298,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Badge>#{idx + 1}</Badge>
-                    <div className="text-sm text-slate-600">ID: {String(q.id || '').slice(0, 8)}…</div>
+                    <div className="text-sm text-neutral-600">ID: {String(q.id || '').slice(0, 8)}…</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={() => moveQuestion(idx, -1)}>↑</Button>
