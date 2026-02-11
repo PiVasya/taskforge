@@ -32,11 +32,15 @@ export default function MySolutionsPage() {
 
   const [testAttempts, setTestAttempts] = useState([]);
   const [testListLoading, setTestListLoading] = useState(false);
+  const [testHasMore, setTestHasMore] = useState(true);
+  const [testSkip, setTestSkip] = useState(0);
   const [testDetails, setTestDetails] = useState({});
   const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(null);
 
   const [imageSolutions, setImageSolutions] = useState([]);
   const [imageListLoading, setImageListLoading] = useState(false);
+  const [imageHasMore, setImageHasMore] = useState(true);
+  const [imageSkip, setImageSkip] = useState(0);
   const [imageDetails, setImageDetails] = useState({});
   const [expandedImageId, setExpandedImageId] = useState(null);
 
@@ -65,11 +69,22 @@ export default function MySolutionsPage() {
     }
   };
 
-  const loadTestAttempts = async () => {
+  const loadTestAttempts = async ({ reset = false } = {}) => {
     setTestListLoading(true);
     try {
-      const list = await getMyTaskTestAttempts({ days: filterDays });
-      setTestAttempts(Array.isArray(list) ? list : []);
+      const skip = reset ? 0 : testSkip;
+      const list = await getMyTaskTestAttempts({ days: filterDays, skip, take: PAGE_SIZE });
+      const arr = Array.isArray(list) ? list : [];
+
+      if (reset) {
+        setTestAttempts(arr);
+        setTestSkip(arr.length);
+      } else {
+        setTestAttempts((prev) => [...prev, ...arr]);
+        setTestSkip((prev) => prev + arr.length);
+      }
+
+      setTestHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
       console.error('Failed to load my test attempts', e);
     } finally {
@@ -77,11 +92,22 @@ export default function MySolutionsPage() {
     }
   };
 
-  const loadImageSolutions = async () => {
+  const loadImageSolutions = async ({ reset = false } = {}) => {
     setImageListLoading(true);
     try {
-      const list = await getMyImageSolutions({ days: filterDays });
-      setImageSolutions(Array.isArray(list) ? list : []);
+      const skip = reset ? 0 : imageSkip;
+      const list = await getMyImageSolutions({ days: filterDays ?? 30, skip, take: PAGE_SIZE });
+      const arr = Array.isArray(list) ? list : [];
+
+      if (reset) {
+        setImageSolutions(arr);
+        setImageSkip(arr.length);
+      } else {
+        setImageSolutions((prev) => [...prev, ...arr]);
+        setImageSkip((prev) => prev + arr.length);
+      }
+
+      setImageHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
       console.error('Failed to load my image solutions', e);
     } finally {
@@ -94,8 +120,12 @@ export default function MySolutionsPage() {
     setSolSkip(0);
     setSolHasMore(true);
     loadSolutions({ reset: true });
-    loadTestAttempts();
-    loadImageSolutions();
+    setTestSkip(0);
+    setTestHasMore(true);
+    loadTestAttempts({ reset: true });
+    setImageSkip(0);
+    setImageHasMore(true);
+    loadImageSolutions({ reset: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDays]);
 
@@ -447,6 +477,18 @@ export default function MySolutionsPage() {
           </Card>
         )}
 
+        {tab === 'tests' && testHasMore && (
+          <div className="pt-2 flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => loadTestAttempts({ reset: false })}
+              disabled={testListLoading}
+            >
+              {testListLoading ? 'Загрузка…' : 'Загрузить ещё'}
+            </Button>
+          </div>
+        )}
+
         {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
             <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">
@@ -548,6 +590,18 @@ export default function MySolutionsPage() {
               })}
             </div>
           </Card>
+        )}
+
+        {tab === 'images' && imageHasMore && (
+          <div className="pt-2 flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => loadImageSolutions({ reset: false })}
+              disabled={imageListLoading}
+            >
+              {imageListLoading ? 'Загрузка…' : 'Загрузить ещё'}
+            </Button>
+          </div>
         )}
       </div>
     </Layout>

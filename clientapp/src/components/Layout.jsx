@@ -22,7 +22,6 @@ import {
   BarChart2,
   ListOrdered,
   Palette,
-  Leaf,
   MoreHorizontal,
   Award,
   LifeBuoy,
@@ -34,7 +33,7 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import { getMyQuotas } from '../api/quotas';
 
 export default function Layout({ children, fullWidth = false }) {
-  // темы: light | dark | pink | apple
+  // темы: light | dark | pink
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const isDark = theme === 'dark';
 
@@ -266,8 +265,6 @@ export default function Layout({ children, fullWidth = false }) {
                 <Sun size={18} />
               ) : theme === 'pink' ? (
                 <Palette size={18} />
-              ) : theme === 'apple' ? (
-                <Leaf size={18} />
               ) : (
                 <Moon size={18} />
               )}
@@ -419,15 +416,10 @@ export default function Layout({ children, fullWidth = false }) {
                     <Sun size={18} />
                   ) : theme === 'pink' ? (
                     <Palette size={18} />
-                  ) : theme === 'apple' ? (
-                    <Leaf size={18} />
                   ) : (
                     <Moon size={18} />
                   )}
-                  <span>
-                    Тема:{' '}
-                    {theme === 'pink' ? 'Rose' : theme === 'apple' ? 'Apple' : isDark ? 'Dark' : 'Light'}
-                  </span>
+                  <span>Тема: {theme === 'pink' ? 'Rose' : isDark ? 'Dark' : 'Light'}</span>
                 </button>
                 {/* Режим редактора */}
                 {canEdit && (

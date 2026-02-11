@@ -33,10 +33,12 @@ namespace taskforge.Controllers
             [FromQuery] Guid? courseId,
             [FromQuery] Guid? assignmentId,
             [FromQuery] int? days,
+            [FromQuery] int skip = 0,
+            [FromQuery] int take = 50,
             CancellationToken ct)
         {
             var userId = _current.GetUserId();
-            var list = await _tests.GetAttemptsAsync(userId, courseId, assignmentId, days, ct);
+            var list = await _tests.GetAttemptsAsync(userId, courseId, assignmentId, days, skip, take, ct);
             return Ok(list);
         }
 

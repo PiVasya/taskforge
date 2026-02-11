@@ -485,8 +485,14 @@ namespace taskforge.Services.Assignments
             Guid? courseId,
             Guid? assignmentId,
             int? days,
+            int skip,
+            int take,
             CancellationToken ct)
         {
+            if (skip < 0) skip = 0;
+            if (take <= 0) take = 50;
+            if (take > 5000) take = 5000;
+
             var q = _db.UserTaskTestAttempts
                 .AsNoTracking()
                 .Include(a => a.TaskAssignment!)
@@ -507,6 +513,8 @@ namespace taskforge.Services.Assignments
             var list = await q
                 .OrderByDescending(a => a.SubmittedAt)
                 .ThenByDescending(a => a.AttemptNumber)
+                .Skip(skip)
+                .Take(take)
                 .ToListAsync(ct);
 
             if (list.Count == 0) return new List<TaskTestAttemptListItemDto>();

@@ -39,10 +39,8 @@ export default function CodeEditor({
   const pickThemeName = useCallback(() => {
     const root = document.documentElement;
     const pink = root.classList.contains('pink');
-    const apple = root.classList.contains('apple');
     const dark = root.classList.contains('dark');
     if (pink) return dark ? 'taskforge-pink-dark' : 'taskforge-pink-light';
-    if (apple) return dark ? 'taskforge-apple-dark' : 'taskforge-apple-light';
     return dark ? 'taskforge-brand-dark' : 'taskforge-brand-light';
   }, []);
 
@@ -173,70 +171,6 @@ export default function CodeEditor({
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
         'focusBorder': '#F472B6', // pink-400
-      },
-    });
-
-    // ---- Apple (зелёная) пара тем (для html.apple) ----
-    monaco.editor.defineTheme('taskforge-apple-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [
-        { token: '', foreground: 'D8DEE9' },
-        { token: 'comment', foreground: '7B8794' },
-        { token: 'string', foreground: 'A3E635' },
-        { token: 'number', foreground: 'F59E0B' },
-        { token: 'keyword', foreground: '22C55E', fontStyle: 'bold' }, // green-500
-        { token: 'type', foreground: '86EFAC' },                       // green-200
-        { token: 'function', foreground: 'F8FAFC' },
-        { token: 'identifier', foreground: 'D8DEE9' },
-      ],
-      colors: {
-        'editor.background': '#0b1422',
-        'editorGutter.background': '#0b1422',
-        'editor.foreground': '#D8DEE9',
-        'editorLineNumber.foreground': '#5d6b7e',
-        'editorLineNumber.activeForeground': '#a7b4c6',
-        'editor.selectionBackground': '#133b2433',
-        'editor.inactiveSelectionBackground': '#133b2422',
-        'editor.lineHighlightBackground': '#111c2d',
-        'editorCursor.foreground': '#E5E7EB',
-        'scrollbarSlider.background': '#2a3a5266',
-        'scrollbarSlider.hoverBackground': '#2a3a5299',
-        'scrollbarSlider.activeBackground': '#2a3a52cc',
-        'editorIndentGuide.background': '#233047',
-        'editorIndentGuide.activeBackground': '#2f3e5b',
-        'editorWidget.background': '#0e1a2b',
-        'editorWidget.border': '#20314a',
-        'editorSuggestWidget.background': '#0e1a2b',
-        'editorSuggestWidget.border': '#20314a',
-        'editorSuggestWidget.selectedBackground': '#16243a',
-        'list.hoverBackground': '#132035',
-        'focusBorder': '#22C55E', // green-500
-      },
-    });
-
-    monaco.editor.defineTheme('taskforge-apple-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [
-        { token: 'comment', foreground: '94A3B8' },
-        { token: 'string', foreground: '10B981' },
-        { token: 'number', foreground: '16A34A' }, // green-600
-        { token: 'keyword', foreground: '15803D', fontStyle: 'bold' }, // green-700
-        { token: 'type', foreground: '16A34A' },
-      ],
-      colors: {
-        'editor.background': '#FFFFFF',
-        'editorGutter.background': '#FFFFFF',
-        'editor.foreground': '#0F172A',
-        'editorLineNumber.foreground': '#94A3B8',
-        'editorLineNumber.activeForeground': '#475569',
-        'editor.selectionBackground': '#BBF7D033',
-        'editor.inactiveSelectionBackground': '#BBF7D022',
-        'editor.lineHighlightBackground': '#F6F8FA',
-        'editorIndentGuide.background': '#E5E7EB',
-        'editorIndentGuide.activeBackground': '#CBD5E1',
-        'focusBorder': '#22C55E', // green-500
       },
     });
   }, []);

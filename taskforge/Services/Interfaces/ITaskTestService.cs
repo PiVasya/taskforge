@@ -13,6 +13,8 @@ namespace taskforge.Services.Interfaces
             Guid? courseId,
             Guid? assignmentId,
             int? days,
+            int skip,
+            int take,
             CancellationToken ct);
 
         Task<TaskTestAttemptReviewDto?> GetAttemptReviewAsync(
