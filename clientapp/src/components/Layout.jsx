@@ -33,9 +33,10 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import { getMyQuotas } from '../api/quotas';
 
 export default function Layout({ children, fullWidth = false }) {
-  // темы: light | dark | pink
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-  const isDark = theme === 'dark';
+  // Темы = цвет (blue|pink|apple) + режим (light|dark)
+  const [colorTheme, setColorTheme] = useState(() => localStorage.getItem('colorTheme') || 'blue');
+  const [mode, setMode] = useState(() => localStorage.getItem('mode') || 'light');
+  const isDark = mode === 'dark';
 
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
@@ -158,21 +159,24 @@ export default function Layout({ children, fullWidth = false }) {
     );
   };
 
-  // цикл: light → dark → pink → apple → light
-  const cycleTheme = () =>
-    setTheme((t) =>
-      t === 'light' ? 'dark' : t === 'dark' ? 'pink' : t === 'pink' ? 'apple' : 'light'
-    );
+  const toggleMode = () => setMode((m) => (m === 'dark' ? 'light' : 'dark'));
+  const cycleColor = () =>
+    setColorTheme((c) => (c === 'blue' ? 'pink' : c === 'pink' ? 'apple' : 'blue'));
 
   // применяем классы для темы и сохраняем в localStorage
   useEffect(() => {
-    const cls = document.documentElement.classList;
-    cls.remove('dark', 'pink', 'apple');
-    if (theme === 'dark') cls.add('dark');
-    if (theme === 'pink') cls.add('pink');
-    if (theme === 'apple') cls.add('apple');
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    const el = document.documentElement;
+    const cls = el.classList;
+    cls.remove('blue', 'pink', 'apple');
+    cls.remove('dark');
+
+    if (colorTheme) cls.add(colorTheme);
+    if (mode === 'dark') cls.add('dark');
+
+    el.dataset.colorTheme = colorTheme;
+    localStorage.setItem('colorTheme', colorTheme);
+    localStorage.setItem('mode', mode);
+  }, [colorTheme, mode]);
 
   const handleLogout = async () => {
     await logout();
@@ -231,7 +235,7 @@ export default function Layout({ children, fullWidth = false }) {
     return () => {
       try { ro.disconnect(); } catch {}
     };
-  }, [access, isAdmin, canEdit, isEditorMode, theme, quotas]);
+  }, [access, isAdmin, canEdit, isEditorMode, mode, colorTheme, quotas]);
 
   return (
     <div className="min-h-screen">
@@ -254,21 +258,25 @@ export default function Layout({ children, fullWidth = false }) {
             {/* квоты (видны только авторизованным) */}
             <QuotaPill />
 
-            {/* переключатель темы */}
+            {/* цвет + режим */}
             <button
               className="btn-outline"
-              onClick={cycleTheme}
-              aria-label="Toggle theme"
-              title={`Тема: ${theme}`}
+              onClick={cycleColor}
+              aria-label="Switch color theme"
+              title={`Цвет: ${colorTheme}`}
             >
-              {isDark ? (
-                <Sun size={18} />
-              ) : theme === 'pink' ? (
-                <Palette size={18} />
-              ) : (
-                <Moon size={18} />
-              )}
-              <span className="hidden sm:inline">Тема</span>
+              <Palette size={18} />
+              <span className="hidden sm:inline">{colorTheme}</span>
+            </button>
+
+            <button
+              className="btn-outline"
+              onClick={toggleMode}
+              aria-label="Toggle dark mode"
+              title={isDark ? 'Тёмная' : 'Светлая'}
+            >
+              {isDark ? <Sun size={18} /> : <Moon size={18} />}
+              <span className="hidden sm:inline">{isDark ? 'Тёмная' : 'Светлая'}</span>
             </button>
 
             {/* режим редактора */}
@@ -403,23 +411,30 @@ export default function Layout({ children, fullWidth = false }) {
                 role="menu"
                 className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
               >
-                {/* Тема */}
+                {/* Цвет */}
                 <button
                   role="menuitem"
                   className="btn-ghost w-full justify-start"
                   onClick={() => {
                     setMoreOpen(false);
-                    cycleTheme();
+                    cycleColor();
                   }}
                 >
-                  {isDark ? (
-                    <Sun size={18} />
-                  ) : theme === 'pink' ? (
-                    <Palette size={18} />
-                  ) : (
-                    <Moon size={18} />
-                  )}
-                  <span>Тема: {theme === 'pink' ? 'Rose' : isDark ? 'Dark' : 'Light'}</span>
+                  <Palette size={18} />
+                  <span>Цвет: {colorTheme}</span>
+                </button>
+
+                {/* Свет/тёмная */}
+                <button
+                  role="menuitem"
+                  className="btn-ghost w-full justify-start"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    toggleMode();
+                  }}
+                >
+                  {isDark ? <Sun size={18} /> : <Moon size={18} />}
+                  <span>{isDark ? 'Светлая' : 'Тёмная'}</span>
                 </button>
                 {/* Режим редактора */}
                 {canEdit && (

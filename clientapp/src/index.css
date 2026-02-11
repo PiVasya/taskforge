@@ -3,24 +3,69 @@
 @tailwind utilities;
 
 
-/* ====== Токены ====== */
+/* ====== Токены ======
+
+  Важно:
+  - "Цветовая тема" (blue/pink/apple) отвечает ТОЛЬКО за бренд-цвета и светлую палитру.
+  - "Режим" (light/dark) отвечает ТОЛЬКО за светлую/тёмную палитру.
+  - Тёмный режим НЕ должен перетира́ть бренд-цвет (иначе снова вылезет синий в apple/pink).
+*/
+
 :root {
+  /* light */
+  --page-bg: 248 250 252;  /* slate-50 */
   --card: 255 255 255;
   --muted: 244 247 252;
-  --accent: 14 165 233; /* brand-600 (#0ea5e9) */
+
+  /* brand (blue) */
+  --brand-500: 56 189 248; /* sky-400 */
+  --brand-200: 186 230 253; /* sky-200 */
+  --brand-300: 125 211 252; /* sky-300 */
+  --brand-600: 14 165 233; /* sky-500 */
+  --brand-700: 2 132 199;  /* sky-600 */
 }
 
-.dark {
-  --card: 15 23 42;   /* slate-900 */
-  --muted: 30 41 59;  /* slate-800 */
-  --accent: 14 165 233; /* в тёмной теме тоже бренд */
+/* Цветовая тема: BLUE (дефолт). Класс нужен для явного выбора в UI. */
+html.blue {
+  --page-bg: 248 250 252;
+  --card: 255 255 255;
+  --muted: 244 247 252;
+  --brand-500: 56 189 248;
+  --brand-200: 186 230 253;
+  --brand-300: 125 211 252;
+  --brand-600: 14 165 233;
+  --brand-700: 2 132 199;
 }
 
-/* Light Pink theme (светлая розовая) */
+/* Цветовая тема: PINK */
 html.pink {
-  --card: 255 241 246; /* rose-50 */
-  --muted: 255 228 235; /* rose-100 */
-  --accent: 219 39 119; /* pink-600 */
+  --page-bg: 255 241 246;  /* rose-50 */
+  --card: 255 250 252;
+  --muted: 255 228 235;    /* rose-100 */
+  --brand-500: 244 114 182; /* pink-400 */
+  --brand-200: 251 207 232; /* pink-200 */
+  --brand-300: 249 168 212; /* pink-300 */
+  --brand-600: 219 39 119;  /* pink-600 */
+  --brand-700: 190 24 93;   /* pink-700 */
+}
+
+/* Цветовая тема: APPLE */
+html.apple {
+  --page-bg: 240 253 244; /* green-50 */
+  --card: 248 255 250;
+  --muted: 236 253 245;   /* green-100 */
+  --brand-500: 34 197 94; /* green-500 */
+  --brand-200: 187 247 208; /* green-200 */
+  --brand-300: 134 239 172; /* green-300 */
+  --brand-600: 22 163 74; /* green-600 */
+  --brand-700: 21 128 61; /* green-700 */
+}
+
+/* Режим: DARK (палитра), но бренд-цвет остаётся от текущей цветовой темы */
+html.dark {
+  --page-bg: 15 23 42;   /* slate-900 */
+  --card: 15 23 42;      /* slate-900 */
+  --muted: 30 41 59;     /* slate-800 */
 }
 
 /* ====== База / типографика / фон ====== */
@@ -31,10 +76,13 @@ html, body {
                Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
-html.pink body { @apply bg-pink-50 text-slate-800; }
-
 body {
-  @apply bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100;
+  background-color: rgb(var(--page-bg));
+  @apply text-slate-800;
+}
+
+html.dark body {
+  @apply text-slate-100;
 }
 
 /* Заголовки — чуть плотнее и «короче» трекинг */
@@ -192,64 +240,36 @@ html.pink select.input { @apply text-slate-800 border-pink-300; }
   .input::placeholder { opacity: .7; }
 }
 
-/* Перекраска «брендовых» утилит в pink-теме */
-html.pink .bg-brand-600       { @apply bg-pink-600; }
-html.pink .text-brand-600     { @apply text-pink-600; }
-html.pink .border-brand-600   { @apply border-pink-600; }
-html.pink .from-brand-600\/10 { @apply from-pink-600/10; }
+/* ====== Брендовые утилиты через CSS-переменные (без "синих" хвостов) ====== */
+.bg-brand-500 { background-color: rgb(var(--brand-500)) !important; }
+.bg-brand-600 { background-color: rgb(var(--brand-600)) !important; }
+.bg-brand-700 { background-color: rgb(var(--brand-700)) !important; }
 
-/* Частые оттенки/ховеры/фокусы — чтобы нигде не "синело" */
-html.pink .bg-brand-500 { @apply bg-pink-500; }
-html.pink .bg-brand-700 { @apply bg-pink-700; }
-html.pink .text-brand-500 { @apply text-pink-500; }
-html.pink .text-brand-700 { @apply text-pink-700; }
-html.pink .border-brand-200 { @apply border-pink-200; }
-html.pink .border-brand-300 { @apply border-pink-300; }
-html.pink .border-brand-500 { @apply border-pink-500; }
-html.pink .ring-brand-500 { --tw-ring-color: rgb(236 72 153 / 40%) !important; }
-html.pink .focus\:ring-brand-500:focus { --tw-ring-color: rgb(236 72 153 / 40%) !important; }
-html.pink .focus\:border-brand-500:focus { border-color: rgb(236 72 153) !important; }
-html.pink .hover\:bg-brand-500:hover { @apply bg-pink-500; }
-html.pink .hover\:bg-brand-600:hover { @apply bg-pink-600; }
-html.pink .hover\:bg-brand-700:hover { @apply bg-pink-700; }
-html.pink .hover\:text-brand-600:hover { @apply text-pink-600; }
-html.pink .hover\:border-brand-600:hover { @apply border-pink-600; }
+.text-brand-500 { color: rgb(var(--brand-500)) !important; }
+.text-brand-600 { color: rgb(var(--brand-600)) !important; }
+.text-brand-700 { color: rgb(var(--brand-700)) !important; }
 
-/* ====== Apple (салатово-зелёная) тема ====== */
-html.apple {
-  --bg: 240 253 244;   /* very light green */
-  --card: 248 255 250;
-  --accent: 34 197 94; /* green */
-  --accent2: 132 204 22; /* lime */
+.border-brand-200 { border-color: rgb(var(--brand-200)) !important; }
+.border-brand-300 { border-color: rgb(var(--brand-300)) !important; }
+.border-brand-500 { border-color: rgb(var(--brand-500)) !important; }
+.border-brand-600 { border-color: rgb(var(--brand-600)) !important; }
+
+.ring-brand-500 { --tw-ring-color: rgb(var(--brand-500) / 35%) !important; }
+.focus\:ring-brand-500:focus { --tw-ring-color: rgb(var(--brand-500) / 35%) !important; }
+.focus\:border-brand-500:focus { border-color: rgb(var(--brand-500)) !important; }
+
+.hover\:bg-brand-500:hover { background-color: rgb(var(--brand-500)) !important; }
+.hover\:bg-brand-600:hover { background-color: rgb(var(--brand-600)) !important; }
+.hover\:bg-brand-700:hover { background-color: rgb(var(--brand-700)) !important; }
+.hover\:text-brand-600:hover { color: rgb(var(--brand-600)) !important; }
+.hover\:border-brand-600:hover { border-color: rgb(var(--brand-600)) !important; }
+
+/* Tailwind from-* утилиты должны оставаться градиентом, не background-color */
+.from-brand-600\/10 {
+  --tw-gradient-from: rgb(var(--brand-600) / 0.10) !important;
+  --tw-gradient-to: rgb(var(--brand-600) / 0) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
-html.apple body { @apply bg-green-50 text-slate-800; }
-html.apple header { @apply bg-white/70 backdrop-blur border-b border-green-200; }
-html.apple .fill-card { @apply bg-white/70 border border-green-200; }
-html.apple .fill-input { @apply bg-white border-green-200; }
-html.apple .btn-primary { background-color: rgb(34 197 94); }
-html.apple .btn-primary:hover { background-color: rgb(22 163 74); }
-html.apple .btn-outline { border-color: rgb(187 247 208); }
-html.apple .btn-outline:hover { background-color: rgb(220 252 231); }
-html.apple a.link { @apply text-green-700; }
-html.apple a.link:hover { @apply text-green-800; }
-html.apple .bg-brand-500 { background-color: rgb(34 197 94) !important; }
-html.apple .bg-brand-600 { background-color: rgb(22 163 74) !important; }
-html.apple .bg-brand-700 { background-color: rgb(21 128 61) !important; }
-html.apple .from-brand-600\/10 { background-color: rgb(22 163 74 / 0.1) !important; }
-html.apple .text-brand-500 { color: rgb(34 197 94) !important; }
-html.apple .text-brand-600 { color: rgb(22 163 74) !important; }
-html.apple .text-brand-700 { color: rgb(21 128 61) !important; }
-html.apple .border-brand-200 { border-color: rgb(187 247 208) !important; }
-html.apple .border-brand-300 { border-color: rgb(134 239 172) !important; }
-html.apple .border-brand-500 { border-color: rgb(34 197 94) !important; }
-html.apple .border-brand-600 { border-color: rgb(22 163 74) !important; }
-html.apple .ring-brand-500 { --tw-ring-color: rgb(34 197 94 / 35%) !important; }
-html.apple .focus\:ring-brand-500:focus { --tw-ring-color: rgb(34 197 94 / 35%) !important; }
-html.apple .hover\:bg-brand-600:hover { background-color: rgb(22 163 74) !important; }
-html.apple .hover\:bg-brand-500:hover { background-color: rgb(34 197 94) !important; }
-html.apple .hover\:bg-brand-700:hover { background-color: rgb(21 128 61) !important; }
-html.apple .hover\:text-brand-600:hover { color: rgb(22 163 74) !important; }
-html.apple .hover\:border-brand-600:hover { border-color: rgb(22 163 74) !important; }
 
 /* ====== Инпуты/редакторы: гармонизация и автофилл ====== */
 input[type="text"],
