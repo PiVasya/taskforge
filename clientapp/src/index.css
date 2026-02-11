@@ -17,12 +17,17 @@
   --card: 255 255 255;
   --muted: 244 247 252;
 
-  /* brand (blue) */
-  --brand-500: 56 189 248; /* sky-400 */
-  --brand-200: 186 230 253; /* sky-200 */
-  --brand-300: 125 211 252; /* sky-300 */
-  --brand-600: 14 165 233; /* sky-500 */
-  --brand-700: 2 132 199;  /* sky-600 */
+  /* brand (blue / sky) */
+  --brand-50: 240 249 255;
+  --brand-100: 224 242 254;
+  --brand-200: 186 230 253;
+  --brand-300: 125 211 252;
+  --brand-400: 56 189 248;
+  --brand-500: 14 165 233;
+  --brand-600: 2 132 199;
+  --brand-700: 3 105 161;
+  --brand-800: 7 89 133;
+  --brand-900: 12 74 110;
 }
 
 /* Цветовая тема: BLUE (дефолт). Класс нужен для явного выбора в UI. */
@@ -30,11 +35,16 @@ html.blue {
   --page-bg: 248 250 252;
   --card: 255 255 255;
   --muted: 244 247 252;
-  --brand-500: 56 189 248;
+  --brand-50: 240 249 255;
+  --brand-100: 224 242 254;
   --brand-200: 186 230 253;
   --brand-300: 125 211 252;
-  --brand-600: 14 165 233;
-  --brand-700: 2 132 199;
+  --brand-400: 56 189 248;
+  --brand-500: 14 165 233;
+  --brand-600: 2 132 199;
+  --brand-700: 3 105 161;
+  --brand-800: 7 89 133;
+  --brand-900: 12 74 110;
 }
 
 /* Цветовая тема: PINK */
@@ -42,11 +52,16 @@ html.pink {
   --page-bg: 255 241 246;  /* rose-50 */
   --card: 255 250 252;
   --muted: 255 228 235;    /* rose-100 */
-  --brand-500: 244 114 182; /* pink-400 */
-  --brand-200: 251 207 232; /* pink-200 */
-  --brand-300: 249 168 212; /* pink-300 */
-  --brand-600: 219 39 119;  /* pink-600 */
-  --brand-700: 190 24 93;   /* pink-700 */
+  --brand-50: 253 242 248;
+  --brand-100: 252 231 243;
+  --brand-200: 251 207 232;
+  --brand-300: 249 168 212;
+  --brand-400: 244 114 182;
+  --brand-500: 236 72 153;
+  --brand-600: 219 39 119;
+  --brand-700: 190 24 93;
+  --brand-800: 157 23 77;
+  --brand-900: 131 24 67;
 }
 
 /* Цветовая тема: APPLE */
@@ -54,11 +69,17 @@ html.apple {
   --page-bg: 240 253 244; /* green-50 */
   --card: 248 255 250;
   --muted: 236 253 245;   /* green-100 */
-  --brand-500: 34 197 94; /* green-500 */
-  --brand-200: 187 247 208; /* green-200 */
-  --brand-300: 134 239 172; /* green-300 */
-  --brand-600: 22 163 74; /* green-600 */
-  --brand-700: 21 128 61; /* green-700 */
+  /* Apple-ish салатовый (lime) */
+  --brand-50: 247 254 231;
+  --brand-100: 236 252 203;
+  --brand-200: 217 249 157;
+  --brand-300: 190 242 100;
+  --brand-400: 163 230 53;
+  --brand-500: 132 204 22;
+  --brand-600: 101 163 13;
+  --brand-700: 77 124 15;
+  --brand-800: 63 98 18;
+  --brand-900: 54 83 20;
 }
 
 /* Режим: DARK (палитра), но бренд-цвет остаётся от текущей цветовой темы */
@@ -105,7 +126,7 @@ header .btn-primary {
 }
 
 /* ====== Контролы ====== */
-.btn { @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl transition select-none; }
+.btn { @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap; }
 .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99]; }
 .btn-ghost { @apply btn bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800; }
 .btn-outline { @apply btn border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800; }
@@ -176,7 +197,7 @@ input[type="file"]::file-selector-button:hover {
 }
 
 html.pink .fill-input {
-  border-color: rgba(219, 39, 119, 0.45);
+  border-color: rgb(var(--brand-600) / 45%);
 }
 
 .fill-input:focus {
@@ -187,15 +208,9 @@ html.pink .fill-input {
 
 .link { @apply underline underline-offset-2 hover:no-underline; }
 
-/* Розовые акценты только где надо */
-html.pink .btn-primary { @apply bg-pink-600 hover:bg-pink-700; }
-html.pink .btn-outline { @apply border-pink-300 hover:bg-pink-100; }
-
-/* НЕ красим все ссылки подряд в розовый — только .link */
-html.pink a.link { @apply text-pink-700 hover:text-pink-800; }
-/* Ссылки в шапке — под тему */
-html.pink header a { @apply text-slate-800; }
-.dark header a     { @apply text-slate-200; }
+/* Акценты для ссылок — через brand, чтобы не было "синего" в pink/apple */
+a.link { color: rgb(var(--brand-700)); }
+a.link:hover { color: rgb(var(--brand-800)); }
 
 /* Ссылки по умолчанию наследуют цвет, чтобы «к заданиям курса» не синело */
 a { color: inherit; }
@@ -339,16 +354,6 @@ select:focus,
   box-shadow: none !important; /* гасит tailwind ring */
 }
 
-
-/* ====== Фоны-градиенты в pink — мягче ====== */
-html.pink .bg-gradient-to-b {
-  background-image: linear-gradient(
-    to bottom,
-    rgb(236 72 153 / 6%),
-    rgb(236 72 153 / 0%) 45%,
-    rgb(236 72 153 / 0%) 100%
-  ) !important;
-}
 
 /* ====== Доп. классы для наших UI-компонентов ====== */
 .field { @apply w-full; }

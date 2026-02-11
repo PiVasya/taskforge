@@ -266,7 +266,8 @@ export default function Layout({ children, fullWidth = false }) {
               title={`Цвет: ${colorTheme}`}
             >
               <Palette size={18} />
-              <span className="hidden sm:inline">{colorTheme}</span>
+              {/* текст скрываем, чтобы шапка не переполнялась; информация есть в title */}
+              <span className="hidden 2xl:inline">{colorTheme}</span>
             </button>
 
             <button
@@ -276,7 +277,7 @@ export default function Layout({ children, fullWidth = false }) {
               title={isDark ? 'Тёмная' : 'Светлая'}
             >
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
-              <span className="hidden sm:inline">{isDark ? 'Тёмная' : 'Светлая'}</span>
+              {/* без текста — только иконка */}
             </button>
 
             {/* режим редактора */}
@@ -287,7 +288,7 @@ export default function Layout({ children, fullWidth = false }) {
                 title="Режим редактора"
               >
                 {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                <span className="hidden sm:inline">{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
+                <span className="hidden 2xl:inline">{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
               </button>
             )}
 
@@ -295,7 +296,7 @@ export default function Layout({ children, fullWidth = false }) {
             {access && (
               <Link to="/profile" className="btn-outline" title="Профиль">
                 <User size={18} />
-                <span className="hidden sm:inline">Профиль</span>
+                <span className="hidden 2xl:inline">Профиль</span>
               </Link>
             )}
 
@@ -303,7 +304,7 @@ export default function Layout({ children, fullWidth = false }) {
             {access && (
               <Link to="/my/solutions" className="btn-outline" title="Мои решения">
                 <ListOrdered size={18} />
-                <span className="hidden sm:inline">Мои решения</span>
+                <span className="hidden 2xl:inline">Мои решения</span>
               </Link>
             )}
 
