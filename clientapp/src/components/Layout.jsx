@@ -22,6 +22,7 @@ import {
   BarChart2,
   ListOrdered,
   Palette,
+  Leaf,
   MoreHorizontal,
   Award,
   LifeBuoy,
@@ -33,7 +34,7 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import { getMyQuotas } from '../api/quotas';
 
 export default function Layout({ children, fullWidth = false }) {
-  // темы: light | dark | pink
+  // темы: light | dark | pink | apple
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const isDark = theme === 'dark';
 
@@ -158,16 +159,19 @@ export default function Layout({ children, fullWidth = false }) {
     );
   };
 
-  // цикл: light → dark → pink → light
+  // цикл: light → dark → pink → apple → light
   const cycleTheme = () =>
-    setTheme((t) => (t === 'light' ? 'dark' : t === 'dark' ? 'pink' : 'light'));
+    setTheme((t) =>
+      t === 'light' ? 'dark' : t === 'dark' ? 'pink' : t === 'pink' ? 'apple' : 'light'
+    );
 
   // применяем классы для темы и сохраняем в localStorage
   useEffect(() => {
     const cls = document.documentElement.classList;
-    cls.remove('dark', 'pink');
+    cls.remove('dark', 'pink', 'apple');
     if (theme === 'dark') cls.add('dark');
     if (theme === 'pink') cls.add('pink');
+    if (theme === 'apple') cls.add('apple');
     localStorage.setItem('theme', theme);
   }, [theme]);
 
@@ -262,6 +266,8 @@ export default function Layout({ children, fullWidth = false }) {
                 <Sun size={18} />
               ) : theme === 'pink' ? (
                 <Palette size={18} />
+              ) : theme === 'apple' ? (
+                <Leaf size={18} />
               ) : (
                 <Moon size={18} />
               )}
@@ -413,10 +419,15 @@ export default function Layout({ children, fullWidth = false }) {
                     <Sun size={18} />
                   ) : theme === 'pink' ? (
                     <Palette size={18} />
+                  ) : theme === 'apple' ? (
+                    <Leaf size={18} />
                   ) : (
                     <Moon size={18} />
                   )}
-                  <span>Тема: {theme === 'pink' ? 'Rose' : isDark ? 'Dark' : 'Light'}</span>
+                  <span>
+                    Тема:{' '}
+                    {theme === 'pink' ? 'Rose' : theme === 'apple' ? 'Apple' : isDark ? 'Dark' : 'Light'}
+                  </span>
                 </button>
                 {/* Режим редактора */}
                 {canEdit && (
