@@ -35,7 +35,7 @@ namespace taskforge.Controllers
             [FromQuery] int? days,
             [FromQuery] int skip = 0,
             [FromQuery] int take = 50,
-            CancellationToken ct)
+            CancellationToken ct = default)
         {
             var userId = _current.GetUserId();
             var list = await _tests.GetAttemptsAsync(userId, courseId, assignmentId, days, skip, take, ct);
