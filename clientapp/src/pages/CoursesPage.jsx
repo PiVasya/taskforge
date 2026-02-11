@@ -79,6 +79,14 @@ export default function CoursesPage() {
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((c) => {
           const href = canEdit && isEditorMode && c.canEdit ? `/courses/${c.id}/edit` : `/course/${c.id}`;
+          const showOwnerBadge = canEdit && isEditorMode;
+          const ownerBadge = showOwnerBadge ? (
+            c.canEdit ? (
+              <Badge intent="success">мой</Badge>
+            ) : (
+              <Badge intent="danger">чужой</Badge>
+            )
+          ) : null;
 
           return (
             <Link
@@ -89,7 +97,8 @@ export default function CoursesPage() {
               <Card
                 className={
                   "p-5 transition hover:shadow-lg cursor-pointer " +
-                  (c.isCompletedForCurrentUser ? "border-emerald-400/40 bg-emerald-500/5" : "")
+                  (c.isCompletedForCurrentUser ? "border-emerald-400/40 bg-emerald-500/5" : "") +
+                  (showOwnerBadge ? (c.canEdit ? " border-emerald-400/20" : " border-red-400/20") : "")
                 }
               >
                 <div className="flex items-start justify-between gap-3">
@@ -109,7 +118,7 @@ export default function CoursesPage() {
                         <Badge>Тесты решено: {c.solvedTestsCountForCurrentUser}</Badge>
                       )}
                       {c.isCompletedForCurrentUser ? <Badge intent="success">Курс пройден</Badge> : null}
-                      {canEdit && isEditorMode && !c.canEdit ? <Badge intent="secondary">чужой</Badge> : null}
+                      {ownerBadge}
                     </div>
                   </div>
                 </div>

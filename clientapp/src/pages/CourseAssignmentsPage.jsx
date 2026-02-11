@@ -298,9 +298,9 @@ export default function CourseAssignmentsPage() {
     <Layout>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3 min-w-0">
-          <Link to="/courses" className="btn-outline" title="Вернуться к курсам">
+          <Button variant="outline" title="Вернуться к курсам" onClick={() => nav("/courses")}>
             ← Курсы
-          </Link>
+          </Button>
           <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
             <Layers size={22} /> Задания курса
           </h1>
@@ -368,89 +368,86 @@ export default function CourseAssignmentsPage() {
           const EditorToolbar =
             sortMode === "default" ? (
               <IfEditor>
-                <div className="flex items-center gap-2">
-                  <div
-                    className="flex items-center gap-2"
-                    title="Позиция задания в курсе"
-                    onClick={(e) => {
-                      // не переходим по ссылке
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                  >
-                    <span className="text-xs text-slate-500">№</span>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      className="w-20"
-                      min={1}
-                      max={orderedAll.length}
-                      value={
-                      posDraft[a.id] ??
-                        String(positionById.get(a.id) ?? "")
-                      }
-                      onChange={(e) =>
-                        setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.currentTarget.blur();
-                        }
-                        if (e.key === "Escape") {
-                          setPosDraft((p) => {
-                            const next = { ...p };
-                            delete next[a.id];
-                            return next;
-                          });
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      onBlur={() => {
-                        const raw = posDraft[a.id];
-                        // если пользователь ничего не менял — просто выходим
-                        if (raw === undefined) return;
-
-                        // очищаем draft
-                        setPosDraft((p) => {
-                          const next = { ...p };
-                          delete next[a.id];
-                          return next;
-                        });
-
-                        const n = parseInt(String(raw), 10);
-                        if (!Number.isFinite(n)) return;
-                        moveToPosition(a.id, n);
-                      }}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    className="px-2 py-1 rounded-lg border hover:bg-slate-50"
-                    title="Выше"
-                    onClick={(e) => {
-                      // Останавливаем всплытие события, чтобы клик по кнопке не переходил по ссылке
-                      e.preventDefault();
-                      e.stopPropagation();
-                      swapByIndex(idx, idx - 1);
-                    }}
-                  >
-                    <ArrowUp size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="px-2 py-1 rounded-lg border hover:bg-slate-50"
-                    title="Ниже"
-                    onClick={(e) => {
-                      // Останавливаем всплытие события, чтобы клик по кнопке не переходил по ссылке
-                      e.preventDefault();
-                      e.stopPropagation();
-                      swapByIndex(idx, idx + 1);
-                    }}
-                  >
-                    <ArrowDown size={16} />
-                  </button>
-                </div>
+	                <div
+	                  className="absolute top-3 right-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-1 backdrop-blur"
+	                  onMouseDown={(e) => {
+	                    // не даём карточке "увести" фокус/перейти по ссылке при клике по контролам
+	                    e.preventDefault();
+	                    e.stopPropagation();
+	                  }}
+	                >
+	                  <div
+	                    className="flex items-center gap-2"
+	                    title="Позиция задания в курсе"
+	                    onClick={(e) => {
+	                      e.preventDefault();
+	                      e.stopPropagation();
+	                    }}
+	                  >
+	                    <span className="text-xs text-slate-400">№</span>
+	                    <Input
+	                      type="number"
+	                      inputMode="numeric"
+	                      className="w-16 h-8 text-sm"
+	                      min={1}
+	                      max={orderedAll.length}
+	                      value={posDraft[a.id] ?? String(positionById.get(a.id) ?? "")}
+	                      onChange={(e) => setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))}
+	                      onKeyDown={(e) => {
+	                        if (e.key === "Enter") e.currentTarget.blur();
+	                        if (e.key === "Escape") {
+	                          setPosDraft((p) => {
+	                            const next = { ...p };
+	                            delete next[a.id];
+	                            return next;
+	                          });
+	                          e.currentTarget.blur();
+	                        }
+	                      }}
+	                      onBlur={() => {
+	                        const raw = posDraft[a.id];
+	                        if (raw === undefined) return;
+	
+	                        setPosDraft((p) => {
+	                          const next = { ...p };
+	                          delete next[a.id];
+	                          return next;
+	                        });
+	
+	                        const n = parseInt(String(raw), 10);
+	                        if (!Number.isFinite(n)) return;
+	                        moveToPosition(a.id, n);
+	                      }}
+	                    />
+	                  </div>
+	
+	                  <div className="flex items-center overflow-hidden rounded-lg border border-white/10">
+	                    <button
+	                      type="button"
+	                      className="p-2 hover:bg-white/10"
+	                      title="Выше"
+	                      onClick={(e) => {
+	                        e.preventDefault();
+	                        e.stopPropagation();
+	                        swapByIndex(idx, idx - 1);
+	                      }}
+	                    >
+	                      <ArrowUp size={16} />
+	                    </button>
+	                    <button
+	                      type="button"
+	                      className="p-2 border-l border-white/10 hover:bg-white/10"
+	                      title="Ниже"
+	                      onClick={(e) => {
+	                        e.preventDefault();
+	                        e.stopPropagation();
+	                        swapByIndex(idx, idx + 1);
+	                      }}
+	                    >
+	                      <ArrowDown size={16} />
+	                    </button>
+	                  </div>
+	                </div>
               </IfEditor>
             ) : null;
 
@@ -503,11 +500,11 @@ export default function CourseAssignmentsPage() {
           const EditorCard = (
             <Card
               className={
-                "transition hover:shadow-lg " +
+                "relative transition hover:shadow-lg " +
                 (solved ? "border-emerald-400/40 bg-emerald-500/5" : "")
               }
             >
-              <div className="flex items-start justify-end mb-3">{EditorToolbar}</div>
+              {EditorToolbar}
               <EditWrap>{CardBody}</EditWrap>
             </Card>
           );
