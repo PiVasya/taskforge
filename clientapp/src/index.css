@@ -322,6 +322,93 @@ select.input {
   background-size: 1rem 1rem;
   padding-right: 2.25rem; /* место под стрелку */
 }
+
+/* =======================
+   Background FX (soft blurred blobs)
+   Enabled by `.bgfx` on the app root.
+   We keep this as raw CSS (not Tailwind) so it can't be purged.
+   ======================= */
+
+.bgfx .bgfx-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.55;
+  transform: translate3d(0,0,0);
+  will-change: transform;
+}
+
+/* Light: a bit calmer */
+:not(.dark) .bgfx .bgfx-blob {
+  opacity: 0.35;
+  filter: blur(90px);
+  mix-blend-mode: multiply;
+}
+
+/* Dark: a bit brighter, add glow feel */
+.dark .bgfx .bgfx-blob {
+  opacity: 0.50;
+  filter: blur(75px);
+  mix-blend-mode: screen;
+}
+
+.bgfx .bgfx-blob--a {
+  width: 520px;
+  height: 520px;
+  left: -140px;
+  top: -160px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(var(--accent), 0.35), transparent 60%),
+    radial-gradient(circle at 70% 70%, rgba(var(--accent2), 0.25), transparent 60%);
+  animation: bgfx-float-a 18s ease-in-out infinite;
+}
+
+.bgfx .bgfx-blob--b {
+  width: 640px;
+  height: 640px;
+  right: -220px;
+  top: 120px;
+  background:
+    radial-gradient(circle at 40% 30%, rgba(var(--accent2), 0.35), transparent 62%),
+    radial-gradient(circle at 70% 70%, rgba(var(--accent), 0.22), transparent 62%);
+  animation: bgfx-float-b 22s ease-in-out infinite;
+}
+
+.bgfx .bgfx-blob--c {
+  width: 520px;
+  height: 520px;
+  left: 22%;
+  bottom: -220px;
+  background:
+    radial-gradient(circle at 45% 40%, rgba(var(--accent), 0.30), transparent 60%),
+    radial-gradient(circle at 70% 75%, rgba(var(--accent3), 0.20), transparent 60%);
+  animation: bgfx-float-c 20s ease-in-out infinite;
+}
+
+@keyframes bgfx-float-a {
+  0%   { transform: translate(-10px, -10px) scale(1.00); }
+  35%  { transform: translate(80px, 10px)  scale(1.05); }
+  70%  { transform: translate(40px, 70px)  scale(0.98); }
+  100% { transform: translate(-10px, -10px) scale(1.00); }
+}
+
+@keyframes bgfx-float-b {
+  0%   { transform: translate(10px, 0px)   scale(1.00); }
+  40%  { transform: translate(-70px, 40px) scale(1.06); }
+  75%  { transform: translate(-30px, -20px) scale(0.98); }
+  100% { transform: translate(10px, 0px)   scale(1.00); }
+}
+
+@keyframes bgfx-float-c {
+  0%   { transform: translate(0px, 10px)  scale(1.00); }
+  40%  { transform: translate(60px, -30px) scale(1.04); }
+  75%  { transform: translate(-40px, -10px) scale(0.98); }
+  100% { transform: translate(0px, 10px)  scale(1.00); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bgfx .bgfx-blob { animation: none !important; }
+}
 select:focus,
 select.input:focus {
   outline: none;
@@ -494,7 +581,8 @@ a:visited {
   position: absolute;
   inset: -25%;
   filter: blur(70px);
-  opacity: 0.22;
+  /* было слишком незаметно на светлых темах */
+  opacity: 0.48;
 }
 
 /* Сами блики */
@@ -503,7 +591,7 @@ a:visited {
   width: 55vmax;
   height: 55vmax;
   border-radius: 9999px;
-  background: radial-gradient(circle at 30% 30%, rgba(var(--fx-1) / 0.55), transparent 60%);
+  background: radial-gradient(circle at 30% 30%, rgba(var(--fx-1) / 0.5), transparent 60%);
   mix-blend-mode: multiply;
   animation: bgfx-float-1 18s ease-in-out infinite;
 }
@@ -517,7 +605,7 @@ html.dark .bg-fx__blob {
 .bg-fx__blob:nth-child(2) {
   width: 45vmax;
   height: 45vmax;
-  background: radial-gradient(circle at 35% 35%, rgba(var(--fx-2) / 0.5), transparent 62%);
+  background: radial-gradient(circle at 35% 35%, rgba(var(--fx-2) / 0.45), transparent 62%);
   animation: bgfx-float-2 22s ease-in-out infinite;
 }
 

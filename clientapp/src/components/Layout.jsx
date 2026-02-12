@@ -164,7 +164,13 @@ export default function Layout({ children, fullWidth = false }) {
   const toggleMode = () => setMode((m) => (m === 'dark' ? 'light' : 'dark'));
   const cycleColor = () =>
     setColorTheme((c) => (c === 'blue' ? 'pink' : c === 'pink' ? 'apple' : 'blue'));
-  const toggleBgFx = () => setBgFx((v) => !v);
+  const toggleBgFx = () =>
+    setBgFx((v) => {
+      const nv = !v;
+      // удобно быстро понять, что переключатель реально срабатывает
+      console.log(`[bgfx] ${nv ? "on" : "off"}`);
+      return nv;
+    });
 
   // применяем классы для темы и сохраняем в localStorage
   useEffect(() => {
@@ -256,15 +262,23 @@ export default function Layout({ children, fullWidth = false }) {
   return (
     // isolate + z-слои: чтобы фиксированный фон не "проваливался" под body (иначе эффекты не видны)
     <div className="min-h-screen relative isolate">
-      {/* фон: базовый мягкий градиент + (по переключателю) размытые блики */}
+      {/* фон: (по переключателю) мягкий градиент + размытые блики */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
         {bgFx && (
-          <div className="absolute inset-0">
-            <div className="bgfx-blob bgfx-blob--a" />
-            <div className="bgfx-blob bgfx-blob--b" />
-            <div className="bgfx-blob bgfx-blob--c" />
-          </div>
+          <>
+            <div className="absolute inset-0 bg-gradient-to-b from-brand-600/12 via-transparent to-transparent blur-2xl" />
+            <div className="absolute inset-0">
+            {/*
+              ВАЖНО: эффекты реализованы чистым CSS (см. index.css: `.bg-fx ...`).
+              Это защищает от Tailwind purge и гарантирует, что блики видны на всех темах.
+            */}
+            <div className="bg-fx">
+              <div className="bg-fx__blob" />
+              <div className="bg-fx__blob" />
+              <div className="bg-fx__blob" />
+            </div>
+            </div>
+          </>
         )}
       </div>
       <header className="sticky top-0 z-20 border-b border-neutral-200/70 dark:border-neutral-800/70 backdrop-blur bg-white/70 dark:bg-neutral-900/60">
@@ -307,8 +321,13 @@ export default function Layout({ children, fullWidth = false }) {
             </button>
 
             <button
-              className={`btn-outline ${bgFx ? 'border-brand-600/60' : ''}`}
+              className={`btn-outline transition ${
+                bgFx
+                  ? 'border-brand-600/70 bg-brand-600/10 text-brand-700 dark:text-brand-200 shadow-soft'
+                  : 'hover:border-neutral-300/70 dark:hover:border-neutral-700/70'
+              }`}
               onClick={toggleBgFx}
+              aria-pressed={bgFx}
               aria-label="Toggle background effects"
               title={bgFx ? 'Фоновые эффекты: вкл' : 'Фоновые эффекты: выкл'}
             >
