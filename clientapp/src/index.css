@@ -89,25 +89,27 @@ html.pink {
 
 /* Цветовая тема: APPLE */
 html.apple {
-  --page-bg: 240 253 244; /* green-50 */
-  --card: 248 255 250;
-  --muted: 236 253 245;   /* green-100 */
-  /* Более "холодный" зелёный (без желтизны) */
-  --brand-50: 240 253 244;
-  --brand-100: 220 252 231;
-  --brand-200: 187 247 208;
-  --brand-300: 134 239 172;
-  --brand-400: 74 222 128;
-  --brand-500: 34 197 94;
-  --brand-600: 22 163 74;
-  --brand-700: 21 128 61;
-  --brand-800: 22 101 52;
-  --brand-900: 20 83 45;
+  /* чуть более "холодный" (mint/emerald), чтобы не уходил в жёлтый */
+  --page-bg: 236 253 245; /* emerald-50 */
+  --card: 248 255 252;
+  --muted: 209 250 229;   /* emerald-100 */
+
+  --brand-50: 236 253 245;
+  --brand-100: 209 250 229;
+  --brand-200: 167 243 208;
+  --brand-300: 110 231 183;
+  /* более "холодный" зелёный (неспелое яблоко / mint), без желтизны */
+  --brand-400: 74 222 162;
+  --brand-500: 34 211 151;
+  --brand-600: 22 201 154;
+  --brand-700: 15 162 120;
+  --brand-800: 6 95 70;
+  --brand-900: 6 78 59;
 
   /* Цвета для фоновых бликов */
-  --fx-1: 34 197 94;
-  --fx-2: 74 222 128;
-  --fx-3: 187 247 208;
+  --fx-1: 16 185 129;
+  --fx-2: 52 211 153;
+  --fx-3: 167 243 208;
 }
 
 /*
@@ -467,6 +469,19 @@ html.pink .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 
 *:focus-visible {
   outline: 2px solid rgb(var(--brand-500));
   outline-offset: 2px;
+}
+
+/* Убираем дефолтный "синий" цвет ссылок браузера — всё строго от темы */
+a {
+  color: rgb(var(--brand-600));
+  text-decoration-color: rgba(var(--brand-600) / 0.45);
+}
+a:hover {
+  color: rgb(var(--brand-700));
+  text-decoration-color: rgba(var(--brand-700) / 0.6);
+}
+a:visited {
+  color: rgb(var(--brand-600));
 }
 
 ::selection {

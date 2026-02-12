@@ -254,9 +254,10 @@ export default function Layout({ children, fullWidth = false }) {
   }, [access, isAdmin, canEdit, isEditorMode, mode, colorTheme, quotas]);
 
   return (
-    <div className="min-h-screen">
+    // isolate + z-слои: чтобы фиксированный фон не "проваливался" под body (иначе эффекты не видны)
+    <div className="min-h-screen relative isolate">
       {/* фон: базовый мягкий градиент + (по переключателю) размытые блики */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
         {bgFx && (
           <div className="absolute inset-0">
@@ -617,8 +618,8 @@ export default function Layout({ children, fullWidth = false }) {
       <main
         className={
           fullWidth
-            ? "w-full max-w-none px-4 sm:px-6 lg:px-8 py-8"
-            : "container-app py-8"
+            ? "w-full max-w-none px-4 sm:px-6 lg:px-8 py-8 relative z-10"
+            : "container-app py-8 relative z-10"
         }
       >
         <motion.div
@@ -630,7 +631,7 @@ export default function Layout({ children, fullWidth = false }) {
         </motion.div>
       </main>
 
-      <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70">
+      <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70 relative z-10">
         <div className="container-app py-6 text-sm text-neutral-500 dark:text-neutral-400 flex items-center justify-between">
           {/* слева */}
           <div>© {new Date().getFullYear()} TaskForge</div>
