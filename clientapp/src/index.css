@@ -58,6 +58,11 @@ html.blue {
   --brand-700: 3 105 161;
   --brand-800: 7 89 133;
   --brand-900: 12 74 110;
+
+  /* фоновые блики (включаются переключателем) */
+  --fx-1: 14 165 233;   /* sky */
+  --fx-2: 34 211 238;   /* cyan */
+  --fx-3: 167 139 250;  /* violet */
 }
 
 /* Цветовая тема: PINK */
@@ -75,6 +80,11 @@ html.pink {
   --brand-700: 190 24 93;
   --brand-800: 157 23 77;
   --brand-900: 131 24 67;
+
+  /* фоновые блики (включаются переключателем) */
+  --fx-1: 236 72 153;   /* pink */
+  --fx-2: 168 85 247;   /* purple */
+  --fx-3: 251 113 133;  /* rose */
 }
 
 /* Цветовая тема: APPLE */
@@ -82,17 +92,22 @@ html.apple {
   --page-bg: 240 253 244; /* green-50 */
   --card: 248 255 250;
   --muted: 236 253 245;   /* green-100 */
-  /* Apple-ish салатовый (lime) */
-  --brand-50: 247 254 231;
-  --brand-100: 236 252 203;
-  --brand-200: 217 249 157;
-  --brand-300: 190 242 100;
-  --brand-400: 163 230 53;
-  --brand-500: 132 204 22;
-  --brand-600: 101 163 13;
-  --brand-700: 77 124 15;
-  --brand-800: 63 98 18;
-  --brand-900: 54 83 20;
+  /* Более "холодный" зелёный (без желтизны) */
+  --brand-50: 240 253 244;
+  --brand-100: 220 252 231;
+  --brand-200: 187 247 208;
+  --brand-300: 134 239 172;
+  --brand-400: 74 222 128;
+  --brand-500: 34 197 94;
+  --brand-600: 22 163 74;
+  --brand-700: 21 128 61;
+  --brand-800: 22 101 52;
+  --brand-900: 20 83 45;
+
+  /* Цвета для фоновых бликов */
+  --fx-1: 34 197 94;
+  --fx-2: 74 222 128;
+  --fx-3: 187 247 208;
 }
 
 /*
@@ -445,3 +460,77 @@ select:focus,
 }
 .dark .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
 html.pink .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
+
+/* ===== Динамичные фоновые блики (опционально, через переключатель) ===== */
+
+/* Перекрашиваем дефолтные "синие" фокусы браузера на brand */
+*:focus-visible {
+  outline: 2px solid rgb(var(--brand-500));
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(var(--brand-200) / 0.8);
+  color: rgb(var(--foreground));
+}
+
+/* Контейнер слоёв бликов */
+.bg-fx {
+  position: absolute;
+  inset: -25%;
+  filter: blur(70px);
+  opacity: 0.22;
+}
+
+/* Сами блики */
+.bg-fx__blob {
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--fx-1) / 0.55), transparent 60%);
+  mix-blend-mode: multiply;
+  animation: bgfx-float-1 18s ease-in-out infinite;
+}
+
+html.dark .bg-fx__blob {
+  /* в тёмной теме блики "светятся" чуть мягче */
+  mix-blend-mode: screen;
+  opacity: 0.9;
+}
+
+.bg-fx__blob:nth-child(2) {
+  width: 45vmax;
+  height: 45vmax;
+  background: radial-gradient(circle at 35% 35%, rgba(var(--fx-2) / 0.5), transparent 62%);
+  animation: bgfx-float-2 22s ease-in-out infinite;
+}
+
+.bg-fx__blob:nth-child(3) {
+  width: 50vmax;
+  height: 50vmax;
+  background: radial-gradient(circle at 40% 40%, rgba(var(--fx-3) / 0.45), transparent 65%);
+  animation: bgfx-float-3 26s ease-in-out infinite;
+}
+
+@keyframes bgfx-float-1 {
+  0%   { transform: translate3d(-18%, -10%, 0) scale(1); }
+  50%  { transform: translate3d(12%, 8%, 0) scale(1.08); }
+  100% { transform: translate3d(-18%, -10%, 0) scale(1); }
+}
+
+@keyframes bgfx-float-2 {
+  0%   { transform: translate3d(22%, -8%, 0) scale(1); }
+  50%  { transform: translate3d(-10%, 12%, 0) scale(1.06); }
+  100% { transform: translate3d(22%, -8%, 0) scale(1); }
+}
+
+@keyframes bgfx-float-3 {
+  0%   { transform: translate3d(-5%, 22%, 0) scale(1); }
+  50%  { transform: translate3d(18%, -8%, 0) scale(1.07); }
+  100% { transform: translate3d(-5%, 22%, 0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-fx__blob { animation: none !important; }
+}

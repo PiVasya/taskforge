@@ -23,6 +23,7 @@ import {
   ListOrdered,
   Palette,
   MoreHorizontal,
+  Sparkles,
   Award,
   LifeBuoy,
   ChevronDown,
@@ -37,6 +38,7 @@ export default function Layout({ children, fullWidth = false }) {
   const [colorTheme, setColorTheme] = useState(() => localStorage.getItem('colorTheme') || 'blue');
   const [mode, setMode] = useState(() => localStorage.getItem('mode') || 'light');
   const isDark = mode === 'dark';
+  const [bgFx, setBgFx] = useState(() => localStorage.getItem('bgFx') === '1');
 
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
@@ -162,6 +164,7 @@ export default function Layout({ children, fullWidth = false }) {
   const toggleMode = () => setMode((m) => (m === 'dark' ? 'light' : 'dark'));
   const cycleColor = () =>
     setColorTheme((c) => (c === 'blue' ? 'pink' : c === 'pink' ? 'apple' : 'blue'));
+  const toggleBgFx = () => setBgFx((v) => !v);
 
   // применяем классы для темы и сохраняем в localStorage
   useEffect(() => {
@@ -177,6 +180,19 @@ export default function Layout({ children, fullWidth = false }) {
     localStorage.setItem('colorTheme', colorTheme);
     localStorage.setItem('mode', mode);
   }, [colorTheme, mode]);
+
+  useEffect(() => {
+    localStorage.setItem('bgFx', bgFx ? '1' : '0');
+    const root = document.documentElement;
+    root.classList.toggle('bgfx', bgFx);
+  }, [bgFx]);
+
+  useEffect(() => {
+    const el = document.documentElement;
+    if (bgFx) el.classList.add('bgfx');
+    else el.classList.remove('bgfx');
+    localStorage.setItem('bgFx', bgFx ? '1' : '0');
+  }, [bgFx]);
 
   const handleLogout = async () => {
     await logout();
@@ -239,8 +255,17 @@ export default function Layout({ children, fullWidth = false }) {
 
   return (
     <div className="min-h-screen">
-      {/* фоновой градиент */}
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
+      {/* фон: базовый мягкий градиент + (по переключателю) размытые блики */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-brand-600/10 via-transparent to-transparent blur-2xl" />
+        {bgFx && (
+          <div className="absolute inset-0">
+            <div className="bgfx-blob bgfx-blob--a" />
+            <div className="bgfx-blob bgfx-blob--b" />
+            <div className="bgfx-blob bgfx-blob--c" />
+          </div>
+        )}
+      </div>
       <header className="sticky top-0 z-20 border-b border-neutral-200/70 dark:border-neutral-800/70 backdrop-blur bg-white/70 dark:bg-neutral-900/60">
         <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
           {/* Логотип и название */}
@@ -278,6 +303,15 @@ export default function Layout({ children, fullWidth = false }) {
             >
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
               {/* без текста — только иконка */}
+            </button>
+
+            <button
+              className={`btn-outline ${bgFx ? 'border-brand-600/60' : ''}`}
+              onClick={toggleBgFx}
+              aria-label="Toggle background effects"
+              title={bgFx ? 'Фоновые эффекты: вкл' : 'Фоновые эффекты: выкл'}
+            >
+              <Sparkles size={18} />
             </button>
 
             {/* режим редактора */}
@@ -436,6 +470,19 @@ export default function Layout({ children, fullWidth = false }) {
                 >
                   {isDark ? <Sun size={18} /> : <Moon size={18} />}
                   <span>{isDark ? 'Светлая' : 'Тёмная'}</span>
+                </button>
+
+                {/* Эффекты фона */}
+                <button
+                  role="menuitem"
+                  className="btn-ghost w-full justify-start"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    toggleBgFx();
+                  }}
+                >
+                  <Sparkles size={18} />
+                  <span>{bgFx ? 'Эффекты: вкл' : 'Эффекты: выкл'}</span>
                 </button>
                 {/* Режим редактора */}
                 {canEdit && (
