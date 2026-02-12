@@ -29,6 +29,14 @@
   --brand-800: 7 89 133;
   --brand-900: 12 74 110;
 
+  /* Accent tokens (used by focus rings, buttons, bootstrap overrides, etc.)
+     IMPORTANT: these MUST exist for every theme, otherwise browser/tailwind
+     fall back to default blue focus/links. */
+  --accent: var(--brand-600);
+  --accent-700: var(--brand-700);
+  --accent2: var(--brand-400);
+  --accent3: var(--brand-200);
+
   /* Нейтральные токены, чтобы нигде не «проскакивал» дефолтный синий */
   --text: 15 23 42;
   --text-muted: 107 114 128;
@@ -125,18 +133,21 @@ html.dark.blue {
   --page-bg: 15 23 42;
   --card: 15 23 42;
   --muted: 30 41 59;
+  --border: 40 50 70;
 }
 
 html.dark.pink {
   --page-bg: 28 16 26;   /* тёмный розово‑фиолетовый */
   --card: 32 18 30;
   --muted: 44 26 41;
+  --border: 70 48 68;
 }
 
 html.dark.apple {
   --page-bg: 12 22 17;   /* тёмный зелёный */
   --card: 14 26 20;
   --muted: 22 38 30;
+  --border: 52 72 62;
 }
 
 /* запасной вариант, если вдруг на html нет theme-класса */
@@ -150,6 +161,8 @@ html.dark:not(.blue):not(.pink):not(.apple) {
 html.dark {
   --text: 226 232 240;
   --text-muted: 148 163 184;
+  /* border в dark лучше задавать в html.dark.<theme>, чтобы не получать
+     «синеву» на pink/apple. Здесь оставляем запасной дефолт. */
   --border: 40 50 70;
 
   --bs-primary: rgb(var(--accent));
@@ -157,6 +170,16 @@ html.dark {
   --bs-link-color: rgb(var(--accent));
   --bs-link-color-rgb: var(--accent);
   --bs-link-hover-color: rgb(var(--accent-700));
+}
+
+/* ===== Tailwind dark:neutral-* подстраиваем под выбранную палитру =====
+   На pink/apple дефолтные neutral-700/800 визуально дают «синий» оттенок.
+   Здесь мы переопределяем самые частые классы бордеров в тёмном режиме. */
+html.dark.pink .dark\:border-neutral-700,
+html.dark.pink .dark\:border-neutral-800,
+html.dark.apple .dark\:border-neutral-700,
+html.dark.apple .dark\:border-neutral-800 {
+  border-color: rgba(var(--border) / 0.8) !important;
 }
 
 /* ====== База / типографика / фон ====== */
@@ -552,11 +575,9 @@ html.pink .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 
 
 /* ===== Динамичные фоновые блики (опционально, через переключатель) ===== */
 
-/* Перекрашиваем дефолтные "синие" фокусы браузера на brand */
-*:focus-visible {
-  outline: 2px solid rgb(var(--brand-500));
-  outline-offset: 2px;
-}
+/* Убираем глобальный outline (он ломает вид редакторов/карточек).
+   Фокус подсвечиваем только через унифицированный box-shadow выше. */
+*:focus-visible { outline: none; }
 
 /* Убираем дефолтный "синий" цвет ссылок браузера — всё строго от темы */
 a {
@@ -573,7 +594,7 @@ a:visited {
 
 ::selection {
   background: rgba(var(--brand-200) / 0.8);
-  color: rgb(var(--foreground));
+  color: rgb(var(--text));
 }
 
 /* Контейнер слоёв бликов */
@@ -581,8 +602,13 @@ a:visited {
   position: absolute;
   inset: -25%;
   filter: blur(70px);
-  /* было слишком незаметно на светлых темах */
-  opacity: 0.48;
+  /* делаем заметнее: на тёмных темах раньше «терялось» и виделся только угол‑градиент */
+  opacity: 0.62;
+}
+
+html.dark .bg-fx {
+  opacity: 0.78;
+  filter: blur(65px);
 }
 
 /* Сами блики */
@@ -599,7 +625,7 @@ a:visited {
 html.dark .bg-fx__blob {
   /* в тёмной теме блики "светятся" чуть мягче */
   mix-blend-mode: screen;
-  opacity: 0.9;
+  opacity: 1;
 }
 
 .bg-fx__blob:nth-child(2) {

@@ -167,8 +167,6 @@ export default function Layout({ children, fullWidth = false }) {
   const toggleBgFx = () =>
     setBgFx((v) => {
       const nv = !v;
-      // удобно быстро понять, что переключатель реально срабатывает
-      console.log(`[bgfx] ${nv ? "on" : "off"}`);
       return nv;
     });
 
@@ -191,13 +189,6 @@ export default function Layout({ children, fullWidth = false }) {
     localStorage.setItem('bgFx', bgFx ? '1' : '0');
     const root = document.documentElement;
     root.classList.toggle('bgfx', bgFx);
-  }, [bgFx]);
-
-  useEffect(() => {
-    const el = document.documentElement;
-    if (bgFx) el.classList.add('bgfx');
-    else el.classList.remove('bgfx');
-    localStorage.setItem('bgFx', bgFx ? '1' : '0');
   }, [bgFx]);
 
   const handleLogout = async () => {
