@@ -207,7 +207,10 @@ export default function Layout({ children, fullWidth = false }) {
             */}
             <div className="bg-fx">
               {/* Canvas-эффекты (туман / пыль+кометы / нейросвязи) */}
-              <BgFxCanvas enabled={bgFx} variant={fxVariant} />
+              <BgFxCanvas
+                enabled={bgFx}
+                variant={fxMode === 'random' ? 'random' : Number(fxVariant) || 0}
+              />
 
               {/* Базовые размазанные блики */}
               <div className="bg-fx__blob" />
@@ -216,6 +219,9 @@ export default function Layout({ children, fullWidth = false }) {
 
               {/* Доп. слой: размытое "ДНК"/ленты (варианты 1 и 2) */}
               <div className="bg-fx__dna" />
+
+              {/* Доп. слой: "ленточная" сетка (делает фон заметнее на светлых темах) */}
+              <div className="bg-fx__ribbon" />
 
               {/* Доп. слой: мерцающие точки/блики (вариант 2) */}
               <div className="bg-fx__glitter" />

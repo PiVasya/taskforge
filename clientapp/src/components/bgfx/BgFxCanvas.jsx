@@ -87,6 +87,12 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
+    // На светлых темах многие альфы выглядят слишком "нежно".
+    // Даём небольшой буст и убираем чёрную "шторку" в нейросвязях.
+    const isDarkTheme = () => document.documentElement.classList.contains('dark');
+    const alphaBoost = () => (isDarkTheme() ? 1 : 2.0);
+    const rgbaB = (rgb, a) => rgba(rgb, Math.min(1, a * alphaBoost()));
+
     let w = 0;
     let h = 0;
     let dpr = 1;
@@ -286,7 +292,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
         // фон — лёгкая дымка
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        ctx.fillStyle = isDarkTheme() ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.18)';
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
 
@@ -311,7 +317,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
             if (d > maxDist) continue;
             const k = 1 - d / maxDist;
             // цвет — смесь, но просто берём a
-            ctx.strokeStyle = rgba(a.c, 0.03 + k * 0.12);
+            // на светлой теме бустим альфу, иначе линии почти не видны
+            ctx.strokeStyle = rgbaB(a.c, 0.06 + k * 0.18);
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
@@ -322,12 +329,12 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
 
         // узлы
         for (const n of state.nodes) {
-          ctx.fillStyle = rgba(n.c, 0.18);
+          ctx.fillStyle = rgbaB(n.c, 0.22);
           ctx.beginPath();
           ctx.arc(n.x, n.y, n.r * 2.2, 0, Math.PI * 2);
           ctx.fill();
 
-          ctx.fillStyle = rgba(n.c, 0.55);
+          ctx.fillStyle = rgbaB(n.c, 0.70);
           ctx.beginPath();
           ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
           ctx.fill();
@@ -440,6 +447,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
     <canvas
       ref={canvasRef}
       aria-hidden
+      className="bgfx-canvas"
       style={{
         position: 'fixed',
         inset: 0,
