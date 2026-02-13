@@ -9,9 +9,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Moon,
-  Sun,
-  BookOpen,
   PanelsTopLeft,
   LogOut,
   LogIn,
@@ -21,13 +18,10 @@ import {
   Users,
   BarChart2,
   ListOrdered,
-  Palette,
   MoreHorizontal,
-  Sparkles,
   Settings,
   Award,
   LifeBuoy,
-  ChevronDown,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -52,9 +46,38 @@ export default function Layout({ children, fullWidth = false }) {
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
   const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || 'random');
   // Вариант фоновых эффектов (0..3). Выбирается рандомно при включении эффекта.
-  // Цвета НЕ рандомим — они берутся из темы через CSS vars (--accent/...)
-  // важно: не смешиваем ?? и || без скобок (eslint ругается). Здесь нужен именно nullish-fallback.
+  // важно: не смешиваем ?? и || без скобок.
   const [fxVariant, setFxVariant] = useState(() => String(initialUi?.fxVariant ?? sessionStorage.getItem('fxVariant') ?? '3'));
+
+  // Тема/палитра меняются на странице «Настройки». Чтобы Layout реагировал без перезагрузки,
+  // слушаем кастомное событие (в том же табе) и storage-события (между табами).
+  useEffect(() => {
+    const applyFromStorage = () => {
+      const nextColor = localStorage.getItem('colorTheme') || 'blue';
+      const nextMode = localStorage.getItem('mode') || 'light';
+      setColorTheme(nextColor);
+      setMode(nextMode);
+      setBgFx(localStorage.getItem('bgFx') === '1');
+      setFxMode(localStorage.getItem('fxMode') || 'random');
+      setFxVariant(localStorage.getItem('fxVariant') || '3');
+    };
+
+    const onStorage = (e) => {
+      if (!e.key) return;
+      if (['colorTheme', 'mode', 'bgFx', 'fxMode', 'fxVariant'].includes(e.key)) {
+        applyFromStorage();
+      }
+    };
+
+    const onLocalUiChanged = () => applyFromStorage();
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('tf-ui-settings-changed', onLocalUiChanged);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('tf-ui-settings-changed', onLocalUiChanged);
+    };
+  }, []);
 
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
@@ -87,7 +110,7 @@ export default function Layout({ children, fullWidth = false }) {
     return () => {
       try { ro.disconnect(); } catch {}
     };
-  }, [access, isAdmin, canEdit, isEditorMode, mode, colorTheme, quotas]);
+  }, [access, isAdmin, canEdit, isEditorMode, mode, colorTheme]);
 
   return (
     // isolate + z-слои: чтобы фиксированный фон не "проваливался" под body (иначе эффекты не видны)
@@ -135,31 +158,9 @@ export default function Layout({ children, fullWidth = false }) {
           {/* Правая панель — крупные экраны */}
           <div className={`hidden xl:flex items-center gap-2 ${forceCompact ? 'xl:hidden' : ''}`}
           >
-            {/* квоты (видны только авторизованным) */}            {/* цвет + режим */}
+            {/* Быстрые переключатели темы/палитры убраны из хедера — оставлены только на странице настроек */}
 
-            <div
-              className="inline-flex items-center gap-1 rounded-xl border border-neutral-200/70 dark:border-neutral-800/70 bg-white/50 dark:bg-neutral-900/40 p-1"
-              aria-label="Выбор палитры"
-              title="Палитра"
-            >
-              {themeOptions.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setColorTheme(t.key)}
-                  className={
-                    'h-7 w-7 rounded-lg grid place-items-center transition ' +
-                    (colorTheme === t.key
-                      ? 'ring-2 ring-[rgba(var(--accent)/0.45)] bg-white/70 dark:bg-neutral-900/50'
-                      : 'hover:bg-white/70 dark:hover:bg-neutral-900/50')
-                  }
-                  aria-pressed={colorTheme === t.key}
-                  title={t.title}
-                >
-                  <span className={'h-3 w-3 rounded-full ' + t.dot} />
-                </button>
-              ))}
-            </div>            {/* режим редактора */}
+            {/* режим редактора */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
@@ -280,155 +281,7 @@ export default function Layout({ children, fullWidth = false }) {
             )}
           </div>
 
-          {/* Мобильное меню — одна кнопка "..." */}
-          <div className={`relative ${forceCompact ? '' : 'xl:hidden'}`} ref={moreRef}>
-            {/* квоты в компактном режиме тоже показываем */}
-            {forceCompact ?            </button>
-            {moreOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 mt-2 w-56 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
-              >{/* Режим редактора */}
-                {canEdit && (
-                  <button
-                    role="menuitem"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      toggle();
-                    }}
-                  >
-                    {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                    <span>{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
-                  </button>
-                )}
-                {/* Профиль */}
-                {access && (
-                  <Link
-                    role="menuitem"
-                    to="/profile"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Профиль"
-                  >
-                    <User size={18} />
-                    <span>Профиль</span>
-                  </Link>
-                )}
-
-                {/* Настройки */}
-                {access && (
-                  <Link
-                    role="menuitem"
-                    to="/settings"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Настройки"
-                  >
-                    <Settings size={18} />
-                    <span>Настройки</span>
-                  </Link>
-                )}
-                {/* Мои решения */}
-                {access && (
-                  <Link
-                    role="menuitem"
-                    to="/my/solutions"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Мои решения"
-                  >
-                    <ListOrdered size={18} />
-                    <span>Мои решения</span>
-                  </Link>
-                )}
-                {/* Топ */}
-                {access && (
-                  <Link
-                    role="menuitem"
-                    to="/leaderboard"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Топ студентов"
-                  >
-                    <BarChart2 size={18} />
-                    <span>Топ</span>
-                  </Link>
-                )}
-                {/* админка: решения и бейджи */}
-                {access && isAdmin && (
-                  <>
-                    <Link
-                      role="menuitem"
-                      to="/admin/solutions"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setMoreOpen(false)}
-                      title="Управление пользователями"
-                    >
-                      <ListOrdered size={18} />
-                      <span>Управление пользователями</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/badges"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setMoreOpen(false)}
-                      title="Бейджи"
-                    >
-                      <Award size={18} />
-                      <span>Бейджи</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/groups"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setMoreOpen(false)}
-                      title="Группы пользователей"
-                    >
-                      <Users size={18} />
-                      <span>Группы</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/support"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setMoreOpen(false)}
-                      title="Обращения пользователей"
-                    >
-                      <LifeBuoy size={18} />
-                      <span>Обращения</span>
-                    </Link>
-                  </>
-                )}
-                {/* вход/выход */}
-                {access ? (
-                  <button
-                    role="menuitem"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      handleLogout();
-                    }}
-                    title="Выйти"
-                  >
-                    <LogOut size={18} />
-                    <span>Выйти</span>
-                  </button>
-                ) : (
-                  <Link
-                    role="menuitem"
-                    to="/login"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMoreOpen(false)}
-                    title="Войти"
-                  >
-                    <LogIn size={18} />
-                    <span>Войти</span>
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Мобильное меню убрано: навигация остаётся доступной через основные кнопки и страницу настроек */}
         </div>
       </header>
 

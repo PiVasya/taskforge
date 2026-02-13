@@ -1,384 +1,455 @@
-// clientapp/src/components/bgfx/BgFxCanvas.jsx
-// Canvas-слой фоновых эффектов (туман / пыль+кометы / нейронные связи)
-// Цвета синхронизированы с темой через CSS vars (--accent/--accent2/--accent3).
+import React, { useEffect, useMemo, useRef } from 'react';
 
-import React, { useEffect, useRef } from 'react';
+// Canvas-фоны (bgfx)
+// Варианты:
+// 0: Туман
+// 1: Пыль + кометы
+// 2: Нейросвязи (как в присланном HTML)
+// 3: Аврора
+// 4: Сердечки
 
-function parseRgbVar(v) {
-  // ожидаем формат "R G B" (как в проекте)
-  const parts = String(v || '')
-    .trim()
-    .split(/[\s,\/]+/)
-    .filter(Boolean)
-    .map((n) => Number(n));
-  if (parts.length >= 3 && parts.every((n) => Number.isFinite(n))) return parts.slice(0, 3);
-  return [255, 255, 255];
+function cssVar(name, fallback) {
+  if (typeof window === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return (v || fallback || '').trim();
 }
 
-function readThemeColors() {
-  const cs = getComputedStyle(document.documentElement);
-  const a1 = parseRgbVar(cs.getPropertyValue('--accent'));
-  const a2 = parseRgbVar(cs.getPropertyValue('--accent2'));
-  const a3 = parseRgbVar(cs.getPropertyValue('--accent3'));
-  return { a1, a2, a3 };
+function parseRgbTriplet(s, fallback = [255, 255, 255]) {
+  // ожидаем "r g b" или "r, g, b"
+  const clean = (s || '').replace(/,/g, ' ').trim();
+  const parts = clean.split(/\s+/).map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
+  return fallback;
 }
 
-function rgba([r, g, b], alpha) {
-  return `rgba(${r},${g},${b},${alpha})`;
+function rgba(rgb, a) {
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
 }
 
-export default function BgFxCanvas({ enabled, variant }) {
+function clamp(n, a, b) {
+  return Math.min(b, Math.max(a, n));
+}
+
+function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function heartPath(ctx, x, y, s) {
+  ctx.beginPath();
+  const topCurveHeight = s * 0.3;
+  ctx.moveTo(x, y + topCurveHeight);
+  ctx.bezierCurveTo(
+    x,
+    y,
+    x - s / 2,
+    y,
+    x - s / 2,
+    y + topCurveHeight
+  );
+  ctx.bezierCurveTo(
+    x - s / 2,
+    y + (s + topCurveHeight) / 2,
+    x,
+    y + (s + topCurveHeight) / 1.15,
+    x,
+    y + s
+  );
+  ctx.bezierCurveTo(
+    x,
+    y + (s + topCurveHeight) / 1.15,
+    x + s / 2,
+    y + (s + topCurveHeight) / 2,
+    x + s / 2,
+    y + topCurveHeight
+  );
+  ctx.bezierCurveTo(x + s / 2, y, x, y, x, y + topCurveHeight);
+  ctx.closePath();
+}
+
+export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
   const canvasRef = useRef(null);
-  const reduceMotion = false; // background can be disabled in Settings
+  const rafRef = useRef(0);
+
+  const preset = useMemo(() => {
+    if (variant === 'random') {
+      // 0..4
+      return Math.floor(Math.random() * 5);
+    }
+    const v = Number(variant);
+    return Number.isFinite(v) ? v : 0;
+  }, [variant]);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    // запускаем для режимов 0..3
-    const v = String(variant);
-    const shouldRun = enabled && !reduceMotion && (v === '0' || v === '1' || v === '2' || v === '3');
-    canvas.style.display = shouldRun ? 'block' : 'none';
-    if (!shouldRun) return;
-
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
-    let raf = 0;
-    let last = performance.now();
     let w = 0;
     let h = 0;
-    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    let dpr = 1;
+
+    const fx1 = parseRgbTriplet(cssVar('--fx-1', '245 0 128'), [245, 0, 128]);
+    const fx2 = parseRgbTriplet(cssVar('--fx-2', '14 165 233'), [14, 165, 233]);
+    const fx3 = parseRgbTriplet(cssVar('--fx-3', '34 197 94'), [34, 197, 94]);
+    const fg = parseRgbTriplet(cssVar('--fg', '255 255 255'), [255, 255, 255]);
+
+    const state = {
+      t: 0,
+      nodes: [],
+      dust: [],
+      blobs: [],
+      aurora: [],
+      hearts: [],
+    };
 
     const resize = () => {
-      w = Math.max(1, window.innerWidth);
-      h = Math.max(1, window.innerHeight);
+      const rect = canvas.getBoundingClientRect();
+      w = Math.max(1, Math.floor(rect.width));
+      h = Math.max(1, Math.floor(rect.height));
+      dpr = clamp(window.devicePixelRatio || 1, 1, 2);
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-    resize();
-    window.addEventListener('resize', resize);
 
-    // ===== состояние для режимов =====
-    const colors = readThemeColors();
+      // пересоздаём частицы под текущий пресет
+      state.nodes = [];
+      state.dust = [];
+      state.blobs = [];
+      state.aurora = [];
+      state.hearts = [];
 
-    // Fog: большие "пухи" + лёгкий шум (через дриф...)
-    const fogPuffs = Array.from({ length: 14 }, () => {
-      const baseR = Math.min(w, h) * (0.18 + Math.random() * 0.22);
-      return {
-        x: Math.random() * w,
-        y: Math.random() * h,
-        r: baseR,
-        vx: (Math.random() - 0.5) * 0.07,
-        vy: (Math.random() - 0.5) * 0.07,
-        t: Math.random() * Math.PI * 2,
-      };
-    });
+      // Плотность зависит от площади
+      const area = w * h;
 
-    // Dust + comets
-    const dust = Array.from({ length: 220 }, () => {
-      return {
-        x: Math.random() * w,
-        y: Math.random() * h,
-        r: 0.7 + Math.random() * 1.8,
-        s: 0.12 + Math.random() * 0.45,
-        a: 0.08 + Math.random() * 0.20,
-        c: Math.random() < 0.5 ? 0 : Math.random() < 0.75 ? 1 : 2,
-      };
-    });
-    const comets = [];
-    const spawnComet = () => {
-      const side = Math.floor(Math.random() * 4);
-      const speed = 2.5 + Math.random() * 2.2;
-      let x = 0,
-        y = 0,
-        vx = 0,
-        vy = 0;
-      if (side === 0) {
-        x = -50;
-        y = Math.random() * h;
-        vx = speed;
-        vy = (Math.random() - 0.5) * 0.8;
-      } else if (side === 1) {
-        x = w + 50;
-        y = Math.random() * h;
-        vx = -speed;
-        vy = (Math.random() - 0.5) * 0.8;
-      } else if (side === 2) {
-        x = Math.random() * w;
-        y = -50;
-        vx = (Math.random() - 0.5) * 0.8;
-        vy = speed;
-      } else {
-        x = Math.random() * w;
-        y = h + 50;
-        vx = (Math.random() - 0.5) * 0.8;
-        vy = -speed;
-      }
-      comets.push({ x, y, vx, vy, life: 0, max: 180 + Math.random() * 80, c: Math.random() < 0.5 ? 0 : 1 });
-    };
-
-    // Neural net
-    const nodes = Array.from({ length: 38 }, () => {
-      return {
-        x: Math.random() * w,
-        y: Math.random() * h,
-        vx: (Math.random() - 0.5) * 0.18,
-        vy: (Math.random() - 0.5) * 0.18,
-        r: 1.4 + Math.random() * 1.4,
-      };
-    });
-
-    const drawFog = (dt) => {
-      // лёгкий фейд, чтобы фон был "живой", но не мерцал
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
-      ctx.fillRect(0, 0, w, h);
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      ctx.filter = 'blur(24px)';
-
-      for (let i = 0; i < fogPuffs.length; i++) {
-        const p = fogPuffs[i];
-        p.t += dt * 0.00035;
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        // мягкая "дышащая" пульсация
-        const rr = p.r * (0.92 + 0.12 * Math.sin(p.t));
-        if (p.x < -rr) p.x = w + rr;
-        if (p.x > w + rr) p.x = -rr;
-        if (p.y < -rr) p.y = h + rr;
-        if (p.y > h + rr) p.y = -rr;
-
-        const col = i % 3 === 0 ? colors.a1 : i % 3 === 1 ? colors.a2 : colors.a3;
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr);
-        g.addColorStop(0, rgba(col, 0.16));
-        g.addColorStop(0.55, rgba(col, 0.07));
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
-        ctx.fill();
+      // Нейросвязи
+      const nodeCount = clamp(Math.floor((area / 18000) * intensity), 30, 120);
+      for (let i = 0; i < nodeCount; i += 1) {
+        state.nodes.push({
+          x: rand(0, w),
+          y: rand(0, h),
+          vx: rand(-0.25, 0.25),
+          vy: rand(-0.25, 0.25),
+          r: rand(1.2, 2.6),
+          c: i % 3 === 0 ? fx1 : i % 3 === 1 ? fx2 : fx3,
+        });
       }
 
-      ctx.restore();
-
-      // поверх — микро-пыль (туманная взвесь)
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      for (let i = 0; i < 160; i++) {
-        const x = (i * 997) % w;
-        const y = ((i * 619) + performance.now() * 0.02) % h;
-        ctx.fillStyle = 'rgba(255,255,255,0.015)';
-        ctx.fillRect(x, y, 1, 1);
+      // Пыль/кометы
+      const dustCount = clamp(Math.floor((area / 14000) * intensity), 40, 200);
+      for (let i = 0; i < dustCount; i += 1) {
+        const fast = Math.random() < 0.12;
+        state.dust.push({
+          x: rand(0, w),
+          y: rand(0, h),
+          vx: fast ? rand(-1.2, -0.3) : rand(-0.25, 0.1),
+          vy: fast ? rand(-0.25, 0.25) : rand(-0.08, 0.08),
+          r: fast ? rand(1.2, 2.6) : rand(0.6, 1.6),
+          a: fast ? rand(0.18, 0.35) : rand(0.05, 0.16),
+          c: fast ? fx2 : fg,
+          fast,
+        });
       }
-      ctx.restore();
+
+      // Туман (большие блюры)
+      const blobCount = clamp(Math.floor((area / 90000) * intensity), 6, 20);
+      for (let i = 0; i < blobCount; i += 1) {
+        state.blobs.push({
+          x: rand(0, w),
+          y: rand(0, h),
+          vx: rand(-0.12, 0.12),
+          vy: rand(-0.08, 0.08),
+          r: rand(Math.min(w, h) * 0.18, Math.min(w, h) * 0.35),
+          a: rand(0.04, 0.09),
+          c: i % 2 === 0 ? fx1 : fx2,
+        });
+      }
+
+      // Аврора (полосы)
+      const bandCount = 5;
+      for (let i = 0; i < bandCount; i += 1) {
+        state.aurora.push({
+          baseY: rand(h * 0.15, h * 0.85),
+          amp: rand(16, 60),
+          speed: rand(0.0008, 0.0022),
+          width: rand(120, 240),
+          alpha: rand(0.05, 0.12),
+          c: i % 3 === 0 ? fx3 : i % 3 === 1 ? fx2 : fx1,
+          phase: rand(0, Math.PI * 2),
+        });
+      }
+
+      // Сердечки
+      const heartCount = clamp(Math.floor((area / 52000) * intensity), 10, 40);
+      for (let i = 0; i < heartCount; i += 1) {
+        state.hearts.push({
+          x: rand(0, w),
+          y: rand(0, h),
+          vy: rand(-0.25, -0.08),
+          vx: rand(-0.08, 0.08),
+          s: rand(10, 28),
+          rot: rand(-0.25, 0.25),
+          vr: rand(-0.004, 0.004),
+          a: rand(0.06, 0.16),
+          c: i % 2 === 0 ? fx1 : fx2,
+        });
+      }
     };
 
-    const drawDustComets = (dt) => {
+    const bounce = (p) => {
+      if (p.x < 0) {
+        p.x = 0;
+        p.vx = Math.abs(p.vx);
+      } else if (p.x > w) {
+        p.x = w;
+        p.vx = -Math.abs(p.vx);
+      }
+      if (p.y < 0) {
+        p.y = 0;
+        p.vy = Math.abs(p.vy);
+      } else if (p.y > h) {
+        p.y = h;
+        p.vy = -Math.abs(p.vy);
+      }
+    };
+
+    const step = (dt) => {
+      state.t += dt;
+
+      // общая мягкая очистка
       ctx.clearRect(0, 0, w, h);
 
-      // пыль
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      for (const p of dust) {
-        p.y += p.s * dt;
-        p.x += Math.sin((p.y + p.x) * 0.002) * 0.03 * dt;
-        if (p.y > h + 6) p.y = -6;
-        if (p.x < -10) p.x = w + 10;
-        if (p.x > w + 10) p.x = -10;
-        const col = p.c === 0 ? colors.a1 : p.c === 1 ? colors.a2 : colors.a3;
-        ctx.fillStyle = rgba(col, p.a);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
+      // 0: Туман
+      if (preset === 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.filter = 'blur(40px)';
+        for (const b of state.blobs) {
+          b.x += b.vx * (dt * 60);
+          b.y += b.vy * (dt * 60);
+          // мягкий wrap
+          if (b.x < -b.r) b.x = w + b.r;
+          if (b.x > w + b.r) b.x = -b.r;
+          if (b.y < -b.r) b.y = h + b.r;
+          if (b.y > h + b.r) b.y = -b.r;
 
-      // кометы (редко)
-      if (Math.random() < 0.012) spawnComet();
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      for (let i = comets.length - 1; i >= 0; i--) {
-        const c = comets[i];
-        c.life += dt;
-        c.x += c.vx * dt * 0.06;
-        c.y += c.vy * dt * 0.06;
-        const t = Math.min(1, c.life / 350);
-        const alpha = 0.55 * (1 - t);
-        const col = c.c === 0 ? colors.a1 : colors.a2;
-
-        // хвост
-        const tail = 120;
-        const tx = c.x - c.vx * tail;
-        const ty = c.y - c.vy * tail;
-        const grad = ctx.createLinearGradient(c.x, c.y, tx, ty);
-        grad.addColorStop(0, rgba(col, alpha));
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        ctx.moveTo(c.x, c.y);
-        ctx.lineTo(tx, ty);
-        ctx.stroke();
-
-        // головка
-        const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, 22);
-        g.addColorStop(0, rgba(col, Math.min(0.85, alpha + 0.25)));
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, 22, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (c.life > c.max || c.x < -200 || c.x > w + 200 || c.y < -200 || c.y > h + 200) {
-          comets.splice(i, 1);
+          const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+          g.addColorStop(0, rgba(b.c, b.a));
+          g.addColorStop(1, rgba(b.c, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+          ctx.fill();
         }
-      }
-      ctx.restore();
-    };
-
-    const drawNeural = (dt) => {
-      ctx.clearRect(0, 0, w, h);
-      for (const n of nodes) {
-        n.x += n.vx * dt;
-        n.y += n.vy * dt;
-        if (n.x < 0) n.x = w;
-        if (n.x > w) n.x = 0;
-        if (n.y < 0) n.y = h;
-        if (n.y > h) n.y = 0;
+        ctx.restore();
+        return;
       }
 
-      const maxDist = Math.min(w, h) * 0.22;
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      ctx.lineWidth = 1;
+      // 1: Пыль + кометы
+      if (preset === 1) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
 
-      // связи
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i];
-          const b = nodes[j];
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          const d = Math.hypot(dx, dy);
-          if (d < maxDist) {
+        for (const p of state.dust) {
+          const oldX = p.x;
+          const oldY = p.y;
+          p.x += p.vx * (dt * 60);
+          p.y += p.vy * (dt * 60);
+          if (p.x < -20) p.x = w + 20;
+          if (p.x > w + 20) p.x = -20;
+          if (p.y < -20) p.y = h + 20;
+          if (p.y > h + 20) p.y = -20;
+
+          if (p.fast) {
+            ctx.strokeStyle = rgba(p.c, p.a);
+            ctx.lineWidth = 1.25;
+            ctx.beginPath();
+            ctx.moveTo(oldX, oldY);
+            ctx.lineTo(p.x, p.y);
+            ctx.stroke();
+          }
+
+          ctx.fillStyle = rgba(p.c, p.a);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.restore();
+        return;
+      }
+
+      // 2: Нейросвязи
+      if (preset === 2) {
+        // фон — лёгкая дымка
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+
+        // движение
+        for (const n of state.nodes) {
+          n.x += n.vx * (dt * 60);
+          n.y += n.vy * (dt * 60);
+          bounce(n);
+        }
+
+        // линии
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const maxDist = 140;
+        for (let i = 0; i < state.nodes.length; i += 1) {
+          const a = state.nodes[i];
+          for (let j = i + 1; j < state.nodes.length; j += 1) {
+            const b = state.nodes[j];
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            const d = Math.hypot(dx, dy);
+            if (d > maxDist) continue;
             const k = 1 - d / maxDist;
-            const col = i % 3 === 0 ? colors.a1 : i % 3 === 1 ? colors.a2 : colors.a3;
-            ctx.strokeStyle = rgba(col, 0.10 + 0.18 * k);
+            // цвет — смесь, но просто берём a
+            ctx.strokeStyle = rgba(a.c, 0.03 + k * 0.12);
+            ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
             ctx.stroke();
           }
         }
+
+        // узлы
+        for (const n of state.nodes) {
+          ctx.fillStyle = rgba(n.c, 0.18);
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, n.r * 2.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = rgba(n.c, 0.55);
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // редкий "импульс" через таймер
+        const pulseEvery = 2.2;
+        const pulseT = state.t % pulseEvery;
+        if (pulseT < 0.15) {
+          const idx = Math.floor(Math.random() * state.nodes.length);
+          const p = state.nodes[idx];
+          const pr = 6 + (pulseT / 0.15) * 26;
+          ctx.strokeStyle = rgba(fx2, 0.25 * (1 - pulseT / 0.15));
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, pr, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+        return;
       }
 
-      // узлы
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i];
-        const col = i % 3 === 0 ? colors.a1 : i % 3 === 1 ? colors.a2 : colors.a3;
-        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, 18);
-        g.addColorStop(0, rgba(col, 0.32));
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, 18, 0, Math.PI * 2);
-        ctx.fill();
+      // 3: Аврора
+      if (preset === 3) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
 
-        ctx.fillStyle = rgba(col, 0.35);
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fill();
+        for (const band of state.aurora) {
+          const t = state.t;
+          const y0 = band.baseY + Math.sin(t * 0.7 + band.phase) * 20;
+          const g = ctx.createLinearGradient(0, y0 - band.width / 2, 0, y0 + band.width / 2);
+          g.addColorStop(0, rgba(band.c, 0));
+          g.addColorStop(0.5, rgba(band.c, band.alpha));
+          g.addColorStop(1, rgba(band.c, 0));
+          ctx.fillStyle = g;
+
+          // рисуем синусную полосу
+          ctx.beginPath();
+          const stepX = 32;
+          ctx.moveTo(0, y0);
+          for (let x = 0; x <= w + stepX; x += stepX) {
+            const y =
+              y0 +
+              Math.sin(x * 0.01 + t * (band.speed * 1000) + band.phase) * band.amp +
+              Math.sin(x * 0.004 + t * 0.6) * (band.amp * 0.35);
+            ctx.lineTo(x, y);
+          }
+          ctx.lineTo(w, y0 + band.width);
+          ctx.lineTo(0, y0 + band.width);
+          ctx.closePath();
+          ctx.filter = 'blur(26px)';
+          ctx.fill();
+          ctx.filter = 'none';
+        }
+
+        ctx.restore();
+        return;
       }
 
-      ctx.restore();
+      // 4: Сердечки
+      if (preset === 4) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (const p of state.hearts) {
+          p.x += p.vx * (dt * 60);
+          p.y += p.vy * (dt * 60);
+          p.rot += p.vr * (dt * 60);
+          if (p.y < -40) {
+            p.y = h + 40;
+            p.x = rand(0, w);
+          }
+          if (p.x < -40) p.x = w + 40;
+          if (p.x > w + 40) p.x = -40;
+
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.fillStyle = rgba(p.c, p.a);
+          heartPath(ctx, 0, 0, p.s);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      }
     };
 
-    // Aurora blobs: самый заметный режим для пользователей.
-    // Мягкие большие шары света, двигаются медленно и "дышат".
-    const aurora = Array.from({ length: 7 }, (_, i) => {
-      const baseR = Math.min(w, h) * (0.26 + Math.random() * 0.18);
-      return {
-        x: Math.random() * w,
-        y: Math.random() * h,
-        r: baseR,
-        vx: (Math.random() - 0.5) * 0.06,
-        vy: (Math.random() - 0.5) * 0.06,
-        t: Math.random() * Math.PI * 2,
-        c: i % 3,
-      };
-    });
-
-    const drawAurora = (dt) => {
-      // слегка чистим, чтобы не было "грязного" хвоста
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.fillRect(0, 0, w, h);
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      ctx.filter = 'blur(56px)';
-
-      for (const p of aurora) {
-        p.t += dt * 0.00028;
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        const rr = p.r * (0.90 + 0.14 * Math.sin(p.t));
-
-        if (p.x < -rr) p.x = w + rr;
-        if (p.x > w + rr) p.x = -rr;
-        if (p.y < -rr) p.y = h + rr;
-        if (p.y > h + rr) p.y = -rr;
-
-        const col = p.c === 0 ? colors.a1 : p.c === 1 ? colors.a2 : colors.a3;
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr);
-        g.addColorStop(0, rgba(col, 0.22));
-        g.addColorStop(0.55, rgba(col, 0.10));
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.restore();
-    };
-
+    let last = performance.now();
     const tick = (now) => {
-      const dt = now - last;
+      const dt = clamp((now - last) / 1000, 0.001, 0.05);
       last = now;
-
-      // если тема изменилась — обновим цвета раз в секунду (дёшево)
-      if (Math.floor(now / 1000) !== Math.floor((now - dt) / 1000)) {
-        const c = readThemeColors();
-        colors.a1 = c.a1;
-        colors.a2 = c.a2;
-        colors.a3 = c.a3;
-      }
-
-      if (v === '0') drawFog(dt);
-      else if (v === '1') drawDustComets(dt);
-      else if (v === '2') drawNeural(dt);
-      else drawAurora(dt);
-
-      raf = requestAnimationFrame(tick);
+      step(dt);
+      rafRef.current = requestAnimationFrame(tick);
     };
 
-    // старт: заполняем чёрным, иначе холст будет прозрачным
-    if (v === '0' || v === '3') {
-      ctx.fillStyle = 'rgba(0,0,0,1)';
-      ctx.fillRect(0, 0, w, h);
-    }
-    raf = requestAnimationFrame(tick);
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    resize();
+    rafRef.current = requestAnimationFrame(tick);
 
     return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
+      cancelAnimationFrame(rafRef.current);
+      ro.disconnect();
     };
-  }, [enabled, variant, reduceMotion]);
+  }, [enabled, preset, intensity]);
 
-  return <canvas ref={canvasRef} className="bgfx-canvas" aria-hidden="true" />;
+  if (!enabled) return null;
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden
+      style={{
+        position: 'fixed',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 0,
+        pointerEvents: 'none',
+        // чуть мягче на тёмной теме
+        opacity: 1,
+      }}
+    />
+  );
 }

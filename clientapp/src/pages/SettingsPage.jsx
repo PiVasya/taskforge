@@ -39,7 +39,7 @@ export default function SettingsPage() {
       mode: localStorage.getItem('mode') || 'light',
       bgFx: localStorage.getItem('bgFx') === '1',
       fxMode: 'random', // random | fixed
-      fxVariant: '3', // 0..3
+      fxVariant: '3', // 0..4
     }
   );
 
@@ -50,6 +50,7 @@ export default function SettingsPage() {
       { key: '1', title: 'Пыль + кометы', desc: 'Пыль, искры и редкие кометы.' },
       { key: '2', title: 'Нейронные связи', desc: 'Движущиеся точки и линии.' },
       { key: '3', title: 'Аврора', desc: 'Большие мягкие световые блики.' },
+      { key: '4', title: 'Сердечки', desc: 'Плавающие сердечки на фоне.' },
     ],
     []
   );
