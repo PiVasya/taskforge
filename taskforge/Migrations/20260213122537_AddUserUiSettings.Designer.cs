@@ -12,7 +12,7 @@ using taskforge.Data;
 namespace taskforge.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260213103434_AddUserUiSettings")]
+    [Migration("20260213122537_AddUserUiSettings")]
     partial class AddUserUiSettings
     {
         /// <inheritdoc />
