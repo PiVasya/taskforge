@@ -118,9 +118,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
     
     const setPointer = (px, py) => {
       pointer.has = true;
-      const rect = canvas.getBoundingClientRect();
-      const nx = (px - rect.left) * dpr;
-      const ny = (py - rect.top) * dpr;
+      // Для fixed canvas с inset:0, координаты относительно viewport
+      const nx = px * dpr;
+      const ny = py * dpr;
       pointer.vx = nx - pointer.x;
       pointer.vy = ny - pointer.y;
       pointer.x = nx;
@@ -658,7 +658,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
           // Сброс наверх при выпадении за экран
           if (drop.y > h + drop.length * 16) {
             drop.y = rand(-h * 0.5, 0);
-            drop.x = Math.floor(rand(0, matrixCols)) * 18 + rand(-4, 4);
+            drop.x = Math.floor(rand(0, Math.floor(w / 18))) * 18 + rand(-4, 4);
             drop.speed = rand(0.4, 1.2);
             drop.length = Math.floor(rand(8, 25));
           }

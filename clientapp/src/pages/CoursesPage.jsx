@@ -97,8 +97,12 @@ export default function CoursesPage() {
               <Card
                 className={
                   "p-5 transition hover:shadow-lg cursor-pointer " +
-                  (c.isCompletedForCurrentUser ? "border-emerald-400/40 bg-emerald-500/5" : "") +
-                  (showOwnerBadge ? (c.canEdit ? " border-emerald-400/20" : " border-red-400/20") : "")
+                  (c.isCompletedForCurrentUser 
+                    ? "border-emerald-400/40 bg-emerald-500/5" 
+                    : showOwnerBadge 
+                      ? (c.canEdit ? "border-emerald-400/20" : "border-red-400/20")
+                      : "border-[rgba(var(--accent)/0.25)]"
+                  )
                 }
               >
                 <div className="flex items-start justify-between gap-3">
@@ -109,13 +113,13 @@ export default function CoursesPage() {
                     )}
 
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
-                      <Badge>Заданий: {c.assignmentCount ?? "—"}</Badge>
-                      <Badge>Тестов: {c.testCount ?? "—"}</Badge>
+                      <Badge variant="info">Заданий: {c.assignmentCount ?? "—"}</Badge>
+                      <Badge variant="info">Тестов: {c.testCount ?? "—"}</Badge>
                       {typeof c.solvedCountForCurrentUser === "number" && (
-                        <Badge>Код решено: {c.solvedCountForCurrentUser}</Badge>
+                        <Badge variant="primary">Код решено: {c.solvedCountForCurrentUser}</Badge>
                       )}
                       {typeof c.solvedTestsCountForCurrentUser === "number" && (
-                        <Badge>Тесты решено: {c.solvedTestsCountForCurrentUser}</Badge>
+                        <Badge variant="primary">Тесты решено: {c.solvedTestsCountForCurrentUser}</Badge>
                       )}
                       {c.isCompletedForCurrentUser ? <Badge intent="success">Курс пройден</Badge> : null}
                       {ownerBadge}

@@ -260,6 +260,26 @@ header .btn-primary {
 .badge-outline { @apply bg-transparent; }
 .badge-success { @apply border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-200; }
 .badge-danger { @apply border-rose-300/70 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-200; }
+.badge-primary {
+  border: 1px solid rgba(var(--accent) / 0.5);
+  background: rgba(var(--accent) / 0.1);
+  color: rgb(var(--accent));
+}
+html.dark .badge-primary {
+  border: 1px solid rgba(var(--accent2) / 0.4);
+  background: rgba(var(--accent2) / 0.15);
+  color: rgb(var(--accent2));
+}
+.badge-info {
+  border: 1px solid rgba(var(--accent2) / 0.5);
+  background: rgba(var(--accent2) / 0.1);
+  color: rgb(var(--accent));
+}
+html.dark .badge-info {
+  border: 1px solid rgba(var(--accent3) / 0.4);
+  background: rgba(var(--accent3) / 0.15);
+  color: rgb(var(--accent3));
+}
 
 /* ЕДИНЫЙ фон для всех контролов: rgb(var(--card)) */
 .input {
