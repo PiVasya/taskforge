@@ -32,7 +32,6 @@ import {
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
-import { getMyQuotas } from '../api/quotas';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 
 export default function Layout({ children, fullWidth = false }) {
@@ -62,217 +61,7 @@ export default function Layout({ children, fullWidth = false }) {
   const nav = useNavigate();
 
   // ===== Квоты (5 отправок решений и 5 загрузок топа) =====
-  const [quotas, setQuotas] = useState(null);
-
-  // "туннель" как у саппорта: квоты обновляются событиями (без спама запросами)
-  const [quotaOpen, setQuotaOpen] = useState(false);
-  const quotaRef = useRef(null);
-
-  useEffect(() => {
-    if (!access) {
-      setQuotas(null);
-      setQuotaOpen(false);
-      return;
-    }
-
-    let alive = true;
-
-    // 1) разово подгружаем с сервера (чтобы было видно сразу после входа)
-    (async () => {
-      try {
-        const q = await getMyQuotas();
-        if (alive) setQuotas(q);
-      } catch {
-        // не шумим: квоты — вспомогательная инфа
-      }
-    })();
-
-    // 2) дальше обновляемся через события из axios-интерцептора ("туннель")
-    const onQuotaUpdate = (ev) => {
-      const d = ev?.detail;
-      if (!d?.bucket) return;
-      setQuotas((prev) => {
-        const next = { ...(prev || {}) };
-        const key = d.bucket === 'tasks' ? 'tasks' : d.bucket === 'top' ? 'top' : null;
-        if (!key) return prev;
-        next[key] = {
-          remaining: Number.isFinite(d.remaining) ? d.remaining : prev?.[key]?.remaining,
-          capacity: Number.isFinite(d.capacity) ? d.capacity : prev?.[key]?.capacity,
-          retryAfterSeconds: Number.isFinite(d.retryAfterSeconds)
-            ? d.retryAfterSeconds
-            : prev?.[key]?.retryAfterSeconds,
-        };
-        return next;
-      });
-    };
-    window.addEventListener('quota:update', onQuotaUpdate);
-
-    return () => {
-      alive = false;
-      window.removeEventListener('quota:update', onQuotaUpdate);
-    };
-  }, [access]);
-
-  const QuotaPill = ({ compact = false } = {}) => {
-    if (!access) return null;
-    const t = quotas?.tasks;
-    const top = quotas?.top;
-
-    // если API ещё не вернуло данные — показываем нейтрально
-    const tasksText = t ? `${t.remaining}/${t.capacity}` : '—/—';
-    const topText = top ? `${top.remaining}/${top.capacity}` : '—/—';
-
-    const title = [
-      t
-        ? `Решения: ${t.remaining}/${t.capacity}${t.retryAfterSeconds ? ` • ждать ${t.retryAfterSeconds}с` : ''}`
-        : 'Решения: —',
-      top
-        ? `Топ: ${top.remaining}/${top.capacity}${top.retryAfterSeconds ? ` • ждать ${top.retryAfterSeconds}с` : ''}`
-        : 'Топ: —',
-    ].join('\n');
-
-    return (
-      <div className="relative" ref={quotaRef}>
-        <button
-          type="button"
-          className={
-            `${compact ? '' : 'hidden md:inline-flex '}items-center gap-2 rounded-xl border ` +
-            'border-neutral-200/70 dark:border-neutral-800/70 bg-white/60 dark:bg-neutral-900/40 ' +
-            'px-3 py-1.5 text-xs text-neutral-700 dark:text-neutral-200 hover:bg-white/80 dark:hover:bg-neutral-900/60'
-          }
-          title={title}
-          onClick={() => setQuotaOpen((v) => !v)}
-        >
-          <span className="opacity-70">Квоты</span>
-          <span className="font-medium">реш: {tasksText}</span>
-          <span className="opacity-40">•</span>
-          <span className="font-medium">топ: {topText}</span>
-          <ChevronDown size={14} className={`opacity-60 transition ${quotaOpen ? 'rotate-180' : ''}`} />
-        </button>
-
-        {quotaOpen && (
-          <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-3 z-50 text-xs">
-            <div className="font-semibold mb-2">Квоты</div>
-            <div className="space-y-1 text-neutral-700 dark:text-neutral-200">
-              <div className="flex items-center justify-between">
-                <span className="opacity-75">Решения</span>
-                <span className="font-medium">{tasksText}</span>
-              </div>
-              {t?.retryAfterSeconds ? (
-                <div className="text-neutral-500 dark:text-neutral-400">Ждать: {t.retryAfterSeconds} сек.</div>
-              ) : null}
-
-              <div className="h-px bg-neutral-200/60 dark:bg-neutral-800/60 my-2" />
-
-              <div className="flex items-center justify-between">
-                <span className="opacity-75">Топ</span>
-                <span className="font-medium">{topText}</span>
-              </div>
-              {top?.retryAfterSeconds ? (
-                <div className="text-neutral-500 dark:text-neutral-400">Ждать: {top.retryAfterSeconds} сек.</div>
-              ) : null}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const toggleMode = () => setMode((m) => (m === 'dark' ? 'light' : 'dark'));
-  const cycleColor = () =>
-    setColorTheme((c) => (c === 'blue' ? 'pink' : c === 'pink' ? 'apple' : 'blue'));
-  const toggleBgFx = () =>
-    setBgFx((v) => {
-      const nv = !v;
-      if (nv) {
-        // При включении:
-        // - random: выбираем новый эффект
-        // - fixed: оставляем выбранный вариант
-        if (fxMode === 'random') {
-          const next = String(Math.floor(Math.random() * 4));
-          setFxVariant(next);
-          sessionStorage.setItem('fxVariant', next);
-        }
-      }
-      return nv;
-    });
-
-  const themeOptions = [
-    { key: 'blue', title: 'Синяя палитра', dot: 'bg-sky-500' },
-    { key: 'pink', title: 'Розовая палитра', dot: 'bg-pink-500' },
-    { key: 'apple', title: 'Зелёная палитра', dot: 'bg-emerald-500' },
-  ];
-
   // применяем классы для темы и сохраняем в localStorage
-  useEffect(() => {
-    const el = document.documentElement;
-    const cls = el.classList;
-    cls.remove('blue', 'pink', 'apple');
-    cls.remove('dark');
-
-    if (colorTheme) cls.add(colorTheme);
-    if (mode === 'dark') cls.add('dark');
-
-    el.dataset.colorTheme = colorTheme;
-    localStorage.setItem('colorTheme', colorTheme);
-    localStorage.setItem('mode', mode);
-  }, [colorTheme, mode]);
-
-  // Мгновенное применение настроек из SettingsPage (localStorage + событие)
-  useEffect(() => {
-    const onUi = (e) => {
-      const s = e?.detail;
-      if (!s) return;
-      if (s.colorTheme) setColorTheme(s.colorTheme);
-      if (s.mode) setMode(s.mode);
-      if (typeof s.bgFx === 'boolean') setBgFx(s.bgFx);
-      if (s.fxMode) setFxMode(s.fxMode);
-      if (s.fxVariant !== undefined && s.fxVariant !== null) setFxVariant(String(s.fxVariant));
-    };
-    window.addEventListener('tf:uiSettings', onUi);
-    return () => window.removeEventListener('tf:uiSettings', onUi);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('bgFx', bgFx ? '1' : '0');
-    const root = document.documentElement;
-    root.classList.toggle('bgfx', bgFx);
-    if (bgFx) root.dataset.fx = fxVariant;
-    else delete root.dataset.fx;
-  }, [bgFx, fxVariant]);
-
-  const handleLogout = async () => {
-    await logout();
-    nav('/login', { replace: true });
-  };
-
-  // состояние выпадающих меню
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [adminOpen, setAdminOpen] = useState(false);
-  const moreRef = useRef(null);
-  const adminRef = useRef(null);
-
-  // закрытие меню при клике вне или нажатию Esc
-  useEffect(() => {
-    const onDocClick = (e) => {
-      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false);
-      if (adminRef.current && !adminRef.current.contains(e.target)) setAdminOpen(false);
-      if (quotaRef.current && !quotaRef.current.contains(e.target)) setQuotaOpen(false);
-    };
-    const onEsc = (e) => {
-      if (e.key === 'Escape') {
-        setMoreOpen(false);
-        setAdminOpen(false);
-        setQuotaOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onEsc);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onEsc);
-    };
-  }, []);
 
   // ===== Автосворачивание навигации в "..." при переполнении =====
   const headerRowRef = useRef(null);
@@ -346,10 +135,7 @@ export default function Layout({ children, fullWidth = false }) {
           {/* Правая панель — крупные экраны */}
           <div className={`hidden xl:flex items-center gap-2 ${forceCompact ? 'xl:hidden' : ''}`}
           >
-            {/* квоты (видны только авторизованным) */}
-            <QuotaPill />
-
-            {/* цвет + режим */}
+            {/* квоты (видны только авторизованным) */}            {/* цвет + режим */}
 
             <div
               className="inline-flex items-center gap-1 rounded-xl border border-neutral-200/70 dark:border-neutral-800/70 bg-white/50 dark:bg-neutral-900/40 p-1"
@@ -373,34 +159,7 @@ export default function Layout({ children, fullWidth = false }) {
                   <span className={'h-3 w-3 rounded-full ' + t.dot} />
                 </button>
               ))}
-            </div>
-
-            <button
-              className="btn-outline"
-              onClick={toggleMode}
-              aria-label="Toggle dark mode"
-              title={isDark ? 'Тёмная' : 'Светлая'}
-            >
-              {isDark ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-
-            <button
-              className={
-                'btn-outline relative ' +
-                (bgFx ? 'ring-2 ring-[rgba(var(--accent)/0.35)]' : '')
-              }
-              onClick={toggleBgFx}
-              aria-pressed={bgFx}
-              aria-label="Toggle background effects"
-              title={bgFx ? 'Фоновые эффекты: вкл' : 'Фоновые эффекты: выкл'}
-            >
-              <Sparkles size={18} />
-              {bgFx ? (
-                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-[rgb(var(--accent))] opacity-80" />
-              ) : null}
-            </button>
-
-            {/* режим редактора */}
+            </div>            {/* режим редактора */}
             {canEdit && (
               <button
                 className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
@@ -524,61 +283,12 @@ export default function Layout({ children, fullWidth = false }) {
           {/* Мобильное меню — одна кнопка "..." */}
           <div className={`relative ${forceCompact ? '' : 'xl:hidden'}`} ref={moreRef}>
             {/* квоты в компактном режиме тоже показываем */}
-            {forceCompact ? <QuotaPill compact /> : null}
-            <button
-              className="btn-outline"
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              aria-label="Ещё действия"
-              title="Ещё"
-              onClick={() => setMoreOpen((v) => !v)}
-            >
-              <MoreHorizontal size={18} />
-            </button>
+            {forceCompact ?            </button>
             {moreOpen && (
               <div
                 role="menu"
                 className="absolute right-0 mt-2 w-56 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
-              >
-                {/* Цвет */}
-                <button
-                  role="menuitem"
-                  className="btn-ghost w-full justify-start"
-                  onClick={() => {
-                    setMoreOpen(false);
-                    cycleColor();
-                  }}
-                >
-                  <Palette size={18} />
-                  <span>Цвет: {colorTheme}</span>
-                </button>
-
-                {/* Свет/тёмная */}
-                <button
-                  role="menuitem"
-                  className="btn-ghost w-full justify-start"
-                  onClick={() => {
-                    setMoreOpen(false);
-                    toggleMode();
-                  }}
-                >
-                  {isDark ? <Sun size={18} /> : <Moon size={18} />}
-                  <span>{isDark ? 'Светлая' : 'Тёмная'}</span>
-                </button>
-
-                {/* Эффекты фона */}
-                <button
-                  role="menuitem"
-                  className="btn-ghost w-full justify-start"
-                  onClick={() => {
-                    setMoreOpen(false);
-                    toggleBgFx();
-                  }}
-                >
-                  <Sparkles size={18} />{bgFx ? <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-[rgb(var(--accent))]" /> : null}
-                  <span>{bgFx ? 'Эффекты: вкл' : 'Эффекты: выкл'}</span>
-                </button>
-                {/* Режим редактора */}
+              >{/* Режим редактора */}
                 {canEdit && (
                   <button
                     role="menuitem"

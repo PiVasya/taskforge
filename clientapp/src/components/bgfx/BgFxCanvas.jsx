@@ -2,7 +2,7 @@
 // Canvas-слой фоновых эффектов (туман / пыль+кометы / нейронные связи)
 // Цвета синхронизированы с темой через CSS vars (--accent/--accent2/--accent3).
 
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 function parseRgbVar(v) {
   // ожидаем формат "R G B" (как в проекте)
@@ -29,10 +29,7 @@ function rgba([r, g, b], alpha) {
 
 export default function BgFxCanvas({ enabled, variant }) {
   const canvasRef = useRef(null);
-  const reduceMotion = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  }, []);
+  const reduceMotion = false; // background can be disabled in Settings
 
   useEffect(() => {
     const canvas = canvasRef.current;
