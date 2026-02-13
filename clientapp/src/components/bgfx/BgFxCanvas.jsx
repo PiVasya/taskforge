@@ -109,7 +109,50 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       blobs: [],
       aurora: [],
       hearts: [],
+      pulses: [],       // для нейросвязей
+      pulseTimer: 0,    // таймер создания импульсов
     };
+
+    // Pointer tracking для нейросвязей (интерактивность)
+    const pointer = { x: w/2, y: h/2, vx: 0, vy: 0, down: false, has: false };
+    
+    const setPointer = (px, py) => {
+      pointer.has = true;
+      const rect = canvas.getBoundingClientRect();
+      const nx = (px - rect.left) * dpr;
+      const ny = (py - rect.top) * dpr;
+      pointer.vx = nx - pointer.x;
+      pointer.vy = ny - pointer.y;
+      pointer.x = nx;
+      pointer.y = ny;
+    };
+    
+    const handleMouseMove = (e) => {
+      setPointer(e.clientX, e.clientY);
+    };
+    const handleMouseDown = () => { pointer.down = true; };
+    const handleMouseUp = () => { pointer.down = false; };
+    
+    const handleTouchStart = (e) => {
+      pointer.down = true;
+      if (e.touches[0]) {
+        setPointer(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+    const handleTouchMove = (e) => {
+      if (e.touches[0]) {
+        setPointer(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+    const handleTouchEnd = () => { pointer.down = false; };
+    
+    // Подписываемся на события window (чтобы работало даже с pointerEvents:none на canvas)
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    window.addEventListener('mousedown', handleMouseDown, { passive: true });
+    window.addEventListener('mouseup', handleMouseUp, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -130,18 +173,28 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       // Плотность зависит от площади
       const area = w * h;
 
-      // Нейросвязи
-      const nodeCount = clamp(Math.floor((area / 18000) * intensity), 30, 120);
+      // Нейросвязи (по примеру Hello.html)
+      const nodeCount = clamp(Math.floor((area / 18000) * intensity), 50, 140);
       for (let i = 0; i < nodeCount; i += 1) {
+        const s = rand(0.35, 1.25);
+        const hueIdx = i % 3;
         state.nodes.push({
           x: rand(0, w),
           y: rand(0, h),
-          vx: rand(-0.25, 0.25),
-          vy: rand(-0.25, 0.25),
-          r: rand(1.2, 2.6),
-          c: i % 3 === 0 ? fx1 : i % 3 === 1 ? fx2 : fx3,
+          vx: rand(-0.35, 0.35),
+          vy: rand(-0.35, 0.35),
+          r: rand(1.2, 2.9) * s,
+          // распределяем цвета между fx1, fx2, fx3
+          c: hueIdx === 0 ? fx1 : hueIdx === 1 ? fx2 : fx3,
+          core: rand(0.65, 1.0),      // яркость ядра
+          wob: rand(0, Math.PI * 2),  // фаза "дыхания"
+          wobSp: rand(0.002, 0.01),   // скорость "дыхания"
+          mass: rand(0.5, 1.6) * (1/s),
         });
       }
+      // Импульсы (pulses) для нейросвязей
+      state.pulses = [];
+      state.pulseTimer = 0;
 
       // Пыль/кометы
       const dustCount = clamp(Math.floor((area / 14000) * intensity), 40, 200);
@@ -287,73 +340,218 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
         return;
       }
 
-      // 2: Нейросвязи
+      // 2: Нейросвязи (Neural Beauty) — полная реализация по примеру Hello.html
       if (preset === 2) {
-        // фон — лёгкая дымка
+        const TAU = Math.PI * 2;
+        
+        // Фон с виньеткой
         ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = isDarkTheme() ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.18)';
+        ctx.fillStyle = isDarkTheme() ? 'rgba(5,6,10,0.95)' : 'rgba(248,250,252,0.95)';
+        ctx.fillRect(0, 0, w, h);
+        
+        // Виньетка (мягкое свечение от центра)
+        const gx = ctx.createRadialGradient(w*0.5, h*0.55, 0, w*0.5, h*0.55, Math.max(w,h)*0.75);
+        if (isDarkTheme()) {
+          gx.addColorStop(0, 'rgba(35,50,120,0.18)');
+          gx.addColorStop(0.35, 'rgba(20,30,80,0.10)');
+          gx.addColorStop(1, 'rgba(0,0,0,0)');
+        } else {
+          gx.addColorStop(0, 'rgba(200,220,255,0.12)');
+          gx.addColorStop(0.35, 'rgba(180,200,240,0.06)');
+          gx.addColorStop(1, 'rgba(255,255,255,0)');
+        }
+        ctx.fillStyle = gx;
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
-
-        // движение
-        for (const n of state.nodes) {
-          n.x += n.vx * (dt * 60);
-          n.y += n.vy * (dt * 60);
-          bounce(n);
+        
+        // Параметры для pointer влияния
+        const pointerPull = pointer.has ? (pointer.down ? 0.024 : 0.012) : 0.0;
+        const pointerBoost = pointer.has ? (pointer.down ? 1.55 : 1.15) : 1.0;
+        
+        // Движение узлов
+        for (const p of state.nodes) {
+          // дыхание (wobble)
+          p.wob += p.wobSp * (dt * 1000);
+          const wob = Math.sin(p.wob) * 0.12;
+          
+          // гравитация к курсору
+          if (pointer.has) {
+            const dx = pointer.x - p.x;
+            const dy = pointer.y - p.y;
+            const d2 = dx*dx + dy*dy + 1;
+            const f = pointerPull * (1 / Math.sqrt(d2)) * (120*dpr);
+            p.vx += (dx / Math.sqrt(d2)) * f / p.mass;
+            p.vy += (dy / Math.sqrt(d2)) * f / p.mass;
+          }
+          
+          // затухание скорости
+          p.vx *= 0.992;
+          p.vy *= 0.992;
+          
+          // обновление позиции
+          p.x += (p.vx + wob) * (dt * 1000) * 0.06;
+          p.y += (p.vy - wob) * (dt * 1000) * 0.06;
+          
+          // wrap края (с запасом)
+          const margin = 40*dpr;
+          if (p.x < -margin) p.x = w + margin;
+          if (p.x > w + margin) p.x = -margin;
+          if (p.y < -margin) p.y = h + margin;
+          if (p.y > h + margin) p.y = -margin;
         }
-
-        // линии
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const maxDist = 140;
+        
+        // Построение рёбер (edges) между близкими узлами
+        const LR = clamp(Math.sqrt(w*h) * 0.085, 140*dpr, 260*dpr); // радиус связи
+        const LR2 = LR*LR;
+        const edges = [];
+        const nearPairs = []; // для импульсов
+        
         for (let i = 0; i < state.nodes.length; i += 1) {
           const a = state.nodes[i];
           for (let j = i + 1; j < state.nodes.length; j += 1) {
             const b = state.nodes[j];
             const dx = a.x - b.x;
             const dy = a.y - b.y;
-            const d = Math.hypot(dx, dy);
-            if (d > maxDist) continue;
-            const k = 1 - d / maxDist;
-            // цвет — смесь, но просто берём a
-            // на светлой теме бустим альфу, иначе линии почти не видны
-            ctx.strokeStyle = rgbaB(a.c, 0.06 + k * 0.18);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.stroke();
+            const d2 = dx*dx + dy*dy;
+            if (d2 < LR2) {
+              const d = Math.sqrt(d2);
+              const k = 1 - (d/LR);
+              const alpha = (k*k) * 0.55;
+              edges.push({ i, j, d, alpha });
+              if (d < LR*0.55 && Math.random() < 0.0025) nearPairs.push([i,j]);
+            }
           }
         }
-
-        // узлы
-        for (const n of state.nodes) {
-          ctx.fillStyle = rgbaB(n.c, 0.22);
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, n.r * 2.2, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.fillStyle = rgbaB(n.c, 0.70);
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-          ctx.fill();
+        
+        // Создание импульсов
+        state.pulseTimer += dt * 1000;
+        if (state.pulseTimer > 40) {
+          state.pulseTimer = 0;
+          const count = Math.floor(Math.random() * 3) + (pointer.down ? 1 : 0);
+          for (let k = 0; k < count; k += 1) {
+            if (nearPairs.length) {
+              const [a, b] = nearPairs[Math.floor(Math.random() * nearPairs.length)];
+              // спавним импульс
+              state.pulses.push({
+                a, b, t: 0,
+                speed: rand(0.006, 0.02),
+                w: rand(0.8, 2.0)*dpr,
+                c: Math.random() < 0.5 ? fx2 : fx1,
+                alpha: rand(0.25, 0.75)
+              });
+            } else if (edges.length) {
+              const e = edges[Math.floor(Math.random() * edges.length)];
+              state.pulses.push({
+                a: e.i, b: e.j, t: 0,
+                speed: rand(0.006, 0.02),
+                w: rand(0.8, 2.0)*dpr,
+                c: Math.random() < 0.5 ? fx2 : fx1,
+                alpha: rand(0.25, 0.75)
+              });
+            }
+          }
+          // ограничение количества
+          if (state.pulses.length > 120) state.pulses.splice(0, state.pulses.length - 120);
         }
-
-        // редкий "импульс" через таймер
-        const pulseEvery = 2.2;
-        const pulseT = state.t % pulseEvery;
-        if (pulseT < 0.15) {
-          const idx = Math.floor(Math.random() * state.nodes.length);
-          const p = state.nodes[idx];
-          const pr = 6 + (pulseT / 0.15) * 26;
-          ctx.strokeStyle = rgba(fx2, 0.25 * (1 - pulseT / 0.15));
-          ctx.lineWidth = 2;
+        
+        // Отрисовка рёбер (линий)
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.lineCap = 'round';
+        
+        for (const e of edges) {
+          const a = state.nodes[e.i];
+          const b = state.nodes[e.j];
+          
+          // Подсветка от курсора
+          let hl = 1.0;
+          if (pointer.has) {
+            const mx = (a.x + b.x) * 0.5;
+            const my = (a.y + b.y) * 0.5;
+            const dx = mx - pointer.x;
+            const dy = my - pointer.y;
+            const d = Math.sqrt(dx*dx + dy*dy);
+            hl = clamp(1.35 - d/(260*dpr), 1.0, 1.35);
+          }
+          
+          // Смешиваем цвета узлов
+          const [r1, g1, b1] = a.c;
+          const [r2, g2, b2] = b.c;
+          const r = Math.floor((r1+r2)/2);
+          const g = Math.floor((g1+g2)/2);
+          const b_ = Math.floor((b1+b2)/2);
+          
+          const w_ = (0.7 + e.alpha*1.9) * dpr * hl;
+          const alpha_ = e.alpha * 0.55 * pointerBoost * alphaBoost();
+          
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b_}, ${Math.min(1, alpha_)})`;
+          ctx.lineWidth = w_;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, pr, 0, Math.PI * 2);
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
           ctx.stroke();
         }
-
+        
+        // Обновление и отрисовка импульсов
+        for (let k = state.pulses.length - 1; k >= 0; k -= 1) {
+          const P = state.pulses[k];
+          P.t += P.speed * (dt * 1000 / 16);
+          if (P.t >= 1) {
+            state.pulses.splice(k, 1);
+            continue;
+          }
+          
+          const a = state.nodes[P.a];
+          const b = state.nodes[P.b];
+          const x = a.x + (b.x - a.x) * P.t;
+          const y = a.y + (b.y - a.y) * P.t;
+          
+          // искра
+          const [r, g, b_] = P.c;
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b_}, ${P.alpha * alphaBoost()})`;
+          ctx.arc(x, y, (2.2*dpr + P.w*0.6) * (0.7 + 0.6*Math.sin(P.t*TAU)), 0, TAU);
+          ctx.fill();
+          
+          // хвост
+          const backT = clamp(P.t - 0.03, 0, 1);
+          const x2 = a.x + (b.x - a.x) * backT;
+          const y2 = a.y + (b.y - a.y) * backT;
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b_}, ${P.alpha*0.75})`;
+          ctx.lineWidth = P.w * 0.9;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        }
+        
+        // Отрисовка узлов (с красивым свечением)
+        for (const p of state.nodes) {
+          const r_ = p.r * (1 + 0.15*Math.sin(p.wob*1.2));
+          const [r, g, b_] = p.c;
+          
+          // свечение (glow)
+          const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r_*10);
+          glow.addColorStop(0, `rgba(${r}, ${g}, ${b_}, ${0.30*p.core*pointerBoost*alphaBoost()})`);
+          glow.addColorStop(0.25, `rgba(${Math.min(255,r+25)}, ${Math.min(255,g+25)}, ${Math.min(255,b_+25)}, ${0.14*p.core*alphaBoost()})`);
+          glow.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r_*10, 0, TAU);
+          ctx.fill();
+          
+          // ядро
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b_}, ${0.85*p.core*alphaBoost()})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r_*1.15, 0, TAU);
+          ctx.fill();
+        }
+        
+        // Bloom эффект (fake) — повторная отрисовка с прозрачностью
+        ctx.globalAlpha = 0.25;
+        ctx.globalCompositeOperation = 'screen';
+        ctx.drawImage(canvas, 0, 0, w*dpr, h*dpr, 0, 0, w, h);
+        
         ctx.restore();
         return;
       }
@@ -438,6 +636,13 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
     return () => {
       cancelAnimationFrame(rafRef.current);
       ro.disconnect();
+      // Отписываемся от событий
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [enabled, preset, intensity]);
 

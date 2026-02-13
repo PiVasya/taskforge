@@ -201,31 +201,11 @@ export default function Layout({ children, fullWidth = false }) {
           <>
             <div className="absolute inset-0 bg-gradient-to-b from-brand-600/12 via-transparent to-transparent blur-2xl" />
             <div className="absolute inset-0">
-            {/*
-              ВАЖНО: эффекты реализованы чистым CSS (см. index.css: `.bg-fx ...`).
-              Это защищает от Tailwind purge и гарантирует, что блики видны на всех темах.
-            */}
-            <div className="bg-fx">
-              {/* Canvas-эффекты (туман / пыль+кометы / нейросвязи) */}
-              <BgFxCanvas
-                enabled={bgFx}
-                variant={fxMode === 'random' ? 'random' : Number(fxVariant) || 0}
-              />
-
-              {/* Базовые размазанные блики */}
-              <div className="bg-fx__blob" />
-              <div className="bg-fx__blob" />
-              <div className="bg-fx__blob" />
-
-              {/* Доп. слой: размытое "ДНК"/ленты (варианты 1 и 2) */}
-              <div className="bg-fx__dna" />
-
-              {/* Доп. слой: "ленточная" сетка (делает фон заметнее на светлых темах) */}
-              <div className="bg-fx__ribbon" />
-
-              {/* Доп. слой: мерцающие точки/блики (вариант 2) */}
-              <div className="bg-fx__glitter" />
-            </div>
+            {/* Canvas-эффекты (туман / пыль+кометы / нейросвязи / аврора / сердечки) */}
+            <BgFxCanvas
+              enabled={bgFx}
+              variant={fxMode === 'random' ? 'random' : Number(fxVariant) || 0}
+            />
             </div>
           </>
         )}
