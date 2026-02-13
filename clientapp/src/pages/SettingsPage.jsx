@@ -102,6 +102,8 @@ export default function SettingsPage() {
       localStorage.setItem('mode', next.mode);
       localStorage.setItem('bgFx', next.bgFx ? '1' : '0');
       writeLocal(next);
+      // В этом же табе событие 'storage' не срабатывает, поэтому шлём своё.
+      window.dispatchEvent(new Event('tf-ui-settings-changed'));
       return next;
     });
   };

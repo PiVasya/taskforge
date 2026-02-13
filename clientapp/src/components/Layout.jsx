@@ -30,6 +30,19 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 
 export default function Layout({ children, fullWidth = false }) {
+  // Вся тема завязана на классах у <html>: html.dark и html.(blue|pink|apple).
+  // Если классов нет — CSS-переменные (например --page-bg) не задаются, и фон выглядит белым.
+  const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
+    const root = document.documentElement;
+    const palettes = ['blue', 'pink', 'apple'];
+    const palette = palettes.includes(nextColorTheme) ? nextColorTheme : 'pink';
+
+    root.classList.remove('blue', 'pink', 'apple');
+    root.classList.add(palette);
+
+    if (nextMode === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+  };
   const readUiSettings = () => {
     try {
       const raw = localStorage.getItem('uiSettings');
@@ -41,9 +54,14 @@ export default function Layout({ children, fullWidth = false }) {
 
   // Темы = цвет (blue|pink|apple) + режим (light|dark)
   const initialUi = readUiSettings();
-  const [colorTheme, setColorTheme] = useState(() => initialUi?.colorTheme || localStorage.getItem('colorTheme') || 'blue');
-  const [mode, setMode] = useState(() => initialUi?.mode || localStorage.getItem('mode') || 'light');
+  const [colorTheme, setColorTheme] = useState(() => initialUi?.colorTheme || localStorage.getItem('colorTheme') || 'pink');
+  const [mode, setMode] = useState(() => initialUi?.mode || localStorage.getItem('mode') || 'dark');
   const isDark = mode === 'dark';
+
+  // Если вдруг состояние поменялось без events — всё равно держим <html> в актуальном состоянии.
+  useEffect(() => {
+    applyHtmlThemeClasses(mode, colorTheme);
+  }, [mode, colorTheme]);
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
   const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || 'random');
   // Вариант фоновых эффектов (0..3). Выбирается рандомно при включении эффекта.
@@ -54,8 +72,11 @@ export default function Layout({ children, fullWidth = false }) {
   // слушаем кастомное событие (в том же табе) и storage-события (между табами).
   useEffect(() => {
     const applyFromStorage = () => {
-      const nextColor = localStorage.getItem('colorTheme') || 'blue';
-      const nextMode = localStorage.getItem('mode') || 'light';
+      const nextColor = localStorage.getItem('colorTheme') || 'pink';
+      const nextMode = localStorage.getItem('mode') || 'dark';
+
+      // Применяем сразу, чтобы не ждать перерендера.
+      applyHtmlThemeClasses(nextMode, nextColor);
       setColorTheme(nextColor);
       setMode(nextMode);
       setBgFx(localStorage.getItem('bgFx') === '1');
@@ -74,6 +95,9 @@ export default function Layout({ children, fullWidth = false }) {
 
     window.addEventListener('storage', onStorage);
     window.addEventListener('tf-ui-settings-changed', onLocalUiChanged);
+
+    // первичное применение при первом рендере
+    applyFromStorage();
     return () => {
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('tf-ui-settings-changed', onLocalUiChanged);
