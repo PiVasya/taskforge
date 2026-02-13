@@ -54,7 +54,8 @@ export default function Layout({ children, fullWidth = false }) {
   const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || 'random');
   // Вариант фоновых эффектов (0..3). Выбирается рандомно при включении эффекта.
   // Цвета НЕ рандомим — они берутся из темы через CSS vars (--accent/...)
-  const [fxVariant, setFxVariant] = useState(() => String(initialUi?.fxVariant ?? sessionStorage.getItem('fxVariant') || '3'));
+  // важно: не смешиваем ?? и || без скобок (eslint ругается). Здесь нужен именно nullish-fallback.
+  const [fxVariant, setFxVariant] = useState(() => String(initialUi?.fxVariant ?? sessionStorage.getItem('fxVariant') ?? '3'));
 
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
