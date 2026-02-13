@@ -776,5 +776,3 @@ html.dark .bg-fx__blob {
   50%  { transform: translate3d(18%, -8%, 0) scale(1.07); }
   100% { transform: translate3d(-5%, 22%, 0) scale(1); }
 }
-
-}
