@@ -72,8 +72,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
 
   const preset = useMemo(() => {
     if (variant === 'random') {
-      // 0..4
-      return Math.floor(Math.random() * 5);
+      // 0..5
+      return Math.floor(Math.random() * 6);
     }
     const v = Number(variant);
     return Number.isFinite(v) ? v : 0;
@@ -635,6 +635,61 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
           ctx.restore();
         }
         ctx.restore();
+        return;
+      }
+
+      // 5: Matrix - падающие символы
+      if (preset === 5) {
+        // Катакана и ASCII символы
+        const chars = 'アイウエオカキクケコサシスセソタチツテト0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$@%#&*+=<>[]{}|';
+        
+        ctx.save();
+        // Тёмная затемняющая маска (след от символов)
+        ctx.fillStyle = isDarkTheme() ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(0, 0, w, h);
+        
+        ctx.font = '14px monospace';
+        ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
+        
+        for (const drop of state.matrix) {
+          // Движение вниз
+          drop.y += drop.speed * (dt * 60);
+          
+          // Сброс наверх при выпадении за экран
+          if (drop.y > h + drop.length * 16) {
+            drop.y = rand(-h * 0.5, 0);
+            drop.x = Math.floor(rand(0, matrixCols)) * 18 + rand(-4, 4);
+            drop.speed = rand(0.4, 1.2);
+            drop.length = Math.floor(rand(8, 25));
+          }
+          
+          // Рисуем символы
+          for (let i = 0; i < drop.length; i += 1) {
+            const y = drop.y - i * 16;
+            if (y < 0 || y > h) continue;
+            
+            // Яркость убывает к хвосту
+            const alpha = (1 - i / drop.length) * 0.8;
+            
+            // Голова дропа - белая/светлая
+            if (i === 0) {
+              ctx.fillStyle = isDarkTheme() 
+                ? `rgba(${fg[0]}, ${fg[1]}, ${fg[2]}, ${alpha * 1.2})`
+                : `rgba(${fx1[0]}, ${fx1[1]}, ${fx1[2]}, ${alpha * 0.9})`;
+            } else {
+              // Остальные - зелёные (или темные в светлой теме)
+              const [r, g, b] = isDarkTheme() ? [100, 255, 150] : fx1;
+              ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * (isDarkTheme() ? 0.85 : 0.6)})`;
+            }
+            
+            // Случайный символ
+            const char = chars[Math.floor(Math.random() * chars.length)];
+            ctx.fillText(char, drop.x, y);
+          }
+        }
+        
+        ctx.restore();
+        return;
       }
     };
 
