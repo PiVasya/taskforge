@@ -7,7 +7,7 @@
 // ссылки прячутся за отдельной кнопкой с тремя точками.
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   PanelsTopLeft,
   LogOut,
@@ -82,6 +82,7 @@ export default function Layout({ children, fullWidth = false }) {
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
   const nav = useNavigate();
+  const location = useLocation();
 
   // ===== Квоты (5 отправок решений и 5 загрузок топа) =====
   // применяем классы для темы и сохраняем в localStorage
@@ -89,6 +90,10 @@ export default function Layout({ children, fullWidth = false }) {
   // ===== Автосворачивание навигации в "..." при переполнении =====
   const headerRowRef = useRef(null);
   const [forceCompact, setForceCompact] = useState(false);
+
+  // мобильное меню (гамбургер)
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileMenuRef = useRef(null);
 
   // admin (three-dots) menu
   const [adminOpen, setAdminOpen] = useState(false);
@@ -117,6 +122,28 @@ export default function Layout({ children, fullWidth = false }) {
       window.removeEventListener('touchstart', onDown);
     };
   }, [adminOpen]);
+
+  // закрытие мобильного меню по клику вне
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onDown = (e) => {
+      const el = mobileMenuRef.current;
+      if (!el) return;
+      if (!el.contains(e.target)) setMobileOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('touchstart', onDown);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('touchstart', onDown);
+    };
+  }, [mobileOpen]);
+
+  // закрывать меню при переходах
+  useEffect(() => {
+    setMobileOpen(false);
+    setAdminOpen(false);
+  }, [location.pathname]);
 
   useLayoutEffect(() => {
     const el = headerRowRef.current;
@@ -309,7 +336,80 @@ export default function Layout({ children, fullWidth = false }) {
             )}
           </div>
 
-          {/* Мобильное меню убрано: навигация остаётся доступной через основные кнопки и страницу настроек */}
+          {/* Мобильное меню */}
+          {access && (
+            <div className="relative xl:hidden" ref={mobileMenuRef}>
+              <button
+                className="btn-outline"
+                onClick={() => setMobileOpen((v) => !v)}
+                title="Меню"
+              >
+                <Menu size={18} />
+              </button>
+
+              {mobileOpen && (
+                <div className="absolute right-0 mt-2 w-64 card p-2 shadow-lg">
+                  <div className="flex flex-col">
+                    <Link
+                      to="/"
+                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Курсы
+                    </Link>
+                    <Link
+                      to="/profile"
+                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Профиль
+                    </Link>
+                    <Link
+                      to="/settings"
+                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Настройки
+                    </Link>
+                    <Link
+                      to="/my-solutions"
+                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Мои решения
+                    </Link>
+                    <Link
+                      to="/top"
+                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Топ
+                    </Link>
+
+                    {isAdmin && (
+                      <>
+                        <div className="my-2 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                        <Link
+                          to="/admin"
+                          className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          Админка
+                        </Link>
+                        <Link
+                          to="/admin/support"
+                          className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          Техподдержка
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
