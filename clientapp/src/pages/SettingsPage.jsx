@@ -38,8 +38,8 @@ export default function SettingsPage() {
       colorTheme: localStorage.getItem('colorTheme') || 'blue',
       mode: localStorage.getItem('mode') || 'light',
       bgFx: localStorage.getItem('bgFx') === '1',
-      fxMode: 'random', // random | fixed
-      fxVariant: '3', // 0..4
+      fxMode: localStorage.getItem('fxMode') || 'random',
+      fxVariant: localStorage.getItem('fxVariant') || '2', // дефолт - нейросвязи
     }
   );
 
@@ -97,10 +97,12 @@ export default function SettingsPage() {
     setSaved(false);
     setForm((p) => {
       const next = { ...p, [k]: v };
-      // мгновенно применяем в UI
-      localStorage.setItem('colorTheme', next.colorTheme);
-      localStorage.setItem('mode', next.mode);
-      localStorage.setItem('bgFx', next.bgFx ? '1' : '0');
+      // мгновенно применяем в UI только изменённые поля
+      if (k === 'colorTheme') localStorage.setItem('colorTheme', v);
+      if (k === 'mode') localStorage.setItem('mode', v);
+      if (k === 'bgFx') localStorage.setItem('bgFx', v ? '1' : '0');
+      if (k === 'fxMode') localStorage.setItem('fxMode', v);
+      if (k === 'fxVariant') localStorage.setItem('fxVariant', String(v));
       writeLocal(next);
       // В этом же табе событие 'storage' не срабатывает, поэтому шлём своё.
       window.dispatchEvent(new Event('tf-ui-settings-changed'));

@@ -63,10 +63,13 @@ export default function Layout({ children, fullWidth = false }) {
     applyHtmlThemeClasses(mode, colorTheme);
   }, [mode, colorTheme]);
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
-  const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || 'random');
-  // Вариант фоновых эффектов (0..3). Выбирается рандомно при включении эффекта.
-  // важно: не смешиваем ?? и || без скобок.
-  const [fxVariant, setFxVariant] = useState(() => String(initialUi?.fxVariant ?? sessionStorage.getItem('fxVariant') ?? '3'));
+  const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || localStorage.getItem('fxMode') || 'random');
+  // Вариант фоновых эффектов (0..4). Читаем из localStorage, а не sessionStorage.
+  const [fxVariant, setFxVariant] = useState(() => {
+    if (initialUi?.fxVariant != null) return String(initialUi.fxVariant);
+    const stored = localStorage.getItem('fxVariant');
+    return stored != null ? stored : '2';
+  });
 
   // Тема/палитра меняются на странице «Настройки». Чтобы Layout реагировал без перезагрузки,
   // слушаем кастомное событие (в том же табе) и storage-события (между табами).
@@ -79,9 +82,10 @@ export default function Layout({ children, fullWidth = false }) {
       applyHtmlThemeClasses(nextMode, nextColor);
       setColorTheme(nextColor);
       setMode(nextMode);
+      const ui = readUiSettings();
       setBgFx(localStorage.getItem('bgFx') === '1');
-      setFxMode(localStorage.getItem('fxMode') || 'random');
-      setFxVariant(localStorage.getItem('fxVariant') || '3');
+      setFxMode(ui?.fxMode || localStorage.getItem('fxMode') || 'random');
+      setFxVariant(String(ui?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'));
     };
 
     const onStorage = (e) => {

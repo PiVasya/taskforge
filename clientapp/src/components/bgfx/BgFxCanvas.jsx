@@ -87,10 +87,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
-    // На светлых темах многие альфы выглядят слишком "нежно".
-    // Даём небольшой буст и убираем чёрную "шторку" в нейросвязях.
+    // На светлых темах нужен буст альфы, чтобы эффекты были видны.
     const isDarkTheme = () => document.documentElement.classList.contains('dark');
-    const alphaBoost = () => (isDarkTheme() ? 1 : 2.0);
+    const alphaBoost = () => (isDarkTheme() ? 1.0 : 1.8);
     const rgbaB = (rgb, a) => rgba(rgb, Math.min(1, a * alphaBoost()));
 
     let w = 0;
@@ -283,7 +282,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       // 0: Туман
       if (preset === 0) {
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        // В светлой теме lighter не работает, используем multiply
+        ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
         ctx.filter = 'blur(40px)';
         for (const b of state.blobs) {
           b.x += b.vx * (dt * 60);
@@ -295,7 +295,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
           if (b.y > h + b.r) b.y = -b.r;
 
           const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
-          g.addColorStop(0, rgba(b.c, b.a));
+          const alpha = isDarkTheme() ? b.a : b.a * 1.5;
+          g.addColorStop(0, rgba(b.c, alpha));
           g.addColorStop(1, rgba(b.c, 0));
           ctx.fillStyle = g;
           ctx.beginPath();
@@ -309,7 +310,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       // 1: Пыль + кометы
       if (preset === 1) {
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
 
         for (const p of state.dust) {
           const oldX = p.x;
@@ -322,7 +323,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
           if (p.y > h + 20) p.y = -20;
 
           if (p.fast) {
-            ctx.strokeStyle = rgba(p.c, p.a);
+            const alpha = isDarkTheme() ? p.a : p.a * 1.5;
+            ctx.strokeStyle = rgba(p.c, alpha);
             ctx.lineWidth = 1.25;
             ctx.beginPath();
             ctx.moveTo(oldX, oldY);
@@ -330,7 +332,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
             ctx.stroke();
           }
 
-          ctx.fillStyle = rgba(p.c, p.a);
+          const alpha = isDarkTheme() ? p.a : p.a * 1.5;
+          ctx.fillStyle = rgba(p.c, alpha);
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
           ctx.fill();
@@ -344,20 +347,19 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       if (preset === 2) {
         const TAU = Math.PI * 2;
         
-        // Фон с виньеткой
-        ctx.save();
-        ctx.fillStyle = isDarkTheme() ? 'rgba(5,6,10,0.95)' : 'rgba(248,250,252,0.95)';
-        ctx.fillRect(0, 0, w, h);
+        // Очищаем canvas (прозрачный фон, чтобы видеть контент)
+        ctx.clearRect(0, 0, w, h);
         
-        // Виньетка (мягкое свечение от центра)
+        // Лёгкая виньетка для атмосферы (но не перекрывает контент)
+        ctx.save();
         const gx = ctx.createRadialGradient(w*0.5, h*0.55, 0, w*0.5, h*0.55, Math.max(w,h)*0.75);
         if (isDarkTheme()) {
-          gx.addColorStop(0, 'rgba(35,50,120,0.18)');
-          gx.addColorStop(0.35, 'rgba(20,30,80,0.10)');
+          gx.addColorStop(0, 'rgba(35,50,120,0.08)');
+          gx.addColorStop(0.35, 'rgba(20,30,80,0.04)');
           gx.addColorStop(1, 'rgba(0,0,0,0)');
         } else {
-          gx.addColorStop(0, 'rgba(200,220,255,0.12)');
-          gx.addColorStop(0.35, 'rgba(180,200,240,0.06)');
+          gx.addColorStop(0, 'rgba(200,220,255,0.05)');
+          gx.addColorStop(0.35, 'rgba(180,200,240,0.02)');
           gx.addColorStop(1, 'rgba(255,255,255,0)');
         }
         ctx.fillStyle = gx;
@@ -559,14 +561,15 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       // 3: Аврора
       if (preset === 3) {
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
 
         for (const band of state.aurora) {
           const t = state.t;
           const y0 = band.baseY + Math.sin(t * 0.7 + band.phase) * 20;
           const g = ctx.createLinearGradient(0, y0 - band.width / 2, 0, y0 + band.width / 2);
+          const alpha = isDarkTheme() ? band.alpha : band.alpha * 1.8;
           g.addColorStop(0, rgba(band.c, 0));
-          g.addColorStop(0.5, rgba(band.c, band.alpha));
+          g.addColorStop(0.5, rgba(band.c, alpha));
           g.addColorStop(1, rgba(band.c, 0));
           ctx.fillStyle = g;
 
@@ -596,7 +599,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       // 4: Сердечки
       if (preset === 4) {
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
         for (const p of state.hearts) {
           p.x += p.vx * (dt * 60);
           p.y += p.vy * (dt * 60);
@@ -611,7 +614,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
           ctx.save();
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rot);
-          ctx.fillStyle = rgba(p.c, p.a);
+          const alpha = isDarkTheme() ? p.a : p.a * 1.6;
+          ctx.fillStyle = rgba(p.c, alpha);
           heartPath(ctx, 0, 0, p.s);
           ctx.fill();
           ctx.restore();
