@@ -17,6 +17,7 @@ import AssignmentImageResultsPage from './pages/AssignmentImageResultsPage';
 import AssignmentTopSolutionsPage from './pages/AssignmentTopSolutionsPage';
 
 import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
 import MySolutionsPage from './pages/MySolutionsPage';
 import PublicProfilePage from './pages/PublicProfilePage';
 
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />
 
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/my/solutions" element={<MySolutionsPage />} />
 
           {/* общий топ */}

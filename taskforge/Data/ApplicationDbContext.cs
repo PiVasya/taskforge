@@ -24,6 +24,7 @@ namespace taskforge.Data
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
         public DbSet<UserImageTaskSolution> UserImageTaskSolutions { get; set; } = null!;
         public DbSet<UserQuotaBucket> UserQuotaBuckets { get; set; } = null!;
+        public DbSet<UserUiSettings> UserUiSettings { get; set; } = null!;
         public DbSet<SupportTicket> SupportTickets { get; set; } = null!;
         public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
 
@@ -76,6 +77,21 @@ namespace taskforge.Data
 
             modelBuilder.Entity<User>()
                 .Property(u => u.LockoutEnd)
+                .HasColumnType("timestamp with time zone");
+
+            // 🔹 UserUiSettings (1:1)
+            modelBuilder.Entity<UserUiSettings>()
+                .HasIndex(x => x.UserId)
+                .IsUnique();
+
+            modelBuilder.Entity<UserUiSettings>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserUiSettings>()
+                .Property(x => x.UpdatedAtUtc)
                 .HasColumnType("timestamp with time zone");
 
             // 🔹 Course

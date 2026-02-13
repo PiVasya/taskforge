@@ -38,9 +38,9 @@ export default function BgFxCanvas({ enabled, variant }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // запускаем только для режимов 0..2
+    // запускаем для режимов 0..3
     const v = String(variant);
-    const shouldRun = enabled && !reduceMotion && (v === '0' || v === '1' || v === '2');
+    const shouldRun = enabled && !reduceMotion && (v === '0' || v === '1' || v === '2' || v === '3');
     canvas.style.display = shouldRun ? 'block' : 'none';
     if (!shouldRun) return;
 
@@ -301,6 +301,55 @@ export default function BgFxCanvas({ enabled, variant }) {
       ctx.restore();
     };
 
+    // Aurora blobs: самый заметный режим для пользователей.
+    // Мягкие большие шары света, двигаются медленно и "дышат".
+    const aurora = Array.from({ length: 7 }, (_, i) => {
+      const baseR = Math.min(w, h) * (0.26 + Math.random() * 0.18);
+      return {
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: baseR,
+        vx: (Math.random() - 0.5) * 0.06,
+        vy: (Math.random() - 0.5) * 0.06,
+        t: Math.random() * Math.PI * 2,
+        c: i % 3,
+      };
+    });
+
+    const drawAurora = (dt) => {
+      // слегка чистим, чтобы не было "грязного" хвоста
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.filter = 'blur(56px)';
+
+      for (const p of aurora) {
+        p.t += dt * 0.00028;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        const rr = p.r * (0.90 + 0.14 * Math.sin(p.t));
+
+        if (p.x < -rr) p.x = w + rr;
+        if (p.x > w + rr) p.x = -rr;
+        if (p.y < -rr) p.y = h + rr;
+        if (p.y > h + rr) p.y = -rr;
+
+        const col = p.c === 0 ? colors.a1 : p.c === 1 ? colors.a2 : colors.a3;
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr);
+        g.addColorStop(0, rgba(col, 0.22));
+        g.addColorStop(0.55, rgba(col, 0.10));
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    };
+
     const tick = (now) => {
       const dt = now - last;
       last = now;
@@ -315,13 +364,14 @@ export default function BgFxCanvas({ enabled, variant }) {
 
       if (v === '0') drawFog(dt);
       else if (v === '1') drawDustComets(dt);
-      else drawNeural(dt);
+      else if (v === '2') drawNeural(dt);
+      else drawAurora(dt);
 
       raf = requestAnimationFrame(tick);
     };
 
-    // старт: в fog делаем мягкий чёрный фон (иначе будет прозрачное)
-    if (v === '0') {
+    // старт: заполняем чёрным, иначе холст будет прозрачным
+    if (v === '0' || v === '3') {
       ctx.fillStyle = 'rgba(0,0,0,1)';
       ctx.fillRect(0, 0, w, h);
     }

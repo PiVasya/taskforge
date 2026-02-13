@@ -24,6 +24,7 @@ import {
   Palette,
   MoreHorizontal,
   Sparkles,
+  Settings,
   Award,
   LifeBuoy,
   ChevronDown,
@@ -35,14 +36,25 @@ import { getMyQuotas } from '../api/quotas';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 
 export default function Layout({ children, fullWidth = false }) {
+  const readUiSettings = () => {
+    try {
+      const raw = localStorage.getItem('uiSettings');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  };
+
   // Темы = цвет (blue|pink|apple) + режим (light|dark)
-  const [colorTheme, setColorTheme] = useState(() => localStorage.getItem('colorTheme') || 'blue');
-  const [mode, setMode] = useState(() => localStorage.getItem('mode') || 'light');
+  const initialUi = readUiSettings();
+  const [colorTheme, setColorTheme] = useState(() => initialUi?.colorTheme || localStorage.getItem('colorTheme') || 'blue');
+  const [mode, setMode] = useState(() => initialUi?.mode || localStorage.getItem('mode') || 'light');
   const isDark = mode === 'dark';
-  const [bgFx, setBgFx] = useState(() => localStorage.getItem('bgFx') === '1');
+  const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
+  const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || 'random');
   // Вариант фоновых эффектов (0..3). Выбирается рандомно при включении эффекта.
   // Цвета НЕ рандомим — они берутся из темы через CSS vars (--accent/...)
-  const [fxVariant, setFxVariant] = useState(() => sessionStorage.getItem('fxVariant') || '3');
+  const [fxVariant, setFxVariant] = useState(() => String(initialUi?.fxVariant ?? sessionStorage.getItem('fxVariant') || '3'));
 
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
@@ -172,10 +184,14 @@ export default function Layout({ children, fullWidth = false }) {
     setBgFx((v) => {
       const nv = !v;
       if (nv) {
-        // Каждый раз при включении — случайный режим (туман/пыль+кометы/нейросвязи/классика)
-        const next = String(Math.floor(Math.random() * 4));
-        setFxVariant(next);
-        sessionStorage.setItem('fxVariant', next);
+        // При включении:
+        // - random: выбираем новый эффект
+        // - fixed: оставляем выбранный вариант
+        if (fxMode === 'random') {
+          const next = String(Math.floor(Math.random() * 4));
+          setFxVariant(next);
+          sessionStorage.setItem('fxVariant', next);
+        }
       }
       return nv;
     });
@@ -200,6 +216,21 @@ export default function Layout({ children, fullWidth = false }) {
     localStorage.setItem('colorTheme', colorTheme);
     localStorage.setItem('mode', mode);
   }, [colorTheme, mode]);
+
+  // Мгновенное применение настроек из SettingsPage (localStorage + событие)
+  useEffect(() => {
+    const onUi = (e) => {
+      const s = e?.detail;
+      if (!s) return;
+      if (s.colorTheme) setColorTheme(s.colorTheme);
+      if (s.mode) setMode(s.mode);
+      if (typeof s.bgFx === 'boolean') setBgFx(s.bgFx);
+      if (s.fxMode) setFxMode(s.fxMode);
+      if (s.fxVariant !== undefined && s.fxVariant !== null) setFxVariant(String(s.fxVariant));
+    };
+    window.addEventListener('tf:uiSettings', onUi);
+    return () => window.removeEventListener('tf:uiSettings', onUi);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('bgFx', bgFx ? '1' : '0');
@@ -388,6 +419,14 @@ export default function Layout({ children, fullWidth = false }) {
               </Link>
             )}
 
+            {/* настройки */}
+            {access && (
+              <Link to="/settings" className="btn-outline" title="Настройки">
+                <Settings size={18} />
+                <span className="hidden 2xl:inline">Настройки</span>
+              </Link>
+            )}
+
             {/* мои решения */}
             {access && (
               <Link to="/my/solutions" className="btn-outline" title="Мои решения">
@@ -563,6 +602,20 @@ export default function Layout({ children, fullWidth = false }) {
                   >
                     <User size={18} />
                     <span>Профиль</span>
+                  </Link>
+                )}
+
+                {/* Настройки */}
+                {access && (
+                  <Link
+                    role="menuitem"
+                    to="/settings"
+                    className="btn-ghost w-full justify-start"
+                    onClick={() => setMoreOpen(false)}
+                    title="Настройки"
+                  >
+                    <Settings size={18} />
+                    <span>Настройки</span>
                   </Link>
                 )}
                 {/* Мои решения */}
