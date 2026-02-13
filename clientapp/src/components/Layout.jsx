@@ -90,6 +90,34 @@ export default function Layout({ children, fullWidth = false }) {
   const headerRowRef = useRef(null);
   const [forceCompact, setForceCompact] = useState(false);
 
+  // admin (three-dots) menu
+  const [adminOpen, setAdminOpen] = useState(false);
+  const adminRef = useRef(null);
+
+  const handleLogout = () => {
+    setAdminOpen(false);
+    try {
+      logout();
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (!adminOpen) return;
+    const onDown = (e) => {
+      const el = adminRef.current;
+      if (!el) return;
+      if (!el.contains(e.target)) setAdminOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('touchstart', onDown);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('touchstart', onDown);
+    };
+  }, [adminOpen]);
+
   useLayoutEffect(() => {
     const el = headerRowRef.current;
     if (!el) return;
