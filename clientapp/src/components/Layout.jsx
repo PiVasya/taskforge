@@ -32,6 +32,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 import { getMyQuotas } from '../api/quotas';
+import BgFxCanvas from './bgfx/BgFxCanvas';
 
 export default function Layout({ children, fullWidth = false }) {
   // Темы = цвет (blue|pink|apple) + режим (light|dark)
@@ -39,6 +40,9 @@ export default function Layout({ children, fullWidth = false }) {
   const [mode, setMode] = useState(() => localStorage.getItem('mode') || 'light');
   const isDark = mode === 'dark';
   const [bgFx, setBgFx] = useState(() => localStorage.getItem('bgFx') === '1');
+  // Вариант фоновых эффектов (0..3). Выбирается рандомно при включении эффекта.
+  // Цвета НЕ рандомим — они берутся из темы через CSS vars (--accent/...)
+  const [fxVariant, setFxVariant] = useState(() => sessionStorage.getItem('fxVariant') || '3');
 
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
@@ -167,8 +171,20 @@ export default function Layout({ children, fullWidth = false }) {
   const toggleBgFx = () =>
     setBgFx((v) => {
       const nv = !v;
+      if (nv) {
+        // Каждый раз при включении — случайный режим (туман/пыль+кометы/нейросвязи/классика)
+        const next = String(Math.floor(Math.random() * 4));
+        setFxVariant(next);
+        sessionStorage.setItem('fxVariant', next);
+      }
       return nv;
     });
+
+  const themeOptions = [
+    { key: 'blue', title: 'Синяя палитра', dot: 'bg-sky-500' },
+    { key: 'pink', title: 'Розовая палитра', dot: 'bg-pink-500' },
+    { key: 'apple', title: 'Зелёная палитра', dot: 'bg-emerald-500' },
+  ];
 
   // применяем классы для темы и сохраняем в localStorage
   useEffect(() => {
@@ -189,7 +205,9 @@ export default function Layout({ children, fullWidth = false }) {
     localStorage.setItem('bgFx', bgFx ? '1' : '0');
     const root = document.documentElement;
     root.classList.toggle('bgfx', bgFx);
-  }, [bgFx]);
+    if (bgFx) root.dataset.fx = fxVariant;
+    else delete root.dataset.fx;
+  }, [bgFx, fxVariant]);
 
   const handleLogout = async () => {
     await logout();
@@ -264,9 +282,19 @@ export default function Layout({ children, fullWidth = false }) {
               Это защищает от Tailwind purge и гарантирует, что блики видны на всех темах.
             */}
             <div className="bg-fx">
+              {/* Canvas-эффекты (туман / пыль+кометы / нейросвязи) */}
+              <BgFxCanvas enabled={bgFx} variant={fxVariant} />
+
+              {/* Базовые размазанные блики */}
               <div className="bg-fx__blob" />
               <div className="bg-fx__blob" />
               <div className="bg-fx__blob" />
+
+              {/* Доп. слой: размытое "ДНК"/ленты (варианты 1 и 2) */}
+              <div className="bg-fx__dna" />
+
+              {/* Доп. слой: мерцающие точки/блики (вариант 2) */}
+              <div className="bg-fx__glitter" />
             </div>
             </div>
           </>
@@ -276,7 +304,7 @@ export default function Layout({ children, fullWidth = false }) {
         <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
           {/* Логотип и название */}
           <Link to="/courses" className="flex min-w-0 items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-brand-600 text-white grid place-items-center shadow-soft">
+            <div className="h-9 w-9 rounded-xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
               <PanelsTopLeft size={18} />
             </div>
             <div className="font-semibold truncate">TaskForge</div>
@@ -290,16 +318,30 @@ export default function Layout({ children, fullWidth = false }) {
             <QuotaPill />
 
             {/* цвет + режим */}
-            <button
-              className="btn-outline"
-              onClick={cycleColor}
-              aria-label="Switch color theme"
-              title={`Цвет: ${colorTheme}`}
+
+            <div
+              className="inline-flex items-center gap-1 rounded-xl border border-neutral-200/70 dark:border-neutral-800/70 bg-white/50 dark:bg-neutral-900/40 p-1"
+              aria-label="Выбор палитры"
+              title="Палитра"
             >
-              <Palette size={18} />
-              {/* текст скрываем, чтобы шапка не переполнялась; информация есть в title */}
-              <span className="hidden 2xl:inline">{colorTheme}</span>
-            </button>
+              {themeOptions.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setColorTheme(t.key)}
+                  className={
+                    'h-7 w-7 rounded-lg grid place-items-center transition ' +
+                    (colorTheme === t.key
+                      ? 'ring-2 ring-[rgba(var(--accent)/0.45)] bg-white/70 dark:bg-neutral-900/50'
+                      : 'hover:bg-white/70 dark:hover:bg-neutral-900/50')
+                  }
+                  aria-pressed={colorTheme === t.key}
+                  title={t.title}
+                >
+                  <span className={'h-3 w-3 rounded-full ' + t.dot} />
+                </button>
+              ))}
+            </div>
 
             <button
               className="btn-outline"
@@ -308,21 +350,22 @@ export default function Layout({ children, fullWidth = false }) {
               title={isDark ? 'Тёмная' : 'Светлая'}
             >
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
-              {/* без текста — только иконка */}
             </button>
 
             <button
-              className={`btn-outline transition ${
-                bgFx
-                  ? 'border-brand-600/70 bg-brand-600/10 text-brand-700 dark:text-brand-200 shadow-soft'
-                  : 'hover:border-neutral-300/70 dark:hover:border-neutral-700/70'
-              }`}
+              className={
+                'btn-outline relative ' +
+                (bgFx ? 'ring-2 ring-[rgba(var(--accent)/0.35)]' : '')
+              }
               onClick={toggleBgFx}
               aria-pressed={bgFx}
               aria-label="Toggle background effects"
               title={bgFx ? 'Фоновые эффекты: вкл' : 'Фоновые эффекты: выкл'}
             >
               <Sparkles size={18} />
+              {bgFx ? (
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-[rgb(var(--accent))] opacity-80" />
+              ) : null}
             </button>
 
             {/* режим редактора */}
@@ -492,7 +535,7 @@ export default function Layout({ children, fullWidth = false }) {
                     toggleBgFx();
                   }}
                 >
-                  <Sparkles size={18} />
+                  <Sparkles size={18} />{bgFx ? <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-[rgb(var(--accent))]" /> : null}
                   <span>{bgFx ? 'Эффекты: вкл' : 'Эффекты: выкл'}</span>
                 </button>
                 {/* Режим редактора */}
