@@ -214,7 +214,7 @@ export default function Layout({ children, fullWidth = false }) {
           </>
         )}
       </div>
-      <header className="sticky top-0 z-20 border-b border-neutral-200/70 dark:border-neutral-800/70 backdrop-blur bg-white/70 dark:bg-neutral-900/60">
+      <header className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-neutral-900/60" style={{ borderBottom: '1px solid rgba(var(--border) / 0.7)' }}>
         <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
           {/* Логотип и название */}
           <Link to="/courses" className="flex min-w-0 items-center gap-3">
@@ -242,13 +242,7 @@ export default function Layout({ children, fullWidth = false }) {
               </button>
             )}
 
-            {/* профиль */}
-            {access && (
-              <Link to="/profile" className="btn-outline" title="Профиль">
-                <User size={18} />
-                <span className="hidden 2xl:inline">Профиль</span>
-              </Link>
-            )}
+            {/* профиль удалён */}
 
             {/* настройки */}
             {access && (
@@ -372,13 +366,7 @@ export default function Layout({ children, fullWidth = false }) {
                     >
                       Курсы
                     </Link>
-                    <Link
-                      to="/profile"
-                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      Профиль
-                    </Link>
+
                     <Link
                       to="/settings"
                       className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"

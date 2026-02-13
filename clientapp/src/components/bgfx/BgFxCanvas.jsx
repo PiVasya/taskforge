@@ -110,6 +110,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       hearts: [],
       pulses: [],       // для нейросвязей
       pulseTimer: 0,    // таймер создания импульсов
+      matrix: [],       // для Matrix темы
     };
 
     // Pointer tracking для нейросвязей (интерактивность)
@@ -195,15 +196,15 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       state.pulses = [];
       state.pulseTimer = 0;
 
-      // Пыль/кометы
+      // Пыль/кометы (замедленные)
       const dustCount = clamp(Math.floor((area / 14000) * intensity), 40, 200);
       for (let i = 0; i < dustCount; i += 1) {
         const fast = Math.random() < 0.12;
         state.dust.push({
           x: rand(0, w),
           y: rand(0, h),
-          vx: fast ? rand(-1.2, -0.3) : rand(-0.25, 0.1),
-          vy: fast ? rand(-0.25, 0.25) : rand(-0.08, 0.08),
+          vx: fast ? rand(-0.35, -0.15) : rand(-0.12, 0.05),
+          vy: fast ? rand(-0.08, 0.08) : rand(-0.04, 0.04),
           r: fast ? rand(1.2, 2.6) : rand(0.6, 1.6),
           a: fast ? rand(0.18, 0.35) : rand(0.05, 0.16),
           c: fast ? fx2 : fg,
@@ -252,6 +253,19 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
           vr: rand(-0.004, 0.004),
           a: rand(0.06, 0.16),
           c: i % 2 === 0 ? fx1 : fx2,
+        });
+      }
+
+      // Matrix (5) - падающие символы
+      state.matrix = [];
+      const matrixCols = Math.floor(w / 18);
+      for (let i = 0; i < matrixCols; i += 1) {
+        state.matrix.push({
+          x: i * 18 + rand(-4, 4),
+          y: rand(-h, 0),
+          speed: rand(0.4, 1.2),
+          length: Math.floor(rand(8, 25)),
+          chars: [],
         });
       }
     };
