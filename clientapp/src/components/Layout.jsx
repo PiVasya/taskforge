@@ -58,8 +58,14 @@ export default function Layout({ children, fullWidth = false }) {
   const [mode, setMode] = useState(() => initialUi?.mode || localStorage.getItem('mode') || 'dark');
   const isDark = mode === 'dark';
 
-  // Если вдруг состояние поменялось без events — всё равно держим <html> в актуальном состоянии.
-  useEffect(() => {
+  // Ревизия UI-настроек. Нужна, чтобы фоновые эффекты (Canvas) могли
+  // перечитать CSS-переменные даже если тема «не изменилась» по значениям,
+  // но классы у <html> применились позже (часто после auto-refresh токена).
+  const [uiRev, setUiRev] = useState(0);
+
+  // Применяем классы темы ДО первой отрисовки, чтобы не было "белого" фона
+  // и чтобы Canvas-эффекты могли сразу прочитать правильные CSS-переменные.
+  useLayoutEffect(() => {
     applyHtmlThemeClasses(mode, colorTheme);
   }, [mode, colorTheme]);
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
@@ -86,6 +92,9 @@ export default function Layout({ children, fullWidth = false }) {
       setBgFx(localStorage.getItem('bgFx') === '1');
       setFxMode(ui?.fxMode || localStorage.getItem('fxMode') || 'random');
       setFxVariant(String(ui?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'));
+
+      // даже если значения не поменялись, просим Canvas перечитать CSS vars
+      setUiRev((r) => r + 1);
     };
 
     const onStorage = (e) => {
@@ -209,6 +218,7 @@ export default function Layout({ children, fullWidth = false }) {
             <BgFxCanvas
               enabled={bgFx}
               variant={fxMode === 'random' ? 'random' : Number(fxVariant) || 0}
+              uiRev={uiRev}
             />
             </div>
           </>

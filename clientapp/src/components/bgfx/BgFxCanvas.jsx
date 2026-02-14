@@ -66,7 +66,7 @@ function heartPath(ctx, x, y, s) {
   ctx.closePath();
 }
 
-export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
+export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
 
@@ -96,6 +96,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
     let h = 0;
     let dpr = 1;
 
+    // ВАЖНО: цвета читаем из CSS-переменных, которые зависят от классов темы на <html>.
+    // Если классы применились позже (например, после auto-refresh), компонент может
+    // стартовать со "старыми" цветами. Поэтому effect зависит от uiRev.
     const fx1 = parseRgbTriplet(cssVar('--fx-1', '245 0 128'), [245, 0, 128]);
     const fx2 = parseRgbTriplet(cssVar('--fx-2', '14 165 233'), [14, 165, 233]);
     const fx3 = parseRgbTriplet(cssVar('--fx-3', '34 197 94'), [34, 197, 94]);
@@ -717,7 +720,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1 }) {
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [enabled, preset, intensity]);
+  }, [enabled, preset, intensity, uiRev]);
 
   if (!enabled) return null;
 

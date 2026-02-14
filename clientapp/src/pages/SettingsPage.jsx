@@ -18,9 +18,16 @@ function readLocal() {
 }
 
 function writeLocal(v) {
+  // Держим совместимость: Layout читает и JSON, и отдельные ключи.
+  localStorage.setItem('colorTheme', v?.colorTheme || localStorage.getItem('colorTheme') || 'pink');
+  localStorage.setItem('mode', v?.mode || localStorage.getItem('mode') || 'dark');
+  localStorage.setItem('bgFx', v?.bgFx ? '1' : '0');
+  localStorage.setItem('fxMode', v?.fxMode || localStorage.getItem('fxMode') || 'random');
+  localStorage.setItem('fxVariant', String(v?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'));
   localStorage.setItem(LS_KEY, JSON.stringify(v));
+
   // уведомляем Layout, чтобы он применил настройки без перезагрузки
-  window.dispatchEvent(new CustomEvent('tf:uiSettings', { detail: v }));
+  window.dispatchEvent(new Event('tf-ui-settings-changed'));
 }
 
 export default function SettingsPage() {
