@@ -51,6 +51,61 @@
   --bs-link-hover-color-rgb: var(--accent-700);
 }
 
+/* ===== Light: make neutral borders follow выбранную палитру =====
+   Сейчас большинство компонентов используют tailwind классы вида
+   border-neutral-200(/60,/70) и т.п. Из-за этого в светлой теме
+   палитра (blue/pink/apple) визуально почти не проявляется.
+
+   Ниже мы переопределяем самые частые нейтральные border-* классы,
+   подставляя "тематические" бордеры на базе brand-цвета.
+   (Только для light — в dark свои значения уже задаются через --border.)
+*/
+
+/* helper: theme border color (light) */
+html:not(.dark).blue,
+html:not(.dark).pink,
+html:not(.dark).apple {
+  /* базовый бордер = средний brand-тон */
+  --border: var(--brand-300);
+}
+
+/* Tailwind neutral borders -> theme border */
+html:not(.dark).blue .border-neutral-200,
+html:not(.dark).blue .border-neutral-200\/60,
+html:not(.dark).blue .border-neutral-200\/70,
+html:not(.dark).blue .border-neutral-200\/80,
+html:not(.dark).blue .border-neutral-300,
+html:not(.dark).blue .border-neutral-300\/60,
+html:not(.dark).blue .border-neutral-300\/70,
+html:not(.dark).blue .border-gray-200,
+html:not(.dark).blue .border-slate-200 {
+  border-color: rgba(var(--border) / 0.65) !important;
+}
+
+html:not(.dark).pink .border-neutral-200,
+html:not(.dark).pink .border-neutral-200\/60,
+html:not(.dark).pink .border-neutral-200\/70,
+html:not(.dark).pink .border-neutral-200\/80,
+html:not(.dark).pink .border-neutral-300,
+html:not(.dark).pink .border-neutral-300\/60,
+html:not(.dark).pink .border-neutral-300\/70,
+html:not(.dark).pink .border-gray-200,
+html:not(.dark).pink .border-slate-200 {
+  border-color: rgba(var(--border) / 0.60) !important;
+}
+
+html:not(.dark).apple .border-neutral-200,
+html:not(.dark).apple .border-neutral-200\/60,
+html:not(.dark).apple .border-neutral-200\/70,
+html:not(.dark).apple .border-neutral-200\/80,
+html:not(.dark).apple .border-neutral-300,
+html:not(.dark).apple .border-neutral-300\/60,
+html:not(.dark).apple .border-neutral-300\/70,
+html:not(.dark).apple .border-gray-200,
+html:not(.dark).apple .border-slate-200 {
+  border-color: rgba(var(--border) / 0.58) !important;
+}
+
 /* Цветовая тема: BLUE (дефолт). Класс нужен для явного выбора в UI. */
 html.blue {
   --page-bg: 248 250 252;
