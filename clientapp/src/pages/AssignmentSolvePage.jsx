@@ -109,6 +109,7 @@ export default function AssignmentSolvePage() {
   const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
   const [imgMode, setImgMode] = useState("code"); // code | upload
   const [imgIsRunning, setImgIsRunning] = useState(false);
+  const [imgResultUrl, setImgResultUrl] = useState(''); // если попап заблокирован — даём кнопку
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -346,8 +347,36 @@ export default function AssignmentSolvePage() {
       { value: 'python', label: 'Python' },
       { value: 'pascal', label: 'Pascal' },
     ];
+
+    const openImageResultPopup = () => {
+      // Открываем вкладку строго в момент клика, иначе школьные браузеры часто блокируют
+      const w = window.open('', '_blank', 'noopener,noreferrer');
+      if (!w) return null;
+
+      try {
+        w.document.open();
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8" />
+          <title>TaskForge — загрузка результата…</title>
+          <style>
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+            .box{max-width:560px;padding:24px;text-align:center}
+            .small{opacity:.7;margin-top:8px}
+          </style>
+        </head><body>
+          <div class="box">
+            <div>Готовим результат…</div>
+            <div class="small">Окно обновится автоматически</div>
+          </div>
+        </body></html>`);
+        w.document.close();
+      } catch {
+        // если доступ к document запрещён политиками — ничего страшного
+      }
+
+      return w;
+    };
+
     const onTrialImageTest = async () => {
-      const w = window.open("about:blank", "_blank", "noopener,noreferrer");
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
@@ -367,11 +396,12 @@ export default function AssignmentSolvePage() {
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
         const url = buildImageResultsUrl(resp?.solutionId);
-        if (w && !w.closed) w.location.href = url;
-        else window.open(url, '_blank');
+        // Не используем window.open после await — в школах/строгих браузерах
+        // попап-блокеры почти всегда режут открытие новой вкладки (получается about:blank).
+        // Переходим на страницу результата в текущей вкладке.
+        nav(url);
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
-        try { if (w && !w.closed) w.close(); } catch {}
       } finally {
         setImgBusy(false);
       }
@@ -383,11 +413,11 @@ export default function AssignmentSolvePage() {
         return;
       }
 
-      const w = window.open("about:blank", "_blank", "noopener,noreferrer");
-
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
+      setImgResultUrl('');
+      const popup = openImageResultPopup();
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, true);
 
@@ -404,11 +434,15 @@ export default function AssignmentSolvePage() {
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
         const url = buildImageResultsUrl(resp?.solutionId);
-        if (w && !w.closed) w.location.href = url;
-        else window.open(url, '_blank');
+        if (popup && !popup.closed) {
+          try { popup.location.replace(url); } catch { popup.location.href = url; }
+        } else {
+          // Попап заблокирован или окно закрыто — покажем кнопку пользователю
+          setImgResultUrl(url);
+          notify.error('Браузер заблокировал новую вкладку. Нажмите "Открыть результат".');
+        }
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
-        try { if (w && !w.closed) w.close(); } catch {}
       } finally {
         setImgBusy(false);
       }
