@@ -83,6 +83,29 @@ export default function AssignmentImageResultsPage() {
     };
   }, [storageKey, solutionId]);
 
+  // Если страница открыта в отдельной вкладке (из решения), то по нажатию браузерной "Назад"
+  // вкладка должна закрываться и пользователь должен оставаться на странице с кодом.
+  useEffect(() => {
+    // Добавляем фиктивное состояние, чтобы "Назад" вызвал popstate внутри этой вкладки.
+    try { window.history.pushState({ tf_close_on_back: true }, '', window.location.href); } catch {}
+
+    const onPop = () => {
+      try { window.close(); } catch {}
+      // Если закрытие запрещено (вкладка открыта не скриптом) — fallback.
+      setTimeout(() => {
+        try {
+          if (window.history.length > 1) navigate(-1);
+          else navigate(`/assignment/${assignmentId}`);
+        } catch {
+          navigate(`/assignment/${assignmentId}`);
+        }
+      }, 50);
+    };
+
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [navigate, assignmentId]);
+
   const percent = useMemo(() => toPercent(pickSimilarity(data)), [data]);
   const passed = data?.passed;
   const title = data?.assignmentTitle || data?.title || `Задание ${assignmentId}`;

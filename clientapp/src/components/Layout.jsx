@@ -345,74 +345,146 @@ export default function Layout({ children, fullWidth = false }) {
             )}
           </div>
 
-          {/* Мобильное меню */}
-          {access && (
-            <div className="relative xl:hidden" ref={mobileMenuRef}>
-              <button
-                className="btn-outline"
-                onClick={() => setMobileOpen((v) => !v)}
-                title="Меню"
-              >
-                <Menu size={18} />
-              </button>
+          {/* Мобильное меню (гамбургер) — реальные кнопки/ссылки, совпадающие с десктопом */}
+          <div className="relative xl:hidden" ref={mobileMenuRef}>
+            <button
+              className="btn-outline"
+              onClick={() => setMobileOpen((v) => !v)}
+              title="Меню"
+              aria-haspopup="menu"
+              aria-expanded={mobileOpen}
+            >
+              <Menu size={18} />
+            </button>
 
-              {mobileOpen && (
-                <div className="absolute right-0 mt-2 w-64 card p-2 shadow-lg">
-                  <div className="flex flex-col">
-                    <Link
-                      to="/"
-                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      Курсы
-                    </Link>
+            {mobileOpen && (
+              <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
+                <div className="flex flex-col">
+                  <Link
+                    to="/courses"
+                    className="btn-ghost w-full justify-start"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    <PanelsTopLeft size={18} />
+                    <span className="ml-2">Курсы</span>
+                  </Link>
 
-                    <Link
-                      to="/settings"
-                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      Настройки
-                    </Link>
-                    <Link
-                      to="/my-solutions"
-                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      Мои решения
-                    </Link>
-                    <Link
-                      to="/top"
-                      className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      Топ
-                    </Link>
-
-                    {isAdmin && (
-                      <>
-                        <div className="my-2 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                        <Link
-                          to="/admin"
-                          className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                          onClick={() => setMobileOpen(false)}
+                  {access && (
+                    <>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          className="btn-ghost w-full justify-start"
+                          onClick={() => {
+                            toggle();
+                            setMobileOpen(false);
+                          }}
+                          title="Режим редактора"
                         >
-                          Админка
-                        </Link>
-                        <Link
-                          to="/admin/support"
-                          className="px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                          onClick={() => setMobileOpen(false)}
-                        >
-                          Техподдержка
-                        </Link>
-                      </>
-                    )}
-                  </div>
+                          {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
+                          <span className="ml-2">{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
+                        </button>
+                      )}
+
+                      <Link
+                        to="/settings"
+                        className="btn-ghost w-full justify-start"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <Settings size={18} />
+                        <span className="ml-2">Настройки</span>
+                      </Link>
+
+                      <Link
+                        to="/my/solutions"
+                        className="btn-ghost w-full justify-start"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <ListOrdered size={18} />
+                        <span className="ml-2">Мои решения</span>
+                      </Link>
+
+                      <Link
+                        to="/leaderboard"
+                        className="btn-ghost w-full justify-start"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <BarChart2 size={18} />
+                        <span className="ml-2">Топ</span>
+                      </Link>
+
+                      {isAdmin && (
+                        <>
+                          <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                          <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Админка</div>
+
+                          <Link
+                            to="/admin/solutions"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <ListOrdered size={18} />
+                            <span className="ml-2">Управление пользователями</span>
+                          </Link>
+                          <Link
+                            to="/admin/badges"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Award size={18} />
+                            <span className="ml-2">Бейджи</span>
+                          </Link>
+                          <Link
+                            to="/admin/groups"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Users size={18} />
+                            <span className="ml-2">Группы</span>
+                          </Link>
+                          <Link
+                            to="/admin/support"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <LifeBuoy size={18} />
+                            <span className="ml-2">Техподдержка</span>
+                          </Link>
+                        </>
+                      )}
+
+                      <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                      <button
+                        type="button"
+                        className="btn-ghost w-full justify-start"
+                        onClick={() => {
+                          setMobileOpen(false);
+                          handleLogout();
+                        }}
+                      >
+                        <LogOut size={18} />
+                        <span className="ml-2">Выйти</span>
+                      </button>
+                    </>
+                  )}
+
+                  {!access && (
+                    <>
+                      <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                      <Link
+                        to="/login"
+                        className="btn-ghost w-full justify-start"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <LogIn size={18} />
+                        <span className="ml-2">Войти</span>
+                      </Link>
+                    </>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

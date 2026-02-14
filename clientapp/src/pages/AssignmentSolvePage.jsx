@@ -80,13 +80,38 @@ export default function AssignmentSolvePage() {
       : `/assignment/${assignmentId}/image-results`
   ), [assignmentId]);
 
-  const openImageResults = React.useCallback((solutionId) => {
-    const url = buildImageResultsUrl(solutionId);
+  // Открываем вкладку строго в момент клика (иначе попап-блокеры, особенно на школьных ПК,
+  // режут открытие/редирект и пользователь видит "about:blank").
+  // Возвращаем ссылку на окно, чтобы после await редиректнуть ЕГО же через location.replace.
+  const openPopupWithLoading = React.useCallback((titleText = 'Готовим результат…') => {
     let w = null;
-    try { w = window.open(url, '_blank'); } catch { w = null; }
-    // Если попап заблокирован — открываем в текущей вкладке, чтобы пользователь всё равно увидел результаты
-    if (!w) nav(url);
-  }, [buildImageResultsUrl, nav]);
+    try { w = window.open('', '_blank'); } catch { w = null; }
+    if (!w) return null;
+
+    try {
+      w.document.open();
+      w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8" />
+<title>${titleText}</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+  .box{max-width:520px;padding:24px;text-align:center}
+  .small{opacity:.7;margin-top:10px;font-size:14px}
+</style>
+</head>
+<body>
+  <div class="box">
+    <div style="font-size:18px;font-weight:600;">${titleText}</div>
+    <div class="small">Окно обновится автоматически</div>
+  </div>
+</body></html>`);
+      w.document.close();
+    } catch {
+      // если запрещено писать в документ — просто оставим вкладку открытой
+    }
+
+    return w;
+  }, []);
   const notify = useNotify();
 
   const [a, setA] = useState(null);
@@ -358,10 +383,20 @@ export default function AssignmentSolvePage() {
       return w;
     };
 
+    const openImageResultsUrl = (url) => {
+      let w = null;
+      try { w = window.open(url, '_blank'); } catch { w = null; }
+      if (!w) setImgResultUrl(url);
+    };
+
     const onTrialImageTest = async () => {
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
+      setImgResultUrl('');
+
+      // Вкладку открываем СЕЙЧАС (в момент клика), иначе браузер может заблокировать попап/редирект.
+      const popup = openPopupWithLoading('Готовим результат (пробник)…');
       try {
         const resp = await runImageTestCode(assignmentId, language, code, true);
 
@@ -378,10 +413,15 @@ export default function AssignmentSolvePage() {
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
         const url = buildImageResultsUrl(resp?.solutionId);
-        // Не используем window.open после await — в школах/строгих браузерах
-        // попап-блокеры почти всегда режут открытие новой вкладки (получается about:blank).
-        // Переходим на страницу результата в текущей вкладке.
-        nav(url);
+
+        // Результат должен открыться в НОВОЙ вкладке, а страница с кодом остаться на месте.
+        // Поэтому редиректим уже открытую вкладку.
+        if (popup && !popup.closed) {
+          try { popup.location.replace(url); } catch { /* ignore */ }
+        } else {
+          // если попап заблокировали — дадим пользователю ссылку "Открыть результат"
+          setImgResultUrl(url);
+        }
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
       } finally {
@@ -400,6 +440,9 @@ export default function AssignmentSolvePage() {
       setImgBusy(true);
       setImgResultUrl('');
 
+      // Вкладку открываем СЕЙЧАС (в момент клика), иначе браузер может заблокировать попап/редирект.
+      const popup = openPopupWithLoading('Готовим результат…');
+
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, true);
 
@@ -417,9 +460,14 @@ export default function AssignmentSolvePage() {
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
         const url = buildImageResultsUrl(resp?.solutionId);
 
-        // Делаем как на "пробнике": не открываем новую вкладку (школьные браузеры часто дают about:blank),
-        // а переходим на страницу результата в текущей вкладке. Код при этом сохраняется в localStorage автосейвом.
-        nav(url);
+        // Результат должен открыться в НОВОЙ вкладке, а страница с кодом остаться на месте.
+        // Поэтому редиректим уже открытую вкладку.
+        if (popup && !popup.closed) {
+          try { popup.location.replace(url); } catch { /* ignore */ }
+        } else {
+          // если попап заблокировали — дадим пользователю ссылку "Открыть результат"
+          setImgResultUrl(url);
+        }
       } catch (e) {
         setImgError(e?.response?.data?.message || e?.message || 'Ошибка отправки');
       } finally {
@@ -526,7 +574,7 @@ export default function AssignmentSolvePage() {
 
                 <Button
                   variant="outline"
-                  onClick={() => openImageResults(null)}
+                  onClick={() => openImageResultsUrl(buildImageResultsUrl(null))}
                 >
                   Открыть последние результаты
                 </Button>
@@ -552,6 +600,16 @@ export default function AssignmentSolvePage() {
           <Button onClick={onSubmitImageTest} disabled={imgBusy || !code.trim() || !expectedUrl}>
             {imgBusy ? 'Выполняю…' : 'Отправить (сравнение)'}
           </Button>
+
+          {imgResultUrl ? (
+            <Button
+              variant="outline"
+              onClick={() => openImageResultsUrl(imgResultUrl)}
+              title="Если браузер заблокировал автоматическое открытие, нажмите сюда"
+            >
+              Открыть результат
+            </Button>
+          ) : null}
         </div>
       </Layout>
     );
