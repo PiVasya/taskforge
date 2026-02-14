@@ -349,30 +349,12 @@ export default function AssignmentSolvePage() {
     ];
 
     const openImageResultPopup = () => {
-      // Открываем вкладку строго в момент клика, иначе школьные браузеры часто блокируют
-      const w = window.open('', '_blank', 'noopener,noreferrer');
+      // Открываем вкладку строго в момент клика, иначе школьные браузеры часто блокируют.
+      // ВАЖНО: не открываем пустой about:blank (и не используем noopener/noreferrer),
+      // потому что в некоторых средах (особенно школьные ПК) это приводит к "белому" окну.
+      // Вместо этого открываем статическую страницу загрузки из public.
+      const w = window.open('/popup-loading.html', '_blank');
       if (!w) return null;
-
-      try {
-        w.document.open();
-        w.document.write(`<!doctype html><html><head><meta charset="utf-8" />
-          <title>TaskForge — загрузка результата…</title>
-          <style>
-            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-            .box{max-width:560px;padding:24px;text-align:center}
-            .small{opacity:.7;margin-top:8px}
-          </style>
-        </head><body>
-          <div class="box">
-            <div>Готовим результат…</div>
-            <div class="small">Окно обновится автоматически</div>
-          </div>
-        </body></html>`);
-        w.document.close();
-      } catch {
-        // если доступ к document запрещён политиками — ничего страшного
-      }
-
       return w;
     };
 
@@ -417,7 +399,7 @@ export default function AssignmentSolvePage() {
       setImgCompare(null);
       setImgBusy(true);
       setImgResultUrl('');
-      const popup = openImageResultPopup();
+
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, true);
 
@@ -434,15 +416,12 @@ export default function AssignmentSolvePage() {
 
         localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
         const url = buildImageResultsUrl(resp?.solutionId);
-        if (popup && !popup.closed) {
-          try { popup.location.replace(url); } catch { popup.location.href = url; }
-        } else {
-          // Попап заблокирован или окно закрыто — покажем кнопку пользователю
-          setImgResultUrl(url);
-          notify.error('Браузер заблокировал новую вкладку. Нажмите "Открыть результат".');
-        }
+
+        // Делаем как на "пробнике": не открываем новую вкладку (школьные браузеры часто дают about:blank),
+        // а переходим на страницу результата в текущей вкладке. Код при этом сохраняется в localStorage автосейвом.
+        nav(url);
       } catch (e) {
-        setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
+        setImgError(e?.response?.data?.message || e?.message || 'Ошибка отправки');
       } finally {
         setImgBusy(false);
       }

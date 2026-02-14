@@ -689,7 +689,13 @@ export default function AdminSolutionsPage() {
                             if (!ok) return;
                             try {
                               await deleteAdminImageSolution(item.id);
-                              await loadImageSolutions();
+                              setImageSolutions((prev) => prev.filter((x) => x.id !== item.id));
+                              setImageDetailsMap((prev) => {
+                                const copy = { ...prev };
+                                delete copy[item.id];
+                                return copy;
+                              });
+                              if (expandedImageId === item.id) setExpandedImageId(null);
                             } catch (e) {
                               console.error('Failed to delete image solution', e);
                             }
