@@ -220,8 +220,8 @@ html.dark:not(.blue):not(.pink):not(.apple) {
 
 /* Общие токены для dark (текст/бордеры/bs), не влияющие на фон темы */
 html.dark {
-  --text: 226 232 240;
-  --text-muted: 148 163 184;
+  --text: 245 247 250;
+  --text-muted: 200 206 215;
   /* border в dark лучше задавать в html.dark.<theme>, чтобы не получать
      «синеву» на pink/apple. Здесь оставляем запасной дефолт. */
   --border: 40 50 70;

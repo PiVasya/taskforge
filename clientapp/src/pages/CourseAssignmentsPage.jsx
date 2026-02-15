@@ -458,14 +458,14 @@ export default function CourseAssignmentsPage() {
                   <div
                     className={
                       "text-lg font-semibold truncate " +
-                      (solved ? "text-emerald-600" : "")
+                      (solved ? "opacity-70" : "")
                     }
                     title={a.title}
                   >
                     {a.title}
                   </div>
                   {solved && (
-                    <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 text-xs">
+                    <span className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 px-2 py-0.5 text-[rgb(var(--text))] text-xs opacity-70">
                       <CheckCircle2 size={14} />
                       Решено
                     </span>
@@ -488,7 +488,7 @@ export default function CourseAssignmentsPage() {
             <Card
               className={
                 "transition hover:shadow-lg " +
-                (solved ? "border-emerald-400/40 bg-emerald-500/5" : "")
+                (solved ? "opacity-60 hover:opacity-90" : "")
               }
             >
               {CardBody}
@@ -501,7 +501,7 @@ export default function CourseAssignmentsPage() {
             <Card
               className={
                 "relative transition hover:shadow-lg " +
-                (solved ? "border-emerald-400/40 bg-emerald-500/5" : "")
+                (solved ? "opacity-60 hover:opacity-90" : "")
               }
             >
               {EditorToolbar}
