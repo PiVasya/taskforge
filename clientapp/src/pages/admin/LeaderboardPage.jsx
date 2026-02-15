@@ -6,6 +6,7 @@ import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
 import { getGroups } from '../../api/groups';
 import LeaderboardCard from '../../components/LeaderboardCard';
+import QuotaPill from '../../components/QuotaPill';
 import { Card, Input, Select, Button } from '../../components/ui';
 
 export default function LeaderboardPage() {
@@ -81,7 +82,10 @@ export default function LeaderboardPage() {
   return (
     <Layout>
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Топ студентов</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Топ студентов</h1>
+          <QuotaPill bucket="top" />
+        </div>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Нажми на участника, чтобы открыть его профиль.
         </p>

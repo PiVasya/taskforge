@@ -2,6 +2,7 @@
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
+import QuotaPill from "../components/QuotaPill";
 import { Card, Button, Input } from "../components/ui";
 
 import { getCourse } from "../api/courses";
@@ -307,6 +308,7 @@ export default function CourseAssignmentsPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <QuotaPill bucket="tasks" />
           <div>
             <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input" title="Сортировка">
               {SORT_OPTIONS.map((o) => (

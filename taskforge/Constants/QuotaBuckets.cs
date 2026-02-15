@@ -2,10 +2,9 @@ namespace taskforge.Constants;
 
 public static class QuotaBuckets
 {
-    // Единый лимитер: один и тот же bucket используется и для заданий, и для топа.
+    // Квота для действий в заданиях (пробники/сабмиты/сравнения и т.п.)
     public const string Tasks = "tasks";
 
-    // Оставляем константу для обратной совместимости (в коде встречается QuotaBuckets.Top),
-    // но фактически это тот же bucket, что и Tasks.
-    public const string Top = Tasks;
+    // Отдельная квота для страницы "Топ" (лидерборд)
+    public const string Top = "top";
 }

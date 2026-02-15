@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import Layout from '../components/Layout';
+import QuotaPill from '../components/QuotaPill';
 import { Card, Button, Select, Textarea, Badge } from '../components/ui';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
@@ -349,6 +350,7 @@ export default function AssignmentSolvePage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
+            <QuotaPill bucket="tasks" />
             <IfEditor>
               <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
                 Редактировать
@@ -489,6 +491,7 @@ export default function AssignmentSolvePage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
+            <QuotaPill bucket="tasks" />
             <IfEditor>
               <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
                 Редактировать
