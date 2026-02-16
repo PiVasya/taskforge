@@ -392,7 +392,7 @@ header .btn-primary {
 }
 
 /* ====== Контролы ====== */
-.btn { @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap; }
+.btn { @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap min-h-[40px] min-w-[10ch]; }
 .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99]; }
 .btn-ghost { @apply btn bg-transparent; }
 .btn-ghost:hover { background: rgba(var(--border) / 0.16); }
