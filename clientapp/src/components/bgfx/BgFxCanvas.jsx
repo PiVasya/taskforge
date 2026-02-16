@@ -230,7 +230,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       const rect = canvas.getBoundingClientRect();
       w = Math.max(1, Math.floor(rect.width));
       h = Math.max(1, Math.floor(rect.height));
+      // Для тяжёлых эффектов (например, «Соты»), держим DPR=1 — иначе лаги на слабых ПК.
       dpr = clamp(window.devicePixelRatio || 1, 1, 2);
+      if (preset === 6) dpr = 1;
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -244,6 +246,12 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
       // matrix drops
       state.matrix = [];
+
+      // honeycomb cache
+      state.honey.hexR = 0;
+      state.honey.hexPts = null;
+      state.honey._fpsAcc = 0;
+      state.honey._fpsNow = 0;
 
       // Плотность зависит от площади
       const area = w * h;
@@ -805,59 +813,64 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       if (preset === 6) {
         const now = state.t;
 
-        // иногда рандомизируем «ритм» (вместо dblclick в демо)
+        // Идея: упростить демо «Honeycomb», чтобы не лагало.
+        // Убираем blur+glow+sparks+bloom+grain, делаем один быстрый проход по сетке.
+        // Волны — в ~10 раз медленнее и с редкими случайными «перестройками».
+
         state.honey.nextJitter -= dt;
         if (state.honey.nextJitter <= 0) {
-          state.honey.nextJitter = rand(8, 16);
-          state.honey.driftA = rand(-0.00008, 0.00008);
-          state.honey.driftB = rand(-0.00008, 0.00008);
+          state.honey.nextJitter = rand(10, 18);
+          state.honey.driftA = rand(-0.00003, 0.00003);
           state.honey.phaseA = rand(0, 9999);
-          state.honey.phaseB = rand(0, 9999);
         }
-
-        // медленный дрейф (волны в ~10 раз медленнее, чем в демо)
         state.honey.phaseA += state.honey.driftA * dt;
-        state.honey.phaseB += state.honey.driftB * dt;
 
-        const [h1] = rgbToHsl(fx1);
-        const [h2] = rgbToHsl(fx2);
-        const hueA = h1;
-        const hueB = h2;
+        const [hue] = rgbToHsl(fx1);
 
-        // background base
         ctx.save();
+
+        // фон (лёгкий)
         const bg = ctx.createLinearGradient(0, 0, w, h);
         if (isDarkTheme()) {
-          bg.addColorStop(0, 'rgba(5, 4, 9, 1)');
-          bg.addColorStop(0.5, 'rgba(9, 7, 12, 1)');
-          bg.addColorStop(1, 'rgba(3, 2, 7, 1)');
+          bg.addColorStop(0, 'rgba(6, 6, 9, 1)');
+          bg.addColorStop(1, 'rgba(2, 2, 4, 1)');
         } else {
-          bg.addColorStop(0, rgbaB(fg, 0.06));
-          bg.addColorStop(0.5, 'rgba(255,255,255,0.85)');
-          bg.addColorStop(1, rgbaB(fg, 0.05));
+          bg.addColorStop(0, 'rgba(255,255,255,0.92)');
+          bg.addColorStop(1, 'rgba(255,255,255,0.78)');
         }
         ctx.fillStyle = bg;
         ctx.fillRect(0, 0, w, h);
 
-        // parallax
-        const px = pointer.has ? (pointer.x / dpr - w * 0.5) : 0;
-        const py = pointer.has ? (pointer.y / dpr - h * 0.5) : 0;
-        const ox = -px * 0.03;
-        const oy = -py * 0.03;
+        // parallax (очень лёгкий)
+        const px = pointer.has ? (pointer.x - w * 0.5) : 0;
+        const py = pointer.has ? (pointer.y - h * 0.5) : 0;
+        const ox = -px * 0.02;
+        const oy = -py * 0.02;
 
-        // size relative
-        const base = clamp(Math.sqrt(w * h) / 42, 18, 34);
-        const r = base;
+        // делаем соты крупнее => меньше ячеек => быстрее
+        const r = clamp(Math.sqrt(w * h) / 26, 30, 60);
         const ww = Math.sqrt(3) * r;
         const hh = 2 * r;
         const rowStep = 1.5 * r;
 
-        const cx = pointer.has ? pointer.x / dpr : w * 0.55;
-        const cy = pointer.has ? pointer.y / dpr : h * 0.52;
+        // кеш точек шестиугольника (без тригонометрии в цикле)
+        if (!state.honey.hexPts || state.honey.hexR !== r) {
+          state.honey.hexR = r;
+          const pts = [];
+          for (let i = 0; i < 6; i += 1) {
+            const a = TAU * (i / 6) + Math.PI / 6; // flat-top
+            pts.push({ x: Math.cos(a) * (r * 0.94), y: Math.sin(a) * (r * 0.94) });
+          }
+          state.honey.hexPts = pts;
+        }
 
-        // glow pass
-        ctx.globalCompositeOperation = 'screen';
-        ctx.filter = `blur(${10}px)`;
+        // Цвет линии один, меняем только alpha/width
+        ctx.globalCompositeOperation = isDarkTheme() ? 'screen' : 'multiply';
+        ctx.strokeStyle = `hsla(${hue}, 92%, ${isDarkTheme() ? 60 : 42}%, 1)`;
+
+        const cx = pointer.has ? pointer.x : w * 0.55;
+        const cy = pointer.has ? pointer.y : h * 0.52;
+        const falloff2 = 320 * 320;
 
         let row = 0;
         for (let y = -hh + oy; y < h + hh; y += rowStep, row += 1) {
@@ -865,81 +878,34 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           for (let x = -ww + ox; x < w + ww; x += ww) {
             const hx = x + xOff;
             const hy = y;
+
+            // лёгкая «волна» без sqrt — от положения клетки
+            const wave = Math.sin((hx * 0.014 + hy * 0.011) - now * 0.00018 + state.honey.phaseA) * 0.5 + 0.5;
+
+            // подсветка около курсора (без sqrt)
             const dx = hx - cx;
             const dy = hy - cy;
-            const d = Math.sqrt(dx * dx + dy * dy);
+            const d2 = dx * dx + dy * dy;
+            const ring = pointer.has ? Math.exp(-d2 / falloff2) : 0.12;
 
-            const wave = Math.sin(d / 46 - now * 0.0004 + state.honey.phaseA) * 0.5 + 0.5;
-            const ring = Math.exp(-Math.pow(d / 220, 2));
-            const local = 0.22 + 0.78 * ring;
-            const aGlow = (0.018 + 0.07 * local) * (0.55 + 0.75 * wave);
-            const hue = hueB + (hueA - hueB) * clamp(local, 0, 1);
-            drawHexFillGlow(hx, hy, r * 0.92, aGlow * (isDarkTheme() ? 1 : 0.6), hue);
+            // видимость по всей сетке + усиление возле курсора
+            const a = (0.06 + 0.10 * wave) + ring * (0.10 + 0.14 * wave);
+            const width = 0.9 + ring * 1.6;
+
+            ctx.globalAlpha = a * (isDarkTheme() ? 0.85 : 0.55) * alphaBoost();
+            ctx.lineWidth = width;
+
+            const pts = state.honey.hexPts;
+            ctx.beginPath();
+            ctx.moveTo(hx + pts[0].x, hy + pts[0].y);
+            ctx.lineTo(hx + pts[1].x, hy + pts[1].y);
+            ctx.lineTo(hx + pts[2].x, hy + pts[2].y);
+            ctx.lineTo(hx + pts[3].x, hy + pts[3].y);
+            ctx.lineTo(hx + pts[4].x, hy + pts[4].y);
+            ctx.lineTo(hx + pts[5].x, hy + pts[5].y);
+            ctx.closePath();
+            ctx.stroke();
           }
-        }
-
-        ctx.filter = 'none';
-
-        // stroke pass
-        let rrow = 0;
-        for (let y = -hh + oy; y < h + hh; y += rowStep, rrow += 1) {
-          const xOff = rrow % 2 ? ww / 2 : 0;
-          for (let x = -ww + ox; x < w + ww; x += ww) {
-            const hx = x + xOff;
-            const hy = y;
-            const dx = hx - cx;
-            const dy = hy - cy;
-            const d = Math.sqrt(dx * dx + dy * dy);
-
-            const wave = Math.sin(d / 52 - now * 0.00042 + state.honey.phaseB) * 0.5 + 0.5;
-            const ring = Math.exp(-Math.pow(d / 260, 2));
-            const local = 0.18 + 0.82 * ring;
-            const alpha = (0.06 + 0.28 * local) * (0.55 + 0.55 * wave);
-            const width = (0.9 + 1.9 * local);
-            const hue = 0.5 * (hueA + hueB) + (hueA - hueB) * (clamp(local, 0, 1) - 0.5);
-            drawHexStroke(hx, hy, r * 0.94, alpha * (isDarkTheme() ? 0.55 : 0.25), width, hue);
-
-            if (ring > 0.62 && Math.random() < 0.0007) {
-              spawnSpark((hx + rand(-8, 8)), (hy + rand(-8, 8)));
-            }
-          }
-        }
-
-        // sparks
-        ctx.globalCompositeOperation = 'screen';
-        for (let i = sparks.length - 1; i >= 0; i -= 1) {
-          const s = sparks[i];
-          s.life -= 0.018 * (dt / 0.016);
-          s.vx *= 0.99;
-          s.vy *= 0.99;
-          s.x += s.vx * (dt * 60);
-          s.y += s.vy * (dt * 60);
-          const a = clamp(s.life, 0, 1);
-          const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 28);
-          g.addColorStop(0, `hsla(${hueA}, 90%, 70%, ${0.35 * a})`);
-          g.addColorStop(0.35, `hsla(${hueB}, 90%, 55%, ${0.16 * a})`);
-          g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, 28, 0, TAU);
-          ctx.fill();
-          ctx.fillStyle = `hsla(${hueA}, 90%, 85%, ${0.75 * a})`;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.r, 0, TAU);
-          ctx.fill();
-          if (s.life <= 0) sparks.splice(i, 1);
-        }
-
-        // subtle bloom
-        ctx.globalAlpha = 0.10;
-        ctx.drawImage(canvas, 0, 0, w, h);
-        ctx.globalAlpha = 1;
-
-        // grain
-        if (state.honey.grain) {
-          ctx.globalCompositeOperation = 'overlay';
-          ctx.globalAlpha = 0.20;
-          ctx.drawImage(state.honey.grain, 0, 0, state.honey.grain.width, state.honey.grain.height, 0, 0, w, h);
         }
 
         ctx.restore();
@@ -949,9 +915,23 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
     let last = performance.now();
     const tick = (now) => {
-      const dt = clamp((now - last) / 1000, 0.001, 0.05);
-      last = now;
-      step(dt);
+      // Для «Сот» режем FPS до ~30, чтобы не убивать слабые машины.
+      if (preset === 6) {
+        const ms = now - last;
+        last = now;
+        state.honey._fpsAcc = (state.honey._fpsAcc || 0) + ms;
+        if (state.honey._fpsAcc < 33) {
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        const dt = clamp((state.honey._fpsAcc / 1000), 0.001, 0.05);
+        state.honey._fpsAcc = 0;
+        step(dt);
+      } else {
+        const dt = clamp((now - last) / 1000, 0.001, 0.05);
+        last = now;
+        step(dt);
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
 
