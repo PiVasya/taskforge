@@ -74,45 +74,6 @@ export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
 
-  // image-test: ссылка на страницу сравнения картинок (открывается в новой вкладке)
-  const buildImageResultsUrl = React.useCallback((solutionId) => (
-    solutionId
-      ? `/assignment/${assignmentId}/image-results?solutionId=${encodeURIComponent(solutionId)}`
-      : `/assignment/${assignmentId}/image-results`
-  ), [assignmentId]);
-
-  // Открываем вкладку строго в момент клика (иначе попап-блокеры, особенно на школьных ПК,
-  // режут открытие/редирект и пользователь видит "about:blank").
-  // Возвращаем ссылку на окно, чтобы после await редиректнуть ЕГО же через location.replace.
-  const openPopupWithLoading = React.useCallback((titleText = 'Готовим результат…') => {
-    let w = null;
-    try { w = window.open('', '_blank'); } catch { w = null; }
-    if (!w) return null;
-
-    try {
-      w.document.open();
-      w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8" />
-<title>${titleText}</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-  .box{max-width:520px;padding:24px;text-align:center}
-  .small{opacity:.7;margin-top:10px;font-size:14px}
-</style>
-</head>
-<body>
-  <div class="box">
-    <div style="font-size:18px;font-weight:600;">${titleText}</div>
-    <div class="small">Окно обновится автоматически</div>
-  </div>
-</body></html>`);
-      w.document.close();
-    } catch {
-      // если запрещено писать в документ — просто оставим вкладку открытой
-    }
-
-    return w;
-  }, []);
   const notify = useNotify();
 
   const [a, setA] = useState(null);
@@ -135,7 +96,6 @@ export default function AssignmentSolvePage() {
   const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
   const [imgMode, setImgMode] = useState("code"); // code | upload
   const [imgIsRunning, setImgIsRunning] = useState(false);
-  const [imgResultUrl, setImgResultUrl] = useState(''); // если попап заблокирован — даём кнопку
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -375,57 +335,41 @@ export default function AssignmentSolvePage() {
       { value: 'pascal', label: 'Pascal' },
     ];
 
-    const openImageResultPopup = () => {
-      // Открываем вкладку строго в момент клика, иначе школьные браузеры часто блокируют.
-      // ВАЖНО: не открываем пустой about:blank (и не используем noopener/noreferrer),
-      // потому что в некоторых средах (особенно школьные ПК) это приводит к "белому" окну.
-      // Вместо этого открываем статическую страницу загрузки из public.
-      const w = window.open('/popup-loading.html', '_blank');
-      if (!w) return null;
-      return w;
-    };
-
     const openImageResultsUrl = (url) => {
-      let w = null;
-      try { w = window.open(url, '_blank'); } catch { w = null; }
-      if (!w) setImgResultUrl(url);
+      try { 
+        window.open(url, '_blank'); 
+      } catch (e) {
+        console.warn('Failed to open results window:', e);
+      }
     };
 
     const onTrialImageTest = async () => {
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
-      setImgResultUrl('');
 
-      // Вкладку открываем СЕЙЧАС (в момент клика), иначе браузер может заблокировать попап/редирект.
-      const popup = openPopupWithLoading('Готовим результат (пробник)…');
       try {
         const resp = await runImageTestCode(assignmentId, language, code, true);
-
-        const payload = {
-          ...resp,
-          expectedUrl: expectedUrl,
-          actualUrl: resp?.renderedUrl || resp?.submittedUrl || resp?.actualUrl,
-          assignmentId,
-          assignmentTitle: a.title,
-          language,
-          isTrial: true,
-          createdAt: new Date().toISOString(),
-        };
-
-        localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        const url = buildImageResultsUrl(resp?.solutionId);
-
-        // Результат должен открыться в НОВОЙ вкладке, а страница с кодом остаться на месте.
-        // Поэтому редиректим уже открытую вкладку.
-        if (popup && !popup.closed) {
-          try { popup.location.replace(url); } catch { /* ignore */ }
+        
+        // Показываем результат inline
+        if (resp?.ok && resp?.renderedUrl) {
+          setImgCompare({
+            passed: null, // пробник без сравнения
+            similarityPercent: null,
+            thresholdPercent: null,
+            expectedUrl: expectedUrl,
+            actualUrl: resp.renderedUrl,
+            stdout: resp.stdout || '',
+            stderr: resp.stderr || '',
+            isTrial: true,
+          });
         } else {
-          // если попап заблокировали — дадим пользователю ссылку "Открыть результат"
-          setImgResultUrl(url);
+          const errMsg = resp?.runnerError || resp?.stderr || 'Не удалось сгенерировать картинку';
+          setImgError(errMsg);
         }
       } catch (e) {
-        setImgError(e?.response?.data?.message || e?.message || 'Ошибка выполнения');
+        const errMsg = e?.response?.data?.message || e?.response?.data?.runnerError || e?.message || 'Ошибка выполнения';
+        setImgError(errMsg);
       } finally {
         setImgBusy(false);
       }
@@ -440,38 +384,36 @@ export default function AssignmentSolvePage() {
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
-      setImgResultUrl('');
-
-      // Вкладку открываем СЕЙЧАС (в момент клика), иначе браузер может заблокировать попап/редирект.
-      const popup = openPopupWithLoading('Готовим результат…');
 
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, true);
-
-        const payload = {
-          ...resp,
-          expectedUrl: resp?.referenceUrl || expectedUrl,
-          actualUrl: resp?.submittedUrl || resp?.actualUrl,
-          assignmentId,
-          assignmentTitle: a.title,
-          language,
-          isTrial: false,
-          createdAt: new Date().toISOString(),
-        };
-
-        localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(payload));
-        const url = buildImageResultsUrl(resp?.solutionId);
-
-        // Результат должен открыться в НОВОЙ вкладке, а страница с кодом остаться на месте.
-        // Поэтому редиректим уже открытую вкладку.
-        if (popup && !popup.closed) {
-          try { popup.location.replace(url); } catch { /* ignore */ }
+        
+        // Показываем результат inline
+        if (resp?.ok) {
+          setImgCompare({
+            passed: resp.passed,
+            similarityPercent: resp.similarityPercent,
+            thresholdPercent: resp.thresholdPercent,
+            expectedUrl: resp.referenceUrl || expectedUrl,
+            actualUrl: resp.submittedUrl,
+            stdout: resp.stdout || '',
+            stderr: resp.stderr || '',
+            isTrial: false,
+          });
+          
+          // Показываем уведомление о результате
+          if (resp.passed) {
+            notify.success(`Задание выполнено! Схожесть: ${Math.round(resp.similarityPercent)}%`);
+          } else {
+            notify.warning(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
+          }
         } else {
-          // если попап заблокировали — дадим пользователю ссылку "Открыть результат"
-          setImgResultUrl(url);
+          const errMsg = resp?.runnerError || resp?.stderr || 'Не удалось проверить решение';
+          setImgError(errMsg);
         }
       } catch (e) {
-        setImgError(e?.response?.data?.message || e?.message || 'Ошибка отправки');
+        const errMsg = e?.response?.data?.message || e?.response?.data?.runnerError || e?.message || 'Ошибка отправки';
+        setImgError(errMsg);
       } finally {
         setImgBusy(false);
       }
@@ -575,9 +517,74 @@ export default function AssignmentSolvePage() {
                   </div>
                 ) : null}
 
+                {/* Результаты выполнения */}
+                {imgCompare && (
+                  <Card className="p-4 space-y-3 border-emerald-400/30 bg-emerald-500/5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold">Результат</h3>
+                      {imgCompare.isTrial ? (
+                        <Badge variant="outline">Пробник</Badge>
+                      ) : imgCompare.passed ? (
+                        <Badge intent="success">Пройдено ✓</Badge>
+                      ) : (
+                        <Badge intent="danger">Не пройдено</Badge>
+                      )}
+                    </div>
+
+                    {!imgCompare.isTrial && imgCompare.similarityPercent != null && (
+                      <div className="text-sm">
+                        <div>Схожесть: <strong>{Math.round(imgCompare.similarityPercent)}%</strong></div>
+                        <div>Порог: <strong>{Math.round(imgCompare.thresholdPercent)}%</strong></div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {imgCompare.expectedUrl && (
+                        <div>
+                          <div className="text-xs font-medium mb-1">Эталон</div>
+                          <img 
+                            src={imgCompare.expectedUrl} 
+                            alt="Эталон" 
+                            className="w-full border border-neutral-300 dark:border-neutral-600 rounded"
+                          />
+                        </div>
+                      )}
+                      {imgCompare.actualUrl && (
+                        <div>
+                          <div className="text-xs font-medium mb-1">Ваш результат</div>
+                          <img 
+                            src={imgCompare.actualUrl} 
+                            alt="Результат" 
+                            className="w-full border border-neutral-300 dark:border-neutral-600 rounded"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {(imgCompare.stdout || imgCompare.stderr) && (
+                      <details className="text-xs">
+                        <summary className="cursor-pointer font-medium">Вывод программы</summary>
+                        {imgCompare.stdout && (
+                          <pre className="mt-2 p-2 bg-neutral-100 dark:bg-neutral-800 rounded overflow-x-auto">
+                            {imgCompare.stdout}
+                          </pre>
+                        )}
+                        {imgCompare.stderr && (
+                          <pre className="mt-2 p-2 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 rounded overflow-x-auto">
+                            {imgCompare.stderr}
+                          </pre>
+                        )}
+                      </details>
+                    )}
+                  </Card>
+                )}
+
                 <Button
                   variant="outline"
-                  onClick={() => openImageResultsUrl(buildImageResultsUrl(null))}
+                  onClick={() => {
+                    const url = `/assignment/${assignmentId}/image-results`;
+                    openImageResultsUrl(url);
+                  }}
                 >
                   Открыть последние результаты
                 </Button>
@@ -598,21 +605,11 @@ export default function AssignmentSolvePage() {
             </Button>
           )}
           <Button variant="outline" onClick={onTrialImageTest} disabled={imgBusy || !code.trim()}>
-            {imgBusy ? 'Выполняю…' : 'Пробник'}
+            {imgBusy ? 'Генерация картинки...' : 'Пробник'}
           </Button>
           <Button onClick={onSubmitImageTest} disabled={imgBusy || !code.trim() || !expectedUrl}>
-            {imgBusy ? 'Выполняю…' : 'Отправить (сравнение)'}
+            {imgBusy ? 'Отправка...' : 'Отправить (сравнение)'}
           </Button>
-
-          {imgResultUrl ? (
-            <Button
-              variant="outline"
-              onClick={() => openImageResultsUrl(imgResultUrl)}
-              title="Если браузер заблокировал автоматическое открытие, нажмите сюда"
-            >
-              Открыть результат
-            </Button>
-          ) : null}
         </div>
       </Layout>
     );

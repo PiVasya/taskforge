@@ -45,6 +45,8 @@ export async function runImageTestCode(assignmentId, language, code, debug = tru
     language,
     code,
     debug,
+  }, {
+    timeout: 60000, // 60 секунд для генерации картинки
   });
   emitQuotaChanged();
   return res.data;
@@ -56,6 +58,8 @@ export async function submitImageTestCode(assignmentId, language, code, debug = 
     language,
     code,
     debug,
+  }, {
+    timeout: 90000, // 90 секунд для генерации + сравнения с нейронкой
   });
   emitQuotaChanged();
   return res.data;
