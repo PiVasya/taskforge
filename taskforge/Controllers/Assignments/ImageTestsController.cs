@@ -94,13 +94,13 @@ public sealed class ImageTestsController : ControllerBase
         public string? MimeType { get; init; }
     }
 
-    public sealed record CompareCodeRequest(string Language, string Code, bool Debug = true);
+    public sealed record CompareCodeRequest(string Language, string Code, bool Debug = false);
 
     /// <summary>
     /// "Пробный запуск" рисовалки: просто рендер без сравнения.
     /// По желанию можно включить сравнение с эталоном.
     /// </summary>
-    public sealed record RunCodeRequest(string Language, string Code, bool Debug = true, bool CompareWithReference = false);
+    public sealed record RunCodeRequest(string Language, string Code, bool Debug = false, bool CompareWithReference = false);
 
     public sealed record ImageTestRunResponse(
         bool Ok,
@@ -393,8 +393,10 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        var isAdmin = User.IsInRole("Admin");
+        var effectiveDebug = isAdmin && req.Debug;
         _log.LogInformation("RunCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len} debug={Debug} compare={Compare}",
-            trace, assignmentId, req.Language, req.Code?.Length ?? 0, req.Debug, req.CompareWithReference);
+            trace, assignmentId, req.Language, req.Code?.Length ?? 0, effectiveDebug, req.CompareWithReference);
 
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
         if (a is null) return NotFound();
@@ -430,7 +432,7 @@ public sealed class ImageTestsController : ControllerBase
         string stderr = "";
         string? runnerErr = null;
 
-        if (req.Debug && lang == "python")
+        if (effectiveDebug && lang == "python")
         {
             try
             {
@@ -442,8 +444,8 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: "Image runner timed out",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
@@ -456,9 +458,9 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
-                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.ResponseBody}",
+                    Stdout: "",
+                    Stderr: "",
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode})",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
@@ -470,14 +472,15 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: $"Image runner request failed: {ex.Message}",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
                     ReferenceUrl: null));
             }
+            // stdout/stderr никогда не уходят на фронт.
             stdout = debug.Stdout;
             stderr = debug.Stderr;
             runnerErr = debug.Error;
@@ -489,8 +492,8 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: runnerErr,
                     SimilarityPercent: null,
                     ThresholdPercent: null,
@@ -510,8 +513,8 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: "Image runner timed out",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
@@ -524,9 +527,9 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
-                    RunnerError: $"Image runner failed ({(int)ex.StatusCode}): {ex.ResponseBody}",
+                    Stdout: "",
+                    Stderr: "",
+                    RunnerError: $"Image runner failed ({(int)ex.StatusCode})",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
                     Passed: null,
@@ -538,8 +541,8 @@ public sealed class ImageTestsController : ControllerBase
                     Ok: false,
                     RenderedKey: null,
                     RenderedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: $"Image runner request failed: {ex.Message}",
                     SimilarityPercent: null,
                     ThresholdPercent: null,
@@ -554,8 +557,8 @@ public sealed class ImageTestsController : ControllerBase
                 Ok: false,
                 RenderedKey: null,
                 RenderedUrl: null,
-                Stdout: stdout,
-                Stderr: stderr,
+                Stdout: "",
+                Stderr: "",
                 RunnerError: runnerErr ?? "Empty image returned",
                 SimilarityPercent: null,
                 ThresholdPercent: null,
@@ -579,8 +582,8 @@ public sealed class ImageTestsController : ControllerBase
             similarityPercent: null,
             thresholdPercent: null,
             passed: null,
-            stdout: stdout,
-            stderr: stderr,
+            stdout: string.Empty,
+            stderr: string.Empty,
             runnerError: runnerErr,
             ct);
 
@@ -588,8 +591,8 @@ public sealed class ImageTestsController : ControllerBase
             Ok: true,
             RenderedKey: renderedKey,
             RenderedUrl: renderedUrl,
-            Stdout: stdout,
-            Stderr: stderr,
+            Stdout: "",
+            Stderr: "",
             RunnerError: runnerErr,
             SimilarityPercent: null,
             ThresholdPercent: null,
@@ -608,6 +611,8 @@ public sealed class ImageTestsController : ControllerBase
     public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
+        var isAdmin = User.IsInRole("Admin");
+        var effectiveDebug = isAdmin && req.Debug;
         DebugConsole.Log("ImageTests", $"CompareCode start trace={trace} assignmentId={assignmentId} lang={req.Language} codeLen={req.Code?.Length ?? 0} debug={req.Debug}");
         _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req.Language, req.Code?.Length ?? 0);
         var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
@@ -638,7 +643,7 @@ var userId = _currentUser.GetUserId();
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
         if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
 
-        if (req.Debug && lang == "python")
+        if (effectiveDebug && lang == "python")
         {
             debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
             stdout = debug.Stdout;
@@ -658,8 +663,8 @@ var userId = _currentUser.GetUserId();
                     SubmittedKey: null,
                     ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                     SubmittedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: runnerErr));
             }
         }
@@ -681,13 +686,13 @@ var userId = _currentUser.GetUserId();
                     SubmittedKey: null,
                     ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                     SubmittedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: runnerErr));
             }
             catch (taskforge.Services.ImageRunners.ImageRunnerHttpException ex)
             {
-                runnerErr = $"Image runner failed ({(int)ex.StatusCode}): {ex.ResponseBody}";
+                runnerErr = $"Image runner failed ({(int)ex.StatusCode})";
                 return Ok(new ImageTestCompareResponse(
                     Ok: false,
                     SimilarityPercent: 0,
@@ -697,8 +702,8 @@ var userId = _currentUser.GetUserId();
                     SubmittedKey: null,
                     ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                     SubmittedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: runnerErr));
             }
             catch (HttpRequestException ex)
@@ -713,8 +718,8 @@ var userId = _currentUser.GetUserId();
                     SubmittedKey: null,
                     ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                     SubmittedUrl: null,
-                    Stdout: stdout,
-                    Stderr: stderr,
+                    Stdout: "",
+                    Stderr: "",
                     RunnerError: runnerErr));
             }
         }
@@ -731,8 +736,8 @@ var userId = _currentUser.GetUserId();
                 SubmittedKey: null,
                 ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                 SubmittedUrl: null,
-                Stdout: stdout,
-                Stderr: stderr,
+                Stdout: "",
+                Stderr: "",
                 RunnerError: runnerErr ?? "Empty image returned"));
         }
 
@@ -766,8 +771,8 @@ var userId = _currentUser.GetUserId();
                 similarityPercent: null,
                 thresholdPercent: thresholdPercent,
                 passed: null,
-                stdout: stdout,
-                stderr: stderr,
+                stdout: string.Empty,
+                stderr: string.Empty,
                 runnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
                 ct);
 
@@ -780,8 +785,8 @@ var userId = _currentUser.GetUserId();
                 SubmittedKey: submittedKey,
                 ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                 SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
-                Stdout: stdout,
-                Stderr: stderr,
+                Stdout: "",
+                Stderr: "",
                 RunnerError: "Сервис сравнения изображений временно недоступен. Попробуйте позже.",
                 SolutionId: solutionId503));
         }
@@ -804,8 +809,8 @@ var userId = _currentUser.GetUserId();
                 similarityPercent: null,
                 thresholdPercent: thresholdPercent,
                 passed: null,
-                stdout: stdout,
-                stderr: stderr,
+                stdout: string.Empty,
+                stderr: string.Empty,
                 runnerError: runnerErr ?? $"Image similarity failed: {ex.GetType().Name}: {ex.Message}",
                 ct);
 
@@ -818,8 +823,8 @@ var userId = _currentUser.GetUserId();
                 SubmittedKey: submittedKey,
                 ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
                 SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
-                Stdout: stdout,
-                Stderr: stderr,
+                Stdout: "",
+                Stderr: "",
                 RunnerError: runnerErr ?? $"Image similarity failed: {ex.GetType().Name}: {ex.Message}",
                 SolutionId: solutionIdFail));
         }
@@ -839,8 +844,8 @@ var userId = _currentUser.GetUserId();
             similarityPercent: similarityPercent,
             thresholdPercent: thresholdPercent,
             passed: passed,
-            stdout: stdout,
-            stderr: stderr,
+            stdout: string.Empty,
+            stderr: string.Empty,
             runnerError: runnerErr,
             ct);
 
@@ -853,8 +858,8 @@ var userId = _currentUser.GetUserId();
             SubmittedKey: submittedKey,
             ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
             SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
-            Stdout: stdout,
-            Stderr: stderr,
+            Stdout: "",
+            Stderr: "",
             RunnerError: runnerErr,
             SolutionId: solutionId);
 

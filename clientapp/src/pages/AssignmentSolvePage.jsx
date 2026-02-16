@@ -339,7 +339,6 @@ export default function AssignmentSolvePage() {
       try { 
         window.open(url, '_blank'); 
       } catch (e) {
-        console.warn('Failed to open results window:', e);
       }
     };
 
@@ -349,7 +348,7 @@ export default function AssignmentSolvePage() {
       setImgBusy(true);
 
       try {
-        const resp = await runImageTestCode(assignmentId, language, code, true);
+        const resp = await runImageTestCode(assignmentId, language, code);
         
         // Показываем результат inline
         if (resp?.ok && resp?.renderedUrl) {
@@ -359,12 +358,10 @@ export default function AssignmentSolvePage() {
             thresholdPercent: null,
             expectedUrl: expectedUrl,
             actualUrl: resp.renderedUrl,
-            stdout: resp.stdout || '',
-            stderr: resp.stderr || '',
             isTrial: true,
           });
         } else {
-          const errMsg = resp?.runnerError || resp?.stderr || 'Не удалось сгенерировать картинку';
+          const errMsg = resp?.runnerError || 'Не удалось сгенерировать картинку';
           setImgError(errMsg);
         }
       } catch (e) {
@@ -386,7 +383,7 @@ export default function AssignmentSolvePage() {
       setImgBusy(true);
 
       try {
-        const resp = await submitImageTestCode(assignmentId, language, code, true);
+        const resp = await submitImageTestCode(assignmentId, language, code);
         
         // Показываем результат inline
         if (resp?.ok) {
@@ -396,8 +393,6 @@ export default function AssignmentSolvePage() {
             thresholdPercent: resp.thresholdPercent,
             expectedUrl: resp.referenceUrl || expectedUrl,
             actualUrl: resp.submittedUrl,
-            stdout: resp.stdout || '',
-            stderr: resp.stderr || '',
             isTrial: false,
           });
           
@@ -408,7 +403,7 @@ export default function AssignmentSolvePage() {
             notify.warning(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
           }
         } else {
-          const errMsg = resp?.runnerError || resp?.stderr || 'Не удалось проверить решение';
+          const errMsg = resp?.runnerError || 'Не удалось проверить решение';
           setImgError(errMsg);
         }
       } catch (e) {
@@ -560,22 +555,6 @@ export default function AssignmentSolvePage() {
                         </div>
                       )}
                     </div>
-
-                    {(imgCompare.stdout || imgCompare.stderr) && (
-                      <details className="text-xs">
-                        <summary className="cursor-pointer font-medium">Вывод программы</summary>
-                        {imgCompare.stdout && (
-                          <pre className="mt-2 p-2 bg-neutral-100 dark:bg-neutral-800 rounded overflow-x-auto">
-                            {imgCompare.stdout}
-                          </pre>
-                        )}
-                        {imgCompare.stderr && (
-                          <pre className="mt-2 p-2 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 rounded overflow-x-auto">
-                            {imgCompare.stderr}
-                          </pre>
-                        )}
-                      </details>
-                    )}
                   </Card>
                 )}
 

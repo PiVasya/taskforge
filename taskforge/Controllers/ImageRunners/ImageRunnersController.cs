@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using taskforge.Services.ImageRunners;
 
 namespace taskforge.Controllers.ImageRunners;
 
+[Authorize]
 [ApiController]
 [Route("api/image-runners")]
 public sealed class ImageRunnersController : ControllerBase
@@ -26,7 +28,8 @@ public sealed class ImageRunnersController : ControllerBase
             // Минимальная программа, которая создаёт пустой кадр через turtle.
             var pingCode = "import turtle as t\ns=t.Screen(); s.setup(10,10)\nt.done()";
             var r = await _imageRunner.RenderDebugAsync(language, pingCode, ct);
-            return Ok(new { ok = r.Ok, language, stdout = r.Stdout, stderr = r.Stderr, error = r.Error });
+            // Никогда не отдаём stdout/stderr на фронт.
+            return Ok(new { ok = r.Ok, language });
         }
 
         var py = await SafePingAsync("python", ct);
@@ -45,36 +48,30 @@ public sealed class ImageRunnersController : ControllerBase
         }
         catch (ImageRunnerHttpException ex)
         {
-            // Главное: НЕ теряем тело ответа раннера.
-            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.ResponseBody });
+            // Никогда не отдаём тело ответа раннера (там могут быть debug-логи/stdout/stderr).
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, error = "render_failed" });
         }
 
         if (png is { Length: > 0 })
             return File(png, "image/png");
 
-        // Если раннер вернул пусто/NULL — возвращаем debug-ответ со stdout/stderr, чтобы видеть причину.
-        try
-        {
-            var dbg = await _imageRunner.RenderDebugAsync(language, code, ct);
-            return BadRequest(dbg);
-        }
-        catch (ImageRunnerHttpException ex)
-        {
-            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.ResponseBody });
-        }
+        // Если раннер вернул пусто/NULL — тоже возвращаем без логов.
+        return BadRequest(new { ok = false, error = "empty_image" });
     }
 
     [HttpPost("{language}/render/debug")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> RenderDebug([FromRoute] string language, [FromBody] ImageRunnerRenderRequest req, CancellationToken ct = default)
     {
         try
         {
             var r = await _imageRunner.RenderDebugAsync(language, req.Code ?? string.Empty, ct);
-            return Ok(r);
+            // Даже в debug-эндпоинте не отдаём stdout/stderr в API ответ.
+            return Ok(new { ok = r.Ok, error = r.Error });
         }
         catch (ImageRunnerHttpException ex)
         {
-            return BadRequest(new { ok = false, status = (int)ex.StatusCode, body = ex.ResponseBody });
+            return BadRequest(new { ok = false, status = (int)ex.StatusCode, error = "render_failed" });
         }
     }
 
@@ -84,7 +81,7 @@ public sealed class ImageRunnersController : ControllerBase
         {
             var pingCode = "import turtle as t\ns=t.Screen(); s.setup(10,10)\nt.done()";
             var r = await _imageRunner.RenderDebugAsync(lang, pingCode, ct);
-            return new { ok = r.Ok, stdout = r.Stdout, stderr = r.Stderr, error = r.Error };
+            return new { ok = r.Ok };
         }
         catch (Exception ex)
         {

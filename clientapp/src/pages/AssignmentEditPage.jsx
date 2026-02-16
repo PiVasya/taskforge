@@ -128,7 +128,6 @@ export default function AssignmentEditPage() {
             setTestQuestions(Array.isArray(te.questions) ? te.questions : []);
           } catch (e2) {
             // не блокируем редактор базовых полей
-            console.warn('getTaskTestEdit failed', e2);
           }
         }
       } catch (e) {
