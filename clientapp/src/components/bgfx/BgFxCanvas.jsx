@@ -9,6 +9,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 // 4: Сердечки
 // 5: Matrix
 // 6: Соты (Honeycomb)
+// 7: Дым (Vorticity)
 
 function cssVar(name, fallback) {
   if (typeof window === 'undefined') return fallback;
@@ -75,7 +76,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
   const preset = useMemo(() => {
     if (variant === 'random') {
       // 0..6
-      return Math.floor(Math.random() * 7);
+      return Math.floor(Math.random() * 8);
     }
     const v = Number(variant);
     return Number.isFinite(v) ? v : 0;
@@ -124,6 +125,17 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         driftB: rand(-0.00008, 0.00008),
         nextJitter: rand(6, 14),
         grain: null,
+      },
+
+      smoke: {
+        // fluid sim state is allocated on resize when preset==7
+        NX: 0, NY: 0, N: 0,
+        u: null, v: null, u0: null, v0: null,
+        dens: null, dens0: null,
+        p: null, div: null,
+        curl: null, curlAbs: null, fx: null, fy: null,
+        small: null, sctx: null, imgData: null, imgArr: null,
+        _fpsAcc: 0,
       },
     };
 
@@ -233,6 +245,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       // Для тяжёлых эффектов (например, «Соты»), держим DPR=1 — иначе лаги на слабых ПК.
       dpr = clamp(window.devicePixelRatio || 1, 1, 2);
       if (preset === 6) dpr = 1;
+      if (preset === 7) dpr = 1;
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -252,6 +265,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       state.honey.hexPts = null;
       state.honey._fpsAcc = 0;
       state.honey._fpsNow = 0;
+
+      state.smoke._fpsAcc = 0;
 
       // Плотность зависит от площади
       const area = w * h;
@@ -917,21 +932,68 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         ctx.restore();
         return;
       }
+
+      // Smoke (7) — интерактивный дым с вихрями (vorticity)
+      if (preset === 7) {
+        const sm = state.smoke;
+        const target = clamp(Math.sqrt(w * h) / 6.2, 130, 260);
+        const aspect = w / h;
+        let NX = Math.floor(target * Math.sqrt(aspect));
+        let NY = Math.floor(target / Math.sqrt(aspect));
+        NX = clamp(NX, 110, 320);
+        NY = clamp(NY, 110, 320);
+
+        sm.NX = NX;
+        sm.NY = NY;
+        sm.N = NX * NY;
+
+        sm.u = new Float32Array(sm.N);
+        sm.v = new Float32Array(sm.N);
+        sm.u0 = new Float32Array(sm.N);
+        sm.v0 = new Float32Array(sm.N);
+        sm.dens = new Float32Array(sm.N);
+        sm.dens0 = new Float32Array(sm.N);
+        sm.p = new Float32Array(sm.N);
+        sm.div = new Float32Array(sm.N);
+        sm.curl = new Float32Array(sm.N);
+        sm.curlAbs = new Float32Array(sm.N);
+        sm.fx = new Float32Array(sm.N);
+        sm.fy = new Float32Array(sm.N);
+
+        try {
+          if (!sm.small) {
+            sm.small = document.createElement('canvas');
+            sm.sctx = sm.small.getContext('2d', { willReadFrequently: true });
+          }
+          if (sm.small) {
+            sm.small.width = NX;
+            sm.small.height = NY;
+          }
+          if (sm.sctx) {
+            sm.imgData = sm.sctx.createImageData(NX, NY);
+            sm.imgArr = sm.imgData.data;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
     };
 
     let last = performance.now();
     const tick = (now) => {
-      // Для «Сот» режем FPS до ~30, чтобы не убивать слабые машины.
-      if (preset === 6) {
+      // Для тяжёлых фонов («Соты», «Дым») режем FPS до ~30, чтобы не убивать слабые машины.
+      if (preset === 6 || preset === 7) {
         const ms = now - last;
         last = now;
-        state.honey._fpsAcc = (state.honey._fpsAcc || 0) + ms;
-        if (state.honey._fpsAcc < 33) {
+        const accObj = preset === 6 ? state.honey : state.smoke;
+        accObj._fpsAcc = (accObj._fpsAcc || 0) + ms;
+        if (accObj._fpsAcc < 33) {
           rafRef.current = requestAnimationFrame(tick);
           return;
         }
-        const dt = clamp((state.honey._fpsAcc / 1000), 0.001, 0.05);
-        state.honey._fpsAcc = 0;
+        const dt = clamp((accObj._fpsAcc / 1000), 0.001, 0.05);
+        accObj._fpsAcc = 0;
         step(dt);
       } else {
         const dt = clamp((now - last) / 1000, 0.001, 0.05);
