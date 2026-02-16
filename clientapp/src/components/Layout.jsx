@@ -34,10 +34,10 @@ export default function Layout({ children, fullWidth = false }) {
   // Если классов нет — CSS-переменные (например --page-bg) не задаются, и фон выглядит белым.
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
     const root = document.documentElement;
-    const palettes = ['blue', 'pink', 'apple'];
+    const palettes = ['blue', 'pink', 'apple', 'red', 'honey'];
     const palette = palettes.includes(nextColorTheme) ? nextColorTheme : 'pink';
 
-    root.classList.remove('blue', 'pink', 'apple');
+    root.classList.remove('blue', 'pink', 'apple', 'red', 'honey');
     root.classList.add(palette);
 
     if (nextMode === 'dark') root.classList.add('dark');

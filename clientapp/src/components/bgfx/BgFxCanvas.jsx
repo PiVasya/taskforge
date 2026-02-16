@@ -7,6 +7,8 @@ import React, { useEffect, useMemo, useRef } from 'react';
 // 2: Нейросвязи (как в присланном HTML)
 // 3: Аврора
 // 4: Сердечки
+// 5: Matrix
+// 6: Соты (Honeycomb)
 
 function cssVar(name, fallback) {
   if (typeof window === 'undefined') return fallback;
@@ -72,8 +74,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
   const preset = useMemo(() => {
     if (variant === 'random') {
-      // 0..5
-      return Math.floor(Math.random() * 6);
+      // 0..6
+      return Math.floor(Math.random() * 7);
     }
     const v = Number(variant);
     return Number.isFinite(v) ? v : 0;
@@ -114,6 +116,73 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       pulses: [],       // для нейросвязей
       pulseTimer: 0,    // таймер создания импульсов
       matrix: [],       // для Matrix темы
+      honey: {
+        phaseA: rand(0, 9999),
+        phaseB: rand(0, 9999),
+        // медленные «переливы», которые иногда рандомизируются
+        driftA: rand(-0.00008, 0.00008),
+        driftB: rand(-0.00008, 0.00008),
+        nextJitter: rand(6, 14),
+        grain: null,
+      },
+    };
+
+    // маленькие искры (используются в honeycomb)
+    const sparks = [];
+    const spawnSpark = (x, y) => {
+      sparks.push({
+        x,
+        y,
+        vx: rand(-0.4, 0.4),
+        vy: rand(-0.7, -0.1),
+        life: 1,
+        r: rand(0.8, 2.1),
+      });
+      if (sparks.length > 160) sparks.splice(0, sparks.length - 160);
+    };
+
+    // зерно (для сот) — один раз на инициализацию
+    try {
+      const grain = document.createElement('canvas');
+      const gctx = grain.getContext('2d');
+      if (gctx) {
+        const s = 240;
+        grain.width = s;
+        grain.height = s;
+        const img = gctx.createImageData(s, s);
+        for (let i = 0; i < img.data.length; i += 4) {
+          const v = Math.floor(rand(0, 45));
+          img.data[i] = v;
+          img.data[i + 1] = v;
+          img.data[i + 2] = v;
+          img.data[i + 3] = Math.floor(rand(6, 24));
+        }
+        gctx.putImageData(img, 0, 0);
+        state.honey.grain = grain;
+      }
+    } catch {
+      // не критично
+    }
+
+    // rgb -> hsl (нужен для сот, чтобы подстраиваться под палитру)
+    const rgbToHsl = (rgb) => {
+      const r = rgb[0] / 255;
+      const g = rgb[1] / 255;
+      const b = rgb[2] / 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const d = max - min;
+      let h0 = 0;
+      if (d !== 0) {
+        if (max === r) h0 = ((g - b) / d) % 6;
+        else if (max === g) h0 = (b - r) / d + 2;
+        else h0 = (r - g) / d + 4;
+        h0 *= 60;
+        if (h0 < 0) h0 += 360;
+      }
+      const l = (max + min) / 2;
+      const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+      return [h0, s, l];
     };
 
     // Pointer tracking для нейросвязей (интерактивность)
@@ -172,6 +241,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       state.blobs = [];
       state.aurora = [];
       state.hearts = [];
+
+      // matrix drops
+      state.matrix = [];
 
       // Плотность зависит от площади
       const area = w * h;
@@ -271,6 +343,40 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           chars: [],
         });
       }
+
+    };
+
+    // helper for honeycomb: flat-top hex points
+    const TAU = Math.PI * 2;
+    const hexPoints = (cx, cy, r) => {
+      const pts = [];
+      for (let i = 0; i < 6; i += 1) {
+        const a = TAU * (i / 6) + Math.PI / 6;
+        pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+      }
+      return pts;
+    };
+
+    const drawHexStroke = (cx, cy, r, alpha, width, hue) => {
+      const pts = hexPoints(cx, cy, r);
+      ctx.strokeStyle = `hsla(${hue}, 95%, 62%, ${alpha})`;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < 6; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.stroke();
+    };
+
+    const drawHexFillGlow = (cx, cy, r, alpha, hue) => {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.6);
+      g.addColorStop(0, `hsla(${hue}, 98%, 60%, ${alpha})`);
+      g.addColorStop(0.55, `hsla(${hue + 12}, 98%, 48%, ${alpha * 0.45})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 1.6, 0, TAU);
+      ctx.fill();
     };
 
     const bounce = (p) => {
@@ -691,6 +797,151 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           }
         }
         
+        ctx.restore();
+        return;
+      }
+
+      // 6: Honeycomb — живые соты
+      if (preset === 6) {
+        const now = state.t;
+
+        // иногда рандомизируем «ритм» (вместо dblclick в демо)
+        state.honey.nextJitter -= dt;
+        if (state.honey.nextJitter <= 0) {
+          state.honey.nextJitter = rand(8, 16);
+          state.honey.driftA = rand(-0.00008, 0.00008);
+          state.honey.driftB = rand(-0.00008, 0.00008);
+          state.honey.phaseA = rand(0, 9999);
+          state.honey.phaseB = rand(0, 9999);
+        }
+
+        // медленный дрейф (волны в ~10 раз медленнее, чем в демо)
+        state.honey.phaseA += state.honey.driftA * dt;
+        state.honey.phaseB += state.honey.driftB * dt;
+
+        const [h1] = rgbToHsl(fx1);
+        const [h2] = rgbToHsl(fx2);
+        const hueA = h1;
+        const hueB = h2;
+
+        // background base
+        ctx.save();
+        const bg = ctx.createLinearGradient(0, 0, w, h);
+        if (isDarkTheme()) {
+          bg.addColorStop(0, 'rgba(5, 4, 9, 1)');
+          bg.addColorStop(0.5, 'rgba(9, 7, 12, 1)');
+          bg.addColorStop(1, 'rgba(3, 2, 7, 1)');
+        } else {
+          bg.addColorStop(0, rgbaB(fg, 0.06));
+          bg.addColorStop(0.5, 'rgba(255,255,255,0.85)');
+          bg.addColorStop(1, rgbaB(fg, 0.05));
+        }
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        // parallax
+        const px = pointer.has ? (pointer.x / dpr - w * 0.5) : 0;
+        const py = pointer.has ? (pointer.y / dpr - h * 0.5) : 0;
+        const ox = -px * 0.03;
+        const oy = -py * 0.03;
+
+        // size relative
+        const base = clamp(Math.sqrt(w * h) / 42, 18, 34);
+        const r = base;
+        const ww = Math.sqrt(3) * r;
+        const hh = 2 * r;
+        const rowStep = 1.5 * r;
+
+        const cx = pointer.has ? pointer.x / dpr : w * 0.55;
+        const cy = pointer.has ? pointer.y / dpr : h * 0.52;
+
+        // glow pass
+        ctx.globalCompositeOperation = 'screen';
+        ctx.filter = `blur(${10}px)`;
+
+        let row = 0;
+        for (let y = -hh + oy; y < h + hh; y += rowStep, row += 1) {
+          const xOff = row % 2 ? ww / 2 : 0;
+          for (let x = -ww + ox; x < w + ww; x += ww) {
+            const hx = x + xOff;
+            const hy = y;
+            const dx = hx - cx;
+            const dy = hy - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+
+            const wave = Math.sin(d / 46 - now * 0.0004 + state.honey.phaseA) * 0.5 + 0.5;
+            const ring = Math.exp(-Math.pow(d / 220, 2));
+            const local = 0.22 + 0.78 * ring;
+            const aGlow = (0.018 + 0.07 * local) * (0.55 + 0.75 * wave);
+            const hue = hueB + (hueA - hueB) * clamp(local, 0, 1);
+            drawHexFillGlow(hx, hy, r * 0.92, aGlow * (isDarkTheme() ? 1 : 0.6), hue);
+          }
+        }
+
+        ctx.filter = 'none';
+
+        // stroke pass
+        let rrow = 0;
+        for (let y = -hh + oy; y < h + hh; y += rowStep, rrow += 1) {
+          const xOff = rrow % 2 ? ww / 2 : 0;
+          for (let x = -ww + ox; x < w + ww; x += ww) {
+            const hx = x + xOff;
+            const hy = y;
+            const dx = hx - cx;
+            const dy = hy - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+
+            const wave = Math.sin(d / 52 - now * 0.00042 + state.honey.phaseB) * 0.5 + 0.5;
+            const ring = Math.exp(-Math.pow(d / 260, 2));
+            const local = 0.18 + 0.82 * ring;
+            const alpha = (0.06 + 0.28 * local) * (0.55 + 0.55 * wave);
+            const width = (0.9 + 1.9 * local);
+            const hue = 0.5 * (hueA + hueB) + (hueA - hueB) * (clamp(local, 0, 1) - 0.5);
+            drawHexStroke(hx, hy, r * 0.94, alpha * (isDarkTheme() ? 0.55 : 0.25), width, hue);
+
+            if (ring > 0.62 && Math.random() < 0.0007) {
+              spawnSpark((hx + rand(-8, 8)), (hy + rand(-8, 8)));
+            }
+          }
+        }
+
+        // sparks
+        ctx.globalCompositeOperation = 'screen';
+        for (let i = sparks.length - 1; i >= 0; i -= 1) {
+          const s = sparks[i];
+          s.life -= 0.018 * (dt / 0.016);
+          s.vx *= 0.99;
+          s.vy *= 0.99;
+          s.x += s.vx * (dt * 60);
+          s.y += s.vy * (dt * 60);
+          const a = clamp(s.life, 0, 1);
+          const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 28);
+          g.addColorStop(0, `hsla(${hueA}, 90%, 70%, ${0.35 * a})`);
+          g.addColorStop(0.35, `hsla(${hueB}, 90%, 55%, ${0.16 * a})`);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 28, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = `hsla(${hueA}, 90%, 85%, ${0.75 * a})`;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, TAU);
+          ctx.fill();
+          if (s.life <= 0) sparks.splice(i, 1);
+        }
+
+        // subtle bloom
+        ctx.globalAlpha = 0.10;
+        ctx.drawImage(canvas, 0, 0, w, h);
+        ctx.globalAlpha = 1;
+
+        // grain
+        if (state.honey.grain) {
+          ctx.globalCompositeOperation = 'overlay';
+          ctx.globalAlpha = 0.20;
+          ctx.drawImage(state.honey.grain, 0, 0, state.honey.grain.width, state.honey.grain.height, 0, 0, w, h);
+        }
+
         ctx.restore();
         return;
       }

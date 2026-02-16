@@ -59,6 +59,7 @@ export default function SettingsPage() {
       { key: '3', title: 'Аврора', desc: 'Большие мягкие световые блики.' },
       { key: '4', title: 'Сердечки', desc: 'Плавающие сердечки на фоне.' },
       { key: '5', title: 'Matrix', desc: 'Падающие символы как в Матрице.' },
+      { key: '6', title: 'Соты (мёд)', desc: 'Живые соты с мягкими волнами и искрами.' },
     ],
     []
   );
@@ -188,6 +189,8 @@ export default function SettingsPage() {
                 <Button variant={form.colorTheme === 'blue' ? 'primary' : 'outline'} onClick={() => setField('colorTheme', 'blue')}>Синяя</Button>
                 <Button variant={form.colorTheme === 'pink' ? 'primary' : 'outline'} onClick={() => setField('colorTheme', 'pink')}>Розовая</Button>
                 <Button variant={form.colorTheme === 'apple' ? 'primary' : 'outline'} onClick={() => setField('colorTheme', 'apple')}>Яблоко</Button>
+                <Button variant={form.colorTheme === 'red' ? 'primary' : 'outline'} onClick={() => setField('colorTheme', 'red')}>Красная</Button>
+                <Button variant={form.colorTheme === 'honey' ? 'primary' : 'outline'} onClick={() => setField('colorTheme', 'honey')}>Мёд</Button>
               </div>
             </div>
           </div>

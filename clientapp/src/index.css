@@ -64,7 +64,9 @@
 /* helper: theme border color (light) */
 html:not(.dark).blue,
 html:not(.dark).pink,
-html:not(.dark).apple {
+html:not(.dark).apple,
+html:not(.dark).red,
+html:not(.dark).honey {
   /* базовый бордер = средний brand-тон */
   --border: var(--brand-300);
 }
@@ -103,6 +105,30 @@ html:not(.dark).apple .border-neutral-300\/60,
 html:not(.dark).apple .border-neutral-300\/70,
 html:not(.dark).apple .border-gray-200,
 html:not(.dark).apple .border-slate-200 {
+  border-color: rgba(var(--border) / 0.58) !important;
+}
+
+html:not(.dark).red .border-neutral-200,
+html:not(.dark).red .border-neutral-200\/60,
+html:not(.dark).red .border-neutral-200\/70,
+html:not(.dark).red .border-neutral-200\/80,
+html:not(.dark).red .border-neutral-300,
+html:not(.dark).red .border-neutral-300\/60,
+html:not(.dark).red .border-neutral-300\/70,
+html:not(.dark).red .border-gray-200,
+html:not(.dark).red .border-slate-200 {
+  border-color: rgba(var(--border) / 0.60) !important;
+}
+
+html:not(.dark).honey .border-neutral-200,
+html:not(.dark).honey .border-neutral-200\/60,
+html:not(.dark).honey .border-neutral-200\/70,
+html:not(.dark).honey .border-neutral-200\/80,
+html:not(.dark).honey .border-neutral-300,
+html:not(.dark).honey .border-neutral-300\/60,
+html:not(.dark).honey .border-neutral-300\/70,
+html:not(.dark).honey .border-gray-200,
+html:not(.dark).honey .border-slate-200 {
   border-color: rgba(var(--border) / 0.58) !important;
 }
 
@@ -178,6 +204,52 @@ html.apple {
   --fg: 148 163 184;    /* slate-400 для частиц */
 }
 
+/* Цветовая тема: RED */
+html.red {
+  --page-bg: 254 242 242; /* red-50 */
+  --card: 255 251 251;
+  --muted: 254 226 226;  /* red-100 */
+
+  --brand-50: 254 242 242;
+  --brand-100: 254 226 226;
+  --brand-200: 254 202 202;
+  --brand-300: 252 165 165;
+  --brand-400: 248 113 113;
+  --brand-500: 239 68 68;
+  --brand-600: 220 38 38;
+  --brand-700: 185 28 28;
+  --brand-800: 153 27 27;
+  --brand-900: 127 29 29;
+
+  --fx-1: 239 68 68;   /* red */
+  --fx-2: 251 113 133; /* rose */
+  --fx-3: 245 158 11;  /* amber for contrast */
+  --fg: 148 163 184;
+}
+
+/* Цветовая тема: HONEY (жёлтая, ближе к мёду) */
+html.honey {
+  --page-bg: 255 251 235; /* amber-50 */
+  --card: 255 253 245;
+  --muted: 254 243 199;   /* amber-100 */
+
+  --brand-50: 255 251 235;
+  --brand-100: 254 243 199;
+  --brand-200: 253 230 138;
+  --brand-300: 252 211 77;
+  --brand-400: 251 191 36;
+  --brand-500: 245 158 11;
+  --brand-600: 217 119 6;
+  --brand-700: 180 83 9;
+  --brand-800: 146 64 14;
+  --brand-900: 120 53 15;
+
+  --fx-1: 245 158 11;  /* amber */
+  --fx-2: 251 191 36;  /* amber-400 */
+  --fx-3: 253 230 138; /* amber-200 */
+  --fg: 148 163 184;
+}
+
 /*
   Режим: DARK.
   Раньше здесь были neutral-900/800 для всех тем, из‑за чего PINK/APPLE выглядели «синими».
@@ -211,8 +283,24 @@ html.dark.apple {
   --fg: 209 250 229;    /* emerald-100 для частиц в тёмной теме */
 }
 
+html.dark.red {
+  --page-bg: 26 12 12;   /* глубокий бордовый */
+  --card: 30 14 14;
+  --muted: 44 20 20;
+  --border: 78 40 40;
+  --fg: 254 226 226;    /* red-100 */
+}
+
+html.dark.honey {
+  --page-bg: 20 14 8;   /* тёмный тёплый */
+  --card: 24 16 10;
+  --muted: 40 26 14;
+  --border: 84 62 28;
+  --fg: 254 243 199;    /* amber-100 */
+}
+
 /* запасной вариант, если вдруг на html нет theme-класса */
-html.dark:not(.blue):not(.pink):not(.apple) {
+html.dark:not(.blue):not(.pink):not(.apple):not(.red):not(.honey) {
   --page-bg: 15 23 42;
   --card: 15 23 42;
   --muted: 30 41 59;
@@ -240,6 +328,13 @@ html.dark.pink .dark\:border-neutral-700,
 html.dark.pink .dark\:border-neutral-800,
 html.dark.apple .dark\:border-neutral-700,
 html.dark.apple .dark\:border-neutral-800 {
+  border-color: rgba(var(--border) / 0.8) !important;
+}
+
+html.dark.red .dark\:border-neutral-700,
+html.dark.red .dark\:border-neutral-800,
+html.dark.honey .dark\:border-neutral-700,
+html.dark.honey .dark\:border-neutral-800 {
   border-color: rgba(var(--border) / 0.8) !important;
 }
 
