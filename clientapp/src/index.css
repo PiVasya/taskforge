@@ -805,16 +805,32 @@ code, pre,
 }
 
 /* Подложки редакторов под тему */
-.cm-editor, .monaco-editor, .cm-scroller {
-  background: rgb(var(--card)) !important;
+:root {
+  --editor-bg: var(--card);
+}
+
+.cm-editor, .cm-scroller {
+  background: rgb(var(--editor-bg)) !important;
   color: inherit;
   border-radius: 0.75rem;
   border: 1px solid rgba(var(--border) / 0.8);
 }
-.dark .cm-editor, .dark .monaco-editor, .dark .cm-scroller {
+
+.dark .cm-editor, .dark .cm-scroller {
   border-color: rgba(var(--border) / 0.8);
 }
 /* (оставлено пустым намеренно) */
+
+/* Monaco рисует фон внутренними слоями (background/margin), поэтому задаём их тоже */
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin,
+.monaco-editor .overflow-guard,
+.monaco-editor .scroll-decoration,
+.monaco-editor .minimap,
+.monaco-editor .minimap-shadow-visible {
+  background-color: rgb(var(--editor-bg)) !important;
+}
 
 /* Autofill (Chrome/Edge/Safari): полностью под переменные темы, без «синевы по умолчанию» */
 input:-webkit-autofill,

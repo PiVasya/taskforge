@@ -750,17 +750,31 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
         </div>
       </div>
 
-      {/* Плавающие действия (как "Сохранить" в редакторе) */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
-        {nextA?.id && (
-          <Button variant="outline" onClick={goNextAssignment} title={nextA?.title || 'Следующее задание'}>
-            Следующее задание
+      {/* Плавающие действия (как "Сохранить" в редакторе)
+          Важно: не должны залезать под нижнюю панель/футер ("Техподдержка"). */}
+      <div
+        className="fixed right-6 z-50"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}
+      >
+        <div
+          className="flex flex-col gap-2 rounded-2xl p-2 border shadow-lg"
+          style={{
+            background: 'rgba(var(--card) / 0.60)',
+            borderColor: 'rgba(var(--border) / 0.70)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+          }}
+        >
+          {nextA?.id && (
+            <Button variant="outline" onClick={goNextAssignment} title={nextA?.title || 'Следующее задание'}>
+              Следующее задание
+            </Button>
+          )}
+          <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
+            <Play size={16} className="mr-1" />
+            {submitting ? 'Отправка…' : 'Отправить'}
           </Button>
-        )}
-        <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
-          <Play size={16} className="mr-1" />
-          {submitting ? 'Отправка…' : 'Отправить'}
-        </Button>
+        </div>
       </div>
     </Layout>
   );

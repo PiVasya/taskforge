@@ -848,7 +848,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         const oy = -py * 0.02;
 
         // делаем соты крупнее => меньше ячеек => быстрее
-        const r = clamp(Math.sqrt(w * h) / 26, 30, 60);
+        // В светлой теме делаем ещё крупнее (школьные ПК / слабые браузеры).
+        const r = isDarkTheme()
+          ? clamp(Math.sqrt(w * h) / 26, 30, 60)
+          : clamp(Math.sqrt(w * h) / 18, 60, 120);
         const ww = Math.sqrt(3) * r;
         const hh = 2 * r;
         const rowStep = 1.5 * r;
@@ -865,12 +868,13 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         }
 
         // Цвет линии один, меняем только alpha/width
-        ctx.globalCompositeOperation = isDarkTheme() ? 'screen' : 'multiply';
-        ctx.strokeStyle = `hsla(${hue}, 92%, ${isDarkTheme() ? 60 : 42}%, 1)`;
+        // В светлой теме стараемся быть максимально лёгкими по композитингу.
+        ctx.globalCompositeOperation = isDarkTheme() ? 'screen' : 'source-over';
+        ctx.strokeStyle = `hsla(${hue}, 92%, ${isDarkTheme() ? 60 : 38}%, 1)`;
 
         const cx = pointer.has ? pointer.x : w * 0.55;
         const cy = pointer.has ? pointer.y : h * 0.52;
-        const falloff2 = 320 * 320;
+        const falloff2 = (isDarkTheme() ? 320 : 420) ** 2;
 
         let row = 0;
         for (let y = -hh + oy; y < h + hh; y += rowStep, row += 1) {
@@ -886,7 +890,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             const dx = hx - cx;
             const dy = hy - cy;
             const d2 = dx * dx + dy * dy;
-            const ring = pointer.has ? Math.exp(-d2 / falloff2) : 0.12;
+            // exp() дорогой на большом количестве ячеек, используем более лёгкую аппроксимацию
+            // 1/(1 + d^2/k) — достаточно похоже для «пятна» вокруг курсора.
+            const ring = pointer.has ? (1 / (1 + d2 / falloff2)) : 0.12;
 
             // видимость по всей сетке + усиление возле курсора
             const a = (0.06 + 0.10 * wave) + ring * (0.10 + 0.14 * wave);
