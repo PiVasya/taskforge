@@ -20,5 +20,12 @@ public class UserUiSettings
     public string FxMode { get; set; } = "random";   // random|fixed
     public int FxVariant { get; set; } = 3;           // 0..3
 
+    /// <summary>
+    /// Стиль страницы решения задач с кодом.
+    /// split = как сейчас (условие слева, редактор справа)
+    /// editorTop = редактор сверху на всю ширину, условие снизу
+    /// </summary>
+    public string CodeSolveLayout { get; set; } = "split";
+
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

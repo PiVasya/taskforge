@@ -27,6 +27,7 @@ function persistUiSettingsFromBackend(s) {
         : (typeof prev?.bgFx === 'boolean' ? prev.bgFx : localStorage.getItem('bgFx') === '1'),
     fxMode: s.fxMode || prev?.fxMode || localStorage.getItem('fxMode') || 'random',
     fxVariant: String(s.fxVariant ?? prev?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'),
+    codeSolveLayout: s.codeSolveLayout || prev?.codeSolveLayout || localStorage.getItem('codeSolveLayout') || 'split',
   };
 
   localStorage.setItem('colorTheme', merged.colorTheme);
@@ -34,6 +35,7 @@ function persistUiSettingsFromBackend(s) {
   localStorage.setItem('bgFx', merged.bgFx ? '1' : '0');
   localStorage.setItem('fxMode', merged.fxMode);
   localStorage.setItem('fxVariant', merged.fxVariant);
+  localStorage.setItem('codeSolveLayout', merged.codeSolveLayout);
   localStorage.setItem(UI_LS_KEY, JSON.stringify(merged));
 
   // In the same tab, storage-event doesn't fire — notify Layout explicitly.

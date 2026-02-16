@@ -24,6 +24,7 @@ function writeLocal(v) {
   localStorage.setItem('bgFx', v?.bgFx ? '1' : '0');
   localStorage.setItem('fxMode', v?.fxMode || localStorage.getItem('fxMode') || 'random');
   localStorage.setItem('fxVariant', String(v?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'));
+  localStorage.setItem('codeSolveLayout', v?.codeSolveLayout || localStorage.getItem('codeSolveLayout') || 'split');
   localStorage.setItem(LS_KEY, JSON.stringify(v));
 
   // уведомляем Layout, чтобы он применил настройки без перезагрузки
@@ -47,6 +48,7 @@ export default function SettingsPage() {
       bgFx: localStorage.getItem('bgFx') === '1',
       fxMode: localStorage.getItem('fxMode') || 'random',
       fxVariant: localStorage.getItem('fxVariant') || '2', // дефолт - нейросвязи
+      codeSolveLayout: localStorage.getItem('codeSolveLayout') || 'split',
     }
   );
 
@@ -88,6 +90,7 @@ export default function SettingsPage() {
               bgFx: !!s.bgFx,
               fxMode: s.fxMode || form.fxMode,
               fxVariant: String(s.fxVariant ?? form.fxVariant),
+              codeSolveLayout: s.codeSolveLayout || form.codeSolveLayout || 'split',
             };
             setForm(merged);
             writeLocal(merged);
@@ -112,6 +115,7 @@ export default function SettingsPage() {
       if (k === 'bgFx') localStorage.setItem('bgFx', v ? '1' : '0');
       if (k === 'fxMode') localStorage.setItem('fxMode', v);
       if (k === 'fxVariant') localStorage.setItem('fxVariant', String(v));
+      if (k === 'codeSolveLayout') localStorage.setItem('codeSolveLayout', v);
       writeLocal(next);
       // В этом же табе событие 'storage' не срабатывает, поэтому шлём своё.
       window.dispatchEvent(new Event('tf-ui-settings-changed'));
@@ -130,6 +134,7 @@ export default function SettingsPage() {
         bgFx: !!form.bgFx,
         fxMode: form.fxMode,
         fxVariant: Number(form.fxVariant),
+        codeSolveLayout: form.codeSolveLayout,
       };
       await saveMyUiSettings(payload);
       setSaved(true);
@@ -193,6 +198,49 @@ export default function SettingsPage() {
                 <Button variant={form.colorTheme === 'honey' ? 'primary' : 'outline'} onClick={() => setField('colorTheme', 'honey')}>Мёд</Button>
               </div>
             </div>
+          </div>
+        </Card>
+
+        <Card className="p-4 space-y-4">
+          <div>
+            <div className="font-semibold">Решение задач</div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400">
+              Выберите, как будет выглядеть страница решения задач с кодом.
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setField('codeSolveLayout', 'split')}
+              className={
+                `rounded-2xl border p-4 text-left transition ` +
+                (form.codeSolveLayout === 'split'
+                  ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.10)]'
+                  : 'border-[rgba(var(--border)/0.75)] bg-[rgba(var(--card)/0.60)]')
+              }
+            >
+              <div className="font-medium">Как сейчас</div>
+              <div className="text-sm text-neutral-500 dark:text-neutral-400">
+                Условие слева (2/3), редактор справа (1/3).
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setField('codeSolveLayout', 'editorTop')}
+              className={
+                `rounded-2xl border p-4 text-left transition ` +
+                (form.codeSolveLayout === 'editorTop'
+                  ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.10)]'
+                  : 'border-[rgba(var(--border)/0.75)] bg-[rgba(var(--card)/0.60)]')
+              }
+            >
+              <div className="font-medium">Редактор сверху</div>
+              <div className="text-sm text-neutral-500 dark:text-neutral-400">
+                Поле кода сверху на всю ширину, условие и тесты снизу.
+              </div>
+            </button>
           </div>
         </Card>
 

@@ -26,7 +26,8 @@ public class UiSettingsController : ControllerBase
         string? Mode,
         bool? BgFx,
         string? FxMode,
-        int? FxVariant
+        int? FxVariant,
+        string? CodeSolveLayout
     );
 
     [HttpGet]
@@ -37,10 +38,10 @@ public class UiSettingsController : ControllerBase
         if (ent is null)
         {
             // дефолты
-            return Ok(new UiSettingsDto("blue", "light", false, "random", 3));
+            return Ok(new UiSettingsDto("blue", "light", false, "random", 3, "split"));
         }
 
-        return Ok(new UiSettingsDto(ent.ColorTheme, ent.Mode, ent.BgFx, ent.FxMode, ent.FxVariant));
+        return Ok(new UiSettingsDto(ent.ColorTheme, ent.Mode, ent.BgFx, ent.FxMode, ent.FxVariant, ent.CodeSolveLayout));
     }
 
     [HttpPut]
@@ -60,10 +61,11 @@ public class UiSettingsController : ControllerBase
         if (dto.BgFx.HasValue) ent.BgFx = dto.BgFx.Value;
         if (!string.IsNullOrWhiteSpace(dto.FxMode)) ent.FxMode = dto.FxMode;
         if (dto.FxVariant.HasValue) ent.FxVariant = dto.FxVariant.Value;
+        if (!string.IsNullOrWhiteSpace(dto.CodeSolveLayout)) ent.CodeSolveLayout = dto.CodeSolveLayout;
 
         ent.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        return Ok(new UiSettingsDto(ent.ColorTheme, ent.Mode, ent.BgFx, ent.FxMode, ent.FxVariant));
+        return Ok(new UiSettingsDto(ent.ColorTheme, ent.Mode, ent.BgFx, ent.FxMode, ent.FxVariant, ent.CodeSolveLayout));
     }
 }

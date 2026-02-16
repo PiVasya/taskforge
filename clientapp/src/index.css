@@ -858,6 +858,25 @@ select:focus,
   box-shadow: none !important; /* гасит tailwind ring */
 }
 
+/* Monaco: подсветка текущей строки и выделения — строго под тему (без вечной «синевы») */
+.monaco-editor .view-overlays .current-line,
+.monaco-editor .margin-view-overlays .current-line {
+  background: rgba(var(--accent) / 0.10) !important;
+  border: none !important;
+}
+
+.monaco-editor .selected-text,
+.monaco-editor .focused .selected-text,
+.monaco-editor .selectionHighlight,
+.monaco-editor .focused .selectionHighlight {
+  background-color: rgba(var(--accent) / 0.30) !important;
+}
+
+.monaco-editor .findMatch,
+.monaco-editor .currentFindMatch {
+  background-color: rgba(var(--accent) / 0.22) !important;
+}
+
 
 /* ====== Доп. классы для наших UI-компонентов ====== */
 .field { @apply w-full; }

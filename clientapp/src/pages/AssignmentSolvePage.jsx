@@ -86,6 +86,11 @@ export default function AssignmentSolvePage() {
   const [code, setCode] = useState('');
   const [plainMode, setPlainMode] = useState(false);
 
+  // UI-настройка: стиль страницы решения задач с кодом
+  const [codeSolveLayout, setCodeSolveLayout] = useState(
+    () => localStorage.getItem('codeSolveLayout') || 'split'
+  );
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
@@ -172,6 +177,13 @@ export default function AssignmentSolvePage() {
     })();
     return () => { alive = false; };
   }, [assignmentId]);
+
+  // Если пользователь поменял настройку в другом месте (SettingsPage), обновляемся без перезагрузки
+  useEffect(() => {
+    const onUi = () => setCodeSolveLayout(localStorage.getItem('codeSolveLayout') || 'split');
+    window.addEventListener('tf-ui-settings-changed', onUi);
+    return () => window.removeEventListener('tf-ui-settings-changed', onUi);
+  }, []);
 
   // Вычисляем "следующее задание" в текущем курсе (по Sort).
   // Если текущего уже нет в списке — просто скрываем кнопку.
@@ -646,21 +658,189 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* левая часть: текст задачи + публичные тесты */}
-        <div className="lg:col-span-2 space-y-5">
-          <Card>
-            <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
-            {a.tags && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {a.tags
-                  .split(',')
-                  .filter(Boolean)
-                  .map((t) => (
-                    <Badge key={t.trim()}>{t.trim()}</Badge>
-                  ))}
+      {/* Вариант 1: как сейчас (условие слева, редактор справа) */}
+      {codeSolveLayout !== 'editorTop' ? (
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* левая часть: текст задачи + публичные тесты */}
+          <div className="lg:col-span-2 space-y-5">
+            <Card>
+              <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+              {a.tags && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {a.tags
+                    .split(',')
+                    .filter(Boolean)
+                    .map((t) => (
+                      <Badge key={t.trim()}>{t.trim()}</Badge>
+                    ))}
+                </div>
+              )}
+              <StatementViewer value={a.description} />
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-medium">Публичные тесты</div>
               </div>
-            )}
+
+              {publicTests.length === 0 ? (
+                <div className="text-neutral-500">У задания нет публичных тестов.</div>
+              ) : (
+                <div className="space-y-3">
+                  {publicTests.map((t, i) => {
+                    const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
+                    return (
+                      <div key={i} className="rounded border p-3">
+                        <div className="text-xs text-neutral-500 mb-1">Ввод</div>
+                        <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
+
+                        {(expectedText ?? '') !== '' && (
+                          <>
+                            <div className="text-xs text-neutral-500 mt-2 mb-1">Ожидаемый вывод</div>
+                            <pre className="whitespace-pre-wrap text-sm">{expectedText}</pre>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* правая часть: редактор и запуск */}
+          <div className="space-y-4">
+            <Card>
+              <div className="grid gap-3">
+                <div>
+                  <label className="label">Язык</label>
+                  <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                    {langsForSelect.map((l) => (
+                      <option key={l.value} value={l.value}>{l.label}</option>
+                    ))}
+                  </Select>
+
+                  {/* маленькая подсказка, если ограничения включены */}
+                  {allowedLangs && allowedLangs.length > 0 && (
+                    <div className="text-xs text-neutral-500 mt-1">
+                      Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="label">Режим ввода</label>
+                  <Select
+                    value={plainMode ? 'plain' : 'editor'}
+                    onChange={(e) => setPlainMode(e.target.value === 'plain')}
+                  >
+                    <option value="editor">Графический редактор</option>
+                    <option value="plain">Простой текст</option>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="label">Ваш код</label>
+                  {plainMode ? (
+                    <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={16} />
+                  ) : (
+                    <CodeEditor language={language} value={code} onChange={setCode} height={380} />
+                  )}
+                </div>
+
+                {result && (
+                  <div className="flex items-center gap-2 text-sm">
+                    {result.__allPassed ? (
+                      <>
+                        <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {error && <div className="text-sm text-red-600">{error}</div>}
+              </div>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        /* Вариант 2: редактор сверху на всю ширину, условие и тесты снизу */
+        <div className="space-y-6">
+          <Card>
+            <div className="grid gap-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="label">Язык</label>
+                  <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                    {langsForSelect.map((l) => (
+                      <option key={l.value} value={l.value}>{l.label}</option>
+                    ))}
+                  </Select>
+                  {allowedLangs && allowedLangs.length > 0 && (
+                    <div className="text-xs text-neutral-500 mt-1">
+                      Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="label">Режим ввода</label>
+                  <Select
+                    value={plainMode ? 'plain' : 'editor'}
+                    onChange={(e) => setPlainMode(e.target.value === 'plain')}
+                  >
+                    <option value="editor">Графический редактор</option>
+                    <option value="plain">Простой текст</option>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="font-semibold text-lg">{a.title}</div>
+                  {result && (
+                    <div className="flex items-center gap-2 text-sm">
+                      {result.__allPassed ? (
+                        <>
+                          <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {a.tags && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {a.tags
+                      .split(',')
+                      .filter(Boolean)
+                      .map((t) => (
+                        <Badge key={t.trim()}>{t.trim()}</Badge>
+                      ))}
+                  </div>
+                )}
+
+                <label className="label">Ваш код</label>
+                {plainMode ? (
+                  <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={18} />
+                ) : (
+                  <CodeEditor language={language} value={code} onChange={setCode} height={460} />
+                )}
+              </div>
+
+              {error && <div className="text-sm text-red-600">{error}</div>}
+            </div>
+          </Card>
+
+          <Card>
             <StatementViewer value={a.description} />
           </Card>
 
@@ -693,66 +873,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
             )}
           </Card>
         </div>
-
-        {/* правая часть: редактор и запуск */}
-        <div className="space-y-4">
-          <Card>
-            <div className="grid gap-3">
-              <div>
-                <label className="label">Язык</label>
-                <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  {langsForSelect.map((l) => (
-                    <option key={l.value} value={l.value}>{l.label}</option>
-                  ))}
-                </Select>
-
-                {/* маленькая подсказка, если ограничения включены */}
-                {allowedLangs && allowedLangs.length > 0 && (
-                  <div className="text-xs text-neutral-500 mt-1">
-                    Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="label">Режим ввода</label>
-                <Select
-                  value={plainMode ? 'plain' : 'editor'}
-                  onChange={(e) => setPlainMode(e.target.value === 'plain')}
-                >
-                  <option value="editor">Графический редактор</option>
-                  <option value="plain">Простой текст</option>
-                </Select>
-              </div>
-
-              <div>
-                <label className="label">Ваш код</label>
-                {plainMode ? (
-                  <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={16} />
-                ) : (
-                  <CodeEditor language={language} value={code} onChange={setCode} height={380} />
-                )}
-              </div>
-
-              {result && (
-                <div className="flex items-center gap-2 text-sm">
-                  {result.__allPassed ? (
-                    <>
-                      <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
-                    </>
-                  )}
-                </div>
-              )}
-
-              {error && <div className="text-sm text-red-600">{error}</div>}
-            </div>
-          </Card>
-        </div>
-      </div>
+      )}
 
       {/* Плавающие действия (как "Сохранить" в редакторе)
           Важно: не должны залезать под нижнюю панель/футер ("Техподдержка"). */}
