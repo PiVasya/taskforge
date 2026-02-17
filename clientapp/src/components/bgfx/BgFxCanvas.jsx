@@ -198,7 +198,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     };
 
     // Pointer tracking для нейросвязей (интерактивность)
-    const pointer = { x: w/2, y: h/2, vx: 0, vy: 0, down: false, has: false };
+    const pointer = { x: w/2, y: h/2, vx: 0, vy: 0, down: false, rdown: false, has: false };
     
     const setPointer = (px, py) => {
       pointer.has = true;
@@ -214,21 +214,23 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     const handleMouseMove = (e) => {
       setPointer(e.clientX, e.clientY);
     };
-    const handleMouseDown = () => { pointer.down = true; };
-    const handleMouseUp = () => { pointer.down = false; };
+    const handleMouseDown = (e) => { if (e?.button === 2) pointer.rdown = true; else pointer.down = true; };
+    const handleMouseUp = (e) => { if (e?.button === 2) pointer.rdown = false; else pointer.down = false; };
     
     const handleTouchStart = (e) => {
       pointer.down = true;
+      pointer.rdown = (e.touches && e.touches.length >= 2);
       if (e.touches[0]) {
         setPointer(e.touches[0].clientX, e.touches[0].clientY);
       }
     };
     const handleTouchMove = (e) => {
+      pointer.rdown = (e.touches && e.touches.length >= 2);
       if (e.touches[0]) {
         setPointer(e.touches[0].clientX, e.touches[0].clientY);
       }
     };
-    const handleTouchEnd = () => { pointer.down = false; };
+    const handleTouchEnd = () => { pointer.down = false; pointer.rdown = false; };
     
     // Подписываемся на события window (чтобы работало даже с pointerEvents:none на canvas)
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
@@ -932,6 +934,307 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         ctx.restore();
         return;
       }
+
+
+// 7: Дым (вихри / vorticity) — портировано из твоего HTML (Smoke Vorticity)
+if (preset === 7) {
+  const sm = state.smoke;
+  if (!sm || !sm.u || !sm.v || !sm.dens || !sm.sctx || !sm.imgData || !sm.imgArr) {
+    return;
+  }
+
+  const NX = sm.NX;
+  const NY = sm.NY;
+  const N = sm.N;
+
+  const idx = (x, y) => x + y * NX;
+
+  const set_bnd = (b, x) => {
+    for (let i = 1; i < NX - 1; i++) {
+      x[idx(i, 0)] = b === 2 ? -x[idx(i, 1)] : x[idx(i, 1)];
+      x[idx(i, NY - 1)] = b === 2 ? -x[idx(i, NY - 2)] : x[idx(i, NY - 2)];
+    }
+    for (let j = 1; j < NY - 1; j++) {
+      x[idx(0, j)] = b === 1 ? -x[idx(1, j)] : x[idx(1, j)];
+      x[idx(NX - 1, j)] = b === 1 ? -x[idx(NX - 2, j)] : x[idx(NX - 2, j)];
+    }
+    x[idx(0, 0)] = 0.5 * (x[idx(1, 0)] + x[idx(0, 1)]);
+    x[idx(0, NY - 1)] = 0.5 * (x[idx(1, NY - 1)] + x[idx(0, NY - 2)]);
+    x[idx(NX - 1, 0)] = 0.5 * (x[idx(NX - 2, 0)] + x[idx(NX - 1, 1)]);
+    x[idx(NX - 1, NY - 1)] = 0.5 * (x[idx(NX - 2, NY - 1)] + x[idx(NX - 1, NY - 2)]);
+  };
+
+  const lin_solve = (b, x, x0, a, c, iters) => {
+    for (let k = 0; k < iters; k++) {
+      for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+          const id = idx(i, j);
+          x[id] = (x0[id] + a * (x[idx(i - 1, j)] + x[idx(i + 1, j)] + x[idx(i, j - 1)] + x[idx(i, j + 1)])) / c;
+        }
+      }
+      set_bnd(b, x);
+    }
+  };
+
+  const diffuse = (b, x, x0, diff, dt2) => {
+    const a = dt2 * diff * (NX - 2) * (NY - 2);
+    lin_solve(b, x, x0, a, 1 + 4 * a, 12);
+  };
+
+  const advect = (b, d, d0, u, v, dt2) => {
+    const dt0x = dt2 * (NX - 2);
+    const dt0y = dt2 * (NY - 2);
+    for (let j = 1; j < NY - 1; j++) {
+      for (let i = 1; i < NX - 1; i++) {
+        const id = idx(i, j);
+        let x = i - dt0x * u[id];
+        let y = j - dt0y * v[id];
+
+        x = clamp(x, 0.5, NX - 1.5);
+        y = clamp(y, 0.5, NY - 1.5);
+
+        const i0 = x | 0, i1 = i0 + 1;
+        const j0 = y | 0, j1 = j0 + 1;
+
+        const s1 = x - i0, s0 = 1 - s1;
+        const t1 = y - j0, t0 = 1 - t1;
+
+        d[id] =
+          s0 * (t0 * d0[idx(i0, j0)] + t1 * d0[idx(i0, j1)]) +
+          s1 * (t0 * d0[idx(i1, j0)] + t1 * d0[idx(i1, j1)]);
+      }
+    }
+    set_bnd(b, d);
+  };
+
+  const project = (u, v, p, div) => {
+    for (let j = 1; j < NY - 1; j++) {
+      for (let i = 1; i < NX - 1; i++) {
+        const id = idx(i, j);
+        div[id] = -0.5 * (u[idx(i + 1, j)] - u[idx(i - 1, j)] + v[idx(i, j + 1)] - v[idx(i, j - 1)]) / NX;
+        p[id] = 0;
+      }
+    }
+    set_bnd(0, div);
+    set_bnd(0, p);
+    lin_solve(0, p, div, 1, 4, 22);
+
+    for (let j = 1; j < NY - 1; j++) {
+      for (let i = 1; i < NX - 1; i++) {
+        const id = idx(i, j);
+        u[id] -= 0.5 * NX * (p[idx(i + 1, j)] - p[idx(i - 1, j)]);
+        v[id] -= 0.5 * NY * (p[idx(i, j + 1)] - p[idx(i, j - 1)]);
+      }
+    }
+    set_bnd(1, u);
+    set_bnd(2, v);
+  };
+
+  const computeCurl = () => {
+    for (let j = 1; j < NY - 1; j++) {
+      for (let i = 1; i < NX - 1; i++) {
+        const id = idx(i, j);
+        const dv_dx = (sm.v[idx(i + 1, j)] - sm.v[idx(i - 1, j)]) * 0.5;
+        const du_dy = (sm.u[idx(i, j + 1)] - sm.u[idx(i, j - 1)]) * 0.5;
+        const c = dv_dx - du_dy;
+        sm.curl[id] = c;
+        sm.curlAbs[id] = Math.abs(c);
+      }
+    }
+    for (let i = 0; i < NX; i++) {
+      sm.curl[idx(i, 0)] = 0;
+      sm.curlAbs[idx(i, 0)] = 0;
+      sm.curl[idx(i, NY - 1)] = 0;
+      sm.curlAbs[idx(i, NY - 1)] = 0;
+    }
+    for (let j = 0; j < NY; j++) {
+      sm.curl[idx(0, j)] = 0;
+      sm.curlAbs[idx(0, j)] = 0;
+      sm.curl[idx(NX - 1, j)] = 0;
+      sm.curlAbs[idx(NX - 1, j)] = 0;
+    }
+  };
+
+  const applyVorticity = (dt2, eps) => {
+    for (let j = 2; j < NY - 2; j++) {
+      for (let i = 2; i < NX - 2; i++) {
+        const id = idx(i, j);
+        const dw_dx = (sm.curlAbs[idx(i + 1, j)] - sm.curlAbs[idx(i - 1, j)]) * 0.5;
+        const dw_dy = (sm.curlAbs[idx(i, j + 1)] - sm.curlAbs[idx(i, j - 1)]) * 0.5;
+        const len = Math.hypot(dw_dx, dw_dy) + 1e-6;
+        const nx = dw_dx / len;
+        const ny = dw_dy / len;
+        const c = sm.curl[id];
+        sm.fx[id] = ny * c;
+        sm.fy[id] = -nx * c;
+      }
+    }
+    for (let j = 2; j < NY - 2; j++) {
+      for (let i = 2; i < NX - 2; i++) {
+        const id = idx(i, j);
+        sm.u[id] += sm.fx[id] * eps * dt2;
+        sm.v[id] += sm.fy[id] * eps * dt2;
+      }
+    }
+    set_bnd(1, sm.u);
+    set_bnd(2, sm.v);
+  };
+
+  const splat = (px, py, vx, vy, addD) => {
+    const gx = (px / w) * (NX - 1);
+    const gy = (py / h) * (NY - 1);
+    const r = pointer.down ? 13 : 9;
+    const r2 = r * r;
+
+    for (let j = -r; j <= r; j++) {
+      for (let i = -r; i <= r; i++) {
+        const x = (gx + i) | 0;
+        const y = (gy + j) | 0;
+        if (x <= 1 || x >= NX - 2 || y <= 1 || y >= NY - 2) continue;
+        const d2 = i * i + j * j;
+        if (d2 > r2) continue;
+        const ww = Math.exp(-d2 / (r2 * 0.55));
+        const id = idx(x, y);
+        sm.u[id] += vx * ww;
+        sm.v[id] += vy * ww;
+        sm.dens[id] += addD * ww;
+      }
+    }
+  };
+
+  const vacuum = (px, py, strength) => {
+    const gx = (px / w) * (NX - 1);
+    const gy = (py / h) * (NY - 1);
+    const r = 12;
+    const r2 = r * r;
+
+    for (let j = -r; j <= r; j++) {
+      for (let i = -r; i <= r; i++) {
+        const x = (gx + i) | 0;
+        const y = (gy + j) | 0;
+        if (x <= 1 || x >= NX - 2 || y <= 1 || y >= NY - 2) continue;
+        const d2 = i * i + j * j;
+        if (d2 > r2) continue;
+        const ww = Math.exp(-d2 / (r2 * 0.55));
+        const id = idx(x, y);
+
+        sm.dens[id] = Math.max(0, sm.dens[id] - strength * ww);
+        const dx = gx - x;
+        const dy = gy - y;
+        sm.u[id] += dx * 0.002 * ww;
+        sm.v[id] += dy * 0.002 * ww;
+      }
+    }
+  };
+
+  const renderSmoke = () => {
+    // прозрачный фон, только дым
+    const arr = sm.imgArr;
+    for (let j = 0; j < NY; j++) {
+      for (let i = 0; i < NX; i++) {
+        const id = idx(i, j);
+        const d = clamp(sm.dens[id], 0, 1.35);
+
+        // цвет дыма под тему: mix fx1/fx2 + чуть fg
+        const mix = clamp(d * 0.55, 0, 0.85);
+        const r = (fx1[0] * (1 - mix) + fx2[0] * mix) * 0.55 + fg[0] * 0.45;
+        const g = (fx1[1] * (1 - mix) + fx2[1] * mix) * 0.55 + fg[1] * 0.45;
+        const b = (fx1[2] * (1 - mix) + fx2[2] * mix) * 0.55 + fg[2] * 0.45;
+
+        const a = clamp(d * 210 * (isDarkTheme() ? 1.0 : 0.75), 0, 235) * 0.9;
+
+        const off = (i + j * NX) * 4;
+        arr[off + 0] = r;
+        arr[off + 1] = g;
+        arr[off + 2] = b;
+        arr[off + 3] = a;
+      }
+    }
+    sm.sctx.putImageData(sm.imgData, 0, 0);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.imageSmoothingEnabled = true;
+
+    // 3 прохода как в демке (fog/details/filaments), но без заливки bg
+    const blurA = 14;
+    const blurB = 5;
+    const blurC = 1.2;
+
+    ctx.filter = `blur(${blurA}px)`;
+    ctx.globalAlpha = isDarkTheme() ? 0.62 : 0.40;
+    ctx.drawImage(sm.small, 0, 0, NX, NY, 0, 0, w, h);
+
+    ctx.filter = `blur(${blurB}px)`;
+    ctx.globalAlpha = isDarkTheme() ? 0.90 : 0.60;
+    ctx.drawImage(sm.small, 0, 0, NX, NY, 0, 0, w, h);
+
+    ctx.filter = `blur(${blurC}px)`;
+    ctx.globalAlpha = isDarkTheme() ? 0.72 : 0.48;
+    ctx.drawImage(sm.small, 0, 0, NX, NY, 0, 0, w, h);
+
+    ctx.filter = 'none';
+    ctx.restore();
+  };
+
+  // --- Simulation constants (с твоими значениями, чуть подстроено intensity) ---
+  const VISC = 0.00012;
+  const DIFF = 0.00007;
+  const DISSIP = 0.9935;
+  const VEL_DAMP = 0.995;
+  const VORTICITY = 32.0 * (0.7 + intensity * 0.7);
+
+  const dt2 = clamp(dt, 0.001, 0.03);
+
+  // ambient emitter (ниже центра)
+  const now = performance.now();
+  const emitX = w * 0.5 + Math.sin(now * 0.00035) * w * 0.09;
+  const emitY = h * 0.78 + Math.cos(now * 0.00031) * h * 0.05;
+  splat(emitX, emitY, 0, -8 * dt2, 0.020);
+
+  if (pointer.has) {
+    const speed = Math.hypot(pointer.vx, pointer.vy);
+    const force = (pointer.down ? 75 : 46) * (0.6 + clamp(speed / 22, 0, 1.2));
+    const fx0 = (pointer.vx / Math.max(1, w)) * force;
+    const fy0 = (pointer.vy / Math.max(1, h)) * force;
+    const add = pointer.down ? 0.16 : 0.07;
+
+    if (pointer.rdown) vacuum(pointer.x, pointer.y, 0.25);
+    else splat(pointer.x, pointer.y, fx0, fy0, add);
+  }
+
+  // velocity
+  sm.u0.set(sm.u);
+  sm.v0.set(sm.v);
+  diffuse(1, sm.u, sm.u0, VISC, dt2);
+  diffuse(2, sm.v, sm.v0, VISC, dt2);
+  project(sm.u, sm.v, sm.p, sm.div);
+
+  computeCurl();
+  applyVorticity(dt2, VORTICITY);
+
+  sm.u0.set(sm.u);
+  sm.v0.set(sm.v);
+  advect(1, sm.u, sm.u0, sm.u0, sm.v0, dt2);
+  advect(2, sm.v, sm.v0, sm.u0, sm.v0, dt2);
+  project(sm.u, sm.v, sm.p, sm.div);
+
+  // density
+  sm.dens0.set(sm.dens);
+  diffuse(0, sm.dens, sm.dens0, DIFF, dt2);
+  sm.dens0.set(sm.dens);
+  advect(0, sm.dens, sm.dens0, sm.u, sm.v, dt2);
+
+  for (let i = 0; i < N; i++) {
+    sm.dens[i] *= DISSIP;
+    sm.u[i] *= VEL_DAMP;
+    sm.v[i] *= VEL_DAMP;
+    if (sm.dens[i] < 0.00001) sm.dens[i] = 0;
+  }
+
+  renderSmoke();
+  return;
+}
 
       // Smoke (7) — интерактивный дым с вихрями (vorticity)
       if (preset === 7) {
