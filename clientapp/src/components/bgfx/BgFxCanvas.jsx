@@ -172,7 +172,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         gctx.putImageData(img, 0, 0);
         state.honey.grain = grain;
       }
-    } catch {
+    } catch (e) {
       // не критично
     }
 
@@ -410,7 +410,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             sm.imgData = sm.sctx.createImageData(NX, NY);
             sm.imgArr = sm.imgData.data;
           }
-        } catch {
+        } catch (e) {
           // ignore
         }
 
@@ -990,7 +990,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
 
 // 7: Дым (вихри / vorticity) — портировано из твоего HTML (Smoke Vorticity)
-if (preset === 7) {
+    if (preset === 7) {
   const sm = state.smoke;
   if (!sm || !sm.u || !sm.v || !sm.dens || !sm.sctx || !sm.imgData || !sm.imgArr) {
     return;
@@ -1285,31 +1285,17 @@ if (preset === 7) {
     if (sm.dens[i] < 0.00001) sm.dens[i] = 0;
   }
 
-  renderSmoke();
-  return;
-}
+      renderSmoke();
+      return;
+    }
+  };
 
-
+    // --- RAF loop ---
     let last = performance.now();
     const tick = (now) => {
-      // Для тяжёлых фонов («Соты», «Дым») режем FPS до ~30, чтобы не убивать слабые машины.
-      if (preset === 6 || preset === 7) {
-        const ms = now - last;
-        last = now;
-        const accObj = preset === 6 ? state.honey : state.smoke;
-        accObj._fpsAcc = (accObj._fpsAcc || 0) + ms;
-        if (accObj._fpsAcc < 33) {
-          rafRef.current = requestAnimationFrame(tick);
-          return;
-        }
-        const dt = clamp((accObj._fpsAcc / 1000), 0.001, 0.05);
-        accObj._fpsAcc = 0;
-        step(dt);
-      } else {
-        const dt = clamp((now - last) / 1000, 0.001, 0.05);
-        last = now;
-        step(dt);
-      }
+      const dt = clamp((now - last) / 1000, 0.001, 0.05);
+      last = now;
+      step(dt);
       rafRef.current = requestAnimationFrame(tick);
     };
 
