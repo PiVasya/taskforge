@@ -172,7 +172,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         gctx.putImageData(img, 0, 0);
         state.honey.grain = grain;
       }
-    } catch {
+    } catch (e) {
       // не критично
     }
 
@@ -410,7 +410,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             sm.imgData = sm.sctx.createImageData(NX, NY);
             sm.imgArr = sm.imgData.data;
           }
-        } catch {
+        } catch (e) {
           // ignore
         }
 
