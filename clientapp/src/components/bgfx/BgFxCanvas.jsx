@@ -369,6 +369,59 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         });
       }
 
+      // Smoke (7) — интерактивный дым с вихрями (vorticity)
+      // ВАЖНО: аллокация должна жить в resize(), иначе sm.* будут null и кадры будут сразу return.
+      if (preset === 7) {
+        const sm = state.smoke;
+        const target = clamp(Math.sqrt(w * h) / 6.2, 130, 260);
+        const aspect = w / h;
+        let NX = Math.floor(target * Math.sqrt(aspect));
+        let NY = Math.floor(target / Math.sqrt(aspect));
+        NX = clamp(NX, 110, 320);
+        NY = clamp(NY, 110, 320);
+
+        sm.NX = NX;
+        sm.NY = NY;
+        sm.N = NX * NY;
+
+        sm.u = new Float32Array(sm.N);
+        sm.v = new Float32Array(sm.N);
+        sm.u0 = new Float32Array(sm.N);
+        sm.v0 = new Float32Array(sm.N);
+        sm.dens = new Float32Array(sm.N);
+        sm.dens0 = new Float32Array(sm.N);
+        sm.p = new Float32Array(sm.N);
+        sm.div = new Float32Array(sm.N);
+        sm.curl = new Float32Array(sm.N);
+        sm.curlAbs = new Float32Array(sm.N);
+        sm.fx = new Float32Array(sm.N);
+        sm.fy = new Float32Array(sm.N);
+
+        try {
+          if (!sm.small) {
+            sm.small = document.createElement('canvas');
+            sm.sctx = sm.small.getContext('2d', { willReadFrequently: true });
+          }
+          if (sm.small) {
+            sm.small.width = NX;
+            sm.small.height = NY;
+          }
+          if (sm.sctx) {
+            sm.imgData = sm.sctx.createImageData(NX, NY);
+            sm.imgArr = sm.imgData.data;
+          }
+        } catch {
+          // ignore
+        }
+
+        // если курсора ещё не было — ставим в центр (иначе первый кадр может быть без "сгустка")
+        if (!pointer.has) {
+          pointer.has = true;
+          pointer.x = (w * 0.5) * dpr;
+          pointer.y = (h * 0.55) * dpr;
+        }
+      }
+
     };
 
     // helper for honeycomb: flat-top hex points
@@ -1236,52 +1289,6 @@ if (preset === 7) {
   return;
 }
 
-      // Smoke (7) — интерактивный дым с вихрями (vorticity)
-      if (preset === 7) {
-        const sm = state.smoke;
-        const target = clamp(Math.sqrt(w * h) / 6.2, 130, 260);
-        const aspect = w / h;
-        let NX = Math.floor(target * Math.sqrt(aspect));
-        let NY = Math.floor(target / Math.sqrt(aspect));
-        NX = clamp(NX, 110, 320);
-        NY = clamp(NY, 110, 320);
-
-        sm.NX = NX;
-        sm.NY = NY;
-        sm.N = NX * NY;
-
-        sm.u = new Float32Array(sm.N);
-        sm.v = new Float32Array(sm.N);
-        sm.u0 = new Float32Array(sm.N);
-        sm.v0 = new Float32Array(sm.N);
-        sm.dens = new Float32Array(sm.N);
-        sm.dens0 = new Float32Array(sm.N);
-        sm.p = new Float32Array(sm.N);
-        sm.div = new Float32Array(sm.N);
-        sm.curl = new Float32Array(sm.N);
-        sm.curlAbs = new Float32Array(sm.N);
-        sm.fx = new Float32Array(sm.N);
-        sm.fy = new Float32Array(sm.N);
-
-        try {
-          if (!sm.small) {
-            sm.small = document.createElement('canvas');
-            sm.sctx = sm.small.getContext('2d', { willReadFrequently: true });
-          }
-          if (sm.small) {
-            sm.small.width = NX;
-            sm.small.height = NY;
-          }
-          if (sm.sctx) {
-            sm.imgData = sm.sctx.createImageData(NX, NY);
-            sm.imgArr = sm.imgData.data;
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-    };
 
     let last = performance.now();
     const tick = (now) => {
