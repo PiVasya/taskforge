@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
 using System.Text;
@@ -77,6 +78,21 @@ builder.Services.AddSingleton<IAmazonS3>(sp =>
 });
 builder.Services.AddScoped<IFileStorageService, S3FileStorageService>();
 
+// code-analyzer (pre-run forbidden constructs check)
+builder.Services.Configure<taskforge.Services.CodeAnalysis.CodeAnalyzerOptions>(builder.Configuration.GetSection("CodeAnalyzer"));
+builder.Services.AddHttpClient<taskforge.Services.CodeAnalysis.ICodeAnalyzerClient, taskforge.Services.CodeAnalysis.HttpCodeAnalyzerClient>((sp, c) =>
+{
+    var opt = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<taskforge.Services.CodeAnalysis.CodeAnalyzerOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(opt.Url))
+    {
+        var url = opt.Url.TrimEnd('/') + "/";
+        c.BaseAddress = new Uri(url);
+    }
+
+    var timeoutSeconds = opt.TimeoutSeconds <= 0 ? 6 : opt.TimeoutSeconds;
+    c.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+});
+
 // image similarity (external analyzer + fallback)
 builder.Services.Configure<ImageAnalyzerOptions>(builder.Configuration.GetSection("ImageAnalyzer"));
 builder.Services.AddHttpClient<IImageAnalyzerClient, HttpImageAnalyzerClient>((sp, c) =>
@@ -138,6 +154,9 @@ builder.Services.AddSignalR();
 
 // Парольный хэшер как singleton
 builder.Services.AddSingleton<PasswordHasher>();
+
+// new judge pipeline (v2)
+builder.Services.AddScoped<taskforge.Services.Interfaces.IPolicyJudgeService, taskforge.Services.PolicyJudgeService>();
 
 // JWT
 var jwtSection = builder.Configuration.GetSection("Jwt");
