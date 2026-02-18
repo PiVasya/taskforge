@@ -4,38 +4,224 @@ services:
     container_name: taskforge-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: taskforge_dev
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Europe/Warsaw
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks: [appnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # S3-совместимое хранилище для картинок/медиа (MinIO)
+  minio:
+    image: minio/minio:latest
+    container_name: taskforge-minio
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TZ: Europe/Warsaw
+    volumes:
+      - minio-data:/data
+    networks: [appnet]
+    ports:
+      - "9001:9001"
+      - "127.0.0.1:9000:9000"   # ← (по желанию) доступ к S3 API с хоста
+
+  # Инициализация MinIO: bucket + пользователь приложения
+  # Запускать: docker compose --profile init up minio-init
+  minio-init:
+    image: minio/mc:latest
+    container_name: taskforge-minio-init
+    profiles: ["init"]
+    depends_on:
+      - minio
+    networks: [appnet]
+    environment:
+      MINIO_INTERNAL_ENDPOINT: "http://minio:9000"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    entrypoint: >
+      /bin/sh -c '
+      set -eu;
+
+      until mc alias set local "$MINIO_INTERNAL_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
+        echo "waiting for minio..."; sleep 2;
+      done;
+
+      mc mb -p "local/$S3_BUCKET" || true;
+
+      # ВАЖНО: гарантируем актуальный secret (если пользователь уже был — обновим через remove+add)
+      mc admin user remove local "$S3_ACCESS_KEY" || true;
+      mc admin user remove local "$S3_ACCESS_KEY" || true;
+      mc admin user add local "$S3_ACCESS_KEY" "$S3_SECRET_KEY";
+
+      mc admin policy attach local readwrite --user "$S3_ACCESS_KEY" || true;
+
+      echo "minio init done";
+      '
+    restart: "no"
+
+  image-analyzer:
+    image: ghcr.io/pivasya/taskforge-image-analyzer:latest
+    container_name: taskforge-image-analyzer
+    environment:
+      TZ: Europe/Warsaw
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ✅ NEW: code analyzer (security/static checks before running code)
+  code-analyzer:
+    image: ghcr.io/pivasya/taskforge-code-analyzer:latest
+    container_name: taskforge-code-analyzer
+    environment:
+      TZ: Europe/Warsaw
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   api:
-    build:
-      context: ./taskforge
-      dockerfile: Dockerfile
+    image: ghcr.io/pivasya/taskforge-api:latest
+    container_name: taskforge-api
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=taskforge_dev;Username=postgres;Password=postgres"
+
+      ConnectionStrings__DefaultConnection: >
+        Host=db;Port=5432;Database=${POSTGRES_DB};
+        Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
+      API_INTERNAL_KEY: ${API_INTERNAL_KEY}
+
+      # JWT
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__ExpireMinutes: ${JWT_EXPIRE_MINUTES}
+
+      # MinIO / S3 (API ходит по внутреннему имени minio)
+      S3__Endpoint: "http://minio:9000"
+      S3__Bucket: ${S3_BUCKET}
+      S3__AccessKey: ${S3_ACCESS_KEY}
+      S3__SecretKey: ${S3_SECRET_KEY}
+      S3__Region: ${S3_REGION}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE}
+
+      # компиляторы
       Compilers__cpp__Url: "http://cpp-runner:8080"
       Compilers__cpp__TimeoutMs: "12000"
       Compilers__csharp__Url: "http://csharp-runner:8080"
       Compilers__csharp__TimeoutMs: "12000"
       Compilers__python__Url: "http://python-runner:8080"
       Compilers__python__TimeoutMs: "8000"
-    depends_on: [db, cpp-runner, csharp-runner, python-runner]
+      Compilers__pascal__Url: "http://pascal-runner:8080"
+      Compilers__pascal__TimeoutMs: "8000"
+      Compilers__java__Url: "http://java-runner:8080"
+      Compilers__java__TimeoutMs: "12000"
+      Compilers__javascript__Url: "http://javascript-runner:8080"
+      Compilers__javascript__TimeoutMs: "8000"
+
+      ImageRunners__python__Url: "http://image-python-runner:8080"
+      ImageRunners__python__TimeoutMs: "12000"
+      ImageRunners__pascal__Url: "http://image-pascal-runner:8080"
+      ImageRunners__pascal__TimeoutMs: "12000"
+
+      ImageAnalyzer__Enabled: "true"
+      ImageAnalyzer__Url: "http://image-analyzer:8080"
+      ImageAnalyzer__TimeoutSeconds: "25"
+
+      # ✅ NEW: code analyzer config for JudgeV2
+      CodeAnalyzer__Enabled: "true"
+      CodeAnalyzer__Url: "http://code-analyzer:8080"
+      CodeAnalyzer__TimeoutSeconds: "6"
+
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      cpp-runner:
+        condition: service_started
+      csharp-runner:
+        condition: service_started
+      python-runner:
+        condition: service_started
+      pascal-runner:
+        condition: service_started
+      java-runner:
+        condition: service_started
+      javascript-runner:
+        condition: service_started
+      image-python-runner:
+        condition: service_started
+      image-pascal-runner:
+        condition: service_started
+      image-analyzer:
+        condition: service_started
+      code-analyzer:
+        condition: service_started
+
     expose: ["8080"]
     networks: [appnet]
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  support-bot:
+    image: ghcr.io/pivasya/taskforge-support-bot:latest
+    container_name: taskforge-support-bot
+    environment:
+      ConnectionStrings__DefaultConnection: >
+        Host=db;Port=5432;Database=${POSTGRES_DB};
+        Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_SUPPORT_GROUP_ID: ${TELEGRAM_SUPPORT_GROUP_ID}
+
+      API_BASE_URL: "http://api:8080"
+      API_INTERNAL_KEY: ${API_INTERNAL_KEY}
+
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
 
   front:
-    build:
-      context: ./clientapp
-      dockerfile: Dockerfile
+    image: ghcr.io/pivasya/taskforge-front:latest
+    container_name: taskforge-front
     expose: ["80"]
     networks: [appnet]
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
 
   nginx:
     build:
@@ -65,7 +251,19 @@ services:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
     depends_on: [nginx]
-    entrypoint: ["sh","-c","if [ -f /etc/letsencrypt/live/$DOMAIN/fullchain.pem ]; then echo '[certbot-init] Certificate already exists for '$DOMAIN' — skipping'; else certbot certonly --webroot -w /var/www/certbot -d \"$DOMAIN\" --email \"$LETSENCRYPT_EMAIL\" --rsa-key-size 4096 --agree-tos --no-eff-email --non-interactive; fi"]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+          echo "[certbot-init] Certificate already exists for $DOMAIN - skipping";
+        else
+          certbot certonly \
+            --webroot -w /var/www/certbot \
+            -d "$DOMAIN" \
+            --email "$LETSENCRYPT_EMAIL" \
+            --rsa-key-size 4096 --agree-tos --no-eff-email --non-interactive;
+        fi
     restart: "no"
     networks: [appnet]
 
@@ -78,51 +276,110 @@ services:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
     depends_on: [nginx]
-    entrypoint: ["sh","-c","trap : TERM INT; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h; done"]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        trap : TERM INT
+        while :; do
+          certbot renew --webroot -w /var/www/certbot --quiet
+          sleep 12h
+        done
     restart: unless-stopped
     networks: [appnet]
 
   cpp-runner:
-    build:
-      context: ./cpp-runner
-      dockerfile: Dockerfile
+    image: ghcr.io/pivasya/taskforge-cpp-runner:latest
+    container_name: taskforge-cpp-runner
     expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-
-  csharp-runner:
-    build:
-      context: ./csharp-runner
-      dockerfile: Dockerfile
-    expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-
-  python-runner:
-    build:
-      context: ./python-runner
-      dockerfile: Dockerfile
-    expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-
-  watchtower:
-    image: containrrr/watchtower
-    command: --interval 300 --cleanup --label-enable
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
     networks: [appnet]
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+
+  csharp-runner:
+    image: ghcr.io/pivasya/taskforge-csharp-runner:latest
+    container_name: taskforge-csharp-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  python-runner:
+    image: ghcr.io/pivasya/taskforge-python-runner:latest
+    container_name: taskforge-python-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  pascal-runner:
+    image: ghcr.io/pivasya/taskforge-pascal-runner:latest
+    container_name: taskforge-pascal-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  java-runner:
+    image: ghcr.io/pivasya/taskforge-java-runner:latest
+    container_name: taskforge-java-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  javascript-runner:
+    image: ghcr.io/pivasya/taskforge-javascript-runner:latest
+    container_name: taskforge-javascript-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  image-python-runner:
+    image: ghcr.io/pivasya/taskforge-image-python-runner:latest
+    container_name: taskforge-image-python-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  image-pascal-runner:
+    image: ghcr.io/pivasya/taskforge-image-pascal-runner:latest
+    container_name: taskforge-image-pascal-runner
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: taskforge-watchtower
+    command: --interval 60 --cleanup --label-enable --revive-stopped --warn-on-head-failure=auto
+    environment:
+      - DOCKER_CONFIG=/config
+      - WATCHTOWER_NOTIFICATIONS_LEVEL=info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/pivasya/Desktop/taskforge-prod-linux/config.json:/config/config.json:ro
+    networks: [appnet]
+    restart: unless-stopped
 
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: taskforge-pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
       - "8081:80"
     networks: [appnet]
@@ -132,5 +389,6 @@ networks:
 
 volumes:
   pgdata:
+  minio-data:
   certbot-www:
   letsencrypt:
