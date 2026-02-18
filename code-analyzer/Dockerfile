@@ -16,7 +16,15 @@ FROM debian:bookworm-slim
 RUN useradd -m appuser
 WORKDIR /app
 COPY --from=build /app/target/release/taskforge-code-analyzer /app/taskforge-code-analyzer
+
+# Small wrapper so we always see "started" and also see the exit code
+# if the process terminates immediately (helps debug restart loops).
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/taskforge-code-analyzer /app/entrypoint.sh
 USER appuser
 EXPOSE 8080
-ENV RUST_LOG=info
-CMD ["/app/taskforge-code-analyzer"]
+# Default to very verbose logs for MVP debugging in production.
+ENV RUST_LOG=debug \
+    RUST_BACKTRACE=1
+
+ENTRYPOINT ["/app/entrypoint.sh"]
