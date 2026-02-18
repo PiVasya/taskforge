@@ -1,30 +1,33 @@
-# ---------- build ----------
 FROM rust:1.77-slim AS build
+
 WORKDIR /app
 
-# speed up builds: cache deps
+# ВАЖНО: собираем РЕАЛЬНЫЙ код.
+# Раньше использовался трюк с "пустышкой" main.rs для кэша зависимостей.
+# В CI он приводил к тому, что в итоговый образ попадал бинарник, который сразу завершался (exit=0).
+# Здесь делаем простой и надёжный билд.
+
 COPY Cargo.toml Cargo.toml
-RUN mkdir -p src && echo "fn main(){}" > src/main.rs
-RUN cargo build --release
-
-# actual source
+COPY Cargo.lock Cargo.lock
 COPY src ./src
+
 RUN cargo build --release
 
-# ---------- runtime ----------
+
 FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd -m appuser
 WORKDIR /app
+
 COPY --from=build /app/target/release/taskforge-code-analyzer /app/taskforge-code-analyzer
 
-# Small wrapper so we always see "started" and also see the exit code
-# if the process terminates immediately (helps debug restart loops).
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/taskforge-code-analyzer /app/entrypoint.sh
+RUN chown -R appuser:appuser /app
 USER appuser
-EXPOSE 8080
-# Default to very verbose logs for MVP debugging in production.
-ENV RUST_LOG=debug \
-    RUST_BACKTRACE=1
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+EXPOSE 8080
+
+CMD ["/app/taskforge-code-analyzer"]

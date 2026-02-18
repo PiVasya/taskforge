@@ -46,8 +46,13 @@ struct Hit {
 
 #[tokio::main]
 async fn main() {
-    // Tons of logs by default (MVP), as requested.
-    // If RUST_LOG is not set, we default to "debug".
+    // Very verbose boot logs
+    println!("[code-analyzer] boot: starting...");
+    println!("[code-analyzer] boot: args={:?}", std::env::args().collect::<Vec<_>>());
+    println!("[code-analyzer] boot: RUST_LOG={}", std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".into()));
+    println!("[code-analyzer] boot: RUST_BACKTRACE={}", std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "<unset>".into()));
+
+    // If RUST_LOG is not set, we default to debug.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
@@ -56,13 +61,30 @@ async fn main() {
         .route("/health", get(|| async { "ok" }))
         .route("/analyze", post(analyze));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    tracing::info!("code-analyzer listening on {addr}");
-    println!("[code-analyzer] listening on {addr}");
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
-}
+    // Port override via PORT env
+    let port = std::env::var("PORT").ok().and_then(|v| v.parse::<u16>().ok()).unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
+    tracing::info!("code-analyzer binding on {addr}");
+    println!("[code-analyzer] binding on {addr}");
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap_or_else(|e| {
+        eprintln!("[code-analyzer] FATAL: failed to bind {addr}: {e}");
+        std::process::exit(11);
+    });
+
+    tracing::info!("code-analyzer listening on {addr}");
+    println!("[code-analyzer] listening OK on {addr}");
+    println!("[code-analyzer] ready: GET /health, POST /analyze");
+
+    axum::serve(listener, app).await.unwrap_or_else(|e| {
+        eprintln!("[code-analyzer] FATAL: server error: {e}");
+        std::process::exit(12);
+    });
+
+    // Should never reach here in normal operation
+    println!("[code-analyzer] stopped: serve() returned unexpectedly");
+}
 async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     tracing::info!("/analyze -> start");
     println!("[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
