@@ -46,9 +46,11 @@ struct Hit {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    // Tons of logs by default (MVP), as requested.
+    // If RUST_LOG is not set, we default to "debug".
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -56,24 +58,40 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     tracing::info!("code-analyzer listening on {addr}");
+    println!("[code-analyzer] listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
 async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
+    tracing::info!("/analyze -> start");
+    println!("[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
+        req.language,
+        req.source.len(),
+        req.extra_forbidden.as_ref().map(|v| v.len()).unwrap_or(0)
+    );
+
     let lang = req.language.to_lowercase();
+    tracing::debug!("normalized lang={}", lang);
+
     let cleaned = strip_comments_and_strings(&lang, &req.source);
+    tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
+    println!("[code-analyzer] cleaned.len={} orig.len={}", cleaned.len(), req.source.len());
 
     let mut patterns = builtin_forbidden(&lang);
+    println!("[code-analyzer] builtin patterns={}", patterns.len());
     if let Some(extra) = req.extra_forbidden {
+        println!("[code-analyzer] extra patterns={}", extra.len());
         patterns.extend(extra);
     }
+    println!("[code-analyzer] total patterns={}", patterns.len());
 
     let mut hits: Vec<Hit> = Vec::new();
     let mut errors: Vec<Violation> = Vec::new();
 
     // We scan once per pattern; patterns are small. Later we can optimize with Aho–Corasick.
     for p in patterns {
+        tracing::debug!("scan pattern id={:?} needle='{}'", p.id, p.needle);
         let case_sensitive = p.case_sensitive.unwrap_or(true);
         let (hay, needle) = if case_sensitive {
             (cleaned.as_str().to_string(), p.needle.clone())
@@ -87,6 +105,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
 
         // Find all occurrences.
         let mut start = 0usize;
+        let mut count = 0usize;
         while let Some(pos) = hay[start..].find(&needle) {
             let abs = start + pos;
             let preview = make_preview(&cleaned, abs, needle.len());
@@ -96,10 +115,21 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
                 position: abs,
                 preview,
             });
+            count += 1;
             start = abs + needle.len();
             if start >= hay.len() {
                 break;
             }
+        }
+
+        if count > 0 {
+            println!(
+                "[code-analyzer] HIT id={:?} needle='{}' count={} (case_sensitive={})",
+                p.id,
+                p.needle,
+                count,
+                case_sensitive
+            );
         }
 
         if hits.iter().any(|h| h.pattern_id == p.id && h.needle == p.needle) {
@@ -115,6 +145,9 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     errors.sort_by(|a, b| (a.code.as_str(), a.pattern_id.as_deref().unwrap_or(""), a.message.as_str())
         .cmp(&(b.code.as_str(), b.pattern_id.as_deref().unwrap_or(""), b.message.as_str())));
     errors.dedup_by(|a, b| a.code == b.code && a.pattern_id == b.pattern_id && a.message == b.message);
+
+    println!("[code-analyzer] done ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
+    tracing::info!("/analyze <- ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
 
     Json(AnalyzeResponse {
         ok: errors.is_empty(),

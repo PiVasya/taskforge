@@ -32,11 +32,17 @@ public sealed class JudgeV2Controller : ControllerBase
     [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<JudgeResponseDto>> Run([FromBody] JudgeRequestDto req)
     {
+        Console.WriteLine("[Judge2Controller] >>> POST /api/judge2/run");
         if (req == null || req.AssignmentId == Guid.Empty || string.IsNullOrWhiteSpace(req.Source))
+        {
+            Console.WriteLine("[Judge2Controller] validation failed");
             return BadRequest(new { code = "VALIDATION_ERROR", message = "Неверные параметры запуска" });
+        }
 
         var userId = _current.GetUserId();
+        Console.WriteLine($"[Judge2Controller] userId={userId} assignmentId={req.AssignmentId} lang='{req.Language}' src.len={req.Source?.Length ?? 0}");
         var res = await _judge.JudgeAsync(req, userId);
+        Console.WriteLine($"[Judge2Controller] <<< status={res?.Status} message='{res?.Message ?? ""}'");
         return Ok(res);
     }
 }

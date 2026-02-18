@@ -33,22 +33,32 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
 
     public async Task<JudgeResponseDto> JudgeAsync(JudgeRequestDto req, Guid currentUserId)
     {
+        Console.WriteLine("[PolicyJudge] >>> start");
+        Console.WriteLine($"[PolicyJudge] userId={currentUserId} lang='{req.Language}' source.len={req.Source?.Length ?? 0}");
+
         // If analyzer disabled or url not set -> fallback to old behavior
         if (!_opt.Enabled || string.IsNullOrWhiteSpace(_opt.Url))
+        {
+            Console.WriteLine($"[PolicyJudge] analyzer disabled (Enabled={_opt.Enabled}, Url='{_opt.Url ?? ""}') -> fallback to old JudgeService");
             return await _inner.JudgeAsync(req, currentUserId);
+        }
 
         AnalyzeResponse? ares;
         try
         {
+            Console.WriteLine($"[PolicyJudge] analyzer -> calling /analyze (url='{_opt.Url}')");
             ares = await _analyzer.AnalyzeAsync(new AnalyzeRequest
             {
                 Language = req.Language,
                 Source = req.Source,
                 ExtraForbidden = null
             });
+            Console.WriteLine($"[PolicyJudge] analyzer <- ok={ares?.Ok} errors={ares?.Errors?.Count ?? 0} hits={ares?.Hits?.Count ?? 0}");
         }
         catch (Exception ex) when (ex is HttpRequestException)
         {
+            Console.WriteLine($"[PolicyJudge] analyzer EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine(ex);
             // Infrastructure error: do not run user code if analyzer is mandatory
             return new JudgeResponseDto
             {
@@ -67,6 +77,7 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
 
         if (ares != null && !ares.Ok)
         {
+            Console.WriteLine("[PolicyJudge] POLICY_FAIL -> returning policy_failed (do not run code)");
             var sb = new StringBuilder();
             foreach (var e in ares.Errors.Take(10))
             {
@@ -90,6 +101,7 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
             };
         }
 
+        Console.WriteLine("[PolicyJudge] policy OK -> delegating to old JudgeService");
         return await _inner.JudgeAsync(req, currentUserId);
     }
 }

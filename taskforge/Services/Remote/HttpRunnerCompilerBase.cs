@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
@@ -12,6 +14,8 @@ namespace taskforge.Services.Remote
         protected readonly IConfiguration _cfg;
         protected readonly string _langKey;
 
+        private static readonly JsonSerializerOptions _jsonOpts = new() { PropertyNameCaseInsensitive = true };
+
         protected HttpRunnerCompilerBase(IHttpClientFactory httpFactory, IConfiguration cfg, string langKey)
         {
             _httpFactory = httpFactory;
@@ -24,6 +28,23 @@ namespace taskforge.Services.Remote
 
         public async Task<CompilerRunResponseDto> CompileAndRunAsync(CompilerRunRequestDto req)
         {
+            // 0) Policy check (code-analyzer) BEFORE hitting the runner.
+            var policy = await AnalyzePolicyAsync(req.Code);
+            if (policy is not null && policy.ok == false)
+            {
+                var details = BuildPolicyDetails(policy);
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_FAIL -> block execution\n{details}");
+                return new CompilerRunResponseDto
+                {
+                    Status = "policy_failed",
+                    ExitCode = 2,
+                    Stdout = null,
+                    Stderr = details,
+                    CompileStderr = details,
+                    Message = "Код содержит запрещённые конструкции"
+                };
+            }
+
             var client = _httpFactory.CreateClient();
             var url = $"{BaseUrl.TrimEnd('/')}/run";
 
@@ -80,6 +101,33 @@ namespace taskforge.Services.Remote
             int? timeLimitMs = null,
             int? memoryLimitMb = null)
         {
+            // 0) Policy check (code-analyzer) once for the whole submission.
+            var policy = await AnalyzePolicyAsync(code);
+            if (policy is not null && policy.ok == false)
+            {
+                var details = BuildPolicyDetails(policy);
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_FAIL (tests) -> block execution\n{details}");
+
+                // Return one failed record per test case to keep the pipeline stable.
+                var blocked = new List<TestResultDto>();
+                foreach (var t in testCases ?? new List<TestCaseDto>())
+                {
+                    blocked.Add(new TestResultDto
+                    {
+                        Input = t.Input ?? "",
+                        ExpectedOutput = t.ExpectedOutput ?? "",
+                        ActualOutput = "",
+                        Passed = false,
+                        Status = "policy_failed",
+                        ExitCode = 2,
+                        Stderr = details,
+                        CompileStderr = details,
+                        Hidden = t.IsHidden
+                    });
+                }
+                return blocked;
+            }
+
             var client = _httpFactory.CreateClient();
             var url = $"{BaseUrl.TrimEnd('/')}/run/tests";
 
@@ -123,6 +171,98 @@ namespace taskforge.Services.Remote
             return results;
         }
 
+        // ===== Policy / code-analyzer =====
+
+        private bool IsPolicyEnabled()
+        {
+            // supports both appsettings.json (CodeAnalyzer:Enabled) and env (CodeAnalyzer__Enabled)
+            return _cfg.GetValue<bool>("CodeAnalyzer:Enabled", false);
+        }
+
+        private string? CodeAnalyzerUrl()
+        {
+            var url = _cfg["CodeAnalyzer:Url"];
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            return url.TrimEnd('/');
+        }
+
+        private int CodeAnalyzerTimeoutSeconds()
+            => _cfg.GetValue<int>("CodeAnalyzer:TimeoutSeconds", 6);
+
+        private async Task<AnalyzerResponse?> AnalyzePolicyAsync(string? source)
+        {
+            try
+            {
+                if (!IsPolicyEnabled())
+                {
+                    Console.WriteLine($"[Runner:{_langKey}] policy.enabled=false -> skip code-analyzer");
+                    return null;
+                }
+
+                var baseUrl = CodeAnalyzerUrl();
+                if (string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    Console.WriteLine($"[Runner:{_langKey}] policy.enabled=true but CodeAnalyzer:Url is empty -> skip");
+                    return null;
+                }
+
+                var src = source ?? "";
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK -> POST {baseUrl}/analyze source.len={src.Length}");
+
+                var client = _httpFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(CodeAnalyzerTimeoutSeconds());
+
+                var payload = new
+                {
+                    language = _langKey,
+                    source = src,
+                    extra_forbidden = (object?)null
+                };
+
+                var resp = await client.PostAsJsonAsync($"{baseUrl}/analyze", payload);
+                var raw = await resp.Content.ReadAsStringAsync();
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK <- HTTP {(int)resp.StatusCode} {resp.StatusCode}");
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK RAW: {raw}");
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK non-2xx -> allow execution (non-strict mode)");
+                    return null;
+                }
+
+                return JsonSerializer.Deserialize<AnalyzerResponse>(raw, _jsonOpts);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine(ex);
+
+                // If analyzer is down, we DON'T block execution by default (so prod doesn't die).
+                // Later we can add a strict mode per task.
+                return null;
+            }
+        }
+
+        private static string BuildPolicyDetails(AnalyzerResponse policy)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("[policy_failed] Code Analyzer blocked the submission");
+            foreach (var e in policy.errors ?? new List<AnalyzerViolation>())
+            {
+                sb.AppendLine($"- {e.code}: {e.message} (pattern_id={e.pattern_id ?? "-"})");
+            }
+            if (policy.hits is not null && policy.hits.Count > 0)
+            {
+                sb.AppendLine("[hits]");
+                foreach (var h in policy.hits.Take(50))
+                {
+                    sb.AppendLine($"- pos={h.position} needle='{h.needle}' id={h.pattern_id ?? "-"} preview='{h.preview}'");
+                }
+                if (policy.hits.Count > 50) sb.AppendLine($"... hits truncated ({policy.hits.Count})");
+            }
+            return sb.ToString();
+        }
+
         // ===== JSON-модели раннеров =====
 
         private sealed class RunnerRunResponse
@@ -161,6 +301,30 @@ namespace taskforge.Services.Remote
             if (exitCode != 0 && string.IsNullOrWhiteSpace(stderr)) return "compile_error";
             if (exitCode != 0) return "runtime_error";
             return "ok";
+        }
+
+        // ===== JSON models for code-analyzer =====
+
+        private sealed class AnalyzerResponse
+        {
+            public bool ok { get; set; }
+            public List<AnalyzerViolation>? errors { get; set; }
+            public List<AnalyzerHit>? hits { get; set; }
+        }
+
+        private sealed class AnalyzerViolation
+        {
+            public string? code { get; set; }
+            public string? message { get; set; }
+            public string? pattern_id { get; set; }
+        }
+
+        private sealed class AnalyzerHit
+        {
+            public string? pattern_id { get; set; }
+            public string? needle { get; set; }
+            public int position { get; set; }
+            public string? preview { get; set; }
         }
     }
 }
