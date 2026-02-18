@@ -46,32 +46,11 @@ struct Hit {
 
 #[tokio::main]
 async fn main() {
-    // Very verbose boot logs (as requested)
+    // Very verbose boot logs
     println!("[code-analyzer] boot: starting...");
-    println!(
-        "[code-analyzer] boot: args={:?}",
-        std::env::args().collect::<Vec<_>>()
-    );
-    println!(
-        "[code-analyzer] boot: RUST_LOG={}",
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".into())
-    );
-    println!(
-        "[code-analyzer] boot: RUST_BACKTRACE={}",
-        std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "<unset>".into())
-    );
-    println!(
-        "[code-analyzer] boot: PORT={}",
-        std::env::var("PORT").unwrap_or_else(|_| "<unset>".into())
-    );
-    println!(
-        "[code-analyzer] boot: HOST={}",
-        std::env::var("HOST").unwrap_or_else(|_| "<unset>".into())
-    );
-    println!(
-        "[code-analyzer] boot: PID={}",
-        std::process::id()
-    );
+    println!("[code-analyzer] boot: args={:?}", std::env::args().collect::<Vec<_>>());
+    println!("[code-analyzer] boot: RUST_LOG={}", std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".into()));
+    println!("[code-analyzer] boot: RUST_BACKTRACE={}", std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "<unset>".into()));
 
     // If RUST_LOG is not set, we default to debug.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -79,25 +58,12 @@ async fn main() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let app = Router::new()
-        .route("/health", get(health))
+        .route("/health", get(|| async { "ok" }))
         .route("/analyze", post(analyze));
 
     // Port override via PORT env
-    let port = std::env::var("PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(8080);
-
-    // Optional host override (rarely needed), default 0.0.0.0
-    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
-    let addr_str = format!("{host}:{port}");
-    let addr: SocketAddr = addr_str.parse().unwrap_or_else(|e| {
-        eprintln!(
-            "[code-analyzer] FATAL: failed to parse addr '{}': {}",
-            addr_str, e
-        );
-        std::process::exit(10);
-    });
+    let port = std::env::var("PORT").ok().and_then(|v| v.parse::<u16>().ok()).unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
     tracing::info!("code-analyzer binding on {addr}");
     println!("[code-analyzer] binding on {addr}");
@@ -111,28 +77,17 @@ async fn main() {
     println!("[code-analyzer] listening OK on {addr}");
     println!("[code-analyzer] ready: GET /health, POST /analyze");
 
-    // IMPORTANT: for axum 0.7 we serve a MakeService
-    axum::serve(listener, app.into_make_service())
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("[code-analyzer] FATAL: server error: {e}");
-            std::process::exit(12);
-        });
+    axum::serve(listener, app).await.unwrap_or_else(|e| {
+        eprintln!("[code-analyzer] FATAL: server error: {e}");
+        std::process::exit(12);
+    });
 
     // Should never reach here in normal operation
     println!("[code-analyzer] stopped: serve() returned unexpectedly");
 }
-
-async fn health() -> &'static str {
-    // super-verbose health ping log (ok for MVP)
-    println!("[code-analyzer] /health ping");
-    "ok"
-}
-
 async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     tracing::info!("/analyze -> start");
-    println!(
-        "[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
+    println!("[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
         req.language,
         req.source.len(),
         req.extra_forbidden.as_ref().map(|v| v.len()).unwrap_or(0)
@@ -140,15 +95,10 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
 
     let lang = req.language.to_lowercase();
     tracing::debug!("normalized lang={}", lang);
-    println!("[code-analyzer] normalized lang={}", lang);
 
     let cleaned = strip_comments_and_strings(&lang, &req.source);
     tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
-    println!(
-        "[code-analyzer] cleaned.len={} orig.len={}",
-        cleaned.len(),
-        req.source.len()
-    );
+    println!("[code-analyzer] cleaned.len={} orig.len={}", cleaned.len(), req.source.len());
 
     let mut patterns = builtin_forbidden(&lang);
     println!("[code-analyzer] builtin patterns={}", patterns.len());
@@ -164,104 +114,62 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     // We scan once per pattern; patterns are small. Later we can optimize with Aho–Corasick.
     for p in patterns {
         tracing::debug!("scan pattern id={:?} needle='{}'", p.id, p.needle);
-        println!(
-            "[code-analyzer] scan: id={:?} needle='{}' case_sensitive={:?}",
-            p.id, p.needle, p.case_sensitive
-        );
-
         let case_sensitive = p.case_sensitive.unwrap_or(true);
-
-        if p.needle.is_empty() {
-            println!("[code-analyzer] skip empty needle id={:?}", p.id);
-            continue;
-        }
-
-        // Avoid allocating huge strings if not needed.
-        // Case-insensitive scan uses to_lowercase() on both.
-        let (hay, needle, mode_ci) = if case_sensitive {
-            (cleaned.clone(), p.needle.clone(), false)
+        let (hay, needle) = if case_sensitive {
+            (cleaned.as_str().to_string(), p.needle.clone())
         } else {
-            (cleaned.to_lowercase(), p.needle.to_lowercase(), true)
+            (cleaned.to_lowercase(), p.needle.to_lowercase())
         };
 
-        println!(
-            "[code-analyzer] scan mode: {} (hay.len={})",
-            if mode_ci { "case-insensitive" } else { "case-sensitive" },
-            hay.len()
-        );
+        if needle.is_empty() {
+            continue;
+        }
 
         // Find all occurrences.
         let mut start = 0usize;
         let mut count = 0usize;
-
-        while start < hay.len() {
-            match hay[start..].find(&needle) {
-                Some(pos) => {
-                    let abs = start + pos;
-                    let preview = make_preview(&cleaned, abs, needle.len());
-
-                    hits.push(Hit {
-                        pattern_id: p.id.clone(),
-                        needle: p.needle.clone(),
-                        position: abs,
-                        preview,
-                    });
-
-                    count += 1;
-
-                    // Move forward
-                    start = abs + needle.len();
-                    if start >= hay.len() {
-                        break;
-                    }
-                }
-                None => break,
+        while let Some(pos) = hay[start..].find(&needle) {
+            let abs = start + pos;
+            let preview = make_preview(&cleaned, abs, needle.len());
+            hits.push(Hit {
+                pattern_id: p.id.clone(),
+                needle: p.needle.clone(),
+                position: abs,
+                preview,
+            });
+            count += 1;
+            start = abs + needle.len();
+            if start >= hay.len() {
+                break;
             }
         }
 
         if count > 0 {
             println!(
                 "[code-analyzer] HIT id={:?} needle='{}' count={} (case_sensitive={})",
-                p.id, p.needle, count, case_sensitive
+                p.id,
+                p.needle,
+                count,
+                case_sensitive
             );
+        }
 
+        if hits.iter().any(|h| h.pattern_id == p.id && h.needle == p.needle) {
             errors.push(Violation {
                 code: "forbidden".to_string(),
-                message: p.description.clone().unwrap_or_else(|| {
-                    format!("Запрещённая конструкция: {}", p.needle)
-                }),
+                message: p.description.clone().unwrap_or_else(|| format!("Запрещённая конструкция: {}", p.needle)),
                 pattern_id: p.id.clone(),
             });
-        } else {
-            println!(
-                "[code-analyzer] no hits id={:?} needle='{}'",
-                p.id, p.needle
-            );
         }
     }
 
     // Deduplicate errors by (code,pattern_id,message)
-    errors.sort_by(|a, b| {
-        (a.code.as_str(), a.pattern_id.as_deref().unwrap_or(""), a.message.as_str()).cmp(&(
-            b.code.as_str(),
-            b.pattern_id.as_deref().unwrap_or(""),
-            b.message.as_str(),
-        ))
-    });
+    errors.sort_by(|a, b| (a.code.as_str(), a.pattern_id.as_deref().unwrap_or(""), a.message.as_str())
+        .cmp(&(b.code.as_str(), b.pattern_id.as_deref().unwrap_or(""), b.message.as_str())));
     errors.dedup_by(|a, b| a.code == b.code && a.pattern_id == b.pattern_id && a.message == b.message);
 
-    println!(
-        "[code-analyzer] done ok={} errors={} hits={}",
-        errors.is_empty(),
-        errors.len(),
-        hits.len()
-    );
-    tracing::info!(
-        "/analyze <- ok={} errors={} hits={}",
-        errors.is_empty(),
-        errors.len(),
-        hits.len()
-    );
+    println!("[code-analyzer] done ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
+    tracing::info!("/analyze <- ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
 
     Json(AnalyzeResponse {
         ok: errors.is_empty(),
@@ -291,29 +199,17 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
             fp("js.eval", "eval(", "Запрещено использовать eval()"),
             fp("js.function_ctor", "Function(", "Запрещено использовать Function-конструктор"),
             fp("js.child_process", "child_process", "Запрещено использовать child_process"),
-            fp(
-                "js.require_child_process",
-                "require('child_process'",
-                "Запрещено подключать child_process",
-            ),
+            fp("js.require_child_process", "require('child_process'", "Запрещено подключать child_process"),
             fp("js.require_fs", "require('fs'", "Запрещено подключать fs"),
             fp("js.import_fs", "from 'fs'", "Запрещено импортировать fs"),
-            fp(
-                "js.import_child_process",
-                "from 'child_process'",
-                "Запрещено импортировать child_process",
-            ),
+            fp("js.import_child_process", "from 'child_process'", "Запрещено импортировать child_process"),
         ]);
     }
 
     if lang == "python" || lang == "py" {
         v.extend(vec![
             fp("py.import_os", "import os", "Запрещено использовать os"),
-            fp(
-                "py.import_subprocess",
-                "import subprocess",
-                "Запрещено использовать subprocess",
-            ),
+            fp("py.import_subprocess", "import subprocess", "Запрещено использовать subprocess"),
             fp("py.from_subprocess", "from subprocess", "Запрещено использовать subprocess"),
             fp("py.eval", "eval(", "Запрещено использовать eval()"),
             fp("py.exec", "exec(", "Запрещено использовать exec()"),
@@ -346,11 +242,7 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
             fp("cs.process", "System.Diagnostics.Process", "Запрещён запуск процессов"),
             fp("cs.process_start", "Process.Start", "Запрещён запуск процессов"),
             fp("cs.dllimport", "DllImport", "Запрещены P/Invoke (DllImport)"),
-            fp(
-                "cs.reflection_emit",
-                "Reflection.Emit",
-                "Запрещена генерация кода (Reflection.Emit)",
-            ),
+            fp("cs.reflection_emit", "Reflection.Emit", "Запрещена генерация кода (Reflection.Emit)"),
             fp("cs.unsafe", "unsafe", "Запрещён unsafe-код"),
             fp("cs.stackalloc", "stackalloc", "Запрещён stackalloc"),
             fp("cs.file", "System.IO", "Запрещены операции с файлами"),
@@ -360,16 +252,8 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
 
     if lang == "java" {
         v.extend(vec![
-            fp(
-                "java.runtime_exec",
-                "Runtime.getRuntime().exec",
-                "Запрещён запуск процессов (exec)",
-            ),
-            fp(
-                "java.process_builder",
-                "ProcessBuilder",
-                "Запрещён запуск процессов (ProcessBuilder)",
-            ),
+            fp("java.runtime_exec", "Runtime.getRuntime().exec", "Запрещён запуск процессов (exec)"),
+            fp("java.process_builder", "ProcessBuilder", "Запрещён запуск процессов (ProcessBuilder)"),
             fp("java.file", "java.io.", "Запрещены операции с файлами"),
             fp("java.nio", "java.nio.", "Запрещены операции с файлами"),
             fp("java.net", "java.net.", "Запрещена сеть"),
@@ -419,16 +303,8 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
 
     while i < chars.len() {
         let c = chars[i];
-        let next = if i + 1 < chars.len() {
-            Some(chars[i + 1])
-        } else {
-            None
-        };
-        let next2 = if i + 2 < chars.len() {
-            Some(chars[i + 2])
-        } else {
-            None
-        };
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+        let next2 = if i + 2 < chars.len() { Some(chars[i + 2]) } else { None };
 
         // End line comment
         if in_line_comment {
@@ -446,9 +322,7 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
                 in_block_comment = false;
                 i += 2;
             } else {
-                if c == '\n' {
-                    out.push('\n');
-                }
+                if c == '\n' { out.push('\n'); }
                 i += 1;
             }
             continue;
@@ -470,9 +344,7 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
                 i += 2;
                 continue;
             }
-            if c == '\n' {
-                out.push('\n');
-            }
+            if c == '\n' { out.push('\n'); }
             i += 1;
             continue;
         }
@@ -487,11 +359,7 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
                 out.push(' ');
                 i += 3;
             } else {
-                if c == '\n' {
-                    out.push('\n');
-                } else {
-                    out.push(' ');
-                }
+                if c == '\n' { out.push('\n'); } else { out.push(' '); }
                 i += 1;
             }
             continue;
@@ -503,11 +371,7 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
                 // escape: skip next char too
                 out.push(' ');
                 if let Some(nc) = next {
-                    if nc == '\n' {
-                        out.push('\n');
-                    } else {
-                        out.push(' ');
-                    }
+                    if nc == '\n' { out.push('\n'); } else { out.push(' '); }
                     i += 2;
                 } else {
                     i += 1;
@@ -520,11 +384,7 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
                 i += 1;
                 continue;
             }
-            if c == '\n' {
-                out.push('\n');
-            } else {
-                out.push(' ');
-            }
+            if c == '\n' { out.push('\n'); } else { out.push(' '); }
             i += 1;
             continue;
         }
