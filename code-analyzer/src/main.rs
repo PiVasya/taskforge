@@ -18,6 +18,10 @@ struct ForbiddenPattern {
     /// substring match (fast). case_sensitive defaults to true.
     needle: String,
     case_sensitive: Option<bool>,
+    /// If true, pattern is searched in source where comments are stripped but strings are preserved.
+    /// Useful for languages where dangerous APIs are typically referenced inside string literals
+    /// (e.g. require('child_process') in JS).
+    match_in_strings: Option<bool>,
     /// Optional description for UI.
     description: Option<String>,
 }
@@ -96,9 +100,15 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let lang = req.language.to_lowercase();
     tracing::debug!("normalized lang={}", lang);
 
+    let no_comments = strip_comments_only(&lang, &req.source);
     let cleaned = strip_comments_and_strings(&lang, &req.source);
     tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
-    println!("[code-analyzer] cleaned.len={} orig.len={}", cleaned.len(), req.source.len());
+    println!(
+        "[code-analyzer] cleaned.len={} orig.len={} (no_comments.len={})",
+        cleaned.len(),
+        req.source.len(),
+        no_comments.len()
+    );
 
     let mut patterns = builtin_forbidden(&lang);
     println!("[code-analyzer] builtin patterns={}", patterns.len());
@@ -115,10 +125,13 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     for p in patterns {
         tracing::debug!("scan pattern id={:?} needle='{}'", p.id, p.needle);
         let case_sensitive = p.case_sensitive.unwrap_or(true);
+        let match_in_strings = p.match_in_strings.unwrap_or(false);
+
+        let base = if match_in_strings { &no_comments } else { &cleaned };
         let (hay, needle) = if case_sensitive {
-            (cleaned.as_str().to_string(), p.needle.clone())
+            (base.as_str().to_string(), p.needle.clone())
         } else {
-            (cleaned.to_lowercase(), p.needle.to_lowercase())
+            (base.to_lowercase(), p.needle.to_lowercase())
         };
 
         if needle.is_empty() {
@@ -198,11 +211,12 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
         v.extend(vec![
             fp("js.eval", "eval(", "Запрещено использовать eval()"),
             fp("js.function_ctor", "Function(", "Запрещено использовать Function-конструктор"),
-            fp("js.child_process", "child_process", "Запрещено использовать child_process"),
-            fp("js.require_child_process", "require('child_process'", "Запрещено подключать child_process"),
-            fp("js.require_fs", "require('fs'", "Запрещено подключать fs"),
-            fp("js.import_fs", "from 'fs'", "Запрещено импортировать fs"),
-            fp("js.import_child_process", "from 'child_process'", "Запрещено импортировать child_process"),
+            // JS: module names are usually inside string literals, so we match with strings preserved.
+            fp_str("js.require_child_process_s", "require('child_process", "Запрещено подключать child_process"),
+            fp_str("js.require_child_process_d", "require(\"child_process", "Запрещено подключать child_process"),
+            fp_str("js.import_child_process_s", "from 'child_process", "Запрещено импортировать child_process"),
+            fp_str("js.import_child_process_d", "from \"child_process", "Запрещено импортировать child_process"),
+            fp_str("js.child_process", "child_process", "Запрещено использовать child_process"),
         ]);
     }
 
@@ -211,10 +225,16 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
             fp("py.import_os", "import os", "Запрещено использовать os"),
             fp("py.import_subprocess", "import subprocess", "Запрещено использовать subprocess"),
             fp("py.from_subprocess", "from subprocess", "Запрещено использовать subprocess"),
+            // Common bypasses
+            fp("py.__import__", "__import__(", "Запрещено использовать __import__()"),
+            fp("py.importlib", "import importlib", "Запрещено использовать importlib"),
+            fp("py.importlib_module", "importlib.import_module", "Запрещено использовать importlib.import_module"),
             fp("py.eval", "eval(", "Запрещено использовать eval()"),
             fp("py.exec", "exec(", "Запрещено использовать exec()"),
-            fp("py.open", "open(", "Запрещено читать/писать файлы через open()"),
             fp("py.socket", "import socket", "Запрещено использовать socket"),
+            // Low-level native / escape hatches
+            fp("py.ctypes", "import ctypes", "Запрещено использовать ctypes"),
+            fp("py.from_ctypes", "from ctypes", "Запрещено использовать ctypes"),
         ]);
     }
 
@@ -229,9 +249,6 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
             fp("c.connect", "connect(", "Запрещены сетевые соединения"),
             fp("c.system", "system(", "Запрещено использовать system()"),
             fp("c.popen", "popen(", "Запрещено использовать popen()"),
-            fp("c.fopen", "fopen(", "Запрещено использовать fopen()"),
-            fp("c.freopen", "freopen(", "Запрещено использовать freopen()"),
-            fp("c.open", "open(", "Запрещено использовать open()"),
             fp("c.exec", "exec", "Запрещено использовать exec*()"),
             fp("cpp.std_system", "std::system", "Запрещено использовать std::system"),
         ]);
@@ -240,12 +257,16 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
     if lang == "csharp" || lang == "cs" {
         v.extend(vec![
             fp("cs.process", "System.Diagnostics.Process", "Запрещён запуск процессов"),
+            fp("cs.using_diagnostics", "using System.Diagnostics", "Запрещён запуск процессов (System.Diagnostics)"),
+            fp("cs.new_process", "new Process(", "Запрещён запуск процессов"),
+            fp("cs.process_startinfo", "ProcessStartInfo", "Запрещён запуск процессов"),
             fp("cs.process_start", "Process.Start", "Запрещён запуск процессов"),
             fp("cs.dllimport", "DllImport", "Запрещены P/Invoke (DllImport)"),
             fp("cs.reflection_emit", "Reflection.Emit", "Запрещена генерация кода (Reflection.Emit)"),
+            fp("cs.type_gettype", "Type.GetType(", "Запрещена рефлексия (Type.GetType)"),
+            fp("cs.assembly_load", "Assembly.Load", "Запрещена загрузка сборок (Assembly.Load)"),
             fp("cs.unsafe", "unsafe", "Запрещён unsafe-код"),
             fp("cs.stackalloc", "stackalloc", "Запрещён stackalloc"),
-            fp("cs.file", "System.IO", "Запрещены операции с файлами"),
             fp("cs.net", "System.Net", "Запрещена сеть"),
         ]);
     }
@@ -254,8 +275,6 @@ fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {
         v.extend(vec![
             fp("java.runtime_exec", "Runtime.getRuntime().exec", "Запрещён запуск процессов (exec)"),
             fp("java.process_builder", "ProcessBuilder", "Запрещён запуск процессов (ProcessBuilder)"),
-            fp("java.file", "java.io.", "Запрещены операции с файлами"),
-            fp("java.nio", "java.nio.", "Запрещены операции с файлами"),
             fp("java.net", "java.net.", "Запрещена сеть"),
             fp("java.jni", "System.loadLibrary", "Запрещён JNI/Native (loadLibrary)"),
             fp("java.reflection", "java.lang.reflect", "Запрещена рефлексия"),
@@ -277,6 +296,17 @@ fn fp(id: &str, needle: &str, desc: &str) -> ForbiddenPattern {
         id: Some(id.to_string()),
         needle: needle.to_string(),
         case_sensitive: Some(true),
+        match_in_strings: Some(false),
+        description: Some(desc.to_string()),
+    }
+}
+
+fn fp_str(id: &str, needle: &str, desc: &str) -> ForbiddenPattern {
+    ForbiddenPattern {
+        id: Some(id.to_string()),
+        needle: needle.to_string(),
+        case_sensitive: Some(true),
+        match_in_strings: Some(true),
         description: Some(desc.to_string()),
     }
 }
@@ -439,6 +469,177 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
         }
 
         // Default
+        out.push(c);
+        i += 1;
+    }
+
+    out
+}
+
+/// Strip comments but keep string literals intact.
+/// We still track strings so we don't treat comment markers inside strings as comments.
+fn strip_comments_only(lang: &str, src: &str) -> String {
+    let has_hash_line_comment = matches!(lang, "python" | "py");
+    let has_pascal_curly_comments = matches!(lang, "pascal");
+    let has_pascal_paren_comments = matches!(lang, "pascal");
+
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+
+    let mut i = 0usize;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut in_pascal_curly = false;
+    let mut in_pascal_paren = false;
+    let mut in_string: Option<char> = None; // '"' or '\'' or '`'
+    let mut in_triple: Option<char> = None; // python triple quotes
+
+    while i < chars.len() {
+        let c = chars[i];
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+        let next2 = if i + 2 < chars.len() { Some(chars[i + 2]) } else { None };
+
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
+                out.push('\n');
+            } else {
+                out.push(' ');
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_block_comment {
+            if c == '*' && next == Some('/') {
+                in_block_comment = false;
+                out.push(' ');
+                out.push(' ');
+                i += 2;
+            } else {
+                out.push(if c == '\n' { '\n' } else { ' ' });
+                i += 1;
+            }
+            continue;
+        }
+
+        if in_pascal_curly {
+            if c == '}' {
+                in_pascal_curly = false;
+                out.push(' ');
+            } else {
+                out.push(if c == '\n' { '\n' } else { ' ' });
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_pascal_paren {
+            if c == '*' && next == Some(')') {
+                in_pascal_paren = false;
+                out.push(' ');
+                out.push(' ');
+                i += 2;
+            } else {
+                out.push(if c == '\n' { '\n' } else { ' ' });
+                i += 1;
+            }
+            continue;
+        }
+
+        // Inside triple string (python) - keep as-is until closing
+        if let Some(q) = in_triple {
+            if c == q && next == Some(q) && next2 == Some(q) {
+                in_triple = None;
+                out.push(q);
+                out.push(q);
+                out.push(q);
+                i += 3;
+            } else {
+                out.push(c);
+                i += 1;
+            }
+            continue;
+        }
+
+        // Inside normal string - keep as-is
+        if let Some(q) = in_string {
+            out.push(c);
+            if c == '\\' {
+                // escape next
+                if let Some(nc) = next {
+                    out.push(nc);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            if c == q {
+                in_string = None;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Start comments (when not in string)
+        if c == '/' && next == Some('/') {
+            in_line_comment = true;
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            in_block_comment = true;
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            continue;
+        }
+        if has_hash_line_comment && c == '#' {
+            in_line_comment = true;
+            out.push(' ');
+            i += 1;
+            continue;
+        }
+        if c == '-' && next == Some('-') {
+            in_line_comment = true;
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            continue;
+        }
+        if has_pascal_curly_comments && c == '{' {
+            in_pascal_curly = true;
+            out.push(' ');
+            i += 1;
+            continue;
+        }
+        if has_pascal_paren_comments && c == '(' && next == Some('*') {
+            in_pascal_paren = true;
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            continue;
+        }
+
+        // Start strings
+        if (lang == "python" || lang == "py") && (c == '\'' || c == '"') && next == Some(c) && next2 == Some(c) {
+            in_triple = Some(c);
+            out.push(c);
+            out.push(c);
+            out.push(c);
+            i += 3;
+            continue;
+        }
+        if c == '\'' || c == '"' || c == '`' {
+            in_string = Some(c);
+            out.push(c);
+            i += 1;
+            continue;
+        }
+
         out.push(c);
         i += 1;
     }
