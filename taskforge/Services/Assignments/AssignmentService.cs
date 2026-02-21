@@ -5,6 +5,7 @@ using taskforge.Data.Models.Entities;
 using taskforge.Services.Interfaces;
 using taskforge.Constants;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 
 namespace taskforge.Services
 {
@@ -156,6 +157,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         Sort = a.Sort,
         ImageTestReferenceKey = a.ImageTestReferenceKey,
         ImageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
+                CodeForbiddenCalls = DeserializeCallList(a.CodeForbiddenCallsJson),
+                CodeRequiredCalls = DeserializeCallList(a.CodeRequiredCallsJson),
         CanEdit = a.Course.OwnerId == currentUserId
                   || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
     };
@@ -335,5 +338,31 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             if (v == "java") return "java";
             return null;
         }
+    
+
+private static string? SerializeCallList(IList<string>? list)
+{
+    if (list == null) return null;
+    var cleaned = list.Where(x => !string.IsNullOrWhiteSpace(x))
+                      .Select(x => x.Trim())
+                      .Distinct(StringComparer.OrdinalIgnoreCase)
+                      .ToList();
+    if (cleaned.Count == 0) return null;
+    return JsonSerializer.Serialize(cleaned);
+}
+
+private static List<string> DeserializeCallList(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return new List<string>();
+    try
+    {
+        var arr = JsonSerializer.Deserialize<List<string>>(json);
+        return arr?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList() ?? new List<string>();
     }
+    catch
+    {
+        return new List<string>();
+    }
+}
+}
 }

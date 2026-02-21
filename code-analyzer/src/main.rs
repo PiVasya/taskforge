@@ -10,7 +10,12 @@ struct AnalyzeRequest {
     /// Optional extra forbidden patterns configured per task.
     /// Patterns are matched after stripping comments & string literals.
     extra_forbidden: Option<Vec<ForbiddenPattern>>,
+    /// Optional per-task forbidden function/method calls. Checked on cleaned source (comments/strings stripped).
+    forbidden_calls: Option<Vec<String>>,
+    /// Optional per-task required calls. Each must appear at least once as a call.
+    required_calls: Option<Vec<String>>,
 }
+
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ForbiddenPattern {
@@ -46,7 +51,76 @@ struct Hit {
     needle: String,
     position: usize,
     preview: String,
+}fn is_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
+
+/// Check for a call of a (possibly dotted) name, allowing whitespace around dots and before '('.
+/// Example name: "Process.Start" or "__import__" or "solve".
+fn has_call(cleaned: &str, name: &str) -> bool {
+    if name.trim().is_empty() { return false; }
+    let parts: Vec<&str> = name.split('.').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() { return false; }
+
+    let hay = cleaned.as_bytes();
+    let mut i = 0usize;
+    while i < hay.len() {
+        // find first part bytes
+        if !match_part_at(cleaned, i, parts[0]) {
+            i += 1;
+            continue;
+        }
+
+        // boundary on left
+        if i > 0 {
+            let prev = cleaned[..i].chars().last().unwrap_or(' ');
+            if is_ident_char(prev) { i += 1; continue; }
+        }
+
+        let mut pos = i + parts[0].len();
+        let mut ok = true;
+
+        // subsequent dotted parts
+        for p in parts.iter().skip(1) {
+            pos = skip_ws(cleaned, pos);
+            if !match_char_at(cleaned, pos, '.') { ok = false; break; }
+            pos += 1;
+            pos = skip_ws(cleaned, pos);
+            if !match_part_at(cleaned, pos, p) { ok = false; break; }
+            pos += p.len();
+        }
+
+        if ok {
+            pos = skip_ws(cleaned, pos);
+            if match_char_at(cleaned, pos, '(') {
+                return true;
+            }
+        }
+
+        i += 1;
+    }
+    false
+}
+
+fn skip_ws(s: &str, mut pos: usize) -> usize {
+    while pos < s.len() {
+        let c = s[pos..].chars().next().unwrap();
+        if c.is_whitespace() { pos += c.len_utf8(); } else { break; }
+    }
+    pos
+}
+
+fn match_char_at(s: &str, pos: usize, ch: char) -> bool {
+    if pos >= s.len() { return false; }
+    s[pos..].chars().next().map(|c| c == ch).unwrap_or(false)
+}
+
+fn match_part_at(s: &str, pos: usize, part: &str) -> bool {
+    if pos + part.len() > s.len() { return false; }
+    s[pos..].starts_with(part)
+}
+
+
 
 #[tokio::main]
 async fn main() {
@@ -102,7 +176,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
 
     let no_comments = strip_comments_only(&lang, &req.source);
     let cleaned = strip_comments_and_strings(&lang, &req.source);
-    tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
+    tracing::debug!("cleaned.len={} (orig.len={})", cleaned_no_strings.len(), req.source.len());
     println!(
         "[code-analyzer] cleaned.len={} orig.len={} (no_comments.len={})",
         cleaned.len(),

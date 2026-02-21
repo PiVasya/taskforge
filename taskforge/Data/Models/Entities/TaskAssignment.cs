@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 namespace taskforge.Data.Models.Entities
 {
     public class TaskAssignment
@@ -41,6 +42,14 @@ namespace taskforge.Data.Models.Entities
 
         // Порог совпадения в процентах (0..100). Если null — считается 90.
         public double? ImageTestSimilarityThreshold { get; set; }
+
+        // ===== Code policy (code-test / image-test) =====
+        // Храним в БД как jsonb. Миграции пользователь делает сам.
+        // Пример JSON: ["__import__", "Process.Start", "std::sort"]
+        public JsonDocument? CodeForbiddenCallsJson { get; set; }
+
+        // Пример JSON: ["solve", "Main"]
+        public JsonDocument? CodeRequiredCallsJson { get; set; }
 
         public ICollection<TaskTestCase> TestCases { get; set; } = new List<TaskTestCase>();
         public ICollection<UserTaskSolution> Solutions { get; set; } = new List<UserTaskSolution>();

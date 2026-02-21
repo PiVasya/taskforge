@@ -360,7 +360,35 @@ export default function AssignmentEditPage() {
                       </div>
                     )}
                   </div>
-                </Field>
+                
+
+{(["code-test","image-test"].includes((type || "").trim())) && (
+  <Card className="p-4">
+    <div className="text-sm text-muted mb-2">
+      Правила кода для проверки (анализатор): <b>вызовы</b> функций/методов. По одному на строку.
+      Примеры: <code>solve</code>, <code>__import__</code>, <code>Process.Start</code>, <code>std::sort</code>.
+    </div>
+
+    <Field label="Запрещённые вызовы (по одному на строку)">
+      <Textarea
+        rows={6}
+        value={codeForbiddenCallsText}
+        onChange={(e) => setCodeForbiddenCallsText(e.target.value)}
+        placeholder={"Process.Start\n__import__\nstd::sort"}
+      />
+    </Field>
+
+    <Field label="Обязательные вызовы (по одному на строку)">
+      <Textarea
+        rows={4}
+        value={codeRequiredCallsText}
+        onChange={(e) => setCodeRequiredCallsText(e.target.value)}
+        placeholder={"solve"}
+      />
+    </Field>
+  </Card>
+))}
+</Field>
               )}
 
 

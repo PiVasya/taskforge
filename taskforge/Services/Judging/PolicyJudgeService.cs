@@ -3,6 +3,9 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using taskforge.Data;
+using System.Text.Json;
 using taskforge.Data.Models.DTO.Solutions;
 using taskforge.Services.CodeAnalysis;
 using taskforge.Services.CodeAnalysis.Models;
@@ -18,20 +21,39 @@ namespace taskforge.Services;
 public sealed class PolicyJudgeService : IPolicyJudgeService
 {
     private readonly IJudgeService _inner;
+    private readonly ApplicationDbContext _db;
     private readonly ICodeAnalyzerClient _analyzer;
     private readonly CodeAnalyzerOptions _opt;
 
     public PolicyJudgeService(
         IJudgeService inner,
         ICodeAnalyzerClient analyzer,
-        Microsoft.Extensions.Options.IOptions<CodeAnalyzerOptions> opt)
+        Microsoft.Extensions.Options.IOptions<CodeAnalyzerOptions> opt,
+        ApplicationDbContext db)
     {
         _inner = inner;
+        _db = db;
         _analyzer = analyzer;
         _opt = opt.Value;
     }
 
-    public async Task<JudgeResponseDto> JudgeAsync(JudgeRequestDto req, Guid currentUserId)
+    
+
+private static System.Collections.Generic.List<string> ParseList(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return new();
+    try
+    {
+        var arr = JsonSerializer.Deserialize<System.Collections.Generic.List<string>>(json);
+        return arr?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList() ?? new();
+    }
+    catch
+    {
+        return new();
+    }
+}
+
+public async Task<JudgeResponseDto> JudgeAsync(JudgeRequestDto req, Guid currentUserId)
     {
         Console.WriteLine("[PolicyJudge] >>> start");
         Console.WriteLine($"[PolicyJudge] userId={currentUserId} lang='{req.Language}' source.len={req.Source?.Length ?? 0}");
@@ -44,6 +66,16 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
         }
 
         AnalyzeResponse? ares;
+
+        // Load per-task call rules from DB (optional)
+        var task = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.Id == req.AssignmentId)
+            .Select(x => new { x.CodeForbiddenCallsJson, x.CodeRequiredCallsJson })
+            .FirstOrDefaultAsync();
+        var forbCalls = ParseList(task?.CodeForbiddenCallsJson);
+        var reqCalls = ParseList(task?.CodeRequiredCallsJson);
+        Console.WriteLine($"[PolicyJudge] task policy: forbidden_calls={forbCalls.Count} required_calls={reqCalls.Count}");
+
         try
         {
             Console.WriteLine($"[PolicyJudge] analyzer -> calling /analyze (url='{_opt.Url}')");
@@ -51,7 +83,9 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
             {
                 Language = req.Language,
                 Source = req.Source,
-                ExtraForbidden = null
+                ExtraForbidden = null,
+                ForbiddenCalls = forbCalls.Count > 0 ? forbCalls : null,
+                RequiredCalls = reqCalls.Count > 0 ? reqCalls : null
             });
             Console.WriteLine($"[PolicyJudge] analyzer <- ok={ares?.Ok} errors={ares?.Errors?.Count ?? 0} hits={ares?.Hits?.Count ?? 0}");
         }
