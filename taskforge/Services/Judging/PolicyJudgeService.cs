@@ -39,13 +39,24 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
 
     
 
-private static System.Collections.Generic.List<string> ParseList(string? json)
-{
-    if (string.IsNullOrWhiteSpace(json)) return new();
-    try
+private static System.Collections.Generic.List<string> ParseList(JsonDocument? json)
     {
-        var arr = JsonSerializer.Deserialize<System.Collections.Generic.List<string>>(json);
-        return arr?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList() ?? new();
+        if (json is null) return new System.Collections.Generic.List<string>();
+        try
+        {
+            if (json.RootElement.ValueKind != JsonValueKind.Array) return new System.Collections.Generic.List<string>();
+            return json.RootElement.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString() ?? string.Empty)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            return new System.Collections.Generic.List<string>();
+        }
     }
     catch
     {

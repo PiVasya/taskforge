@@ -38,6 +38,11 @@ namespace taskforge.Data.Models.DTO
         public string? ImageTestReferenceKey { get; set; }
         public double? ImageTestSimilarityThreshold { get; set; }
 
+
+        // --- Code policy: required/forbidden calls (per assignment) ---
+        public IList<string>? CodeRequiredCalls { get; set; }
+        public IList<string>? CodeForbiddenCalls { get; set; }
+
         public IList<UpdateTestCaseDto> TestCases { get; set; } = new List<UpdateTestCaseDto>();
     }
 

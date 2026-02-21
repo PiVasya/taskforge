@@ -55,6 +55,51 @@ struct Hit {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
+
+fn find_call_pos(cleaned: &str, call: &str) -> Option<usize> {
+    // Normalize call: remove whitespace, ensure it ends with '(' for "call".
+    let mut call_norm: String = call.chars().filter(|c| !c.is_whitespace()).collect();
+    if call_norm.is_empty() { return None; }
+    if !call_norm.ends_with('(') {
+        call_norm.push('(');
+    }
+
+    let hay_chars: Vec<char> = cleaned.chars().collect();
+    let pat_chars: Vec<char> = call_norm.chars().collect();
+
+    for start in 0..hay_chars.len() {
+        if hay_chars[start].is_whitespace() { continue; }
+
+        // boundary: previous character must not be identifier char
+        if start > 0 && is_ident_char(hay_chars[start - 1]) {
+            continue;
+        }
+
+        let mut hi = start;
+        let mut pi = 0usize;
+
+        loop {
+            while hi < hay_chars.len() && hay_chars[hi].is_whitespace() {
+                hi += 1;
+            }
+            if pi >= pat_chars.len() {
+                return Some(start);
+            }
+            if hi >= hay_chars.len() {
+                break;
+            }
+            if hay_chars[hi] == pat_chars[pi] {
+                hi += 1;
+                pi += 1;
+                continue;
+            }
+            break;
+        }
+    }
+
+    None
+}
+
 /// Check for a call of a (possibly dotted) name, allowing whitespace around dots and before '('.
 /// Example name: "Process.Start" or "__import__" or "solve".
 fn has_call(cleaned: &str, name: &str) -> bool {
@@ -176,7 +221,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
 
     let no_comments = strip_comments_only(&lang, &req.source);
     let cleaned = strip_comments_and_strings(&lang, &req.source);
-    tracing::debug!("cleaned.len={} (orig.len={})", cleaned_no_strings.len(), req.source.len());
+    tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
     println!(
         "[code-analyzer] cleaned.len={} orig.len={} (no_comments.len={})",
         cleaned.len(),
@@ -250,6 +295,46 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
         }
     }
 
+
+
+// ---- Per-task forbidden/required call checks (call = NAME followed by optional spaces and '(' ) ----
+// We run these on `cleaned` (comments & strings stripped) to avoid false positives from string literals.
+let forbidden_calls = req.forbidden_calls.unwrap_or_default();
+let required_calls = req.required_calls.unwrap_or_default();
+
+if !forbidden_calls.is_empty() || !required_calls.is_empty() {
+    println!("[code-analyzer] call-rules: forbidden_calls={} required_calls={}", forbidden_calls.len(), required_calls.len());
+}
+
+for call in &forbidden_calls {
+    if call.trim().is_empty() { continue; }
+    if let Some(pos) = find_call_pos(&cleaned, call) {
+        let needle = format!("{}(", call.trim());
+        let preview = make_preview(&cleaned, pos, needle.len().min(32));
+        hits.push(Hit {
+            pattern_id: Some("task.forbidden_call".to_string()),
+            needle: needle.clone(),
+            position: pos,
+            preview,
+        });
+        errors.push(Violation {
+            code: "forbidden_call".to_string(),
+            message: format!("Запрещён вызов: {}", call.trim()),
+            pattern_id: Some("task.forbidden_call".to_string()),
+        });
+    }
+}
+
+for call in &required_calls {
+    if call.trim().is_empty() { continue; }
+    if find_call_pos(&cleaned, call).is_none() {
+        errors.push(Violation {
+            code: "missing_required_call".to_string(),
+            message: format!("Не найден обязательный вызов: {}", call.trim()),
+            pattern_id: Some("task.required_call".to_string()),
+        });
+    }
+}
     // Deduplicate errors by (code,pattern_id,message)
     errors.sort_by(|a, b| (a.code.as_str(), a.pattern_id.as_deref().unwrap_or(""), a.message.as_str())
         .cmp(&(b.code.as_str(), b.pattern_id.as_deref().unwrap_or(""), b.message.as_str())));

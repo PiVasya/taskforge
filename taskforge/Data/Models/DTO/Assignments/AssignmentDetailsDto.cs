@@ -20,6 +20,10 @@ namespace taskforge.Data.Models.DTO
         public List<AssignmentTestCaseDto> TestCases { get; set; } = new();
         public int Sort { get; set; }
 
+        // --- Code policy (applies to code-test and image-test code part) ---
+        public List<string> CodeRequiredCalls { get; set; } = new();
+        public List<string> CodeForbiddenCalls { get; set; } = new();
+
         // image-test
         public string? ImageTestReferenceKey { get; set; }
         public double? ImageTestSimilarityThreshold { get; set; }

@@ -47,6 +47,13 @@ namespace taskforge.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            // TaskAssignment code policy JSON columns
+            modelBuilder.Entity<TaskAssignment>(entity =>
+            {
+                entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
+                entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
+            });
+
             // 🔹 User
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Email).IsUnique();

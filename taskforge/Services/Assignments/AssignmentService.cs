@@ -340,7 +340,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         }
     
 
-private static string? SerializeCallList(IList<string>? list)
+private static JsonDocument? SerializeCallList(IList<string>? list)
 {
     if (list == null) return null;
     var cleaned = list.Where(x => !string.IsNullOrWhiteSpace(x))
@@ -348,16 +348,24 @@ private static string? SerializeCallList(IList<string>? list)
                       .Distinct(StringComparer.OrdinalIgnoreCase)
                       .ToList();
     if (cleaned.Count == 0) return null;
-    return JsonSerializer.Serialize(cleaned);
+
+    var bytes = JsonSerializer.SerializeToUtf8Bytes(cleaned);
+    return JsonDocument.Parse(bytes);
 }
 
-private static List<string> DeserializeCallList(string? json)
+private static List<string> DeserializeCallList(JsonDocument? json)
 {
-    if (string.IsNullOrWhiteSpace(json)) return new List<string>();
+    if (json is null) return new List<string>();
     try
     {
-        var arr = JsonSerializer.Deserialize<List<string>>(json);
-        return arr?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList() ?? new List<string>();
+        if (json.RootElement.ValueKind != JsonValueKind.Array) return new List<string>();
+        return json.RootElement.EnumerateArray()
+            .Where(x => x.ValueKind == JsonValueKind.String)
+            .Select(x => x.GetString() ?? string.Empty)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
     catch
     {

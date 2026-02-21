@@ -36,6 +36,14 @@ namespace taskforge.Data.Models.DTO
         // Валидация зависит от Type:
         // - "code-test": требуется хотя бы 1 тест
         // - "test" / "image-test": может быть пусто
+        // --- Code policy: required/forbidden calls (per assignment) ---
+        // Each entry is a function/method name that must be CALLED at least once.
+        // Examples: ["solve"], ["Process.Start"], ["std::sort"].
+        public IList<string>? CodeRequiredCalls { get; set; }
+
+        // Each entry is a function/method name that must NOT be called.
+        public IList<string>? CodeForbiddenCalls { get; set; }
+
         public IList<CreateTestCaseDto> TestCases { get; set; } = new List<CreateTestCaseDto>();
     }
 
