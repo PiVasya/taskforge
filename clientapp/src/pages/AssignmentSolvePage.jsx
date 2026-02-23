@@ -269,6 +269,10 @@ export default function AssignmentSolvePage() {
       const r = await submitSolution(assignmentId, { language, code });
 
       const cases = r?.cases ?? r?.testCases ?? r?.results ?? [];
+      const policyCase = Array.isArray(cases)
+        ? cases.find(c => (c?.status === 'policy_failed') || String(c?.compileStderr || c?.stderr || '').includes('[policy_failed]'))
+        : null;
+      const policyText = policyCase ? String(policyCase.compileStderr || policyCase.stderr || policyCase.error || '') : '';
       const allOk =
         (r?.passedAllTests === true) ||
         (r?.passedAll === true) ||
@@ -276,9 +280,24 @@ export default function AssignmentSolvePage() {
 
       setResult({ ...r, __allPassed: allOk });
 
-      if (allOk) notify.success('Все тесты пройдены!');
-      else if (r?.compileError) notify.error('Ошибка компиляции');
-      else notify.error('Не все тесты пройдены');
+      if (allOk) {
+        notify.success('Все тесты пройдены!');
+      } else if (policyCase) {
+        // Показываем причину сразу на странице (и в тосте), чтобы не гадать «почему не засчитало».
+        const lines = policyText
+          .split('\n')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .filter(s => s.startsWith('- '))
+          .slice(0, 4)
+          .map(s => s.replace(/^\-\s*/, ''));
+        const short = lines.length ? `: ${lines.join(' | ')}` : '';
+        notify.error(`Отклонено анализатором кода${short}`);
+      } else if (r?.compileError) {
+        notify.error('Ошибка компиляции');
+      } else {
+        notify.error('Не все тесты пройдены');
+      }
 
       try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
       window.open(`/assignment/${assignmentId}/results`, '_blank', 'noopener,noreferrer');
@@ -290,6 +309,26 @@ export default function AssignmentSolvePage() {
       setSubmitting(false);
     }
   };
+
+  const extractPolicyUi = (resObj) => {
+    if (!resObj) return null;
+    const cs = resObj.cases ?? resObj.testCases ?? resObj.results ?? [];
+    if (!Array.isArray(cs)) return null;
+    const pc = cs.find(c => (c?.status === 'policy_failed') || String(c?.compileStderr || c?.stderr || '').includes('[policy_failed]'));
+    if (!pc) return null;
+    const txt = String(pc.compileStderr || pc.stderr || pc.error || '');
+    const lines = txt.split('\n').map(s => s.trim()).filter(Boolean);
+    const items = lines
+      .filter(s => s.startsWith('- '))
+      .map(s => s.replace(/^\-\s*/, ''));
+    return {
+      header: 'Решение отклонено анализатором кода',
+      items,
+      raw: txt,
+    };
+  };
+
+  const policyUi = extractPolicyUi(result);
 
   if (loading) {
     return (
@@ -762,6 +801,24 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                   </div>
                 )}
 
+                {policyUi && (
+                  <div className="rounded border border-red-200 bg-red-50 p-3 text-sm">
+                    <div className="font-medium text-red-800 mb-2">{policyUi.header}</div>
+                    {policyUi.items && policyUi.items.length > 0 ? (
+                      <ul className="list-disc pl-5 text-red-800 space-y-1">
+                        {policyUi.items.slice(0, 12).map((x, i) => (
+                          <li key={i}>{x}</li>
+                        ))}
+                        {policyUi.items.length > 12 && (
+                          <li>… и ещё {policyUi.items.length - 12}</li>
+                        )}
+                      </ul>
+                    ) : (
+                      <pre className="whitespace-pre-wrap text-xs text-red-700">{policyUi.raw}</pre>
+                    )}
+                  </div>
+                )}
+
                 {error && <div className="text-sm text-red-600">{error}</div>}
               </div>
             </Card>
@@ -816,6 +873,24 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                     </div>
                   )}
                 </div>
+
+                {policyUi && (
+                  <div className="rounded border border-red-200 bg-red-50 p-3 text-sm mb-3">
+                    <div className="font-medium text-red-800 mb-2">{policyUi.header}</div>
+                    {policyUi.items && policyUi.items.length > 0 ? (
+                      <ul className="list-disc pl-5 text-red-800 space-y-1">
+                        {policyUi.items.slice(0, 12).map((x, i) => (
+                          <li key={i}>{x}</li>
+                        ))}
+                        {policyUi.items.length > 12 && (
+                          <li>… и ещё {policyUi.items.length - 12}</li>
+                        )}
+                      </ul>
+                    ) : (
+                      <pre className="whitespace-pre-wrap text-xs text-red-700">{policyUi.raw}</pre>
+                    )}
+                  </div>
+                )}
 
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
