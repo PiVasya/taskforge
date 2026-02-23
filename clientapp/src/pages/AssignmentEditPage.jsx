@@ -51,6 +51,10 @@ export default function AssignmentEditPage() {
   const [rating, setRating] = useState(1);
   const [testCases, setTestCases] = useState([]);
 
+  // code policy (per-task)
+  const [codeForbiddenCallsText, setCodeForbiddenCallsText] = useState("");
+  const [codeRequiredCallsText, setCodeRequiredCallsText] = useState("");
+
   const [testSettings, setTestSettings] = useState({
     shuffleQuestions: true,
     shuffleAnswers: true,
@@ -96,6 +100,12 @@ export default function AssignmentEditPage() {
         setTags(a.tags || "");
         setDifficulty(Number(a.difficulty || 1));
         setRating(typeof a.rating === "number" ? a.rating : Number(a.rating || 1));
+
+        // code policy
+        const forb = Array.isArray(a.codeForbiddenCalls) ? a.codeForbiddenCalls : [];
+        const reqd = Array.isArray(a.codeRequiredCalls) ? a.codeRequiredCalls : [];
+        setCodeForbiddenCallsText(forb.join("\n"));
+        setCodeRequiredCallsText(reqd.join("\n"));
         setImageTestReferenceKey(a.imageTestReferenceKey || "");
         setImageTestThreshold(
           typeof a.imageTestSimilarityThreshold === "number"
@@ -184,6 +194,22 @@ export default function AssignmentEditPage() {
         tags: (tags || "").trim(),
         difficulty: Number(difficulty) || 1,
         rating: Number(rating) >= 0 ? Number(rating) : 1,
+
+        // code policy (applies to code-test & image-test)
+        codeForbiddenCalls: (["code-test", "image-test"].includes((type || "").trim()))
+          ? (codeForbiddenCallsText || "")
+              .replace(/\r/g, "")
+              .split("\n")
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0)
+          : [],
+        codeRequiredCalls: (["code-test", "image-test"].includes((type || "").trim()))
+          ? (codeRequiredCallsText || "")
+              .replace(/\r/g, "")
+              .split("\n")
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0)
+          : [],
         // для type=test на бэке тест-кейсы не нужны: просто отправляем пустой массив,
         // чтобы при смене типа старые тест-кейсы были удалены
         testCases:
@@ -360,35 +386,74 @@ export default function AssignmentEditPage() {
                       </div>
                     )}
                   </div>
-                
+                </Field>
+              )}
 
-{(["code-test","image-test"].includes((type || "").trim())) && (
-  <Card className="p-4">
-    <div className="text-sm text-muted mb-2">
-      Правила кода для проверки (анализатор): <b>вызовы</b> функций/методов. По одному на строку.
-      Примеры: <code>solve</code>, <code>__import__</code>, <code>Process.Start</code>, <code>std::sort</code>.
-    </div>
 
-    <Field label="Запрещённые вызовы (по одному на строку)">
-      <Textarea
-        rows={6}
-        value={codeForbiddenCallsText}
-        onChange={(e) => setCodeForbiddenCallsText(e.target.value)}
-        placeholder={"Process.Start\n__import__\nstd::sort"}
-      />
-    </Field>
+              {(["code-test", "image-test"].includes((type || "").trim())) && (
+                <div className="sm:col-span-2">
+                  <Card className="p-4">
+                    <div className="text-sm text-neutral-600 dark:text-neutral-300 mb-3">
+                      Проверка решения по коду (анализатор): списки <b>ожидаемых</b> и <b>запрещённых</b> <u>вызовов</u>.
+                      Можно указывать не только слова — подойдёт и целая строка.
+                      Формат: по одному правилу на строку. Примеры: <code>solve</code>, <code>__import__</code>, <code>Process.Start</code>, <code>std::sort</code>.
+                    </div>
 
-    <Field label="Обязательные вызовы (по одному на строку)">
-      <Textarea
-        rows={4}
-        value={codeRequiredCallsText}
-        onChange={(e) => setCodeRequiredCallsText(e.target.value)}
-        placeholder={"solve"}
-      />
-    </Field>
-  </Card>
-))}
-</Field>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <Field label="Запрещённые (если найдено — решение отклоняется)">
+                        <Textarea
+                          rows={7}
+                          value={codeForbiddenCallsText}
+                          onChange={(e) => setCodeForbiddenCallsText(e.target.value)}
+                          placeholder={"Process.Start\n__import__\nstd::sort"}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(codeForbiddenCallsText || "")
+                            .replace(/\r/g, "")
+                            .split("\n")
+                            .map((x) => x.trim())
+                            .filter((x) => x.length > 0)
+                            .slice(0, 24)
+                            .map((x) => (
+                              <span
+                                key={x}
+                                className="px-2 py-1 rounded-full text-xs border border-neutral-200 dark:border-neutral-800 bg-[rgb(var(--card))]"
+                                title={x}
+                              >
+                                {x}
+                              </span>
+                            ))}
+                        </div>
+                      </Field>
+
+                      <Field label="Ожидаемые (каждое правило должно встретиться)">
+                        <Textarea
+                          rows={7}
+                          value={codeRequiredCallsText}
+                          onChange={(e) => setCodeRequiredCallsText(e.target.value)}
+                          placeholder={"solve"}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(codeRequiredCallsText || "")
+                            .replace(/\r/g, "")
+                            .split("\n")
+                            .map((x) => x.trim())
+                            .filter((x) => x.length > 0)
+                            .slice(0, 24)
+                            .map((x) => (
+                              <span
+                                key={x}
+                                className="px-2 py-1 rounded-full text-xs border border-neutral-200 dark:border-neutral-800 bg-[rgb(var(--card))]"
+                                title={x}
+                              >
+                                {x}
+                              </span>
+                            ))}
+                        </div>
+                      </Field>
+                    </div>
+                  </Card>
+                </div>
               )}
 
 

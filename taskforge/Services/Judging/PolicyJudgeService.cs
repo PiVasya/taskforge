@@ -39,12 +39,14 @@ public sealed class PolicyJudgeService : IPolicyJudgeService
 
     
 
-private static System.Collections.Generic.List<string> ParseList(JsonDocument? json)
+    private static System.Collections.Generic.List<string> ParseList(JsonDocument? json)
     {
         if (json is null) return new System.Collections.Generic.List<string>();
         try
         {
-            if (json.RootElement.ValueKind != JsonValueKind.Array) return new System.Collections.Generic.List<string>();
+            if (json.RootElement.ValueKind != JsonValueKind.Array)
+                return new System.Collections.Generic.List<string>();
+
             return json.RootElement.EnumerateArray()
                 .Where(x => x.ValueKind == JsonValueKind.String)
                 .Select(x => x.GetString() ?? string.Empty)
@@ -58,11 +60,6 @@ private static System.Collections.Generic.List<string> ParseList(JsonDocument? j
             return new System.Collections.Generic.List<string>();
         }
     }
-    catch
-    {
-        return new();
-    }
-}
 
 public async Task<JudgeResponseDto> JudgeAsync(JudgeRequestDto req, Guid currentUserId)
     {

@@ -61,7 +61,15 @@ namespace taskforge.Services
                 Sort = maxSort + 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv) ? null : allowedCsv
+                AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv) ? null : allowedCsv,
+
+                // code policy (per task)
+                CodeForbiddenCallsJson = (normalizedType == TaskAssignmentTypes.CodeTest || normalizedType == TaskAssignmentTypes.ImageTest)
+                    ? SerializeCallList(req.CodeForbiddenCalls)
+                    : null,
+                CodeRequiredCallsJson = (normalizedType == TaskAssignmentTypes.CodeTest || normalizedType == TaskAssignmentTypes.ImageTest)
+                    ? SerializeCallList(req.CodeRequiredCalls)
+                    : null,
             };
 
             if (entity.Type == TaskAssignmentTypes.ImageTest)
@@ -195,6 +203,18 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 
 	            task.Type = normalizedType;
                 task.AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv2) ? null : allowedCsv2;
+
+            // code policy (per-task)
+            if (task.Type == TaskAssignmentTypes.CodeTest || task.Type == TaskAssignmentTypes.ImageTest)
+            {
+                task.CodeForbiddenCallsJson = SerializeCallList(request.CodeForbiddenCalls);
+                task.CodeRequiredCallsJson = SerializeCallList(request.CodeRequiredCalls);
+            }
+            else
+            {
+                task.CodeForbiddenCallsJson = null;
+                task.CodeRequiredCallsJson = null;
+            }
             // image-test поля
             if (task.Type == TaskAssignmentTypes.ImageTest)
             {
