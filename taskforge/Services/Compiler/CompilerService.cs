@@ -51,6 +51,12 @@ namespace taskforge.Services
             var tests = req.TestCases ?? new List<TestCaseDto>();
             var results = new List<TestResultDto>(tests.Count);
 
+            Console.WriteLine($"[RunTests] policy.forbidden={req.PolicyForbiddenCalls?.Count ?? 0} policy.required={req.PolicyRequiredCalls?.Count ?? 0}");
+            if ((req.PolicyForbiddenCalls?.Count ?? 0) > 0)
+                Console.WriteLine($"[RunTests] policy.forbidden.sample='{req.PolicyForbiddenCalls![0]}'");
+            if ((req.PolicyRequiredCalls?.Count ?? 0) > 0)
+                Console.WriteLine($"[RunTests] policy.required.sample='{req.PolicyRequiredCalls![0]}'");
+
             // однажды определяем дефолтные лимиты для всех тестов
             var tl = req.TimeLimitMs ?? DefaultTimeMs(req.Language);
             var ml = req.MemoryLimitMb ?? DefaultMemoryMb(req.Language);
@@ -68,7 +74,10 @@ namespace taskforge.Services
                     Code          = req.Code,
                     Input         = tc.Input ?? string.Empty,
                     TimeLimitMs   = tl,
-                    MemoryLimitMb = ml
+                    MemoryLimitMb = ml,
+
+                    PolicyForbiddenCalls = req.PolicyForbiddenCalls,
+                    PolicyRequiredCalls  = req.PolicyRequiredCalls,
                 });
 
                 var actual = run.Stdout ?? string.Empty;

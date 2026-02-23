@@ -100,6 +100,34 @@ fn find_call_pos(cleaned: &str, call: &str) -> Option<usize> {
     None
 }
 
+fn strip_ws(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Find `needle` in `hay` ignoring whitespace. Returns an approximate position in the original `hay`.
+fn find_ws_insensitive_pos(hay: &str, needle: &str) -> Option<usize> {
+    let n = needle.trim();
+    if n.is_empty() { return None; }
+
+    let hay_compact = strip_ws(hay);
+    let needle_compact = strip_ws(n);
+    if needle_compact.is_empty() { return None; }
+
+    let pos_compact = hay_compact.find(&needle_compact)?;
+
+    // Map compact index back to original index (counting only non-ws chars).
+    let mut non_ws = 0usize;
+    for (i, ch) in hay.char_indices() {
+        if !ch.is_whitespace() {
+            if non_ws == pos_compact {
+                return Some(i);
+            }
+            non_ws += 1;
+        }
+    }
+    Some(0)
+}
+
 /// Check for a call of a (possibly dotted) name, allowing whitespace around dots and before '('.
 /// Example name: "Process.Start" or "__import__" or "solve".
 fn has_call(cleaned: &str, name: &str) -> bool {
@@ -215,6 +243,10 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
         req.source.len(),
         req.extra_forbidden.as_ref().map(|v| v.len()).unwrap_or(0)
     );
+    println!("[code-analyzer] /analyze rules: forbidden_calls={} required_calls={}",
+        req.forbidden_calls.as_ref().map(|v| v.len()).unwrap_or(0),
+        req.required_calls.as_ref().map(|v| v.len()).unwrap_or(0)
+    );
 
     let lang = req.language.to_lowercase();
     tracing::debug!("normalized lang={}", lang);
@@ -308,8 +340,14 @@ if !forbidden_calls.is_empty() || !required_calls.is_empty() {
 
 for call in &forbidden_calls {
     if call.trim().is_empty() { continue; }
-    if let Some(pos) = find_call_pos(&cleaned, call) {
-        let needle = format!("{}(", call.trim());
+
+    // 1) "call-like" check (NAME ... '(' )
+    let call_pos = find_call_pos(&cleaned, call);
+    // 2) substring check (whitespace-insensitive), useful for tokens like '#include' or 'cout'
+    let sub_pos = find_ws_insensitive_pos(&cleaned, call);
+
+    if let Some(pos) = call_pos.or(sub_pos) {
+        let needle = call.trim().to_string();
         let preview = make_preview(&cleaned, pos, needle.len().min(32));
         hits.push(Hit {
             pattern_id: Some("task.forbidden_call".to_string()),
@@ -319,7 +357,7 @@ for call in &forbidden_calls {
         });
         errors.push(Violation {
             code: "forbidden_call".to_string(),
-            message: format!("Запрещён вызов: {}", call.trim()),
+            message: format!("Запрещено: {}", call.trim()),
             pattern_id: Some("task.forbidden_call".to_string()),
         });
     }
@@ -327,10 +365,11 @@ for call in &forbidden_calls {
 
 for call in &required_calls {
     if call.trim().is_empty() { continue; }
-    if find_call_pos(&cleaned, call).is_none() {
+    let ok = find_call_pos(&cleaned, call).is_some() || find_ws_insensitive_pos(&cleaned, call).is_some();
+    if !ok {
         errors.push(Violation {
             code: "missing_required_call".to_string(),
-            message: format!("Не найден обязательный вызов: {}", call.trim()),
+            message: format!("Не найдено обязательное: {}", call.trim()),
             pattern_id: Some("task.required_call".to_string()),
         });
     }

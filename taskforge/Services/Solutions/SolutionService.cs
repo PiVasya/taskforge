@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using taskforge.Data;
 using taskforge.Data.Models;
 using taskforge.Data.Models.DTO;
+using System.Text.Json;
 using taskforge.Data.Models.Entities;
 // We use DTOs from Data.Models.DTO rather than a separate Dtos namespace.
 using taskforge.Services.Interfaces;
@@ -100,6 +101,13 @@ namespace taskforge.Services
                 .OrderBy(tc => tc.Id)
                 .ToList();
 
+            // Per-task policy lists (stored as JSONB arrays)
+            var forb = ParseList(a.CodeForbiddenCallsJson);
+            var need = ParseList(a.CodeRequiredCallsJson);
+            Console.WriteLine($"[SubmitSolution] policy: forbidden={forb.Count} required={need.Count}");
+            if (forb.Count > 0) Console.WriteLine($"[SubmitSolution] policy.forbidden.sample='{forb[0]}'");
+            if (need.Count > 0) Console.WriteLine($"[SubmitSolution] policy.required.sample='{need[0]}'");
+
             var testReq = new TestRunRequestDto
             {
                 Language = req.Language,
@@ -108,7 +116,10 @@ namespace taskforge.Services
                 {
                     Input = tc.Input,
                     ExpectedOutput = tc.ExpectedOutput
-                }).ToList()
+                }).ToList(),
+
+                PolicyForbiddenCalls = forb.Count > 0 ? forb : null,
+                PolicyRequiredCalls  = need.Count > 0 ? need : null,
             };
 
             var results = await _compiler.RunTestsAsync(testReq);
@@ -155,6 +166,28 @@ namespace taskforge.Services
             await _db.SaveChangesAsync();
 
             return full;
+        }
+
+        private static List<string> ParseList(JsonDocument? json)
+        {
+            if (json is null) return new List<string>();
+            try
+            {
+                if (json.RootElement.ValueKind != JsonValueKind.Array)
+                    return new List<string>();
+
+                return json.RootElement.EnumerateArray()
+                    .Where(x => x.ValueKind == JsonValueKind.String)
+                    .Select(x => x.GetString() ?? string.Empty)
+                    .Select(x => x.Trim())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            catch
+            {
+                return new List<string>();
+            }
         }
 
                 public async Task<List<TopSolutionDto>> GetTopSolutionsAsync(Guid assignmentId, int count)

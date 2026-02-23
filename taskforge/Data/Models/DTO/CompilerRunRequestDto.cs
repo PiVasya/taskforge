@@ -6,6 +6,10 @@
         public string Code { get; set; } = string.Empty;
         public string? Input { get; set; }
 
+        // Policy (code-analyzer): per-task forbidden/required patterns (one per line in UI)
+        public List<string>? PolicyForbiddenCalls { get; set; }
+        public List<string>? PolicyRequiredCalls { get; set; }
+
         // новые опциональные лимиты (мс и МБ)
         public int? TimeLimitMs { get; set; }    // например, 2000
         public int? MemoryLimitMb { get; set; }  // например, 256
@@ -36,6 +40,10 @@
         public string Language { get; set; } = string.Empty;
         public string Code { get; set; } = string.Empty;
         public List<TestCaseDto>? TestCases { get; set; }
+
+        // Policy (code-analyzer): per-task forbidden/required patterns (one per line in UI)
+        public List<string>? PolicyForbiddenCalls { get; set; }
+        public List<string>? PolicyRequiredCalls { get; set; }
 
         // те же лимиты на прогон тестов
         public int? TimeLimitMs { get; set; }

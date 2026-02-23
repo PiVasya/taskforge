@@ -1,6 +1,9 @@
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
@@ -16,6 +19,9 @@ namespace taskforge.Services.Remote
 
         private static readonly JsonSerializerOptions _jsonOpts = new() { PropertyNameCaseInsensitive = true };
 
+        // Cache policy checks per unique (code + rules) to avoid spamming analyzer on each test.
+        private static readonly ConcurrentDictionary<string, Task<AnalyzerResponse?>> _policyCache = new();
+
         protected HttpRunnerCompilerBase(IHttpClientFactory httpFactory, IConfiguration cfg, string langKey)
         {
             _httpFactory = httpFactory;
@@ -29,7 +35,7 @@ namespace taskforge.Services.Remote
         public async Task<CompilerRunResponseDto> CompileAndRunAsync(CompilerRunRequestDto req)
         {
             // 0) Policy check (code-analyzer) BEFORE hitting the runner.
-            var policy = await AnalyzePolicyAsync(req.Code);
+            var policy = await AnalyzePolicyCachedAsync(req.Code, req.PolicyForbiddenCalls, req.PolicyRequiredCalls);
             if (policy is not null && policy.ok == false)
             {
                 var details = BuildPolicyDetails(policy);
@@ -102,7 +108,7 @@ namespace taskforge.Services.Remote
             int? memoryLimitMb = null)
         {
             // 0) Policy check (code-analyzer) once for the whole submission.
-            var policy = await AnalyzePolicyAsync(code);
+            var policy = await AnalyzePolicyCachedAsync(code, null, null);
             if (policy is not null && policy.ok == false)
             {
                 var details = BuildPolicyDetails(policy);
@@ -189,7 +195,26 @@ namespace taskforge.Services.Remote
         private int CodeAnalyzerTimeoutSeconds()
             => _cfg.GetValue<int>("CodeAnalyzer:TimeoutSeconds", 6);
 
-        private async Task<AnalyzerResponse?> AnalyzePolicyAsync(string? source)
+        private async Task<AnalyzerResponse?> AnalyzePolicyCachedAsync(string? source, List<string>? forbiddenCalls, List<string>? requiredCalls)
+        {
+            var key = BuildPolicyCacheKey(source ?? string.Empty, forbiddenCalls, requiredCalls);
+            return await _policyCache.GetOrAdd(key, _ => AnalyzePolicyAsync(source, forbiddenCalls, requiredCalls));
+        }
+
+        private static string BuildPolicyCacheKey(string src, List<string>? forbiddenCalls, List<string>? requiredCalls)
+        {
+            // stable key = sha256(code) + '|' + joined rules
+            static string Join(List<string>? xs)
+                => xs == null ? "" : string.Join("\n", xs.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0));
+
+            var rules = $"F:{Join(forbiddenCalls)}|R:{Join(requiredCalls)}";
+            using var sha = SHA256.Create();
+            var bytes = Encoding.UTF8.GetBytes(src + "\n---\n" + rules);
+            var hash = sha.ComputeHash(bytes);
+            return Convert.ToHexString(hash);
+        }
+
+        private async Task<AnalyzerResponse?> AnalyzePolicyAsync(string? source, List<string>? forbiddenCalls, List<string>? requiredCalls)
         {
             try
             {
@@ -207,16 +232,23 @@ namespace taskforge.Services.Remote
                 }
 
                 var src = source ?? "";
-                Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK -> POST {baseUrl}/analyze source.len={src.Length}");
+                var fcnt = forbiddenCalls?.Count ?? 0;
+                var rcnt = requiredCalls?.Count ?? 0;
+                Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK -> POST {baseUrl}/analyze source.len={src.Length} forbidden_calls={fcnt} required_calls={rcnt}");
+                if (fcnt > 0) Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK forbidden.sample='{forbiddenCalls![0]}'");
+                if (rcnt > 0) Console.WriteLine($"[Runner:{_langKey}] POLICY_CHECK required.sample='{requiredCalls![0]}'");
 
                 var client = _httpFactory.CreateClient();
                 client.Timeout = TimeSpan.FromSeconds(CodeAnalyzerTimeoutSeconds());
 
-                var payload = new
+                // IMPORTANT: snake_case matches Rust DTO field names
+                var payload = new AnalyzerRequest
                 {
                     language = _langKey,
                     source = src,
-                    extra_forbidden = (object?)null
+                    extra_forbidden = null,
+                    forbidden_calls = (forbiddenCalls != null && forbiddenCalls.Count > 0) ? forbiddenCalls : null,
+                    required_calls  = (requiredCalls  != null && requiredCalls.Count  > 0) ? requiredCalls  : null,
                 };
 
                 var resp = await client.PostAsJsonAsync($"{baseUrl}/analyze", payload);
@@ -241,6 +273,15 @@ namespace taskforge.Services.Remote
                 // Later we can add a strict mode per task.
                 return null;
             }
+        }
+
+        private sealed class AnalyzerRequest
+        {
+            public string language { get; set; } = "";
+            public string source { get; set; } = "";
+            public object? extra_forbidden { get; set; }
+            public List<string>? forbidden_calls { get; set; }
+            public List<string>? required_calls { get; set; }
         }
 
         private static string BuildPolicyDetails(AnalyzerResponse policy)
