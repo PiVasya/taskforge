@@ -135,13 +135,22 @@ namespace taskforge.Services
 
                 var isHiddenForUser = tc.IsHidden && !canReveal;
 
+                // For students we keep diagnostics for policy_failed (it doesn't leak hidden tests).
+                // For other failures on hidden tests we prefer to hide stderr/compile errors.
+                var showDiag = !isHiddenForUser || string.Equals(r.Status, "policy_failed", StringComparison.OrdinalIgnoreCase);
+
                 full.Cases.Add(new SolutionCaseResultDto
                 {
                     Input = isHiddenForUser ? null : tc.Input,
                     Expected = isHiddenForUser ? null : tc.ExpectedOutput,
                     Actual = isHiddenForUser ? null : r.ActualOutput,
                     Passed = r.Passed,
-                    Hidden = tc.IsHidden
+                    Hidden = tc.IsHidden,
+
+                    Status = r.Status,
+                    ExitCode = r.ExitCode,
+                    Stderr = showDiag ? r.Stderr : null,
+                    CompileStderr = showDiag ? r.CompileStderr : null,
                 });
             }
 
