@@ -10,6 +10,80 @@ function displayClean(s) {
   return String(s);
 }
 
+function parsePolicyText(raw) {
+  const txt = String(raw || '');
+  if (!txt) return null;
+  const isPolicy = txt.includes('[policy_failed]') || txt.toLowerCase().includes('code analyzer blocked');
+  if (!isPolicy) return null;
+
+  const lines = txt.split('\n').map(s => s.trim()).filter(Boolean);
+
+  const forbidden = [];
+  const required = [];
+  const other = [];
+  const hits = [];
+
+  let inHits = false;
+  for (const l of lines) {
+    if (l.startsWith('[hits]')) { inHits = true; continue; }
+    if (l.startsWith('[') && l.endsWith(']')) { inHits = false; continue; }
+    if (!l.startsWith('- ')) continue;
+    const body = l.replace(/^\-\s*/, '');
+    if (inHits) {
+      // Пример: pos=62 needle='printf' id=... preview='...'
+      const mNeedle = body.match(/needle=\'?([^'\s]+)\'?/i);
+      const mPos = body.match(/pos=(\d+)/i);
+      const mPrev = body.match(/preview=\'([^']*)\'/i);
+      hits.push({
+        needle: mNeedle?.[1],
+        pos: mPos?.[1],
+        preview: mPrev?.[1],
+      });
+      continue;
+    }
+
+    // Пример: forbidden_call: Запрещено: printf (pattern_id=...)
+    //        missing_required_call: Не найдено обязательное: cout (pattern_id=...)
+    const cleaned = body
+      .replace(/\(pattern_id=[^)]+\)/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    if (/\bforbidden\b|Запрещено/i.test(cleaned)) forbidden.push(cleaned.replace(/^forbidden_[^:]*:\s*/i, ''));
+    else if (/required\b|обязател/i.test(cleaned)) required.push(cleaned.replace(/^missing_[^:]*:\s*/i, ''));
+    else other.push(cleaned);
+  }
+
+  const bullets = [];
+  if (forbidden.length) {
+    bullets.push(`❌ Запрещено в этом задании: ${forbidden.join(' • ')}`);
+  }
+  if (required.length) {
+    bullets.push(`✅ Нужно обязательно использовать: ${required.join(' • ')}`);
+  }
+  if (!forbidden.length && !required.length && other.length) {
+    bullets.push(...other);
+  }
+
+  const hitLines = hits
+    .filter(h => h.needle || h.pos || h.preview)
+    .slice(0, 3)
+    .map(h => {
+      const parts = [];
+      if (h.needle) parts.push(`«${h.needle}»`);
+      if (h.pos) parts.push(`позиция ${h.pos}`);
+      if (h.preview) parts.push(`фрагмент: ${h.preview}`);
+      return `• Найдено ${parts.join(', ')}`;
+    });
+
+  return {
+    title: 'Решение не принято: анализатор кода нашёл нарушение',
+    bullets,
+    hitLines,
+    raw: txt,
+  };
+}
+
 export default function AssignmentResultsPage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
@@ -158,9 +232,37 @@ export default function AssignmentResultsPage() {
                   {(c.compileStderr || c.stderr || c.error) && (
                     <div className="mt-2">
                       <div className="text-xs text-neutral-500 mb-1">Ошибки</div>
-                      <pre className="whitespace-pre-wrap text-xs text-red-600">
-                        {displayClean(c.compileStderr || c.stderr || c.error)}
-                      </pre>
+                      {(() => {
+                        const rawErr = c.compileStderr || c.stderr || c.error;
+                        const p = parsePolicyText(rawErr);
+                        if (!p) {
+                          return (
+                            <pre className="whitespace-pre-wrap text-xs text-red-600">
+                              {displayClean(rawErr)}
+                            </pre>
+                          );
+                        }
+
+                        return (
+                          <div className="text-xs text-red-600 space-y-2">
+                            <div className="font-medium">{p.title}</div>
+                            {p.bullets.length > 0 && (
+                              <ul className="list-disc pl-5 space-y-1">
+                                {p.bullets.map((b, idx) => (
+                                  <li key={idx}>{b}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {p.hitLines.length > 0 && (
+                              <div className="text-[11px] text-red-500 whitespace-pre-wrap">
+                                {p.hitLines.join('\n')}
+                              </div>
+                            )}
+                            {/* если нужно — можно раскомментировать, чтобы видеть сырой вывод */}
+                            {/* <pre className="whitespace-pre-wrap text-[11px] opacity-70">{p.raw}</pre> */}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
