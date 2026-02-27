@@ -50,7 +50,7 @@ public sealed class TelegramLinkController : ControllerBase
 
     public sealed record TelegramConfirmResponse(bool Ok, string Message);
 
-    private string GetBotUsername() => _config["TELEGRAM_BOT_USERNAME"] ?? "@taskforgebot";
+    private string GetBotUsername() => _config["TELEGRAM_BOT_USERNAME"] ?? "@taskforgeby_bot";
 
     private static string GenerateCode()
     {
