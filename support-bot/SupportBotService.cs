@@ -89,11 +89,7 @@ namespace SupportBot
             {
                 try
                 {
-                    // 1) Сообщения пользователей -> в группу поддержки
-                    await SendUnsentUserMessagesToGroupAsync(stoppingToken);
-
-                    // 2) Ответы админов (из сайта/ТГ) -> пользователю в личку (если Telegram привязан)
-                    await SendUnsentAdminRepliesToUsersAsync(stoppingToken);
+                    await SendUnsentMessagesAsync(stoppingToken);
                 }
                 catch (Exception ex)
                 {
@@ -106,9 +102,9 @@ namespace SupportBot
         }
 
         /// <summary>
-        /// Отправляет все сообщения пользователей, которые ещё не отправлены в Telegram-группу (TelegramMessageId == null).
+        /// Отправляет все сообщения пользователей, которые ещё не отправлены в Telegram (TelegramMessageId == null).
         /// </summary>
-        private async Task SendUnsentUserMessagesToGroupAsync(CancellationToken ct)
+        private async Task SendUnsentMessagesAsync(CancellationToken ct)
         {
             if (_bot == null) return;
 
@@ -138,47 +134,31 @@ namespace SupportBot
                 await db.SaveChangesAsync(ct);
                 _logger.LogInformation($"Sent support message {msg.Id} to group {_groupId}");
             }
-        }
 
-        /// <summary>
-        /// Отправляет ответы админов пользователю в личку, если Telegram привязан.
-        ///
-        /// Условия:
-        /// - IsFromAdmin == true
-        /// - TelegramMessageId == null (ещё не отправляли в TG)
-        /// - у пользователя тикета есть TelegramChatId
-        /// </summary>
-        private async Task SendUnsentAdminRepliesToUsersAsync(CancellationToken ct)
-        {
-            if (_bot == null) return;
-
-            using var scope = _provider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-            var unsent = await db.SupportMessages
+            // ====== Админские ответы -> в ЛС пользователю ======
+            // Ответы могут появляться как с сайта (TelegramChatId=null), так и из TG-группы (TelegramChatId=_groupId).
+            // Чтобы не слать бесконечно, после отправки в ЛС перезаписываем TelegramChatId/TelegramMessageId
+            // значениями личного чата пользователя.
+            var adminRepliesToForward = await db.SupportMessages
                 .Include(m => m.Ticket)
                 .ThenInclude(t => t.User)
-                .Where(m => m.IsFromAdmin && m.TelegramMessageId == null)
+                .Where(m => m.IsFromAdmin && (m.TelegramChatId == null || m.TelegramChatId == _groupId))
                 .ToListAsync(ct);
 
-            foreach (var msg in unsent)
+            foreach (var msg in adminRepliesToForward)
             {
                 var user = msg.Ticket.User;
                 if (user.TelegramChatId == null)
-                    continue; // Telegram не привязан — некуда отправлять
+                    continue;
 
-                var header = $"✅ Ответ поддержки по обращению {msg.Ticket.Id}\n";
-                if (!string.IsNullOrWhiteSpace(msg.AuthorName))
-                    header += $"От: {msg.AuthorName}\n";
-                header += "\n";
-
+                var header = $"🛠️ Ответ поддержки по обращению {msg.Ticket.Id}\n\n";
                 var sent = await _bot.SendTextMessageAsync(user.TelegramChatId.Value, header + msg.Text, cancellationToken: ct);
 
                 msg.TelegramChatId = user.TelegramChatId.Value;
                 msg.TelegramMessageId = sent.MessageId;
 
                 await db.SaveChangesAsync(ct);
-                _logger.LogInformation($"Sent admin reply {msg.Id} to user TG chat {user.TelegramChatId}");
+                _logger.LogInformation($"Forwarded admin reply {msg.Id} to user TG chat {user.TelegramChatId}");
             }
         }
 
