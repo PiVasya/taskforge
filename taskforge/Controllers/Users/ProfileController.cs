@@ -53,7 +53,11 @@ namespace taskforge.Controllers
                 PhoneNumber = user.PhoneNumber,
                 DateOfBirth = user.DateOfBirth,
                 ProfilePictureUrl = user.ProfilePictureUrl,
-                AdditionalDataJson = user.AdditionalDataJson
+                AdditionalDataJson = user.AdditionalDataJson,
+
+                TelegramLinked = user.TelegramChatId != null,
+                TelegramUsername = user.TelegramUsername,
+                TelegramLinkCount = user.TelegramLinkCount
             };
 
             return Ok(dto);

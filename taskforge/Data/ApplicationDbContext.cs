@@ -28,6 +28,9 @@ namespace taskforge.Data
         public DbSet<SupportTicket> SupportTickets { get; set; } = null!;
         public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
 
+        // ===== Telegram link =====
+        public DbSet<TelegramLinkCode> TelegramLinkCodes { get; set; } = null!;
+
         /// <summary>
         /// Records of individual user logins including timestamp, IP address and
         /// user‑agent. Useful for auditing and security analytics.
@@ -85,6 +88,36 @@ namespace taskforge.Data
             modelBuilder.Entity<User>()
                 .Property(u => u.LockoutEnd)
                 .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<User>()
+                .Property(u => u.TelegramLinkedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.TelegramChatId)
+                .IsUnique();
+
+            // 🔹 TelegramLinkCode
+            modelBuilder.Entity<TelegramLinkCode>()
+                .HasIndex(x => x.UserId);
+
+            modelBuilder.Entity<TelegramLinkCode>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<TelegramLinkCode>()
+                .Property(x => x.ExpiresAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<TelegramLinkCode>()
+                .Property(x => x.UsedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<TelegramLinkCode>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // 🔹 UserUiSettings (1:1)
             modelBuilder.Entity<UserUiSettings>()

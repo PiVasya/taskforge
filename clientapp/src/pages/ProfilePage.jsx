@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea } from '../components/ui';
 import { getProfile, updateProfile, changeEmail, changePassword } from '../api/profile';
+import { getTelegramStatus, generateTelegramCode, unlinkTelegram } from '../api/telegramLink';
 import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 
 /**
@@ -34,6 +35,13 @@ export default function ProfilePage() {
   const [passwordSuccess, setPasswordSuccess] = useState(null);
   const [savingPassword, setSavingPassword] = useState(false);
 
+  // Telegram link
+  const [tgStatus, setTgStatus] = useState(null);
+  const [tgCode, setTgCode] = useState(null);
+  const [tgExpires, setTgExpires] = useState(null);
+  const [tgLoading, setTgLoading] = useState(false);
+  const [tgError, setTgError] = useState(null);
+
   // навигация для перехода после сохранения
   const navigate = useNavigate();
 
@@ -45,6 +53,14 @@ export default function ProfilePage() {
         const data = await getProfile();
         setProfile(data);
         setExtra(parseProfileExtra(data.additionalDataJson));
+
+        // Telegram status (не мешаем загрузке профиля)
+        try {
+          const st = await getTelegramStatus();
+          setTgStatus(st);
+        } catch {
+          // ignore
+        }
       } catch (e) {
         console.error(e);
         setError('Не удалось загрузить профиль');
@@ -53,6 +69,57 @@ export default function ProfilePage() {
       }
     })();
   }, []);
+
+  const refreshTgStatus = async () => {
+    try {
+      const st = await getTelegramStatus();
+      setTgStatus(st);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleGenerateTgCode = async () => {
+    try {
+      setTgLoading(true);
+      setTgError(null);
+      const dto = await generateTelegramCode();
+      setTgCode(dto.code);
+      setTgExpires(dto.expiresAtUtc);
+      setTgStatus(dto.status);
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Не удалось сгенерировать код';
+      setTgError(msg);
+    } finally {
+      setTgLoading(false);
+    }
+  };
+
+  const handleCopyTgCode = async () => {
+    if (!tgCode) return;
+    try {
+      await navigator.clipboard.writeText(tgCode);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleUnlinkTg = async () => {
+    if (!window.confirm('Отвязать Telegram от аккаунта?')) return;
+    try {
+      setTgLoading(true);
+      setTgError(null);
+      await unlinkTelegram();
+      setTgCode(null);
+      setTgExpires(null);
+      await refreshTgStatus();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Не удалось отвязать Telegram';
+      setTgError(msg);
+    } finally {
+      setTgLoading(false);
+    }
+  };
 
   // Универсальный обработчик изменений дополнительных полей
   const handleChangeExtra = (field) => (eOrValue) => {
@@ -281,14 +348,6 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-neutral-500">Telegram</label>
-                  <Input
-                    placeholder="@ник или ссылка"
-                    value={extra.telegram}
-                    onChange={handleChangeExtra('telegram')}
-                  />
-                </div>
-                <div>
                   <label className="text-sm text-neutral-500">Личный сайт / портфолио</label>
                   <Input
                     placeholder="https://..."
@@ -297,6 +356,77 @@ export default function ProfilePage() {
                   />
                 </div>
               </div>
+            </Card>
+
+            {/* Telegram */}
+            <Card className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-semibold">Telegram</h2>
+                {tgStatus && (
+                  <div className="text-xs text-neutral-500">
+                    Привязки: {tgStatus.linkCount ?? 0}/2
+                  </div>
+                )}
+              </div>
+
+              {tgError && (
+                <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
+                  {tgError}
+                </div>
+              )}
+
+              {tgStatus?.linked ? (
+                <div className="space-y-2">
+                  <div className="text-sm">
+                    ✅ Привязан: <b>{tgStatus.username || 'Telegram'}</b>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button type="button" variant="secondary" onClick={handleUnlinkTg} disabled={tgLoading}>
+                      Удалить привязку
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={refreshTgStatus} disabled={tgLoading}>
+                      Обновить
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-sm text-neutral-600 dark:text-neutral-300">
+                    Нажми «Сгенерировать код», потом отправь этот код боту{' '}
+                    <b>{tgStatus?.botUsername || ''}</b> в личку.
+                    После ответа бота нажми «Обновить».
+                  </div>
+
+                  {tgCode && (
+                    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 p-3">
+                      <div className="text-xs text-neutral-500">Твой код</div>
+                      <div className="mt-1 font-mono text-lg tracking-wider">{tgCode}</div>
+                      {tgExpires && (
+                        <div className="mt-1 text-xs text-neutral-500">
+                          Действует до: {new Date(tgExpires).toLocaleString()}
+                        </div>
+                      )}
+                      <div className="mt-2 flex gap-2 flex-wrap">
+                        <Button type="button" variant="secondary" onClick={handleCopyTgCode}>
+                          Копировать
+                        </Button>
+                        <Button type="button" variant="ghost" onClick={refreshTgStatus} disabled={tgLoading}>
+                          Обновить
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 flex-wrap">
+                    <Button type="button" onClick={handleGenerateTgCode} disabled={tgLoading}>
+                      {tgLoading ? 'Генерация…' : 'Сгенерировать код'}
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={refreshTgStatus} disabled={tgLoading}>
+                      Обновить
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
             {/* Переключатель показа в топе */}
             <Card className="p-4 flex items-center justify-between gap-4">

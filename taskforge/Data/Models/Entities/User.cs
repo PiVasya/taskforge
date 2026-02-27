@@ -43,6 +43,25 @@ namespace taskforge.Data.Models.Entities
         // поле для произвольных данных в формате JSON
         public string? AdditionalDataJson { get; set; }
 
+        // ===== интеграции =====
+        /// <summary>
+        /// Telegram chat id (личный чат пользователя с ботом). Заполняется только после подтверждения кода.
+        /// </summary>
+        public long? TelegramChatId { get; set; }
+
+        /// <summary>
+        /// Telegram username без символа '@' (если есть).
+        /// </summary>
+        [MaxLength(64)]
+        public string? TelegramUsername { get; set; }
+
+        public DateTime? TelegramLinkedAtUtc { get; set; }
+
+        /// <summary>
+        /// Сколько раз пользователь успешно привязывал Telegram. Лимит = 2.
+        /// </summary>
+        public int TelegramLinkCount { get; set; } = 0;
+
         // ===== группы / владельцы курсов =====
         public ICollection<UserGroupMember> GroupMembers { get; set; } = new List<UserGroupMember>();
         public ICollection<CourseOwner> OwnedCourses { get; set; } = new List<CourseOwner>();
