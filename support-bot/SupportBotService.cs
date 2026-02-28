@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using taskforge.Data;
+using taskforge.Data.Models.Entities;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
@@ -221,33 +222,174 @@ namespace SupportBot
             if (string.IsNullOrWhiteSpace(msg.Text)) return;
 
             var text = (msg.Text ?? string.Empty).Trim();
-            if (text.StartsWith("/start", StringComparison.OrdinalIgnoreCase))
+
+            if (text.StartsWith("/start", StringComparison.OrdinalIgnoreCase) ||
+                text.StartsWith("/help", StringComparison.OrdinalIgnoreCase))
             {
                 await _bot.SendTextMessageAsync(msg.Chat.Id,
-                    "Привет! Чтобы привязать Telegram к TaskForge:\n\n1) Открой TaskForge → Профиль → Telegram\n2) Сгенерируй код\n3) Отправь мне этот код сюда (в личку).\n\nЯ отвечу, получилось ли привязать.",
+                    "Привет! Я бот поддержки TaskForge.\n\n" +
+                    "✅ Привязка Telegram:\n" +
+                    "1) TaskForge → Профиль → Telegram → Сгенерировать код\n" +
+                    "2) Отправь мне: /link ТВОЙ_КОД\n" +
+                    "(или просто пришли код первым сообщением)\n\n" +
+                    "🛠️ Поддержка:\n" +
+                    "После привязки просто пиши сюда любые сообщения — я отправлю их в техподдержку.\n\n" +
+                    "Команды:\n" +
+                    "/link CODE — привязать Telegram\n" +
+                    "/new — новое обращение\n" +
+                    "/help — помощь",
                     cancellationToken: ct);
                 return;
             }
 
-            // Берём первый токен как код, поддерживаем формат XXXX-XXXX
-            var code = text.Split(new[] { ' ', '\n', '\t', '\r' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(code)) return;
+            // /link CODE
+            if (text.StartsWith("/link", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = text.Split(new[] { ' ', '\n', '\t', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2)
+                {
+                    await _bot.SendTextMessageAsync(msg.Chat.Id,
+                        "Напиши так: /link ТВОЙ_КОД\n\nКод берётся на сайте: Профиль → Telegram.",
+                        cancellationToken: ct);
+                    return;
+                }
 
-            // Быстрая валидация (чтобы не спамить API)
-            var normalized = code.Trim().ToUpperInvariant();
-            if (normalized.Length < 4 || normalized.Length > 32)
+                await TryLinkByCodeAsync(msg, parts[1], ct);
+                return;
+            }
+
+            // /new — создаём новое обращение (даже если есть активное)
+            var forceNewTicket = false;
+            if (text.StartsWith("/new", StringComparison.OrdinalIgnoreCase))
+            {
+                forceNewTicket = true;
+                text = string.Join(' ', text.Split(' ').Skip(1)).Trim();
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    await _bot.SendTextMessageAsync(msg.Chat.Id,
+                        "Ок, создаю новое обращение. Напиши следующим сообщением, что случилось.",
+                        cancellationToken: ct);
+                    return;
+                }
+            }
+
+            // Если это похоже на код привязки И пользователь ещё не привязан — считаем это попыткой привязки.
+            if (LooksLikeLinkCode(text))
+            {
+                using var scope0 = _provider.CreateScope();
+                var db0 = scope0.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var linkedUser0 = await db0.Users.AsNoTracking().FirstOrDefaultAsync(u => u.TelegramChatId == msg.Chat.Id, ct);
+                if (linkedUser0 == null)
+                {
+                    await TryLinkByCodeAsync(msg, text, ct);
+                    return;
+                }
+            }
+
+            // Иначе — это сообщение в поддержку
+            await HandleSupportMessageAsync(msg, text, forceNewTicket, ct);
+        }
+
+        private async Task TryLinkByCodeAsync(Message msg, string codeRaw, CancellationToken ct)
+        {
+            if (_bot == null) return;
+            var normalized = (codeRaw ?? string.Empty).Trim().ToUpperInvariant();
+
+            if (!LooksLikeLinkCode(normalized))
             {
                 await _bot.SendTextMessageAsync(msg.Chat.Id,
-                    "Похоже, это не код. Сгенерируй код на сайте TaskForge и отправь его мне сюда.",
+                    "Похоже, это не код привязки.\n\n" +
+                    "Открой TaskForge → Профиль → Telegram → Сгенерировать код,\n" +
+                    "и отправь мне: /link ТВОЙ_КОД",
                     cancellationToken: ct);
                 return;
             }
 
             var username = msg.From?.Username;
             var payload = new { code = normalized, chatId = msg.Chat.Id, username };
-
             var ok = await CallTelegramConfirmAsync(payload, ct);
             await _bot.SendTextMessageAsync(msg.Chat.Id, ok.message, cancellationToken: ct);
+        }
+
+        private static bool LooksLikeLinkCode(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var t = text.Trim();
+            if (t.Length < 4 || t.Length > 32) return false;
+
+            var hasAlphaNum = false;
+            foreach (var ch in t)
+            {
+                if (char.IsLetterOrDigit(ch)) { hasAlphaNum = true; continue; }
+                if (ch == '-') continue;
+                return false;
+            }
+            return hasAlphaNum;
+        }
+
+        private async Task HandleSupportMessageAsync(Message msg, string messageText, bool forceNewTicket, CancellationToken ct)
+        {
+            if (_bot == null) return;
+            if (string.IsNullOrWhiteSpace(messageText)) return;
+
+            using var scope = _provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var user = await db.Users.FirstOrDefaultAsync(u => u.TelegramChatId == msg.Chat.Id, ct);
+            if (user == null)
+            {
+                await _bot.SendTextMessageAsync(msg.Chat.Id,
+                    "Я могу отправлять сообщения в поддержку только после привязки Telegram к TaskForge.\n\n" +
+                    "Сделай так:\n" +
+                    "1) TaskForge → Профиль → Telegram → Сгенерировать код\n" +
+                    "2) Отправь мне: /link ТВОЙ_КОД",
+                    cancellationToken: ct);
+                return;
+            }
+
+            SupportTicket? ticket = null;
+            if (!forceNewTicket)
+            {
+                var since = DateTime.UtcNow.AddHours(-24);
+                ticket = await db.SupportTickets
+                    .Where(t => t.UserId == user.Id && !t.IsClosed && t.UpdatedAt >= since)
+                    .OrderByDescending(t => t.UpdatedAt)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            if (ticket == null)
+            {
+                ticket = new SupportTicket
+                {
+                    UserId = user.Id,
+                    Type = "telegram",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    IsClosed = false
+                };
+                db.SupportTickets.Add(ticket);
+            }
+            else
+            {
+                ticket.UpdatedAt = DateTime.UtcNow;
+            }
+
+            var sm = new SupportMessage
+            {
+                Ticket = ticket,
+                AuthorUserId = user.Id,
+                Text = messageText.Trim(),
+                CreatedAt = DateTime.UtcNow,
+                IsFromAdmin = false,
+                Source = "TelegramUser"
+            };
+            db.SupportMessages.Add(sm);
+            await db.SaveChangesAsync(ct);
+
+            await _bot.SendTextMessageAsync(msg.Chat.Id,
+                "✅ Сообщение отправлено в техподдержку.\n" +
+                "Если нужно новое обращение — напиши /new и текст.",
+                cancellationToken: ct);
         }
 
         private async Task<(bool success, string message)> CallTelegramConfirmAsync(object payload, CancellationToken ct)
