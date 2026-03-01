@@ -1,0 +1,4 @@
+group: "default"
+delayTicks: 20
+commandTemplate: "fperm user addgroup {player} {group}"
+skipOps: true
