@@ -39,7 +39,8 @@ public final class DefaultGroupAssigner extends JavaPlugin implements Listener {
 
         ConsoleCommandSender console = Bukkit.getConsoleSender();
 
-        Bukkit.getScheduler().runTaskLater(this, () -> {
+        // Folia doesn't support the old Bukkit scheduler (CraftScheduler). Use the Folia schedulers instead.
+        Bukkit.getGlobalRegionScheduler().runDelayed(this, scheduledTask -> {
             boolean ok = Bukkit.dispatchCommand(console, cmd);
             if (!ok) {
                 getLogger().warning("Command failed: " + cmd);
