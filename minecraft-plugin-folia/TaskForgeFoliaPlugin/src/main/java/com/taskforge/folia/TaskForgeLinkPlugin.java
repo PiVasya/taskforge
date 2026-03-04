@@ -145,6 +145,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             InetAddress addr = InetAddress.getByName(host);
             server = HttpServer.create(new InetSocketAddress(addr, port), 0);
             server.createContext(path, new SendCodeHandler(this, key, allowedIps));
+            // Простая проверка доступности (без ключей)
+            server.createContext("/health", ex -> {
+                String resp = "{\"ok\":true}";
+                ex.getResponseHeaders().add("Content-Type", "application/json");
+                ex.sendResponseHeaders(200, resp.getBytes(StandardCharsets.UTF_8).length);
+                try (OutputStream os = ex.getResponseBody()) {
+                    os.write(resp.getBytes(StandardCharsets.UTF_8));
+                }
+            });
             server.setExecutor(Executors.newFixedThreadPool(2));
             server.start();
 
@@ -355,6 +364,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         @Override
         public void handle(HttpExchange ex) throws IOException {
             try {
+                final String remoteIp = ex.getRemoteAddress().getAddress().getHostAddress();
+                final String method = ex.getRequestMethod();
+                final String uri = String.valueOf(ex.getRequestURI());
+                // Логируем вообще все входящие, чтобы быстро понять "дошло ли".
+                plugin.getLogger().info("[TF->MC] request received ip=" + remoteIp + " method=" + method + " uri=" + uri);
+
                 if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) {
                     writeJson(ex, 405, "{\"error\":\"method_not_allowed\"}");
                     return;
@@ -362,8 +377,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
                 // IP allowlist (если задана)
                 if (allowedIps != null && !allowedIps.isEmpty()) {
-                    String remoteIp = ex.getRemoteAddress().getAddress().getHostAddress();
                     if (allowedIps.stream().noneMatch(ip -> Objects.equals(ip, remoteIp))) {
+                        plugin.getLogger().warning("[TF->MC] forbidden by IP allowlist ip=" + remoteIp);
                         writeJson(ex, 403, "{\"error\":\"forbidden\"}");
                         return;
                     }
@@ -373,6 +388,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
                 String gotKey = Optional.ofNullable(h.getFirst("X-TaskForge-Key")).orElse("");
                 if (sharedKey.isBlank() || !sharedKey.equals(gotKey)) {
+                    // Не палим ключ, но логируем диагностические признаки.
+                    plugin.getLogger().warning(
+                            "[TF->MC] unauthorized ip=" + remoteIp +
+                                    " hasHeader=" + (!gotKey.isBlank()) +
+                                    " gotLen=" + gotKey.length() +
+                                    " expectedLen=" + sharedKey.length());
                     writeJson(ex, 401, "{\"error\":\"unauthorized\"}");
                     return;
                 }
@@ -381,6 +402,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 if (!requestId.isBlank()) {
                     boolean first = plugin.markRequestIdOnce(requestId);
                     if (!first) {
+                        plugin.getLogger().info("[TF->MC] duplicate requestId=" + requestId + " ip=" + remoteIp);
                         writeJson(ex, 409, "{\"delivered\":true,\"duplicate\":true}");
                         return;
                     }
@@ -416,6 +438,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 }
 
                 if (p == null) {
+                    plugin.getLogger().info("[TF->MC] player offline nick=" + nick + " ip=" + remoteIp);
                     writeJson(ex, 404, "{\"delivered\":false,\"online\":false,\"reason\":\"offline\"}");
                     return;
                 }
@@ -428,6 +451,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 }, null);
 
                 String uuid = finalP.getUniqueId().toString();
+                plugin.getLogger().info("[TF->MC] code delivered nick=" + finalP.getName() + " uuid=" + uuid + " ip=" + remoteIp);
                 writeJson(ex, 200, "{\"delivered\":true,\"online\":true,\"uuid\":\"" + uuid + "\"}");
             } catch (Exception e) {
                 plugin.getLogger().severe("HTTP handler error: " + e.getMessage());

@@ -62,6 +62,12 @@ public sealed class HttpMinecraftServerNotifier : IMinecraftServerNotifier
             return (false, "Webhook Minecraft не настроен");
         }
 
+        var path = GetPath();
+        var keyPresent = !string.IsNullOrWhiteSpace(GetApiKey());
+        _log.LogInformation(
+            "Minecraft webhook: preparing request nick={Nick} baseUrl={BaseUrl} path={Path} keyPresent={KeyPresent}",
+            nick, baseUrl, path, keyPresent);
+
         try
         {
             var client = _httpFactory.CreateClient();
@@ -74,7 +80,7 @@ public sealed class HttpMinecraftServerNotifier : IMinecraftServerNotifier
             var reqId = Guid.NewGuid().ToString();
             var req = new { nick, code, ttlSeconds = 600 };
 
-            var httpReq = new HttpRequestMessage(HttpMethod.Post, GetPath())
+            var httpReq = new HttpRequestMessage(HttpMethod.Post, path)
             {
                 Content = JsonContent.Create(req)
             };
@@ -84,15 +90,28 @@ public sealed class HttpMinecraftServerNotifier : IMinecraftServerNotifier
             if (!string.IsNullOrWhiteSpace(key))
                 httpReq.Headers.TryAddWithoutValidation("X-TaskForge-Key", key);
 
+            var started = DateTime.UtcNow;
             var resp = await client.SendAsync(httpReq, ct);
+            var elapsedMs = (DateTime.UtcNow - started).TotalMilliseconds;
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
+                var bodyShort = body;
+                if (bodyShort.Length > 400) bodyShort = bodyShort[..400] + "…";
                 _log.LogWarning(
-                    "Minecraft webhook delivery failed: nick={Nick} status={Status} body={Body} requestId={RequestId}",
-                    nick, (int)resp.StatusCode, body, reqId);
-                return (false, $"Webhook ответил {(int)resp.StatusCode}");
+                    "Minecraft webhook delivery failed: nick={Nick} url={Url} status={Status} elapsedMs={ElapsedMs} requestId={RequestId} body={Body}",
+                    nick, new Uri(client.BaseAddress!, path), (int)resp.StatusCode, elapsedMs, reqId, bodyShort);
+
+                // Для UI: даём чуть больше инфы, но не палим секреты.
+                if ((int)resp.StatusCode == 401 || (int)resp.StatusCode == 403)
+                    return (false, $"Webhook ответил {(int)resp.StatusCode} (проверка ключа/доступа). {bodyShort}");
+
+                return (false, $"Webhook ответил {(int)resp.StatusCode}. {bodyShort}");
             }
+
+            _log.LogInformation(
+                "Minecraft webhook delivery http ok: nick={Nick} url={Url} status={Status} elapsedMs={ElapsedMs} requestId={RequestId}",
+                nick, new Uri(client.BaseAddress!, path), (int)resp.StatusCode, elapsedMs, reqId);
 
             // Плагин может вернуть 200, но delivered=false (например, игрок оффлайн).
             // Поэтому читаем JSON и возвращаем корректный результат.
