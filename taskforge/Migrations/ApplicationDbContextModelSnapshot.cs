@@ -48,7 +48,7 @@ namespace taskforge.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Badges");
+                    b.ToTable("Badges", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.Course", b =>
@@ -82,7 +82,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("OwnerId");
 
-                    b.ToTable("Courses");
+                    b.ToTable("Courses", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.CourseOwner", b =>
@@ -103,7 +103,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("CourseOwners");
+                    b.ToTable("CourseOwners", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.CourseVisibleGroup", b =>
@@ -124,7 +124,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("GroupId");
 
-                    b.ToTable("CourseVisibleGroups");
+                    b.ToTable("CourseVisibleGroups", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.MinecraftEconomySettings", b =>
@@ -141,7 +141,7 @@ namespace taskforge.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("MinecraftEconomySettings");
+                    b.ToTable("MinecraftEconomySettings", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.MinecraftLinkCode", b =>
@@ -179,7 +179,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId", "Nick");
 
-                    b.ToTable("MinecraftLinkCodes");
+                    b.ToTable("MinecraftLinkCodes", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.MinecraftWeeklyJoin", b =>
@@ -190,6 +190,9 @@ namespace taskforge.Migrations
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PenaltyApplied")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
@@ -202,7 +205,7 @@ namespace taskforge.Migrations
                     b.HasIndex("UserId", "WeekStartUtc")
                         .IsUnique();
 
-                    b.ToTable("MinecraftWeeklyJoins");
+                    b.ToTable("MinecraftWeeklyJoins", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.SupportMessage", b =>
@@ -245,7 +248,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("TicketId");
 
-                    b.ToTable("SupportMessages");
+                    b.ToTable("SupportMessages", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.SupportTicket", b =>
@@ -278,7 +281,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("SupportTickets");
+                    b.ToTable("SupportTickets", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.TaskAssignment", b =>
@@ -341,7 +344,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("CourseId");
 
-                    b.ToTable("TaskAssignments");
+                    b.ToTable("TaskAssignments", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.TaskTestCase", b =>
@@ -368,7 +371,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("TaskAssignmentId");
 
-                    b.ToTable("TaskTestCases");
+                    b.ToTable("TaskTestCases", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.TaskTestQuestion", b =>
@@ -407,7 +410,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("TaskAssignmentId", "Order");
 
-                    b.ToTable("TaskTestQuestions");
+                    b.ToTable("TaskTestQuestions", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.TaskTestSettings", b =>
@@ -448,7 +451,7 @@ namespace taskforge.Migrations
                     b.HasIndex("TaskAssignmentId")
                         .IsUnique();
 
-                    b.ToTable("TaskTestSettings");
+                    b.ToTable("TaskTestSettings", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.TelegramLinkCode", b =>
@@ -481,7 +484,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("TelegramLinkCodes");
+                    b.ToTable("TelegramLinkCodes", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.User", b =>
@@ -597,7 +600,7 @@ namespace taskforge.Migrations
                     b.HasIndex("TelegramChatId")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserBadge", b =>
@@ -621,7 +624,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("UserBadges");
+                    b.ToTable("UserBadges", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserGroup", b =>
@@ -676,7 +679,7 @@ namespace taskforge.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("UserGroups");
+                    b.ToTable("UserGroups", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserGroupMember", b =>
@@ -694,7 +697,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("GroupId");
 
-                    b.ToTable("UserGroupMembers");
+                    b.ToTable("UserGroupMembers", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserImageTaskSolution", b =>
@@ -759,7 +762,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId", "TaskAssignmentId", "CreatedAtUtc");
 
-                    b.ToTable("UserImageTaskSolutions");
+                    b.ToTable("UserImageTaskSolutions", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserLoginLog", b =>
@@ -790,7 +793,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("UserLoginLogs");
+                    b.ToTable("UserLoginLogs", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserQuotaBucket", b =>
@@ -830,7 +833,7 @@ namespace taskforge.Migrations
                     b.HasIndex("UserId", "BucketType")
                         .IsUnique();
 
-                    b.ToTable("UserQuotaBuckets");
+                    b.ToTable("UserQuotaBuckets", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserTaskSolution", b =>
@@ -872,7 +875,7 @@ namespace taskforge.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("UserTaskSolutions");
+                    b.ToTable("UserTaskSolutions", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserTaskTestAttempt", b =>
@@ -929,7 +932,7 @@ namespace taskforge.Migrations
                     b.HasIndex("TaskAssignmentId", "UserId", "AttemptNumber")
                         .IsUnique();
 
-                    b.ToTable("UserTaskTestAttempts");
+                    b.ToTable("UserTaskTestAttempts", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserUiSettings", b =>
@@ -973,7 +976,7 @@ namespace taskforge.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("UserUiSettings");
+                    b.ToTable("UserUiSettings", (string)null);
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.Course", b =>
