@@ -28,10 +28,12 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.*;
 
 /**
@@ -61,6 +63,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int taskForgeTimeoutSeconds;
     private boolean debuffsEnabled;
     private int debuffDurationSeconds;
+
+    // Игроки-исключения (чтобы не было запросов в API и не было дебаффов)
+    private final Set<String> exemptNicksLower = ConcurrentHashMap.newKeySet();
+    private final Set<String> exemptUuidsLower = ConcurrentHashMap.newKeySet();
 
     private void migrateConfigKeys() {
         boolean changed = false;
@@ -140,6 +146,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         taskForgeTimeoutSeconds = Math.max(1, getConfig().getInt("taskforge.timeoutSeconds", 4));
         debuffsEnabled = getConfig().getBoolean("debuffs.enabled", true);
         debuffDurationSeconds = Math.max(30, getConfig().getInt("debuffs.durationSeconds", 600));
+
+        // exemptions
+        exemptNicksLower.clear();
+        exemptUuidsLower.clear();
+        for (String n : getConfig().getStringList("exemptions.nicks")) {
+            if (n != null && !n.trim().isEmpty()) exemptNicksLower.add(n.trim().toLowerCase(Locale.ROOT));
+        }
+        for (String u : getConfig().getStringList("exemptions.uuids")) {
+            if (u != null && !u.trim().isEmpty()) exemptUuidsLower.add(u.trim().toLowerCase(Locale.ROOT));
+        }
 
         try {
             InetAddress addr = InetAddress.getByName(host);
@@ -284,6 +300,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         }, null);
     }
 
+    boolean isExempt(Player p) {
+        if (p == null) return false;
+        String nick = p.getName() == null ? "" : p.getName().trim().toLowerCase(Locale.ROOT);
+        if (!nick.isEmpty() && exemptNicksLower.contains(nick)) return true;
+
+        String uuid = p.getUniqueId() == null ? "" : p.getUniqueId().toString().trim().toLowerCase(Locale.ROOT);
+        return !uuid.isEmpty() && exemptUuidsLower.contains(uuid);
+    }
+
     private static String normalizeBase(String base) {
         if (base.endsWith("/")) return base.substring(0, base.length() - 1);
         return base;
@@ -291,12 +316,17 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     private PlayerStatusResponse parseStatusResponse(HttpResponse<String> resp) {
         if (resp == null) return null;
+        String raw = resp.body() == null ? "" : resp.body();
+        String preview = raw.length() > 300 ? raw.substring(0, 300) + "..." : raw;
+
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+            getLogger().warning("[MC->TF] call failed: status=" + resp.statusCode() + " body=" + preview);
             return null;
         }
         try {
-            return GSON.fromJson(resp.body(), PlayerStatusResponse.class);
+            return GSON.fromJson(raw, PlayerStatusResponse.class);
         } catch (Exception e) {
+            getLogger().warning("[MC->TF] parse error: " + e.getMessage() + " body=" + preview);
             return null;
         }
     }
@@ -314,9 +344,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     static final class PlayerStatusResponse {
         boolean debuffed;
         boolean chargedThisWeek;
-        int weeksUsed;
         int score;
-        int weeklyPenalty;
+        int weeklyPenaltyCurrent;
+        int penaltyTotal;
+        int effectiveScore;
     }
 
     private static final class TfListener implements Listener {
@@ -326,6 +357,14 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         @EventHandler
         public void onJoin(PlayerJoinEvent e) {
             Player p = e.getPlayer();
+
+            // Исключения: не пишем в TaskForge и гарантируем отсутствие дебаффов.
+            if (plugin.isExempt(p)) {
+                plugin.getLogger().info("[TF] join ignored (exempt) nick=" + p.getName() + " uuid=" + p.getUniqueId());
+                plugin.applyDebuffs(p, false);
+                return;
+            }
+
             // Если TaskForge не настроен — просто ничего не делаем
             if (!plugin.canCallTaskForge()) return;
 
@@ -333,7 +372,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 if (st == null) return;
                 plugin.applyDebuffs(p, st.debuffed);
                 if (st.chargedThisWeek) {
-                    p.getScheduler().run(plugin, t -> p.sendMessage("\u00A7eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenalty + ")"), null);
+                    p.getScheduler().run(plugin, t -> p.sendMessage("\u00A7eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenaltyCurrent + ")"), null);
                 }
             }, plugin.tfExecutor);
         }
@@ -341,6 +380,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         @EventHandler
         public void onDeath(PlayerDeathEvent e) {
             Player p = e.getEntity();
+
+            if (plugin.isExempt(p)) {
+                plugin.applyDebuffs(p, false);
+                return;
+            }
             if (!plugin.canCallTaskForge()) return;
 
             plugin.getStatusAsync(p).thenAcceptAsync(st -> {

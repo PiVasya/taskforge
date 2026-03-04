@@ -64,7 +64,12 @@ public sealed class MinecraftLinkController : ControllerBase
         bool Linked,
         string? Nick,
         string? Uuid,
-        int LinkCount
+        int LinkCount,
+        int WeeklyPenaltyCurrent,
+        int PenaltyTotal,
+        int Score,
+        int EffectiveScore,
+        bool Debuffed
     );
 
     public sealed record MinecraftRequestDto(string Nick);
@@ -83,8 +88,9 @@ public sealed class MinecraftLinkController : ControllerBase
         string? Uuid,
         int LinkCount,
         int Score,
-        int WeeklyPenalty,
-        int WeeksUsed,
+        int WeeklyPenaltyCurrent,
+        int PenaltyTotal,
+        int EffectiveScore,
         bool ChargedThisWeek,
         bool Debuffed
     );
@@ -116,6 +122,27 @@ public sealed class MinecraftLinkController : ControllerBase
         var saltB64 = Convert.ToBase64String(salt);
         var input = Encoding.UTF8.GetBytes(code.Trim() + ":" + saltB64);
         return SHA256.HashData(input);
+    }
+
+    private async Task<MinecraftEconomySettings> GetOrCreateEconomySettingsAsync(CancellationToken ct)
+    {
+        // В БД должна быть ровно 1 строка. Если её ещё нет (или БД новая) — создадим.
+        var existing = await _db.MinecraftEconomySettings.FirstOrDefaultAsync(ct);
+        if (existing is not null) return existing;
+
+        // По умолчанию берём из .env (если задано), иначе 70.
+        var defaultPenalty = _cfg.GetValue<int?>("MINECRAFT_WEEKLY_PENALTY") ?? 70;
+
+        var created = new MinecraftEconomySettings
+        {
+            Id = Guid.NewGuid(),
+            WeeklyPenalty = defaultPenalty,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+
+        _db.MinecraftEconomySettings.Add(created);
+        await _db.SaveChangesAsync(ct);
+        return created;
     }
 
     private static DateTime GetWeekStartUtc(DateTime utcNow)
@@ -202,11 +229,40 @@ public sealed class MinecraftLinkController : ControllerBase
         var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, ct);
         if (user is null) return NotFound();
 
+        if (string.IsNullOrWhiteSpace(user.MinecraftNick) || string.IsNullOrWhiteSpace(user.MinecraftUuid))
+        {
+            return Ok(new MinecraftStatusDto(
+                false,
+                user.MinecraftNick,
+                user.MinecraftUuid,
+                user.MinecraftLinkCount,
+                WeeklyPenaltyCurrent: 0,
+                PenaltyTotal: 0,
+                Score: 0,
+                EffectiveScore: 0,
+                Debuffed: false
+            ));
+        }
+
+        var settings = await GetOrCreateEconomySettingsAsync(ct);
+        var penaltyTotal = await _db.MinecraftWeeklyJoins
+            .AsNoTracking()
+            .Where(x => x.UserId == uid)
+            .SumAsync(x => (int?)x.PenaltyApplied, ct) ?? 0;
+
+        var score = await GetUserScoreAsync(uid, ct);
+        var effective = score - penaltyTotal;
+
         return Ok(new MinecraftStatusDto(
-            !string.IsNullOrWhiteSpace(user.MinecraftNick),
+            true,
             user.MinecraftNick,
             user.MinecraftUuid,
-            user.MinecraftLinkCount
+            user.MinecraftLinkCount,
+            WeeklyPenaltyCurrent: settings.WeeklyPenalty,
+            PenaltyTotal: penaltyTotal,
+            Score: score,
+            EffectiveScore: effective,
+            Debuffed: effective < 0
         ));
     }
 
@@ -275,7 +331,17 @@ public sealed class MinecraftLinkController : ControllerBase
             Message: msg
         );
 
-        var status = new MinecraftStatusDto(false, null, null, user.MinecraftLinkCount);
+        var status = new MinecraftStatusDto(
+            Linked: false,
+            Nick: null,
+            Uuid: null,
+            LinkCount: user.MinecraftLinkCount,
+            WeeklyPenaltyCurrent: 0,
+            PenaltyTotal: 0,
+            Score: 0,
+            EffectiveScore: 0,
+            Debuffed: false
+        );
         return Ok(new MinecraftCodeDto(code, expires, status, delivery));
     }
 
@@ -331,7 +397,26 @@ public sealed class MinecraftLinkController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         _log.LogInformation("Minecraft linked: user={UserId} nick={Nick} count={Count}", uid, user.MinecraftNick, user.MinecraftLinkCount);
-        return Ok(new MinecraftStatusDto(true, user.MinecraftNick, user.MinecraftUuid, user.MinecraftLinkCount));
+
+        var penaltyCurrent = await GetWeeklyPenaltyAsync(ct);
+        var penaltyTotal = await _db.MinecraftWeeklyJoins
+            .AsNoTracking()
+            .Where(x => x.UserId == uid)
+            .SumAsync(x => (int?)x.PenaltyApplied, ct) ?? 0;
+        var score = await GetUserScoreAsync(uid, ct);
+        var effective = score - penaltyTotal;
+
+        return Ok(new MinecraftStatusDto(
+            Linked: true,
+            Nick: user.MinecraftNick,
+            Uuid: user.MinecraftUuid,
+            LinkCount: user.MinecraftLinkCount,
+            WeeklyPenaltyCurrent: penaltyCurrent,
+            PenaltyTotal: penaltyTotal,
+            Score: score,
+            EffectiveScore: effective,
+            Debuffed: effective < 0
+        ));
     }
 
     [HttpDelete("unlink")]
@@ -435,9 +520,15 @@ public sealed class MinecraftLinkController : ControllerBase
             .AnyAsync(x => x.UserId == user.Id && x.WeekStartUtc == weekStart, ct);
 
         var chargedThisWeek = false;
-        var weeksUsed = await _db.MinecraftWeeklyJoins
+
+        // Текущий штраф за неделю (может меняться) — если создаём запись, фиксируем именно это значение.
+        var penalty = await GetWeeklyPenaltyAsync(ct);
+
+        // Суммарные списания по неделям (храним именно пенальти, а не количество недель).
+        var penaltyTotal = await _db.MinecraftWeeklyJoins
+            .AsNoTracking()
             .Where(x => x.UserId == user.Id)
-            .CountAsync(ct);
+            .SumAsync(x => (int?)x.PenaltyApplied, ct) ?? 0;
 
         if (!existsThisWeek)
         {
@@ -446,22 +537,21 @@ public sealed class MinecraftLinkController : ControllerBase
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
                 WeekStartUtc = weekStart,
-                CreatedAtUtc = now
+                CreatedAtUtc = now,
+                PenaltyApplied = penalty
             });
             await _db.SaveChangesAsync(ct);
-            weeksUsed += 1;
+            penaltyTotal += penalty;
             chargedThisWeek = true;
         }
-
-        var penalty = await GetWeeklyPenaltyAsync(ct);
         var score = await GetUserScoreAsync(user.Id, ct);
 
-        // Логика: если суммарная "стоимость недель" превышает общий рейтинг — рейтинга не хватает → дебаф.
-        var debuffed = (weeksUsed * penalty) > score;
+        var effectiveScore = score - penaltyTotal;
+        var debuffed = effectiveScore < 0;
 
         _log.LogInformation(
-            "MC join: nick={Nick} user={UserId} week={Week} charged={Charged} weeksUsed={WeeksUsed} score={Score} penalty={Penalty} debuffed={Debuffed}",
-            nick, user.Id, weekStart.ToString("yyyy-MM-dd"), chargedThisWeek, weeksUsed, score, penalty, debuffed);
+            "MC join: nick={Nick} user={UserId} week={Week} charged={Charged} score={Score} penaltyWeek={PenaltyWeek} penaltyTotal={PenaltyTotal} effective={Effective} debuffed={Debuffed}",
+            nick, user.Id, weekStart.ToString("yyyy-MM-dd"), chargedThisWeek, score, penalty, penaltyTotal, effectiveScore, debuffed);
 
         return Ok(new MinecraftPlayerStatusDto(
             Linked: true,
@@ -469,8 +559,9 @@ public sealed class MinecraftLinkController : ControllerBase
             Uuid: user.MinecraftUuid,
             LinkCount: user.MinecraftLinkCount,
             Score: score,
-            WeeklyPenalty: penalty,
-            WeeksUsed: weeksUsed,
+            WeeklyPenaltyCurrent: penalty,
+            PenaltyTotal: penaltyTotal,
+            EffectiveScore: effectiveScore,
             ChargedThisWeek: chargedThisWeek,
             Debuffed: debuffed
         ));
@@ -505,8 +596,12 @@ public sealed class MinecraftLinkController : ControllerBase
 
         var penalty = await GetWeeklyPenaltyAsync(ct);
         var score = await GetUserScoreAsync(user.Id, ct);
-        var weeksUsed = await _db.MinecraftWeeklyJoins.Where(x => x.UserId == user.Id).CountAsync(ct);
-        var debuffed = (weeksUsed * penalty) > score;
+        var penaltyTotal = await _db.MinecraftWeeklyJoins
+            .AsNoTracking()
+            .Where(x => x.UserId == user.Id)
+            .SumAsync(x => (int?)x.PenaltyApplied, ct) ?? 0;
+        var effectiveScore = score - penaltyTotal;
+        var debuffed = effectiveScore < 0;
 
         // chargedThisWeek тут не считаем
         return Ok(new MinecraftPlayerStatusDto(
@@ -515,8 +610,9 @@ public sealed class MinecraftLinkController : ControllerBase
             Uuid: user.MinecraftUuid,
             LinkCount: user.MinecraftLinkCount,
             Score: score,
-            WeeklyPenalty: penalty,
-            WeeksUsed: weeksUsed,
+            WeeklyPenaltyCurrent: penalty,
+            PenaltyTotal: penaltyTotal,
+            EffectiveScore: effectiveScore,
             ChargedThisWeek: false,
             Debuffed: debuffed
         ));

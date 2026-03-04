@@ -613,6 +613,26 @@ export default function ProfilePage() {
                       </div>
                     )}
 
+                    {mcStatus?.linked && (
+                      <div className="text-xs text-neutral-500">
+                        <div>
+                          Рейтинг (с учётом штрафов):{' '}
+                          <span className={"font-semibold " + (mcStatus.debuffed ? 'text-amber-600 dark:text-amber-300' : 'text-neutral-700 dark:text-neutral-200')}>
+                            {mcStatus.effectiveScore}
+                          </span>
+                          <span className="text-neutral-500 dark:text-neutral-400"> (база {mcStatus.score}, штраф {mcStatus.penaltyTotal})</span>
+                        </div>
+                        <div className="text-neutral-500 dark:text-neutral-400">
+                          Штраф за первую неделю входа: {mcStatus.weeklyPenaltyCurrent}
+                        </div>
+                        {mcStatus.debuffed && (
+                          <div className="text-amber-700 dark:text-amber-300">
+                            На сервере будут постоянные дебафы, пока эффективный рейтинг &lt; 0.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {mcDelivery && (
                       <div className={`text-xs px-3 py-2 rounded-xl ${mcDelivery.delivered ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20' : 'text-amber-700 bg-amber-50 dark:bg-amber-900/20'}`}>
                         {mcDelivery.attempted ? (

@@ -24,3 +24,11 @@ debuffs:
   enabled: true
   # Duration seconds. We'll refresh effects on join/death checks.
   durationSeconds: 600
+
+# Исключения (не будет запросов в TaskForge и не будет дебаффов)
+# Удобно, чтобы "админы" / "донатеры" / тестовые аккаунты не попадали в систему наказаний.
+exemptions:
+  # Список ников (без учёта регистра)
+  nicks: []
+  # Список UUID (строкой)
+  uuids: []

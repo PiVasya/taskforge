@@ -23,5 +23,13 @@ public sealed class MinecraftWeeklyJoin
 
     public DateTime CreatedAtUtc { get; set; }
 
+    /// <summary>
+    /// Сколько рейтинга списали за этот "первый вход за неделю".
+    ///
+    /// Важно хранить именно значение списания, потому что настройка штрафа
+    /// может меняться со временем, а старые недели должны оставаться "как было".
+    /// </summary>
+    public int PenaltyApplied { get; set; }
+
     public User? User { get; set; }
 }
