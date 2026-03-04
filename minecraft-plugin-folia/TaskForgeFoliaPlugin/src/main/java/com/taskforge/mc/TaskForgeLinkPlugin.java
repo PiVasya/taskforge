@@ -288,15 +288,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin implements Listener {
 
     private void applyDebuffs(Player p) {
         // keep refreshing short duration effects
-        p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, effectDurationTicks, slownessAmp, true, false, true));
+        p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, effectDurationTicks, slownessAmp, true, false, true));
         p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, effectDurationTicks, blindnessAmp, true, false, true));
-        p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_DIGGING, effectDurationTicks, miningFatigueAmp, true, false, true));
+        p.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, effectDurationTicks, miningFatigueAmp, true, false, true));
     }
 
     private void clearDebuffs(Player p) {
-        p.removePotionEffect(PotionEffectType.SLOW);
+        p.removePotionEffect(PotionEffectType.SLOWNESS);
         p.removePotionEffect(PotionEffectType.BLINDNESS);
-        p.removePotionEffect(PotionEffectType.SLOW_DIGGING);
+        p.removePotionEffect(PotionEffectType.MINING_FATIGUE);
     }
 
     private static String trimEndSlash(String s) {

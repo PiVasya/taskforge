@@ -63,7 +63,7 @@ class RenderRequest(BaseModel):
     # User python code.
     code: str = Field(min_length=1)
     # Hard timeout in seconds.
-    # NOTE: turtle drawing can be slow in headless; keep the default a bit higher.
+    # NOTE: turtle drawing can be SLOWNESS in headless; keep the default a bit higher.
     # Can be overridden via request body or TF_PY_TIMEOUT_DEFAULT env var.
     timeoutSeconds: int = Field(default=int(os.environ.get("TF_PY_TIMEOUT_DEFAULT", "15")), ge=1, le=120)
 
