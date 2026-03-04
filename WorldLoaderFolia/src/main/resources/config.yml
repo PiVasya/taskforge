@@ -1,0 +1,22 @@
+# World names
+lobby-world: "world"
+survival-world: "survival"
+
+# Teleport coordinates (used if target chunk isn't safe / just for convenience)
+# You can change these later.
+lobby-spawn:
+  x: 0.5
+  y: 100.0
+  z: 0.5
+  yaw: 0.0
+  pitch: 0.0
+
+survival-spawn:
+  x: 0.5
+  y: 100.0
+  z: 0.5
+  yaw: 0.0
+  pitch: 0.0
+
+# If true, plugin will try to load the survival world on server start.
+autoload-survival-on-start: true

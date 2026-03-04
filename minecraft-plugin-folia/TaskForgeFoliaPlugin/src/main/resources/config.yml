@@ -1,0 +1,26 @@
+# HTTP endpoint where TaskForge will POST link codes
+http:
+  host: 0.0.0.0
+  port: 8123
+  path: /taskforge/link/send
+
+# Shared secret TaskForge must send in header X-TaskForge-Key
+security:
+  taskForgeKey: "CHANGE_ME"
+  # Optional: allow only these IPs (empty = allow all)
+  allowedIps: []
+
+# TaskForge API base URL for pulling player status (used on join/death)
+# Example: http://your-taskforge-api:8080
+# If empty, debuff logic is disabled.
+taskforge:
+  apiBaseUrl: ""
+  minecraftKey: "CHANGE_ME"   # sent as X-Minecraft-Key
+
+# Debuff effects to apply when TaskForge says player is debuffed
+# durations are in ticks; plugin refreshes on join/death.
+effects:
+  slownessAmplifier: 1
+  blindnessAmplifier: 0
+  miningFatigueAmplifier: 1
+  durationTicks: 20

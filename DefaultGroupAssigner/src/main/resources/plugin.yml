@@ -1,0 +1,10 @@
+name: DefaultGroupAssigner
+version: 1.0.0
+main: by.taskforge.defaultassigner.DefaultGroupAssigner
+api-version: "1.21"
+folia-supported: true
+
+permissions:
+  defaultassigner.bypass:
+    description: Skip auto-assign default group
+    default: false

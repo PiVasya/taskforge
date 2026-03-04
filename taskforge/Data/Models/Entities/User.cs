@@ -62,6 +62,30 @@ namespace taskforge.Data.Models.Entities
         /// </summary>
         public int TelegramLinkCount { get; set; } = 0;
 
+        // ===== Minecraft =====
+        /**
+         // Ник на Minecraft-сервере, привязанный к аккаунту TaskForge.
+         // *
+         /// <summary>
+         /// Ник на Minecraft-сервере, привязанный к аккаунту TaskForge.
+         /// </summary>
+         /**
+        [MaxLength(32)]
+        public string? MinecraftNick { get; set; }
+
+        /// <summary>
+        /// UUID игрока (когда плагин будет возвращать его). Пока может быть null.
+        /// </summary>
+        [MaxLength(36)]
+        public string? MinecraftUuid { get; set; }
+
+        public DateTime? MinecraftLinkedAtUtc { get; set; }
+
+        /// <summary>
+        /// Сколько раз пользователь успешно привязывал Minecraft. Лимит = 2.
+        /// </summary>
+        public int MinecraftLinkCount { get; set; } = 0;
+
         // ===== группы / владельцы курсов =====
         public ICollection<UserGroupMember> GroupMembers { get; set; } = new List<UserGroupMember>();
         public ICollection<CourseOwner> OwnedCourses { get; set; } = new List<CourseOwner>();

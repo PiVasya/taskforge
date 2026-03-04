@@ -1,0 +1,13 @@
+name: TaskForgeLink
+main: com.taskforge.mc.TaskForgeLinkPlugin
+version: 1.0.0
+api-version: '1.20'
+author: TaskForge
+folia-supported: true
+commands:
+  tflink:
+    description: Shows link status/help.
+    usage: /tflink
+permissions:
+  taskforge.admin:
+    default: op

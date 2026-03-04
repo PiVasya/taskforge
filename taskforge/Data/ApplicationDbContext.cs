@@ -31,6 +31,11 @@ namespace taskforge.Data
         // ===== Telegram link =====
         public DbSet<TelegramLinkCode> TelegramLinkCodes { get; set; } = null!;
 
+        // ===== Minecraft link + economy =====
+        public DbSet<MinecraftLinkCode> MinecraftLinkCodes { get; set; } = null!;
+        public DbSet<MinecraftWeeklyJoin> MinecraftWeeklyJoins { get; set; } = null!;
+        public DbSet<MinecraftEconomySettings> MinecraftEconomySettings { get; set; } = null!;
+
         /// <summary>
         /// Records of individual user logins including timestamp, IP address and
         /// user‑agent. Useful for auditing and security analytics.
@@ -289,6 +294,29 @@ namespace taskforge.Data
                 .WithMany()
                 .HasForeignKey(ub => ub.BadgeId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // ===== MinecraftLinkCode =====
+            modelBuilder.Entity<MinecraftLinkCode>(entity =>
+            {
+                entity.HasIndex(x => new { x.UserId, x.Nick });
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.ExpiresAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.UsedAtUtc).HasColumnType("timestamp with time zone");
+            });
+
+            // ===== MinecraftWeeklyJoin =====
+            modelBuilder.Entity<MinecraftWeeklyJoin>(entity =>
+            {
+                entity.HasIndex(x => new { x.UserId, x.WeekStartUtc }).IsUnique();
+                entity.Property(x => x.WeekStartUtc).HasColumnType("date");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+            });
+
+            // ===== MinecraftEconomySettings =====
+            modelBuilder.Entity<MinecraftEconomySettings>(entity =>
+            {
+                entity.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+            });
 
             // 🔹 UserLoginLog
             modelBuilder.Entity<UserLoginLog>()
