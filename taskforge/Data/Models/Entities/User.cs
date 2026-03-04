@@ -63,13 +63,9 @@ namespace taskforge.Data.Models.Entities
         public int TelegramLinkCount { get; set; } = 0;
 
         // ===== Minecraft =====
-        /**
-         // Ник на Minecraft-сервере, привязанный к аккаунту TaskForge.
-         // *
-         /// <summary>
-         /// Ник на Minecraft-сервере, привязанный к аккаунту TaskForge.
-         /// </summary>
-         /**
+        /// <summary>
+        /// Ник на Minecraft-сервере, привязанный к аккаунту TaskForge.
+        /// </summary>
         [MaxLength(32)]
         public string? MinecraftNick { get; set; }
 

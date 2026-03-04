@@ -215,7 +215,9 @@ public sealed class MinecraftLinkController : ControllerBase
     /// </summary>
     [HttpPost("request")]
     [Authorize]
-    public async Task<ActionResult<MinecraftCodeDto>> Request([FromBody] MinecraftRequestDto req, CancellationToken ct)
+    // ВАЖНО: метод нельзя называть "Request", т.к. у ControllerBase уже есть свойство Request.
+    // Иначе внутри контроллера обращения вида Request.Headers начинают конфликтовать с этим методом.
+    public async Task<ActionResult<MinecraftCodeDto>> RequestLink([FromBody] MinecraftRequestDto req, CancellationToken ct)
     {
         var uid = _current.GetUserId();
         var user = await _db.Users.FirstOrDefaultAsync(x => x.Id == uid, ct);
