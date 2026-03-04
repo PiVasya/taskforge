@@ -145,6 +145,14 @@ namespace SupportBot
             try
             {
                 if (update.Message == null) return;
+
+                // ===== Привязка Telegram (личные сообщения боту) =====
+                if (update.Message.Chat.Type == ChatType.Private)
+                {
+                    await HandlePrivateMessageAsync(update.Message, ct);
+                    return;
+                }
+
                 if (update.Message.ReplyToMessage == null) return;
                 if (string.IsNullOrWhiteSpace(update.Message.Text)) return;
 
@@ -179,6 +187,103 @@ namespace SupportBot
             {
                 _logger.LogError(ex, "Error in HandleUpdateAsync");
             }
+        }
+
+        private async Task HandlePrivateMessageAsync(Message msg, CancellationToken ct)
+        {
+            if (_bot == null) return;
+            if (string.IsNullOrWhiteSpace(msg.Text)) return;
+
+            var text = (msg.Text ?? string.Empty).Trim();
+            if (text.StartsWith("/start", StringComparison.OrdinalIgnoreCase))
+            {
+                await _bot.SendTextMessageAsync(msg.Chat.Id,
+                    "Привет! Чтобы привязать Telegram к TaskForge:\n\n1) Открой TaskForge → Профиль → Telegram\n2) Сгенерируй код\n3) Отправь мне этот код сюда (в личку).\n\nЯ отвечу, получилось ли привязать.",
+                    cancellationToken: ct);
+                return;
+            }
+
+            // Берём первый токен как код, поддерживаем формат XXXX-XXXX
+            var code = text.Split(new[] { ' ', '\n', '\t', '\r' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(code)) return;
+
+            // Быстрая валидация (чтобы не спамить API)
+            var normalized = code.Trim().ToUpperInvariant();
+            if (normalized.Length < 4 || normalized.Length > 32)
+            {
+                await _bot.SendTextMessageAsync(msg.Chat.Id,
+                    "Похоже, это не код. Сгенерируй код на сайте TaskForge и отправь его мне сюда.",
+                    cancellationToken: ct);
+                return;
+            }
+
+            var username = msg.From?.Username;
+            var payload = new { code = normalized, chatId = msg.Chat.Id, username };
+
+            var ok = await CallTelegramConfirmAsync(payload, ct);
+            await _bot.SendTextMessageAsync(msg.Chat.Id, ok.message, cancellationToken: ct);
+        }
+
+        private async Task<(bool success, string message)> CallTelegramConfirmAsync(object payload, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(_apiBaseUrl) || string.IsNullOrEmpty(_apiKey))
+                return (false, "Сервис сейчас недоступен. Попробуй позже.");
+
+            using var scope = _provider.CreateScope();
+            var clientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+            var http = clientFactory.CreateClient();
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiBaseUrl}/api/integrations/telegram/confirm")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("X-Internal-Key", _apiKey);
+
+            try
+            {
+                var resp = await http.SendAsync(request, ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+
+                if (resp.IsSuccessStatusCode)
+                {
+                    // API возвращает { ok, message }
+                    try
+                    {
+                        var dto = System.Text.Json.JsonSerializer.Deserialize<ConfirmResp>(body,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (dto != null && dto.Ok)
+                            return (true, "✅ " + (dto.Message ?? "Telegram привязан. Можно вернуться на сайт."));
+                        return (false, dto?.Message ?? "Не удалось привязать Telegram.");
+                    }
+                    catch
+                    {
+                        return (true, "✅ Telegram привязан. Можно вернуться на сайт.");
+                    }
+                }
+
+                // Пытаемся вытащить message из ошибки
+                try
+                {
+                    var dto = System.Text.Json.JsonSerializer.Deserialize<ConfirmResp>(body,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (dto != null && !string.IsNullOrWhiteSpace(dto.Message))
+                        return (false, "❌ " + dto.Message);
+                }
+                catch { }
+
+                return (false, "❌ Не удалось привязать. Проверь код и попробуй ещё раз. (" + (int)resp.StatusCode + ")");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling telegram confirm API");
+                return (false, "Сервис сейчас недоступен. Попробуй позже.");
+            }
+        }
+
+        private sealed class ConfirmResp
+        {
+            public bool Ok { get; set; }
+            public string? Message { get; set; }
         }
 
         private Task HandleErrorAsync(ITelegramBotClient bot, Exception exception, CancellationToken ct)

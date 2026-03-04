@@ -336,7 +336,9 @@ namespace taskforge.Services
                 Education = extra.Education,
                 Skills = extra.Skills ?? new List<string>(),
                 Github = extra.Links?.Github,
-                Telegram = extra.Links?.Telegram,
+                Telegram = !string.IsNullOrWhiteSpace(user.TelegramUsername)
+                    ? ("@" + user.TelegramUsername)
+                    : extra.Links?.Telegram,
                 Website = extra.Links?.Website,
                 Badges = badgeDtos,
                 Rank = rank,

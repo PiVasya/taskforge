@@ -120,6 +120,9 @@ builder.Services.AddHttpClient<taskforge.Services.ImageRunners.IImageRunnerClien
 
 // компиляторы/раннеры
 builder.Services.AddHttpClient();
+
+// Integrations
+builder.Services.AddScoped<taskforge.Services.Integrations.IMinecraftServerNotifier, taskforge.Services.Integrations.HttpMinecraftServerNotifier>();
 builder.Services.AddScoped<ICompilerService, CompilerService>();
 builder.Services.AddScoped<ICompiler, CSharpHttpCompiler>();
 builder.Services.AddScoped<ICompiler, CppHttpCompiler>();

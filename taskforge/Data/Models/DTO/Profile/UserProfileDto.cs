@@ -16,5 +16,10 @@ namespace taskforge.Data.Models.DTO
         public DateTime? DateOfBirth { get; set; }
         public string ProfilePictureUrl { get; set; } = string.Empty;
         public string AdditionalDataJson { get; set; } = string.Empty;
+
+        // Telegram integration (read-only from client perspective)
+        public bool TelegramLinked { get; set; }
+        public string? TelegramUsername { get; set; }
+        public int TelegramLinkCount { get; set; }
     }
 }
