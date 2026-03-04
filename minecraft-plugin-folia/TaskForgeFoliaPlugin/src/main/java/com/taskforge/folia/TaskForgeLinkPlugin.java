@@ -62,21 +62,81 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private boolean debuffsEnabled;
     private int debuffDurationSeconds;
 
+    private void migrateConfigKeys() {
+        boolean changed = false;
+
+        // security.taskforgekey -> security.taskforgeKey
+        String oldTfKey = getConfig().getString("security.taskforgekey");
+        String newTfKey = getConfig().getString("security.taskforgeKey");
+        if (isBlank(newTfKey) && !isBlank(oldTfKey)) {
+            getConfig().set("security.taskforgeKey", oldTfKey);
+            changed = true;
+        }
+
+        // taskforge.apibaseUrl -> taskforge.apiBaseUrl
+        String oldBase = getConfig().getString("taskforge.apibaseUrl");
+        String newBase = getConfig().getString("taskforge.apiBaseUrl");
+        if (isBlank(newBase) && !isBlank(oldBase)) {
+            getConfig().set("taskforge.apiBaseUrl", oldBase);
+            changed = true;
+        }
+
+        // taskforge.pluginkey -> taskforge.pluginKey
+        String oldPluginKey = getConfig().getString("taskforge.pluginkey");
+        String newPluginKey = getConfig().getString("taskforge.pluginKey");
+        if (isBlank(newPluginKey) && !isBlank(oldPluginKey)) {
+            getConfig().set("taskforge.pluginKey", oldPluginKey);
+            changed = true;
+        }
+
+        if (changed) {
+            saveConfig();
+            getLogger().info("Config keys were migrated to canonical names (camelCase). Re-check plugins/TaskForgeLink/config.yml if you edited it manually.");
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) return "";
+        for (String v : values) {
+            if (!isBlank(v)) return v.trim();
+        }
+        return "";
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
+
+        // Backward/typo compatibility:
+        // Some configs may contain wrong-cased keys like `taskforgekey`.
+        // We read both and auto-migrate to the canonical camelCase keys.
+        migrateConfigKeys();
 
         String host = getConfig().getString("http.host", "0.0.0.0");
         int port = getConfig().getInt("http.port", 25566);
         String path = getConfig().getString("http.path", "/taskforge/link/send");
 
-        String key = getConfig().getString("security.taskforgeKey", "");
+        String key = firstNonBlank(
+                getConfig().getString("security.taskforgeKey", ""),
+                getConfig().getString("security.taskforgekey", "")
+        );
         if (key == null) key = "";
 
         List<String> allowedIps = getConfig().getStringList("security.allowedIps");
 
-        taskForgeBaseUrl = Optional.ofNullable(getConfig().getString("taskforge.apiBaseUrl")).orElse("").trim();
-        taskForgeKey = Optional.ofNullable(getConfig().getString("taskforge.pluginKey")).orElse("").trim();
+        taskForgeBaseUrl = firstNonBlank(
+                Optional.ofNullable(getConfig().getString("taskforge.apiBaseUrl")).orElse("").trim(),
+                Optional.ofNullable(getConfig().getString("taskforge.apibaseUrl")).orElse("").trim()
+        );
+
+        taskForgeKey = firstNonBlank(
+                Optional.ofNullable(getConfig().getString("taskforge.pluginKey")).orElse("").trim(),
+                Optional.ofNullable(getConfig().getString("taskforge.pluginkey")).orElse("").trim()
+        );
         taskForgeTimeoutSeconds = Math.max(1, getConfig().getInt("taskforge.timeoutSeconds", 4));
         debuffsEnabled = getConfig().getBoolean("debuffs.enabled", true);
         debuffDurationSeconds = Math.max(30, getConfig().getInt("debuffs.durationSeconds", 600));

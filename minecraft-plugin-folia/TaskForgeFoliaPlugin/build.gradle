@@ -5,6 +5,7 @@ plugins {
 group = 'com.taskforge'
 version = '1.0.0'
 
+// Folia 1.21.x runs on Java 21
 def targetJava = 21
 java {
     toolchain {
@@ -18,7 +19,8 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'dev.folia:folia-api:1.20.4-R0.1-SNAPSHOT'
+    // Match your server line: "Implementing API version 1.21.11-R0.1-SNAPSHOT"
+    compileOnly 'dev.folia:folia-api:1.21.11-R0.1-SNAPSHOT'
     compileOnly 'com.google.code.gson:gson:2.10.1'
 }
 
