@@ -264,13 +264,13 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             if (!p.isOnline()) return;
 
             if (debuffed) {
-                p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, ticks, 1, true, false, false));
+                p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, ticks, 1, true, false, false));
                 p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, ticks, 0, true, false, false));
-                p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_DIGGING, ticks, 1, true, false, false));
+                p.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, ticks, 1, true, false, false));
             } else {
-                p.removePotionEffect(PotionEffectType.SLOW);
+                p.removePotionEffect(PotionEffectType.SLOWNESS);
                 p.removePotionEffect(PotionEffectType.BLINDNESS);
-                p.removePotionEffect(PotionEffectType.SLOW_DIGGING);
+                p.removePotionEffect(PotionEffectType.MINING_FATIGUE);
             }
         }, null);
     }
