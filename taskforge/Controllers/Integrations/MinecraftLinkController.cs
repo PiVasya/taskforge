@@ -68,7 +68,8 @@ public sealed class MinecraftLinkController : ControllerBase
     );
 
     public sealed record MinecraftRequestDto(string Nick);
-    public sealed record MinecraftCodeDto(string Code, DateTime ExpiresAtUtc, MinecraftStatusDto Status);
+    public sealed record MinecraftDeliveryDto(bool Attempted, bool Delivered, string Message);
+    public sealed record MinecraftCodeDto(string Code, DateTime ExpiresAtUtc, MinecraftStatusDto Status, MinecraftDeliveryDto Delivery);
     public sealed record MinecraftConfirmDto(string Code);
 
     public sealed record MinecraftEconomyDto(int WeeklyPenalty);
@@ -266,8 +267,16 @@ public sealed class MinecraftLinkController : ControllerBase
         var (ok, msg) = await _notifier.SendLinkCodeAsync(nick, code, ct);
         _log.LogInformation("Minecraft link delivery attempt: user={UserId} nick={Nick} ok={Ok} msg={Msg}", uid, nick, ok, msg);
 
+        var attempted = !string.IsNullOrWhiteSpace(_cfg["MINECRAFT_WEBHOOK_BASE_URL"]) || !string.IsNullOrWhiteSpace(_cfg["MINECRAFT_SERVER_URL"]);
+
+        var delivery = new MinecraftDeliveryDto(
+            Attempted: attempted,
+            Delivered: ok,
+            Message: msg
+        );
+
         var status = new MinecraftStatusDto(false, null, null, user.MinecraftLinkCount);
-        return Ok(new MinecraftCodeDto(code, expires, status));
+        return Ok(new MinecraftCodeDto(code, expires, status, delivery));
     }
 
     /// <summary>

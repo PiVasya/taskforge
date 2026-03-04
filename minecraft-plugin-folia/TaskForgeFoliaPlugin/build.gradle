@@ -5,7 +5,7 @@ plugins {
 group = 'com.taskforge'
 version = '1.0.0'
 
-def targetJava = 17
+def targetJava = 21
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(targetJava)
@@ -19,6 +19,7 @@ repositories {
 
 dependencies {
     compileOnly 'dev.folia:folia-api:1.20.4-R0.1-SNAPSHOT'
+    compileOnly 'com.google.code.gson:gson:2.10.1'
 }
 
 tasks.withType(JavaCompile).configureEach {

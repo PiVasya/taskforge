@@ -372,3 +372,75 @@ clientapp/dist/taskforge.runtimeconfig.json
 # Rust build artifacts
 /target
 **/target/
+
+# =========================
+# Java / Gradle / Maven
+# =========================
+
+# --- Gradle ---
+.gradle/
+**/.gradle/
+**/build/
+**/out/          # иногда java-проекты тоже юзают out/
+!**/src/**/build/    # если вдруг где-то есть src/build как ресурс (редко)
+
+# Gradle wrapper (должен храниться)
+!**/gradlew
+!**/gradlew.bat
+!**/gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.properties
+
+# Gradle caches & temp
+**/buildSrc/build/
+**/.gradletasknamecache
+**/*.hprof
+
+# --- Maven ---
+**/target/
+**/dependency-reduced-pom.xml
+**/.mvn/timing.properties
+**/.mvn/wrapper/maven-wrapper.jar
+**/pom.xml.tag
+**/pom.xml.releaseBackup
+**/pom.xml.versionsBackup
+**/pom.xml.next
+**/release.properties
+
+# IntelliJ IDEA (часто с Java)
+.idea/
+*.iml
+*.ipr
+*.iws
+/out/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# NetBeans
+nbproject/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# VS Code Java
+.vscode/
+*.classpath
+*.factorypath
+*.project
+*.settings
+
+# =========================
+# Plugin artifacts
+# =========================
+# jar/zip outputs (если не хочешь хранить сборки в гите)
+**/*.jar
+**/*.war
+**/*.ear
+
+# НО: если ты хочешь коммитить готовый jar (например релиз плагина),
+# тогда удали строки выше и добавь исключение для конкретного файла:
+# !minecraft-plugin-folia/TaskForgeFoliaPlugin/build/libs/*.jar

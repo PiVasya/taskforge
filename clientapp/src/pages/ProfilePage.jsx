@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import { Card, Button, Input, Textarea } from '../components/ui';
 import { getProfile, updateProfile, changeEmail, changePassword } from '../api/profile';
 import { getTelegramStatus, generateTelegramCode, unlinkTelegram } from '../api/telegramLink';
+import { getMinecraftStatus, requestMinecraftLink, confirmMinecraftLink, unlinkMinecraft } from '../api/minecraftLink';
 import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 
 /**
@@ -42,6 +43,16 @@ export default function ProfilePage() {
   const [tgLoading, setTgLoading] = useState(false);
   const [tgError, setTgError] = useState(null);
 
+  // Minecraft link
+  const [mcStatus, setMcStatus] = useState(null);
+  const [mcNick, setMcNick] = useState('');
+  const [mcGeneratedCode, setMcGeneratedCode] = useState('');
+  const [mcInputCode, setMcInputCode] = useState('');
+  const [mcExpires, setMcExpires] = useState(null);
+  const [mcDelivery, setMcDelivery] = useState(null);
+  const [mcLoading, setMcLoading] = useState(false);
+  const [mcError, setMcError] = useState(null);
+
   // навигация для перехода после сохранения
   const navigate = useNavigate();
 
@@ -61,6 +72,15 @@ export default function ProfilePage() {
         } catch {
           // ignore
         }
+
+        // Minecraft status (не мешаем загрузке профиля)
+        try {
+          const st2 = await getMinecraftStatus();
+          setMcStatus(st2);
+          if (st2?.nick) setMcNick(st2.nick);
+        } catch {
+          // ignore
+        }
       } catch (e) {
         console.error(e);
         setError('Не удалось загрузить профиль');
@@ -74,6 +94,91 @@ export default function ProfilePage() {
     try {
       const st = await getTelegramStatus();
       setTgStatus(st);
+    } catch {
+      // ignore
+    }
+  };
+
+  const refreshMcStatus = async () => {
+    try {
+      const st = await getMinecraftStatus();
+      setMcStatus(st);
+      if (st?.nick) setMcNick(st.nick);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleRequestMc = async () => {
+    const nick = (mcNick || '').trim();
+    if (!nick) {
+      setMcError('Введи ник на сервере Minecraft.');
+      return;
+    }
+    try {
+      setMcLoading(true);
+      setMcError(null);
+      const dto = await requestMinecraftLink(nick);
+      setMcInputCode('');
+      setMcExpires(dto.expiresAtUtc);
+      // Код прилетает в игре. На сайте показываем только как запасной вариант.
+      setMcGeneratedCode(dto.code);
+      setMcDelivery(dto.delivery || null);
+      setMcStatus(dto.status);
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Не удалось отправить код';
+      setMcError(msg);
+    } finally {
+      setMcLoading(false);
+    }
+  };
+
+  const handleConfirmMc = async () => {
+    const code = (mcInputCode || '').trim();
+    if (!code) {
+      setMcError('Введи код, который пришёл тебе в игре.');
+      return;
+    }
+    try {
+      setMcLoading(true);
+      setMcError(null);
+      const st = await confirmMinecraftLink(code);
+      setMcStatus(st);
+      // очищаем, чтобы не светить код
+      setMcInputCode('');
+      setMcExpires(null);
+      setMcDelivery(null);
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Не удалось подтвердить код';
+      setMcError(msg);
+    } finally {
+      setMcLoading(false);
+    }
+  };
+
+  const handleUnlinkMc = async () => {
+    if (!window.confirm('Отвязать Minecraft от аккаунта?')) return;
+    try {
+      setMcLoading(true);
+      setMcError(null);
+      await unlinkMinecraft();
+      setMcGeneratedCode('');
+      setMcInputCode('');
+      setMcExpires(null);
+      setMcDelivery(null);
+      await refreshMcStatus();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Не удалось отвязать Minecraft';
+      setMcError(msg);
+    } finally {
+      setMcLoading(false);
+    }
+  };
+
+  const handleCopyMcCode = async () => {
+    if (!mcGeneratedCode) return;
+    try {
+      await navigator.clipboard.writeText(mcGeneratedCode);
     } catch {
       // ignore
     }
@@ -424,6 +529,119 @@ export default function ProfilePage() {
                     <Button type="button" variant="ghost" onClick={refreshTgStatus} disabled={tgLoading}>
                       Обновить
                     </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Minecraft */}
+            <Card className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-semibold">Minecraft</h2>
+                {mcStatus && (
+                  <div className="text-xs text-neutral-500">
+                    Привязки: {mcStatus.linkCount ?? 0}/2
+                  </div>
+                )}
+              </div>
+
+              {mcError && (
+                <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
+                  {mcError}
+                </div>
+              )}
+
+              {mcStatus?.linked ? (
+                <div className="space-y-2">
+                  <div className="text-sm">
+                    ✅ Привязан ник: <b>{mcStatus.nick}</b>
+                    {mcStatus.uuid ? <span className="text-xs text-neutral-500"> (uuid: {mcStatus.uuid})</span> : null}
+                  </div>
+                  <div className="text-xs text-neutral-500">
+                    Штраф за неделю входа на сервер считается на стороне TaskForge. Если у игрока не хватает рейтинга —
+                    на сервере будут дебафы (замедление / слепота / замедление копания).
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button type="button" variant="secondary" onClick={handleUnlinkMc} disabled={mcLoading}>
+                      Удалить привязку
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={refreshMcStatus} disabled={mcLoading}>
+                      Обновить
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-sm text-neutral-600 dark:text-neutral-300">
+                    1) Введи свой ник на сервере Minecraft.
+                    <br />
+                    2) Нажми «Отправить код в игру». Игрок должен быть <b>онлайн</b>.
+                    <br />
+                    3) Код придёт тебе в ЛС в игре. Введи его ниже и нажми «Подтвердить».
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm text-neutral-500">Ник</label>
+                    <Input
+                      placeholder="Player_123"
+                      value={mcNick}
+                      onChange={(e) => setMcNick(e.target.value)}
+                      disabled={mcLoading}
+                    />
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap">
+                    <Button type="button" onClick={handleRequestMc} disabled={mcLoading}>
+                      {mcLoading ? 'Отправка…' : 'Отправить код в игру'}
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={refreshMcStatus} disabled={mcLoading}>
+                      Обновить
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm text-neutral-500">Код</label>
+                    <Input
+                      placeholder="ABCD-EFGH"
+                      value={mcInputCode}
+                      onChange={(e) => setMcInputCode(e.target.value)}
+                      disabled={mcLoading}
+                    />
+                    {mcExpires && (
+                      <div className="text-xs text-neutral-500">
+                        Код действует до: {new Date(mcExpires).toLocaleString()}
+                      </div>
+                    )}
+
+                    {mcDelivery && (
+                      <div className={`text-xs px-3 py-2 rounded-xl ${mcDelivery.delivered ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20' : 'text-amber-700 bg-amber-50 dark:bg-amber-900/20'}`}>
+                        {mcDelivery.attempted ? (
+                          mcDelivery.delivered
+                            ? '✅ Код отправлен в игру. Проверь личные сообщения в Minecraft.'
+                            : `⚠️ Не удалось доставить код в игру: ${mcDelivery.message}`
+                        ) : (
+                          '⚠️ Плагин Minecraft ещё не настроен. Код можно ввести вручную (см. ниже).'
+                        )}
+                      </div>
+                    )}
+
+                    {!!mcGeneratedCode && (
+                      <div className="text-xs text-neutral-500">
+                        Запасной вариант (если код не дошёл): <b>{mcGeneratedCode}</b>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 flex-wrap">
+                      <Button type="button" variant="secondary" onClick={handleConfirmMc} disabled={mcLoading}>
+                        Подтвердить
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={handleCopyMcCode} disabled={!mcGeneratedCode}>
+                        Копировать запасной код
+                      </Button>
+                    </div>
+                    <div className="text-xs text-neutral-500">
+                      (Если код не пришёл в игру — значит плагин ещё не установлен или игрок был оффлайн.)
+                    </div>
                   </div>
                 </div>
               )}
