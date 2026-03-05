@@ -230,18 +230,34 @@ var app = builder.Build();
 
 //
 // ✅ Автоприменение миграций при запуске
-// (без этого новые таблицы/изменения схемы не появятся и будут 500 ошибки)
+// ВАЖНО: в проде (и когда миграции гоняются вручную) это часто мешает.
+// Поэтому по умолчанию:
+//   - Development: применяем миграции автоматически
+//   - Production: НЕ применяем (включается env DB_AUTO_MIGRATE=true)
 //
 using (var scope = app.Services.CreateScope())
 {
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
         .CreateLogger("DatabaseMigration");
 
+    // env имеет приоритет над всем
+    var autoMigrate = app.Environment.IsDevelopment();
+    var envAuto = Environment.GetEnvironmentVariable("DB_AUTO_MIGRATE");
+    if (!string.IsNullOrWhiteSpace(envAuto) && bool.TryParse(envAuto, out var parsed))
+        autoMigrate = parsed;
+
     try
     {
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        db.Database.Migrate();
-        logger.LogInformation("Database migrations applied successfully");
+        if (!autoMigrate)
+        {
+            logger.LogWarning("DB_AUTO_MIGRATE=false -> skipping Database.Migrate(). Run migrations manually when you change the model.");
+        }
+        else
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            db.Database.Migrate();
+            logger.LogInformation("Database migrations applied successfully");
+        }
     }
     catch (Exception ex)
     {

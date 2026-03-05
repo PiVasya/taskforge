@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Services;
+using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers
 {
@@ -20,10 +21,13 @@ namespace taskforge.Controllers
         private readonly ApplicationDbContext _db;
 
         private readonly PasswordHasher _passwordHasher;
-        public ProfileController(ApplicationDbContext db, PasswordHasher passwordHasher)
+        private readonly ILeaderboardService _leaderboard;
+
+        public ProfileController(ApplicationDbContext db, PasswordHasher passwordHasher, ILeaderboardService leaderboard)
         {
             _db = db;
             _passwordHasher = passwordHasher;
+            _leaderboard = leaderboard;
         }
 
         /// <summary>
@@ -59,6 +63,20 @@ namespace taskforge.Controllers
                 TelegramUsername = user.TelegramUsername,
                 TelegramLinkCount = user.TelegramLinkCount
             };
+
+            // Simple stats for UI (non-critical)
+            try
+            {
+                var lb = await _leaderboard.GetLeaderboardAsync(user.Id, user.Role, courseId: null, days: null, groupId: null, top: null);
+                var me = lb.FirstOrDefault(x => x.UserId == user.Id);
+                dto.SolvedAssignments = me?.SolvedAssignments ?? 0;
+                dto.Score = me?.Score ?? 0;
+            }
+            catch
+            {
+                dto.SolvedAssignments = 0;
+                dto.Score = 0;
+            }
 
             return Ok(dto);
         }

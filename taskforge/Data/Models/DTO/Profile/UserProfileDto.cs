@@ -21,5 +21,9 @@ namespace taskforge.Data.Models.DTO
         public bool TelegramLinked { get; set; }
         public string? TelegramUsername { get; set; }
         public int TelegramLinkCount { get; set; }
+
+        // Simple public stats
+        public int SolvedAssignments { get; set; }
+        public int Score { get; set; }
     }
 }

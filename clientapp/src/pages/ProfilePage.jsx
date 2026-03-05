@@ -338,6 +338,12 @@ export default function ProfilePage() {
         )}
         {profile && (
           <>
+          <Card className="p-4">
+            <div className="text-sm text-neutral-600 dark:text-neutral-300 flex flex-wrap gap-x-6 gap-y-2">
+              <div>Рейтинг: <span className="font-semibold">{profile.score ?? 0}</span></div>
+              <div>Решено задач: <span className="font-semibold">{profile.solvedAssignments ?? 0}</span></div>
+            </div>
+          </Card>
           <form onSubmit={handleSave} className="space-y-6">
             {/* Основное */}
             <Card className="p-4 space-y-4">

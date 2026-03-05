@@ -68,6 +68,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private final Set<String> exemptNicksLower = ConcurrentHashMap.newKeySet();
     private final Set<String> exemptUuidsLower = ConcurrentHashMap.newKeySet();
 
+    // Soft enforcement: first problematic join -> warning only, no debuffs.
+    // Next join (if still problematic) -> debuffs.
+    private final java.util.Map<java.util.UUID, Boolean> warnedOnce = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private final java.util.Set<java.util.UUID> graceOnline = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     private void migrateConfigKeys() {
         boolean changed = false;
 
@@ -259,6 +265,13 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 });
     }
 
+    @EventHandler
+    public void onQuit(org.bukkit.event.player.PlayerQuitEvent e) {
+        Player p = e.getPlayer();
+        if (p == null) return;
+        plugin.graceOnline.remove(p.getUniqueId());
+    }
+
     CompletableFuture<PlayerStatusResponse> getStatusAsync(Player p) {
         if (!canCallTaskForge()) {
             return CompletableFuture.completedFuture(null);
@@ -284,7 +297,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     void applyDebuffs(Player p, boolean debuffed) {
         if (!debuffsEnabled) return;
 
-        int ticks = debuffDurationSeconds * 20;
+        // "Infinite" debuffs: duration in Bukkit is int ticks.
+        // Integer.MAX_VALUE ticks is effectively permanent. We re-check on join/death
+        // to remove debuffs if the player becomes eligible.
+        int ticks = Integer.MAX_VALUE;
         p.getScheduler().run(this, task -> {
             if (!p.isOnline()) return;
 
@@ -297,6 +313,14 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 p.removePotionEffect(PotionEffectType.BLINDNESS);
                 p.removePotionEffect(PotionEffectType.MINING_FATIGUE);
             }
+        }, null);
+    }
+
+    void sendChat(Player p, String message) {
+        if (p == null || message == null) return;
+        p.getScheduler().run(this, task -> {
+            if (!p.isOnline()) return;
+            p.sendMessage(message);
         }, null);
     }
 
@@ -342,10 +366,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     // Mirror of TaskForge MinecraftPlayerStatusDto (only fields we need)
     static final class PlayerStatusResponse {
+        boolean linked;
         boolean debuffed;
         boolean chargedThisWeek;
         int score;
-        int weeklyPenaltyCurrent;
+        int weeklyPenalty;
         int penaltyTotal;
         int effectiveScore;
     }
@@ -369,11 +394,42 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             if (!plugin.canCallTaskForge()) return;
 
             plugin.notifyJoinAsync(p).thenAcceptAsync(st -> {
-                if (st == null) return;
-                plugin.applyDebuffs(p, st.debuffed);
-                if (st.chargedThisWeek) {
-                    p.getScheduler().run(plugin, t -> p.sendMessage("\u00A7eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenaltyCurrent + ")"), null);
+                final boolean linked = st != null && st.linked;
+                final boolean shouldDebuff = st == null || !linked || st.debuffed;
+
+                // Optional info about the weekly penalty.
+                if (st != null && st.chargedThisWeek) {
+                    p.getScheduler().run(plugin, t -> p.sendMessage("§eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenalty + ")"), null);
                 }
+
+                if (!shouldDebuff) {
+                    plugin.graceOnline.remove(p.getUniqueId());
+                    plugin.warnedOnce.remove(p.getUniqueId());
+                    plugin.applyDebuffs(p, false);
+                    return;
+                }
+
+                // Player-facing hint.
+                if (st == null) {
+                    plugin.sendChat(p, "§eTaskForge: §cне удалось проверить статус (API недоступен). Попробуй позже.");
+                } else if (!linked) {
+                    plugin.sendChat(p, "§eTaskForge: §6привяжи аккаунт на сайте TaskForge (профиль → Minecraft). После привязки зайди снова.");
+                } else {
+                    plugin.sendChat(p,
+                        "§eTaskForge: §cнедостаточно рейтинга для сервера. §7Рейтинг=" + st.score +
+                        " штраф=" + st.penaltyTotal + " итог=" + st.effectiveScore +
+                        " (нужно ≥0). Решай задачи и зайди снова.");
+                }
+
+                // Soft mode: first problematic join -> warning only.
+                if (plugin.warnedOnce.putIfAbsent(p.getUniqueId(), true) == null) {
+                    plugin.graceOnline.add(p.getUniqueId());
+                    plugin.applyDebuffs(p, false);
+                    return;
+                }
+
+                plugin.graceOnline.remove(p.getUniqueId());
+                plugin.applyDebuffs(p, true);
             }, plugin.tfExecutor);
         }
 
@@ -388,8 +444,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             if (!plugin.canCallTaskForge()) return;
 
             plugin.getStatusAsync(p).thenAcceptAsync(st -> {
-                if (st == null) return;
-                plugin.applyDebuffs(p, st.debuffed);
+                // Death re-check: if player is in the grace window (first warning join), do nothing.
+                if (plugin.graceOnline.contains(p.getUniqueId())) return;
+
+                final boolean linked = st != null && st.linked;
+                final boolean shouldDebuff = st == null || !linked || st.debuffed;
+                plugin.applyDebuffs(p, shouldDebuff);
             }, plugin.tfExecutor);
         }
     }
