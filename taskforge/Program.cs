@@ -33,7 +33,7 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 // квоты (token bucket)
 builder.Services.AddScoped<IQuotaService, QuotaService>();
- 
+
 // доступ к курсам / видимость / owners / группы
 builder.Services.AddScoped<ICourseAccessService, taskforge.Services.Courses.CourseAccessService>();
 builder.Services.AddScoped<IUserGroupService, taskforge.Services.UserGroups.UserGroupService>();

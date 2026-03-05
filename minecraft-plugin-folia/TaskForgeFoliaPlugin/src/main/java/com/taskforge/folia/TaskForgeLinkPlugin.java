@@ -269,7 +269,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     public void onQuit(org.bukkit.event.player.PlayerQuitEvent e) {
         Player p = e.getPlayer();
         if (p == null) return;
-        plugin.graceOnline.remove(p.getUniqueId());
+        // This handler is on the plugin instance itself, so use the field directly.
+        graceOnline.remove(p.getUniqueId());
     }
 
     CompletableFuture<PlayerStatusResponse> getStatusAsync(Player p) {
