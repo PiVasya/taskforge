@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [ { "type": "text", "text": "Подключили Telegram‑бот поддержки" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Раньше вопросы и ошибки приходилось отправлять на почту. Теперь у нас есть официальный SupportBot." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Личные сообщения боту попадают напрямую в чат техподдержки, где наши модераторы оперативно отвечают." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Чтобы отправить код на проверку, используйте команду /код – текст без команды отправится как комментарий." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "История сообщений отображается в вашем профиле на сайте." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Это значительно упрощает общение с нами и ускоряет решение проблем." } ]
+    }
+  ]
+}

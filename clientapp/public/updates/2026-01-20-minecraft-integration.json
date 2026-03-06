@@ -1,0 +1,39 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [ { "type": "text", "text": "Интеграция с Minecraft" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Теперь TaskForge соединяется с вашим сервером Minecraft (Folia) через специальный плагин." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Привяжите аккаунт TaskForge к игроку: получите код на сайте, введите его на сервере – и системы будут синхронизированы." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Плагин сообщает о каждом визите игрока: раз в неделю начисляется штраф, если вы заходили." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Если рейтинг (c учётом штрафов) становится низким, накладываются постоянные дебаффы – замедление, слепота и усталость при копании." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Список исключённых игроков хранится в конфиге: администрация может убрать себя из системы штрафов." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Так мы объединяем обучение и игру: активные участники чувствуют себя комфортно, а ленивые получают трудности." } ]
+    }
+  ]
+}

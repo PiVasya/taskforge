@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [ { "type": "text", "text": "Новая система рейтинга" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Мы добавили систему рейтинга и штрафов, чтобы мотивировать регулярные занятия и игру на сервере." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "За успешное выполнение заданий начисляются баллы рейтинга." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Если в течение недели вы не заходите в TaskForge или на сервер, начисляется штраф." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Отдельно хранится ‘penalty’, который отнимается от общего рейтинга: при активной работе вы быстро его перекрываете." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "На основе рейтинга формируется таблица лидеров и решается, какие бонусы или ограничения получит ваш персонаж в Minecraft." } ]
+    }
+  ]
+}

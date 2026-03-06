@@ -1,0 +1,62 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [
+        { "type": "text", "text": "Ещё больше языков" }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "TaskForge поддерживал только Python, C++ и Pascal. Мы сделали огромный скачок, добавив несколько новых языков программирования." }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                { "type": "text", "text": "Доступны раннеры для JavaScript, C#, Java и Go." }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                { "type": "text", "text": "У каждого языка свой контейнер, тайм‑аут и обрезка вывода." }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                { "type": "text", "text": "Вы можете выбирать язык в настройках задачи и видеть соответствующие шаблоны в редакторе кода." }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "Это расширяет возможности курса и позволяет преподавателям создавать задания на знакомых языках." }
+      ]
+    }
+  ]
+}
