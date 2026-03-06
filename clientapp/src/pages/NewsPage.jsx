@@ -122,13 +122,13 @@ export default function NewsPage() {
         {/* Filters */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-            <div className="relative">
+            <div className="relative w-full flex-grow">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Поиск по новостям…"
-                className="pl-9 w-full sm:w-[360px]"
+                className="pl-9 w-full"
               />
             </div>
 

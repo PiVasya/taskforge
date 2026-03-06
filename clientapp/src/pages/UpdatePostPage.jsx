@@ -85,7 +85,7 @@ export default function UpdatePostPage() {
                     <Calendar size={16} /> {fmtDate(meta.date)}
                   </span>
 
-                  {meta?.pinned && <Badge variant="outline">PIN</Badge>}
+                  {meta?.pinned && <Badge variant="outline">Закреп</Badge>}
                 </div>
 
                 {meta.summary && <div className="text-neutral-700 dark:text-neutral-200">{meta.summary}</div>}

@@ -20,5 +20,50 @@
         "url": "/profile"
       }
     ]
+  },
+  {
+    "id": "2026-02-10-minecraft-integration",
+    "title": "TaskForge ↔ Minecraft",
+    "date": "2026-02-10",
+    "pinned": false,
+    "tags": ["minecraft", "integration", "rating"],
+    "summary": "Связали TaskForge с сервером Minecraft, добавили штрафы и вечные дебаффы.",
+    "file": "2026-02-10-minecraft-integration.json"
+  },
+  {
+    "id": "2026-01-15-support-bot",
+    "title": "Интеграция SupportBot",
+    "date": "2026-01-15",
+    "pinned": false,
+    "tags": ["bot", "support"],
+    "summary": "Бот поддержки научился принимать личные сообщения и команду с кодом.",
+    "file": "2026-01-15-support-bot.json"
+  },
+  {
+    "id": "2025-12-20-workflow-update",
+    "title": "Стабилизация CI/CD",
+    "date": "2025-12-20",
+    "pinned": false,
+    "tags": ["platform", "ci"],
+    "summary": "Упростили общий workflow build-all-on-develop и убрали лишние файлы.",
+    "file": "2025-12-20-workflow-update.json"
+  },
+  {
+    "id": "2025-10-05-infrastructure",
+    "title": "Первые шаги: настройка CI/CD",
+    "date": "2025-10-05",
+    "pinned": false,
+    "tags": ["platform", "infrastructure"],
+    "summary": "Добавили и быстро переструктурировали пайплайны сборки и синхронизации.",
+    "file": "2025-10-05-infrastructure.json"
+  },
+  {
+    "id": "2026-03-07-ui-polish",
+    "title": "Полировка интерфейса",
+    "date": "2026-03-07",
+    "pinned": false,
+    "tags": ["platform", "ui"],
+    "summary": "Исправили поиск, заменили ‘PIN’ на ‘Закреп’, приветствие теперь отображает ваши ФИО.",
+    "file": "2026-03-07-ui-polish.json"
   }
 ]
