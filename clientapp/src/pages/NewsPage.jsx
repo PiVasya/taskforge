@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Card, Badge, Button, Input } from '../components/ui';
-import { Newspaper, ArrowRight, Search, Flame, BookOpen, Trophy } from 'lucide-react';
+import { Newspaper, ArrowRight, Search, Flame, BookOpen, Trophy, Pin } from 'lucide-react';
 import { getUpdatesIndex } from '../api/updates';
 import { getProfile } from '../api/profile';
 
@@ -73,7 +73,10 @@ export default function NewsPage() {
   const rest = filtered.filter((x) => !x?.pinned);
 
   const score = profile?.score ?? profile?.rating ?? profile?.points;
-  const displayName = profile?.displayName || profile?.username || profile?.email || '';
+
+  // Хотим показывать ФИО, а не почту.
+  const fio = `${profile?.lastName || ''} ${profile?.firstName || ''}`.trim();
+  const displayName = fio || profile?.displayName || profile?.username || profile?.email || '';
 
   return (
     <Layout>
@@ -100,8 +103,6 @@ export default function NewsPage() {
                     Рейтинг: <b className="ml-1">{score}</b>
                   </Badge>
                 )}
-                <Badge variant="secondary">Быстрый старт</Badge>
-                <Badge variant="secondary">Без лишнего шума</Badge>
               </div>
             </div>
 
@@ -120,19 +121,19 @@ export default function NewsPage() {
 
         {/* Filters */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Поиск по новостям…"
-                className="pl-9 w-[280px] max-w-[70vw]"
+                className="pl-9 w-full sm:w-[360px]"
               />
             </div>
 
             <select
-              className="select"
+              className="select w-full sm:w-[180px]"
               value={tag}
               onChange={(e) => setTag(e.target.value)}
               title="Фильтр по тегу"
@@ -172,7 +173,10 @@ export default function NewsPage() {
                       <div className="text-lg font-semibold truncate">{it.title}</div>
                       <div className="text-sm text-neutral-500 dark:text-neutral-400">{fmtDate(it.date)}</div>
                     </div>
-                    <Badge variant="outline">PIN</Badge>
+                    <Badge variant="outline">
+                      <Pin size={14} className="mr-1" />
+                      Закреп
+                    </Badge>
                   </div>
 
                   {it.summary && <div className="text-neutral-700 dark:text-neutral-200">{it.summary}</div>}
