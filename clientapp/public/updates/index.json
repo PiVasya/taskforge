@@ -1,69 +1,74 @@
 [
   {
-    "id": "2026-03-06-welcome",
-    "title": "Новая главная: лента обновлений",
-    "date": "2026-03-06",
-    "pinned": true,
+    "id": "2025-09-01-site-launch",
+    "title": "Запуск TaskForge",
+    "date": "2025-09-01",
+    "pinned": false,
     "tags": [
-      "platform",
-      "ui"
+      "релиз",
+      "бета"
     ],
-    "summary": "Сделали главной страницей ленту. Курсы теперь доступны одной кнопкой и через меню.",
-    "file": "2026-03-06-welcome.json",
-    "links": [
-      {
-        "title": "Открыть курсы",
-        "url": "/courses"
-      },
-      {
-        "title": "Профиль",
-        "url": "/profile"
-      }
-    ]
+    "summary": "Первые пользователи получили простую платформу для решения задач.",
+    "file": "2025-09-01-site-launch.json"
   },
   {
-    "id": "2026-02-10-minecraft-integration",
-    "title": "TaskForge ↔ Minecraft",
-    "date": "2026-02-10",
+    "id": "2025-09-10-pink-theme",
+    "title": "Розовая тема оформления",
+    "date": "2025-09-10",
     "pinned": false,
-    "tags": ["minecraft", "integration", "rating"],
-    "summary": "Связали TaskForge с сервером Minecraft, добавили штрафы и вечные дебаффы.",
-    "file": "2026-02-10-minecraft-integration.json"
+    "tags": [
+      "тема",
+      "UI"
+    ],
+    "summary": "В настройках появилась первая альтернативная тема – розовая.",
+    "file": "2025-09-10-pink-theme.json"
   },
   {
-    "id": "2026-01-15-support-bot",
-    "title": "Интеграция SupportBot",
-    "date": "2026-01-15",
+    "id": "2025-09-20-new-test-task-type",
+    "title": "Новый тип задач: Тест",
+    "date": "2025-09-20",
     "pinned": false,
-    "tags": ["bot", "support"],
-    "summary": "Бот поддержки научился принимать личные сообщения и команду с кодом.",
-    "file": "2026-01-15-support-bot.json"
+    "tags": [
+      "функционал",
+      "задания"
+    ],
+    "summary": "Добавлены тестовые задания с вариантами ответов и автоматической проверкой.",
+    "file": "2025-09-20-new-test-task-type.json"
   },
   {
-    "id": "2025-12-20-workflow-update",
-    "title": "Стабилизация CI/CD",
-    "date": "2025-12-20",
+    "id": "2025-10-01-new-languages",
+    "title": "Больше языков программирования",
+    "date": "2025-10-01",
     "pinned": false,
-    "tags": ["platform", "ci"],
-    "summary": "Упростили общий workflow build-all-on-develop и убрали лишние файлы.",
-    "file": "2025-12-20-workflow-update.json"
+    "tags": [
+      "языки",
+      "компилятор"
+    ],
+    "summary": "TaskForge теперь поддерживает C++, Python и Pascal.",
+    "file": "2025-10-01-new-languages.json"
   },
   {
-    "id": "2025-10-05-infrastructure",
-    "title": "Первые шаги: настройка CI/CD",
-    "date": "2025-10-05",
+    "id": "2025-10-10-task-images",
+    "title": "Картинки в задачах",
+    "date": "2025-10-10",
     "pinned": false,
-    "tags": ["platform", "infrastructure"],
-    "summary": "Добавили и быстро переструктурировали пайплайны сборки и синхронизации.",
-    "file": "2025-10-05-infrastructure.json"
+    "tags": [
+      "функционал",
+      "UI"
+    ],
+    "summary": "Теперь условия задач могут содержать изображения.",
+    "file": "2025-10-10-task-images.json"
   },
   {
-    "id": "2026-03-07-ui-polish",
-    "title": "Полировка интерфейса",
-    "date": "2026-03-07",
+    "id": "2025-10-20-pascal-images",
+    "title": "Изображения для задач на Pascal",
+    "date": "2025-10-20",
     "pinned": false,
-    "tags": ["platform", "ui"],
-    "summary": "Исправили поиск, заменили ‘PIN’ на ‘Закреп’, приветствие теперь отображает ваши ФИО.",
-    "file": "2026-03-07-ui-polish.json"
+    "tags": [
+      "Pascal",
+      "UI"
+    ],
+    "summary": "Добавили уникальные иллюстрации для курса Pascal.",
+    "file": "2025-10-20-pascal-images.json"
   }
 ]
