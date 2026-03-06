@@ -22,6 +22,7 @@ import {
   Settings,
   Award,
   LifeBuoy,
+  Newspaper,
 	  Menu,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -227,7 +228,7 @@ export default function Layout({ children, fullWidth = false }) {
       <header className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-neutral-900/60" style={{ borderBottom: '1px solid rgba(var(--border) / 0.7)' }}>
         <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
           {/* Логотип и название */}
-          <Link to="/courses" className="flex min-w-0 items-center gap-3">
+          <Link to="/news" className="flex min-w-0 items-center gap-3">
             <div className="h-9 w-9 rounded-xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
               <PanelsTopLeft size={18} />
             </div>
@@ -239,6 +240,22 @@ export default function Layout({ children, fullWidth = false }) {
           <div className={`hidden xl:flex items-center gap-2 ${forceCompact ? 'xl:hidden' : ''}`}
           >
             {/* Быстрые переключатели темы/палитры убраны из хедера — оставлены только на странице настроек */}
+
+            {/* новости */}
+            {access && (
+              <Link to="/news" className="btn-outline" title="Новости">
+                <Newspaper size={18} />
+                <span className="hidden 2xl:inline">Новости</span>
+              </Link>
+            )}
+
+            {/* курсы */}
+            {access && (
+              <Link to="/courses" className="btn-outline" title="Курсы">
+                <PanelsTopLeft size={18} />
+                <span className="hidden 2xl:inline">Курсы</span>
+              </Link>
+            )}
 
             {/* режим редактора */}
             {canEdit && (

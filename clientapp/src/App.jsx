@@ -8,6 +8,8 @@ import AdminRoute from './auth/AdminRoute';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CoursesPage from './pages/CoursesPage';
+import NewsPage from './pages/NewsPage';
+import UpdatePostPage from './pages/UpdatePostPage';
 import CourseAssignmentsPage from './pages/CourseAssignmentsPage';
 import CourseEditPage from './pages/CourseEditPage';
 import AssignmentEditPage from './pages/AssignmentEditPage';
@@ -39,7 +41,7 @@ import AdminBadgesPage from './pages/admin/AdminBadgesPage';
 import AdminGroupsPage from './pages/admin/AdminGroupsPage';
 
 function Home() {
-  return <Navigate to="/courses" replace />;
+  return <Navigate to="/news" replace />;
 }
 
 function NotFound() {
@@ -58,6 +60,10 @@ export default function App() {
 
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Home />} />
+          {/* главная лента / новости */}
+          <Route path="/news" element={<NewsPage />} />
+          <Route path="/news/:postId" element={<UpdatePostPage />} />
+
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
 
