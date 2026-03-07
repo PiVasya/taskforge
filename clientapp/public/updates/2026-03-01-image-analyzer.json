@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Нейросетевой анализ изображений" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Мы подключили OpenCLIP для сравнения изображений: теперь учитывается не только пиксель‑в‑пиксель, но и смысл." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Модуль рассчитывает сходство по двум метрикам: нейросетевой (CLIP) и перцептивный хэш (pHash)." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Позволяет выдавать более справедливые оценки за творческие задачи на рисование." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Включить или отключить сервис можно в конфигурации сервера." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Это улучшает точность проверки изображений и поощряет креативность." } ]
+    }
+  ]
+}

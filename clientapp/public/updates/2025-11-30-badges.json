@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Система достижений и бейджи" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Мы ввели награды за активность, чтобы отметить ваши успехи." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Администраторы создают и редактируют бейджи, задавая условия получения." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Бейджи могут выдаваться автоматически (за количество решённых задач) или вручную преподавателем." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "На странице профиля отображаются все полученные бейджи." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Коллекционируйте достижения и показывайте свой прогресс друзьям!" } ]
+    }
+  ]
+}

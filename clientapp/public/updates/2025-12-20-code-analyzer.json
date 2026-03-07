@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Статический анализ кода" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Теперь перед запуском решение проходит проверку на опасные конструкции." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Анализатор удаляет комментарии и строки, затем ищет запрещённые функции и библиотеки." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Если найдены подозрительные участки, решение не запускается и возвращается сообщение об ошибке." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Это повышает безопасность и предотвращает нарушения правил." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Теперь можно не бояться, что кто‑то напишет что‑то вредоносное." } ]
+    }
+  ]
+}

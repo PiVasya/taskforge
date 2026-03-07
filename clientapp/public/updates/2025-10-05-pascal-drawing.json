@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Pascal умеет рисовать: первые задачи на графику" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Задолго до появления официального типа заданий для рисования мы научили Pascal выводить картинки с помощью GraphABC." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "В курсах появились задания, где нужно нарисовать фигуры и узоры, используя библиотеку GraphABC." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "GraphABC позволяет рисовать линии, круги и даже простые сцены в отдельном окне." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Проверка таких задач была полуавтоматической: преподаватели сравнивали изображение с эталоном вручную." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Эти задания стали первым шагом к будущему типу image‑test." } ]
+    }
+  ]
+}

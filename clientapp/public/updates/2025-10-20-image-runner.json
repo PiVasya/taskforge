@@ -1,0 +1,39 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Новый тип задач: рисование (image‑test)" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Мы официально запустили задания на рисование, где нужно программно сгенерировать картинку." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Рисуйте изображения полностью на основе кода." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Поддерживаются два языка: Python (модуль turtle) и Pascal (GraphABC)." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Система сама сравнивает вашу картинку с эталоном по метрикам pHash и CLIP." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Файл решения сохраняется как PNG, и вы видите изображение прямо в интерфейсе." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Новый тип задач открывает простор для творческих решений и визуализации." } ]
+    }
+  ]
+}
