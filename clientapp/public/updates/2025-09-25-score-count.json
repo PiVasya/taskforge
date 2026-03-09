@@ -1,0 +1,31 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [ { "type": "text", "text": "Просто счёт решённых задач" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Теперь в вашем профиле отображается количество решённых заданий. Никаких сложных формул – только счёт ваших успехов." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "В таблице лидеров учитывается только количество решённых задач." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Каждое решённое задание увеличивает счёт на 1." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Рейтинга как такового ещё нет, но вы можете сравнить свои результаты с другими." } ] } ]
+        }
+      ]
+    }
+  ]
+}

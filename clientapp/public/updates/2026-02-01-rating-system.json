@@ -1,0 +1,35 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [ { "type": "text", "text": "Система рейтинга" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Введена система рейтинга, чтобы стимулировать прогресс и отражать активность пользователей." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "За каждое выполненное задание начисляются баллы рейтинга." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Формируется таблица лидеров — сравнивайте свои достижения с другими." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Высокий рейтинг открывает доступ к наградам, привилегиям и новым возможностям." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Система рейтинга действует отдельно от любых штрафов: ваши успехи отражаются сразу." } ]
+    }
+  ]
+}

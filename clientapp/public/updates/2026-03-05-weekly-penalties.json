@@ -1,0 +1,39 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [ { "type": "text", "text": "Еженедельные штрафы" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Мы отделили систему штрафов от рейтинга. Теперь каждую неделю при входе на сервер начисляется penalty." } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "penalty начисляется один раз в неделю за активность на сервере." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "penalty хранится отдельно от рейтинга; при расчёте эффективного рейтинга он вычитается." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Если (рейтинг – penalty) опускается ниже порога, персонаж в Minecraft получает замедление, слепоту и другие дебаффы." } ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Повысьте рейтинг, решая задачи, чтобы перекрыть накопленные штрафы." } ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "Недельные штрафы помогают поддерживать постоянную активность, сохраняя независимость от основной рейтинговой системы." } ]
+    }
+  ]
+}
