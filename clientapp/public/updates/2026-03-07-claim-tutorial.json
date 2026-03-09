@@ -1,0 +1,67 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [ {"type": "text", "text": "Как пользоваться приватом"} ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ {"type": "text", "text": "В этом руководстве рассказываем, как защитить свою территорию на сервере с помощью привата."} ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ {"type": "text", "text": "Приват создаётся по чанкам – зонам размером 16×16 блоков. Вы можете защищать отдельные чанки или автоматически приватить новые по мере расширения базы."} ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Заприватить текущий чанк: ", "marks": []}, {"type": "text", "text": "/claim", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Показать границы привата: ", "marks": []}, {"type": "text", "text": "/claim see", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Открыть карту ближайших приватных и свободных чанков: ", "marks": []}, {"type": "text", "text": "/claim map", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Приватить новые чанки при строительстве: ", "marks": []}, {"type": "text", "text": "/claim autoclaim", "marks": [{"type": "code"}]}, {"type": "text", "text": " или ", "marks": []}, {"type": "text", "text": "/claim autoaddchunk", "marks": [{"type": "code"}]}, {"type": "text", "text": ". Повторный ввод выключает режим."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Добавить друга в приват: ", "marks": []}, {"type": "text", "text": "/claim add Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": ". Удалить: ", "marks": []}, {"type": "text", "text": "/claim remove Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Выгнать нарушителя: ", "marks": []}, {"type": "text", "text": "/claim kick Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": ". Забанить: ", "marks": []}, {"type": "text", "text": "/claim ban Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Изменить название привата: ", "marks": []}, {"type": "text", "text": "/claim setname Название", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Установить точку телепорта внутри привата: ", "marks": []}, {"type": "text", "text": "/claim setspawn", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Телепортироваться в свой приват: ", "marks": []}, {"type": "text", "text": "/claim tp Название", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Снять приват с чанка: ", "marks": []}, {"type": "text", "text": "/unclaim", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ {"type": "text", "text": "Используйте эти команды, чтобы надёжно защитить свои постройки и управлять доступом."} ]
+    }
+  ]
+}

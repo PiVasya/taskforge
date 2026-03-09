@@ -1,0 +1,43 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [ {"type": "text", "text": "Как зарегистрироваться"} ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ {"type": "text", "text": "Если вы здесь впервые, вот краткое руководство по созданию учётной записи TaskForge."} ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Откройте сайт TaskForge и нажмите кнопку «Регистрация» в правом верхнем углу."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Заполните форму, указав ваш электронный адрес и придумав надёжный пароль."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Подтвердите пароль и согласитесь с условиями использования."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "На вашу почту придёт письмо – перейдите по ссылке для подтверждения регистрации."} ] } ]
+        },
+        {
+          "type": "listItem",
+          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Теперь вы можете войти, создать профиль и приступать к решению задач!"} ] } ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ {"type": "text", "text": "Регистрация занимает всего пару минут и открывает доступ ко всем курсам и заданиям на платформе."} ]
+    }
+  ]
+}
