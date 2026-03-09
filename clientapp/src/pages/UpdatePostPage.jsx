@@ -40,7 +40,24 @@ export default function UpdatePostPage() {
         setMeta(m);
 
         const dto = await getUpdatePost(m.file);
-        setContentJson(dto?.contentJson || dto?.content || '');
+        // преобразуем полученный JSON в строку для StatementViewer:
+        // если файл содержит contentJson (строку) — используем её
+        // если content — это уже строка — используем её
+        // если content является массивом (как у tiptap-doc) или тип "doc" находится на верхнем уровне — сериализуем весь объект в строку
+        let nextValue = '';
+        const rawContent = dto?.contentJson ?? dto?.content;
+        if (typeof rawContent === 'string') {
+          nextValue = rawContent;
+        } else if (dto && typeof dto === 'object' && dto.type === 'doc') {
+          try {
+            nextValue = JSON.stringify(dto);
+          } catch {
+            nextValue = '';
+          }
+        } else {
+          nextValue = '';
+        }
+        setContentJson(nextValue);
       } catch (e) {
         setError('Не удалось загрузить пост');
       } finally {
