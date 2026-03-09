@@ -17,46 +17,16 @@
     {
       "type": "bulletList",
       "content": [
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Заприватить текущий чанк: ", "marks": []}, {"type": "text", "text": "/claim", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Показать границы привата: ", "marks": []}, {"type": "text", "text": "/claim see", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Открыть карту ближайших приватных и свободных чанков: ", "marks": []}, {"type": "text", "text": "/claim map", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Приватить новые чанки при строительстве: ", "marks": []}, {"type": "text", "text": "/claim autoclaim", "marks": [{"type": "code"}]}, {"type": "text", "text": " или ", "marks": []}, {"type": "text", "text": "/claim autoaddchunk", "marks": [{"type": "code"}]}, {"type": "text", "text": ". Повторный ввод выключает режим."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Добавить друга в приват: ", "marks": []}, {"type": "text", "text": "/claim add Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": ". Удалить: ", "marks": []}, {"type": "text", "text": "/claim remove Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Выгнать нарушителя: ", "marks": []}, {"type": "text", "text": "/claim kick Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": ". Забанить: ", "marks": []}, {"type": "text", "text": "/claim ban Ник", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Изменить название привата: ", "marks": []}, {"type": "text", "text": "/claim setname Название", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Установить точку телепорта внутри привата: ", "marks": []}, {"type": "text", "text": "/claim setspawn", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Телепортироваться в свой приват: ", "marks": []}, {"type": "text", "text": "/claim tp Название", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Снять приват с чанка: ", "marks": []}, {"type": "text", "text": "/unclaim", "marks": [{"type": "code"}]}, {"type": "text", "text": "."} ] } ]
-        }
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Заприватить текущий чанк: /claim." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Показать границы привата: /claim see." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Открыть карту ближайших приватных и свободных чанков: /claim map." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Приватить новые чанки при строительстве: /claim autoclaim или /claim autoaddchunk. Повторный ввод выключает режим." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Добавить друга: /claim add Ник. Удалить: /claim remove Ник." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Выгнать нарушителя: /claim kick Ник. Забанить: /claim ban Ник." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Изменить название привата: /claim setname Название." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Установить точку телепорта: /claim setspawn." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Телепортироваться в свой приват: /claim tp Название." } ] } ] },
+        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Снять приват: /unclaim." } ] } ] }
       ]
     },
     {
