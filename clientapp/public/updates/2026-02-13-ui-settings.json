@@ -1,0 +1,47 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [
+        {"type": "text", "text": "Персональные настройки интерфейса"}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "TaskForge стал более уютным: теперь можно настроить внешний вид под себя."}
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Выберите светлую или тёмную тему."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Выберите цветовую палитру: синюю, розовую, яблочную, красную и даже мёд."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Настройте фоновые эффекты и расположение редактора кода."}]}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Все параметры сохраняются в профиле, поэтому ваш TaskForge всегда будет таким, как вам удобно."}
+      ]
+    }
+  ]
+}

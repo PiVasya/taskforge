@@ -1,0 +1,47 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [
+        {"type": "text", "text": "Связка с Telegram"}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Теперь аккаунты TaskForge можно связать с Telegram. Это расширяет возможности уведомлений и взаимодействия с платформой."}
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Пройдите простую процедуру привязки: получите код на сайте и отправьте его боту."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "После привязки получайте уведомления о новых задачах и результатах прямо в Telegram."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "В настройках пользователя всегда можно отвязать учётную запись."}]}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Это обновление делает коммуникацию с TaskForge ещё удобнее."}
+      ]
+    }
+  ]
+}

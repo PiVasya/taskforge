@@ -1,0 +1,47 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [
+        {"type": "text", "text": "Политика кода: запрещённые и обязательные вызовы"}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Появилась новая возможность жёстче контролировать решения: теперь преподаватель может указать, какие функции нельзя использовать, а какие должны обязательно присутствовать."}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Перед запуском решение проверяется статическим анализатором и отклоняется, если нарушены правила."}
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Используйте CodeForbiddenCallsJson и CodeRequiredCallsJson, чтобы задавать список."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Сервис code-analyzer проверяет код до запуска и даёт понятные сообщения об ошибках."}]}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Это особенно полезно в учебных задачах, где важно использовать определённые функции или избегать чит‑решений."}
+      ]
+    }
+  ]
+}

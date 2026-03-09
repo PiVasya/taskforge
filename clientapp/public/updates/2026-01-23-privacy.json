@@ -1,0 +1,47 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [
+        {"type": "text", "text": "Приватность и история входов"}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Мы заботимся о безопасности данных. Теперь платформа сохраняет историю входов пользователя."}
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Каждый вход фиксируется с датой, IP‑адресом и браузером."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Можно просмотреть список недавних входов в профиле и заметить подозрительную активность."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Логи хранятся в базе данных и доступны только владельцу аккаунта и администратору."}]}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Это позволяет контролировать безопасность своего профиля и своевременно менять пароль."}
+      ]
+    }
+  ]
+}

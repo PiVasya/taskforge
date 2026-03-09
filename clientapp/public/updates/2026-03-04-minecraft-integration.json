@@ -1,0 +1,53 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {"level": 2},
+      "content": [
+        {"type": "text", "text": "Связка с Minecraft и дебаффы"}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "TaskForge стал ближе к миру Minecraft: вы можете привязать свой игровой аккаунт и получать коды прямо в игре."}
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "В .env настраивается адрес вебхука и секретный ключ. Плагин Folia отправляет код в чат игрока."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Каждый вход на сервер фиксируется в базе, чтобы начислять штрафы только раз в неделю."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "При низком рейтинге игрок получает замедление, слепоту и усталость от копания до тех пор, пока не повысит рейтинг."}]}
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Список исключений и параметры сервера хранятся в конфиге плагина."}]}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Геймификация выходит на новый уровень — задания влияют на игровой процесс."}
+      ]
+    }
+  ]
+}
