@@ -21,8 +21,10 @@ import {
   MoreHorizontal,
   Settings,
   Award,
+  Shield,
   LifeBuoy,
   Newspaper,
+  MessageSquare,
 	  Menu,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -119,7 +121,8 @@ export default function Layout({ children, fullWidth = false }) {
   }, []);
 
   const { access, logout } = useAuth();
-  const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
+  const { canEdit, isEditorMode, toggle, isAdmin, roles } = useEditorMode();
+  const canUseMinecraft = isAdmin || roles.includes('Minecraft');
   const nav = useNavigate();
   const location = useLocation();
 
@@ -295,6 +298,13 @@ export default function Layout({ children, fullWidth = false }) {
               </Link>
             )}
 
+            {access && canUseMinecraft && (
+              <Link to="/minecraft/chat" className="btn-outline" title="Minecraft">
+                <MessageSquare size={18} />
+                <span className="hidden 2xl:inline">Minecraft</span>
+              </Link>
+            )}
+
             {/* админские действия — отдельное меню на три точки */}
             {access && isAdmin && (
               <div className="relative" ref={adminRef}>
@@ -352,6 +362,16 @@ export default function Layout({ children, fullWidth = false }) {
                     >
                       <LifeBuoy size={18} />
                       <span className="ml-2">Обращения</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      to="/admin/feature-roles"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Дополнительные роли"
+                    >
+                      <Shield size={18} />
+                      <span className="ml-2">Доп. роли</span>
                     </Link>
                   </div>
                 )}
@@ -440,6 +460,17 @@ export default function Layout({ children, fullWidth = false }) {
                         <span className="ml-2">Топ</span>
                       </Link>
 
+                      {canUseMinecraft && (
+                        <Link
+                          to="/minecraft/chat"
+                          className="btn-ghost w-full justify-start"
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          <MessageSquare size={18} />
+                          <span className="ml-2">Minecraft</span>
+                        </Link>
+                      )}
+
                       {isAdmin && (
                         <>
                           <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
@@ -476,6 +507,14 @@ export default function Layout({ children, fullWidth = false }) {
                           >
                             <LifeBuoy size={18} />
                             <span className="ml-2">Техподдержка</span>
+                          </Link>
+                          <Link
+                            to="/admin/feature-roles"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Shield size={18} />
+                            <span className="ml-2">Доп. роли</span>
                           </Link>
                         </>
                       )}

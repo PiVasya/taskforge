@@ -19,6 +19,8 @@ namespace taskforge.Data
 
         public DbSet<UserGroup> UserGroups { get; set; } = null!;
         public DbSet<UserGroupMember> UserGroupMembers { get; set; } = null!;
+        public DbSet<FeatureRole> FeatureRoles { get; set; } = null!;
+        public DbSet<UserFeatureRole> UserFeatureRoles { get; set; } = null!;
         public DbSet<TaskAssignment> TaskAssignments { get; set; } = null!;
         public DbSet<TaskTestCase> TaskTestCases { get; set; } = null!;
         public DbSet<UserTaskSolution> UserTaskSolutions { get; set; } = null!;
@@ -101,6 +103,45 @@ namespace taskforge.Data
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.TelegramChatId)
                 .IsUnique();
+
+
+            // ===== Feature roles =====
+            modelBuilder.Entity<FeatureRole>()
+                .HasIndex(x => x.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<FeatureRole>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<FeatureRole>()
+                .Property(x => x.UpdatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserFeatureRole>()
+                .HasKey(x => new { x.UserId, x.RoleId });
+
+            modelBuilder.Entity<UserFeatureRole>()
+                .Property(x => x.AssignedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserFeatureRole>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.FeatureRoles)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserFeatureRole>()
+                .HasOne(x => x.Role)
+                .WithMany(r => r.Users)
+                .HasForeignKey(x => x.RoleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserFeatureRole>()
+                .HasOne(x => x.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.AssignedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // 🔹 TelegramLinkCode
             modelBuilder.Entity<TelegramLinkCode>()

@@ -1,11 +1,15 @@
-﻿﻿namespace taskforge.Services.Interfaces
+namespace taskforge.Services.Interfaces
 {
     public interface ICurrentUserService
     {
-        Guid GetUserId();            // бросает если нет/невалидно
-        string? GetRole();           // null, если нет клейма
-        bool IsAdmin();              // роль == Admin
-        bool IsEditor();             // роль == Editor
-        bool IsAdminOrEditor();      // Admin || Editor
+        Guid GetUserId();
+        string? GetRole();
+        string? GetPrimaryRole();
+        IReadOnlyList<string> GetRoles();
+        bool HasRole(string role);
+        bool HasAnyRole(params string[] roles);
+        bool IsAdmin();
+        bool IsEditor();
+        bool IsAdminOrEditor();
     }
 }

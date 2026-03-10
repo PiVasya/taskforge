@@ -85,5 +85,6 @@ namespace taskforge.Data.Models.Entities
         // ===== группы / владельцы курсов =====
         public ICollection<UserGroupMember> GroupMembers { get; set; } = new List<UserGroupMember>();
         public ICollection<CourseOwner> OwnedCourses { get; set; } = new List<CourseOwner>();
+        public ICollection<UserFeatureRole> FeatureRoles { get; set; } = new List<UserFeatureRole>();
     }
 }

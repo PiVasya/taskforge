@@ -118,8 +118,9 @@ namespace taskforge.Controllers
             var accessTokenLifetime = TimeSpan.FromMinutes(accessMinutes);
             var refreshTokenLifetime = TimeSpan.FromDays(7);
 
-            var accessToken = CreateJwt(user, accessTokenLifetime, tokenType: "access");
-            var refreshToken = CreateJwt(user, refreshTokenLifetime, tokenType: "refresh");
+            var roles = await GetAllRolesAsync(user.Id);
+            var accessToken = CreateJwt(user, roles, accessTokenLifetime, tokenType: "access");
+            var refreshToken = CreateJwt(user, roles, refreshTokenLifetime, tokenType: "refresh");
 
             SetAuthCookies(accessToken, refreshToken, accessTokenLifetime, refreshTokenLifetime);
 
@@ -156,8 +157,9 @@ namespace taskforge.Controllers
             var refreshTokenLifetime = TimeSpan.FromDays(7);
 
             // Rotate refresh token (simple rotation without DB storage).
-            var newAccessToken = CreateJwt(user, accessTokenLifetime, tokenType: "access");
-            var newRefreshToken = CreateJwt(user, refreshTokenLifetime, tokenType: "refresh");
+            var roles = await GetAllRolesAsync(user.Id);
+            var newAccessToken = CreateJwt(user, roles, accessTokenLifetime, tokenType: "access");
+            var newRefreshToken = CreateJwt(user, roles, refreshTokenLifetime, tokenType: "refresh");
 
             SetAuthCookies(newAccessToken, newRefreshToken, accessTokenLifetime, refreshTokenLifetime);
 
@@ -174,20 +176,33 @@ namespace taskforge.Controllers
             return Ok();
         }
 
-        private string CreateJwt(User user, TimeSpan lifetime, string tokenType)
+        private string CreateJwt(User user, IReadOnlyList<string> roles, TimeSpan lifetime, string tokenType)
         {
             var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!);
 
-            var claims = new[]
+            var allRoles = new List<string>();
+            if (!string.IsNullOrWhiteSpace(user.Role)) allRoles.Add(user.Role);
+            if (roles != null) allRoles.AddRange(roles);
+            allRoles = allRoles
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                // Keep both forms to be safe (some parts read ClaimTypes.Role, some read "role")
-                new Claim(ClaimTypes.Role, user.Role.ToString()),
+                new Claim("primary_role", user.Role.ToString()),
                 new Claim("role", user.Role.ToString()),
+                new Claim("roles", string.Join(",", allRoles)),
                 new Claim("token_type", tokenType)
             };
+
+            foreach (var role in allRoles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
 
             var creds = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
 
@@ -200,6 +215,16 @@ namespace taskforge.Controllers
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        private async Task<IReadOnlyList<string>> GetAllRolesAsync(Guid userId)
+        {
+            return await _context.UserFeatureRoles
+                .AsNoTracking()
+                .Where(x => x.UserId == userId && x.Role.IsActive)
+                .Select(x => x.Role.Code)
+                .OrderBy(x => x)
+                .ToListAsync();
         }
 
         private ClaimsPrincipal? ValidateJwt(string token, bool validateLifetime)

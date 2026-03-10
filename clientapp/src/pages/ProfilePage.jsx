@@ -6,6 +6,7 @@ import { getProfile, updateProfile, changeEmail, changePassword } from '../api/p
 import { getTelegramStatus, generateTelegramCode, unlinkTelegram } from '../api/telegramLink';
 import { getMinecraftStatus, requestMinecraftLink, confirmMinecraftLink, unlinkMinecraft } from '../api/minecraftLink';
 import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
+import { useAuth } from '../auth/AuthContext';
 
 /**
  * Страница профиля для текущего пользователя.
@@ -55,6 +56,7 @@ export default function ProfilePage() {
 
   // навигация для перехода после сохранения
   const navigate = useNavigate();
+  const { refresh } = useAuth();
 
   // Загрузка профиля при монтировании
   useEffect(() => {
@@ -148,6 +150,7 @@ export default function ProfilePage() {
       setMcInputCode('');
       setMcExpires(null);
       setMcDelivery(null);
+      try { await refresh(); } catch {}
     } catch (e) {
       const msg = e?.response?.data?.message || e?.message || 'Не удалось подтвердить код';
       setMcError(msg);
@@ -166,6 +169,7 @@ export default function ProfilePage() {
       setMcInputCode('');
       setMcExpires(null);
       setMcDelivery(null);
+      try { await refresh(); } catch {}
       await refreshMcStatus();
     } catch (e) {
       const msg = e?.response?.data?.message || e?.message || 'Не удалось отвязать Minecraft';

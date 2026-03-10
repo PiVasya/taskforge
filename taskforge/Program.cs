@@ -30,6 +30,7 @@ builder.Logging.AddConsole();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+builder.Services.AddScoped<IFeatureRoleService, FeatureRoleService>();
 
 // квоты (token bucket)
 builder.Services.AddScoped<IQuotaService, QuotaService>();
@@ -248,16 +249,21 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         if (!autoMigrate)
         {
             logger.LogWarning("DB_AUTO_MIGRATE=false -> skipping Database.Migrate(). Run migrations manually when you change the model.");
         }
         else
         {
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             db.Database.Migrate();
             logger.LogInformation("Database migrations applied successfully");
         }
+
+        var featureRoles = scope.ServiceProvider.GetRequiredService<IFeatureRoleService>();
+        await featureRoles.EnsureDefaultRolesAsync();
+        await featureRoles.SyncMinecraftLinkedUsersAsync();
+        logger.LogInformation("Feature roles ensured and Minecraft-linked users synced");
     }
     catch (Exception ex)
     {

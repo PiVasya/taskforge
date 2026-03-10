@@ -4,6 +4,7 @@ import { NotifyProvider } from './components/notify/NotifyProvider';
 import ProtectedRoute from './auth/ProtectedRoute';
 import EditorRoute from './auth/EditorRoute';
 import AdminRoute from './auth/AdminRoute';
+import FeatureRoute from './auth/FeatureRoute';
 
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -39,6 +40,8 @@ import LeaderboardPage from './pages/admin/LeaderboardPage';
 import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
 import AdminBadgesPage from './pages/admin/AdminBadgesPage';
 import AdminGroupsPage from './pages/admin/AdminGroupsPage';
+import AdminFeatureRolesPage from './pages/admin/AdminFeatureRolesPage';
+import MinecraftChatPage from './pages/minecraft/MinecraftChatPage';
 
 function Home() {
   return <Navigate to="/news" replace />;
@@ -80,6 +83,10 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/my/solutions" element={<MySolutionsPage />} />
 
+          <Route element={<FeatureRoute requiredRole="Minecraft" fallbackTo="/courses" />}>
+            <Route path="/minecraft/chat" element={<MinecraftChatPage />} />
+          </Route>
+
           {/* общий топ */}
           <Route path="/leaderboard" element={<LeaderboardPage />} />
 
@@ -103,6 +110,7 @@ export default function App() {
             <Route path="/admin/badges" element={<AdminBadgesPage />} />
             <Route path="/admin/support" element={<AdminSupportPage />} />
             <Route path="/admin/groups" element={<AdminGroupsPage />} />
+            <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
           </Route>
         </Route>
 

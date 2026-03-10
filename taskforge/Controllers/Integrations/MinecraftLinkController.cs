@@ -43,19 +43,22 @@ public sealed class MinecraftLinkController : ControllerBase
     private readonly IMinecraftServerNotifier _notifier;
     private readonly ILogger<MinecraftLinkController> _log;
     private readonly IConfiguration _cfg;
+    private readonly IFeatureRoleService _featureRoles;
 
     public MinecraftLinkController(
         ApplicationDbContext db,
         ICurrentUserService current,
         IMinecraftServerNotifier notifier,
         ILogger<MinecraftLinkController> log,
-        IConfiguration cfg)
+        IConfiguration cfg,
+        IFeatureRoleService featureRoles)
     {
         _db = db;
         _current = current;
         _notifier = notifier;
         _log = log;
         _cfg = cfg;
+        _featureRoles = featureRoles;
     }
 
     // ========= DTO =========
@@ -395,6 +398,7 @@ public sealed class MinecraftLinkController : ControllerBase
         user.UpdatedAt = now;
 
         await _db.SaveChangesAsync(ct);
+        await _featureRoles.AssignRoleAsync(uid, FeatureRoles.Minecraft, uid, ct);
 
         _log.LogInformation("Minecraft linked: user={UserId} nick={Nick} count={Count}", uid, user.MinecraftNick, user.MinecraftLinkCount);
 
@@ -432,6 +436,7 @@ public sealed class MinecraftLinkController : ControllerBase
         user.MinecraftLinkedAtUtc = null;
         user.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _featureRoles.RemoveRoleAsync(uid, FeatureRoles.Minecraft, ct);
         return NoContent();
     }
 
