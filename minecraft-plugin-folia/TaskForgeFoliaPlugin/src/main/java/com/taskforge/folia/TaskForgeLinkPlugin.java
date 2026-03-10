@@ -12,6 +12,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.potion.PotionEffect;
@@ -547,6 +548,24 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             if (p == null) return;
             if (plugin.isExempt(p)) return;
             plugin.forwardMinecraftChatAsync(p, e.getMessage());
+        }
+
+        @EventHandler
+        public void onAdvancement(PlayerAdvancementDoneEvent e) {
+            Player p = e.getPlayer();
+            if (p == null) return;
+            if (plugin.isExempt(p)) return;
+            if (e.getAdvancement() == null || e.getAdvancement().getKey() == null) return;
+
+            String key = e.getAdvancement().getKey().getKey();
+            if (key == null || key.isBlank()) return;
+            if (key.startsWith("recipes/") || key.contains("root")) return;
+
+            String shortName = key.contains("/") ? key.substring(key.lastIndexOf('/') + 1) : key;
+            shortName = shortName.replace('_', ' ').trim();
+            if (shortName.isBlank()) shortName = key;
+
+            plugin.forwardMinecraftChatAsync(p, "🏆 получил достижение: " + shortName);
         }
 
         @EventHandler

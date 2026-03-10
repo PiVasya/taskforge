@@ -137,7 +137,7 @@ export default function Layout({ children, fullWidth = false }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileMenuRef = useRef(null);
 
-  // admin (three-dots) menu
+  // desktop more menu
   const [adminOpen, setAdminOpen] = useState(false);
   const adminRef = useRef(null);
 
@@ -244,14 +244,6 @@ export default function Layout({ children, fullWidth = false }) {
           >
             {/* Быстрые переключатели темы/палитры убраны из хедера — оставлены только на странице настроек */}
 
-            {/* новости */}
-            {access && (
-              <Link to="/news" className="btn-outline" title="Новости">
-                <Newspaper size={18} />
-                <span className="hidden 2xl:inline">Новости</span>
-              </Link>
-            )}
-
             {/* курсы */}
             {access && (
               <Link to="/courses" className="btn-outline" title="Курсы">
@@ -290,14 +282,6 @@ export default function Layout({ children, fullWidth = false }) {
               </Link>
             )}
 
-            {/* топ */}
-            {access && (
-              <Link to="/leaderboard" className="btn-outline" title="Топ студентов">
-                <BarChart2 size={18} />
-                <span className="hidden sm:inline">Топ</span>
-              </Link>
-            )}
-
             {access && canUseMinecraft && (
               <Link to="/minecraft/chat" className="btn-outline" title="Minecraft">
                 <MessageSquare size={18} />
@@ -305,15 +289,15 @@ export default function Layout({ children, fullWidth = false }) {
               </Link>
             )}
 
-            {/* админские действия — отдельное меню на три точки */}
-            {access && isAdmin && (
+            {/* еще — дополнительные ссылки и админка */}
+            {access && (
               <div className="relative" ref={adminRef}>
                 <button
                   className="btn-outline"
                   onClick={() => setAdminOpen((v) => !v)}
                   aria-haspopup="menu"
                   aria-expanded={adminOpen}
-                  title="Админские действия"
+                  title="Еще"
                 >
                   <MoreHorizontal size={18} />
                 </button>
@@ -322,6 +306,38 @@ export default function Layout({ children, fullWidth = false }) {
                     role="menu"
                     className="absolute right-0 mt-2 w-56 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
                   >
+                    <Link
+                      role="menuitem"
+                      to="/news"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Новости"
+                    >
+                      <Newspaper size={18} />
+                      <span className="ml-2">Новости</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      to="/leaderboard"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Топ студентов"
+                    >
+                      <BarChart2 size={18} />
+                      <span className="ml-2">Топ</span>
+                    </Link>
+                    {isAdmin && <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />}
+                    {isAdmin && (<>
+                    <Link
+                      role="menuitem"
+                      to="/admin/system-status"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Статус компонентов"
+                    >
+                      <Shield size={18} />
+                      <span className="ml-2">Статус компонентов</span>
+                    </Link>
                     <Link
                       role="menuitem"
                       to="/admin/solutions"
@@ -373,6 +389,7 @@ export default function Layout({ children, fullWidth = false }) {
                       <Shield size={18} />
                       <span className="ml-2">Доп. роли</span>
                     </Link>
+                    </>)}
                   </div>
                 )}
               </div>
@@ -414,6 +431,14 @@ export default function Layout({ children, fullWidth = false }) {
                   >
                     <PanelsTopLeft size={18} />
                     <span className="ml-2">Курсы</span>
+                  </Link>
+                  <Link
+                    to="/news"
+                    className="btn-ghost w-full justify-start"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    <Newspaper size={18} />
+                    <span className="ml-2">Новости</span>
                   </Link>
 
                   {access && (
@@ -515,6 +540,14 @@ export default function Layout({ children, fullWidth = false }) {
                           >
                             <Shield size={18} />
                             <span className="ml-2">Доп. роли</span>
+                          </Link>
+                          <Link
+                            to="/admin/system-status"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Shield size={18} />
+                            <span className="ml-2">Статус компонентов</span>
                           </Link>
                         </>
                       )}
