@@ -32,3 +32,9 @@ exemptions:
   nicks: []
   # Список UUID (строкой)
   uuids: []
+
+chat:
+  enabled: true
+  pollIntervalSeconds: 3
+  sitePrefix: "§d[TaskForge]§r "
+  minecraftPrefix: "[MC] "

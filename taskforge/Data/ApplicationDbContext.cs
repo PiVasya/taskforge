@@ -37,6 +37,7 @@ namespace taskforge.Data
         public DbSet<MinecraftLinkCode> MinecraftLinkCodes { get; set; } = null!;
         public DbSet<MinecraftWeeklyJoin> MinecraftWeeklyJoins { get; set; } = null!;
         public DbSet<MinecraftEconomySettings> MinecraftEconomySettings { get; set; } = null!;
+        public DbSet<MinecraftChatMessage> MinecraftChatMessages { get; set; } = null!;
 
         /// <summary>
         /// Records of individual user logins including timestamp, IP address and
@@ -104,6 +105,20 @@ namespace taskforge.Data
                 .HasIndex(u => u.TelegramChatId)
                 .IsUnique();
 
+
+            // ===== Minecraft chat =====
+            modelBuilder.Entity<MinecraftChatMessage>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<MinecraftChatMessage>()
+                .HasIndex(x => x.CreatedAtUtc);
+
+            modelBuilder.Entity<MinecraftChatMessage>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // ===== Feature roles =====
             modelBuilder.Entity<FeatureRole>()

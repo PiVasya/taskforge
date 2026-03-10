@@ -11,7 +11,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -63,6 +65,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int taskForgeTimeoutSeconds;
     private boolean debuffsEnabled;
     private int debuffDurationSeconds;
+    private boolean chatEnabled;
+    private int chatPollIntervalSeconds;
+    private String chatSitePrefix;
+    private String chatMinecraftPrefix;
+    private volatile Instant chatCursorUtc = Instant.EPOCH;
 
     // Игроки-исключения (чтобы не было запросов в API и не было дебаффов)
     private final Set<String> exemptNicksLower = ConcurrentHashMap.newKeySet();
@@ -152,6 +159,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         taskForgeTimeoutSeconds = Math.max(1, getConfig().getInt("taskforge.timeoutSeconds", 4));
         debuffsEnabled = getConfig().getBoolean("debuffs.enabled", true);
         debuffDurationSeconds = Math.max(30, getConfig().getInt("debuffs.durationSeconds", 600));
+        chatEnabled = getConfig().getBoolean("chat.enabled", true);
+        chatPollIntervalSeconds = Math.max(2, getConfig().getInt("chat.pollIntervalSeconds", 3));
+        chatSitePrefix = getConfig().getString("chat.sitePrefix", "§d[TaskForge]§r ");
+        chatMinecraftPrefix = getConfig().getString("chat.minecraftPrefix", "[MC] ");
+        chatCursorUtc = Instant.now();
 
         // exemptions
         exemptNicksLower.clear();
@@ -203,6 +215,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             return t;
         });
         janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
+        if (chatEnabled && canCallTaskForge()) {
+            janitor.scheduleAtFixedRate(this::pollSiteChatSafe, 3, chatPollIntervalSeconds, TimeUnit.SECONDS);
+        }
     }
 
     @Override
@@ -263,13 +278,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     getLogger().warning("TaskForge join call failed: " + ex.getMessage());
                     return null;
                 });
-    }
-
-    @EventHandler
-    public void onQuit(org.bukkit.event.player.PlayerQuitEvent e) {
-        Player p = e.getPlayer();
-        if (p == null) return;
-        plugin.graceOnline.remove(p.getUniqueId());
     }
 
     CompletableFuture<PlayerStatusResponse> getStatusAsync(Player p) {
@@ -355,6 +363,98 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         }
     }
 
+    void forwardMinecraftChatAsync(Player p, String message) {
+        if (!chatEnabled || !canCallTaskForge() || p == null || message == null || message.trim().isEmpty()) return;
+
+        String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/chat/bridge/incoming";
+        String body = GSON.toJson(new ChatBridgeRequest(p.getName(), p.getUniqueId().toString(), message.trim()));
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
+                .header("Content-Type", "application/json")
+                .header("X-Minecraft-Key", taskForgeKey)
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+
+        httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    getLogger().warning("TaskForge minecraft chat push failed: " + ex.getMessage());
+                    return null;
+                });
+    }
+
+    private void pollSiteChatSafe() {
+        try {
+            pollSiteChat();
+        } catch (Exception ex) {
+            getLogger().warning("TaskForge chat poll failed: " + ex.getMessage());
+        }
+    }
+
+    private void pollSiteChat() throws Exception {
+        if (!chatEnabled || !canCallTaskForge()) return;
+
+        String after = java.net.URLEncoder.encode(chatCursorUtc.toString(), StandardCharsets.UTF_8);
+        String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/chat/bridge/pull?afterUtc=" + after + "&take=50";
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
+                .header("X-Minecraft-Key", taskForgeKey)
+                .GET()
+                .build();
+
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+            getLogger().warning("TaskForge chat poll HTTP status=" + resp.statusCode());
+            return;
+        }
+
+        ChatMessageResponse[] items = GSON.fromJson(resp.body(), ChatMessageResponse[].class);
+        if (items == null || items.length == 0) return;
+
+        Instant maxSeen = chatCursorUtc;
+        for (ChatMessageResponse item : items) {
+            if (item == null || item.message == null || item.message.trim().isEmpty()) continue;
+            if ("Minecraft".equalsIgnoreCase(item.source)) continue;
+
+            String author = firstNonBlank(item.authorName, item.minecraftNick, "TaskForge");
+            String line = firstNonBlank(chatSitePrefix, "§d[TaskForge]§r ") + author + ": " + item.message;
+            for (Player pl : Bukkit.getOnlinePlayers()) {
+                sendChat(pl, line);
+            }
+
+            if (item.createdAtUtc != null && !item.createdAtUtc.isBlank()) {
+                try {
+                    Instant ts = Instant.parse(item.createdAtUtc);
+                    if (ts.isAfter(maxSeen)) maxSeen = ts;
+                } catch (Exception ignored) {}
+            }
+        }
+        chatCursorUtc = maxSeen;
+    }
+
+    static final class ChatBridgeRequest {
+        final String nick;
+        final String uuid;
+        final String message;
+        ChatBridgeRequest(String nick, String uuid, String message) {
+            this.nick = nick;
+            this.uuid = uuid;
+            this.message = message;
+        }
+    }
+
+    static final class ChatMessageResponse {
+        String source;
+        String authorName;
+        String minecraftNick;
+        String message;
+        String createdAtUtc;
+    }
+
     private static final class JoinEventRequest {
         final String nick;
         final String uuid;
@@ -431,6 +531,22 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 plugin.graceOnline.remove(p.getUniqueId());
                 plugin.applyDebuffs(p, true);
             }, plugin.tfExecutor);
+        }
+
+        @EventHandler
+        public void onQuit(PlayerQuitEvent e) {
+            Player p = e.getPlayer();
+            if (p == null) return;
+            plugin.graceOnline.remove(p.getUniqueId());
+            plugin.warnedOnce.remove(p.getUniqueId());
+        }
+
+        @EventHandler
+        public void onChat(AsyncPlayerChatEvent e) {
+            Player p = e.getPlayer();
+            if (p == null) return;
+            if (plugin.isExempt(p)) return;
+            plugin.forwardMinecraftChatAsync(p, e.getMessage());
         }
 
         @EventHandler

@@ -1,0 +1,80 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using taskforge.Constants;
+using taskforge.Data.Models.Entities;
+using taskforge.Services.Interfaces;
+
+namespace taskforge.Controllers.Integrations
+{
+    [ApiController]
+    [Route("api/integrations/minecraft/chat")]
+    public sealed class MinecraftChatController : ControllerBase
+    {
+        private readonly IMinecraftChatService _chat;
+        private readonly ICurrentUserService _current;
+        private readonly IConfiguration _cfg;
+
+        public MinecraftChatController(IMinecraftChatService chat, ICurrentUserService current, IConfiguration cfg)
+        {
+            _chat = chat;
+            _current = current;
+            _cfg = cfg;
+        }
+
+        public sealed record SiteChatMessageDto(string Message);
+        public sealed record IncomingMinecraftChatDto(string Nick, string? Uuid, string Message);
+        public sealed record MinecraftChatMessageDto(Guid Id, string Source, string? AuthorName, string? MinecraftNick, string? MinecraftUuid, string Message, DateTime CreatedAtUtc);
+
+        [HttpGet("messages")]
+        [Authorize]
+        public async Task<IActionResult> GetMessages([FromQuery] int take = 60, CancellationToken ct = default)
+        {
+            if (!_current.HasAnyRole(AppRoles.Admin, FeatureRoles.Minecraft))
+                return Forbid();
+
+            var list = await _chat.GetRecentAsync(take, ct);
+            return Ok(list.Select(ToDto));
+        }
+
+        [HttpPost("messages")]
+        [Authorize]
+        public async Task<IActionResult> PostSiteMessage([FromBody] SiteChatMessageDto dto, CancellationToken ct = default)
+        {
+            if (!_current.HasAnyRole(AppRoles.Admin, FeatureRoles.Minecraft))
+                return Forbid();
+
+            var created = await _chat.AddSiteMessageAsync(_current.GetUserId(), _current.IsAdmin(), dto.Message, ct);
+            return Ok(ToDto(created));
+        }
+
+        [HttpPost("bridge/incoming")]
+        [AllowAnonymous]
+        public async Task<IActionResult> PostIncomingMinecraft([FromBody] IncomingMinecraftChatDto dto, CancellationToken ct = default)
+        {
+            if (!IsPluginAuthorized()) return Unauthorized();
+
+            var created = await _chat.AddMinecraftMessageAsync(dto.Nick, dto.Uuid, dto.Message, ct);
+            return Ok(ToDto(created));
+        }
+
+        [HttpGet("bridge/pull")]
+        [AllowAnonymous]
+        public async Task<IActionResult> PullForMinecraft([FromQuery] DateTime? afterUtc = null, [FromQuery] int take = 50, CancellationToken ct = default)
+        {
+            if (!IsPluginAuthorized()) return Unauthorized();
+            var list = await _chat.GetOutgoingForMinecraftAsync(afterUtc, take, ct);
+            return Ok(list.Select(ToDto));
+        }
+
+        private bool IsPluginAuthorized()
+        {
+            var key = _cfg["MINECRAFT_PLUGIN_KEY"] ?? _cfg["MINECRAFT_SERVER_KEY"];
+            if (string.IsNullOrWhiteSpace(key)) return false;
+            if (!Request.Headers.TryGetValue("X-Minecraft-Key", out var got)) return false;
+            return string.Equals(got.ToString(), key, StringComparison.Ordinal);
+        }
+
+        private static MinecraftChatMessageDto ToDto(MinecraftChatMessage x)
+            => new(x.Id, x.Source, x.AuthorName, x.MinecraftNick, x.MinecraftUuid, x.Message, x.CreatedAtUtc);
+    }
+}

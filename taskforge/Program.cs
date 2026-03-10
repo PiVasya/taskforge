@@ -32,6 +32,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IFeatureRoleService, FeatureRoleService>();
+builder.Services.AddScoped<IMinecraftChatService, MinecraftChatService>();
 
 // квоты (token bucket)
 builder.Services.AddScoped<IQuotaService, QuotaService>();
@@ -337,5 +338,6 @@ app.MapControllers();
 
 // SignalR хаб поддержки
 app.MapHub<SupportHub>("/hubs/support");
+app.MapHub<MinecraftChatHub>("/hubs/minecraft-chat");
 
 app.Run();
