@@ -11,12 +11,6 @@ namespace taskforge.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<int>(
-                name: "PenaltyApplied",
-                table: "MinecraftWeeklyJoins",
-                type: "integer",
-                nullable: false,
-                defaultValue: 0);
 
             migrationBuilder.CreateTable(
                 name: "FeatureRoles",
@@ -92,10 +86,6 @@ namespace taskforge.Migrations
 
             migrationBuilder.DropTable(
                 name: "FeatureRoles");
-
-            migrationBuilder.DropColumn(
-                name: "PenaltyApplied",
-                table: "MinecraftWeeklyJoins");
         }
     }
 }

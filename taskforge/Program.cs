@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 using System;
 using System.ComponentModel.DataAnnotations;
@@ -145,7 +146,14 @@ builder.Services.AddCors(options =>
 
 // БД
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+
+    // Не валим приложение на старте из-за PendingModelChangesWarning.
+    // В проекте миграции применяются автоматически при запуске, а часть миграций поддерживается вручную.
+    // Если модель слегка расходится со snapshot, это предупреждение не должно ронять сервис раньше самой миграции.
+    options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+});
 
 // Controllers
 builder.Services.AddControllers()
