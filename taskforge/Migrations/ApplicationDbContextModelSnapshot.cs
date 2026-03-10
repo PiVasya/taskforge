@@ -127,6 +127,43 @@ namespace taskforge.Migrations
                     b.ToTable("CourseVisibleGroups");
                 });
 
+            modelBuilder.Entity("taskforge.Data.Models.Entities.FeatureRole", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("FeatureRoles");
+                });
+
             modelBuilder.Entity("taskforge.Data.Models.Entities.MinecraftEconomySettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -190,6 +227,9 @@ namespace taskforge.Migrations
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PenaltyApplied")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
@@ -622,6 +662,29 @@ namespace taskforge.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("UserBadges");
+                });
+
+            modelBuilder.Entity("taskforge.Data.Models.Entities.UserFeatureRole", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AssignedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AssignedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("AssignedByUserId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("UserFeatureRoles");
                 });
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserGroup", b =>
@@ -1143,6 +1206,32 @@ namespace taskforge.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("taskforge.Data.Models.Entities.UserFeatureRole", b =>
+                {
+                    b.HasOne("taskforge.Data.Models.Entities.User", "AssignedByUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("taskforge.Data.Models.Entities.FeatureRole", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("taskforge.Data.Models.Entities.User", "User")
+                        .WithMany("FeatureRoles")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AssignedByUser");
+
+                    b.Navigation("Role");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("taskforge.Data.Models.Entities.UserGroupMember", b =>
                 {
                     b.HasOne("taskforge.Data.Models.Entities.UserGroup", "Group")
@@ -1250,6 +1339,11 @@ namespace taskforge.Migrations
                     b.Navigation("VisibleGroups");
                 });
 
+            modelBuilder.Entity("taskforge.Data.Models.Entities.FeatureRole", b =>
+                {
+                    b.Navigation("Users");
+                });
+
             modelBuilder.Entity("taskforge.Data.Models.Entities.SupportTicket", b =>
                 {
                     b.Navigation("Messages");
@@ -1264,6 +1358,8 @@ namespace taskforge.Migrations
 
             modelBuilder.Entity("taskforge.Data.Models.Entities.User", b =>
                 {
+                    b.Navigation("FeatureRoles");
+
                     b.Navigation("GroupMembers");
 
                     b.Navigation("OwnedCourses");
