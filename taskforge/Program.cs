@@ -241,8 +241,10 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
         .CreateLogger("DatabaseMigration");
 
-    // env имеет приоритет над всем
-    var autoMigrate = app.Environment.IsDevelopment();
+    // По умолчанию миграции применяем автоматически даже в production,
+    // потому что БД может быть доступна только изнутри окружения приложения.
+    // Отключение доступно через DB_AUTO_MIGRATE=false.
+    var autoMigrate = true;
     var envAuto = Environment.GetEnvironmentVariable("DB_AUTO_MIGRATE");
     if (!string.IsNullOrWhiteSpace(envAuto) && bool.TryParse(envAuto, out var parsed))
         autoMigrate = parsed;
@@ -252,18 +254,18 @@ using (var scope = app.Services.CreateScope())
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         if (!autoMigrate)
         {
-            logger.LogWarning("DB_AUTO_MIGRATE=false -> skipping Database.Migrate(). Run migrations manually when you change the model.");
+            logger.LogWarning("DB_AUTO_MIGRATE=false -> skipping Database.Migrate() and feature role bootstrap.");
         }
         else
         {
             db.Database.Migrate();
             logger.LogInformation("Database migrations applied successfully");
-        }
 
-        var featureRoles = scope.ServiceProvider.GetRequiredService<IFeatureRoleService>();
-        await featureRoles.EnsureDefaultRolesAsync();
-        await featureRoles.SyncMinecraftLinkedUsersAsync();
-        logger.LogInformation("Feature roles ensured and Minecraft-linked users synced");
+            var featureRoles = scope.ServiceProvider.GetRequiredService<IFeatureRoleService>();
+            await featureRoles.EnsureDefaultRolesAsync();
+            await featureRoles.SyncMinecraftLinkedUsersAsync();
+            logger.LogInformation("Feature roles ensured and Minecraft-linked users synced");
+        }
     }
     catch (Exception ex)
     {
