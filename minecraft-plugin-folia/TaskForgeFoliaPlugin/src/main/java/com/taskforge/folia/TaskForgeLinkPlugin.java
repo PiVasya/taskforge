@@ -12,7 +12,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
-import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.potion.PotionEffect;
@@ -496,33 +495,42 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
             plugin.notifyJoinAsync(p).thenAcceptAsync(st -> {
                 final boolean linked = st != null && st.linked;
-                final boolean shouldDebuff = st == null || !linked || st.debuffed;
+
+                // API реально недоступен/сломался — не наказываем игрока вслепую.
+                if (st == null) {
+                    plugin.sendChat(p, "§eTaskForge: §cне удалось проверить статус (API недоступен). Попробуй позже.");
+                    plugin.applyDebuffs(p, false);
+                    return;
+                }
 
                 // Optional info about the weekly penalty.
-                if (st != null && st.chargedThisWeek) {
+                if (st.chargedThisWeek) {
                     p.getScheduler().run(plugin, t -> p.sendMessage("§eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenalty + ")"), null);
                 }
 
-                if (!shouldDebuff) {
+                // Незалинкованный игрок должен получать дебафф сразу.
+                if (!linked) {
+                    plugin.graceOnline.remove(p.getUniqueId());
+                    plugin.warnedOnce.remove(p.getUniqueId());
+                    plugin.sendChat(p, "§eTaskForge: §6привяжи аккаунт на сайте TaskForge (профиль → Minecraft). Пока аккаунт не привязан, действует ограничение.");
+                    plugin.applyDebuffs(p, true);
+                    return;
+                }
+
+                // Всё хорошо — точно снимаем дебаффы и чистим grace.
+                if (!st.debuffed) {
                     plugin.graceOnline.remove(p.getUniqueId());
                     plugin.warnedOnce.remove(p.getUniqueId());
                     plugin.applyDebuffs(p, false);
                     return;
                 }
 
-                // Player-facing hint.
-                if (st == null) {
-                    plugin.sendChat(p, "§eTaskForge: §cне удалось проверить статус (API недоступен). Попробуй позже.");
-                } else if (!linked) {
-                    plugin.sendChat(p, "§eTaskForge: §6привяжи аккаунт на сайте TaskForge (профиль → Minecraft). После привязки зайди снова.");
-                } else {
-                    plugin.sendChat(p,
-                        "§eTaskForge: §cнедостаточно рейтинга для сервера. §7Рейтинг=" + st.score +
-                        " штраф=" + st.penaltyTotal + " итог=" + st.effectiveScore +
-                        " (нужно ≥0). Решай задачи и зайди снова.");
-                }
+                plugin.sendChat(p,
+                    "§eTaskForge: §cнедостаточно рейтинга для сервера. §7Рейтинг=" + st.score +
+                    " штраф=" + st.penaltyTotal + " итог=" + st.effectiveScore +
+                    " (нужно ≥0). Решай задачи и зайди снова.");
 
-                // Soft mode: first problematic join -> warning only.
+                // Soft mode оставляем только для случая нехватки рейтинга.
                 if (plugin.warnedOnce.putIfAbsent(p.getUniqueId(), true) == null) {
                     plugin.graceOnline.add(p.getUniqueId());
                     plugin.applyDebuffs(p, false);
@@ -539,7 +547,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             Player p = e.getPlayer();
             if (p == null) return;
             plugin.graceOnline.remove(p.getUniqueId());
-            plugin.warnedOnce.remove(p.getUniqueId());
         }
 
         @EventHandler
@@ -548,24 +555,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             if (p == null) return;
             if (plugin.isExempt(p)) return;
             plugin.forwardMinecraftChatAsync(p, e.getMessage());
-        }
-
-        @EventHandler
-        public void onAdvancement(PlayerAdvancementDoneEvent e) {
-            Player p = e.getPlayer();
-            if (p == null) return;
-            if (plugin.isExempt(p)) return;
-            if (e.getAdvancement() == null || e.getAdvancement().getKey() == null) return;
-
-            String key = e.getAdvancement().getKey().getKey();
-            if (key == null || key.isBlank()) return;
-            if (key.startsWith("recipes/") || key.contains("root")) return;
-
-            String shortName = key.contains("/") ? key.substring(key.lastIndexOf('/') + 1) : key;
-            shortName = shortName.replace('_', ' ').trim();
-            if (shortName.isBlank()) shortName = key;
-
-            plugin.forwardMinecraftChatAsync(p, "🏆 получил достижение: " + shortName);
         }
 
         @EventHandler
@@ -582,8 +571,13 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 // Death re-check: if player is in the grace window (first warning join), do nothing.
                 if (plugin.graceOnline.contains(p.getUniqueId())) return;
 
-                final boolean linked = st != null && st.linked;
-                final boolean shouldDebuff = st == null || !linked || st.debuffed;
+                if (st == null) {
+                    plugin.applyDebuffs(p, false);
+                    return;
+                }
+
+                final boolean linked = st.linked;
+                final boolean shouldDebuff = !linked || st.debuffed;
                 plugin.applyDebuffs(p, shouldDebuff);
             }, plugin.tfExecutor);
         }

@@ -41,7 +41,6 @@ import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
 import AdminBadgesPage from './pages/admin/AdminBadgesPage';
 import AdminGroupsPage from './pages/admin/AdminGroupsPage';
 import AdminFeatureRolesPage from './pages/admin/AdminFeatureRolesPage';
-import AdminSystemStatusPage from './pages/admin/AdminSystemStatusPage';
 import MinecraftChatPage from './pages/minecraft/MinecraftChatPage';
 
 function Home() {
@@ -112,7 +111,6 @@ export default function App() {
             <Route path="/admin/support" element={<AdminSupportPage />} />
             <Route path="/admin/groups" element={<AdminGroupsPage />} />
             <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
-            <Route path="/admin/system-status" element={<AdminSystemStatusPage />} />
           </Route>
         </Route>
 

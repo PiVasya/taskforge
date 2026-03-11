@@ -507,7 +507,18 @@ public sealed class MinecraftLinkController : ControllerBase
         }
 
         if (user == null)
-            return NotFound(new { message = "user not linked" });
+            return Ok(new MinecraftPlayerStatusDto(
+                Linked: false,
+                Nick: nick,
+                Uuid: string.IsNullOrWhiteSpace(uuid) ? null : uuid,
+                LinkCount: 0,
+                Score: 0,
+                WeeklyPenaltyCurrent: await GetWeeklyPenaltyAsync(ct),
+                PenaltyTotal: 0,
+                EffectiveScore: 0,
+                ChargedThisWeek: false,
+                Debuffed: true
+            ));
 
         // если пришёл UUID — сохраним (это удобно, если ник сменится)
         if (!string.IsNullOrWhiteSpace(uuid) && user.MinecraftUuid != uuid)
@@ -597,7 +608,18 @@ public sealed class MinecraftLinkController : ControllerBase
         }
 
         if (user == null)
-            return NotFound(new { message = "user not linked" });
+            return Ok(new MinecraftPlayerStatusDto(
+                Linked: false,
+                Nick: string.IsNullOrWhiteSpace(n) ? null : n,
+                Uuid: string.IsNullOrWhiteSpace(u) ? null : u,
+                LinkCount: 0,
+                Score: 0,
+                WeeklyPenaltyCurrent: await GetWeeklyPenaltyAsync(ct),
+                PenaltyTotal: 0,
+                EffectiveScore: 0,
+                ChargedThisWeek: false,
+                Debuffed: true
+            ));
 
         var penalty = await GetWeeklyPenaltyAsync(ct);
         var score = await GetUserScoreAsync(user.Id, ct);
