@@ -7,6 +7,6 @@ namespace taskforge.Services.Interfaces
         Task<IReadOnlyList<MinecraftChatMessage>> GetRecentAsync(int take, CancellationToken ct = default);
         Task<IReadOnlyList<MinecraftChatMessage>> GetOutgoingForMinecraftAsync(DateTime? afterUtc, int take, CancellationToken ct = default);
         Task<MinecraftChatMessage> AddSiteMessageAsync(Guid userId, bool isAdmin, string message, CancellationToken ct = default);
-        Task<MinecraftChatMessage> AddMinecraftMessageAsync(string nick, string? uuid, string message, CancellationToken ct = default);
+        Task<MinecraftChatMessage> AddMinecraftMessageAsync(string nick, string? uuid, string message, string? kind = null, CancellationToken ct = default);
     }
 }

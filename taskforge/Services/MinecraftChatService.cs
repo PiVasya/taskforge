@@ -34,7 +34,7 @@ namespace taskforge.Services
             take = Math.Clamp(take, 1, 100);
             var q = _db.MinecraftChatMessages
                 .AsNoTracking()
-                .Where(x => x.Source != "Minecraft");
+                .Where(x => x.Source == "SiteAdmin" || x.Source == "SiteUser");
 
             if (afterUtc != null)
                 q = q.Where(x => x.CreatedAtUtc > afterUtc.Value);
@@ -68,7 +68,7 @@ namespace taskforge.Services
             return entity;
         }
 
-        public async Task<MinecraftChatMessage> AddMinecraftMessageAsync(string nick, string? uuid, string message, CancellationToken ct = default)
+        public async Task<MinecraftChatMessage> AddMinecraftMessageAsync(string nick, string? uuid, string message, string? kind = null, CancellationToken ct = default)
         {
             var text = NormalizeMessage(message);
             var cleanNick = (nick ?? string.Empty).Trim();
@@ -90,7 +90,7 @@ namespace taskforge.Services
             {
                 Id = Guid.NewGuid(),
                 UserId = matchedUserId,
-                Source = "Minecraft",
+                Source = NormalizeSource(kind),
                 AuthorName = cleanNick,
                 MinecraftNick = cleanNick,
                 MinecraftUuid = string.IsNullOrWhiteSpace(uuid) ? null : uuid.Trim(),
@@ -118,6 +118,19 @@ namespace taskforge.Services
             };
 
             await _hub.Clients.Group("minecraft-chat").SendAsync("ReceiveMessage", payload, ct);
+        }
+
+
+        private static string NormalizeSource(string? kind)
+        {
+            var value = (kind ?? string.Empty).Trim().ToLowerInvariant();
+            return value switch
+            {
+                "join" => "MinecraftJoin",
+                "quit" => "MinecraftQuit",
+                "advancement" => "MinecraftAdvancement",
+                _ => "Minecraft"
+            };
         }
 
         private static string NormalizeMessage(string message)

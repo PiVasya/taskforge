@@ -14,6 +14,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -364,10 +365,19 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     }
 
     void forwardMinecraftChatAsync(Player p, String message) {
+        forwardMinecraftEventAsync(p, message, "chat");
+    }
+
+    void forwardMinecraftEventAsync(Player p, String message, String kind) {
         if (!chatEnabled || !canCallTaskForge() || p == null || message == null || message.trim().isEmpty()) return;
 
         String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/chat/bridge/incoming";
-        String body = GSON.toJson(new ChatBridgeRequest(p.getName(), p.getUniqueId().toString(), message.trim()));
+        String body = GSON.toJson(new ChatBridgeRequest(
+                p.getName(),
+                p.getUniqueId().toString(),
+                message.trim(),
+                kind == null ? "chat" : kind.trim()
+        ));
 
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -440,10 +450,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         final String nick;
         final String uuid;
         final String message;
-        ChatBridgeRequest(String nick, String uuid, String message) {
+        final String kind;
+        ChatBridgeRequest(String nick, String uuid, String message, String kind) {
             this.nick = nick;
             this.uuid = uuid;
             this.message = message;
+            this.kind = kind;
         }
     }
 
@@ -482,6 +494,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         @EventHandler
         public void onJoin(PlayerJoinEvent e) {
             Player p = e.getPlayer();
+            if (p != null && !plugin.isExempt(p)) {
+                plugin.forwardMinecraftEventAsync(p, p.getName() + " зашёл на сервер", "join");
+            }
 
             // Исключения: не пишем в TaskForge и гарантируем отсутствие дебаффов.
             if (plugin.isExempt(p)) {
@@ -546,7 +561,20 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         public void onQuit(PlayerQuitEvent e) {
             Player p = e.getPlayer();
             if (p == null) return;
+            if (!plugin.isExempt(p)) {
+                plugin.forwardMinecraftEventAsync(p, p.getName() + " вышел с сервера", "quit");
+            }
             plugin.graceOnline.remove(p.getUniqueId());
+        }
+
+        @EventHandler
+        public void onAdvancement(PlayerAdvancementDoneEvent e) {
+            Player p = e.getPlayer();
+            if (p == null || plugin.isExempt(p)) return;
+            String key = e.getAdvancement() != null && e.getAdvancement().getKey() != null
+                    ? e.getAdvancement().getKey().getKey()
+                    : "advancement";
+            plugin.forwardMinecraftEventAsync(p, p.getName() + " получил достижение: " + key, "advancement");
         }
 
         @EventHandler

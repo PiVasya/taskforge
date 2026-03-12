@@ -1,87 +1,85 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, RefreshCw, ServerCrash, ShieldCheck } from 'lucide-react';
 import Layout from '../../components/Layout';
-import { Button, Card, Badge } from '../../components/ui';
-import { Activity, RefreshCw, Server, ShieldAlert } from 'lucide-react';
+import { Button, Card } from '../../components/ui';
 import { getSystemStatus } from '../../api/systemStatus';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { handleApiError } from '../../utils/handleApiError';
 
-function fmtTime(ms) {
-  if (!ms) return '—';
-  return new Date(ms).toLocaleString();
+function StatCard({ label, value, className = '' }) {
+  return (
+    <Card className={`p-5 ${className}`}>
+      <div className="text-sm text-neutral-500">{label}</div>
+      <div className="mt-2 text-4xl font-semibold">{value}</div>
+    </Card>
+  );
 }
 
 export default function AdminSystemStatusPage() {
   const notify = useNotify();
-  const [components, setComponents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [data, setData] = useState(null);
 
-  const load = async ({ silent = false } = {}) => {
+  const load = async (silent = false) => {
     try {
-      if (silent) setRefreshing(true);
-      else setLoading(true);
-      const data = await getSystemStatus();
-      setComponents(Array.isArray(data?.components) ? data.components : []);
+      if (!silent) setLoading(true);
+      const res = await getSystemStatus();
+      setData(res);
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось получить статус компонентов');
+      notify.error(e?.message || 'Не удалось проверить статус компонентов');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { load(); }, []);
 
-  const summary = useMemo(() => {
-    const total = components.length;
-    const healthy = components.filter((x) => x.isHealthy).length;
-    return { total, healthy, unhealthy: total - healthy };
-  }, [components]);
+  const stats = useMemo(() => {
+    const items = Array.isArray(data?.components) ? data.components : [];
+    return {
+      total: items.length,
+      healthy: items.filter((x) => x.status === 'healthy').length,
+      bad: items.filter((x) => x.status !== 'healthy').length,
+    };
+  }, [data]);
 
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2"><Activity size={22} /> Статус компонентов</h1>
-            <p className="text-sm text-neutral-500 mt-2">Проверка выполняется при открытии страницы. Пока отслеживается только Minecraft-сервер.</p>
+            <h1 className="text-3xl font-semibold flex items-center gap-3"><Activity size={28} /> Статус компонентов</h1>
+            <p className="text-neutral-500 mt-2">Проверка выполняется при открытии страницы. Сейчас отслеживается связка с Minecraft-плагином.</p>
           </div>
-          <Button variant="outline" onClick={() => load({ silent: true })} disabled={refreshing || loading}>
-            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> <span className="ml-1">Обновить</span>
-          </Button>
+          <Button variant="outline" onClick={() => load()} disabled={loading}><RefreshCw size={16} /><span className="ml-1">Обновить</span></Button>
         </div>
 
         <div className="grid md:grid-cols-3 gap-4">
-          <Card><div className="text-sm opacity-70">Всего компонентов</div><div className="text-3xl font-semibold mt-2">{summary.total}</div></Card>
-          <Card><div className="text-sm opacity-70">В строю</div><div className="text-3xl font-semibold mt-2 text-emerald-500">{summary.healthy}</div></Card>
-          <Card><div className="text-sm opacity-70">Проблемных</div><div className="text-3xl font-semibold mt-2 text-rose-500">{summary.unhealthy}</div></Card>
+          <StatCard label="Всего компонентов" value={stats.total} />
+          <StatCard label="В строю" value={stats.healthy} className="text-emerald-500" />
+          <StatCard label="Проблемных" value={stats.bad} className="text-rose-500" />
         </div>
 
-        {loading ? <div className="text-neutral-500">Проверка…</div> : (
-          <div className="grid gap-4">
-            {components.map((item) => (
-              <Card key={item.key} className="border border-neutral-200/60 dark:border-neutral-800/60">
-                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-lg font-semibold">
-                      {item.isHealthy ? <Server size={18} className="text-emerald-500" /> : <ShieldAlert size={18} className="text-rose-500" />}
-                      <span>{item.name}</span>
-                    </div>
-                    <div className="text-sm opacity-70 mt-1">{item.endpoint || 'endpoint не задан'}</div>
-                    <div className="text-sm mt-3 whitespace-pre-wrap">{item.details || 'Без подробностей.'}</div>
+        <div className="space-y-4">
+          {(data?.components || []).map((item) => (
+            <Card key={item.code} className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-2xl font-semibold">
+                    {item.status === 'healthy' ? <ShieldCheck className="text-emerald-500" size={22} /> : <ServerCrash className="text-rose-500" size={22} />}
+                    <span>{item.name}</span>
                   </div>
-                  <div className="flex flex-col gap-2 text-sm lg:items-end">
-                    <Badge intent={item.isHealthy ? 'success' : 'danger'}>{item.status}</Badge>
-                    <div>Задержка: <b>{item.latencyMs != null ? `${item.latencyMs} ms` : '—'}</b></div>
-                    <div>Проверено: <b>{fmtTime(item.checkedAtUnixMs)}</b></div>
-                  </div>
+                  <div className="text-sm text-neutral-500 mt-2">{item.details || '—'}</div>
+                  {item.endpoint && <div className="text-xs text-neutral-400 mt-2">{item.endpoint}</div>}
                 </div>
-              </Card>
-            ))}
-            {components.length === 0 && <Card><div className="text-neutral-500">Компоненты пока не настроены.</div></Card>}
-          </div>
-        )}
+                <span className={`text-xs rounded-full border px-3 py-1 ${item.status === 'healthy' ? 'border-emerald-500/30 text-emerald-500' : 'border-rose-500/30 text-rose-500'}`}>{item.status}</span>
+              </div>
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm">
+                <div>Задержка: <b>{item.latencyMs == null ? '—' : `${item.latencyMs} мс`}</b></div>
+                <div>Проверено: <b>{item.checkedAtUtc ? new Date(item.checkedAtUtc).toLocaleString() : '—'}</b></div>
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
     </Layout>
   );

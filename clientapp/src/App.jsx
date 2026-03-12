@@ -41,6 +41,10 @@ import AdminSolutionsPage from './pages/admin/AdminSolutionsPage';
 import AdminBadgesPage from './pages/admin/AdminBadgesPage';
 import AdminGroupsPage from './pages/admin/AdminGroupsPage';
 import AdminFeatureRolesPage from './pages/admin/AdminFeatureRolesPage';
+import AdminSystemStatusPage from './pages/admin/AdminSystemStatusPage';
+import AdminUsersPage from './pages/admin/AdminUsersPage';
+import AdminMinecraftLinksPage from './pages/admin/AdminMinecraftLinksPage';
+import AdminAssignmentInsightsPage from './pages/admin/AdminAssignmentInsightsPage';
 import MinecraftChatPage from './pages/minecraft/MinecraftChatPage';
 
 function Home() {
@@ -111,6 +115,10 @@ export default function App() {
             <Route path="/admin/support" element={<AdminSupportPage />} />
             <Route path="/admin/groups" element={<AdminGroupsPage />} />
             <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
+            <Route path="/admin/system-status" element={<AdminSystemStatusPage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/minecraft-links" element={<AdminMinecraftLinksPage />} />
+            <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />
           </Route>
         </Route>
 

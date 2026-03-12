@@ -22,7 +22,7 @@ namespace taskforge.Controllers.Integrations
         }
 
         public sealed record SiteChatMessageDto(string Message);
-        public sealed record IncomingMinecraftChatDto(string Nick, string? Uuid, string Message);
+        public sealed record IncomingMinecraftChatDto(string Nick, string? Uuid, string Message, string? Kind = null);
         public sealed record MinecraftChatMessageDto(Guid Id, string Source, string? AuthorName, string? MinecraftNick, string? MinecraftUuid, string Message, DateTime CreatedAtUtc);
 
         [HttpGet("messages")]
@@ -53,7 +53,7 @@ namespace taskforge.Controllers.Integrations
         {
             if (!IsPluginAuthorized()) return Unauthorized();
 
-            var created = await _chat.AddMinecraftMessageAsync(dto.Nick, dto.Uuid, dto.Message, ct);
+            var created = await _chat.AddMinecraftMessageAsync(dto.Nick, dto.Uuid, dto.Message, dto.Kind, ct);
             return Ok(ToDto(created));
         }
 

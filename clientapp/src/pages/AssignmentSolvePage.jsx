@@ -16,7 +16,8 @@ import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 
-import { ArrowLeft, Play, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Play, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
+import { useRoleFlags } from '../contexts/EditorModeContext';
 
 // ===== Все языки, которые поддерживает система =====
 const ALL_LANGS = [
@@ -75,6 +76,7 @@ export default function AssignmentSolvePage() {
   const nav = useNavigate();
 
   const notify = useNotify();
+  const { isAdmin } = useRoleFlags();
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -360,8 +362,13 @@ export default function AssignmentSolvePage() {
               <ArrowLeft size={16} /> к заданиям курса
             </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <QuotaPill bucket="tasks" />
+            {isAdmin && (
+              <Link to={`/admin/assignments/${a.id}/insights`} className="btn-outline">
+                <BarChart3 size={16} className="mr-2" /> Аналитика задания
+              </Link>
+            )}
             <IfEditor>
               <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
                 Редактировать
@@ -478,8 +485,13 @@ export default function AssignmentSolvePage() {
               <ArrowLeft size={16} /> к заданиям курса
             </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <QuotaPill bucket="tasks" />
+            {isAdmin && (
+              <Link to={`/admin/assignments/${a.id}/insights`} className="btn-outline">
+                <BarChart3 size={16} className="mr-2" /> Аналитика задания
+              </Link>
+            )}
             <IfEditor>
               <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
                 Редактировать

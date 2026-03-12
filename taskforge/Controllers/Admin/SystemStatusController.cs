@@ -1,99 +1,100 @@
-using System.Net.Sockets;
+using System.Diagnostics;
+using System.Net.Http;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using taskforge.Constants;
+using Microsoft.Extensions.Configuration;
 
 namespace taskforge.Controllers.Admin;
 
 [ApiController]
 [Route("api/admin/system-status")]
-[Authorize(Roles = AppRoles.Admin)]
+[Authorize(Roles = "Admin")]
 public sealed class SystemStatusController : ControllerBase
 {
+    private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _cfg;
-    private readonly ILogger<SystemStatusController> _log;
 
-    public SystemStatusController(IConfiguration cfg, ILogger<SystemStatusController> log)
+    public SystemStatusController(IHttpClientFactory httpFactory, IConfiguration cfg)
     {
+        _httpFactory = httpFactory;
         _cfg = cfg;
-        _log = log;
     }
 
-    public sealed record ComponentStatusDto(
-        string Key,
-        string Name,
-        bool IsHealthy,
-        string Status,
-        string? Details,
-        long CheckedAtUnixMs,
-        int? LatencyMs,
-        string? Endpoint);
-
+    public sealed record ComponentStatusDto(string Code, string Name, string Status, string? Details, string? Endpoint, long? LatencyMs, DateTime CheckedAtUtc);
     public sealed record SystemStatusDto(IReadOnlyList<ComponentStatusDto> Components);
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
-        var list = new List<ComponentStatusDto>
+        var components = new List<ComponentStatusDto>
         {
-            await CheckMinecraftServerAsync(ct)
+            await CheckMinecraftPluginAsync(ct)
         };
 
-        return Ok(new SystemStatusDto(list));
+        return Ok(new SystemStatusDto(components));
     }
 
-    private async Task<ComponentStatusDto> CheckMinecraftServerAsync(CancellationToken ct)
+    private async Task<ComponentStatusDto> CheckMinecraftPluginAsync(CancellationToken ct)
     {
-        var host = (_cfg["MINECRAFT_SERVER_HOST"] ?? _cfg["Minecraft:ServerHost"] ?? string.Empty).Trim();
-        var portRaw = _cfg["MINECRAFT_SERVER_PORT"] ?? _cfg["Minecraft:ServerPort"];
-        var name = (_cfg["MINECRAFT_SERVER_NAME"] ?? "Minecraft сервер").Trim();
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var baseUrl = (_cfg["MINECRAFT_WEBHOOK_BASE_URL"] ?? _cfg["MINECRAFT_SERVER_URL"] ?? string.Empty).Trim();
+        var healthUrl = (_cfg["MINECRAFT_HEALTH_URL"] ?? string.Empty).Trim();
+        var endpoint = !string.IsNullOrWhiteSpace(healthUrl)
+            ? healthUrl
+            : (!string.IsNullOrWhiteSpace(baseUrl) ? new Uri(new Uri(baseUrl.TrimEnd('/') + "/"), "health").ToString() : null);
 
-        if (string.IsNullOrWhiteSpace(host) || !int.TryParse(portRaw, out var port) || port <= 0)
+        if (string.IsNullOrWhiteSpace(endpoint))
         {
             return new ComponentStatusDto(
-                "minecraft-server",
-                name,
-                false,
+                "minecraft-plugin",
+                "Minecraft сервер",
                 "not_configured",
-                "Не заданы MINECRAFT_SERVER_HOST / MINECRAFT_SERVER_PORT.",
-                nowMs,
+                "Не заданы MINECRAFT_WEBHOOK_BASE_URL или MINECRAFT_HEALTH_URL.",
                 null,
-                null);
+                null,
+                DateTime.UtcNow);
         }
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            using var client = new TcpClient();
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(3));
-            await client.ConnectAsync(host, port, timeoutCts.Token);
+            var sw = Stopwatch.StartNew();
+            var client = _httpFactory.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            using var resp = await client.SendAsync(req, ct);
             sw.Stop();
 
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                if (body.Length > 200) body = body[..200] + "…";
+                return new ComponentStatusDto(
+                    "minecraft-plugin",
+                    "Minecraft сервер",
+                    "degraded",
+                    $"Health endpoint вернул {(int)resp.StatusCode}. {body}",
+                    endpoint,
+                    sw.ElapsedMilliseconds,
+                    DateTime.UtcNow);
+            }
+
             return new ComponentStatusDto(
-                "minecraft-server",
-                name,
-                true,
-                "online",
-                "TCP соединение установлено.",
-                nowMs,
-                (int)sw.ElapsedMilliseconds,
-                $"{host}:{port}");
+                "minecraft-plugin",
+                "Minecraft сервер",
+                "healthy",
+                "TaskForge видит health endpoint плагина.",
+                endpoint,
+                sw.ElapsedMilliseconds,
+                DateTime.UtcNow);
         }
         catch (Exception ex)
         {
-            sw.Stop();
-            _log.LogWarning(ex, "Minecraft server health check failed for {Host}:{Port}", host, port);
             return new ComponentStatusDto(
-                "minecraft-server",
-                name,
-                false,
-                "offline",
+                "minecraft-plugin",
+                "Minecraft сервер",
+                "down",
                 ex.Message,
-                nowMs,
-                (int)sw.ElapsedMilliseconds,
-                $"{host}:{port}");
+                endpoint,
+                null,
+                DateTime.UtcNow);
         }
     }
 }

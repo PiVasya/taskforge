@@ -23,16 +23,18 @@ import {
   Award,
   Shield,
   LifeBuoy,
-  Newspaper,
   MessageSquare,
-	  Menu,
+  Activity,
+  UserCog,
+  Link2,
+  Menu,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 
-export default function Layout({ children, fullWidth = false }) {
+export default function Layout({ children, fullWidth = false, hideFooter = false }) {
   // Вся тема завязана на классах у <html>: html.dark и html.(blue|pink|apple).
   // Если классов нет — CSS-переменные (например --page-bg) не задаются, и фон выглядит белым.
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
@@ -243,15 +245,6 @@ export default function Layout({ children, fullWidth = false }) {
           <div className={`hidden xl:flex items-center gap-2 ${forceCompact ? 'xl:hidden' : ''}`}
           >
             {/* Быстрые переключатели темы/палитры убраны из хедера — оставлены только на странице настроек */}
-
-            {/* новости */}
-            {access && (
-              <Link to="/news" className="btn-outline" title="Новости">
-                <Newspaper size={18} />
-                <span className="hidden 2xl:inline">Новости</span>
-              </Link>
-            )}
-
             {/* курсы */}
             {access && (
               <Link to="/courses" className="btn-outline" title="Курсы">
@@ -327,10 +320,10 @@ export default function Layout({ children, fullWidth = false }) {
                       to="/admin/solutions"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setAdminOpen(false)}
-                      title="Управление пользователями"
+                      title="Решения пользователей"
                     >
                       <ListOrdered size={18} />
-                      <span className="ml-2">Управление пользователями</span>
+                      <span className="ml-2">Решения</span>
                     </Link>
                     <Link
                       role="menuitem"
@@ -372,6 +365,37 @@ export default function Layout({ children, fullWidth = false }) {
                     >
                       <Shield size={18} />
                       <span className="ml-2">Доп. роли</span>
+                    </Link>
+
+                    <Link
+                      role="menuitem"
+                      to="/admin/users"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Пользователи"
+                    >
+                      <UserCog size={18} />
+                      <span className="ml-2">Пользователи</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      to="/admin/minecraft-links"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Связи Minecraft"
+                    >
+                      <Link2 size={18} />
+                      <span className="ml-2">Связи Minecraft</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      to="/admin/system-status"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Статус компонентов"
+                    >
+                      <Activity size={18} />
+                      <span className="ml-2">Статус компонентов</span>
                     </Link>
                   </div>
                 )}
@@ -482,7 +506,7 @@ export default function Layout({ children, fullWidth = false }) {
                             onClick={() => setMobileOpen(false)}
                           >
                             <ListOrdered size={18} />
-                            <span className="ml-2">Управление пользователями</span>
+                            <span className="ml-2">Решения</span>
                           </Link>
                           <Link
                             to="/admin/badges"
@@ -507,6 +531,30 @@ export default function Layout({ children, fullWidth = false }) {
                           >
                             <LifeBuoy size={18} />
                             <span className="ml-2">Техподдержка</span>
+                          </Link>
+                          <Link
+                            to="/admin/users"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <UserCog size={18} />
+                            <span className="ml-2">Пользователи</span>
+                          </Link>
+                          <Link
+                            to="/admin/minecraft-links"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Link2 size={18} />
+                            <span className="ml-2">Связи Minecraft</span>
+                          </Link>
+                          <Link
+                            to="/admin/system-status"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Activity size={18} />
+                            <span className="ml-2">Статус компонентов</span>
                           </Link>
                           <Link
                             to="/admin/feature-roles"
@@ -570,24 +618,23 @@ export default function Layout({ children, fullWidth = false }) {
         </motion.div>
       </main>
 
-      <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70 relative z-10">
-        <div className="container-app py-6 text-sm text-neutral-500 dark:text-neutral-400 flex items-center justify-between">
-          {/* слева */}
-          <div>© {new Date().getFullYear()} TaskForge</div>
-
-          {/* справа */}
-          {access && (
-            <Link
-              to={isAdmin ? "/admin/support" : "/support"}
-              className="inline-flex items-center gap-2 hover:text-neutral-700 dark:hover:text-neutral-200 transition"
-              title="Техподдержка"
-            >
-              <LifeBuoy size={16} className="opacity-70" />
-              <span className="opacity-80">Техподдержка</span>
-            </Link>
-          )}
-        </div>
-      </footer>
+      {!hideFooter && (
+        <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70 relative z-10">
+          <div className="container-app py-6 text-sm text-neutral-500 dark:text-neutral-400 flex items-center justify-between">
+            <div>© {new Date().getFullYear()} TaskForge</div>
+            {access && (
+              <Link
+                to={isAdmin ? "/admin/support" : "/support"}
+                className="inline-flex items-center gap-2 hover:text-neutral-700 dark:hover:text-neutral-200 transition"
+                title="Техподдержка"
+              >
+                <LifeBuoy size={16} className="opacity-70" />
+                <span className="opacity-80">Техподдержка</span>
+              </Link>
+            )}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
