@@ -3,48 +3,68 @@
   "content": [
     {
       "type": "heading",
-      "attrs": {"level": 2},
+      "attrs": {
+        "level": 2
+      },
       "content": [
-        {"type": "text", "text": "Новый тип задач: image‑test"}
+        {
+          "type": "text",
+          "text": "Новый тип задач: image‑test"
+        }
       ]
     },
     {
       "type": "paragraph",
       "content": [
-        {"type": "text", "text": "Мы официально запустили тип задач image‑test: теперь вы можете программно рисовать изображения и получать мгновенную обратную связь."}
+        {
+          "type": "text",
+          "text": "Мы запустили отдельный тип заданий для рисования и визуальных задач."
+        }
       ]
     },
     {
-      "type": "paragraph",
-      "content": [
-        {"type": "text", "text": "Задание формулирует рисунок, а вы создаёте программу, которая его рисует. Платформа сравнивает полученную картинку с эталоном."}
-      ]
-    },
-    {
-      "type": "bulletList",
+      "type": "bullet_list",
       "content": [
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Поддержка Python (turtle) и Pascal (GraphABC) из коробки."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "можно писать код и получать рисунок как результат"
+                }
+              ]
+            }
           ]
         },
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Используем две метрики: pHash для грубого сравнения и OpenCLIP для оценки семантического сходства."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "проверка проходит автоматически"
+                }
+              ]
+            }
           ]
         },
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Можно задавать список разрешённых языков и порог похожести прямо в задании."}]}
-          ]
-        },
-        {
-          "type": "listItem",
-          "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Для каждого пользователя хранится история решений и выделяется квота на изображение."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "формат подходит для графики, схем и простых визуальных упражнений"
+                }
+              ]
+            }
           ]
         }
       ]
@@ -52,7 +72,10 @@
     {
       "type": "paragraph",
       "content": [
-        {"type": "text", "text": "Image‑test открывает творческие возможности и делает занятия увлекательнее."}
+        {
+          "type": "text",
+          "text": "Такой тип задач делает обучение более наглядным и интересным."
+        }
       ]
     }
   ]

@@ -1,3 +1,82 @@
 {
-  "contentJson": "{\"type\": \"doc\", \"content\": [{\"type\": \"heading\", \"attrs\": {\"level\": 2}, \"content\": [{\"type\": \"text\", \"text\": \"Что сделали\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Мы связали учётные записи TaskForge с игроками на сервере Minecraft (Folia) и добавили новую механику рейтинга.\"}]}, {\"type\": \"bulletList\", \"content\": [{\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"TaskForge API научился выдавать коды для привязки и отправлять данные в Minecraft‑плагин.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"В .env появились настройки MINECRAFT_WEBHOOK_BASE_URL, путь /taskforge/link/send, секретный ключ и параметр штрафа.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Плагин начисляет штраф за первый вход в неделю, хранит penalty отдельно от рейтинга и накладывает дебаффы (замедление, слепота, замедление копания), если баллов не хватает.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"В конфиге плагина появился игнор‑лист, позволяющий исключать игроков из системы штрафов.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Улучшено логирование: теперь видно полный URL вызова, статус ответа и ключи вебхука.\"}]}]}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Это сделало игровой процесс честнее и связало активность на сервере с результатами в TaskForge.\"}]}]}"
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Связка с Minecraft"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Мы запустили связку TaskForge с Minecraft‑сервером. Теперь аккаунт на сайте можно привязать к игровому аккаунту."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "content": [
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "код привязки приходит прямо в игре"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "часть игровых ограничений зависит от вашей активности на платформе"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "система помогает честнее связать учёбу и доступ к серверу"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Снаружи это выглядит просто: привязали аккаунт, решили задачи, играете с полным доступом."
+        }
+      ]
+    }
+  ]
 }

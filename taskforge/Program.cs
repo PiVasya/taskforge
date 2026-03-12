@@ -8,6 +8,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
 using System.Text;
+using System.Net.Http;
 
 using taskforge.Data;
 using taskforge.Services;
@@ -126,6 +127,16 @@ builder.Services.AddHttpClient<taskforge.Services.ImageRunners.IImageRunnerClien
 builder.Services.AddHttpClient();
 
 // Integrations (Minecraft)
+builder.Services.AddHttpClient("minecraft-webhook")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+        PooledConnectionIdleTimeout = TimeSpan.FromSeconds(30),
+        MaxConnectionsPerServer = 20,
+        AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
+    })
+    .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+
 builder.Services.AddScoped<taskforge.Services.Integrations.IMinecraftServerNotifier, taskforge.Services.Integrations.HttpMinecraftServerNotifier>();
 
 builder.Services.AddScoped<ICompilerService, CompilerService>();

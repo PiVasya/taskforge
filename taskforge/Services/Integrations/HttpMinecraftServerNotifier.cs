@@ -70,8 +70,9 @@ public sealed class HttpMinecraftServerNotifier : IMinecraftServerNotifier
 
         try
         {
-            var client = _httpFactory.CreateClient();
+            var client = _httpFactory.CreateClient("minecraft-webhook");
             client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromSeconds(8);
 
             // Плагин ждёт:
             // - Header: X-TaskForge-Key
@@ -85,6 +86,7 @@ public sealed class HttpMinecraftServerNotifier : IMinecraftServerNotifier
                 Content = JsonContent.Create(req)
             };
 
+            httpReq.Headers.ConnectionClose = true;
             httpReq.Headers.TryAddWithoutValidation("X-Request-Id", reqId);
             var key = GetApiKey();
             if (!string.IsNullOrWhiteSpace(key))

@@ -3,33 +3,80 @@
   "content": [
     {
       "type": "heading",
-      "attrs": { "level": 2 },
-      "content": [ { "type": "text", "text": "Нейросетевой анализ изображений" } ]
-    },
-    {
-      "type": "paragraph",
-      "content": [ { "type": "text", "text": "Мы подключили OpenCLIP для сравнения изображений: теперь учитывается не только пиксель‑в‑пиксель, но и смысл." } ]
-    },
-    {
-      "type": "bulletList",
+      "attrs": {
+        "level": 2
+      },
       "content": [
         {
-          "type": "listItem",
-          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Модуль рассчитывает сходство по двум метрикам: нейросетевой (CLIP) и перцептивный хэш (pHash)." } ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Позволяет выдавать более справедливые оценки за творческие задачи на рисование." } ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Включить или отключить сервис можно в конфигурации сервера." } ] } ]
+          "type": "text",
+          "text": "Проверка изображений стала умнее"
         }
       ]
     },
     {
       "type": "paragraph",
-      "content": [ { "type": "text", "text": "Это улучшает точность проверки изображений и поощряет креативность." } ]
+      "content": [
+        {
+          "type": "text",
+          "text": "Мы улучшили анализ изображений в задачах на рисование."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "content": [
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "проверка стала точнее"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "меньше ситуаций, когда хорошая работа выглядит «непохожей» из-за мелочей"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "результат стал ближе к человеческой оценке"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Для пользователя это значит более справедливую проверку визуальных задач."
+        }
+      ]
     }
   ]
 }

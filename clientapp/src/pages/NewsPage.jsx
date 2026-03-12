@@ -158,7 +158,7 @@ export default function NewsPage() {
         {!loading && !error && filtered.length === 0 && (
           <Card>
             <div className="text-neutral-700 dark:text-neutral-200">Пока нет новостей по выбранному фильтру.</div>
-            <div className="text-sm text-neutral-500 mt-2">Добавь новый файл обновления в <code>/clientapp/public/updates</code>.</div>
+            <div className="text-sm text-neutral-500 mt-2">Попробуйте снять фильтр или зайти позже.</div>
           </Card>
         )}
 

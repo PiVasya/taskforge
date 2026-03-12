@@ -38,6 +38,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Folia/Paper plugin.
@@ -53,12 +54,13 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private static final Gson GSON = new Gson();
 
     private HttpServer server;
+    private ExecutorService serverExecutor;
     private final ConcurrentHashMap<String, Instant> seenRequestIds = new ConcurrentHashMap<>();
     private ScheduledExecutorService janitor;
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .build();
+    private volatile HttpClient httpClient;
+    private final AtomicInteger consecutiveTaskForgeFailures = new AtomicInteger(0);
+    private volatile Instant lastTaskForgeSuccessUtc = Instant.EPOCH;
 
     private ExecutorService tfExecutor;
     private String taskForgeBaseUrl;
@@ -127,6 +129,37 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         return s == null || s.trim().isEmpty();
     }
 
+    private HttpClient buildHttpClient() {
+        return HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(Math.max(2, taskForgeTimeoutSeconds > 0 ? taskForgeTimeoutSeconds : 5)))
+                .build();
+    }
+
+    private void markTaskForgeSuccess() {
+        consecutiveTaskForgeFailures.set(0);
+        lastTaskForgeSuccessUtc = Instant.now();
+    }
+
+    private void markTaskForgeFailure(String scope, Throwable ex) {
+        int failures = consecutiveTaskForgeFailures.incrementAndGet();
+        String msg = ex == null ? "unknown" : ex.getClass().getSimpleName() + ": " + ex.getMessage();
+        getLogger().warning("TaskForge " + scope + " call failed (" + failures + " in a row): " + msg);
+        if (failures >= 3) {
+            getLogger().warning("TaskForge connectivity looks stale, rebuilding HTTP client.");
+            httpClient = buildHttpClient();
+            consecutiveTaskForgeFailures.set(0);
+        }
+    }
+
+    private HttpRequest.Builder newTaskForgeRequest(String url) {
+        return HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
+                .header("Connection", "close")
+                .header("X-Minecraft-Key", taskForgeKey);
+    }
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -176,6 +209,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             if (u != null && !u.trim().isEmpty()) exemptUuidsLower.add(u.trim().toLowerCase(Locale.ROOT));
         }
 
+        httpClient = buildHttpClient();
+
         try {
             InetAddress addr = InetAddress.getByName(host);
             server = HttpServer.create(new InetSocketAddress(addr, port), 0);
@@ -184,12 +219,18 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             server.createContext("/health", ex -> {
                 String resp = "{\"ok\":true}";
                 ex.getResponseHeaders().add("Content-Type", "application/json");
+                ex.getResponseHeaders().add("Connection", "close");
                 ex.sendResponseHeaders(200, resp.getBytes(StandardCharsets.UTF_8).length);
                 try (OutputStream os = ex.getResponseBody()) {
                     os.write(resp.getBytes(StandardCharsets.UTF_8));
                 }
             });
-            server.setExecutor(Executors.newFixedThreadPool(2));
+            serverExecutor = Executors.newFixedThreadPool(8, r -> {
+                Thread t = new Thread(r, "taskforge-link-http-server");
+                t.setDaemon(true);
+                return t;
+            });
+            server.setExecutor(serverExecutor);
             server.start();
 
             getLogger().info("TaskForgeLink HTTP server started on " + host + ":" + port + " path=" + path);
@@ -226,6 +267,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         if (server != null) {
             server.stop(0);
             server = null;
+        }
+        if (serverExecutor != null) {
+            serverExecutor.shutdownNow();
+            serverExecutor = null;
         }
         if (janitor != null) {
             janitor.shutdownNow();
@@ -264,19 +309,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/events/join";
         String body = GSON.toJson(new JoinEventRequest(p.getName(), p.getUniqueId().toString()));
 
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
+        HttpRequest req = newTaskForgeRequest(url)
                 .header("Content-Type", "application/json")
-                .header("X-Minecraft-Key", taskForgeKey)
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build();
 
         return httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
-                .thenApply(resp -> parseStatusResponse(resp))
+                .thenApply(resp -> { if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess(); return parseStatusResponse(resp); })
                 .exceptionally(ex -> {
-                    getLogger().warning("TaskForge join call failed: " + ex.getMessage());
+                    markTaskForgeFailure("join", ex);
                     return null;
                 });
     }
@@ -287,18 +329,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         }
         String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/player-status?uuid=" + p.getUniqueId();
 
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
-                .header("X-Minecraft-Key", taskForgeKey)
+        HttpRequest req = newTaskForgeRequest(url)
                 .GET()
                 .build();
 
         return httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
-                .thenApply(resp -> parseStatusResponse(resp))
+                .thenApply(resp -> { if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess(); return parseStatusResponse(resp); })
                 .exceptionally(ex -> {
-                    getLogger().warning("TaskForge status call failed: " + ex.getMessage());
+                    markTaskForgeFailure("status", ex);
                     return null;
                 });
     }
@@ -379,18 +418,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 kind == null ? "chat" : kind.trim()
         ));
 
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
+        HttpRequest req = newTaskForgeRequest(url)
                 .header("Content-Type", "application/json")
-                .header("X-Minecraft-Key", taskForgeKey)
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build();
 
         httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
+                .thenAccept(resp -> { if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess(); else markTaskForgeFailure("chat-push-http", null); })
                 .exceptionally(ex -> {
-                    getLogger().warning("TaskForge minecraft chat push failed: " + ex.getMessage());
+                    markTaskForgeFailure("chat-push", ex);
                     return null;
                 });
     }
@@ -399,7 +436,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         try {
             pollSiteChat();
         } catch (Exception ex) {
-            getLogger().warning("TaskForge chat poll failed: " + ex.getMessage());
+            markTaskForgeFailure("chat-poll", ex);
         }
     }
 
@@ -409,15 +446,14 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         String after = java.net.URLEncoder.encode(chatCursorUtc.toString(), StandardCharsets.UTF_8);
         String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/chat/bridge/pull?afterUtc=" + after + "&take=50";
 
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
-                .header("X-Minecraft-Key", taskForgeKey)
+        HttpRequest req = newTaskForgeRequest(url)
                 .GET()
                 .build();
 
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+            markTaskForgeFailure("chat-poll-http", null);
             getLogger().warning("TaskForge chat poll HTTP status=" + resp.statusCode());
             return;
         }
@@ -723,6 +759,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         private static void writeJson(HttpExchange ex, int status, String json) throws IOException {
             byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
             ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            ex.getResponseHeaders().set("Connection", "close");
             ex.sendResponseHeaders(status, bytes.length);
             try (OutputStream os = ex.getResponseBody()) {
                 os.write(bytes);

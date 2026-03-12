@@ -3,42 +3,68 @@
   "content": [
     {
       "type": "heading",
-      "attrs": {"level": 2},
+      "attrs": {
+        "level": 2
+      },
       "content": [
-        {"type": "text", "text": "Поддержка и Telegram‑бот"}
+        {
+          "type": "text",
+          "text": "Поддержка и Telegram‑бот"
+        }
       ]
     },
     {
       "type": "paragraph",
       "content": [
-        {"type": "text", "text": "Мы запустили систему поддержки и интегрировали TaskForge с Telegram."}
+        {
+          "type": "text",
+          "text": "Мы улучшили связь с поддержкой через Telegram. Теперь обращаться за помощью стало удобнее и привычнее."
+        }
       ]
     },
     {
-      "type": "paragraph",
-      "content": [
-        {"type": "text", "text": "Теперь у каждого пользователя есть тикеты и сообщения поддержки прямо в личном кабинете. А ещё можно писать нашему боту в Telegram — все сообщения автоматически попадают в службу поддержки."}
-      ]
-    },
-    {
-      "type": "bulletList",
+      "type": "bullet_list",
       "content": [
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Обращения в службу поддержки формируются как тикеты: видно статус и историю."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "можно быстро написать в поддержку"
+                }
+              ]
+            }
           ]
         },
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Личные сообщения боту в Telegram отправляются в техподдержку — можно писать текстом, а код отправлять через специальную команду."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "ответы приходят в более удобном формате"
+                }
+              ]
+            }
           ]
         },
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Расширенные логи и ключи в .env позволяют легко настроить интеграцию."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "связка с Telegram стала понятнее для пользователя"
+                }
+              ]
+            }
           ]
         }
       ]
@@ -46,7 +72,10 @@
     {
       "type": "paragraph",
       "content": [
-        {"type": "text", "text": "Теперь помощь всегда под рукой — достаточно открыть чат в Telegram или создать тикет на сайте."}
+        {
+          "type": "text",
+          "text": "Это сокращает путь от проблемы до нормального ответа."
+        }
       ]
     }
   ]

@@ -1,3 +1,82 @@
 {
-  "contentJson": "{\"type\": \"doc\", \"content\": [{\"type\": \"heading\", \"attrs\": {\"level\": 2}, \"content\": [{\"type\": \"text\", \"text\": \"Что изменилось\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"К концу года мы решили упростить и стабилизировать CI/CD.\"}]}, {\"type\": \"bulletList\", \"content\": [{\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Обновили общий workflow `build-all-on-develop.yml`.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Убрали лишние файлы, объединив этапы сборки.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Настройка стала более предсказуемой и удобной.\"}]}]}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Эти изменения помогли ускорить сборку и легче отслеживать статус.\"}]}]}"
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Стабильность обновлений выросла"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Мы навели порядок в процессе обновлений платформы, чтобы новые версии выходили спокойнее и предсказуемее."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "content": [
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "обновления стали проходить ровнее"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "исправления начали приезжать быстрее"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "стало проще поддерживать стабильную работу сервиса"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Для пользователей это означает меньше случайных сбоев после релизов и более надёжную работу TaskForge."
+        }
+      ]
+    }
+  ]
 }

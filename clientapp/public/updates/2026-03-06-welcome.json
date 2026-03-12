@@ -1,3 +1,82 @@
 {
-  "contentJson": "{\"type\": \"doc\", \"content\": [{\"type\": \"heading\", \"attrs\": {\"level\": 2}, \"content\": [{\"type\": \"text\", \"text\": \"Что изменилось\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Теперь главная страница — это лента новостей/обновлений. Она помогает быстро понять, что нового в TaskForge, и перейти к нужному разделу.\"}]}, {\"type\": \"bulletList\", \"content\": [{\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Добавили страницу /news и сделали её стартовой (\\\"/\\\")\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Кнопки быстрого перехода: Курсы и Топ\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Новости хранятся файлами: /clientapp/public/updates\"}]}]}]}, {\"type\": \"heading\", \"attrs\": {\"level\": 2}, \"content\": [{\"type\": \"text\", \"text\": \"Как добавить новую новость\"}]}, {\"type\": \"orderedList\", \"content\": [{\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Создай новый файл в /clientapp/public/updates, например 2026-03-07-something.json\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Добавь запись в /clientapp/public/updates/index.json (id, title, date, tags, file, summary)\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Задеплой — и новость появится в ленте\"}]}]}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Дальше можно сделать полноценный редактор (TipTap) для админа, который будет сохранять посты через API. Но файл-формат уже работает и идеален для быстрых релиз-нот.\"}]}]}"
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Главная страница стала лентой обновлений"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Мы сделали главную страницу более полезной: теперь это лента обновлений и важных объявлений."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "content": [
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "сразу видно, что нового"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "проще перейти к нужным разделам"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "важные материалы находятся быстрее"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Лента помогает не пропустить действительно полезные изменения, даже если вы заходите на сайт не каждый день."
+        }
+      ]
+    }
+  ]
 }

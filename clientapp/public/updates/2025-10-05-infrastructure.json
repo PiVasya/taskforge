@@ -1,3 +1,91 @@
 {
-  "contentJson": "{\"type\": \"doc\", \"content\": [{\"type\": \"heading\", \"attrs\": {\"level\": 2}, \"content\": [{\"type\": \"text\", \"text\": \"Что сделали\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"В самом начале работы мы настроили пайплайны GitHub Actions для сборки и синхронизации проекта.\"}]}, {\"type\": \"bulletList\", \"content\": [{\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Создали workflow‑файлы для API, фронта, C#, C++, Python‑раннеров и общий build.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Настроили синхронизацию между веткой develop и другими ветками через `sync-to-develop` и `sync-from-develop`.\"}]}]}, {\"type\": \"listItem\", \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Из-за экспериментов часть файлов была удалена или объединена уже через день.\"}]}]}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Этот этап положил основу для дальнейшей автоматизации и показал, как будет работать сборка.\"}]}]}"
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Подготовили стабильную основу платформы"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Мы подготовили основу, чтобы TaskForge работал стабильнее и обновлялся без лишних сбоев."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Это изменение было почти незаметно снаружи, но оно упростило выпуск новых функций и исправлений."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "content": [
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "обновления стали выходить аккуратнее"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "сервис стал стабильнее в повседневном использовании"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "новые возможности стало проще добавлять без поломок"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Для обычного пользователя это значит меньше случайных проблем и более предсказуемую работу сайта."
+        }
+      ]
+    }
+  ]
 }

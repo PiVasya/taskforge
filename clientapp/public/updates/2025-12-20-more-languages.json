@@ -3,42 +3,68 @@
   "content": [
     {
       "type": "heading",
-      "attrs": {"level": 2},
+      "attrs": {
+        "level": 2
+      },
       "content": [
-        {"type": "text", "text": "Ещё больше языков программирования"}
+        {
+          "type": "text",
+          "text": "Расширили выбор языков"
+        }
       ]
     },
     {
       "type": "paragraph",
       "content": [
-        {"type": "text", "text": "Осенью мы поддерживали C++, Python и Pascal. Теперь к ним присоединились новые языки, что делает платформу ещё универсальнее."}
+        {
+          "type": "text",
+          "text": "Мы добавили ещё несколько популярных языков программирования в задачи TaskForge."
+        }
       ]
     },
     {
-      "type": "bulletList",
+      "type": "bullet_list",
       "content": [
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "JavaScript – для тех, кто работает с вебом."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "можно решать задания на любимом языке"
+                }
+              ]
+            }
           ]
         },
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "C# – популярный язык для .NET и Unity."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "проще сравнивать подходы между разными языками"
+                }
+              ]
+            }
           ]
         },
         {
-          "type": "listItem",
+          "type": "list_item",
           "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Java – классика для многих учебных курсов."}]}
-          ]
-        },
-        {
-          "type": "listItem",
-          "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Go – современный язык от Google для системного программирования."}]}
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "курсы стали удобнее для смешанных групп"
+                }
+              ]
+            }
           ]
         }
       ]
@@ -46,7 +72,10 @@
     {
       "type": "paragraph",
       "content": [
-        {"type": "text", "text": "Новые раннеры автоматически собирают и запускают код в изолированных контейнерах, так что вы можете писать на своём любимом языке."}
+        {
+          "type": "text",
+          "text": "Главное изменение для пользователя простое: свободы выбора стало больше."
+        }
       ]
     }
   ]
