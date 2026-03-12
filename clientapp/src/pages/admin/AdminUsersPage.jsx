@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
-import { getAdminUsers, updateAdminUser } from '../../api/adminUsers';
+import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { AlertTriangle, Save, Search, UserCog } from 'lucide-react';
+import { AlertTriangle, Save, Search, Trash2, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
@@ -16,16 +16,18 @@ export default function AdminUsersPage() {
   const [role, setRole] = useState('');
   const [linkedOnly, setLinkedOnly] = useState(false);
   const [pageError, setPageError] = useState('');
+  const [stats, setStats] = useState({ total: 0, linked: 0, admins: 0 });
 
   const load = async () => {
     try {
       setLoading(true);
-      const list = await getAdminUsers({ query, role, linkedOnly });
-      setItems(Array.isArray(list) ? list : []);
+      const res = await getAdminUsers({ query, role, linkedOnly });
+      setItems(Array.isArray(res?.items) ? res.items : []);
+      setStats(res?.stats || { total: 0, linked: 0, admins: 0 });
       setPageError('');
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить пользователей');
-      handleApiError(e, notify, 'Не удалось загрузить пользователей');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить пользователей');
+      setPageError(parsed?.userMessage || e?.message || 'Не удалось загрузить пользователей');
     } finally {
       setLoading(false);
     }
@@ -35,11 +37,6 @@ export default function AdminUsersPage() {
 
   const updateLocal = (id, patch) => setItems((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
 
-  const stats = useMemo(() => ({
-    total: items.length,
-    linked: items.filter((x) => x.minecraftLinkedAtUtc || x.telegramLinkedAtUtc).length,
-    admins: items.filter((x) => x.role === 'Admin').length,
-  }), [items]);
 
   const save = async (user) => {
     try {
@@ -58,8 +55,30 @@ export default function AdminUsersPage() {
       setPageError('');
       await load();
     } catch (e) {
-      setPageError(e?.message || 'Не удалось сохранить пользователя');
-      handleApiError(e, notify, 'Не удалось сохранить пользователя');
+      const parsed = handleApiError(e, notify, 'Не удалось сохранить пользователя');
+      setPageError(parsed?.userMessage || e?.message || 'Не удалось сохранить пользователя');
+    }
+  };
+
+
+  const removeUser = async (user) => {
+    const label = user?.email || user?.fullName || user?.id;
+    const ok = window.confirm(`Удалить пользователя ${label}? Будут удалены аккаунт, решения и связанные записи.`);
+    if (!ok) return;
+
+    try {
+      await deleteAdminUser(user.id);
+      notify.success('Пользователь удалён');
+      setItems((prev) => prev.filter((x) => x.id !== user.id));
+      setStats((prev) => ({
+        total: Math.max(0, (prev?.total || 0) - 1),
+        linked: Math.max(0, (prev?.linked || 0) - ((user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0)),
+        admins: Math.max(0, (prev?.admins || 0) - (user.role === 'Admin' ? 1 : 0)),
+      }));
+      setPageError('');
+    } catch (e) {
+      const parsed = handleApiError(e, notify, 'Не удалось удалить пользователя');
+      setPageError(parsed?.userMessage || e?.message || 'Не удалось удалить пользователя');
     }
   };
 
@@ -139,7 +158,10 @@ export default function AdminUsersPage() {
                     <div>Minecraft привязан: {user.minecraftLinkedAtUtc ? new Date(user.minecraftLinkedAtUtc).toLocaleString() : 'нет'}</div>
                     <div>Telegram привязан: {user.telegramLinkedAtUtc ? new Date(user.telegramLinkedAtUtc).toLocaleString() : 'нет'}</div>
                   </div>
-                  <Button onClick={() => save(user)}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => save(user)}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
+                    <Button intent="danger" onClick={() => removeUser(user)}><Trash2 size={16} /> <span className="ml-1">Удалить</span></Button>
+                  </div>
                 </div>
               </div>
             </Card>

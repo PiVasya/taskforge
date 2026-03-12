@@ -1,9 +1,9 @@
-﻿import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
 import Layout from "../components/Layout";
 import { useNotify } from "../components/notify/NotifyProvider";
-import { handleApiError } from "../utils/handleApiError";
+import { extractApiErrorMessages, handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
 
 import { getAssignment, updateAssignment, deleteAssignment } from "../api/assignments";
@@ -42,6 +42,7 @@ export default function AssignmentEditPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [saveIssues, setSaveIssues] = useState([]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -164,6 +165,84 @@ export default function AssignmentEditPage() {
     setLangToAdd("");
   }, [type]);
 
+  const validationIssues = useMemo(() => {
+    const issues = [];
+    const normalizedType = (type || '').trim();
+    const normalizedTitle = (title || '').trim();
+    const plainDescription = String(description || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim();
+
+    if (!normalizedTitle) issues.push('Укажи название задания.');
+    if (normalizedTitle.length > 200) issues.push('Название не должно быть длиннее 200 символов.');
+    if (!plainDescription) issues.push('Заполни условие задания.');
+    if (!['code-test', 'image-test', 'test'].includes(normalizedType)) issues.push('Выбран неподдерживаемый тип задания.');
+    if (![1, 2, 3].includes(Number(difficulty))) issues.push('Сложность должна быть 1, 2 или 3.');
+    if (!Number.isFinite(Number(rating)) || Number(rating) < 0) issues.push('Рейтинг должен быть целым числом не меньше 0.');
+
+    if (normalizedType === 'code-test') {
+      if (!Array.isArray(testCases) || testCases.length === 0) {
+        issues.push('Для code-test нужен хотя бы один тест-кейс.');
+      } else {
+        testCases.forEach((t, idx) => {
+          if (!String(t?.input ?? '').trim()) issues.push(`Тест #${idx + 1}: заполни Input.`);
+          if (!String(t?.expectedOutput ?? '').trim()) issues.push(`Тест #${idx + 1}: заполни Expected Output.`);
+        });
+      }
+    }
+
+    if (normalizedType === 'image-test') {
+      if (!String(imageTestReferenceKey || '').trim()) issues.push('Для image-test нужно загрузить эталонную картинку.');
+      const threshold = Number(imageTestThreshold);
+      if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+        issues.push('Порог совпадения для image-test должен быть от 0 до 100.');
+      }
+    }
+
+    if (normalizedType === 'test') {
+      if (!Array.isArray(testQuestions) || testQuestions.length === 0) {
+        issues.push('Добавь хотя бы один вопрос в тест.');
+      } else {
+        testQuestions.forEach((q, idx) => {
+          const prompt = String(q?.prompt ?? '').trim();
+          const qType = String(q?.type || 'single-choice');
+          if (!prompt) issues.push(`Вопрос #${idx + 1}: заполни текст вопроса.`);
+
+          if (qType === 'single-choice' || qType === 'multi-choice') {
+            const opts = Array.isArray(q?.options) ? q.options : [];
+            const nonEmpty = opts.filter((o) => String(o?.text ?? '').trim());
+            const correct = Array.isArray(q?.correctOptionKeys) ? q.correctOptionKeys.filter(Boolean) : [];
+            if (nonEmpty.length < 2) issues.push(`Вопрос #${idx + 1}: нужно минимум два варианта ответа.`);
+            if (correct.length === 0) issues.push(`Вопрос #${idx + 1}: отметь хотя бы один правильный ответ.`);
+          }
+
+          if (qType === 'fill' || qType === 'text') {
+            const answers = Array.isArray(q?.acceptedAnswers)
+              ? q.acceptedAnswers.map((x) => String(x || '').trim()).filter(Boolean)
+              : [];
+            if (answers.length === 0) issues.push(`Вопрос #${idx + 1}: добавь хотя бы один допустимый ответ.`);
+          }
+        });
+      }
+
+      if (!Number.isFinite(Number(testSettings?.maxAttempts)) || Number(testSettings?.maxAttempts) < 1) {
+        issues.push('У теста количество попыток должно быть не меньше 1.');
+      }
+      const passPercent = Number(testSettings?.passPercent);
+      if (!Number.isFinite(passPercent) || passPercent < 0 || passPercent > 100) {
+        issues.push('Проходной процент должен быть от 0 до 100.');
+      }
+    }
+
+    return [...new Set(issues)];
+  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings]);
+
+  useEffect(() => {
+    if (saveIssues.length > 0) {
+      setSaveIssues([]);
+      setErr('');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings]);
+
   const addTest = () =>
     setTestCases((prev) => [
       ...prev,
@@ -184,6 +263,16 @@ export default function AssignmentEditPage() {
   const save = async () => {
     setBusy(true);
     setErr("");
+    setSaveIssues([]);
+
+    if (validationIssues.length > 0) {
+      setErr("Задание ещё не готово к сохранению.");
+      setSaveIssues(validationIssues);
+      notify.warn(`Исправь ошибки в задании: ${validationIssues.length}`);
+      setBusy(false);
+      return;
+    }
+
     try {
 
       const payload = {
@@ -259,6 +348,9 @@ export default function AssignmentEditPage() {
         nav(`/assignment/${assignmentId}`, { replace: true });
         return;
       }
+      const parsed = extractApiErrorMessages(e, "Ошибка сохранения");
+      setErr(parsed.primaryMessage || "Ошибка сохранения");
+      setSaveIssues(parsed.messages || []);
       handleApiError(e, notify, "Ошибка сохранения");
     } finally {
       setBusy(false);
@@ -317,6 +409,44 @@ export default function AssignmentEditPage() {
       {/* верхнюю панель убрали: остаётся только нижняя (как просили) */}
 
       <div className="space-y-5">
+          <Card>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold mb-1">Готовность задания</h2>
+                <div className="text-sm text-neutral-500">Здесь видно, что ещё нужно заполнить до сохранения.</div>
+              </div>
+              <div className={`text-sm font-medium ${validationIssues.length === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {validationIssues.length === 0 ? 'Готово к сохранению' : `Нужно исправить: ${validationIssues.length}`}
+              </div>
+            </div>
+
+            {validationIssues.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+                Всё основное заполнено. Можно сохранять задание.
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <div className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-2">Что ещё не заполнено:</div>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-amber-900 dark:text-amber-200">
+                  {validationIssues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {saveIssues.length > 0 && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900/40 dark:bg-red-950/30">
+                <div className="text-sm font-medium text-red-800 dark:text-red-300 mb-2">Почему сохранение не прошло:</div>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-red-900 dark:text-red-200">
+                  {saveIssues.map((issue, idx) => (
+                    <li key={`${issue}-${idx}`}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
+
           <Card>
             <h2 className="text-xl font-semibold mb-4">Основное</h2>
             <div className="grid sm:grid-cols-2 gap-4">

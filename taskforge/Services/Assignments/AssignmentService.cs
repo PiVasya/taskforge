@@ -29,19 +29,19 @@ namespace taskforge.Services
                 .Where(a => a.CourseId == courseId)
                 .Select(a => (int?)a.Sort)
                 .MaxAsync() ?? -1;
-                
-	            var normalizedType = TaskAssignmentTypes.Normalize(req.Type);
-	            if (!TaskAssignmentTypes.IsSupported(normalizedType))
-	                throw new ValidationException($"Unsupported assignment type: '{req.Type}'");
 
-	            // For code-test we require at least 1 test case.
-	            if (normalizedType == TaskAssignmentTypes.CodeTest)
-	            {
-	                if (req.TestCases == null || req.TestCases.Count == 0)
-	                    throw new ValidationException("code-test assignment must have at least one test case");
-	            }
+            var normalizedType = TaskAssignmentTypes.Normalize(req.Type);
+            ValidateAssignmentPayload(
+                title: req.Title,
+                description: req.Description,
+                assignmentType: normalizedType,
+                difficulty: req.Difficulty,
+                rating: req.Rating,
+                codeTestCases: req.TestCases?.Select(x => (x.Input, x.ExpectedOutput)).ToList(),
+                imageReferenceKey: null,
+                imageThreshold: null);
 
-                var allowedCsv = NormalizeAllowedLanguagesCsv(req.AllowedLanguages, normalizedType);
+            var allowedCsv = NormalizeAllowedLanguagesCsv(req.AllowedLanguages, normalizedType);
 
                 // Пустой список/NULL => ограничений нет (разрешены все поддерживаемые языки для типа задания).
                 // Ошибка только если пользователь прислал НЕпустой список, но после нормализации не осталось ни одного поддерживаемого языка.
@@ -193,8 +193,16 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 	                throw new ValidationException($"Unsupported assignment type: '{request.Type}'");
 
 	            var isCodeTest = normalizedType == TaskAssignmentTypes.CodeTest;
-	            if (isCodeTest && (request.TestCases == null || request.TestCases.Count == 0))
-	                throw new ValidationException("For 'code-test' assignments you must provide at least 1 test case.");
+
+            ValidateAssignmentPayload(
+                title: request.Title,
+                description: request.Description,
+                assignmentType: normalizedType,
+                difficulty: request.Difficulty,
+                rating: request.Rating,
+                codeTestCases: request.TestCases?.Select(x => (x.Input, x.ExpectedOutput)).ToList(),
+                imageReferenceKey: request.ImageTestReferenceKey,
+                imageThreshold: request.ImageTestSimilarityThreshold);
 
                 var allowedCsv2 = NormalizeAllowedLanguagesCsv(request.AllowedLanguages, normalizedType);
 
@@ -284,6 +292,57 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             task.Sort = sort;
             task.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
+        }
+
+        private static void ValidateAssignmentPayload(
+            string? title,
+            string? description,
+            string assignmentType,
+            int difficulty,
+            int? rating,
+            IList<(string? Input, string? ExpectedOutput)>? codeTestCases,
+            string? imageReferenceKey,
+            double? imageThreshold)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                throw new ValidationException("У задания должно быть название.");
+
+            if (title.Trim().Length > 200)
+                throw new ValidationException("Название задания не должно быть длиннее 200 символов.");
+
+            if (string.IsNullOrWhiteSpace(description))
+                throw new ValidationException("Заполните условие задания.");
+
+            if (!TaskAssignmentTypes.IsSupported(assignmentType))
+                throw new ValidationException($"Неподдерживаемый тип задания: '{assignmentType}'.");
+
+            if (difficulty < 1 || difficulty > 3)
+                throw new ValidationException("Сложность должна быть от 1 до 3.");
+
+            if (rating.HasValue && rating.Value < 0)
+                throw new ValidationException("Рейтинг задания не может быть отрицательным.");
+
+            if (assignmentType == TaskAssignmentTypes.CodeTest)
+            {
+                if (codeTestCases == null || codeTestCases.Count == 0)
+                    throw new ValidationException("Для code-test нужен хотя бы один тест-кейс.");
+
+                var invalidIndex = codeTestCases
+                    .Select((x, idx) => new { x, idx })
+                    .FirstOrDefault(x => string.IsNullOrWhiteSpace(x.x.Input) || string.IsNullOrWhiteSpace(x.x.ExpectedOutput));
+
+                if (invalidIndex != null)
+                    throw new ValidationException($"Тест-кейс #{invalidIndex.idx + 1} должен содержать и Input, и Expected Output.");
+            }
+
+            if (assignmentType == TaskAssignmentTypes.ImageTest)
+            {
+                if (string.IsNullOrWhiteSpace(imageReferenceKey))
+                    throw new ValidationException("Для image-test нужно загрузить эталонную картинку.");
+
+                if (!imageThreshold.HasValue || imageThreshold.Value < 0 || imageThreshold.Value > 100)
+                    throw new ValidationException("Порог совпадения для image-test должен быть от 0 до 100.");
+            }
         }
 
         // ===== allowed languages helpers =====

@@ -39,6 +39,8 @@ namespace taskforge.Controllers.Admin
             int PassedTests,
             int ImageSolutions);
 
+        public sealed record AdminUserStatsDto(int Total, int Linked, int Admins);
+
         public sealed record AdminUserUpdateDto(
             string Email,
             string FirstName,
@@ -51,7 +53,7 @@ namespace taskforge.Controllers.Admin
             string? TelegramUsername);
 
         [HttpGet]
-        public async Task<IActionResult> List([FromQuery] string? query, [FromQuery] string? role, [FromQuery] bool linkedOnly = false, CancellationToken ct = default)
+        public async Task<IActionResult> List([FromQuery] string? query, [FromQuery] string? role, [FromQuery] bool linkedOnly = false, [FromQuery] int take = 120, CancellationToken ct = default)
         {
             var q = (query ?? string.Empty).Trim().ToLower();
             var rq = (role ?? string.Empty).Trim();
@@ -77,7 +79,7 @@ namespace taskforge.Controllers.Admin
 
             var users = await usersQuery
                 .OrderByDescending(u => u.CreatedAt)
-                .Take(120)
+                .Take(Math.Clamp(take, 1, 300))
                 .Select(u => new
                 {
                     u.Id,
@@ -128,6 +130,30 @@ namespace taskforge.Controllers.Admin
             var testMap = testCounts.ToDictionary(x => x.UserId, x => x.Count);
             var imageMap = imageCounts.ToDictionary(x => x.UserId, x => x.Count);
 
+            var statsQuery = _db.Users.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                statsQuery = statsQuery.Where(u =>
+                    u.Email.ToLower().Contains(q) ||
+                    u.FirstName.ToLower().Contains(q) ||
+                    u.LastName.ToLower().Contains(q) ||
+                    ((u.FirstName + " " + u.LastName).ToLower().Contains(q)) ||
+                    ((u.MinecraftNick ?? string.Empty).ToLower().Contains(q)) ||
+                    ((u.TelegramUsername ?? string.Empty).ToLower().Contains(q)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(rq))
+                statsQuery = statsQuery.Where(u => u.Role == rq);
+
+            if (linkedOnly)
+                statsQuery = statsQuery.Where(u => u.MinecraftLinkedAtUtc != null || u.TelegramLinkedAtUtc != null);
+
+            var stats = new AdminUserStatsDto(
+                await statsQuery.CountAsync(ct),
+                await statsQuery.CountAsync(u => u.MinecraftLinkedAtUtc != null || u.TelegramLinkedAtUtc != null, ct),
+                await statsQuery.CountAsync(u => u.Role == AppRoles.Admin, ct));
+
             var result = users.Select(u => new AdminUserListItemDto(
                 u.Id,
                 u.Email,
@@ -150,7 +176,53 @@ namespace taskforge.Controllers.Admin
                 imageMap.TryGetValue(u.Id, out var img) ? img : 0
             )).ToList();
 
-            return Ok(result);
+            return Ok(new { items = result, stats });
+        }
+
+
+
+        [HttpDelete("{userId:guid}")]
+        public async Task<IActionResult> Delete(Guid userId, CancellationToken ct = default)
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
+            if (user == null) return NotFound(new { message = "Пользователь не найден." });
+
+            var currentUserIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (Guid.TryParse(currentUserIdClaim, out var currentUserId) && currentUserId == userId)
+                return BadRequest(new { message = "Нельзя удалить собственный аккаунт из админки." });
+
+            var ownsCourses = await _db.Courses.AnyAsync(x => x.OwnerId == userId, ct);
+            if (ownsCourses)
+                return BadRequest(new { message = "Нельзя удалить пользователя, который является владельцем курсов. Сначала передайте владение курсами." });
+
+            var supportTicketIds = await _db.SupportTickets
+                .Where(x => x.UserId == userId)
+                .Select(x => x.Id)
+                .ToListAsync(ct);
+
+            await _db.SupportMessages
+                .Where(x => x.AuthorUserId == userId || supportTicketIds.Contains(x.TicketId))
+                .ExecuteDeleteAsync(ct);
+            await _db.SupportTickets.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+
+            await _db.UserTaskSolutions.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserImageTaskSolutions.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserTaskTestAttempts.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserFeatureRoles.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserGroupMembers.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.MinecraftWeeklyJoins.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.MinecraftLinkCodes.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.TelegramLinkCodes.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.MinecraftChatMessages.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.CourseOwners.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserLoginLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserQuotaBuckets.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserUiSettings.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserBadges.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+
+            _db.Users.Remove(user);
+            await _db.SaveChangesAsync(ct);
+            return NoContent();
         }
 
         [HttpPut("{userId:guid}")]

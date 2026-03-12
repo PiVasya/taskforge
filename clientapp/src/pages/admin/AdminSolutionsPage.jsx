@@ -8,7 +8,6 @@ import {
   getSolutionDetails,
   getSolutionsDetailsBulkOrFallback,
   deleteUserSolutions,
-  deleteUser,
   deleteSolution,
   getAdminUserGroupIds,
   getUserImageSolutions,
@@ -444,23 +443,6 @@ export default function AdminSolutionsPage() {
     }
   };
 
-  const handleDeleteUser = async () => {
-    if (!userId) return;
-    const ok = window.confirm(
-      'Удалить аккаунт выбранного пользователя вместе со всеми его решениями?'
-    );
-    if (!ok) return;
-
-    try {
-      await deleteUser(userId);
-      setSolutions([]);
-      setUsers((prev) => prev.filter((u) => u.id !== userId));
-      setUserId('');
-    } catch (e) {
-      setPageError(e?.message || 'Не удалось удалить пользователя');
-      handleApiError(e, notify, 'Не удалось удалить пользователя');
-    }
-  };
 
   const selectedUser = users.find((u) => u.id === userId) || null;
 
@@ -573,13 +555,6 @@ export default function AdminSolutionsPage() {
                   Удалить все решения
                 </Button>
               )}
-              <Button
-                intent="danger"
-                onClick={handleDeleteUser}
-                disabled={!userId || listLoading}
-              >
-                Удалить аккаунт
-              </Button>
             </div>
           </div>
 

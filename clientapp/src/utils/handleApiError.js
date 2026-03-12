@@ -1,5 +1,43 @@
 import { setAccessToken } from '../api/http';
 
+export function extractApiErrorMessages(err, fallbackMessage) {
+  const data = err?.response?.data;
+  const rawErrors = data?.errors;
+
+  const errorList = rawErrors && typeof rawErrors === 'object'
+    ? Object.entries(rawErrors)
+        .flatMap(([field, value]) => {
+          const items = Array.isArray(value) ? value : [value];
+          return items
+            .map((x) => (typeof x === 'string' ? x.trim() : ''))
+            .filter(Boolean)
+            .map((msg) => (field && field !== '$' && field !== 'form' ? `${field}: ${msg}` : msg));
+        })
+        .filter(Boolean)
+    : [];
+
+  const primaryMessage =
+    data?.message ||
+    data?.error ||
+    data?.detail ||
+    (typeof data === 'string' ? data : null) ||
+    err?.message ||
+    fallbackMessage ||
+    'Произошла ошибка';
+
+  const messages = [primaryMessage, ...errorList].filter(Boolean);
+  const uniqueMessages = [...new Set(messages)];
+
+  return {
+    status: err?.response?.status,
+    primaryMessage,
+    messages: uniqueMessages,
+    userMessage: uniqueMessages.join('\n'),
+    trace: data?.trace || null,
+    path: data?.path || null,
+  };
+}
+
 /**
  * Centralized error handler for API calls.
  * Given an error, a notify function, and an optional fallback message,
@@ -7,11 +45,13 @@ import { setAccessToken } from '../api/http';
  */
 export function handleApiError(err, notify, fallbackMessage) {
   try {
-    const status = err?.response?.status;
-    const serverMsg =
-      err?.response?.data?.message ||
-      (typeof err?.response?.data === 'string' ? err.response.data : null) ||
-      err?.message;
+    const parsed = extractApiErrorMessages(err, fallbackMessage);
+    const { status, primaryMessage, messages } = parsed;
+    const serverMsg = primaryMessage;
+    const combined = messages.join('\n');
+
+    err.userMessage = combined;
+    err.message = combined || err.message;
 
     if (status === 401) {
       // Unauthorized: inform the user, clear token, and redirect to login.
@@ -21,27 +61,36 @@ export function handleApiError(err, notify, fallbackMessage) {
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         window.location.assign('/login');
       }
-      return;
+      return parsed;
     }
     if (status === 403) {
       notify.error(serverMsg || 'Недостаточно прав');
-      return;
+      return parsed;
     }
     if (status === 404) {
       notify.warn(serverMsg || 'Не найдено');
-      return;
+      return parsed;
     }
     if (status === 429) {
       // quota exceeded: показываем дружелюбно (без "status code 429")
       notify.warn(serverMsg || 'Лимит исчерпан. Попробуйте позже.');
-      return;
+      return parsed;
     }
     if (status >= 500) {
       notify.error(serverMsg || fallbackMessage || 'Ошибка сервера');
-      return;
+      return parsed;
     }
     notify.error(serverMsg || fallbackMessage || 'Произошла ошибка');
+    return parsed;
   } catch {
     notify.error(fallbackMessage || 'Произошла ошибка');
+    return {
+      status: null,
+      primaryMessage: fallbackMessage || 'Произошла ошибка',
+      messages: [fallbackMessage || 'Произошла ошибка'],
+      userMessage: fallbackMessage || 'Произошла ошибка',
+      trace: null,
+      path: null,
+    };
   }
 }
