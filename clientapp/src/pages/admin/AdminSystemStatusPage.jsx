@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, RefreshCw, ServerCrash, ShieldCheck } from 'lucide-react';
+import { Activity, AlertTriangle, RefreshCw, ServerCrash, ShieldCheck } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { Button, Card } from '../../components/ui';
 import { getSystemStatus } from '../../api/systemStatus';
@@ -17,6 +17,7 @@ function StatCard({ label, value, className = '' }) {
 export default function AdminSystemStatusPage() {
   const notify = useNotify();
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
   const [data, setData] = useState(null);
 
   const load = async (silent = false) => {
@@ -24,7 +25,9 @@ export default function AdminSystemStatusPage() {
       if (!silent) setLoading(true);
       const res = await getSystemStatus();
       setData(res);
+      setPageError('');
     } catch (e) {
+      setPageError(e?.message || 'Не удалось проверить статус компонентов');
       notify.error(e?.message || 'Не удалось проверить статус компонентов');
     } finally {
       if (!silent) setLoading(false);
@@ -45,6 +48,18 @@ export default function AdminSystemStatusPage() {
   return (
     <Layout>
       <div className="space-y-6">
+        {pageError ? (
+          <Card className="border-rose-300 bg-rose-50 text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="mt-0.5" />
+              <div>
+                <div className="font-medium">Ошибка админ-раздела</div>
+                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
+              </div>
+            </div>
+          </Card>
+        ) : null}
+
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold flex items-center gap-3"><Activity size={28} /> Статус компонентов</h1>

@@ -3,10 +3,10 @@ import api from './http';
 
 /**
  * Поиск пользователей по email/имени/фамилии.
- * GET /api/admin/users?q=...&take=...
+ * GET /api/admin/solution-users?q=...&take=...
  */
 export async function searchUsersOnce(q = '', take = 20) {
-  const { data } = await api.get('/api/admin/users', {
+  const { data } = await api.get('/api/admin/solution-users', {
     params: { q, take },
   });
   return Array.isArray(data) ? data : [];

@@ -4,7 +4,7 @@ import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { getAdminUsers, updateAdminUser } from '../../api/adminUsers';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { Save, Search, UserCog } from 'lucide-react';
+import { AlertTriangle, Save, Search, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
@@ -15,13 +15,16 @@ export default function AdminUsersPage() {
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
   const [linkedOnly, setLinkedOnly] = useState(false);
+  const [pageError, setPageError] = useState('');
 
   const load = async () => {
     try {
       setLoading(true);
       const list = await getAdminUsers({ query, role, linkedOnly });
       setItems(Array.isArray(list) ? list : []);
+      setPageError('');
     } catch (e) {
+      setPageError(e?.message || 'Не удалось загрузить пользователей');
       handleApiError(e, notify, 'Не удалось загрузить пользователей');
     } finally {
       setLoading(false);
@@ -52,8 +55,10 @@ export default function AdminUsersPage() {
         telegramUsername: user.telegramUsername || null,
       });
       notify.success('Пользователь обновлён');
+      setPageError('');
       await load();
     } catch (e) {
+      setPageError(e?.message || 'Не удалось сохранить пользователя');
       handleApiError(e, notify, 'Не удалось сохранить пользователя');
     }
   };
@@ -68,6 +73,18 @@ export default function AdminUsersPage() {
           </div>
           <Button onClick={load}><Search size={16} /> <span className="ml-1">Обновить</span></Button>
         </div>
+
+        {pageError ? (
+          <Card className="border-rose-300 bg-rose-50 text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="mt-0.5" />
+              <div>
+                <div className="font-medium">Ошибка админ-раздела</div>
+                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
+              </div>
+            </div>
+          </Card>
+        ) : null}
 
         <div className="grid md:grid-cols-3 gap-4">
           <Card><div className="text-sm opacity-70">Показано пользователей</div><div className="text-3xl font-semibold mt-2">{stats.total}</div></Card>

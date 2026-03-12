@@ -23,8 +23,8 @@ namespace taskforge.Controllers
         }
 
         /// <summary>Поиск пользователей по email/имени/фамилии.</summary>
-        /// GET /api/admin/users?q=...&take=...
-        [HttpGet("users")]
+        /// GET /api/admin/solution-users?q=...&take=...
+        [HttpGet("solution-users")]
         public async Task<IActionResult> SearchUsers([FromQuery] string q = "", [FromQuery] int take = 20)
             => Ok(await _svc.SearchUsersAsync(q ?? string.Empty, Math.Clamp(take, 1, 100)));
 

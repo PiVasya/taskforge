@@ -315,14 +315,24 @@ app.Use(async (ctx, next) =>
         // ВАЖНО: иначе редкие нативные падения (OpenCV / ImageMagick и т.п.) уходят в "Unhandled" и рвут запрос.
         // Логи делаем максимально подробными, чтобы потом можно было воспроизвести.
         var trace = ctx.TraceIdentifier;
-        Console.WriteLine($"[Unhandled] trace={trace} {ex.GetType().Name}: {ex.Message}\n{ex}");
+        var path = ctx.Request.Path.ToString();
+        var message = string.IsNullOrWhiteSpace(ex.Message) ? "Внутренняя ошибка" : ex.Message;
+        var detail = ex.InnerException?.Message;
+
+        Console.WriteLine($"[Unhandled] trace={trace} path={path} {ex.GetType().Name}: {ex.Message}\n{ex}");
         ctx.RequestServices
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Unhandled")
-            .LogError(ex, "Unhandled exception trace={Trace}", trace);
+            .LogError(ex, "Unhandled exception trace={Trace} path={Path}", trace, path);
 
         ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        await ctx.Response.WriteAsJsonAsync(new { message = "Внутренняя ошибка", trace });
+        await ctx.Response.WriteAsJsonAsync(new
+        {
+            message,
+            detail,
+            trace,
+            path
+        });
     }
 });
 

@@ -37,7 +37,7 @@ export function handleApiError(err, notify, fallbackMessage) {
       return;
     }
     if (status >= 500) {
-      notify.error('Ошибка сервера. Попробуйте позже.');
+      notify.error(serverMsg || fallbackMessage || 'Ошибка сервера');
       return;
     }
     notify.error(serverMsg || fallbackMessage || 'Произошла ошибка');

@@ -5,19 +5,22 @@ import { Badge, Button, Card } from '../../components/ui';
 import { getAdminAssignmentInsights } from '../../api/adminAssignmentInsights';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { ArrowLeft, BarChart3, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, RefreshCcw } from 'lucide-react';
 
 export default function AdminAssignmentInsightsPage() {
   const { assignmentId } = useParams();
   const notify = useNotify();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
 
   const load = async () => {
     try {
       setLoading(true);
       setData(await getAdminAssignmentInsights(assignmentId));
+      setPageError('');
     } catch (e) {
+      setPageError(e?.message || 'Не удалось загрузить аналитику задания');
       handleApiError(e, notify, 'Не удалось загрузить аналитику задания');
     } finally {
       setLoading(false);
@@ -36,6 +39,18 @@ export default function AdminAssignmentInsightsPage() {
   return (
     <Layout>
       <div className="space-y-6">
+        {pageError ? (
+          <Card className="border-rose-300 bg-rose-50 text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="mt-0.5" />
+              <div>
+                <div className="font-medium">Ошибка админ-раздела</div>
+                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
+              </div>
+            </div>
+          </Card>
+        ) : null}
+
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">

@@ -105,6 +105,17 @@ api.interceptors.response.use(
     } else {
       // даже на обычных ответах можем обновить квоты (если бэк их прислал)
       emitQuotaFromHeaders(error?.response?.headers);
+
+      const data = error?.response?.data;
+      const normalizedMsg =
+        (typeof data === 'string' ? data : null) ||
+        data?.message ||
+        data?.error ||
+        error?.message ||
+        'Произошла ошибка';
+
+      error.message = normalizedMsg;
+      error.userMessage = normalizedMsg;
     }
 
     // prevent infinite loops
