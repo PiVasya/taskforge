@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, RefreshCw, ServerCrash, ShieldCheck } from 'lu
 import Layout from '../../components/Layout';
 import { Button, Card } from '../../components/ui';
 import { getSystemStatus } from '../../api/systemStatus';
+import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 
 function StatCard({ label, value, className = '' }) {
@@ -27,8 +28,8 @@ export default function AdminSystemStatusPage() {
       setData(res);
       setPageError('');
     } catch (e) {
-      setPageError(e?.message || 'Не удалось проверить статус компонентов');
-      notify.error(e?.message || 'Не удалось проверить статус компонентов');
+      const parsed = handleApiError(e, notify, 'Не удалось проверить статус компонентов');
+      setPageError(parsed?.userMessage || 'Не удалось проверить статус компонентов');
     } finally {
       if (!silent) setLoading(false);
     }

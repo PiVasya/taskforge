@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select } from '../../components/ui';
+import { AlertTriangle } from 'lucide-react';
 import { searchUsersOnce } from '../../api/admin';
 import {
   getAllBadges,
@@ -10,6 +11,7 @@ import {
   getUserBadges,
   revokeBadge,
 } from '../../api/badges';
+import { handleApiError } from '../../utils/handleApiError';
 
 /**
  * Страница администрирования бейджей.
@@ -41,6 +43,7 @@ export default function AdminBadgesPage() {
 
   // сообщения
   const [message, setMessage] = useState('');
+  const [pageError, setPageError] = useState('');
 
   useEffect(() => {
     // загружаем список бейджей при монтировании
@@ -68,8 +71,10 @@ export default function AdminBadgesPage() {
     try {
       const list = await getAllBadges();
       setBadges(Array.isArray(list) ? list : []);
+      setPageError('');
     } catch (err) {
-      console.error('Failed to load badges', err);
+      const parsed = handleApiError(err, { error: ()=>{}, warn: ()=>{} }, 'Не удалось загрузить бейджи');
+      setPageError(parsed?.userMessage || 'Не удалось загрузить бейджи');
     } finally {
       setBadgesLoading(false);
     }
@@ -85,8 +90,10 @@ export default function AdminBadgesPage() {
     try {
       const list = await getUserBadges(uid);
       setUserBadges(Array.isArray(list) ? list : []);
+      setPageError('');
     } catch (err) {
-      console.error('Failed to load user badges', err);
+      const parsed = handleApiError(err, { error: ()=>{}, warn: ()=>{} }, 'Не удалось загрузить бейджи пользователя');
+      setPageError(parsed?.userMessage || 'Не удалось загрузить бейджи пользователя');
     } finally {
       setUserBadgesLoading(false);
     }
@@ -100,8 +107,10 @@ export default function AdminBadgesPage() {
     try {
       const data = await searchUsersOnce(q, 20);
       setUsers(data || []);
+      setPageError('');
     } catch (e) {
-      console.error('Failed to search users', e);
+      const parsed = handleApiError(e, { error: ()=>{}, warn: ()=>{} }, 'Не удалось найти пользователей');
+      setPageError(parsed?.userMessage || 'Не удалось найти пользователей');
     } finally {
       setSearchLoading(false);
     }
@@ -124,8 +133,10 @@ export default function AdminBadgesPage() {
       setNewFile(null);
       await loadBadges();
       setMessage('Бейдж создан');
+      setPageError('');
     } catch (err) {
-      console.error('Failed to create badge', err);
+      const parsed = handleApiError(err, { error: ()=>{}, warn: ()=>{} }, 'Не удалось создать бейдж');
+      setPageError(parsed?.userMessage || 'Не удалось создать бейдж');
       setMessage('Не удалось создать бейдж');
     } finally {
       setUploading(false);
@@ -143,10 +154,11 @@ export default function AdminBadgesPage() {
     try {
       await awardBadge(userId, badgeId);
       setMessage('Бейдж выдан');
-      // обновляем список бейджей пользователя
+      setPageError('');
       await loadUserBadges(userId);
     } catch (err) {
-      console.error('Failed to award badge', err);
+      const parsed = handleApiError(err, { error: ()=>{}, warn: ()=>{} }, 'Не удалось выдать бейдж');
+      setPageError(parsed?.userMessage || 'Не удалось выдать бейдж');
       setMessage('Не удалось выдать бейдж');
     }
   };
@@ -161,8 +173,10 @@ export default function AdminBadgesPage() {
       await deleteBadge(badgeId);
       await loadBadges();
       setMessage('Бейдж удалён');
+      setPageError('');
     } catch (err) {
-      console.error('Failed to delete badge', err);
+      const parsed = handleApiError(err, { error: ()=>{}, warn: ()=>{} }, 'Не удалось удалить бейдж');
+      setPageError(parsed?.userMessage || 'Не удалось удалить бейдж');
       setMessage('Не удалось удалить бейдж');
     }
   };
@@ -180,9 +194,11 @@ export default function AdminBadgesPage() {
     try {
       await revokeBadge(userId, badgeId);
       setMessage('Бейдж снят');
+      setPageError('');
       await loadUserBadges(userId);
     } catch (err) {
-      console.error('Failed to revoke badge', err);
+      const parsed = handleApiError(err, { error: ()=>{}, warn: ()=>{} }, 'Не удалось снять бейдж');
+      setPageError(parsed?.userMessage || 'Не удалось снять бейдж');
       setMessage('Не удалось снять бейдж');
     }
   };
@@ -193,6 +209,18 @@ export default function AdminBadgesPage() {
     <Layout>
       <div className="container-app py-6 space-y-4">
         <h1 className="text-2xl font-semibold">Бейджи</h1>
+
+        {pageError ? (
+          <Card className="border-rose-300 bg-rose-50 text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="mt-0.5" />
+              <div>
+                <div className="font-medium">Ошибка админ-раздела</div>
+                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
+              </div>
+            </div>
+          </Card>
+        ) : null}
 
         {/* поиск и выбор пользователя */}
         <Card className="p-4 space-y-3">

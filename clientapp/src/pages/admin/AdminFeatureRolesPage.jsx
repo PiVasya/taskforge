@@ -4,7 +4,7 @@ import { Badge, Button, Card, Field, Input, Textarea } from '../../components/ui
 import { assignFeatureRole, createFeatureRole, deleteFeatureRole, getFeatureRoles, removeFeatureRole, searchFeatureRoleUsers, updateFeatureRole } from '../../api/featureRoles';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
-import { Plus, Save, Shield, Trash2, UserPlus, UserX } from 'lucide-react';
+import { AlertTriangle, Plus, Save, Shield, Trash2, UserPlus, UserX } from 'lucide-react';
 
 const empty = { code: '', name: '', description: '', isActive: true };
 
@@ -16,6 +16,7 @@ export default function AdminFeatureRolesPage() {
   const [q, setQ] = useState('');
   const [userQuery, setUserQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const [pageError, setPageError] = useState('');
   const [form, setForm] = useState({ ...empty });
 
   const loadRoles = async () => {
@@ -33,8 +34,10 @@ export default function AdminFeatureRolesPage() {
       try {
         setLoading(true);
         await Promise.all([loadRoles(), loadUsers('')]);
+        setPageError('');
       } catch (e) {
-        handleApiError(e, notify, 'Не удалось загрузить дополнительные роли');
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить дополнительные роли');
+        setPageError(parsed?.userMessage || 'Не удалось загрузить дополнительные роли');
       } finally {
         setLoading(false);
       }
@@ -58,11 +61,13 @@ export default function AdminFeatureRolesPage() {
         isActive: !!form.isActive,
       });
       notify.success('Роль создана');
+      setPageError('');
       setCreating(false);
       setForm({ ...empty });
       await loadRoles();
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось создать роль');
+      const parsed = handleApiError(e, notify, 'Не удалось создать роль');
+      setPageError(parsed?.userMessage || 'Не удалось создать роль');
     }
   };
 
@@ -75,9 +80,11 @@ export default function AdminFeatureRolesPage() {
         isActive: !!role.isActive,
       });
       notify.success('Роль сохранена');
+      setPageError('');
       await loadRoles();
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось сохранить роль');
+      const parsed = handleApiError(e, notify, 'Не удалось сохранить роль');
+      setPageError(parsed?.userMessage || 'Не удалось сохранить роль');
     }
   };
 
@@ -87,10 +94,12 @@ export default function AdminFeatureRolesPage() {
     try {
       await deleteFeatureRole(role.id);
       notify.success('Роль удалена');
+      setPageError('');
       await loadRoles();
       await loadUsers(userQuery);
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось удалить роль');
+      const parsed = handleApiError(e, notify, 'Не удалось удалить роль');
+      setPageError(parsed?.userMessage || 'Не удалось удалить роль');
     }
   };
 
@@ -99,10 +108,12 @@ export default function AdminFeatureRolesPage() {
       if (enabled) await removeFeatureRole(user.id, roleCode);
       else await assignFeatureRole(user.id, roleCode);
       notify.success(enabled ? 'Роль снята' : 'Роль выдана');
+      setPageError('');
       await loadUsers(userQuery);
       await loadRoles();
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось изменить роль пользователя');
+      const parsed = handleApiError(e, notify, 'Не удалось изменить роль пользователя');
+      setPageError(parsed?.userMessage || 'Не удалось изменить роль пользователя');
     }
   };
 
@@ -110,7 +121,8 @@ export default function AdminFeatureRolesPage() {
     try {
       await loadUsers(userQuery);
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось найти пользователей');
+      const parsed = handleApiError(e, notify, 'Не удалось найти пользователей');
+      setPageError(parsed?.userMessage || 'Не удалось найти пользователей');
     }
   };
 
@@ -135,6 +147,18 @@ export default function AdminFeatureRolesPage() {
         </div>
 
         {loading && <div className="text-neutral-500">Загрузка…</div>}
+
+        {pageError ? (
+          <Card className="border-rose-300 bg-rose-50 text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="mt-0.5" />
+              <div>
+                <div className="font-medium">Ошибка админ-раздела</div>
+                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
+              </div>
+            </div>
+          </Card>
+        ) : null}
 
         <div className="grid xl:grid-cols-[1.1fr,0.9fr] gap-6">
           <div className="space-y-4">

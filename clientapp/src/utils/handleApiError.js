@@ -25,7 +25,11 @@ export function extractApiErrorMessages(err, fallbackMessage) {
     fallbackMessage ||
     'Произошла ошибка';
 
-  const messages = [primaryMessage, ...errorList].filter(Boolean);
+  const detail = data?.detail && data?.detail !== primaryMessage ? data.detail : null;
+  const path = data?.path || null;
+  const trace = data?.trace || null;
+
+  const messages = [primaryMessage, detail, ...errorList].filter(Boolean);
   const uniqueMessages = [...new Set(messages)];
 
   return {

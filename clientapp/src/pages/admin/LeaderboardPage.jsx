@@ -8,8 +8,12 @@ import { getGroups } from '../../api/groups';
 import LeaderboardCard from '../../components/LeaderboardCard';
 import QuotaPill from '../../components/QuotaPill';
 import { Card, Input, Select, Button } from '../../components/ui';
+import { useNotify } from '../../components/notify/NotifyProvider';
+import { handleApiError } from '../../utils/handleApiError';
+import { AlertTriangle } from 'lucide-react';
 
 export default function LeaderboardPage() {
+  const notify = useNotify();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,13 +32,13 @@ export default function LeaderboardPage() {
         const list = await getCourses();
         setCourses(Array.isArray(list) ? list : []);
       } catch (e) {
-        console.error('Failed to load courses', e);
+        handleApiError(e, notify, 'Не удалось загрузить курсы');
       }
       try {
         const gs = await getGroups();
         setGroups(Array.isArray(gs) ? gs : []);
       } catch (e) {
-        console.error('Failed to load groups', e);
+        handleApiError(e, notify, 'Не удалось загрузить группы');
       }
     })();
   }, []);
@@ -60,13 +64,13 @@ export default function LeaderboardPage() {
       const data = await getLeaderboard(params);
       setEntries(Array.isArray(data) ? data : []);
     } catch (e) {
-      console.error(e);
       if (e?.response?.status === 429) {
         const ra = e.response?.data?.retryAfterSeconds;
         const msg = e.response?.data?.message || 'Топ можно обновлять раз в 5 минут';
         setError(ra ? `${msg}. Повтори через ~${Math.ceil(ra / 60)} мин.` : msg);
       } else {
-        setError('Не удалось загрузить топ');
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить топ');
+        setError(parsed?.userMessage || 'Не удалось загрузить топ');
       }
     } finally {
       setLoading(false);
@@ -162,9 +166,12 @@ export default function LeaderboardPage() {
         {loading && <div>Загрузка…</div>}
 
         {error && (
-          <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
-            {error}
-          </div>
+          <Card className="border-rose-300 bg-rose-50 text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="mt-0.5" />
+              <div className="text-sm whitespace-pre-wrap">{error}</div>
+            </div>
+          </Card>
         )}
 
         {!loading && !error && (

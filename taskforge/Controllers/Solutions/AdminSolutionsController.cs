@@ -88,15 +88,6 @@ namespace taskforge.Controllers
             [FromQuery] Guid? assignmentId)
             => DeleteUserSolutions(userId, courseId, assignmentId);
 
-        /// <summary>Удаление пользователя целиком (аккаунт + все его решения).</summary>
-        /// DELETE /api/admin/users/{userId}
-        [HttpDelete("users/{userId:guid}")]
-        public async Task<IActionResult> DeleteUser([FromRoute] Guid userId)
-        {
-            await _svc.DeleteUserAsync(userId);
-            return NoContent();
-        }
-
         /// <summary>Список групп, в которых состоит пользователь.</summary>
         /// GET /api/admin/users/{userId}/groups
         [HttpGet("users/{userId:guid}/groups")]

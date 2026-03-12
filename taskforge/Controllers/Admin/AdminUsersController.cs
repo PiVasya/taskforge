@@ -181,6 +181,21 @@ namespace taskforge.Controllers.Admin
 
 
 
+        private async Task<bool> WouldRemoveLastAdminAsync(Guid userId, string? nextRole, bool deleting, CancellationToken ct)
+        {
+            var adminIds = await _db.Users.AsNoTracking()
+                .Where(x => x.Role == AppRoles.Admin)
+                .Select(x => x.Id)
+                .ToListAsync(ct);
+
+            if (!adminIds.Contains(userId)) return false;
+
+            if (deleting)
+                return adminIds.Count <= 1;
+
+            return !string.Equals(nextRole, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && adminIds.Count <= 1;
+        }
+
         [HttpDelete("{userId:guid}")]
         public async Task<IActionResult> Delete(Guid userId, CancellationToken ct = default)
         {
@@ -190,6 +205,9 @@ namespace taskforge.Controllers.Admin
             var currentUserIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (Guid.TryParse(currentUserIdClaim, out var currentUserId) && currentUserId == userId)
                 return BadRequest(new { message = "Нельзя удалить собственный аккаунт из админки." });
+
+            if (await WouldRemoveLastAdminAsync(userId, null, deleting: true, ct))
+                return BadRequest(new { message = "Нельзя удалить последнего администратора." });
 
             var ownsCourses = await _db.Courses.AnyAsync(x => x.OwnerId == userId, ct);
             if (ownsCourses)
@@ -241,8 +259,34 @@ namespace taskforge.Controllers.Admin
             if (role != AppRoles.Admin && role != AppRoles.Editor && role != AppRoles.User)
                 return BadRequest(new { message = "Недопустимая базовая роль." });
 
+            var currentUserIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var isSelf = Guid.TryParse(currentUserIdClaim, out var currentUserId) && currentUserId == userId;
+
+            if (await WouldRemoveLastAdminAsync(userId, role, deleting: false, ct))
+                return BadRequest(new { message = "Нельзя снять роль у последнего администратора." });
+
+            if (isSelf && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { message = "Нельзя снять у себя роль администратора через эту страницу." });
+
+            if (isSelf && dto.LockoutEnabled)
+                return BadRequest(new { message = "Нельзя включить lockout для собственного аккаунта." });
+
             var dupEmail = await _db.Users.AnyAsync(x => x.Id != userId && x.Email.ToLower() == email.ToLower(), ct);
             if (dupEmail) return Conflict(new { message = "Email уже занят." });
+
+            var nick = string.IsNullOrWhiteSpace(dto.MinecraftNick) ? null : dto.MinecraftNick.Trim();
+            if (!string.IsNullOrWhiteSpace(nick))
+            {
+                var dupNick = await _db.Users.AnyAsync(x => x.Id != userId && x.MinecraftNick != null && x.MinecraftNick.ToLower() == nick.ToLower(), ct);
+                if (dupNick) return Conflict(new { message = "Minecraft nick уже используется другим пользователем." });
+            }
+
+            var tg = string.IsNullOrWhiteSpace(dto.TelegramUsername) ? null : dto.TelegramUsername.Trim().TrimStart('@');
+            if (!string.IsNullOrWhiteSpace(tg))
+            {
+                var dupTelegram = await _db.Users.AnyAsync(x => x.Id != userId && x.TelegramUsername != null && x.TelegramUsername.ToLower() == tg.ToLower(), ct);
+                if (dupTelegram) return Conflict(new { message = "Telegram username уже используется другим пользователем." });
+            }
 
             user.Email = email;
             user.FirstName = firstName;
@@ -251,8 +295,8 @@ namespace taskforge.Controllers.Admin
             user.EmailConfirmed = dto.EmailConfirmed;
             user.LockoutEnabled = dto.LockoutEnabled;
             user.PhoneNumber = string.IsNullOrWhiteSpace(dto.PhoneNumber) ? null : dto.PhoneNumber.Trim();
-            user.MinecraftNick = string.IsNullOrWhiteSpace(dto.MinecraftNick) ? null : dto.MinecraftNick.Trim();
-            user.TelegramUsername = string.IsNullOrWhiteSpace(dto.TelegramUsername) ? null : dto.TelegramUsername.Trim().TrimStart('@');
+            user.MinecraftNick = nick;
+            user.TelegramUsername = tg;
             user.UpdatedAt = DateTime.UtcNow;
 
             await _db.SaveChangesAsync(ct);

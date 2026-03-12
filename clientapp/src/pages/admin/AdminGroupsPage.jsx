@@ -35,7 +35,8 @@ export default function AdminGroupsPage() {
       const list = await getAdminGroups();
       setItems(Array.isArray(list) ? list : []);
     } catch (e) {
-      setErr(e?.userMessage || e?.message || 'Не удалось загрузить группы');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить группы');
+      setErr(parsed?.userMessage || 'Не удалось загрузить группы');
     } finally {
       setLoading(false);
     }
@@ -80,6 +81,7 @@ export default function AdminGroupsPage() {
       };
       const created = await createGroup(payload);
       notify.success('Группа создана');
+      setErr('');
       setCreating(false);
       setForm({ ...empty });
       await load();
@@ -89,7 +91,8 @@ export default function AdminGroupsPage() {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось создать группу');
+      const parsed = handleApiError(e, notify, 'Не удалось создать группу');
+      setErr(parsed?.userMessage || 'Не удалось создать группу');
     }
   };
 
@@ -108,9 +111,11 @@ export default function AdminGroupsPage() {
       };
       await updateGroup(g.id, payload);
       notify.success('Сохранено');
+      setErr('');
       await load();
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось сохранить');
+      const parsed = handleApiError(e, notify, 'Не удалось сохранить');
+      setErr(parsed?.userMessage || 'Не удалось сохранить');
     }
   };
 
@@ -126,9 +131,11 @@ export default function AdminGroupsPage() {
     try {
       await deleteGroup(g.id);
       notify.success('Удалено');
+      setErr('');
       await load();
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось удалить');
+      const parsed = handleApiError(e, notify, 'Не удалось удалить');
+      setErr(parsed?.userMessage || 'Не удалось удалить');
     }
   };
 

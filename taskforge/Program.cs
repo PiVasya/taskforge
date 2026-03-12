@@ -316,22 +316,27 @@ app.Use(async (ctx, next) =>
     catch (UnauthorizedAccessException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message });
+        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
     }
     catch (KeyNotFoundException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status404NotFound;
-        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message });
+        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
     }
     catch (ValidationException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
-        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message });
+        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
     }
     catch (DbUpdateException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status409Conflict;
-        await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт сохранения данных", detail = ex.Message });
+        await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт сохранения данных", detail = ex.InnerException?.Message ?? ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
+    }
+    catch (Microsoft.AspNetCore.Routing.Matching.AmbiguousMatchException ex)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт маршрутов на сервере", detail = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
     }
     catch (Exception ex)
     {
