@@ -156,7 +156,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         return HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
-                .header("Connection", "close")
                 .header("X-Minecraft-Key", taskForgeKey);
     }
 
