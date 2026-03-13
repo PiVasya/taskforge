@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Text.Json;
+using System.Net.Http;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using taskforge.Constants;
@@ -13,17 +16,21 @@ namespace taskforge.Controllers.Integrations
         private readonly IMinecraftChatService _chat;
         private readonly ICurrentUserService _current;
         private readonly IConfiguration _cfg;
+        private readonly IHttpClientFactory _httpFactory;
 
-        public MinecraftChatController(IMinecraftChatService chat, ICurrentUserService current, IConfiguration cfg)
+        public MinecraftChatController(IMinecraftChatService chat, ICurrentUserService current, IConfiguration cfg, IHttpClientFactory httpFactory)
         {
             _chat = chat;
             _current = current;
             _cfg = cfg;
+            _httpFactory = httpFactory;
         }
 
         public sealed record SiteChatMessageDto(string Message);
         public sealed record IncomingMinecraftChatDto(string Nick, string? Uuid, string Message, string? Kind = null);
         public sealed record MinecraftChatMessageDto(Guid Id, string Source, string? AuthorName, string? MinecraftNick, string? MinecraftUuid, string Message, DateTime CreatedAtUtc);
+
+        public sealed record MinecraftChatMetaDto(int? OnlinePlayers, bool Available);
 
         [HttpGet("messages")]
         [Authorize]
@@ -34,6 +41,44 @@ namespace taskforge.Controllers.Integrations
 
             var list = await _chat.GetRecentAsync(take, ct);
             return Ok(list.Select(ToDto));
+        }
+
+        [HttpGet("meta")]
+        [Authorize]
+        public async Task<IActionResult> GetMeta(CancellationToken ct = default)
+        {
+            if (!_current.HasAnyRole(AppRoles.Admin, FeatureRoles.Minecraft))
+                return Forbid();
+
+            var baseUrl = (_cfg["MINECRAFT_WEBHOOK_BASE_URL"] ?? _cfg["MINECRAFT_SERVER_URL"] ?? string.Empty).Trim();
+            var healthUrl = (_cfg["MINECRAFT_HEALTH_URL"] ?? string.Empty).Trim();
+            var endpoint = !string.IsNullOrWhiteSpace(healthUrl)
+                ? healthUrl
+                : (!string.IsNullOrWhiteSpace(baseUrl) ? new Uri(new Uri(baseUrl.TrimEnd('/') + "/"), "health").ToString() : null);
+
+            if (string.IsNullOrWhiteSpace(endpoint))
+                return Ok(new MinecraftChatMetaDto(null, false));
+
+            try
+            {
+                var client = _httpFactory.CreateClient();
+                using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                using var resp = await client.SendAsync(req, ct);
+                if (!resp.IsSuccessStatusCode)
+                    return Ok(new MinecraftChatMetaDto(null, false));
+
+                using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                int? onlinePlayers = null;
+                if (doc.RootElement.TryGetProperty("onlinePlayers", out var onlineEl) && onlineEl.ValueKind == JsonValueKind.Number && onlineEl.TryGetInt32(out var onlineValue))
+                    onlinePlayers = onlineValue;
+
+                return Ok(new MinecraftChatMetaDto(onlinePlayers, true));
+            }
+            catch
+            {
+                return Ok(new MinecraftChatMetaDto(null, false));
+            }
         }
 
         [HttpPost("messages")]

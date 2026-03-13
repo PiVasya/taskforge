@@ -9,3 +9,8 @@ export async function sendMinecraftChatMessage(message) {
   const { data } = await api.post('/api/integrations/minecraft/chat/messages', { message });
   return data;
 }
+
+export async function getMinecraftChatMeta() {
+  const { data } = await api.get('/api/integrations/minecraft/chat/meta');
+  return data;
+}

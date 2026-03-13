@@ -216,7 +216,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             server.createContext(path, new SendCodeHandler(this, key, allowedIps));
             // Простая проверка доступности (без ключей)
             server.createContext("/health", ex -> {
-                String resp = "{\"ok\":true}";
+                int onlinePlayers = Bukkit.getOnlinePlayers().size();
+                String resp = "{\"ok\":true,\"onlinePlayers\":" + onlinePlayers + "}";
                 ex.getResponseHeaders().add("Content-Type", "application/json");
                 ex.getResponseHeaders().add("Connection", "close");
                 ex.sendResponseHeaders(200, resp.getBytes(StandardCharsets.UTF_8).length);
