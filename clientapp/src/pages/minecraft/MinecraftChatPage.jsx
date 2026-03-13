@@ -7,7 +7,7 @@ import { getMinecraftChatMessages, sendMinecraftChatMessage } from '../../api/mi
 import { ensureMinecraftChatHubStarted } from '../../realtime/minecraftChatHub';
 import { MessageSquare, Send, RefreshCw } from 'lucide-react';
 
-const CHAT_H = 'h-[calc(100vh-180px)]';
+const CHAT_H = 'h-[calc(100dvh-8.5rem)] sm:h-[calc(100dvh-11rem)]';
 
 function formatTime(value) {
   if (!value) return '';
@@ -144,25 +144,25 @@ export default function MinecraftChatPage() {
 
   return (
     <Layout hideFooter>
-      <div className={`${CHAT_H} overflow-hidden flex flex-col gap-5`}>
-        <div className="flex items-start justify-between gap-3">
+      <div className={`${CHAT_H} min-h-0 overflow-hidden flex flex-col gap-3 sm:gap-5`}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2"><MessageSquare size={22} /> Minecraft чат</h1>
-            <p className="text-sm text-neutral-500 mt-2">Компактная лента в стиле игрового чата. Входы, выходы и ачивки тоже прилетают сюда.</p>
+            <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2"><MessageSquare size={22} /> Minecraft чат</h1>
+            <p className="text-xs sm:text-sm text-neutral-500 mt-1 sm:mt-2">Компактная лента в стиле игрового чата. Входы, выходы и ачивки тоже прилетают сюда.</p>
           </div>
-          <Button variant="outline" onClick={() => load()}><RefreshCw size={16} /><span className="ml-1">Обновить</span></Button>
+          <Button variant="outline" className="self-start sm:self-auto" onClick={() => load()}><RefreshCw size={16} /><span className="ml-1">Обновить</span></Button>
         </div>
 
-        <div className="grid xl:grid-cols-[220px,1fr] gap-5 min-h-0 flex-1">
-          <div className="space-y-4">
-            <Card className="p-4"><div className="text-sm text-neutral-500">Сообщений всего</div><div className="mt-2 text-4xl font-semibold">{stats.total}</div></Card>
-            <Card className="p-4"><div className="text-sm text-neutral-500">Из Minecraft</div><div className="mt-2 text-4xl font-semibold text-emerald-500">{stats.minecraft}</div></Card>
-            <Card className="p-4"><div className="text-sm text-neutral-500">С сайта</div><div className="mt-2 text-4xl font-semibold text-fuchsia-500">{stats.site}</div></Card>
-            <Card className="p-4"><div className="text-sm text-neutral-500">Ачивки в ленте</div><div className="mt-2 text-4xl font-semibold text-amber-500">{stats.advancements}</div></Card>
+        <div className="grid min-h-0 flex-1 grid-rows-[auto,1fr] gap-3 sm:gap-5 xl:grid-cols-[220px,1fr] xl:grid-rows-1">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-1 xl:gap-4">
+            <Card className="p-3 sm:p-4"><div className="text-xs sm:text-sm text-neutral-500">Сообщений всего</div><div className="mt-1 sm:mt-2 text-2xl sm:text-4xl font-semibold">{stats.total}</div></Card>
+            <Card className="p-3 sm:p-4"><div className="text-xs sm:text-sm text-neutral-500">Из Minecraft</div><div className="mt-1 sm:mt-2 text-2xl sm:text-4xl font-semibold text-emerald-500">{stats.minecraft}</div></Card>
+            <Card className="p-3 sm:p-4"><div className="text-xs sm:text-sm text-neutral-500">С сайта</div><div className="mt-1 sm:mt-2 text-2xl sm:text-4xl font-semibold text-fuchsia-500">{stats.site}</div></Card>
+            <Card className="p-3 sm:p-4"><div className="text-xs sm:text-sm text-neutral-500">Ачивки</div><div className="mt-1 sm:mt-2 text-2xl sm:text-4xl font-semibold text-amber-500">{stats.advancements}</div></Card>
           </div>
 
-          <Card className="p-4 flex flex-col min-h-0">
-            <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 mb-3">
+          <Card className="p-3 sm:p-4 flex min-h-0 flex-col">
+            <div className="mb-3 flex flex-col gap-2 text-[11px] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:text-xs text-neutral-500">
               <div className="flex flex-wrap gap-2">
                 <span className="rounded-full border border-emerald-500/20 px-2 py-1">Minecraft</span>
                 <span className="rounded-full border border-fuchsia-500/20 px-2 py-1">TaskForge</span>
@@ -171,7 +171,7 @@ export default function MinecraftChatPage() {
               <div>Последние 120 сообщений</div>
             </div>
 
-            <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-black/5 dark:bg-black/20 px-3 py-3 font-mono">
+            <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-black/5 dark:bg-black/20 px-2 py-2 sm:px-3 sm:py-3 font-mono text-[12px] sm:text-sm">
               {loading ? (
                 <div className="text-neutral-500">Загрузка…</div>
               ) : messages.length === 0 ? (
@@ -181,9 +181,9 @@ export default function MinecraftChatPage() {
               )}
             </div>
 
-            <div className="pt-3 mt-3 border-t border-neutral-200/60 dark:border-neutral-800/60 flex gap-3">
-              <Input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} placeholder="Написать сообщение в Minecraft..." />
-              <Button onClick={send} disabled={sending}><Send size={16} /><span className="ml-1">Отправить</span></Button>
+            <div className="pt-3 mt-3 border-t border-neutral-200/60 dark:border-neutral-800/60 flex flex-col sm:flex-row gap-3">
+              <Input className="flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} placeholder="Написать сообщение в Minecraft..." />
+              <Button className="w-full sm:w-auto" onClick={send} disabled={sending}><Send size={16} /><span className="ml-1">Отправить</span></Button>
             </div>
           </Card>
         </div>

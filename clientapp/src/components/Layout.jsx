@@ -231,13 +231,13 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         )}
       </div>
       <header className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-neutral-900/60" style={{ borderBottom: '1px solid rgba(var(--border) / 0.7)' }}>
-        <div ref={headerRowRef} className="container-app flex h-16 items-center justify-between gap-2">
+        <div ref={headerRowRef} className="container-app flex min-h-16 items-center justify-between gap-2 py-2">
           {/* Логотип и название */}
           <Link to="/news" className="flex min-w-0 items-center gap-3">
             <div className="h-9 w-9 rounded-xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
               <PanelsTopLeft size={18} />
             </div>
-            <div className="font-semibold truncate">TaskForge</div>
+            <div className="font-semibold truncate text-sm sm:text-base">TaskForge</div>
             {/* подпись "Платформа задач" убрали — она съедает место и ломает хедер */}
           </Link>
 
@@ -429,7 +429,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </button>
 
             {mobileOpen && (
-              <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
+              <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1rem))] max-h-[75dvh] overflow-y-auto rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
                 <div className="flex flex-col">
                   <Link
                     to="/courses"
@@ -605,8 +605,8 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       <main
         className={
           fullWidth
-            ? "w-full max-w-none px-4 sm:px-6 lg:px-8 py-8 relative z-10"
-            : "container-app py-8 relative z-10"
+            ? "w-full max-w-none px-3 sm:px-6 lg:px-8 py-4 sm:py-8 relative z-10"
+            : "container-app py-4 sm:py-8 relative z-10"
         }
       >
         <motion.div
@@ -620,7 +620,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
 
       {!hideFooter && (
         <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70 relative z-10">
-          <div className="container-app py-6 text-sm text-neutral-500 dark:text-neutral-400 flex items-center justify-between">
+          <div className="container-app py-4 sm:py-6 text-sm text-neutral-500 dark:text-neutral-400 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>© {new Date().getFullYear()} TaskForge</div>
             {access && (
               <Link

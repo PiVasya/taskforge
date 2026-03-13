@@ -377,7 +377,17 @@ header .btn-primary {
   @apply font-medium;
 }
 
-.container-app { @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8; }
+.container-app { @apply mx-auto max-w-7xl px-3 sm:px-6 lg:px-8; }
+
+html, body, #root { min-height: 100%; }
+body { overflow-x: hidden; }
+
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
 
 .card {
   @apply rounded-2xl shadow-soft;
@@ -392,7 +402,14 @@ header .btn-primary {
 }
 
 /* ====== Контролы ====== */
-.btn { @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap min-h-[40px] min-w-[10ch]; }
+.btn { @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap min-h-[42px] min-w-[10ch]; }
+@media (max-width: 640px) {
+  .btn { min-height: 44px; }
+  .card { border-radius: 18px; }
+  .badge { font-size: 11px; }
+  .input, .select, .textarea { font-size: 16px; }
+  header .btn-outline, header .btn-primary { padding-left: .8rem; padding-right: .8rem; }
+}
 .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99]; }
 .btn-ghost { @apply btn bg-transparent; }
 .btn-ghost:hover { background: rgba(var(--border) / 0.16); }
