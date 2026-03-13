@@ -185,7 +185,6 @@ export default function MinecraftChatPage() {
               <Input className="flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} placeholder="Написать сообщение в Minecraft..." />
               <Button className="w-full sm:w-auto" onClick={send} disabled={sending}><Send size={16} /><span className="ml-1">Отправить</span></Button>
             </div>
-          </Card>
         </Card>
       </div>
     </Layout>
