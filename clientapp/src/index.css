@@ -404,11 +404,16 @@ body { overflow-x: hidden; }
 /* ====== Контролы ====== */
 .btn { @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap min-h-[42px] min-w-[10ch]; }
 @media (max-width: 640px) {
-  .btn { min-height: 44px; }
+  .btn { min-height: 44px; min-width: 0; max-width: 100%; }
   .card { border-radius: 18px; }
   .badge { font-size: 11px; }
   .input, .select, .textarea { font-size: 16px; }
   header .btn-outline, header .btn-primary { padding-left: .8rem; padding-right: .8rem; }
+  .container-app { padding-left: .75rem; padding-right: .75rem; }
+}
+
+@media (max-width: 480px) {
+  .btn { padding-left: .9rem; padding-right: .9rem; }
 }
 .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99]; }
 .btn-ghost { @apply btn bg-transparent; }

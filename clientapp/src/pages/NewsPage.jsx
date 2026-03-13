@@ -89,7 +89,7 @@ export default function NewsPage() {
                 <Newspaper size={16} />
                 <span>Лента обновлений</span>
               </div>
-              <div className="mt-1 text-2xl font-semibold truncate">
+              <div className="mt-1 text-2xl font-semibold leading-tight break-words sm:text-3xl">
                 {displayName ? `Привет, ${displayName}!` : 'TaskForge'}
               </div>
               <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300 max-w-2xl">
@@ -106,7 +106,7 @@ export default function NewsPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:min-w-[220px]">
+            <div className="flex flex-col gap-2 sm:min-w-[220px] sm:max-w-[240px]">
               <Button className="w-full" onClick={() => nav('/courses')}>
                 <BookOpen size={18} />
                 <span className="ml-2">Открыть курсы</span>

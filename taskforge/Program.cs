@@ -344,7 +344,7 @@ app.Use(async (ctx, next) =>
         ctx.Response.StatusCode = StatusCodes.Status409Conflict;
         await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт сохранения данных", detail = ex.InnerException?.Message ?? ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
     }
-    catch (InvalidOperationException ex) when ((ex.Message ?? string.Empty).Contains("matched multiple endpoints", StringComparison.OrdinalIgnoreCase))
+    catch (Microsoft.AspNetCore.Routing.Matching.AmbiguousMatchException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт маршрутов на сервере", detail = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });

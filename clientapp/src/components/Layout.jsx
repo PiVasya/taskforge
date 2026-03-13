@@ -231,13 +231,13 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         )}
       </div>
       <header className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-neutral-900/60" style={{ borderBottom: '1px solid rgba(var(--border) / 0.7)' }}>
-        <div ref={headerRowRef} className="container-app flex min-h-16 items-center justify-between gap-2 py-2">
+        <div ref={headerRowRef} className="container-app flex min-h-16 items-center justify-between gap-2 py-2 sm:gap-3">
           {/* Логотип и название */}
-          <Link to="/news" className="flex min-w-0 items-center gap-3">
-            <div className="h-9 w-9 rounded-xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
+          <Link to="/news" className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="h-9 w-9 shrink-0 rounded-xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
               <PanelsTopLeft size={18} />
             </div>
-            <div className="font-semibold truncate text-sm sm:text-base">TaskForge</div>
+            <div className="font-semibold truncate text-base sm:text-base">TaskForge</div>
             {/* подпись "Платформа задач" убрали — она съедает место и ломает хедер */}
           </Link>
 
@@ -419,7 +419,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           {/* Мобильное меню (гамбургер) — реальные кнопки/ссылки, совпадающие с десктопом */}
           <div className="relative xl:hidden" ref={mobileMenuRef}>
             <button
-              className="btn-outline"
+              className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
               onClick={() => setMobileOpen((v) => !v)}
               title="Меню"
               aria-haspopup="menu"

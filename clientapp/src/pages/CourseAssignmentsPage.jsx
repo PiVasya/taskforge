@@ -297,20 +297,20 @@ export default function CourseAssignmentsPage() {
 
   return (
     <Layout>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3 min-w-0">
-          <Button variant="outline" title="Вернуться к курсам" onClick={() => nav("/courses")}>
+      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <Button variant="outline" title="Вернуться к курсам" className="shrink-0" onClick={() => nav("/courses")}>
             ← Курсы
           </Button>
-          <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
-            <Layers size={22} /> Задания курса
+          <h1 className="min-w-0 text-xl font-semibold leading-tight sm:text-2xl flex items-center gap-2 flex-wrap">
+            <Layers size={22} className="shrink-0" /> <span className="break-words">Задания курса</span>
           </h1>
         </div>
 
-        <div className="flex items-center gap-3">
-          <QuotaPill bucket="tasks" />
-          <div>
-            <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input" title="Сортировка">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">
+          <div className="min-w-0 xl:min-w-[170px]"><QuotaPill bucket="tasks" /></div>
+          <div className="min-w-0 xl:min-w-[190px]">
+            <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input w-full" title="Сортировка">
               {SORT_OPTIONS.map((o) => (
                 <option key={o.v} value={o.v}>
                   {o.label}
@@ -321,17 +321,17 @@ export default function CourseAssignmentsPage() {
 
           <IfEditor>
             {courseCanEdit ? (
-	              <>
-	                <select value={createType} onChange={(e) => setCreateType(e.target.value)} className="input" title="Тип создаваемого задания">
-	                  <option value="code-test">code-test</option>
-	                  <option value="test">test</option>
-	                  <option value="image-test">image-test</option>
-	                </select>
+              <>
+                <select value={createType} onChange={(e) => setCreateType(e.target.value)} className="input w-full xl:w-auto" title="Тип создаваемого задания">
+                  <option value="code-test">code-test</option>
+                  <option value="test">test</option>
+                  <option value="image-test">image-test</option>
+                </select>
 
-	                <Button onClick={handleCreate}>
-	                  <Plus size={16} /> Создать
-	                </Button>
-	              </>
+                <Button className="w-full sm:w-auto" onClick={handleCreate}>
+                  <Plus size={16} /> Создать
+                </Button>
+              </>
             ) : null}
           </IfEditor>
         </div>
@@ -371,7 +371,7 @@ export default function CourseAssignmentsPage() {
             sortMode === "default" ? (
               <IfEditor>
 	                <div
-	                  className="absolute top-3 right-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-1 backdrop-blur"
+	                  className="mt-3 flex items-center justify-end gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-1 backdrop-blur sm:absolute sm:right-3 sm:top-3 sm:mt-0"
 	                  onMouseDown={(e) => {
 	                    // не даём карточке "увести" фокус/перейти по ссылке при клике по контролам
 	                    e.preventDefault();
@@ -454,7 +454,7 @@ export default function CourseAssignmentsPage() {
             ) : null;
 
           const CardBody = (
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start justify-between gap-4 sm:pr-28">
               <div className="min-w-0 grow">
                 <div className="flex items-center gap-2">
                   <div
@@ -475,7 +475,7 @@ export default function CourseAssignmentsPage() {
                 </div>
 
                 {a.description && (
-                  <p className="text-sm text-neutral-500 line-clamp-2 mt-1">
+                  <p className="mt-1 line-clamp-3 text-sm leading-6 text-neutral-500 sm:line-clamp-2">
                     {previewAssignmentDescription(a.description)}
                   </p>
                 )}
