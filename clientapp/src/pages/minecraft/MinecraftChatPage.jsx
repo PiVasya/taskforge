@@ -106,13 +106,6 @@ export default function MinecraftChatPage() {
     }
   };
 
-  const stats = useMemo(() => ({
-    total: messages.length,
-    minecraft: messages.filter((x) => String(x.source ?? x.Source).startsWith('Minecraft')).length,
-    site: messages.filter((x) => !String(x.source ?? x.Source).startsWith('Minecraft')).length,
-    advancements: messages.filter((x) => String(x.source ?? x.Source) === 'MinecraftAdvancement').length,
-  }), [messages]);
-
   const renderLine = (m) => {
     const source = String(m.source ?? m.Source);
     const createdAt = m.createdAtUtc ?? m.CreatedAtUtc;
