@@ -185,7 +185,15 @@ public sealed class ImageTestsController : ControllerBase
         DebugConsole.Log("ImageTests", $"Compare(multipart) start trace={trace} assignmentId={assignmentId} fileLength={file?.Length ?? 0}");
         _log.LogInformation("Compare (multipart) start trace={Trace} assignmentId={AssignmentId} fileLength={Len}", trace, assignmentId, file?.Length ?? 0);
 
-        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        TaskAssignment a;
+        try
+        {
+            a = await GetViewableImageAssignmentAsync(assignmentId, ct) ?? throw new KeyNotFoundException();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
         if (a is null) return NotFound();
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
@@ -228,9 +236,6 @@ public sealed class ImageTestsController : ControllerBase
         }
         catch (ImageAnalyzerUnavailableException)
         {
-            // NOTE: avoid names referenceUrl/submittedUrl in this nested scope because
-            // they are declared later in the same method block.
-            var referenceUrl503 = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
             var submittedUrl503 = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
@@ -238,9 +243,9 @@ public sealed class ImageTestsController : ControllerBase
                 SimilarityPercent: 0,
                 ThresholdPercent: Math.Round(thresholdPercent, 1),
                 Passed: false,
-                ReferenceKey: a.ImageTestReferenceKey!,
+                ReferenceKey: string.Empty,
                 SubmittedKey: submittedKey,
-                ReferenceUrl: referenceUrl503,
+                ReferenceUrl: null,
                 SubmittedUrl: submittedUrl503,
                 Stdout: string.Empty,
                 Stderr: string.Empty,
@@ -248,8 +253,9 @@ public sealed class ImageTestsController : ControllerBase
         }
 
         var passed = similarityPercent >= thresholdPercent;
+        var canEdit = await CanEditAssignmentAsync(a, ct);
 
-        var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
+        var referenceUrl = canEdit ? $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}" : null;
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
         var solutionId = await SaveImageSolutionAsync(
@@ -273,7 +279,7 @@ public sealed class ImageTestsController : ControllerBase
             SimilarityPercent: Math.Round(similarityPercent, 1),
             ThresholdPercent: Math.Round(thresholdPercent, 1),
             Passed: passed,
-            ReferenceKey: a.ImageTestReferenceKey!,
+            ReferenceKey: canEdit ? a.ImageTestReferenceKey! : string.Empty,
             SubmittedKey: submittedKey,
             ReferenceUrl: referenceUrl,
             SubmittedUrl: submittedUrl,
@@ -290,7 +296,15 @@ public sealed class ImageTestsController : ControllerBase
         var trace = HttpContext.TraceIdentifier;
         // Use req.MimeType for logging purposes; this may be null when not supplied.
         _log.LogInformation("CompareUpload start trace={Trace} assignmentId={AssignmentId} mime={MimeType} base64Len={Len}", trace, assignmentId, req.MimeType, req.SubmittedImageBase64?.Length ?? 0);
-        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        TaskAssignment a;
+        try
+        {
+            a = await GetViewableImageAssignmentAsync(assignmentId, ct) ?? throw new KeyNotFoundException();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
         if (a is null) return NotFound();
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
@@ -329,9 +343,6 @@ public sealed class ImageTestsController : ControllerBase
         }
         catch (ImageAnalyzerUnavailableException)
         {
-            // NOTE: avoid names referenceUrl/submittedUrl in this nested scope because
-            // they are declared later in the same method block.
-            var referenceUrl503 = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey!)}";
             var submittedUrl503 = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ImageTestCompareResponse(
@@ -339,9 +350,9 @@ public sealed class ImageTestsController : ControllerBase
                 SimilarityPercent: 0,
                 ThresholdPercent: Math.Round(thresholdPercent, 1),
                 Passed: false,
-                ReferenceKey: a.ImageTestReferenceKey!,
+                ReferenceKey: string.Empty,
                 SubmittedKey: submittedKey,
-                ReferenceUrl: referenceUrl503,
+                ReferenceUrl: null,
                 SubmittedUrl: submittedUrl503,
                 Stdout: "",
                 Stderr: "",
@@ -349,8 +360,9 @@ public sealed class ImageTestsController : ControllerBase
         }
 
         var passed = similarityPercent >= thresholdPercent;
+        var canEdit = await CanEditAssignmentAsync(a, ct);
 
-        var referenceUrl = $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}";
+        var referenceUrl = canEdit ? $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}" : null;
         var submittedUrl = $"/api/private-files/{Uri.EscapeDataString(submittedKey)}";
 
         var solutionId = await SaveImageSolutionAsync(
@@ -374,7 +386,7 @@ public sealed class ImageTestsController : ControllerBase
             SimilarityPercent: Math.Round(similarityPercent, 1),
             ThresholdPercent: Math.Round(thresholdPercent, 1),
             Passed: passed,
-            ReferenceKey: a.ImageTestReferenceKey,
+            ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
             SubmittedKey: submittedKey,
             ReferenceUrl: referenceUrl,
             SubmittedUrl: submittedUrl,
@@ -398,7 +410,15 @@ public sealed class ImageTestsController : ControllerBase
         _log.LogInformation("RunCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len} debug={Debug} compare={Compare}",
             trace, assignmentId, req.Language, req.Code?.Length ?? 0, effectiveDebug, req.CompareWithReference);
 
-        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        TaskAssignment a;
+        try
+        {
+            a = await GetViewableImageAssignmentAsync(assignmentId, ct) ?? throw new KeyNotFoundException();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
         if (a is null) return NotFound();
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
@@ -615,13 +635,24 @@ public sealed class ImageTestsController : ControllerBase
         var effectiveDebug = isAdmin && req.Debug;
         DebugConsole.Log("ImageTests", $"CompareCode start trace={trace} assignmentId={assignmentId} lang={req.Language} codeLen={req.Code?.Length ?? 0} debug={req.Debug}");
         _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req.Language, req.Code?.Length ?? 0);
-        var a = await _db.TaskAssignments.FindAsync(new object?[] { assignmentId }, ct);
+        TaskAssignment a;
+        try
+        {
+            a = await GetViewableImageAssignmentAsync(assignmentId, ct) ?? throw new KeyNotFoundException();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
         if (a is null) return NotFound();
         if (a.Type != TaskAssignmentTypes.ImageTest) return BadRequest("Assignment is not image-test");
         if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return BadRequest("Reference image is not configured");
         if (string.IsNullOrWhiteSpace(req.Code)) return BadRequest("Code is empty");
 
-                var allowedLangs = GetAllowedImageLangs(a);
+        var canEdit = await CanEditAssignmentAsync(a, ct);
+        var referenceUrlForUser = canEdit ? $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}" : null;
+
+        var allowedLangs = GetAllowedImageLangs(a);
 
         var lang = NormalizeLang(req.Language ?? string.Empty);
         if (!allowedLangs.Contains(lang))
@@ -659,9 +690,9 @@ var userId = _currentUser.GetUserId();
                     SimilarityPercent: 0,
                     ThresholdPercent: Math.Round(thresholdPercent, 1),
                     Passed: false,
-                    ReferenceKey: a.ImageTestReferenceKey,
+                    ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                     SubmittedKey: null,
-                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    ReferenceUrl: referenceUrlForUser,
                     SubmittedUrl: null,
                     Stdout: "",
                     Stderr: "",
@@ -682,9 +713,9 @@ var userId = _currentUser.GetUserId();
                     SimilarityPercent: 0,
                     ThresholdPercent: Math.Round(thresholdPercent, 1),
                     Passed: false,
-                    ReferenceKey: a.ImageTestReferenceKey,
+                    ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                     SubmittedKey: null,
-                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    ReferenceUrl: referenceUrlForUser,
                     SubmittedUrl: null,
                     Stdout: "",
                     Stderr: "",
@@ -698,9 +729,9 @@ var userId = _currentUser.GetUserId();
                     SimilarityPercent: 0,
                     ThresholdPercent: Math.Round(thresholdPercent, 1),
                     Passed: false,
-                    ReferenceKey: a.ImageTestReferenceKey,
+                    ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                     SubmittedKey: null,
-                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    ReferenceUrl: referenceUrlForUser,
                     SubmittedUrl: null,
                     Stdout: "",
                     Stderr: "",
@@ -714,9 +745,9 @@ var userId = _currentUser.GetUserId();
                     SimilarityPercent: 0,
                     ThresholdPercent: Math.Round(thresholdPercent, 1),
                     Passed: false,
-                    ReferenceKey: a.ImageTestReferenceKey,
+                    ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                     SubmittedKey: null,
-                    ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                    ReferenceUrl: referenceUrlForUser,
                     SubmittedUrl: null,
                     Stdout: "",
                     Stderr: "",
@@ -732,9 +763,9 @@ var userId = _currentUser.GetUserId();
                 SimilarityPercent: 0,
                 ThresholdPercent: Math.Round(thresholdPercent, 1),
                 Passed: false,
-                ReferenceKey: a.ImageTestReferenceKey,
+                ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                 SubmittedKey: null,
-                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                ReferenceUrl: referenceUrlForUser,
                 SubmittedUrl: null,
                 Stdout: "",
                 Stderr: "",
@@ -781,9 +812,9 @@ var userId = _currentUser.GetUserId();
                 SimilarityPercent: 0,
                 ThresholdPercent: Math.Round(thresholdPercent, 1),
                 Passed: false,
-                ReferenceKey: a.ImageTestReferenceKey,
+                ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                 SubmittedKey: submittedKey,
-                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                ReferenceUrl: referenceUrlForUser,
                 SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
                 Stdout: "",
                 Stderr: "",
@@ -819,9 +850,9 @@ var userId = _currentUser.GetUserId();
                 SimilarityPercent: 0,
                 ThresholdPercent: Math.Round(thresholdPercent, 1),
                 Passed: false,
-                ReferenceKey: a.ImageTestReferenceKey,
+                ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
                 SubmittedKey: submittedKey,
-                ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+                ReferenceUrl: referenceUrlForUser,
                 SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
                 Stdout: "",
                 Stderr: "",
@@ -854,9 +885,9 @@ var userId = _currentUser.GetUserId();
             SimilarityPercent: Math.Round(similarityPercent, 1),
             ThresholdPercent: Math.Round(thresholdPercent, 1),
             Passed: passed,
-            ReferenceKey: a.ImageTestReferenceKey,
+            ReferenceKey: canEdit ? a.ImageTestReferenceKey : string.Empty,
             SubmittedKey: submittedKey,
-            ReferenceUrl: $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}",
+            ReferenceUrl: referenceUrlForUser,
             SubmittedUrl: $"/api/private-files/{Uri.EscapeDataString(submittedKey)}",
             Stdout: "",
             Stderr: "",
@@ -939,4 +970,24 @@ var userId = _currentUser.GetUserId();
     [RequireQuota(QuotaBuckets.Tasks)]
     public Task<ActionResult<ImageTestCompareResponse>> SubmitCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
         => CompareCode(assignmentId, req, ct);
+    private async Task<TaskAssignment?> GetViewableImageAssignmentAsync(Guid assignmentId, CancellationToken ct)
+    {
+        var a = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+        if (a is null) return null;
+
+        var uid = _currentUser.GetUserId();
+        var role = _currentUser.GetRole();
+        if (!await _access.CanViewCourseAsync(uid, role, a.CourseId))
+            throw new UnauthorizedAccessException("Assignment is not доступен пользователю");
+
+        return a;
+    }
+
+    private async Task<bool> CanEditAssignmentAsync(TaskAssignment a, CancellationToken ct)
+    {
+        var uid = _currentUser.GetUserId();
+        var role = _currentUser.GetRole();
+        return await _access.CanEditCourseAsync(uid, role, a.CourseId);
+    }
+
 }

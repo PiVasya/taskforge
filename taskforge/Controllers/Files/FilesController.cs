@@ -1,8 +1,12 @@
 using Amazon.S3;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
+using taskforge.Constants;
+using taskforge.Data;
 using taskforge.Services.Files;
+using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers.Files;
 
@@ -12,10 +16,14 @@ namespace taskforge.Controllers.Files;
 public sealed class FilesController : ControllerBase
 {
     private readonly IFileStorageService _store;
+    private readonly ApplicationDbContext _db;
+    private readonly ICurrentUserService _current;
 
-    public FilesController(IFileStorageService store)
+    public FilesController(IFileStorageService store, ApplicationDbContext db, ICurrentUserService current)
     {
         _store = store;
+        _db = db;
+        _current = current;
     }
 
     /// <summary>
@@ -78,6 +86,9 @@ public sealed class FilesController : ControllerBase
         try
         {
             var decoded = Uri.UnescapeDataString(key ?? string.Empty);
+            if (!await CanAccessPrivateFileAsync(decoded, ct))
+                return Forbid();
+
             var (stream, contentType) = await _store.GetAsync(decoded, ct);
 
             Response.Headers.CacheControl = "private,max-age=0,no-store";
@@ -91,5 +102,31 @@ public sealed class FilesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+    }
+
+    private async Task<bool> CanAccessPrivateFileAsync(string key, CancellationToken ct)
+    {
+        var userId = _current.GetUserId();
+        if (_current.HasRole(AppRoles.Admin))
+            return true;
+
+        if (await _db.UserImageTaskSolutions.AsNoTracking().AnyAsync(x => x.UserId == userId && x.SubmittedKey == key, ct))
+            return true;
+
+
+        var imageAssignments = await _db.TaskAssignments.AsNoTracking()
+            .Where(a => a.ImageTestReferenceKey == key)
+            .Select(a => a.CourseId)
+            .ToListAsync(ct);
+
+        foreach (var courseId in imageAssignments)
+        {
+            var canEdit = await _db.Courses.AsNoTracking().AnyAsync(c => c.Id == courseId && c.OwnerId == userId, ct)
+                          || await _db.CourseOwners.AsNoTracking().AnyAsync(o => o.CourseId == courseId && o.UserId == userId, ct);
+            if (canEdit)
+                return true;
+        }
+
+        return false;
     }
 }

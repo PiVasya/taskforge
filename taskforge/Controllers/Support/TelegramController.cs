@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using taskforge.Data;
 using taskforge.Data.Models.Entities;
@@ -22,12 +23,14 @@ namespace taskforge.Controllers
         private readonly ApplicationDbContext _db;
         private readonly ILogger<TelegramController> _logger;
         private readonly ISupportService _support;
+        private readonly IConfiguration _config;
 
-        public TelegramController(ApplicationDbContext db, ILogger<TelegramController> logger, ISupportService support)
+        public TelegramController(ApplicationDbContext db, ILogger<TelegramController> logger, ISupportService support, IConfiguration config)
         {
             _db = db;
             _logger = logger;
             _support = support;
+            _config = config;
         }
 
         /// <summary>
@@ -38,6 +41,14 @@ namespace taskforge.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> Webhook([FromBody] TelegramUpdate update, CancellationToken ct)
         {
+            var secret = _config["Telegram:WebhookSecret"] ?? _config["TelegramWebhookSecret"] ?? _config["TELEGRAM_WEBHOOK_SECRET"];
+            var got = Request.Headers["X-Telegram-Bot-Api-Secret-Token"].ToString();
+            if (string.IsNullOrWhiteSpace(secret) || !string.Equals(secret, got, StringComparison.Ordinal))
+            {
+                _logger.LogWarning("Telegram webhook rejected due to missing/invalid secret token");
+                return Unauthorized();
+            }
+
             var message = update?.message;
             // Обрабатываем только ответы на известные сообщения с текстом
             if (message?.reply_to_message?.message_id == null || string.IsNullOrWhiteSpace(message.text))

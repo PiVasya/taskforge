@@ -124,7 +124,7 @@ public sealed class MyImageSolutionsController : ControllerBase
             return NotFound();
 
         // В сущности используются ReferenceKey / SubmittedKey
-        string? referenceUrl = s.ReferenceKey is null ? null : $"/api/private-files/{s.ReferenceKey}";
+        string? referenceUrl = null;
         string? submittedUrl = s.SubmittedKey is null ? null : $"/api/private-files/{s.SubmittedKey}";
 
         return Ok(new MyImageSolutionDetails(

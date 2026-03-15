@@ -131,11 +131,26 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
     var a = await _db.TaskAssignments
         .AsNoTracking()
         .Include(x => x.TestCases)
-        .Include(x => x.Course)                      // <--- НОВОЕ
+        .Include(x => x.Course)
         .Include(x => x.Solutions.Where(s => s.UserId == currentUserId))
         .FirstOrDefaultAsync(x => x.Id == assignmentId);
 
     if (a == null) return null;
+
+    var canEdit = a.Course.OwnerId == currentUserId
+                  || await _db.CourseOwners.AnyAsync(o => o.CourseId == a.CourseId && o.UserId == currentUserId);
+
+    var visibleCases = a.TestCases
+        .Where(tc => canEdit || !tc.IsHidden)
+        .OrderBy(tc => tc.Id)
+        .Select(tc => new AssignmentTestCaseDto
+        {
+            Id = tc.Id,
+            Input = tc.Input,
+            ExpectedOutput = tc.ExpectedOutput,
+            IsHidden = tc.IsHidden
+        })
+        .ToList();
 
     return new AssignmentDetailsDto
     {
@@ -150,25 +165,18 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         AllowedLanguages = ParseAllowedLanguages(a.AllowedLanguagesCsv, a.Type),
         CreatedAt = a.CreatedAt,
         PublicTestCount = a.TestCases.Count(x => !x.IsHidden),
-        HiddenTestCount = a.TestCases.Count(x => x.IsHidden),
+        HiddenTestCount = canEdit ? a.TestCases.Count(x => x.IsHidden) : 0,
         SolvedByCurrentUser =
             a.Solutions.Any(s => s.PassedAllTests)
             || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
             || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false),
-        TestCases = a.TestCases.OrderBy(tc => tc.Id).Select(tc => new AssignmentTestCaseDto
-        {
-            Id = tc.Id,
-            Input = tc.Input,
-            ExpectedOutput = tc.ExpectedOutput,
-            IsHidden = tc.IsHidden
-        }).ToList(),
+        TestCases = visibleCases,
         Sort = a.Sort,
-        ImageTestReferenceKey = a.ImageTestReferenceKey,
+        ImageTestReferenceKey = canEdit ? a.ImageTestReferenceKey : null,
         ImageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
-                CodeForbiddenCalls = DeserializeCallList(a.CodeForbiddenCallsJson),
-                CodeRequiredCalls = DeserializeCallList(a.CodeRequiredCallsJson),
-        CanEdit = a.Course.OwnerId == currentUserId
-                  || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
+        CodeForbiddenCalls = canEdit ? DeserializeCallList(a.CodeForbiddenCallsJson) : new List<string>(),
+        CodeRequiredCalls = canEdit ? DeserializeCallList(a.CodeRequiredCallsJson) : new List<string>(),
+        CanEdit = canEdit
     };
 }
 

@@ -1,5 +1,8 @@
-﻿﻿using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using taskforge.Constants;
+using taskforge.Filters;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
 
@@ -7,6 +10,7 @@ namespace taskforge.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class CompilerController : ControllerBase
     {
         private readonly ICompilerService _svc;
@@ -17,6 +21,7 @@ namespace taskforge.Controllers
         }
 
         [HttpPost("compile-run")]
+        [RequireQuota(QuotaBuckets.Tasks)]
         public async Task<IActionResult> CompileRun([FromBody] CompilerRunRequestDto req)
         {
             try
@@ -44,6 +49,7 @@ namespace taskforge.Controllers
         }
 
         [HttpPost("run-tests")]
+        [RequireQuota(QuotaBuckets.Tasks)]
         public async Task<IActionResult> RunTests([FromBody] TestRunRequestDto req)
         {
             try
