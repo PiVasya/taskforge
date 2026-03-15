@@ -8,12 +8,14 @@ import Layout from '../components/Layout';
 import { Card } from '../components/ui';
 import { listSupportTickets } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { handleApiError } from '../utils/handleApiError';
 
 export default function SupportTicketsPage() {
   const notify = useNotify();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -21,9 +23,8 @@ export default function SupportTicketsPage() {
         const data = await listSupportTickets();
         setTickets(data);
       } catch (err) {
-        const msg = err?.message || 'Ошибка загрузки обращений';
-        setError(msg);
-        notify.error(msg);
+        const parsed = handleApiError(err, notify, 'Не удалось загрузить обращения');
+        setError(parsed);
       } finally {
         setLoading(false);
       }
@@ -38,7 +39,7 @@ export default function SupportTicketsPage() {
           <Link to="/support/new" className="btn-primary">Новое обращение</Link>
         </div>
 
-        {error && <div className="text-red-500 mb-4">{error}</div>}
+        {error ? <div className="mb-4"><AppErrorPanel error={error} title="Не удалось загрузить обращения" /></div> : null}
 
         <Card>
           {loading ? (

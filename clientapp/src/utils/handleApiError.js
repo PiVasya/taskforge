@@ -1,5 +1,36 @@
 import { setAccessToken } from '../api/http';
 
+function buildFallbackHowToFix(status, fallbackMessage) {
+  if (status === 400) {
+    return [
+      'Проверьте обязательные поля и попробуйте ещё раз.',
+      'Исправьте отмеченные поля, если они показаны на странице.',
+    ];
+  }
+  if (status === 401) {
+    return ['Войдите в систему заново.', 'После входа повторите действие.'];
+  }
+  if (status === 403) {
+    return ['Проверьте, есть ли у вас нужная роль или доступ.', 'Если доступ должен быть, обратитесь к администратору.'];
+  }
+  if (status === 404) {
+    return ['Обновите страницу и проверьте, что объект ещё существует.', 'Если вы перешли по старой ссылке, откройте раздел заново.'];
+  }
+  if (status === 409) {
+    return ['Обновите страницу и проверьте текущие данные.', 'Повторите действие после обновления.'];
+  }
+  if (status === 429) {
+    return ['Подождите немного и повторите попытку.', 'Если лимит не должен был сработать, обратитесь к администратору.'];
+  }
+  if (status >= 500) {
+    return [
+      'Попробуйте выполнить действие ещё раз чуть позже.',
+      'Если ошибка повторяется, передайте администратору код ошибки или Trace из блока ниже.',
+    ];
+  }
+  return fallbackMessage ? ['Проверьте введённые данные и повторите действие.'] : [];
+}
+
 export function extractApiErrorMessages(err, fallbackMessage) {
   const data = err?.response?.data;
   const rawErrors = data?.errors;
@@ -27,7 +58,13 @@ export function extractApiErrorMessages(err, fallbackMessage) {
 
   const detail = data?.detail && data?.detail !== primaryMessage ? data.detail : null;
   const path = data?.path || null;
-  const trace = data?.trace || null;
+  const traceId = data?.traceId || data?.trace || null;
+  const code = data?.code || null;
+  const userHint = data?.userHint || null;
+  const severity = data?.severity || (err?.response?.status === 400 ? 'validation' : err?.response?.status >= 500 ? 'error' : 'warning');
+  const howToFix = Array.isArray(data?.howToFix)
+    ? data.howToFix.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim())
+    : buildFallbackHowToFix(err?.response?.status, fallbackMessage);
 
   const messages = [primaryMessage, detail, ...errorList].filter(Boolean);
   const uniqueMessages = [...new Set(messages)];
@@ -37,16 +74,17 @@ export function extractApiErrorMessages(err, fallbackMessage) {
     primaryMessage,
     messages: uniqueMessages,
     userMessage: uniqueMessages.join('\n'),
-    trace: data?.trace || null,
-    path: data?.path || null,
+    trace: traceId,
+    traceId,
+    path,
+    code,
+    userHint,
+    howToFix,
+    severity,
+    fieldErrors: rawErrors || null,
   };
 }
 
-/**
- * Centralized error handler for API calls.
- * Given an error, a notify function, and an optional fallback message,
- * it shows appropriate toast notifications and performs global side effects (e.g. redirect on 401).
- */
 export function handleApiError(err, notify, fallbackMessage) {
   try {
     const parsed = extractApiErrorMessages(err, fallbackMessage);
@@ -58,9 +96,7 @@ export function handleApiError(err, notify, fallbackMessage) {
     err.message = combined || err.message;
 
     if (status === 401) {
-      // Unauthorized: inform the user, clear token, and redirect to login.
       notify.warn(serverMsg || 'Требуется вход в систему');
-      // Remove any stored token so ProtectedRoute doesn't think we're authenticated
       setAccessToken(null);
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         window.location.assign('/login');
@@ -76,7 +112,6 @@ export function handleApiError(err, notify, fallbackMessage) {
       return parsed;
     }
     if (status === 429) {
-      // quota exceeded: показываем дружелюбно (без "status code 429")
       notify.warn(serverMsg || 'Лимит исчерпан. Попробуйте позже.');
       return parsed;
     }
@@ -94,7 +129,13 @@ export function handleApiError(err, notify, fallbackMessage) {
       messages: [fallbackMessage || 'Произошла ошибка'],
       userMessage: fallbackMessage || 'Произошла ошибка',
       trace: null,
+      traceId: null,
       path: null,
+      code: null,
+      userHint: null,
+      howToFix: buildFallbackHowToFix(null, fallbackMessage),
+      severity: 'error',
+      fieldErrors: null,
     };
   }
 }

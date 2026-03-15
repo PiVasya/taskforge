@@ -6,6 +6,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { getMinecraftChatMessages, getMinecraftChatMeta, sendMinecraftChatMessage } from '../../api/minecraftChat';
 import { ensureMinecraftChatHubStarted } from '../../realtime/minecraftChatHub';
 import { MessageSquare, Send, RefreshCw } from 'lucide-react';
+import AppErrorPanel from '../../components/AppErrorPanel';
+import { handleApiError } from '../../utils/handleApiError';
 
 const CHAT_H = 'h-[calc(100dvh-8.5rem)] sm:h-[calc(100dvh-11rem)]';
 
@@ -22,6 +24,7 @@ export default function MinecraftChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [meta, setMeta] = useState({ onlinePlayers: null, available: false });
+  const [pageError, setPageError] = useState(null);
   const mounted = useRef(true);
   const scrollerRef = useRef(null);
 
@@ -39,6 +42,7 @@ export default function MinecraftChatPage() {
         getMinecraftChatMeta().catch(() => ({ onlinePlayers: null, available: false })),
       ]);
       if (!mounted.current) return;
+      setPageError(null);
       setMessages(Array.isArray(data) ? data : []);
       setMeta({
         onlinePlayers: chatMeta?.onlinePlayers ?? null,
@@ -46,7 +50,10 @@ export default function MinecraftChatPage() {
       });
       requestAnimationFrame(() => scrollToBottom(false));
     } catch (e) {
-      if (!silent) notify.error(e?.message || 'Не удалось загрузить Minecraft чат');
+      if (!silent) {
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить Minecraft чат');
+        setPageError(parsed);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
@@ -96,11 +103,13 @@ export default function MinecraftChatPage() {
     if (!value) return;
     try {
       setSending(true);
+      setPageError(null);
       await sendMinecraftChatMessage(value);
       setText('');
       requestAnimationFrame(() => scrollToBottom(true));
     } catch (e) {
-      notify.error(e?.message || 'Не удалось отправить сообщение');
+      const parsed = handleApiError(e, notify, 'Не удалось отправить сообщение');
+      setPageError(parsed);
     } finally {
       setSending(false);
     }
@@ -155,6 +164,7 @@ export default function MinecraftChatPage() {
         </div>
 
         <Card className="min-h-0 flex flex-1 flex-col p-3 sm:p-4">
+            {pageError ? <div className="mb-3"><AppErrorPanel error={pageError} title="Проблема с Minecraft-чатом" compact /></div> : null}
             <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] sm:gap-3 sm:text-xs text-neutral-500">
               <span className="rounded-full border border-emerald-500/20 px-2 py-1">Minecraft</span>
               <span className="rounded-full border border-fuchsia-500/20 px-2 py-1">TaskForge</span>

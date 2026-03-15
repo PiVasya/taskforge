@@ -5,6 +5,7 @@ import { Badge, Button, Card } from '../../components/ui';
 import { getAdminAssignmentInsights } from '../../api/adminAssignmentInsights';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import AppErrorPanel from '../../components/AppErrorPanel';
 import { AlertTriangle, ArrowLeft, BarChart3, RefreshCcw } from 'lucide-react';
 
 export default function AdminAssignmentInsightsPage() {
@@ -12,16 +13,16 @@ export default function AdminAssignmentInsightsPage() {
   const notify = useNotify();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
+  const [pageError, setPageError] = useState(null);
 
   const load = async () => {
     try {
       setLoading(true);
       setData(await getAdminAssignmentInsights(assignmentId));
-      setPageError('');
+      setPageError(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить аналитику задания');
-      handleApiError(e, notify, 'Не удалось загрузить аналитику задания');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить аналитику задания');
+      setPageError(parsed);
     } finally {
       setLoading(false);
     }
@@ -39,17 +40,7 @@ export default function AdminAssignmentInsightsPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {pageError ? (
-          <Card className="border-rose-300 bg-rose-50 text-rose-700">
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={18} className="mt-0.5" />
-              <div>
-                <div className="font-medium">Ошибка админ-раздела</div>
-                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
-              </div>
-            </div>
-          </Card>
-        ) : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
 
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>

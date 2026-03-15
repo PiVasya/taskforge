@@ -5,29 +5,40 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Field, Textarea, Select, Button } from '../components/ui';
-import { sendSupportMessage } from '../api/support';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { createSupportTicket } from '../api/support';
+import { handleApiError } from '../utils/handleApiError';
+import { useNotify } from '../components/notify/NotifyProvider';
 
 export default function SupportPage() {
   const nav = useNavigate();
+  const notify = useNotify();
   const [type, setType] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
 
   const submit = async (e) => {
     e.preventDefault();
     if (!type || !message.trim()) {
-      setError('Пожалуйста, заполните все поля.');
+      setError({
+        primaryMessage: 'Не все поля заполнены.',
+        userHint: 'Чтобы создать обращение, нужно выбрать тип и написать сообщение.',
+        howToFix: ['Выберите тип обращения.', 'Опишите проблему или вопрос в поле сообщения.'],
+        severity: 'validation',
+        messages: ['Не все поля заполнены.'],
+      });
       return;
     }
     try {
       setSending(true);
-      setError('');
-      await sendSupportMessage({ type, message: message.trim() });
-      alert('Ваше сообщение отправлено. Спасибо за обратную связь!');
+      setError(null);
+      await createSupportTicket({ type, message: message.trim() });
+      notify.success('Обращение создано. Теперь вы сможете продолжить переписку в разделе поддержки.');
       nav(-1);
     } catch (err) {
-      setError(err.message || 'Не удалось отправить сообщение');
+      const parsed = handleApiError(err, notify, 'Не удалось создать обращение');
+      setError(parsed);
     } finally {
       setSending(false);
     }
@@ -41,7 +52,7 @@ export default function SupportPage() {
           Если у вас вопрос, вы нашли ошибку или хотите предложить улучшение —
           заполните форму ниже. Мы постараемся ответить как можно скорее.
         </p>
-        {error && <div className="mb-4 text-red-500">{error}</div>}
+        {error ? <div className="mb-4"><AppErrorPanel error={error} title="Обращение не создано" /></div> : null}
         <form onSubmit={submit} className="space-y-5">
           <Field label="Тип обращения">
             <Select value={type} onChange={(e) => setType(e.target.value)} required>

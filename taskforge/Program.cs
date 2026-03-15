@@ -148,6 +148,25 @@ builder.Services.AddScoped<ICompiler, PascalHttpCompiler>();
 builder.Services.AddScoped<ICompiler, JavaHttpCompiler>();
 builder.Services.AddScoped<ICompilerProvider, CompilerProvider>();
 
+
+object BuildErrorPayload(string message, string path, string traceId, string? detail = null, object? errors = null, string? code = null, string? userHint = null, string severity = "error", params string[] howToFix)
+{
+    var cleanSteps = howToFix?.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray() ?? Array.Empty<string>();
+    return new
+    {
+        message,
+        detail,
+        errors,
+        path,
+        trace = traceId,
+        traceId,
+        code,
+        userHint,
+        howToFix = cleanSteps,
+        severity,
+    };
+}
+
 // CORS
 builder.Services.AddCors(options =>
 {
@@ -187,13 +206,20 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
                     .Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? "Некорректное значение" : e.ErrorMessage)
                     .ToArray());
 
-        return new BadRequestObjectResult(new
-        {
-            message = "Проверьте заполнение формы",
-            errors,
-            path = context.HttpContext.Request.Path.ToString(),
-            trace = context.HttpContext.TraceIdentifier,
-        });
+        return new BadRequestObjectResult(BuildErrorPayload(
+            message: "Проверьте заполнение формы",
+            path: context.HttpContext.Request.Path.ToString(),
+            traceId: context.HttpContext.TraceIdentifier,
+            errors: errors,
+            code: "VALIDATION_FAILED",
+            userHint: "Часть полей заполнена некорректно или пропущена.",
+            severity: "validation",
+            howToFix: new[]
+            {
+                "Исправьте поля, отмеченные в форме.",
+                "Проверьте обязательные значения и повторите сохранение.",
+            }
+        ));
     };
 });
 
@@ -327,27 +353,69 @@ app.Use(async (ctx, next) =>
     catch (UnauthorizedAccessException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
+        await ctx.Response.WriteAsJsonAsync(BuildErrorPayload(
+            message: ex.Message,
+            path: ctx.Request.Path.ToString(),
+            traceId: ctx.TraceIdentifier,
+            code: "FORBIDDEN",
+            userHint: "У вас нет доступа к этому действию.",
+            severity: "warning",
+            howToFix: new[] { "Проверьте свою роль и права доступа.", "Если доступ должен быть, обратитесь к администратору." }
+        ));
     }
     catch (KeyNotFoundException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status404NotFound;
-        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
+        await ctx.Response.WriteAsJsonAsync(BuildErrorPayload(
+            message: ex.Message,
+            path: ctx.Request.Path.ToString(),
+            traceId: ctx.TraceIdentifier,
+            code: "NOT_FOUND",
+            userHint: "Запрошенный объект не найден или уже был удалён.",
+            severity: "warning",
+            howToFix: new[] { "Обновите страницу и откройте раздел заново.", "Если вы перешли по старой ссылке, вернитесь назад и выберите объект снова." }
+        ));
     }
     catch (ValidationException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
-        await ctx.Response.WriteAsJsonAsync(new { message = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
+        await ctx.Response.WriteAsJsonAsync(BuildErrorPayload(
+            message: ex.Message,
+            path: ctx.Request.Path.ToString(),
+            traceId: ctx.TraceIdentifier,
+            code: "VALIDATION_FAILED",
+            userHint: "Сервер отклонил запрос из-за некорректных данных.",
+            severity: "validation",
+            howToFix: new[] { "Проверьте заполненные поля.", "Исправьте данные и повторите действие." }
+        ));
     }
     catch (DbUpdateException ex)
     {
         ctx.Response.StatusCode = StatusCodes.Status409Conflict;
-        await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт сохранения данных", detail = ex.InnerException?.Message ?? ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
+        await ctx.Response.WriteAsJsonAsync(BuildErrorPayload(
+            message: "Конфликт сохранения данных",
+            detail: ex.InnerException?.Message ?? ex.Message,
+            path: ctx.Request.Path.ToString(),
+            traceId: ctx.TraceIdentifier,
+            code: "SAVE_CONFLICT",
+            userHint: "Данные не удалось сохранить, потому что сервер обнаружил конфликт или ограничение базы данных.",
+            severity: "warning",
+            howToFix: new[] { "Проверьте, не занято ли значение другим объектом.", "Обновите страницу и повторите действие." }
+        ));
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("matched multiple endpoints", StringComparison.OrdinalIgnoreCase))
     {
         ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        await ctx.Response.WriteAsJsonAsync(new { message = "Конфликт маршрутов на сервере", detail = ex.Message, trace = ctx.TraceIdentifier, path = ctx.Request.Path.ToString() });
+        await ctx.Response.WriteAsJsonAsync(BuildErrorPayload(
+            message: "Конфликт маршрутов на сервере",
+            detail: ex.Message,
+            path: ctx.Request.Path.ToString(),
+            traceId: ctx.TraceIdentifier,
+            code: "SERVER_ROUTE_CONFLICT",
+            userHint: "На сервере столкнулись два маршрута API. Это проблема на стороне приложения, а не ваших данных.",
+            severity: "error",
+            howToFix: new[] { "Попробуйте повторить действие позже.", "Если ошибка повторяется, передайте администратору Trace ID." }
+        ));
     }
     catch (Exception ex)
     {
@@ -365,13 +433,16 @@ app.Use(async (ctx, next) =>
             .LogError(ex, "Unhandled exception trace={Trace} path={Path}", trace, path);
 
         ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        await ctx.Response.WriteAsJsonAsync(new
-        {
-            message,
-            detail,
-            trace,
-            path
-        });
+        await ctx.Response.WriteAsJsonAsync(BuildErrorPayload(
+            message: message,
+            detail: detail,
+            path: path,
+            traceId: trace,
+            code: "UNHANDLED_SERVER_ERROR",
+            userHint: "Это внутренняя ошибка сервера. Ваше действие не завершилось полностью.",
+            severity: "error",
+            howToFix: new[] { "Попробуйте повторить действие через несколько секунд.", "Если ошибка повторится, сообщите в поддержку и укажите Trace ID." }
+        ));
     }
 });
 

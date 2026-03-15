@@ -7,6 +7,8 @@ import Layout from '../components/Layout';
 import { Field, Select, Textarea, Button, Card } from '../components/ui';
 import { createSupportTicket } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { handleApiError } from '../utils/handleApiError';
 
 export default function SupportCreatePage() {
   const nav = useNavigate();
@@ -14,19 +16,25 @@ export default function SupportCreatePage() {
   const [type, setType] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
 
   const submit = async (e) => {
     e.preventDefault();
     if (!type || !message.trim()) {
-      const msg = 'Пожалуйста, заполните все поля.';
-      setError(msg);
-      notify.warn(msg);
+      const parsed = {
+        primaryMessage: 'Не все поля заполнены.',
+        userHint: 'Без типа обращения и текста сообщение не отправится.',
+        howToFix: ['Выберите тип обращения.', 'Введите текст сообщения.'],
+        severity: 'validation',
+        messages: ['Не все поля заполнены.'],
+      };
+      setError(parsed);
+      notify.warn(parsed.primaryMessage);
       return;
     }
     try {
       setSending(true);
-      setError('');
+      setError(null);
       const res = await createSupportTicket({ type, message: message.trim() });
       const ticketId = res?.ticketId || res?.id || res?.Id;
       notify.success('Обращение создано');
@@ -35,9 +43,8 @@ export default function SupportCreatePage() {
       // чтобы пользователь мог потом открыть обращения и перейти в переписку.
       nav('/');
     } catch (err) {
-      const msg = err?.message || 'Не удалось создать обращение';
-      setError(msg);
-      notify.error(msg);
+      const parsed = handleApiError(err, notify, 'Не удалось создать обращение');
+      setError(parsed);
     } finally {
       setSending(false);
     }
@@ -48,7 +55,7 @@ export default function SupportCreatePage() {
       <div className="max-w-xl mx-auto">
         <h1 className="text-2xl font-semibold mb-6">Новое обращение</h1>
 
-        {error && <div className="text-red-500 mb-4">{error}</div>}
+        {error ? <div className="mb-4"><AppErrorPanel error={error} title="Обращение не создано" /></div> : null}
 
         <Card>
           <form onSubmit={submit} className="space-y-4">

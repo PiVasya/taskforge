@@ -7,12 +7,14 @@ import Layout from '../components/Layout';
 import { Card } from '../components/ui';
 import { listSupportTickets } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { handleApiError } from '../utils/handleApiError';
 
 export default function AdminSupportPage() {
   const notify = useNotify();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -20,9 +22,8 @@ export default function AdminSupportPage() {
         const data = await listSupportTickets();
         setTickets(data);
       } catch (err) {
-        const msg = err?.message || 'Ошибка загрузки';
-        setError(msg);
-        notify.error(msg);
+        const parsed = handleApiError(err, notify, 'Не удалось загрузить обращения');
+        setError(parsed);
       } finally {
         setLoading(false);
       }
@@ -33,7 +34,7 @@ export default function AdminSupportPage() {
     <Layout>
       <div className="max-w-4xl mx-auto">
         <h1 className="text-2xl font-semibold mb-4">Обращения пользователей</h1>
-        {error && <div className="text-red-500 mb-4">{error}</div>}
+        {error ? <div className="mb-4"><AppErrorPanel error={error} title="Не удалось загрузить обращения пользователей" /></div> : null}
         <Card>
           {loading ? (
             <div>Загрузка…</div>

@@ -4,6 +4,8 @@ import Layout from '../components/Layout';
 import { Card, Button } from '../components/ui';
 import { getProfile } from '../api/profile';
 import { getMyUiSettings, saveMyUiSettings } from '../api/uiSettings';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { extractApiErrorMessages } from '../utils/handleApiError';
 
 const LS_KEY = 'uiSettings';
 
@@ -140,7 +142,7 @@ export default function SettingsPage() {
       await saveMyUiSettings(payload);
       setSaved(true);
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Не удалось сохранить настройки');
+      setError(extractApiErrorMessages(e, 'Не удалось сохранить настройки'));
     } finally {
       setSaving(false);
     }
@@ -168,9 +170,7 @@ export default function SettingsPage() {
         </div>
 
         {loading ? <div>Загрузка…</div> : null}
-        {error ? (
-          <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">{error}</div>
-        ) : null}
+        {error ? (<AppErrorPanel error={error} title="Настройки не сохранены" compact />) : null}
         {saved ? (
           <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl">
             Настройки сохранены

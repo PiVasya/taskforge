@@ -19,6 +19,7 @@ import { deleteAdminTaskTestAttempt } from '../../api/taskTestAttempts';
 import { getAdminGroups, addGroupMember, removeGroupMember } from '../../api/groups';
 import CodeEditor from '../../components/CodeEditor';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import AppErrorPanel from '../../components/AppErrorPanel';
 import { handleApiError } from '../../utils/handleApiError';
 
 const FILTER_OPTIONS = [
@@ -31,7 +32,7 @@ const FILTER_OPTIONS = [
 
 export default function AdminSolutionsPage() {
   const notify = useNotify();
-  const [pageError, setPageError] = useState('');
+  const [pageError, setPageError] = useState(null);
   const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'images' | 'groups'
 
   const [q, setQ] = useState('');
@@ -66,10 +67,10 @@ export default function AdminSolutionsPage() {
     try {
       const data = await searchUsersOnce(q, 20);
       setUsers(data || []);
-      setPageError('');
+      setPageError(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось найти пользователей');
-      handleApiError(e, notify, 'Не удалось найти пользователей');
+      const parsed = handleApiError(e, notify, 'Не удалось найти пользователей');
+      setPageError(parsed);
     } finally {
       setSearchLoading(false);
     }
@@ -84,12 +85,12 @@ export default function AdminSolutionsPage() {
     try {
       const data = await getUserSolutions(userId, { days: filterDays });
       setSolutions(Array.isArray(data) ? data : []);
-      setPageError('');
+      setPageError(null);
       setExpandedId(null);
       setDetailsMap({});
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить решения');
-      handleApiError(e, notify, 'Не удалось загрузить решения');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить решения');
+      setPageError(parsed);
     } finally {
       setListLoading(false);
     }
@@ -104,12 +105,12 @@ export default function AdminSolutionsPage() {
     try {
       const data = await getUserImageSolutions(userId, { days: filterDays });
       setImageSolutions(Array.isArray(data) ? data : []);
-      setPageError('');
+      setPageError(null);
       setExpandedImageId(null);
       setImageDetailsMap({});
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить image-решения');
-      handleApiError(e, notify, 'Не удалось загрузить image-решения');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить image-решения');
+      setPageError(parsed);
     } finally {
       setImageListLoading(false);
     }
@@ -124,12 +125,12 @@ export default function AdminSolutionsPage() {
     try {
       const data = await getUserTaskTestAttempts(userId, { days: filterDays });
       setTestAttempts(Array.isArray(data) ? data : []);
-      setPageError('');
+      setPageError(null);
       setExpandedTestAttemptId(null);
       setTestDetailsMap({});
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить попытки тестов');
-      handleApiError(e, notify, 'Не удалось загрузить попытки тестов');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить попытки тестов');
+      setPageError(parsed);
     } finally {
       setTestListLoading(false);
     }
@@ -140,10 +141,10 @@ export default function AdminSolutionsPage() {
     try {
       const list = await getAdminGroups();
       setGroups(Array.isArray(list) ? list : []);
-      setPageError('');
+      setPageError(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить группы');
-      handleApiError(e, notify, 'Не удалось загрузить группы');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить группы');
+      setPageError(parsed);
     } finally {
       setGroupsLoading(false);
     }
@@ -157,10 +158,10 @@ export default function AdminSolutionsPage() {
     try {
       const ids = await getAdminUserGroupIds(userId);
       setUserGroupIds(Array.isArray(ids) ? ids : []);
-      setPageError('');
+      setPageError(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить группы пользователя');
-      handleApiError(e, notify, 'Не удалось загрузить группы пользователя');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить группы пользователя');
+      setPageError(parsed);
       setUserGroupIds([]);
     }
   };
@@ -227,8 +228,8 @@ export default function AdminSolutionsPage() {
         const dto = await getSolutionDetails(id);
         setDetailsMap((prev) => ({ ...prev, [id]: dto }));
       } catch (e) {
-        setPageError(e?.message || 'Не удалось загрузить детали решения');
-        handleApiError(e, notify, 'Не удалось загрузить детали решения');
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить детали решения');
+        setPageError(parsed);
         return;
       }
     }
@@ -248,8 +249,8 @@ export default function AdminSolutionsPage() {
         const dto = await getAdminImageSolutionDetails(id);
         setImageDetailsMap((prev) => ({ ...prev, [id]: dto }));
       } catch (e) {
-        setPageError(e?.message || 'Не удалось загрузить детали image-решения');
-        handleApiError(e, notify, 'Не удалось загрузить детали image-решения');
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить детали image-решения');
+        setPageError(parsed);
         return;
       }
     }
@@ -269,8 +270,8 @@ export default function AdminSolutionsPage() {
         const dto = await getAdminTaskTestAttemptReview(id);
         setTestDetailsMap((prev) => ({ ...prev, [id]: dto }));
       } catch (e) {
-        setPageError(e?.message || 'Не удалось загрузить детали попытки теста');
-        handleApiError(e, notify, 'Не удалось загрузить детали попытки теста');
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить детали попытки теста');
+        setPageError(parsed);
         return;
       }
     }
@@ -397,8 +398,8 @@ export default function AdminSolutionsPage() {
       });
       if (expandedId === id) setExpandedId(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось удалить решение');
-      handleApiError(e, notify, 'Не удалось удалить решение');
+      const parsed = handleApiError(e, notify, 'Не удалось удалить решение');
+      setPageError(parsed);
     }
   };
 
@@ -415,8 +416,8 @@ export default function AdminSolutionsPage() {
       });
       if (expandedTestAttemptId === attemptId) setExpandedTestAttemptId(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось удалить попытку теста');
-      handleApiError(e, notify, 'Не удалось удалить попытку теста');
+      const parsed = handleApiError(e, notify, 'Не удалось удалить попытку теста');
+      setPageError(parsed);
     }
   };
 
@@ -427,8 +428,8 @@ export default function AdminSolutionsPage() {
       setGroupToAdd('');
       await loadUserGroups();
     } catch (e) {
-      setPageError(e?.message || 'Не удалось добавить пользователя в группу');
-      handleApiError(e, notify, 'Не удалось добавить пользователя в группу');
+      const parsed = handleApiError(e, notify, 'Не удалось добавить пользователя в группу');
+      setPageError(parsed);
     }
   };
 
@@ -438,8 +439,8 @@ export default function AdminSolutionsPage() {
       await removeGroupMember(groupId, userId);
       await loadUserGroups();
     } catch (e) {
-      setPageError(e?.message || 'Не удалось удалить пользователя из группы');
-      handleApiError(e, notify, 'Не удалось удалить пользователя из группы');
+      const parsed = handleApiError(e, notify, 'Не удалось удалить пользователя из группы');
+      setPageError(parsed);
     }
   };
 
@@ -451,17 +452,7 @@ export default function AdminSolutionsPage() {
       <div className="container-app py-6 space-y-4">
         <h1 className="text-2xl font-semibold">Управление пользователями</h1>
 
-        {pageError ? (
-          <Card className="border-rose-300 bg-rose-50 text-rose-700">
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={18} className="mt-0.5" />
-              <div>
-                <div className="font-medium">Ошибка админ-раздела</div>
-                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
-              </div>
-            </div>
-          </Card>
-        ) : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -708,8 +699,8 @@ export default function AdminSolutionsPage() {
                               });
                               if (expandedImageId === item.id) setExpandedImageId(null);
                             } catch (e) {
-                              setPageError(e?.message || 'Не удалось удалить image-решение');
-                              handleApiError(e, notify, 'Не удалось удалить image-решение');
+                              const parsed = handleApiError(e, notify, 'Не удалось удалить image-решение');
+                              setPageError(parsed);
                             }
                           }}
                         >

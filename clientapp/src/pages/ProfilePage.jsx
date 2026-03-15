@@ -7,6 +7,9 @@ import { getTelegramStatus, generateTelegramCode, unlinkTelegram } from '../api/
 import { getMinecraftStatus, requestMinecraftLink, confirmMinecraftLink, unlinkMinecraft } from '../api/minecraftLink';
 import { parseProfileExtra, buildProfileExtra } from '../utils/profileExtra';
 import { useAuth } from '../auth/AuthContext';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { handleApiError } from '../utils/handleApiError';
+import { useNotify } from '../components/notify/NotifyProvider';
 
 /**
  * Страница профиля для текущего пользователя.
@@ -57,6 +60,7 @@ export default function ProfilePage() {
   // навигация для перехода после сохранения
   const navigate = useNavigate();
   const { refresh } = useAuth();
+  const notify = useNotify();
 
   // Загрузка профиля при монтировании
   useEffect(() => {
@@ -84,8 +88,8 @@ export default function ProfilePage() {
           // ignore
         }
       } catch (e) {
-        console.error(e);
-        setError('Не удалось загрузить профиль');
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить профиль');
+        setError(parsed);
       } finally {
         setLoading(false);
       }
@@ -128,8 +132,8 @@ export default function ProfilePage() {
       setMcDelivery(dto.delivery || null);
       setMcStatus(dto.status);
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Не удалось отправить код';
-      setMcError(msg);
+      const parsed = handleApiError(e, notify, 'Не удалось отправить код привязки Minecraft');
+      setMcError(parsed);
     } finally {
       setMcLoading(false);
     }
@@ -152,8 +156,8 @@ export default function ProfilePage() {
       setMcDelivery(null);
       try { await refresh(); } catch {}
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Не удалось подтвердить код';
-      setMcError(msg);
+      const parsed = handleApiError(e, notify, 'Не удалось подтвердить код Minecraft');
+      setMcError(parsed);
     } finally {
       setMcLoading(false);
     }
@@ -172,8 +176,8 @@ export default function ProfilePage() {
       try { await refresh(); } catch {}
       await refreshMcStatus();
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Не удалось отвязать Minecraft';
-      setMcError(msg);
+      const parsed = handleApiError(e, notify, 'Не удалось отвязать Minecraft');
+      setMcError(parsed);
     } finally {
       setMcLoading(false);
     }
@@ -197,8 +201,8 @@ export default function ProfilePage() {
       setTgExpires(dto.expiresAtUtc);
       setTgStatus(dto.status);
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Не удалось сгенерировать код';
-      setTgError(msg);
+      const parsed = handleApiError(e, notify, 'Не удалось сгенерировать код Telegram');
+      setTgError(parsed);
     } finally {
       setTgLoading(false);
     }
@@ -223,8 +227,8 @@ export default function ProfilePage() {
       setTgExpires(null);
       await refreshTgStatus();
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Не удалось отвязать Telegram';
-      setTgError(msg);
+      const parsed = handleApiError(e, notify, 'Не удалось отвязать Telegram');
+      setTgError(parsed);
     } finally {
       setTgLoading(false);
     }
@@ -268,8 +272,8 @@ export default function ProfilePage() {
       // чтобы форма не выглядела пустой и пользователь вернулся к задачам.
       navigate('/', { replace: true });
     } catch (err) {
-      console.error(err);
-      setError('Не удалось сохранить профиль');
+      const parsed = handleApiError(err, notify, 'Не удалось сохранить профиль');
+      setError(parsed);
     } finally {
       setSaving(false);
     }
@@ -290,12 +294,8 @@ export default function ProfilePage() {
       setEmailSuccess('Email обновлён. Подтвердите новый адрес, если требуется.');
       setEmailForm({ newEmail: '', password: '' });
     } catch (err) {
-      setEmailError(
-        err?.response?.data?.message ||
-          err?.response?.data?.title ||
-          err?.message ||
-          'Не удалось обновить email'
-      );
+      const parsed = handleApiError(err, notify, 'Не удалось обновить email');
+      setEmailError(parsed);
     } finally {
       setSavingEmail(false);
     }
@@ -314,12 +314,8 @@ export default function ProfilePage() {
       setPasswordSuccess('Пароль изменён.');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
     } catch (err) {
-      setPasswordError(
-        err?.response?.data?.message ||
-          err?.response?.data?.title ||
-          err?.message ||
-          'Не удалось изменить пароль'
-      );
+      const parsed = handleApiError(err, notify, 'Не удалось изменить пароль');
+      setPasswordError(parsed);
     } finally {
       setSavingPassword(false);
     }
@@ -330,11 +326,7 @@ export default function ProfilePage() {
       <div className="max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-semibold">Профиль</h1>
         {loading && <div>Загрузка…</div>}
-        {error && (
-          <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
-            {error}
-          </div>
-        )}
+        {error ? <AppErrorPanel error={error} title="Проблема с профилем" /> : null}
         {saved && (
           <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl">
             Профиль сохранён
@@ -484,11 +476,7 @@ export default function ProfilePage() {
                 )}
               </div>
 
-              {tgError && (
-                <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
-                  {tgError}
-                </div>
-              )}
+              {tgError ? <AppErrorPanel error={tgError} title="Проблема с Telegram" compact /> : null}
 
               {tgStatus?.linked ? (
                 <div className="space-y-2">
@@ -555,11 +543,7 @@ export default function ProfilePage() {
                 )}
               </div>
 
-              {mcError && (
-                <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">
-                  {mcError}
-                </div>
-              )}
+              {mcError ? <AppErrorPanel error={mcError} title="Проблема с Minecraft" compact /> : null}
 
               {mcStatus?.linked ? (
                 <div className="space-y-2">

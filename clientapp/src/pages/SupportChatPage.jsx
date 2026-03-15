@@ -8,6 +8,8 @@ import Layout from '../components/Layout';
 import { Field, Textarea, Button, Card } from '../components/ui';
 import { getSupportTicket, sendSupportMessage } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
+import AppErrorPanel from '../components/AppErrorPanel';
+import { handleApiError } from '../utils/handleApiError';
 import { notifyOnce } from '../utils/notifyOnce';
 import { useAuth } from '../auth/AuthContext';
 import { ensureSupportHubStarted } from '../realtime/supportHub';
@@ -27,7 +29,7 @@ export default function SupportChatPage() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
 
   const lastMessageIdRef = useRef(null);
   const isMountedRef = useRef(true);
@@ -57,9 +59,8 @@ export default function SupportChatPage() {
       }
     } catch (err) {
       if (!silent) {
-        const msg = err?.message || 'Ошибка загрузки сообщения';
-        setError(msg);
-        notify.error(msg);
+        const parsed = handleApiError(err, notify, 'Не удалось загрузить переписку');
+        setError(parsed);
       }
     } finally {
       if (!silent) setLoading(false);
@@ -69,7 +70,7 @@ export default function SupportChatPage() {
   useEffect(() => {
     isMountedRef.current = true;
     setLoading(true);
-    setError('');
+    setError(null);
     lastMessageIdRef.current = null;
 
     fetchTicket();
@@ -158,16 +159,15 @@ export default function SupportChatPage() {
     if (!txt) return;
 
     try {
-      setError('');
+      setError(null);
       await sendSupportMessage(ticketId, { message: txt });
       setNewMessage('');
       notify.success('Сообщение отправлено');
       // после отправки сразу подтягиваем серверную версию (чтобы получить реальный id)
       await fetchTicket({ silent: true });
     } catch (err) {
-      const msg = err?.message || 'Не удалось отправить сообщение';
-      setError(msg);
-      notify.error(msg);
+      const parsed = handleApiError(err, notify, 'Не удалось отправить сообщение');
+      setError(parsed);
     }
   };
 
@@ -175,7 +175,7 @@ export default function SupportChatPage() {
     <Layout>
       <div className="max-w-3xl mx-auto">
         <h1 className="text-2xl font-semibold mb-4">{title}</h1>
-        {error && <div className="text-red-500 mb-4">{error}</div>}
+        {error ? <div className="mb-4"><AppErrorPanel error={error} title="Проблема в переписке с поддержкой" /></div> : null}
 
         {loading ? (
           <div>Загрузка…</div>

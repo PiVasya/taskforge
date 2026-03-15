@@ -4,13 +4,14 @@ import { Badge, Button, Card, Field, Input } from '../../components/ui';
 import { getAdminMinecraftLinks } from '../../api/adminMinecraftLinks';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import AppErrorPanel from '../../components/AppErrorPanel';
 import { AlertTriangle, Link2, RefreshCcw } from 'lucide-react';
 
 export default function AdminMinecraftLinksPage() {
   const notify = useNotify();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
+  const [pageError, setPageError] = useState(null);
   const [query, setQuery] = useState('');
 
   const load = async () => {
@@ -18,10 +19,10 @@ export default function AdminMinecraftLinksPage() {
       setLoading(true);
       const list = await getAdminMinecraftLinks({ query });
       setItems(Array.isArray(list) ? list : []);
-      setPageError('');
+      setPageError(null);
     } catch (e) {
-      setPageError(e?.message || 'Не удалось загрузить связи Minecraft');
-      handleApiError(e, notify, 'Не удалось загрузить связи Minecraft');
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить связи Minecraft');
+      setPageError(parsed);
     } finally {
       setLoading(false);
     }
@@ -38,17 +39,7 @@ export default function AdminMinecraftLinksPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {pageError ? (
-          <Card className="border-rose-300 bg-rose-50 text-rose-700">
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={18} className="mt-0.5" />
-              <div>
-                <div className="font-medium">Ошибка админ-раздела</div>
-                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
-              </div>
-            </div>
-          </Card>
-        ) : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
 
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>

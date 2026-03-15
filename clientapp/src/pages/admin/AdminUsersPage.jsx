@@ -4,6 +4,7 @@ import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import AppErrorPanel from '../../components/AppErrorPanel';
 import { AlertTriangle, Save, Search, Trash2, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
@@ -15,7 +16,7 @@ export default function AdminUsersPage() {
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
   const [linkedOnly, setLinkedOnly] = useState(false);
-  const [pageError, setPageError] = useState('');
+  const [pageError, setPageError] = useState(null);
   const [stats, setStats] = useState({ total: 0, linked: 0, admins: 0 });
 
   const load = async () => {
@@ -24,10 +25,10 @@ export default function AdminUsersPage() {
       const res = await getAdminUsers({ query, role, linkedOnly });
       setItems(Array.isArray(res?.items) ? res.items : []);
       setStats(res?.stats || { total: 0, linked: 0, admins: 0 });
-      setPageError('');
+      setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось загрузить пользователей');
-      setPageError(parsed?.userMessage || e?.message || 'Не удалось загрузить пользователей');
+      setPageError(parsed);
     } finally {
       setLoading(false);
     }
@@ -52,11 +53,11 @@ export default function AdminUsersPage() {
         telegramUsername: user.telegramUsername || null,
       });
       notify.success('Пользователь обновлён');
-      setPageError('');
+      setPageError(null);
       await load();
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось сохранить пользователя');
-      setPageError(parsed?.userMessage || e?.message || 'Не удалось сохранить пользователя');
+      setPageError(parsed);
     }
   };
 
@@ -75,10 +76,10 @@ export default function AdminUsersPage() {
         linked: Math.max(0, (prev?.linked || 0) - ((user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0)),
         admins: Math.max(0, (prev?.admins || 0) - (user.role === 'Admin' ? 1 : 0)),
       }));
-      setPageError('');
+      setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось удалить пользователя');
-      setPageError(parsed?.userMessage || e?.message || 'Не удалось удалить пользователя');
+      setPageError(parsed);
     }
   };
 
@@ -93,17 +94,7 @@ export default function AdminUsersPage() {
           <Button onClick={load}><Search size={16} /> <span className="ml-1">Обновить</span></Button>
         </div>
 
-        {pageError ? (
-          <Card className="border-rose-300 bg-rose-50 text-rose-700">
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={18} className="mt-0.5" />
-              <div>
-                <div className="font-medium">Ошибка админ-раздела</div>
-                <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
-              </div>
-            </div>
-          </Card>
-        ) : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <Card><div className="text-sm opacity-70">Показано пользователей</div><div className="text-3xl font-semibold mt-2">{stats.total}</div></Card>
