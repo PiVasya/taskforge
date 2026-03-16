@@ -6,6 +6,11 @@ using taskforge.Data.Models.Entities;
 
 namespace taskforge.Controllers.Admin;
 
+file sealed record UserPeriodSummary(int TotalUsers, int NewUsers, int ActiveUsers, int DauToday, double Retention30);
+file sealed record ApiPeriodSummary(int TotalRequests, int UniqueUsers, int Errors4xx, int Errors5xx, double AvgLatencyMs, double P95LatencyMs, double P99LatencyMs);
+file sealed record AssignmentPeriodSummary(int TotalAttempts, int CodeAttempts, int ImageAttempts, int TestAttempts, double SuccessRate, double AvgTestScore);
+file sealed record SupportPeriodSummary(int TotalTickets, int OpenTickets, int NewTickets, int ClosedTickets, int TotalMessages, double AvgFirstResponseMinutes, double AvgCloseMinutes);
+
 [ApiController]
 [Route("api/admin/analytics")]
 [Authorize(Roles = "Admin")]
@@ -30,6 +35,18 @@ public sealed class AdminAnalyticsController : ControllerBase
         var assignments = await BuildAssignmentsBlockAsync(from, now, ct);
         var support = await BuildSupportBlockAsync(from, now, ct);
 
+        var previousTo = from.AddTicks(-1);
+        var previousFrom = from.AddDays(-days);
+        var currentUsersSummary = await BuildUsersSummaryAsync(from, now, ct);
+        var previousUsersSummary = await BuildUsersSummaryAsync(previousFrom, previousTo, ct);
+        var currentApiSummary = await BuildApiSummaryAsync(from, now, ct);
+        var previousApiSummary = await BuildApiSummaryAsync(previousFrom, previousTo, ct);
+        var currentAssignmentsSummary = await BuildAssignmentsSummaryAsync(from, now, ct);
+        var previousAssignmentsSummary = await BuildAssignmentsSummaryAsync(previousFrom, previousTo, ct);
+        var currentSupportSummary = await BuildSupportSummaryAsync(from, now, ct);
+        var previousSupportSummary = await BuildSupportSummaryAsync(previousFrom, previousTo, ct);
+        var executive = await BuildExecutiveBlockAsync(days, currentUsersSummary, previousUsersSummary, currentApiSummary, previousApiSummary, currentAssignmentsSummary, previousAssignmentsSummary, currentSupportSummary, previousSupportSummary, from, now, ct);
+
         return Ok(new
         {
             generatedAtUtc = now,
@@ -38,6 +55,7 @@ public sealed class AdminAnalyticsController : ControllerBase
             api,
             assignments,
             support,
+            executive,
         });
     }
 
@@ -153,6 +171,38 @@ public sealed class AdminAnalyticsController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    [HttpGet("users/search")]
+    public async Task<IActionResult> SearchUsers([FromQuery] string? q, [FromQuery] int limit = 8, CancellationToken ct = default)
+    {
+        q = (q ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(q)) return Ok(Array.Empty<object>());
+        if (limit <= 0) limit = 8;
+        if (limit > 20) limit = 20;
+
+        var lowered = q.ToLower();
+        var users = await _db.Users.AsNoTracking()
+            .Where(x =>
+                (!string.IsNullOrWhiteSpace(x.Email) && x.Email.ToLower().Contains(lowered)) ||
+                (!string.IsNullOrWhiteSpace(x.FirstName) && x.FirstName.ToLower().Contains(lowered)) ||
+                (!string.IsNullOrWhiteSpace(x.LastName) && x.LastName.ToLower().Contains(lowered)) ||
+                (!string.IsNullOrWhiteSpace(x.Role) && x.Role.ToLower().Contains(lowered)))
+            .OrderByDescending(x => x.LastLoginAt)
+            .ThenByDescending(x => x.CreatedAt)
+            .Take(limit)
+            .Select(x => new
+            {
+                userId = x.Id,
+                fullName = BuildFullName(x.FirstName, x.LastName),
+                x.Email,
+                x.Role,
+                x.CreatedAt,
+                x.LastLoginAt,
+            })
+            .ToListAsync(ct);
+
+        return Ok(users);
     }
 
     private async Task<object> BuildUsersBlockAsync(DateTime from, DateTime now, CancellationToken ct)
@@ -472,6 +522,234 @@ public sealed class AdminAnalyticsController : ControllerBase
             ticketTypes = ticketsInPeriod.GroupBy(x => x.Type).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
             topAdmins,
         };
+    }
+
+    private async Task<UserPeriodSummary> BuildUsersSummaryAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        var totalUsers = await _db.Users.AsNoTracking().CountAsync(ct);
+        var newUsers = await _db.Users.AsNoTracking().CountAsync(x => x.CreatedAt >= from && x.CreatedAt <= to, ct);
+        var loginRows = await _db.UserLoginLogs.AsNoTracking()
+            .Where(x => x.LoginAt >= from && x.LoginAt <= to)
+            .Select(x => new { x.UserId, x.LoginAt })
+            .ToListAsync(ct);
+        var activeUsers = loginRows.Select(x => x.UserId).Distinct().Count();
+        var dauToday = loginRows.Where(x => x.LoginAt.Date == to.Date).Select(x => x.UserId).Distinct().Count();
+        var retentionCutoff = to.Date.AddDays(-30);
+        var retentionCohort = await _db.Users.AsNoTracking().Where(x => x.CreatedAt <= retentionCutoff).Select(x => x.Id).ToListAsync(ct);
+        var cohortSet = retentionCohort.ToHashSet();
+        var retention30 = cohortSet.Count == 0 ? 0 : Math.Round(loginRows.Where(x => x.LoginAt >= retentionCutoff && cohortSet.Contains(x.UserId)).Select(x => x.UserId).Distinct().Count() * 100.0 / cohortSet.Count, 1);
+        return new UserPeriodSummary(totalUsers, newUsers, activeUsers, dauToday, retention30);
+    }
+
+    private async Task<ApiPeriodSummary> BuildApiSummaryAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        var rows = await _db.RequestLogs.AsNoTracking()
+            .Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= to)
+            .Select(x => new { x.UserId, x.StatusCode, x.DurationMs })
+            .ToListAsync(ct);
+        var total = rows.Count;
+        var sorted = rows.Select(x => (double)x.DurationMs).OrderBy(x => x).ToArray();
+        return new ApiPeriodSummary(
+            total,
+            rows.Where(x => x.UserId != null).Select(x => x.UserId).Distinct().Count(),
+            rows.Count(x => x.StatusCode >= 400 && x.StatusCode < 500),
+            rows.Count(x => x.StatusCode >= 500),
+            total == 0 ? 0 : Math.Round(rows.Average(x => (double)x.DurationMs), 1),
+            Math.Round(CalculatePercentile(sorted, 95), 1),
+            Math.Round(CalculatePercentile(sorted, 99), 1)
+        );
+    }
+
+    private async Task<AssignmentPeriodSummary> BuildAssignmentsSummaryAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        var code = await _db.UserTaskSolutions.AsNoTracking().Where(x => x.SubmittedAt >= from && x.SubmittedAt <= to).Select(x => x.PassedAllTests).ToListAsync(ct);
+        var image = await _db.UserImageTaskSolutions.AsNoTracking().Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= to).Select(x => x.Passed == true).ToListAsync(ct);
+        var test = await _db.UserTaskTestAttempts.AsNoTracking().Where(x => x.CreatedAt >= from && x.CreatedAt <= to).Select(x => new { x.Passed, x.ScorePercent }).ToListAsync(ct);
+        var totalAttempts = code.Count + image.Count + test.Count;
+        var passed = code.Count(x => x) + image.Count(x => x) + test.Count(x => x.Passed);
+        return new AssignmentPeriodSummary(totalAttempts, code.Count, image.Count, test.Count, totalAttempts == 0 ? 0 : Math.Round(passed * 100.0 / totalAttempts, 1), test.Count == 0 ? 0 : Math.Round(test.Average(x => (double)x.ScorePercent), 1));
+    }
+
+    private async Task<SupportPeriodSummary> BuildSupportSummaryAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        var tickets = await _db.SupportTickets.AsNoTracking()
+            .Where(x => x.CreatedAt <= to)
+            .Select(x => new { x.Id, x.IsClosed, x.CreatedAt, x.UpdatedAt })
+            .ToListAsync(ct);
+        var ticketsInPeriod = tickets.Where(x => x.CreatedAt >= from && x.CreatedAt <= to).ToList();
+        var closedInPeriod = tickets.Where(x => x.IsClosed && x.UpdatedAt >= from && x.UpdatedAt <= to).ToList();
+        var messages = await _db.SupportMessages.AsNoTracking()
+            .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+            .Select(x => new { x.TicketId, x.CreatedAt, x.IsFromAdmin })
+            .ToListAsync(ct);
+        var avgFirstResponse = ticketsInPeriod
+            .Select(ticket =>
+            {
+                var firstAdmin = messages.Where(m => m.TicketId == ticket.Id && m.IsFromAdmin && m.CreatedAt >= ticket.CreatedAt).OrderBy(m => m.CreatedAt).FirstOrDefault();
+                return firstAdmin == null ? (double?)null : (firstAdmin.CreatedAt - ticket.CreatedAt).TotalMinutes;
+            })
+            .Where(x => x != null)
+            .Select(x => x!.Value)
+            .ToList();
+        var avgClose = closedInPeriod.Select(ticket => (ticket.UpdatedAt - ticket.CreatedAt).TotalMinutes).ToList();
+        return new SupportPeriodSummary(
+            tickets.Count,
+            tickets.Count(x => !x.IsClosed),
+            ticketsInPeriod.Count,
+            closedInPeriod.Count,
+            messages.Count,
+            avgFirstResponse.Count == 0 ? 0 : Math.Round(avgFirstResponse.Average(), 1),
+            avgClose.Count == 0 ? 0 : Math.Round(avgClose.Average(), 1)
+        );
+    }
+
+    private async Task<object> BuildExecutiveBlockAsync(
+        int days,
+        UserPeriodSummary currentUsers,
+        UserPeriodSummary previousUsers,
+        ApiPeriodSummary currentApi,
+        ApiPeriodSummary previousApi,
+        AssignmentPeriodSummary currentAssignments,
+        AssignmentPeriodSummary previousAssignments,
+        SupportPeriodSummary currentSupport,
+        SupportPeriodSummary previousSupport,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct)
+    {
+        var requestRows = await _db.RequestLogs.AsNoTracking()
+            .Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= to)
+            .Select(x => new { x.UserId, x.Path, x.StatusCode, x.DurationMs })
+            .ToListAsync(ct);
+        var requestUserIds = requestRows.Where(x => x.UserId != null).Select(x => x.UserId!.Value).Distinct().ToList();
+        var requestUsers = await _db.Users.AsNoTracking().Where(x => requestUserIds.Contains(x.Id)).Select(x => new { x.Id, x.FirstName, x.LastName, x.Email }).ToListAsync(ct);
+        var requestUsersById = requestUsers.ToDictionary(x => x.Id);
+
+        var slowEndpoints = requestRows.GroupBy(x => x.Path)
+            .Where(g => g.Count() >= 5)
+            .Select(g => new
+            {
+                label = g.Key,
+                value = Math.Round(g.Average(v => (double)v.DurationMs), 1),
+                requests = g.Count(),
+                errorRate = Math.Round(g.Count(v => v.StatusCode >= 400) * 100.0 / g.Count(), 1),
+            })
+            .OrderByDescending(x => x.value)
+            .ThenByDescending(x => x.requests)
+            .Take(6)
+            .ToList();
+
+        var noisyUsers = requestRows.Where(x => x.UserId != null)
+            .GroupBy(x => x.UserId!.Value)
+            .Where(g => g.Count() >= 5)
+            .Select(g =>
+            {
+                requestUsersById.TryGetValue(g.Key, out var u);
+                return new
+                {
+                    userId = g.Key,
+                    fullName = u == null ? g.Key.ToString() : BuildFullName(u.FirstName, u.LastName),
+                    email = u?.Email,
+                    value = g.Count(),
+                    errorRate = Math.Round(g.Count(v => v.StatusCode >= 400) * 100.0 / g.Count(), 1),
+                    avgLatencyMs = Math.Round(g.Average(v => (double)v.DurationMs), 1),
+                };
+            })
+            .OrderByDescending(x => x.value)
+            .ThenByDescending(x => x.errorRate)
+            .Take(6)
+            .ToList();
+
+        var assignments = await _db.TaskAssignments.AsNoTracking().Select(x => new { x.Id, x.Title, x.Type }).ToListAsync(ct);
+        var assignmentsById = assignments.ToDictionary(x => x.Id);
+        var code = await _db.UserTaskSolutions.AsNoTracking().Where(x => x.SubmittedAt >= from && x.SubmittedAt <= to).Select(x => new { x.TaskAssignmentId, Passed = x.PassedAllTests }).ToListAsync(ct);
+        var image = await _db.UserImageTaskSolutions.AsNoTracking().Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= to).Select(x => new { x.TaskAssignmentId, Passed = x.Passed == true }).ToListAsync(ct);
+        var test = await _db.UserTaskTestAttempts.AsNoTracking().Where(x => x.CreatedAt >= from && x.CreatedAt <= to).Select(x => new { x.TaskAssignmentId, x.Passed }).ToListAsync(ct);
+        var failingAssignments = code.Select(x => new { x.TaskAssignmentId, x.Passed })
+            .Concat(image.Select(x => new { x.TaskAssignmentId, x.Passed }))
+            .Concat(test.Select(x => new { x.TaskAssignmentId, x.Passed }))
+            .GroupBy(x => x.TaskAssignmentId)
+            .Where(g => g.Count() >= 5)
+            .Select(g =>
+            {
+                assignmentsById.TryGetValue(g.Key, out var a);
+                var attempts = g.Count();
+                var passed = g.Count(v => v.Passed);
+                return new
+                {
+                    assignmentId = g.Key,
+                    title = a?.Title ?? g.Key.ToString(),
+                    type = a?.Type ?? "unknown",
+                    attempts,
+                    successRate = Math.Round(passed * 100.0 / attempts, 1),
+                };
+            })
+            .OrderBy(x => x.successRate)
+            .ThenByDescending(x => x.attempts)
+            .Take(6)
+            .ToList();
+
+        var alerts = new List<object>();
+        AddDeltaAlert(alerts, "Активность пользователей", currentUsers.ActiveUsers, previousUsers.ActiveUsers, "активных пользователей", 15, higherIsBad: false);
+        AddDeltaAlert(alerts, "Нагрузка на backend", currentApi.TotalRequests, previousApi.TotalRequests, "API-запросов", 20, higherIsBad: false);
+        AddDeltaAlert(alerts, "Успешность заданий", currentAssignments.SuccessRate, previousAssignments.SuccessRate, "% успешности", 8, higherIsBad: true, percentMetric: true);
+        AddDeltaAlert(alerts, "Support backlog", currentSupport.OpenTickets, previousSupport.OpenTickets, "открытых тикетов", 15, higherIsBad: true);
+        if (currentApi.Errors5xx > 0)
+        {
+            alerts.Add(new { severity = "high", title = "На backend есть 5xx", message = $"За {days} дн. зафиксировано {currentApi.Errors5xx} серверных ошибок. Имеет смысл посмотреть медленные или проблемные маршруты ниже." });
+        }
+        if (slowEndpoints.Count > 0 && slowEndpoints[0].value >= 400)
+        {
+            alerts.Add(new { severity = "medium", title = "Есть очень медленные маршруты", message = $"Самый тяжёлый endpoint в среднем отвечает {Math.Round((double)slowEndpoints[0].value)} мс. Проверь блок медленных маршрутов." });
+        }
+
+        return new
+        {
+            comparisons = new object[]
+            {
+                BuildComparison("Активные пользователи", currentUsers.ActiveUsers, previousUsers.ActiveUsers, "польз."),
+                BuildComparison("API-запросы", currentApi.TotalRequests, previousApi.TotalRequests, "запр."),
+                BuildComparison("Успешность заданий", currentAssignments.SuccessRate, previousAssignments.SuccessRate, "%", true),
+                BuildComparison("Открытые тикеты", currentSupport.OpenTickets, previousSupport.OpenTickets, "шт."),
+            },
+            alerts,
+            slowEndpoints,
+            noisyUsers,
+            failingAssignments,
+        };
+    }
+
+    private static object BuildComparison(string label, double current, double previous, string unit, bool percentMetric = false)
+    {
+        var delta = previous == 0 ? (current == 0 ? 0 : 100) : Math.Round((current - previous) * 100.0 / Math.Abs(previous), 1);
+        return new
+        {
+            label,
+            current = Math.Round(current, 1),
+            previous = Math.Round(previous, 1),
+            deltaPercent = delta,
+            trend = delta >= 0 ? "up" : "down",
+            unit,
+            percentMetric,
+        };
+    }
+
+    private static void AddDeltaAlert(List<object> alerts, string title, double current, double previous, string noun, double thresholdPercent, bool higherIsBad, bool percentMetric = false)
+    {
+        if (previous == 0 && current == 0) return;
+        var delta = previous == 0 ? 100 : Math.Round((current - previous) * 100.0 / Math.Abs(previous), 1);
+        if (Math.Abs(delta) < thresholdPercent) return;
+        var grown = delta > 0;
+        var bad = higherIsBad ? grown : !grown;
+        var severity = bad ? "high" : "good";
+        var currentText = percentMetric ? current.ToString("0.0") + "%" : Math.Round(current).ToString();
+        var previousText = percentMetric ? previous.ToString("0.0") + "%" : Math.Round(previous).ToString();
+        alerts.Add(new
+        {
+            severity,
+            title,
+            message = $"Сейчас {currentText} {noun}, раньше было {previousText}. Изменение: {delta:+0.0;-0.0;0}%.",
+        });
     }
 
     private static int NormalizeDays(int days)

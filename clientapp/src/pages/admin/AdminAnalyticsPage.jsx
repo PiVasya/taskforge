@@ -7,12 +7,15 @@ import {
   RefreshCw,
   Sparkles,
   Users,
+  Search,
+  TrendingUp,
+  TrendingDown,
+  ShieldAlert,
 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { Button, Card } from '../../components/ui';
-import { getAdminAnalyticsOverview, getAdminAnalyticsUser } from '../../api/adminAnalytics';
-import { searchUsersOnce } from '../../api/admin';
+import { getAdminAnalyticsOverview, getAdminAnalyticsUser, searchAdminAnalyticsUsers } from '../../api/adminAnalytics';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 
@@ -45,6 +48,70 @@ function formatMinutes(value) {
 function formatDateTime(value) {
   if (!value) return '—';
   return new Date(value).toLocaleString();
+}
+
+function formatSignedPercent(value) {
+  const n = Number(value || 0);
+  return `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
+}
+
+function formatComparisonValue(item) {
+  if (!item) return '0';
+  if (item.percentMetric) return `${Number(item.current || 0).toFixed(1)}%`;
+  return `${formatNumber(item.current)}${item.unit ? ` ${item.unit}` : ''}`.trim();
+}
+
+function ComparisonCard({ item }) {
+  if (!item) return null;
+  const delta = Number(item.deltaPercent || 0);
+  const up = delta >= 0;
+  const toneClass = up
+    ? 'border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.08)] text-[rgb(var(--accent))]'
+    : 'border-[rgba(var(--accent3)/0.35)] bg-[rgba(var(--accent3)/0.08)] text-[rgb(var(--accent3))]';
+  const Icon = up ? TrendingUp : TrendingDown;
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm text-neutral-500 dark:text-neutral-300">{item.label}</div>
+          <div className="mt-2 text-2xl font-semibold tracking-tight">{formatComparisonValue(item)}</div>
+          <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">Предыдущий период: {item.percentMetric ? `${Number(item.previous || 0).toFixed(1)}%` : formatNumber(item.previous)}{!item.percentMetric && item.unit ? ` ${item.unit}` : ''}</div>
+        </div>
+        <div className={cn('inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium', toneClass)}>
+          <Icon size={16} />
+          <span>{formatSignedPercent(delta)}</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function SignalsBoard({ alerts = [] }) {
+  if (!Array.isArray(alerts) || alerts.length === 0) return null;
+  return (
+    <Card className="p-5">
+      <div className="mb-4 flex items-center gap-3 text-base font-semibold">
+        <ShieldAlert size={18} />
+        <span>Сигналы платформы</span>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {alerts.map((alert, idx) => {
+          const severity = alert?.severity || 'medium';
+          const toneClass = severity === 'high'
+            ? 'border-[rgba(var(--accent3)/0.35)] bg-[rgba(var(--accent3)/0.07)]'
+            : severity === 'good'
+              ? 'border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.07)]'
+              : 'border-[rgba(var(--accent2)/0.35)] bg-[rgba(var(--accent2)/0.07)]';
+          return (
+            <div key={`${alert?.title || 'signal'}-${idx}`} className={cn('rounded-2xl border px-4 py-3', toneClass)}>
+              <div className="text-sm font-semibold">{alert?.title || 'Сигнал'}</div>
+              <div className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">{alert?.message}</div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
 }
 
 function MetricCard({ icon: Icon, label, value, hint }) {
@@ -394,7 +461,7 @@ export default function AdminAnalyticsPage() {
   const [userSearch, setUserSearch] = useState('');
   const [globalUserSearch, setGlobalUserSearch] = useState('');
   const [globalUserResults, setGlobalUserResults] = useState([]);
-  const [globalUserSearchLoading, setGlobalUserSearchLoading] = useState(false);
+  const [globalUserLoading, setGlobalUserLoading] = useState(false);
 
   const load = async (silent = false, nextDays = days) => {
     try {
@@ -438,37 +505,31 @@ export default function AdminAnalyticsPage() {
   }, [selectedUser?.userId, days]);
 
   useEffect(() => {
-    const q = (globalUserSearch || '').trim();
+    const q = globalUserSearch.trim();
     if (q.length < 2) {
       setGlobalUserResults([]);
-      setGlobalUserSearchLoading(false);
-      return;
+      setGlobalUserLoading(false);
+      return undefined;
     }
-
-    let cancelled = false;
-    setGlobalUserSearchLoading(true);
-    const timer = setTimeout(async () => {
+    const handle = setTimeout(async () => {
       try {
-        const rows = await searchUsersOnce(q, 12);
-        if (cancelled) return;
-        setGlobalUserResults(Array.isArray(rows) ? rows : []);
+        setGlobalUserLoading(true);
+        const res = await searchAdminAnalyticsUsers(q, 8);
+        setGlobalUserResults(Array.isArray(res) ? res : []);
       } catch {
-        if (!cancelled) setGlobalUserResults([]);
+        setGlobalUserResults([]);
       } finally {
-        if (!cancelled) setGlobalUserSearchLoading(false);
+        setGlobalUserLoading(false);
       }
-    }, 260);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    }, 250);
+    return () => clearTimeout(handle);
   }, [globalUserSearch]);
 
   const apiTotals = data?.api?.totals || {};
   const usersTotals = data?.users?.totals || {};
   const assignmentTotals = data?.assignments?.totals || {};
   const supportTotals = data?.support?.totals || {};
+  const executive = data?.executive || {};
 
   const heroCards = useMemo(() => [
     {
@@ -535,6 +596,49 @@ export default function AdminAnalyticsPage() {
           {heroCards.map((card) => <MetricCard key={card.label} {...card} />)}
         </div>
 
+        {!loading && data ? (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+              {(executive.comparisons || []).map((item) => <ComparisonCard key={item.label} item={item} />)}
+            </div>
+            <SignalsBoard alerts={executive.alerts || []} />
+            <div className="grid gap-4 xl:grid-cols-3">
+              <ChartCard title="Потенциально шумные пользователи" subtitle="Кто создаёт больше всего API-нагрузки за период. По клику можно открыть личную аналитику.">
+                <RankedTable
+                  rows={executive.noisyUsers || []}
+                  activeId={selectedUser?.userId}
+                  onRowClick={(row) => setSelectedUser(row)}
+                  columns={[
+                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div></div> },
+                    { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
+                    { key: 'errorRate', label: 'Ошибка %', render: (row) => formatPercent(row.errorRate) },
+                  ]}
+                />
+              </ChartCard>
+              <ChartCard title="Самые медленные маршруты" subtitle="Топ тяжёлых endpoint’ов за выбранный период.">
+                <RankedTable
+                  rows={executive.slowEndpoints || []}
+                  columns={[
+                    { key: 'label', label: 'Маршрут', render: (row) => <span className="block break-all text-sm">{row.label}</span> },
+                    { key: 'value', label: 'Ср. задержка', render: (row) => formatMs(row.value) },
+                    { key: 'requests', label: 'Запросов', render: (row) => formatNumber(row.requests) },
+                  ]}
+                />
+              </ChartCard>
+              <ChartCard title="Задания в зоне риска" subtitle="Что чаще всего проваливают при достаточном числе попыток.">
+                <RankedTable
+                  rows={executive.failingAssignments || []}
+                  columns={[
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type}</div></div> },
+                    { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
+                    { key: 'successRate', label: 'Успешность', render: (row) => formatPercent(row.successRate) },
+                  ]}
+                />
+              </ChartCard>
+            </div>
+          </>
+        ) : null}
+
         {loading ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {[0, 1, 2, 3].map((i) => <Card key={i} className="h-64 animate-pulse bg-[rgba(var(--muted)/0.35)]" />)}
@@ -560,52 +664,51 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="space-y-4">
-              <ChartCard title="Топ пользователей по входам" subtitle="Таблица показывает лидеров по входам, а поиск выше позволяет найти вообще любого пользователя в системе." tall>
-                <div className="mb-4 space-y-3">
+              <ChartCard title="Топ пользователей по входам" subtitle="Нажми на строку, чтобы открыть личную статистику пользователя." tall>
+                <div className="mb-5 space-y-3">
                   <div className="max-w-xl">
-                    <input
-                      type="search"
-                      value={globalUserSearch}
-                      onChange={(e) => setGlobalUserSearch(e.target.value)}
-                      placeholder="Найти любого пользователя по имени или почте"
-                      className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
-                    />
+                    <label className="mb-2 block text-sm font-medium text-neutral-600 dark:text-neutral-300">Найти любого пользователя по всей базе</label>
+                    <div className="relative">
+                      <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" />
+                      <input
+                        type="search"
+                        value={globalUserSearch}
+                        onChange={(e) => setGlobalUserSearch(e.target.value)}
+                        placeholder="Имя, почта или роль"
+                        className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
+                      />
+                    </div>
                   </div>
                   {globalUserSearch.trim().length >= 2 ? (
-                    <div className="rounded-2xl border border-[rgba(var(--border)/0.5)] bg-[rgba(var(--muted)/0.22)]">
-                      {globalUserSearchLoading ? (
-                        <div className="px-4 py-3 text-sm text-neutral-500 dark:text-neutral-300">Ищу по всем пользователям…</div>
+                    <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.22)] p-2">
+                      {globalUserLoading ? (
+                        <div className="px-3 py-4 text-sm text-neutral-500 dark:text-neutral-400">Ищу пользователей…</div>
                       ) : globalUserResults.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-neutral-500 dark:text-neutral-300">По всей базе пользователей ничего не найдено.</div>
+                        <div className="px-3 py-4 text-sm text-neutral-500 dark:text-neutral-400">Ничего не найдено по всей базе пользователей.</div>
                       ) : (
-                        <div className="divide-y divide-[rgba(var(--border)/0.42)]">
-                          {globalUserResults.map((row) => {
-                            const fullName = `${row.firstName || ''} ${row.lastName || ''}`.trim() || 'Без имени';
-                            const isActive = selectedUser?.userId === row.id;
-                            return (
-                              <button
-                                type="button"
-                                key={row.id}
-                                onClick={() => {
-                                  setSelectedUser({ userId: row.id, fullName, email: row.email || '—', role: 'User' });
-                                  setGlobalUserSearch(fullName || row.email || '');
-                                }}
-                                className={cn('flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition hover:bg-[rgba(var(--muted)/0.24)]', isActive && 'bg-[rgba(var(--muted)/0.34)]')}
-                              >
-                                <div className="min-w-0">
-                                  <div className="font-medium">{fullName}</div>
-                                  <div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div>
-                                </div>
-                                <div className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">Открыть статистику</div>
-                              </button>
-                            );
-                          })}
+                        <div className="space-y-1">
+                          {globalUserResults.map((row) => (
+                            <button
+                              key={row.userId}
+                              type="button"
+                              onClick={() => {
+                                setSelectedUser(row);
+                                setGlobalUserSearch('');
+                                setGlobalUserResults([]);
+                              }}
+                              className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-[rgba(var(--muted)/0.32)]"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{row.fullName}</div>
+                                <div className="truncate text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div>
+                              </div>
+                              <div className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(row.lastLoginAt)}</div>
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400">Введи минимум 2 символа — поиск идёт по всем пользователям, а не только по топу ниже.</div>
-                  )}
+                  ) : null}
                 </div>
                 <RankedTable
                   rows={data.users?.topUsers || []}
@@ -613,7 +716,7 @@ export default function AdminAnalyticsPage() {
                   onRowClick={(row) => setSelectedUser(row)}
                   searchValue={userSearch}
                   onSearchChange={setUserSearch}
-                  searchPlaceholder="Фильтр только внутри топа пользователей"
+                  searchPlaceholder="Поиск по имени, почте или роли"
                   columns={[
                     { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div></div> },
                     { key: 'value', label: 'Входов', render: (row) => formatNumber(row.value) },
