@@ -15,6 +15,7 @@ import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runTests as runCompilerTests } from '../api/compiler';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
+import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { useRoleFlags } from '../contexts/EditorModeContext';
@@ -77,6 +78,7 @@ export default function AssignmentSolvePage() {
 
   const notify = useNotify();
   const { isAdmin } = useRoleFlags();
+  const [adminInsights, setAdminInsights] = useState(null);
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -332,6 +334,45 @@ export default function AssignmentSolvePage() {
 
   const policyUi = extractPolicyUi(result);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!isAdmin || !assignmentId) return;
+      try {
+        const stats = await getAdminAssignmentInsights(assignmentId);
+        if (alive) setAdminInsights(stats);
+      } catch {
+        if (alive) setAdminInsights(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [assignmentId, isAdmin]);
+
+  const renderAdminQuickInsights = () => {
+    if (!isAdmin || !adminInsights) return null;
+    const totalAttempts = (adminInsights.codeAttempts || 0) + (adminInsights.testAttempts || 0) + (adminInsights.imageAttempts || 0);
+    const successRate = totalAttempts > 0 ? Math.round((adminInsights.successUsers || 0) / Math.max(adminInsights.uniqueUsers || 1, 1) * 100) : 0;
+    return (
+      <Card className="mb-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <div className="font-semibold">Быстрая статистика задания</div>
+            <div className="text-sm text-neutral-500 mt-1">Этот блок виден только администратору.</div>
+          </div>
+          <Link to={`/admin/assignments/${assignmentId}/insights`} className="btn-outline">
+            <BarChart3 size={16} className="mr-2" /> Полная аналитика
+          </Link>
+        </div>
+        <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Пользователи</div><div className="text-2xl font-semibold mt-1">{adminInsights.uniqueUsers || 0}</div></div>
+          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Решили</div><div className="text-2xl font-semibold mt-1">{adminInsights.successUsers || 0}</div></div>
+          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Попытки</div><div className="text-2xl font-semibold mt-1">{totalAttempts}</div></div>
+          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Успешность</div><div className="text-2xl font-semibold mt-1">{successRate}%</div></div>
+        </div>
+      </Card>
+    );
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -377,6 +418,7 @@ export default function AssignmentSolvePage() {
           </div>
         </div>
 
+        {renderAdminQuickInsights()}
         <TaskTestSolve assignment={a} assignmentId={a.id} />
       </Layout>
     );
@@ -499,6 +541,8 @@ export default function AssignmentSolvePage() {
             </IfEditor>
           </div>
         </div>
+
+        {renderAdminQuickInsights()}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* левая часть: текст задачи + эталон */}
@@ -701,6 +745,11 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Link to={`/admin/assignments/${a.id}/insights`} className="btn-outline">
+              <BarChart3 size={16} className="mr-2" /> Аналитика задания
+            </Link>
+          )}
           <IfEditor>
             <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
               Редактировать
@@ -708,6 +757,8 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
           </IfEditor>
         </div>
       </div>
+
+      {renderAdminQuickInsights()}
 
       {/* Вариант 1: как сейчас (условие слева, редактор справа) */}
       {codeSolveLayout !== 'editorTop' ? (

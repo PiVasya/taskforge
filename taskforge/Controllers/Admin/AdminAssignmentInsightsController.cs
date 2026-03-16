@@ -42,7 +42,7 @@ namespace taskforge.Controllers.Admin
 
         public sealed record LanguageStatDto(string Language, int Count);
         public sealed record SolverStatDto(Guid UserId, string FullName, string Email, int TotalAttempts, int SuccessfulAttempts, DateTime FirstActivityAtUtc, DateTime LastActivityAtUtc);
-        public sealed record ActivityDto(Guid UserId, string FullName, string Email, string SourceKind, string Status, string? Language, string? Preview, int? PassedCount, int? FailedCount, int? ScorePercent, double? SimilarityPercent, double? DurationSeconds, DateTime CreatedAtUtc);
+        public sealed record ActivityDto(Guid UserId, string FullName, string Email, string SourceKind, string Status, string? Language, bool HasCode, string? FullCode, int? PassedCount, int? FailedCount, int? ScorePercent, double? SimilarityPercent, double? DurationSeconds, DateTime CreatedAtUtc);
 
         [HttpGet("{assignmentId:guid}/insights")]
         public async Task<IActionResult> Get(Guid assignmentId, CancellationToken ct = default)
@@ -117,7 +117,8 @@ namespace taskforge.Controllers.Admin
                 "code",
                 x.PassedAllTests ? "passed" : "failed",
                 x.Language,
-                Crop(x.SubmittedCode),
+                !string.IsNullOrWhiteSpace(x.SubmittedCode),
+                x.SubmittedCode,
                 x.PassedCount,
                 x.FailedCount,
                 null,
@@ -132,6 +133,7 @@ namespace taskforge.Controllers.Admin
                 "test",
                 x.Passed ? "passed" : "failed",
                 null,
+                false,
                 null,
                 null,
                 null,
@@ -147,7 +149,8 @@ namespace taskforge.Controllers.Admin
                 x.IsTrial ? "image-trial" : "image",
                 x.Passed == true ? "passed" : x.Passed == false ? "failed" : "pending",
                 x.Language,
-                Crop(x.SubmittedCode),
+                !string.IsNullOrWhiteSpace(x.SubmittedCode),
+                x.SubmittedCode,
                 null,
                 null,
                 null,
@@ -207,11 +210,5 @@ namespace taskforge.Controllers.Admin
             ));
         }
 
-        private static string? Crop(string? value)
-        {
-            if (string.IsNullOrWhiteSpace(value)) return null;
-            var s = value.Replace("\r", " ").Replace("\n", " ").Trim();
-            return s.Length <= 220 ? s : s.Substring(0, 220) + "…";
-        }
     }
 }
