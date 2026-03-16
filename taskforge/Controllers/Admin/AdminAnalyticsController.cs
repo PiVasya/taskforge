@@ -6,10 +6,10 @@ using taskforge.Data.Models.Entities;
 
 namespace taskforge.Controllers.Admin;
 
-file sealed record UserPeriodSummary(int TotalUsers, int NewUsers, int ActiveUsers, int DauToday, double Retention30);
-file sealed record ApiPeriodSummary(int TotalRequests, int UniqueUsers, int Errors4xx, int Errors5xx, double AvgLatencyMs, double P95LatencyMs, double P99LatencyMs);
-file sealed record AssignmentPeriodSummary(int TotalAttempts, int CodeAttempts, int ImageAttempts, int TestAttempts, double SuccessRate, double AvgTestScore);
-file sealed record SupportPeriodSummary(int TotalTickets, int OpenTickets, int NewTickets, int ClosedTickets, int TotalMessages, double AvgFirstResponseMinutes, double AvgCloseMinutes);
+sealed record UserPeriodSummary(int TotalUsers, int NewUsers, int ActiveUsers, int DauToday, double Retention30);
+sealed record ApiPeriodSummary(int TotalRequests, int UniqueUsers, int Errors4xx, int Errors5xx, double AvgLatencyMs, double P95LatencyMs, double P99LatencyMs);
+sealed record AssignmentPeriodSummary(int TotalAttempts, int CodeAttempts, int ImageAttempts, int TestAttempts, double SuccessRate, double AvgTestScore);
+sealed record SupportPeriodSummary(int TotalTickets, int OpenTickets, int NewTickets, int ClosedTickets, int TotalMessages, double AvgFirstResponseMinutes, double AvgCloseMinutes);
 
 [ApiController]
 [Route("api/admin/analytics")]
