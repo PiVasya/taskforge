@@ -44,6 +44,7 @@ namespace taskforge.Data
         /// user‑agent. Useful for auditing and security analytics.
         /// </summary>
         public DbSet<UserLoginLog> UserLoginLogs { get; set; } = null!;
+        public DbSet<RequestLog> RequestLogs { get; set; } = null!;
 
         // ===== Test (quiz) задания =====
         public DbSet<TaskTestSettings> TaskTestSettings { get; set; } = null!;
@@ -373,6 +374,26 @@ namespace taskforge.Data
             {
                 entity.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
             });
+
+            // 🔹 RequestLog
+            modelBuilder.Entity<RequestLog>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<RequestLog>()
+                .HasIndex(x => x.CreatedAtUtc);
+
+            modelBuilder.Entity<RequestLog>()
+                .HasIndex(x => new { x.Path, x.CreatedAtUtc });
+
+            modelBuilder.Entity<RequestLog>()
+                .HasIndex(x => new { x.UserId, x.CreatedAtUtc });
+
+            modelBuilder.Entity<RequestLog>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // 🔹 UserLoginLog
             modelBuilder.Entity<UserLoginLog>()

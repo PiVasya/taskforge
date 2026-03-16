@@ -22,6 +22,7 @@ using taskforge.Services.ImageTests;
 using taskforge.Services.Quotas;
 using Amazon.S3;
 using Amazon;
+using taskforge.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -445,6 +446,8 @@ app.Use(async (ctx, next) =>
         ));
     }
 });
+
+app.UseMiddleware<RequestLoggingMiddleware>();
 
 app.UseCors("AllowAll");
 

@@ -389,6 +389,16 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                     </Link>
                     <Link
                       role="menuitem"
+                      to="/admin/analytics"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Аналитика"
+                    >
+                      <BarChart2 size={18} />
+                      <span className="ml-2">Аналитика</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
                       to="/admin/system-status"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setAdminOpen(false)}
@@ -547,6 +557,14 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                           >
                             <Link2 size={18} />
                             <span className="ml-2">Связи Minecraft</span>
+                          </Link>
+                          <Link
+                            to="/admin/analytics"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <BarChart2 size={18} />
+                            <span className="ml-2">Аналитика</span>
                           </Link>
                           <Link
                             to="/admin/system-status"
