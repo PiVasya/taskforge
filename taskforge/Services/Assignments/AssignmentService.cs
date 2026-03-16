@@ -31,8 +31,6 @@ namespace taskforge.Services
                 .MaxAsync() ?? -1;
 
             var normalizedType = TaskAssignmentTypes.Normalize(req.Type);
-            // На создании задания разрешаем черновик для image-test без эталонной картинки.
-            // Жёсткая проверка эталона и threshold выполняется уже при сохранении в редакторе (UpdateAsync).
             ValidateAssignmentPayload(
                 title: req.Title,
                 description: req.Description,
@@ -40,8 +38,8 @@ namespace taskforge.Services
                 difficulty: req.Difficulty,
                 rating: req.Rating,
                 codeTestCases: req.TestCases?.Select(x => (x.Input, x.ExpectedOutput)).ToList(),
-                imageReferenceKey: normalizedType == TaskAssignmentTypes.ImageTest ? "__draft__" : null,
-                imageThreshold: normalizedType == TaskAssignmentTypes.ImageTest ? 90 : null);
+                imageReferenceKey: null,
+                imageThreshold: null);
 
             var allowedCsv = NormalizeAllowedLanguagesCsv(req.AllowedLanguages, normalizedType);
 
@@ -397,7 +395,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     "python",
-                    "pascal"
+                    "pascal",
+                    "cpp"
                 };
             }
 
