@@ -5,7 +5,6 @@ import {
   Database,
   LifeBuoy,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
   Users,
 } from 'lucide-react';
@@ -47,17 +46,16 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString();
 }
 
-function MetricCard({ icon: Icon, label, value, hint, accent = 'from-brand-500/20 to-brand-300/5' }) {
+function MetricCard({ icon: Icon, label, value, hint }) {
   return (
-    <Card className="relative overflow-hidden p-5">
-      <div className={cn('pointer-events-none absolute inset-0 bg-gradient-to-br opacity-80', accent)} />
-      <div className="relative flex items-start justify-between gap-4">
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm text-neutral-500 dark:text-neutral-400">{label}</div>
           <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
           {hint ? <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{hint}</div> : null}
         </div>
-        {Icon ? <div className="rounded-2xl border border-white/50 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5"><Icon size={20} /></div> : null}
+        {Icon ? <div className="rounded-2xl border border-neutral-200/80 bg-neutral-50 p-3 dark:border-neutral-800/80 dark:bg-neutral-900/60"><Icon size={20} /></div> : null}
       </div>
     </Card>
   );
@@ -112,6 +110,11 @@ function LineAreaChart({ data = [], color = 'rgb(var(--brand-600))', height = 25
   const area = `${path} L ${pts[pts.length - 1][0]} ${100 - padY} L ${pts[0][0]} ${100 - padY} Z`;
   const last = data[data.length - 1];
   const peak = Math.max(...values);
+  const dense = data.length > 90;
+  const veryDense = data.length > 180;
+  const showDots = data.length <= 45;
+  const strokeWidth = veryDense ? 0.7 : dense ? 1 : 1.4;
+  const areaOpacity = veryDense ? 0.03 : dense ? 0.05 : 0.08;
 
   return (
     <div className="space-y-4">
@@ -129,16 +132,16 @@ function LineAreaChart({ data = [], color = 'rgb(var(--brand-600))', height = 25
           <div className="mt-1 text-xl font-semibold">{formatNumber(data.length)}</div>
         </div>
       </div>
-      <div className="relative overflow-hidden rounded-3xl border border-neutral-200/70 bg-[linear-gradient(to_bottom,rgba(var(--brand-500),0.08),transparent_60%)] dark:border-neutral-800/70" style={{ height }}>
+      <div className="relative overflow-hidden rounded-3xl border border-neutral-200/70 bg-neutral-50/70 dark:border-neutral-800/70 dark:bg-neutral-950/30" style={{ height }}>
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
           {[0.25, 0.5, 0.75].map((n) => (
-            <line key={n} x1="0" x2="100" y1={n * 100} y2={n * 100} stroke="rgba(148,163,184,0.18)" strokeWidth="0.5" />
+            <line key={n} x1="0" x2="100" y1={n * 100} y2={n * 100} stroke="rgba(148,163,184,0.14)" strokeWidth="0.45" />
           ))}
-          <path d={area} fill={color} opacity="0.14" />
-          <path d={path} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-          {pts.map((p, i) => (
-            <circle key={i} cx={p[0]} cy={p[1]} r="1.2" fill={color} opacity={i === pts.length - 1 ? 1 : 0.7} />
-          ))}
+          <path d={area} fill={color} opacity={areaOpacity} />
+          <path d={path} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round" />
+          {showDots ? pts.map((p, i) => (
+            <circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 1.1 : 0.7} fill={color} opacity={i === pts.length - 1 ? 1 : 0.65} />
+          )) : null}
         </svg>
       </div>
       <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
@@ -240,31 +243,60 @@ function DonutChart({ data = [], size = 220 }) {
   );
 }
 
-function RankedTable({ rows = [], columns = [], onRowClick, activeId }) {
-  if (!Array.isArray(rows) || rows.length === 0) return <EmptyState />;
+function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValue = '', onSearchChange, searchPlaceholder = 'Поиск...' }) {
+  const normalized = (searchValue || '').trim().toLowerCase();
+  const filteredRows = !normalized
+    ? rows
+    : rows.filter((row) =>
+        JSON.stringify(row || {}).toLowerCase().includes(normalized)
+      );
+  const clickable = typeof onRowClick === 'function';
+
   return (
-    <div className="overflow-hidden rounded-3xl border border-neutral-200/70 dark:border-neutral-800/70">
-      <div className="overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-neutral-50/90 dark:bg-neutral-900/80">
+    <div className="space-y-4">
+      {typeof onSearchChange === 'function' ? (
+        <div className="max-w-md">
+          <input
+            type="search"
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full rounded-2xl border border-neutral-200/80 bg-neutral-50 px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--brand-500))] focus:bg-white dark:border-neutral-800/80 dark:bg-neutral-900/70 dark:focus:bg-neutral-950"
+          />
+        </div>
+      ) : null}
+      <div className="overflow-hidden rounded-3xl border border-neutral-200/70 dark:border-neutral-800/70">
+        <table className="w-full table-fixed">
+          <thead className="bg-neutral-50/80 dark:bg-neutral-900/60">
             <tr>
-              {columns.map((col) => (
-                <th key={col.key} className="px-4 py-3 text-left font-medium text-neutral-500 dark:text-neutral-400">{col.label}</th>
+              {columns.map((col, idx) => (
+                <th
+                  key={col.key}
+                  className={cn(
+                    'px-4 py-3 text-left text-sm font-semibold text-neutral-500 dark:text-neutral-400',
+                    idx === 0 ? 'w-[40%]' : 'w-[20%]'
+                  )}
+                >
+                  {col.label}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => {
-              const clickable = typeof onRowClick === 'function';
-              const isActive = activeId && (row.userId === activeId || row.adminId === activeId);
+            {filteredRows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">Ничего не найдено.</td>
+              </tr>
+            ) : filteredRows.map((row, idx) => {
+              const isActive = activeId && (row.userId === activeId || row.id === activeId);
               return (
                 <tr
                   key={row.userId || row.assignmentId || row.label || idx}
-                  className={cn('border-t border-neutral-200/60 dark:border-neutral-800/60', clickable && 'cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-900/60', isActive && 'bg-brand-50/70 dark:bg-brand-900/10')}
+                  className={cn('border-t border-neutral-200/60 dark:border-neutral-800/60', clickable && 'cursor-pointer hover:bg-neutral-50/90 dark:hover:bg-neutral-900/60', isActive && 'bg-neutral-50 dark:bg-neutral-900/70')}
                   onClick={clickable ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className="px-4 py-3 align-top">
+                    <td key={col.key} className="px-4 py-3 align-top text-sm break-words text-neutral-800 dark:text-neutral-200">
                       {col.render ? col.render(row, idx) : row[col.key]}
                     </td>
                   ))}
@@ -311,11 +343,11 @@ function UserSpotlight({ data, loading, error }) {
         </div>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Users} label="Входы" value={formatNumber(activity.totalLogins)} hint="За выбранный период" accent="from-brand-500/15 to-transparent" />
-        <MetricCard icon={Database} label="Запросы к API" value={formatNumber(activity.totalRequests)} hint={`Ошибок: ${formatNumber(activity.errorRequests)}`} accent="from-violet-500/15 to-transparent" />
-        <MetricCard icon={BarChart3} label="Code/image/test" value={`${formatNumber(activity.codeSubmits)} / ${formatNumber(activity.imageSubmits)} / ${formatNumber(activity.testAttempts)}`} hint="Отправки и попытки" accent="from-emerald-500/15 to-transparent" />
-        <MetricCard icon={Clock3} label="Средняя задержка" value={formatMs(activity.avgLatencyMs)} hint={`Тикетов: ${formatNumber(activity.ticketsCreated)}`} accent="from-amber-500/15 to-transparent" />
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <MetricCard icon={Users} label="Входы" value={formatNumber(activity.totalLogins)} hint="За выбранный период" />
+        <MetricCard icon={Database} label="Запросы к API" value={formatNumber(activity.totalRequests)} hint={`Ошибок: ${formatNumber(activity.errorRequests)}`} />
+        <MetricCard icon={BarChart3} label="Code/image/test" value={`${formatNumber(activity.codeSubmits)} / ${formatNumber(activity.imageSubmits)} / ${formatNumber(activity.testAttempts)}`} hint="Отправки и попытки" />
+        <MetricCard icon={Clock3} label="Средняя задержка" value={formatMs(activity.avgLatencyMs)} hint={`Тикетов: ${formatNumber(activity.ticketsCreated)}`} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -335,7 +367,7 @@ function UserSpotlight({ data, loading, error }) {
           <RankedTable
             rows={data.topPaths || []}
             columns={[
-              { key: 'label', label: 'Маршрут' },
+              { key: 'label', label: 'Маршрут', render: (row) => <span className="block break-all text-sm">{row.label}</span> },
               { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
               { key: 'avgLatencyMs', label: 'Средняя задержка', render: (row) => formatMs(row.avgLatencyMs) },
               { key: 'errors', label: 'Ошибки', render: (row) => formatNumber(row.errors) },
@@ -358,6 +390,7 @@ export default function AdminAnalyticsPage() {
   const [userData, setUserData] = useState(null);
   const [userLoading, setUserLoading] = useState(false);
   const [userError, setUserError] = useState(null);
+  const [userSearch, setUserSearch] = useState('');
 
   const load = async (silent = false, nextDays = days) => {
     try {
@@ -411,28 +444,24 @@ export default function AdminAnalyticsPage() {
       label: 'Активные пользователи',
       value: formatNumber(usersTotals.activeUsers),
       hint: `Всего пользователей: ${formatNumber(usersTotals.totalUsers)} · новых за период: ${formatNumber(usersTotals.newUsers)}`,
-      accent: 'from-brand-500/20 to-transparent',
     },
     {
       icon: Database,
       label: 'Запросы к backend',
       value: formatNumber(apiTotals.totalRequests),
       hint: `4xx: ${formatNumber(apiTotals.errors4xx)} · 5xx: ${formatNumber(apiTotals.errors5xx)}`,
-      accent: 'from-violet-500/20 to-transparent',
     },
     {
       icon: BarChart3,
       label: 'Попытки по заданиям',
       value: formatNumber(assignmentTotals.totalAttempts),
       hint: `Успешность: ${formatPercent(assignmentTotals.successRate)} · code/test/image: ${formatNumber(assignmentTotals.codeAttempts)} / ${formatNumber(assignmentTotals.testAttempts)} / ${formatNumber(assignmentTotals.imageAttempts)}`,
-      accent: 'from-emerald-500/20 to-transparent',
     },
     {
       icon: LifeBuoy,
       label: 'Support-тикеты',
       value: formatNumber(supportTotals.totalTickets),
       hint: `Открыто: ${formatNumber(supportTotals.openTickets)} · средний первый ответ: ${formatMinutes(supportTotals.avgFirstResponseMinutes)}`,
-      accent: 'from-amber-500/20 to-transparent',
     },
   ], [usersTotals, apiTotals, assignmentTotals, supportTotals]);
 
@@ -470,7 +499,7 @@ export default function AdminAnalyticsPage() {
 
         {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить аналитику" /> : null}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
           {heroCards.map((card) => <MetricCard key={card.label} {...card} />)}
         </div>
 
@@ -498,12 +527,15 @@ export default function AdminAnalyticsPage() {
               </ChartCard>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
+            <div className="space-y-4">
               <ChartCard title="Топ пользователей по входам" subtitle="Нажми на строку, чтобы открыть личную статистику пользователя." tall>
                 <RankedTable
                   rows={data.users?.topUsers || []}
                   activeId={selectedUser?.userId}
                   onRowClick={(row) => setSelectedUser(row)}
+                  searchValue={userSearch}
+                  onSearchChange={setUserSearch}
+                  searchPlaceholder="Поиск по имени, почте или роли"
                   columns={[
                     { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-400">{row.email || '—'} · {row.role || 'User'}</div></div> },
                     { key: 'value', label: 'Входов', render: (row) => formatNumber(row.value) },
@@ -538,7 +570,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.api?.topEndpoints || []}
                   columns={[
-                    { key: 'label', label: 'Маршрут' },
+                    { key: 'label', label: 'Маршрут', render: (row) => <span className="block break-all text-sm">{row.label}</span> },
                     { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
                     { key: 'avgLatencyMs', label: 'Средняя задержка', render: (row) => formatMs(row.avgLatencyMs) },
                     { key: 'errorRate', label: 'Ошибка %', render: (row) => formatPercent(row.errorRate) },
@@ -628,18 +660,6 @@ export default function AdminAnalyticsPage() {
             </div>
           </>
         ) : null}
-
-        <Card className="border border-brand-200/60 bg-[linear-gradient(135deg,rgba(var(--brand-500),0.08),transparent_75%)] p-5 dark:border-brand-900/20">
-          <div className="flex flex-wrap items-start gap-3">
-            <ShieldAlert size={20} className="mt-0.5" />
-            <div className="min-w-0 flex-1 text-sm text-neutral-700 dark:text-neutral-200">
-              <div className="font-semibold">Важно про миграции</div>
-              <div className="mt-1 text-neutral-600 dark:text-neutral-400">
-                Я не добавлял в архив готовую EF-миграцию. В коде уже есть новая сущность RequestLog и DbContext-настройка, но саму миграцию ты снимешь у себя командами, как и просил.
-              </div>
-            </div>
-          </div>
-        </Card>
       </div>
     </Layout>
   );
