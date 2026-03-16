@@ -12,6 +12,7 @@ import Layout from '../../components/Layout';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { Button, Card } from '../../components/ui';
 import { getAdminAnalyticsOverview, getAdminAnalyticsUser } from '../../api/adminAnalytics';
+import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 
@@ -391,6 +392,9 @@ export default function AdminAnalyticsPage() {
   const [userLoading, setUserLoading] = useState(false);
   const [userError, setUserError] = useState(null);
   const [userSearch, setUserSearch] = useState('');
+  const [globalUserSearch, setGlobalUserSearch] = useState('');
+  const [globalUserResults, setGlobalUserResults] = useState([]);
+  const [globalUserSearchLoading, setGlobalUserSearchLoading] = useState(false);
 
   const load = async (silent = false, nextDays = days) => {
     try {
@@ -432,6 +436,34 @@ export default function AdminAnalyticsPage() {
       setUserError(null);
     }
   }, [selectedUser?.userId, days]);
+
+  useEffect(() => {
+    const q = (globalUserSearch || '').trim();
+    if (q.length < 2) {
+      setGlobalUserResults([]);
+      setGlobalUserSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setGlobalUserSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await searchUsersOnce(q, 12);
+        if (cancelled) return;
+        setGlobalUserResults(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setGlobalUserResults([]);
+      } finally {
+        if (!cancelled) setGlobalUserSearchLoading(false);
+      }
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [globalUserSearch]);
 
   const apiTotals = data?.api?.totals || {};
   const usersTotals = data?.users?.totals || {};
@@ -528,14 +560,60 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="space-y-4">
-              <ChartCard title="Топ пользователей по входам" subtitle="Нажми на строку, чтобы открыть личную статистику пользователя." tall>
+              <ChartCard title="Топ пользователей по входам" subtitle="Таблица показывает лидеров по входам, а поиск выше позволяет найти вообще любого пользователя в системе." tall>
+                <div className="mb-4 space-y-3">
+                  <div className="max-w-xl">
+                    <input
+                      type="search"
+                      value={globalUserSearch}
+                      onChange={(e) => setGlobalUserSearch(e.target.value)}
+                      placeholder="Найти любого пользователя по имени или почте"
+                      className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
+                    />
+                  </div>
+                  {globalUserSearch.trim().length >= 2 ? (
+                    <div className="rounded-2xl border border-[rgba(var(--border)/0.5)] bg-[rgba(var(--muted)/0.22)]">
+                      {globalUserSearchLoading ? (
+                        <div className="px-4 py-3 text-sm text-neutral-500 dark:text-neutral-300">Ищу по всем пользователям…</div>
+                      ) : globalUserResults.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-neutral-500 dark:text-neutral-300">По всей базе пользователей ничего не найдено.</div>
+                      ) : (
+                        <div className="divide-y divide-[rgba(var(--border)/0.42)]">
+                          {globalUserResults.map((row) => {
+                            const fullName = `${row.firstName || ''} ${row.lastName || ''}`.trim() || 'Без имени';
+                            const isActive = selectedUser?.userId === row.id;
+                            return (
+                              <button
+                                type="button"
+                                key={row.id}
+                                onClick={() => {
+                                  setSelectedUser({ userId: row.id, fullName, email: row.email || '—', role: 'User' });
+                                  setGlobalUserSearch(fullName || row.email || '');
+                                }}
+                                className={cn('flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition hover:bg-[rgba(var(--muted)/0.24)]', isActive && 'bg-[rgba(var(--muted)/0.34)]')}
+                              >
+                                <div className="min-w-0">
+                                  <div className="font-medium">{fullName}</div>
+                                  <div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div>
+                                </div>
+                                <div className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">Открыть статистику</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400">Введи минимум 2 символа — поиск идёт по всем пользователям, а не только по топу ниже.</div>
+                  )}
+                </div>
                 <RankedTable
                   rows={data.users?.topUsers || []}
                   activeId={selectedUser?.userId}
                   onRowClick={(row) => setSelectedUser(row)}
                   searchValue={userSearch}
                   onSearchChange={setUserSearch}
-                  searchPlaceholder="Поиск по имени, почте или роли"
+                  searchPlaceholder="Фильтр только внутри топа пользователей"
                   columns={[
                     { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div></div> },
                     { key: 'value', label: 'Входов', render: (row) => formatNumber(row.value) },
