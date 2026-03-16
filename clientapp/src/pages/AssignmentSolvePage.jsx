@@ -42,6 +42,7 @@ function normalizeLang(x) {
 
   // Pascal: можно расширять алиасы как угодно
   if (s === 'pas' || s === 'pascal' || s === 'pascalabc' || s === 'pascalabcnet') return 'pascal';
+  if (s === 'cpp' || s === 'c++' || s === 'cc' || s === 'g++') return 'cpp';
 
   // Java
   if (s === 'java') return 'java';
@@ -105,6 +106,7 @@ export default function AssignmentSolvePage() {
   const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
   const [imgMode, setImgMode] = useState("code"); // code | upload
   const [imgIsRunning, setImgIsRunning] = useState(false);
+  const [imageInput, setImageInput] = useState('');
 
   // Список языков, разрешённых для курса/задания (если есть ограничения)
   const allowedLangs = useMemo(() => {
@@ -121,7 +123,7 @@ export default function AssignmentSolvePage() {
 
     // image-test: если ограничений нет — дефолт только python/pascal
     if (String(a?.type || '').trim() === 'image-test') {
-      return parsed.length > 0 ? parsed : ['python', 'pascal'];
+      return parsed.length > 0 ? parsed : ['python', 'pascal', 'cpp'];
     }
 
     return parsed;
@@ -157,7 +159,7 @@ export default function AssignmentSolvePage() {
         );
         // image-test: если ограничений нет — дефолт только python/pascal
         const effectiveAllowed = (String(data?.type || '').trim() === 'image-test')
-          ? (parsedAllowed.length > 0 ? parsedAllowed : ['python','pascal'])
+          ? (parsedAllowed.length > 0 ? parsedAllowed : ['python','pascal','cpp'])
           : parsedAllowed;
 
         let nextLang = defaultLangFromApi;
@@ -433,6 +435,7 @@ export default function AssignmentSolvePage() {
     const imageLangs = [
       { value: 'python', label: 'Python' },
       { value: 'pascal', label: 'Pascal' },
+      { value: 'cpp', label: 'C++' },
     ];
 
     const openImageResultsUrl = (url) => {
@@ -448,7 +451,7 @@ export default function AssignmentSolvePage() {
       setImgBusy(true);
 
       try {
-        const resp = await runImageTestCode(assignmentId, language, code);
+        const resp = await runImageTestCode(assignmentId, language, code, imageInput);
         
         // Показываем результат inline
         if (resp?.ok && resp?.renderedUrl) {
@@ -483,7 +486,7 @@ export default function AssignmentSolvePage() {
       setImgBusy(true);
 
       try {
-        const resp = await submitImageTestCode(assignmentId, language, code);
+        const resp = await submitImageTestCode(assignmentId, language, code, imageInput);
         
         // Показываем результат inline
         if (resp?.ok) {
@@ -590,7 +593,7 @@ export default function AssignmentSolvePage() {
                 <div>
                   <label className="label">Язык</label>
                   <Select
-                    value={['python', 'pascal'].includes(language) ? language : 'python'}
+                    value={['python', 'pascal', 'cpp'].includes(language) ? language : 'python'}
                     onChange={(e) => setLanguage(e.target.value)}
                   >
                     {imageLangs.map((l) => (
@@ -598,7 +601,7 @@ export default function AssignmentSolvePage() {
                     ))}
                   </Select>
                   <div className="text-xs text-neutral-500 mt-1">
-                    Для image-test доступны только Python и Pascal.
+                    Для image-test доступны Python, Pascal и C++. Для C++ runner сам пытается снять скрин окна программы.
                   </div>
                 </div>
 
@@ -608,9 +611,21 @@ export default function AssignmentSolvePage() {
                     <CodeEditor
                       value={code}
                       onChange={setCode}
-                      language={language === 'pascal' ? 'pascal' : 'python'}
+                      language={language === 'pascal' ? 'pascal' : language === 'cpp' ? 'cpp' : 'python'}
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="label">Входные данные для программы</label>
+                  <textarea
+                    value={imageInput}
+                    onChange={(e) => setImageInput(e.target.value)}
+                    rows={4}
+                    placeholder={language === 'cpp' ? 'Если программа читает stdin, введи данные сюда' : 'Необязательно. Можно оставить пустым.'}
+                    className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                  />
+                  <div className="text-xs text-neutral-500 mt-1">Для C++ можно оставить пустым. Раннер сам пытается снять скрин окна; если программа читает stdin, эти данные будут переданы в неё.</div>
                 </div>
 
                 {imgError ? (

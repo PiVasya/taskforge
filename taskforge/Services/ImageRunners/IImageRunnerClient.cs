@@ -13,11 +13,11 @@ public sealed class ImageRunnerDebugResult
 
 public interface IImageRunnerClient
 {
-    Task<byte[]?> RenderAsync(string language, string sourceCode, CancellationToken ct = default);
+    Task<byte[]?> RenderAsync(string language, string sourceCode, string? stdin = null, CancellationToken ct = default);
 
     /// <summary>
     /// Renders and returns stdout/stderr + png (if produced).
     /// Some runners may not support this and will fall back to just RenderAsync.
     /// </summary>
-    Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, CancellationToken ct = default);
+    Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, string? stdin = null, CancellationToken ct = default);
 }

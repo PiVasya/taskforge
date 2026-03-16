@@ -24,7 +24,7 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         _http.Timeout = TimeSpan.FromMilliseconds(Math.Max(5_000, _opt.TimeoutMs));
     }
 
-    public async Task<byte[]?> RenderAsync(string language, string sourceCode, CancellationToken ct = default)
+    public async Task<byte[]?> RenderAsync(string language, string sourceCode, string? stdin = null, CancellationToken ct = default)
     {
         var baseUrl = GetBaseUrl(language);
         var url = new Uri(new Uri(baseUrl), "/render");
@@ -38,7 +38,7 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(BuildBody(language, sourceCode, timeoutSeconds))
+            Content = JsonContent.Create(BuildBody(language, sourceCode, stdin, timeoutSeconds))
         };
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -62,14 +62,15 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         return bytes;
     }
 
-    public async Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, CancellationToken ct = default)
+    public async Task<ImageRunnerDebugResult> RenderDebugAsync(string language, string sourceCode, string? stdin = null, CancellationToken ct = default)
     {
         // Not all runners implement /render/debug.
-        if (!string.Equals(language, "python", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(language, "python", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(language, "cpp", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
-                var png = await RenderAsync(language, sourceCode, ct);
+                var png = await RenderAsync(language, sourceCode, stdin, ct);
                 return new ImageRunnerDebugResult
                 {
                     Ok = png != null,
@@ -98,7 +99,7 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(BuildBody(language, sourceCode, timeoutSeconds))
+            Content = JsonContent.Create(BuildBody(language, sourceCode, stdin, timeoutSeconds))
         };
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -147,20 +148,22 @@ public sealed class HttpImageRunnerClient : IImageRunnerClient
         {
             "python" => _opt.PythonUrl,
             "pascal" => _opt.PascalUrl,
+            "cpp" => _opt.CppUrl,
             _ => throw new ArgumentException($"Unsupported image-runner language: {language}")
         };
     }
 
-    private static object BuildBody(string language, string sourceCode, int timeoutSeconds)
+    private static object BuildBody(string language, string sourceCode, string? stdin, int timeoutSeconds)
     {
         language = language?.Trim().ToLowerInvariant() ?? "";
         return language switch
         {
             // python-image-runner: timeoutSeconds
             // pascal-image-runner: timeout_seconds
-            "python" => new { code = sourceCode, timeoutSeconds, timeout_seconds = timeoutSeconds },
-            "pascal" => new { source = sourceCode, timeoutSeconds, timeout_seconds = timeoutSeconds },
-            _ => new { code = sourceCode, timeoutSeconds, timeout_seconds = timeoutSeconds }
+            "python" => new { code = sourceCode, stdin, timeoutSeconds, timeout_seconds = timeoutSeconds },
+            "pascal" => new { source = sourceCode, stdin, timeoutSeconds, timeout_seconds = timeoutSeconds },
+            "cpp" => new { source = sourceCode, stdin, timeoutSeconds, timeout_seconds = timeoutSeconds },
+            _ => new { code = sourceCode, stdin, timeoutSeconds, timeout_seconds = timeoutSeconds }
         };
     }
 

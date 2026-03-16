@@ -29,10 +29,11 @@ export async function compareImageTest(assignmentId, file) {
 }
 
 // Запустить код внутри image-runner, получить PNG и сравнить с эталоном.
-export async function compareImageTestCode(assignmentId, language, code, debug = false) {
+export async function compareImageTestCode(assignmentId, language, code, input = "", debug = false) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare-code`, {
     language,
     code,
+    input,
     debug,
   });
   emitQuotaChanged();
@@ -40,10 +41,11 @@ export async function compareImageTestCode(assignmentId, language, code, debug =
 }
 
 // Пробный прогон: только рендер, без сравнения с эталоном.
-export async function runImageTestCode(assignmentId, language, code, debug = false) {
+export async function runImageTestCode(assignmentId, language, code, input = "", debug = false) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/run-code`, {
     language,
     code,
+    input,
     debug,
   }, {
     timeout: 60000, // 60 секунд для генерации картинки
@@ -53,10 +55,11 @@ export async function runImageTestCode(assignmentId, language, code, debug = fal
 }
 
 // Финальная отправка: рендер + сравнение (то же самое, что compare-code).
-export async function submitImageTestCode(assignmentId, language, code, debug = false) {
+export async function submitImageTestCode(assignmentId, language, code, input = "", debug = false) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/submit-code`, {
     language,
     code,
+    input,
     debug,
   }, {
     timeout: 90000, // 90 секунд для генерации + сравнения с нейронкой

@@ -31,6 +31,7 @@ const LANGS_BY_TYPE = {
   "image-test": [
     { value: "python", label: "Python" },
     { value: "pascal", label: "Pascal" },
+    { value: "cpp", label: "C++" },
   ],
 };
 

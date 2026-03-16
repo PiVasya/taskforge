@@ -94,13 +94,13 @@ public sealed class ImageTestsController : ControllerBase
         public string? MimeType { get; init; }
     }
 
-    public sealed record CompareCodeRequest(string Language, string Code, bool Debug = false);
+    public sealed record CompareCodeRequest(string Language, string Code, string? Input = null, bool Debug = false);
 
     /// <summary>
     /// "Пробный запуск" рисовалки: просто рендер без сравнения.
     /// По желанию можно включить сравнение с эталоном.
     /// </summary>
-    public sealed record RunCodeRequest(string Language, string Code, bool Debug = false, bool CompareWithReference = false);
+    public sealed record RunCodeRequest(string Language, string Code, string? Input = null, bool Debug = false, bool CompareWithReference = false);
 
     public sealed record ImageTestRunResponse(
         bool Ok,
@@ -443,6 +443,11 @@ public sealed class ImageTestsController : ControllerBase
             _log.LogWarning("RunCode language auto-correct: pascal -> python (trace={Trace} assignmentId={AssignmentId})", trace, assignmentId);
             lang = "python";
         }
+        else if (lang != "cpp" && LooksLikeCpp(code))
+        {
+            _log.LogWarning("RunCode language auto-correct: {Lang} -> cpp (trace={Trace} assignmentId={AssignmentId})", lang, trace, assignmentId);
+            lang = "cpp";
+        }
 
         var userId = _currentUser.GetUserId();
 
@@ -452,11 +457,11 @@ public sealed class ImageTestsController : ControllerBase
         string stderr = "";
         string? runnerErr = null;
 
-        if (effectiveDebug && lang == "python")
+        if (effectiveDebug)
         {
             try
             {
-                debug = await _runner.RenderDebugAsync(lang, code, ct);
+                debug = await _runner.RenderDebugAsync(lang, code, req.Input, ct);
             }
             catch (TaskCanceledException)
             {
@@ -525,7 +530,7 @@ public sealed class ImageTestsController : ControllerBase
         {
             try
             {
-                png = await _runner.RenderAsync(lang, req.Code, ct);
+                png = await _runner.RenderAsync(lang, req.Code, req.Input, ct);
             }
             catch (TaskCanceledException)
             {
@@ -674,9 +679,9 @@ var userId = _currentUser.GetUserId();
         var thresholdPercent = a.ImageTestSimilarityThreshold ?? 90.0;
         if (thresholdPercent <= 1.0) thresholdPercent *= 100.0;
 
-        if (effectiveDebug && lang == "python")
+        if (effectiveDebug)
         {
-            debug = await _runner.RenderDebugAsync(lang, req.Code, ct);
+            debug = await _runner.RenderDebugAsync(lang, req.Code, req.Input, ct);
             stdout = debug.Stdout;
             stderr = debug.Stderr;
             runnerErr = debug.Error;
@@ -703,7 +708,7 @@ var userId = _currentUser.GetUserId();
         {
             try
             {
-                png = await _runner.RenderAsync(lang, req.Code, ct);
+                png = await _runner.RenderAsync(lang, req.Code, req.Input, ct);
             }
             catch (TaskCanceledException)
             {
@@ -900,7 +905,7 @@ var userId = _currentUser.GetUserId();
 
     private static readonly HashSet<string> SupportedImageRunnerLangs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "python", "pascal"
+        "python", "pascal", "cpp"
     };
 
     private static string NormalizeLang(string x)
@@ -908,6 +913,7 @@ var userId = _currentUser.GetUserId();
         var s = (x ?? string.Empty).Trim().ToLowerInvariant();
         if (s == "py" || s == "python") return "python";
         if (s == "pas" || s == "pascal" || s == "pascalabc" || s == "pascalabcnet") return "pascal";
+        if (s == "cpp" || s == "c++" || s == "cc" || s == "g++") return "cpp";
         return s;
     }
 
@@ -931,6 +937,7 @@ var userId = _currentUser.GetUserId();
         {
             set.Add("python");
             set.Add("pascal");
+            set.Add("cpp");
         }
 
         return set;
@@ -949,6 +956,15 @@ var userId = _currentUser.GetUserId();
         if (s.Contains("Drawman", StringComparison.OrdinalIgnoreCase)) return true;
         if (s.Contains("DrawMan", StringComparison.OrdinalIgnoreCase)) return true;
         return false;
+    }
+
+    private static bool LooksLikeCpp(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return false;
+        return code.Contains("#include", StringComparison.OrdinalIgnoreCase)
+            || code.Contains("std::", StringComparison.OrdinalIgnoreCase)
+            || code.Contains("glut", StringComparison.OrdinalIgnoreCase)
+            || code.Contains("int main(", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool LooksLikePython(string code)
