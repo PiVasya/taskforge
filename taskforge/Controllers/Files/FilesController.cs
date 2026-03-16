@@ -18,12 +18,14 @@ public sealed class FilesController : ControllerBase
     private readonly IFileStorageService _store;
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUserService _current;
+    private readonly ICourseAccessService _access;
 
-    public FilesController(IFileStorageService store, ApplicationDbContext db, ICurrentUserService current)
+    public FilesController(IFileStorageService store, ApplicationDbContext db, ICurrentUserService current, ICourseAccessService access)
     {
         _store = store;
         _db = db;
         _current = current;
+        _access = access;
     }
 
     /// <summary>
@@ -119,11 +121,10 @@ public sealed class FilesController : ControllerBase
             .Select(a => a.CourseId)
             .ToListAsync(ct);
 
+        var role = _current.GetRole();
         foreach (var courseId in imageAssignments)
         {
-            var canEdit = await _db.Courses.AsNoTracking().AnyAsync(c => c.Id == courseId && c.OwnerId == userId, ct)
-                          || await _db.CourseOwners.AsNoTracking().AnyAsync(o => o.CourseId == courseId && o.UserId == userId, ct);
-            if (canEdit)
+            if (await _access.CanViewCourseAsync(userId, role, courseId))
                 return true;
         }
 

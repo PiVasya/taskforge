@@ -172,7 +172,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false),
         TestCases = visibleCases,
         Sort = a.Sort,
-        ImageTestReferenceKey = canEdit ? a.ImageTestReferenceKey : null,
+        ImageTestReferenceKey = a.Type == "image-test" ? a.ImageTestReferenceKey : (canEdit ? a.ImageTestReferenceKey : null),
         ImageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
         CodeForbiddenCalls = canEdit ? DeserializeCallList(a.CodeForbiddenCallsJson) : new List<string>(),
         CodeRequiredCalls = canEdit ? DeserializeCallList(a.CodeRequiredCallsJson) : new List<string>(),
