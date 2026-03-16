@@ -51,11 +51,11 @@ function MetricCard({ icon: Icon, label, value, hint }) {
     <Card className="p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">{label}</div>
+          <div className="text-sm text-neutral-500 dark:text-neutral-300">{label}</div>
           <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
-          {hint ? <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{hint}</div> : null}
+          {hint ? <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-300">{hint}</div> : null}
         </div>
-        {Icon ? <div className="rounded-2xl border border-neutral-200/80 bg-neutral-50 p-3 dark:border-neutral-800/80 dark:bg-neutral-900/60"><Icon size={20} /></div> : null}
+        {Icon ? <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.55)] p-3"><Icon size={20} /></div> : null}
       </div>
     </Card>
   );
@@ -89,10 +89,10 @@ function ChartCard({ title, subtitle, children, tall = false }) {
 }
 
 function EmptyState() {
-  return <div className="rounded-2xl border border-dashed border-neutral-200/70 px-4 py-10 text-center text-sm text-neutral-500 dark:border-neutral-800/70 dark:text-neutral-400">Недостаточно данных за выбранный период.</div>;
+  return <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.26)] px-4 py-10 text-center text-sm text-neutral-500 dark:text-neutral-300">Недостаточно данных за выбранный период.</div>;
 }
 
-function LineAreaChart({ data = [], color = 'rgb(var(--brand-600))', height = 250, valueFormatter = formatNumber }) {
+function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, valueFormatter = formatNumber }) {
   if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
   const values = data.map((d) => Number(d.value || 0));
   const max = Math.max(...values, 1);
@@ -112,35 +112,35 @@ function LineAreaChart({ data = [], color = 'rgb(var(--brand-600))', height = 25
   const peak = Math.max(...values);
   const dense = data.length > 90;
   const veryDense = data.length > 180;
-  const showDots = data.length <= 45;
-  const strokeWidth = veryDense ? 0.7 : dense ? 1 : 1.4;
-  const areaOpacity = veryDense ? 0.03 : dense ? 0.05 : 0.08;
+  const showDots = data.length <= 18;
+  const strokeWidth = veryDense ? 0.14 : dense ? 0.22 : data.length > 30 ? 0.34 : 0.48;
+  const areaOpacity = veryDense ? 0.012 : dense ? 0.02 : 0.03;
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-neutral-50 px-4 py-3 dark:bg-neutral-900/60">
+        <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Последнее значение</div>
           <div className="mt-1 text-xl font-semibold">{valueFormatter(last?.value)}</div>
         </div>
-        <div className="rounded-2xl bg-neutral-50 px-4 py-3 dark:bg-neutral-900/60">
+        <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Пик</div>
           <div className="mt-1 text-xl font-semibold">{valueFormatter(peak)}</div>
         </div>
-        <div className="rounded-2xl bg-neutral-50 px-4 py-3 dark:bg-neutral-900/60">
+        <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Точек</div>
           <div className="mt-1 text-xl font-semibold">{formatNumber(data.length)}</div>
         </div>
       </div>
-      <div className="relative overflow-hidden rounded-3xl border border-neutral-200/70 bg-neutral-50/70 dark:border-neutral-800/70 dark:bg-neutral-950/30" style={{ height }}>
+      <div className="relative overflow-hidden rounded-3xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.2)]" style={{ height }}>
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
           {[0.25, 0.5, 0.75].map((n) => (
-            <line key={n} x1="0" x2="100" y1={n * 100} y2={n * 100} stroke="rgba(148,163,184,0.14)" strokeWidth="0.45" />
+            <line key={n} x1="0" x2="100" y1={n * 100} y2={n * 100} stroke="rgba(var(--border),0.38)" strokeWidth="0.35" />
           ))}
           <path d={area} fill={color} opacity={areaOpacity} />
-          <path d={path} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round" />
+          <path d={path} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="miter" strokeLinecap="butt" vectorEffect="non-scaling-stroke" />
           {showDots ? pts.map((p, i) => (
-            <circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 1.1 : 0.7} fill={color} opacity={i === pts.length - 1 ? 1 : 0.65} />
+            <circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 0.7 : 0.45} fill={color} opacity={i === pts.length - 1 ? 1 : 0.65} />
           )) : null}
         </svg>
       </div>
@@ -153,7 +153,7 @@ function LineAreaChart({ data = [], color = 'rgb(var(--brand-600))', height = 25
   );
 }
 
-function BarChart({ data = [], color = 'rgb(var(--brand-600))', height = 260, valueFormatter = formatNumber }) {
+function BarChart({ data = [], color = 'rgb(var(--accent))', height = 260, valueFormatter = formatNumber }) {
   if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
   const max = Math.max(...data.map((d) => Number(d.value || 0)), 1);
   return (
@@ -167,7 +167,7 @@ function BarChart({ data = [], color = 'rgb(var(--brand-600))', height = 260, va
                 <div className="truncate text-neutral-700 dark:text-neutral-200">{item.label}</div>
                 <div className="shrink-0 font-medium">{valueFormatter(item.value)}</div>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-900/80">
+              <div className="h-3 overflow-hidden rounded-full bg-[rgba(var(--border)/0.18)]">
                 <div className="h-full rounded-full" style={{ width, background: color }} />
               </div>
             </div>
@@ -185,18 +185,18 @@ function DonutChart({ data = [], size = 220 }) {
   const stroke = 16;
   const circumference = 2 * Math.PI * radius;
   const palette = [
-    'rgb(var(--brand-600))',
-    'rgb(var(--brand-500))',
-    'rgb(var(--brand-400))',
-    'rgb(var(--brand-700))',
-    'rgba(var(--brand-500),0.55)',
+    'rgb(var(--accent))',
+    'rgb(var(--accent-700))',
+    'rgb(var(--accent2))',
+    'rgb(var(--accent3))',
+    'rgba(var(--accent),0.45)',
   ];
   let offset = 0;
   return (
     <div className="grid gap-6 md:grid-cols-[auto,1fr] md:items-center">
       <div className="mx-auto" style={{ width: size, height: size }}>
         <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-          <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(148,163,184,0.15)" strokeWidth={stroke} />
+          <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(var(--border),0.32)" strokeWidth={stroke} />
           {data.map((item, idx) => {
             const value = Number(item.value || 0);
             const dash = (value / total) * circumference;
@@ -217,7 +217,7 @@ function DonutChart({ data = [], size = 220 }) {
             offset += dash;
             return el;
           })}
-          <circle cx="60" cy="60" r="25" fill="rgb(var(--card))" />
+          <circle cx="60" cy="60" r="25" fill="rgba(var(--card),0.98)" />
           <text x="60" y="57" textAnchor="middle" className="fill-current text-[11px] font-semibold rotate-90 origin-center">{formatNumber(total)}</text>
           <text x="60" y="70" textAnchor="middle" className="fill-current text-[5px] rotate-90 origin-center">всего</text>
         </svg>
@@ -226,7 +226,7 @@ function DonutChart({ data = [], size = 220 }) {
         {data.map((item, idx) => {
           const value = Number(item.value || 0);
           return (
-            <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl bg-neutral-50 px-4 py-3 dark:bg-neutral-900/60">
+            <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.34)] px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
                 <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: palette[idx % palette.length] }} />
                 <span className="truncate">{item.label}</span>
@@ -261,19 +261,19 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full rounded-2xl border border-neutral-200/80 bg-neutral-50 px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--brand-500))] focus:bg-white dark:border-neutral-800/80 dark:bg-neutral-900/70 dark:focus:bg-neutral-950"
+            className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
           />
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-3xl border border-neutral-200/70 dark:border-neutral-800/70">
+      <div className="overflow-hidden rounded-3xl border border-[rgba(var(--border)/0.55)]">
         <table className="w-full table-fixed">
-          <thead className="bg-neutral-50/80 dark:bg-neutral-900/60">
+          <thead className="bg-[rgba(var(--muted)/0.38)]">
             <tr>
               {columns.map((col, idx) => (
                 <th
                   key={col.key}
                   className={cn(
-                    'px-4 py-3 text-left text-sm font-semibold text-neutral-500 dark:text-neutral-400',
+                    'px-4 py-3 text-left text-sm font-semibold text-neutral-500 dark:text-neutral-300',
                     idx === 0 ? 'w-[40%]' : 'w-[20%]'
                   )}
                 >
@@ -292,7 +292,7 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
               return (
                 <tr
                   key={row.userId || row.assignmentId || row.label || idx}
-                  className={cn('border-t border-neutral-200/60 dark:border-neutral-800/60', clickable && 'cursor-pointer hover:bg-neutral-50/90 dark:hover:bg-neutral-900/60', isActive && 'bg-neutral-50 dark:bg-neutral-900/70')}
+                  className={cn('border-t border-[rgba(var(--border)/0.45)]', clickable && 'cursor-pointer hover:bg-[rgba(var(--muted)/0.26)]', isActive && 'bg-[rgba(var(--muted)/0.34)]')}
                   onClick={clickable ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
@@ -336,7 +336,7 @@ function UserSpotlight({ data, loading, error }) {
             <div className="mt-2 text-2xl font-semibold">{profile.fullName || 'Без имени'}</div>
             <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{profile.email || '—'} · роль {profile.role || 'User'}</div>
           </div>
-          <div className="rounded-2xl bg-neutral-50 px-4 py-3 text-sm dark:bg-neutral-900/60">
+          <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.34)] px-4 py-3 text-sm">
             <div>Создан: <b>{formatDateTime(profile.createdAt)}</b></div>
             <div className="mt-1">Последний вход: <b>{formatDateTime(profile.lastLoginAt)}</b></div>
           </div>
@@ -355,7 +355,7 @@ function UserSpotlight({ data, loading, error }) {
           <LineAreaChart data={data.charts?.loginsByDay || []} />
         </ChartCard>
         <ChartCard title="Запросы по дням" subtitle="Нагрузка, которую пользователь создаёт на backend.">
-          <LineAreaChart data={data.charts?.requestsByDay || []} color="rgb(var(--brand-500))" />
+          <LineAreaChart data={data.charts?.requestsByDay || []} color="rgb(var(--accent-700))" />
         </ChartCard>
       </div>
 
@@ -471,10 +471,10 @@ export default function AdminAnalyticsPage() {
         <SectionTitle
           icon={Sparkles}
           title="Аналитика платформы"
-          subtitle="Большой админский дашборд по пользователям, backend API, заданиям и support. Здесь уже настоящие графики по реальным данным, а не декоративные заглушки."
+          subtitle="Большой админский дашборд по пользователям, backend API, заданиям и support. Здесь собрана живая административная аналитика по реальным данным платформы."
           action={
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap gap-2 rounded-2xl border border-neutral-200/70 bg-white/70 p-1 dark:border-neutral-800/70 dark:bg-neutral-950/50">
+              <div className="flex flex-wrap gap-2 rounded-2xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.3)] p-1">
                 {PERIODS.map((value) => (
                   <button
                     key={value}
@@ -482,7 +482,7 @@ export default function AdminAnalyticsPage() {
                     onClick={() => setDays(value)}
                     className={cn(
                       'rounded-xl px-3 py-2 text-sm transition',
-                      days === value ? 'bg-[rgb(var(--card))] shadow-soft font-medium' : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
+                      days === value ? 'bg-[rgba(var(--card)/0.96)] shadow-soft font-medium border border-[rgba(var(--border)/0.45)]' : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100'
                     )}
                   >
                     {value} дн
@@ -505,7 +505,7 @@ export default function AdminAnalyticsPage() {
 
         {loading ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            {[0, 1, 2, 3].map((i) => <Card key={i} className="h-64 animate-pulse bg-neutral-100/80 dark:bg-neutral-900/70" />)}
+            {[0, 1, 2, 3].map((i) => <Card key={i} className="h-64 animate-pulse bg-[rgba(var(--muted)/0.35)]" />)}
           </div>
         ) : data ? (
           <>
@@ -514,7 +514,7 @@ export default function AdminAnalyticsPage() {
                 <LineAreaChart data={data.users?.loginsByDay || []} />
               </ChartCard>
               <ChartCard title="Уникальные пользователи по дням" subtitle="Кто реально возвращается, а не просто суммарное число входов.">
-                <LineAreaChart data={data.users?.uniqueUsersByDay || []} color="rgb(var(--brand-500))" />
+                <LineAreaChart data={data.users?.uniqueUsersByDay || []} color="rgb(var(--accent-700))" />
               </ChartCard>
             </div>
 
@@ -537,7 +537,7 @@ export default function AdminAnalyticsPage() {
                   onSearchChange={setUserSearch}
                   searchPlaceholder="Поиск по имени, почте или роли"
                   columns={[
-                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-400">{row.email || '—'} · {row.role || 'User'}</div></div> },
+                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div></div> },
                     { key: 'value', label: 'Входов', render: (row) => formatNumber(row.value) },
                     { key: 'activeDays', label: 'Активных дней', render: (row) => formatNumber(row.activeDays) },
                     { key: 'lastLoginAt', label: 'Последний вход', render: (row) => formatDateTime(row.lastLoginAt) },
@@ -549,16 +549,16 @@ export default function AdminAnalyticsPage() {
 
             <div className="grid gap-4 xl:grid-cols-2">
               <ChartCard title="Запросы к backend по дням" subtitle="Общая нагрузка на API. Полезно видеть пики и просадки.">
-                <LineAreaChart data={data.api?.requestsByDay || []} color="rgb(var(--brand-700))" />
+                <LineAreaChart data={data.api?.requestsByDay || []} color="rgb(var(--accent-700))" />
               </ChartCard>
               <ChartCard title="Ошибки API по дням" subtitle="Сколько запросов завершались 4xx/5xx за выбранный период.">
-                <LineAreaChart data={data.api?.errorsByDay || []} color="rgb(239,68,68)" />
+                <LineAreaChart data={data.api?.errorsByDay || []} color="rgb(var(--accent2))" />
               </ChartCard>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
               <ChartCard title="Latency backend по дням" subtitle={`Средняя задержка: ${formatMs(apiTotals.avgLatencyMs)} · p95: ${formatMs(apiTotals.p95LatencyMs)} · p99: ${formatMs(apiTotals.p99LatencyMs)}`}>
-                <LineAreaChart data={data.api?.latencyByDay || []} color="rgb(168,85,247)" valueFormatter={formatMs} />
+                <LineAreaChart data={data.api?.latencyByDay || []} color="rgb(var(--accent3))" valueFormatter={formatMs} />
               </ChartCard>
               <ChartCard title="Типы клиентов" subtitle="Кто именно нагружает backend: сайт, админка, внутренние клиенты, ручные запросы.">
                 <DonutChart data={data.api?.clientTypes || []} />
@@ -583,7 +583,7 @@ export default function AdminAnalyticsPage() {
                   activeId={selectedUser?.userId}
                   onRowClick={(row) => setSelectedUser(row)}
                   columns={[
-                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-400">{row.email || '—'}</div></div> },
+                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div></div> },
                     { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
                     { key: 'errors', label: 'Ошибок', render: (row) => formatNumber(row.errors) },
                     { key: 'avgLatencyMs', label: 'Средняя задержка', render: (row) => formatMs(row.avgLatencyMs) },
@@ -594,10 +594,10 @@ export default function AdminAnalyticsPage() {
 
             <div className="grid gap-4 xl:grid-cols-2">
               <ChartCard title="Попытки по заданиям" subtitle="Сколько действий по code/test/image вообще было за период.">
-                <LineAreaChart data={data.assignments?.attemptsByDay || []} color="rgb(var(--brand-600))" />
+                <LineAreaChart data={data.assignments?.attemptsByDay || []} color="rgb(var(--accent))" />
               </ChartCard>
               <ChartCard title="Успешные попытки по дням" subtitle={`Общая успешность: ${formatPercent(assignmentTotals.successRate)} · средний score тестов: ${formatPercent(assignmentTotals.avgTestScore)}`}>
-                <LineAreaChart data={data.assignments?.successByDay || []} color="rgb(34,197,94)" />
+                <LineAreaChart data={data.assignments?.successByDay || []} color="rgb(var(--accent2))" />
               </ChartCard>
             </div>
 
@@ -615,7 +615,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.assignments?.topAssignments || []}
                   columns={[
-                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-400">{row.type} · diff {row.difficulty} · rating {row.rating}</div></div> },
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type} · diff {row.difficulty} · rating {row.rating}</div></div> },
                     { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
                     { key: 'passed', label: 'Успешных', render: (row) => formatNumber(row.passed) },
                     { key: 'successRate', label: 'Успешность', render: (row) => formatPercent(row.successRate) },
@@ -626,9 +626,9 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.assignments?.hardAssignments || []}
                   columns={[
-                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-400">{row.type}</div></div> },
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type}</div></div> },
                     { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
-                    { key: 'successRate', label: 'Успешность', render: (row) => <span className="text-rose-600 dark:text-rose-400">{formatPercent(row.successRate)}</span> },
+                    { key: 'successRate', label: 'Успешность', render: (row) => <span className="text-[rgb(var(--accent))]">{formatPercent(row.successRate)}</span> },
                     { key: 'rating', label: 'Рейтинг', render: (row) => formatNumber(row.rating) },
                   ]}
                 />
@@ -637,10 +637,10 @@ export default function AdminAnalyticsPage() {
 
             <div className="grid gap-4 xl:grid-cols-2">
               <ChartCard title="Новые support-тикеты по дням" subtitle="Видно нагрузку на поддержку и всплески обращений.">
-                <LineAreaChart data={data.support?.ticketsByDay || []} color="rgb(245,158,11)" />
+                <LineAreaChart data={data.support?.ticketsByDay || []} color="rgb(var(--accent3))" />
               </ChartCard>
               <ChartCard title="Закрытые тикеты по дням" subtitle={`Средний первый ответ: ${formatMinutes(supportTotals.avgFirstResponseMinutes)} · среднее закрытие: ${formatMinutes(supportTotals.avgCloseMinutes)}`}>
-                <LineAreaChart data={data.support?.closedByDay || []} color="rgb(34,197,94)" />
+                <LineAreaChart data={data.support?.closedByDay || []} color="rgb(var(--accent2))" />
               </ChartCard>
             </div>
 
@@ -652,7 +652,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.support?.topAdmins || []}
                   columns={[
-                    { key: 'label', label: 'Админ', render: (row) => <div><div className="font-medium">{row.label}</div><div className="text-xs text-neutral-500 dark:text-neutral-400">{row.email || '—'}</div></div> },
+                    { key: 'label', label: 'Админ', render: (row) => <div><div className="font-medium">{row.label}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div></div> },
                     { key: 'value', label: 'Сообщений', render: (row) => formatNumber(row.value) },
                   ]}
                 />
