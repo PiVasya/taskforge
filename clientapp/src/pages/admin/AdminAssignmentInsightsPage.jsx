@@ -153,7 +153,7 @@ export default function AdminAssignmentInsightsPage() {
                     <div className="font-medium">Кто решал</div>
                     <label className="relative w-full max-w-xs">
                       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
-                      <input value={solverQuery} onChange={(e) => setSolverQuery(e.target.value)} placeholder="Поиск по имени или почте" className="h-10 w-full rounded-2xl border border-border bg-muted/30 pl-9 pr-3 text-sm outline-none" />
+                      <input value={solverQuery} onChange={(e) => setSolverQuery(e.target.value)} placeholder="Поиск по имени или почте" className="h-10 w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[rgb(var(--accent))] focus:bg-[rgba(var(--card)/0.95)]" />
                     </label>
                   </div>
                   <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
@@ -175,7 +175,7 @@ export default function AdminAssignmentInsightsPage() {
                   <div className="font-medium">Последняя активность</div>
                   <label className="relative w-full max-w-xs">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
-                    <input value={activityQuery} onChange={(e) => setActivityQuery(e.target.value)} placeholder="Фильтр по активности" className="h-10 w-full rounded-2xl border border-border bg-muted/30 pl-9 pr-3 text-sm outline-none" />
+                    <input value={activityQuery} onChange={(e) => setActivityQuery(e.target.value)} placeholder="Фильтр по активности" className="h-10 w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[rgb(var(--accent))] focus:bg-[rgba(var(--card)/0.95)]" />
                   </label>
                 </div>
                 <div className="flex-1 overflow-y-auto space-y-3 pr-1 max-h-[820px]">

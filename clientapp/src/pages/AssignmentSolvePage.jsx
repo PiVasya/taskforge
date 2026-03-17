@@ -503,7 +503,7 @@ export default function AssignmentSolvePage() {
           if (resp.passed) {
             notify.success(`Задание выполнено! Схожесть: ${Math.round(resp.similarityPercent)}%`);
           } else {
-            notify.warn(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
+            notify.warning(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
           }
         } else {
           const errMsg = resp?.runnerError || 'Не удалось проверить решение';
@@ -616,8 +616,16 @@ export default function AssignmentSolvePage() {
                   </div>
                 </div>
 
-                <div className="text-xs text-neutral-500">
-                  Для C++ раннер сам пытается снять скрин окна программы после запуска.
+                <div>
+                  <label className="label">Входные данные для программы</label>
+                  <textarea
+                    value={imageInput}
+                    onChange={(e) => setImageInput(e.target.value)}
+                    rows={4}
+                    placeholder={language === 'cpp' ? 'Если программа читает stdin, введи данные сюда' : 'Необязательно. Можно оставить пустым.'}
+                    className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                  />
+                  <div className="text-xs text-neutral-500 mt-1">Для C++ можно оставить пустым. Раннер сам пытается снять скрин окна; если программа читает stdin, эти данные будут переданы в неё.</div>
                 </div>
 
                 {imgError ? (
