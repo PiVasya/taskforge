@@ -1,6 +1,6 @@
 import api from './http';
 
-export async function getAdminUsers(params) {
+export async function getAdminUsers(params = {}) {
   const { data } = await api.get('/api/admin/users', { params });
   return {
     items: Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []),

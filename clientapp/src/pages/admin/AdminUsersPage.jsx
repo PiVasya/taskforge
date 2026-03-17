@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
@@ -9,6 +9,25 @@ import { AlertTriangle, Save, Search, Trash2, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
+const sortOptions = [
+  { value: 'createdAt', label: 'Дата регистрации' },
+  { value: 'lastLoginAt', label: 'Дата последнего входа' },
+  { value: 'fullName', label: 'Имя и фамилия' },
+  { value: 'email', label: 'Email' },
+  { value: 'role', label: 'Базовая роль' },
+  { value: 'minecraftNick', label: 'Minecraft nick' },
+  { value: 'telegramUsername', label: 'Telegram username' },
+  { value: 'minecraftLinkedAt', label: 'Дата привязки Minecraft' },
+  { value: 'telegramLinkedAt', label: 'Дата привязки Telegram' },
+  { value: 'codeSolutions', label: 'Решённые code' },
+  { value: 'passedTests', label: 'Пройденные test' },
+  { value: 'imageSolutions', label: 'Решённые image' },
+  { value: 'totalSolved', label: 'Всего решённых' },
+  { value: 'linked', label: 'Наличие привязок' },
+  { value: 'emailConfirmed', label: 'Email подтверждён' },
+  { value: 'lockoutEnabled', label: 'Lockout enabled' },
+];
+
 export default function AdminUsersPage() {
   const notify = useNotify();
   const [items, setItems] = useState([]);
@@ -16,13 +35,15 @@ export default function AdminUsersPage() {
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
   const [linkedOnly, setLinkedOnly] = useState(false);
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortDir, setSortDir] = useState('desc');
   const [pageError, setPageError] = useState(null);
   const [stats, setStats] = useState({ total: 0, linked: 0, admins: 0 });
 
   const load = async () => {
     try {
       setLoading(true);
-      const res = await getAdminUsers({ query, role, linkedOnly });
+      const res = await getAdminUsers({ query, role, linkedOnly, sortBy, sortDir, take: 300 });
       setItems(Array.isArray(res?.items) ? res.items : []);
       setStats(res?.stats || { total: 0, linked: 0, admins: 0 });
       setPageError(null);
@@ -35,6 +56,32 @@ export default function AdminUsersPage() {
   };
 
   useEffect(() => { load(); }, []); // eslint-disable-line
+
+  const sortedItems = useMemo(() => {
+    const valueFor = (user) => {
+      switch (sortBy) {
+        case 'codeSolutions': return user.codeSolutions ?? 0;
+        case 'passedTests': return user.passedTests ?? 0;
+        case 'imageSolutions': return user.imageSolutions ?? 0;
+        case 'totalSolved': return (user.codeSolutions ?? 0) + (user.passedTests ?? 0) + (user.imageSolutions ?? 0);
+        case 'linked': return (user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0;
+        case 'emailConfirmed': return user.emailConfirmed ? 1 : 0;
+        case 'lockoutEnabled': return user.lockoutEnabled ? 1 : 0;
+        default: return null;
+      }
+    };
+
+    if (!['codeSolutions','passedTests','imageSolutions','totalSolved','linked','emailConfirmed','lockoutEnabled'].includes(sortBy)) {
+      return items;
+    }
+
+    return [...items].sort((a, b) => {
+      const av = valueFor(a);
+      const bv = valueFor(b);
+      if (av === bv) return 0;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+  }, [items, sortBy, sortDir]);
 
   const updateLocal = (id, patch) => setItems((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
 
@@ -89,7 +136,7 @@ export default function AdminUsersPage() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2"><UserCog size={22} /> Пользователи</h1>
-            <p className="text-sm text-neutral-500 mt-2">Поиск, редактирование базовой информации, ролей и интеграций.</p>
+            <p className="text-sm text-neutral-500 mt-2">Поиск, редактирование базовой информации, ролей и интеграций. Есть гибкая сортировка по регистрации, входам, привязкам и результатам.</p>
           </div>
           <Button onClick={load}><Search size={16} /> <span className="ml-1">Обновить</span></Button>
         </div>
@@ -103,10 +150,12 @@ export default function AdminUsersPage() {
         </div>
 
         <Card>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1fr,180px,180px,140px] gap-3 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1fr,180px,180px,220px,160px,140px] gap-3 items-end">
             <Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="email / имя / minecraft / telegram" /></Field>
             <Field label="Базовая роль"><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">Все</option>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
             <Field label="Только с привязками"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={linkedOnly} onChange={(e) => setLinkedOnly(e.target.checked)} /><span className="text-sm">Да</span></label></Field>
+            <Field label="Сортировать по"><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>{sortOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field>
+            <Field label="Порядок"><Select value={sortDir} onChange={(e) => setSortDir(e.target.value)}><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></Select></Field>
             <Button className="w-full xl:w-auto" onClick={load}>Найти</Button>
           </div>
         </Card>
@@ -114,7 +163,7 @@ export default function AdminUsersPage() {
         {loading && <div className="text-neutral-500">Загрузка…</div>}
 
         <div className="space-y-4">
-          {items.map((user) => (
+          {sortedItems.map((user) => (
             <Card key={user.id}>
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr,1fr] xl:gap-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">

@@ -53,10 +53,19 @@ namespace taskforge.Controllers.Admin
             string? TelegramUsername);
 
         [HttpGet]
-        public async Task<IActionResult> List([FromQuery] string? query, [FromQuery] string? role, [FromQuery] bool linkedOnly = false, [FromQuery] int take = 120, CancellationToken ct = default)
+        public async Task<IActionResult> List(
+            [FromQuery] string? query,
+            [FromQuery] string? role,
+            [FromQuery] bool linkedOnly = false,
+            [FromQuery] string? sortBy = null,
+            [FromQuery] string? sortDir = null,
+            [FromQuery] int take = 120,
+            CancellationToken ct = default)
         {
             var q = (query ?? string.Empty).Trim().ToLower();
             var rq = (role ?? string.Empty).Trim();
+            var sb = (sortBy ?? string.Empty).Trim().ToLowerInvariant();
+            var desc = !string.Equals((sortDir ?? string.Empty).Trim(), "asc", StringComparison.OrdinalIgnoreCase);
 
             var usersQuery = _db.Users.AsNoTracking().AsQueryable();
 
@@ -77,8 +86,30 @@ namespace taskforge.Controllers.Admin
             if (linkedOnly)
                 usersQuery = usersQuery.Where(u => u.MinecraftLinkedAtUtc != null || u.TelegramLinkedAtUtc != null);
 
+            usersQuery = (sb, desc) switch
+            {
+                ("createdat", true) => usersQuery.OrderByDescending(u => u.CreatedAt),
+                ("createdat", false) => usersQuery.OrderBy(u => u.CreatedAt),
+                ("lastloginat", true) => usersQuery.OrderByDescending(u => u.LastLoginAt ?? DateTime.MinValue),
+                ("lastloginat", false) => usersQuery.OrderBy(u => u.LastLoginAt ?? DateTime.MaxValue),
+                ("email", true) => usersQuery.OrderByDescending(u => u.Email),
+                ("email", false) => usersQuery.OrderBy(u => u.Email),
+                ("fullname", true) => usersQuery.OrderByDescending(u => (u.FirstName ?? string.Empty) + " " + (u.LastName ?? string.Empty)),
+                ("fullname", false) => usersQuery.OrderBy(u => (u.FirstName ?? string.Empty) + " " + (u.LastName ?? string.Empty)),
+                ("role", true) => usersQuery.OrderByDescending(u => u.Role),
+                ("role", false) => usersQuery.OrderBy(u => u.Role),
+                ("minecraftnick", true) => usersQuery.OrderByDescending(u => u.MinecraftNick ?? string.Empty),
+                ("minecraftnick", false) => usersQuery.OrderBy(u => u.MinecraftNick ?? string.Empty),
+                ("telegramusername", true) => usersQuery.OrderByDescending(u => u.TelegramUsername ?? string.Empty),
+                ("telegramusername", false) => usersQuery.OrderBy(u => u.TelegramUsername ?? string.Empty),
+                ("minecraftlinkedat", true) => usersQuery.OrderByDescending(u => u.MinecraftLinkedAtUtc ?? DateTime.MinValue),
+                ("minecraftlinkedat", false) => usersQuery.OrderBy(u => u.MinecraftLinkedAtUtc ?? DateTime.MaxValue),
+                ("telegramlinkedat", true) => usersQuery.OrderByDescending(u => u.TelegramLinkedAtUtc ?? DateTime.MinValue),
+                ("telegramlinkedat", false) => usersQuery.OrderBy(u => u.TelegramLinkedAtUtc ?? DateTime.MaxValue),
+                _ => usersQuery.OrderByDescending(u => u.CreatedAt)
+            };
+
             var users = await usersQuery
-                .OrderByDescending(u => u.CreatedAt)
                 .Take(Math.Clamp(take, 1, 300))
                 .Select(u => new
                 {
