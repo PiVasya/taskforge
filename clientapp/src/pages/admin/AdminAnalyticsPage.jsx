@@ -73,9 +73,9 @@ function ComparisonCard({ item }) {
     <Card className="p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm text-neutral-500 dark:text-neutral-300">{item.label}</div>
+          <div className="text-sm text-muted-foreground">{item.label}</div>
           <div className="mt-2 text-2xl font-semibold tracking-tight">{formatComparisonValue(item)}</div>
-          <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">Предыдущий период: {item.percentMetric ? `${Number(item.previous || 0).toFixed(1)}%` : formatNumber(item.previous)}{!item.percentMetric && item.unit ? ` ${item.unit}` : ''}</div>
+          <div className="mt-2 text-xs text-muted-foreground">Предыдущий период: {item.percentMetric ? `${Number(item.previous || 0).toFixed(1)}%` : formatNumber(item.previous)}{!item.percentMetric && item.unit ? ` ${item.unit}` : ''}</div>
         </div>
         <div className={cn('inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium', toneClass)}>
           <Icon size={16} />
@@ -105,7 +105,7 @@ function SignalsBoard({ alerts = [] }) {
           return (
             <div key={`${alert?.title || 'signal'}-${idx}`} className={cn('rounded-2xl border px-4 py-3', toneClass)}>
               <div className="text-sm font-semibold">{alert?.title || 'Сигнал'}</div>
-              <div className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">{alert?.message}</div>
+              <div className="mt-1 text-sm text-muted-foreground">{alert?.message}</div>
             </div>
           );
         })}
@@ -119,9 +119,9 @@ function MetricCard({ icon: Icon, label, value, hint }) {
     <Card className="p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm text-neutral-500 dark:text-neutral-300">{label}</div>
+          <div className="text-sm text-muted-foreground">{label}</div>
           <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
-          {hint ? <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-300">{hint}</div> : null}
+          {hint ? <div className="mt-2 text-xs text-muted-foreground">{hint}</div> : null}
         </div>
         {Icon ? <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.55)] p-3"><Icon size={20} /></div> : null}
       </div>
@@ -137,7 +137,7 @@ function SectionTitle({ icon: Icon, title, subtitle, action }) {
           {Icon ? <Icon size={24} /> : null}
           <span>{title}</span>
         </div>
-        {subtitle ? <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400 max-w-3xl">{subtitle}</p> : null}
+        {subtitle ? <p className="mt-2 text-sm text-muted-foreground max-w-3xl">{subtitle}</p> : null}
       </div>
       {action}
     </div>
@@ -149,7 +149,7 @@ function ChartCard({ title, subtitle, children, tall = false }) {
     <Card className={cn('p-5', tall && 'min-h-[26rem]')}>
       <div className="mb-4">
         <div className="text-base font-semibold">{title}</div>
-        {subtitle ? <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{subtitle}</div> : null}
+        {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
       </div>
       {children}
     </Card>
@@ -157,7 +157,7 @@ function ChartCard({ title, subtitle, children, tall = false }) {
 }
 
 function EmptyState() {
-  return <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.26)] px-4 py-10 text-center text-sm text-neutral-500 dark:text-neutral-300">Недостаточно данных за выбранный период.</div>;
+  return <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.26)] px-4 py-10 text-center text-sm text-muted-foreground">Недостаточно данных за выбранный период.</div>;
 }
 
 function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, valueFormatter = formatNumber }) {
@@ -188,15 +188,15 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Последнее значение</div>
+          <div className="text-xs text-muted-foreground">Последнее значение</div>
           <div className="mt-1 text-xl font-semibold">{valueFormatter(last?.value)}</div>
         </div>
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Пик</div>
+          <div className="text-xs text-muted-foreground">Пик</div>
           <div className="mt-1 text-xl font-semibold">{valueFormatter(peak)}</div>
         </div>
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Точек</div>
+          <div className="text-xs text-muted-foreground">Точек</div>
           <div className="mt-1 text-xl font-semibold">{formatNumber(data.length)}</div>
         </div>
       </div>
@@ -212,7 +212,7 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
           )) : null}
         </svg>
       </div>
-      <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>{data[0]?.label || '—'}</span>
         <span>{data[Math.floor((data.length - 1) / 2)]?.label || '—'}</span>
         <span>{data[data.length - 1]?.label || '—'}</span>
@@ -232,7 +232,7 @@ function BarChart({ data = [], color = 'rgb(var(--accent))', height = 260, value
           return (
             <div key={item.label} className="space-y-1">
               <div className="flex items-center justify-between gap-3 text-sm">
-                <div className="truncate text-neutral-700 dark:text-neutral-200">{item.label}</div>
+                <div className="truncate text-foreground">{item.label}</div>
                 <div className="shrink-0 font-medium">{valueFormatter(item.value)}</div>
               </div>
               <div className="h-3 overflow-hidden rounded-full bg-[rgba(var(--border)/0.18)]">
@@ -250,7 +250,7 @@ function DonutChart({ data = [], size = 220 }) {
   if (!Array.isArray(data) || data.length === 0 || data.every((x) => !Number(x.value))) return <EmptyState />;
   const total = data.reduce((sum, item) => sum + Number(item.value || 0), 0);
   const radius = 42;
-  const stroke = 16;
+  const stroke = 13;
   const circumference = 2 * Math.PI * radius;
   const palette = [
     'rgb(var(--accent))',
@@ -279,15 +279,15 @@ function DonutChart({ data = [], size = 220 }) {
                 strokeWidth={stroke}
                 strokeDasharray={`${dash} ${circumference - dash}`}
                 strokeDashoffset={-offset}
-                strokeLinecap="round"
+                strokeLinecap="butt"
               />
             );
             offset += dash;
             return el;
           })}
-          <circle cx="60" cy="60" r="25" fill="rgba(var(--card),0.98)" />
-          <text x="60" y="57" textAnchor="middle" className="fill-current text-[11px] font-semibold rotate-90 origin-center">{formatNumber(total)}</text>
-          <text x="60" y="70" textAnchor="middle" className="fill-current text-[5px] rotate-90 origin-center">всего</text>
+          <circle cx="60" cy="60" r="28" fill="rgb(var(--card))" stroke="rgba(var(--border),0.4)" strokeWidth="1" />
+          <text x="60" y="57" textAnchor="middle" className="fill-[rgb(var(--foreground))] text-[11px] font-semibold rotate-90 origin-center">{formatNumber(total)}</text>
+          <text x="60" y="70" textAnchor="middle" className="fill-[rgb(var(--muted-foreground))] text-[5px] rotate-90 origin-center">всего</text>
         </svg>
       </div>
       <div className="space-y-3">
@@ -301,7 +301,7 @@ function DonutChart({ data = [], size = 220 }) {
               </div>
               <div className="text-right shrink-0">
                 <div className="font-semibold">{formatNumber(value)}</div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">{formatPercent(total ? (value / total) * 100 : 0)}</div>
+                <div className="text-xs text-muted-foreground">{formatPercent(total ? (value / total) * 100 : 0)}</div>
               </div>
             </div>
           );
@@ -329,7 +329,7 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
+            className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] px-4 py-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
           />
         </div>
       ) : null}
@@ -341,7 +341,7 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
                 <th
                   key={col.key}
                   className={cn(
-                    'px-4 py-3 text-left text-sm font-semibold text-neutral-500 dark:text-neutral-300',
+                    'px-4 py-3 text-left text-sm font-semibold text-muted-foreground',
                     idx === 0 ? 'w-[40%]' : 'w-[20%]'
                   )}
                 >
@@ -353,7 +353,7 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">Ничего не найдено.</td>
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-muted-foreground">Ничего не найдено.</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const isActive = activeId && (row.userId === activeId || row.id === activeId);
@@ -364,7 +364,7 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
                   onClick={clickable ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className="px-4 py-3 align-top text-sm break-words text-neutral-800 dark:text-neutral-200">
+                    <td key={col.key} className="px-4 py-3 align-top text-sm break-words text-foreground">
                       {col.render ? col.render(row, idx) : row[col.key]}
                     </td>
                   ))}
@@ -380,7 +380,7 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
 
 function UserSpotlight({ data, loading, error }) {
   if (loading) {
-    return <Card className="p-6"><div className="animate-pulse text-sm text-neutral-500">Загружаю профиль активности пользователя…</div></Card>;
+    return <Card className="p-6"><div className="animate-pulse text-sm text-muted-foreground">Загружаю профиль активности пользователя…</div></Card>;
   }
   if (error) {
     return <AppErrorPanel error={error} title="Не удалось загрузить аналитику пользователя" />;
@@ -388,7 +388,7 @@ function UserSpotlight({ data, loading, error }) {
   if (!data) {
     return (
       <Card className="p-6">
-        <div className="text-sm text-neutral-500 dark:text-neutral-400">Нажми на пользователя в таблице сверху, чтобы увидеть его личную статистику: входы, запросы, решения и support-активность.</div>
+        <div className="text-sm text-muted-foreground">Нажми на пользователя в таблице сверху, чтобы увидеть его личную статистику: входы, запросы, решения и support-активность.</div>
       </Card>
     );
   }
@@ -400,9 +400,9 @@ function UserSpotlight({ data, loading, error }) {
       <Card className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Выбранный пользователь</div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Выбранный пользователь</div>
             <div className="mt-2 text-2xl font-semibold">{profile.fullName || 'Без имени'}</div>
-            <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{profile.email || '—'} · роль {profile.role || 'User'}</div>
+            <div className="mt-1 text-sm text-muted-foreground">{profile.email || '—'} · роль {profile.role || 'User'}</div>
           </div>
           <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.34)] px-4 py-3 text-sm">
             <div>Создан: <b>{formatDateTime(profile.createdAt)}</b></div>
@@ -575,7 +575,7 @@ export default function AdminAnalyticsPage() {
                     onClick={() => setDays(value)}
                     className={cn(
                       'rounded-xl px-3 py-2 text-sm transition',
-                      days === value ? 'bg-[rgba(var(--card)/0.96)] shadow-soft font-medium border border-[rgba(var(--border)/0.45)]' : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100'
+                      days === value ? 'bg-[rgba(var(--card)/0.96)] shadow-soft font-medium border border-[rgba(var(--border)/0.45)]' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'
                     )}
                   >
                     {value} дн
@@ -609,7 +609,7 @@ export default function AdminAnalyticsPage() {
                   activeId={selectedUser?.userId}
                   onRowClick={(row) => setSelectedUser(row)}
                   columns={[
-                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div></div> },
+                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-muted-foreground">{row.email || '—'}</div></div> },
                     { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
                     { key: 'errorRate', label: 'Ошибка %', render: (row) => formatPercent(row.errorRate) },
                   ]}
@@ -629,7 +629,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={executive.failingAssignments || []}
                   columns={[
-                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type}</div></div> },
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-muted-foreground">{row.type}</div></div> },
                     { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
                     { key: 'successRate', label: 'Успешность', render: (row) => formatPercent(row.successRate) },
                   ]}
@@ -667,24 +667,24 @@ export default function AdminAnalyticsPage() {
               <ChartCard title="Топ пользователей по входам" subtitle="Нажми на строку, чтобы открыть личную статистику пользователя." tall>
                 <div className="mb-5 space-y-3">
                   <div className="max-w-xl">
-                    <label className="mb-2 block text-sm font-medium text-neutral-600 dark:text-neutral-300">Найти любого пользователя по всей базе</label>
+                    <label className="mb-2 block text-sm font-medium text-muted-foreground">Найти любого пользователя по всей базе</label>
                     <div className="relative">
-                      <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" />
+                      <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
                       <input
                         type="search"
                         value={globalUserSearch}
                         onChange={(e) => setGlobalUserSearch(e.target.value)}
                         placeholder="Имя, почта или роль"
-                        className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
+                        className="w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-[rgb(var(--accent))] focus:bg-[rgb(var(--card))]"
                       />
                     </div>
                   </div>
                   {globalUserSearch.trim().length >= 2 ? (
                     <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.22)] p-2">
                       {globalUserLoading ? (
-                        <div className="px-3 py-4 text-sm text-neutral-500 dark:text-neutral-400">Ищу пользователей…</div>
+                        <div className="px-3 py-4 text-sm text-muted-foreground">Ищу пользователей…</div>
                       ) : globalUserResults.length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-neutral-500 dark:text-neutral-400">Ничего не найдено по всей базе пользователей.</div>
+                        <div className="px-3 py-4 text-sm text-muted-foreground">Ничего не найдено по всей базе пользователей.</div>
                       ) : (
                         <div className="space-y-1">
                           {globalUserResults.map((row) => (
@@ -700,9 +700,9 @@ export default function AdminAnalyticsPage() {
                             >
                               <div className="min-w-0">
                                 <div className="truncate font-medium">{row.fullName}</div>
-                                <div className="truncate text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div>
+                                <div className="truncate text-xs text-muted-foreground">{row.email || '—'} · {row.role || 'User'}</div>
                               </div>
-                              <div className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(row.lastLoginAt)}</div>
+                              <div className="shrink-0 text-xs text-muted-foreground">{formatDateTime(row.lastLoginAt)}</div>
                             </button>
                           ))}
                         </div>
@@ -718,7 +718,7 @@ export default function AdminAnalyticsPage() {
                   onSearchChange={setUserSearch}
                   searchPlaceholder="Поиск по имени, почте или роли"
                   columns={[
-                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div></div> },
+                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-muted-foreground">{row.email || '—'} · {row.role || 'User'}</div></div> },
                     { key: 'value', label: 'Входов', render: (row) => formatNumber(row.value) },
                     { key: 'activeDays', label: 'Активных дней', render: (row) => formatNumber(row.activeDays) },
                     { key: 'lastLoginAt', label: 'Последний вход', render: (row) => formatDateTime(row.lastLoginAt) },
@@ -764,7 +764,7 @@ export default function AdminAnalyticsPage() {
                   activeId={selectedUser?.userId}
                   onRowClick={(row) => setSelectedUser(row)}
                   columns={[
-                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div></div> },
+                    { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-muted-foreground">{row.email || '—'}</div></div> },
                     { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
                     { key: 'errors', label: 'Ошибок', render: (row) => formatNumber(row.errors) },
                     { key: 'avgLatencyMs', label: 'Средняя задержка', render: (row) => formatMs(row.avgLatencyMs) },
@@ -796,7 +796,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.assignments?.topAssignments || []}
                   columns={[
-                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type} · diff {row.difficulty} · rating {row.rating}</div></div> },
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-muted-foreground">{row.type} · diff {row.difficulty} · rating {row.rating}</div></div> },
                     { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
                     { key: 'passed', label: 'Успешных', render: (row) => formatNumber(row.passed) },
                     { key: 'successRate', label: 'Успешность', render: (row) => formatPercent(row.successRate) },
@@ -807,7 +807,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.assignments?.hardAssignments || []}
                   columns={[
-                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type}</div></div> },
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-muted-foreground">{row.type}</div></div> },
                     { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
                     { key: 'successRate', label: 'Успешность', render: (row) => <span className="text-[rgb(var(--accent))]">{formatPercent(row.successRate)}</span> },
                     { key: 'rating', label: 'Рейтинг', render: (row) => formatNumber(row.rating) },
@@ -833,7 +833,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.support?.topAdmins || []}
                   columns={[
-                    { key: 'label', label: 'Админ', render: (row) => <div><div className="font-medium">{row.label}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'}</div></div> },
+                    { key: 'label', label: 'Админ', render: (row) => <div><div className="font-medium">{row.label}</div><div className="text-xs text-muted-foreground">{row.email || '—'}</div></div> },
                     { key: 'value', label: 'Сообщений', render: (row) => formatNumber(row.value) },
                   ]}
                 />
