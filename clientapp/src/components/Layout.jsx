@@ -76,15 +76,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     applyHtmlThemeClasses(mode, colorTheme);
   }, [mode, colorTheme]);
 
-  useEffect(() => {
-    if (!access) return;
-    const path = `${location.pathname}${location.search || ''}`;
-    if (!path || path === lastTrackedPathRef.current) return;
-    lastTrackedPathRef.current = path;
-    const title = document?.title || path;
-    api.post('/api/activity/page-view', { path, title }).catch(() => {});
-  }, [access, location.pathname, location.search]);
-
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
   const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || localStorage.getItem('fxMode') || 'random');
   // Вариант фоновых эффектов (0..4). Читаем из localStorage, а не sessionStorage.
@@ -139,6 +130,15 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   const canUseMinecraft = isAdmin || roles.includes('Minecraft');
   const nav = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    if (!access) return;
+    const path = `${location.pathname}${location.search || ''}`;
+    if (!path || path === lastTrackedPathRef.current) return;
+    lastTrackedPathRef.current = path;
+    const title = document?.title || path;
+    api.post('/api/activity/page-view', { path, title }).catch(() => {});
+  }, [access, location.pathname, location.search]);
 
   // ===== Квоты (5 отправок решений и 5 загрузок топа) =====
   // применяем классы для темы и сохраняем в localStorage
