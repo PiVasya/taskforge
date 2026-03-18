@@ -33,6 +33,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 import BgFxCanvas from './bgfx/BgFxCanvas';
+import api from '../api/http';
 
 export default function Layout({ children, fullWidth = false, hideFooter = false }) {
   // Вся тема завязана на классах у <html>: html.dark и html.(blue|pink|apple).
@@ -61,6 +62,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   const initialUi = readUiSettings();
   const [colorTheme, setColorTheme] = useState(() => initialUi?.colorTheme || localStorage.getItem('colorTheme') || 'pink');
   const [mode, setMode] = useState(() => initialUi?.mode || localStorage.getItem('mode') || 'dark');
+  const lastTrackedPathRef = useRef('');
   const isDark = mode === 'dark';
 
   // Ревизия UI-настроек. Нужна, чтобы фоновые эффекты (Canvas) могли
@@ -73,6 +75,16 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   useLayoutEffect(() => {
     applyHtmlThemeClasses(mode, colorTheme);
   }, [mode, colorTheme]);
+
+  useEffect(() => {
+    if (!access) return;
+    const path = `${location.pathname}${location.search || ''}`;
+    if (!path || path === lastTrackedPathRef.current) return;
+    lastTrackedPathRef.current = path;
+    const title = document?.title || path;
+    api.post('/api/activity/page-view', { path, title }).catch(() => {});
+  }, [access, location.pathname, location.search]);
+
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
   const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || localStorage.getItem('fxMode') || 'random');
   // Вариант фоновых эффектов (0..4). Читаем из localStorage, а не sessionStorage.
@@ -399,6 +411,16 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                     </Link>
                     <Link
                       role="menuitem"
+                      to="/admin/activity"
+                      className="btn-ghost w-full justify-start"
+                      onClick={() => setAdminOpen(false)}
+                      title="Действия пользователей"
+                    >
+                      <Activity size={18} />
+                      <span className="ml-2">Действия</span>
+                    </Link>
+                    <Link
+                      role="menuitem"
                       to="/admin/system-status"
                       className="btn-ghost w-full justify-start"
                       onClick={() => setAdminOpen(false)}
@@ -565,6 +587,14 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                           >
                             <BarChart2 size={18} />
                             <span className="ml-2">Аналитика</span>
+                          </Link>
+                          <Link
+                            to="/admin/activity"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            <Activity size={18} />
+                            <span className="ml-2">Действия</span>
                           </Link>
                           <Link
                             to="/admin/system-status"

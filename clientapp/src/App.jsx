@@ -46,6 +46,7 @@ import AdminUsersPage from './pages/admin/AdminUsersPage';
 import AdminMinecraftLinksPage from './pages/admin/AdminMinecraftLinksPage';
 import AdminAssignmentInsightsPage from './pages/admin/AdminAssignmentInsightsPage';
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage';
+import AdminUserActionsPage from './pages/admin/AdminUserActionsPage';
 import MinecraftChatPage from './pages/minecraft/MinecraftChatPage';
 
 function Home() {
@@ -118,6 +119,7 @@ export default function App() {
             <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
             <Route path="/admin/system-status" element={<AdminSystemStatusPage />} />
             <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+            <Route path="/admin/activity" element={<AdminUserActionsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/minecraft-links" element={<AdminMinecraftLinksPage />} />
             <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />

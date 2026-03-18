@@ -45,6 +45,7 @@ namespace taskforge.Data
         /// </summary>
         public DbSet<UserLoginLog> UserLoginLogs { get; set; } = null!;
         public DbSet<RequestLog> RequestLogs { get; set; } = null!;
+        public DbSet<UserActionLog> UserActionLogs { get; set; } = null!;
 
         // ===== Test (quiz) задания =====
         public DbSet<TaskTestSettings> TaskTestSettings { get; set; } = null!;
@@ -413,6 +414,30 @@ namespace taskforge.Data
             modelBuilder.Entity<SupportMessage>()
                 .Property(m => m.CreatedAt)
                 .HasColumnType("timestamp with time zone");
+
+
+            modelBuilder.Entity<UserActionLog>()
+                .Property(x => x.CreatedAtUtc)
+                .HasColumnType("timestamp with time zone");
+
+            modelBuilder.Entity<UserActionLog>()
+                .Property(x => x.MetadataJson)
+                .HasColumnType("jsonb");
+
+            modelBuilder.Entity<UserActionLog>()
+                .HasIndex(x => x.CreatedAtUtc);
+
+            modelBuilder.Entity<UserActionLog>()
+                .HasIndex(x => new { x.UserId, x.CreatedAtUtc });
+
+            modelBuilder.Entity<UserActionLog>()
+                .HasIndex(x => new { x.Category, x.CreatedAtUtc });
+
+            modelBuilder.Entity<UserActionLog>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // ===== Test (quiz) задания =====
 

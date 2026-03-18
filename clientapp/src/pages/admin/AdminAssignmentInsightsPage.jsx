@@ -27,7 +27,7 @@ function CodeModal({ activity, onClose }) {
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div>
             <div className="text-lg font-semibold">Решение пользователя</div>
-            <div className="text-sm text-muted-foreground mt-1">{activity.fullName || activity.email} · {activity.email}</div>
+            <div className="text-sm opacity-70 mt-1">{activity.fullName || activity.email} · {activity.email}</div>
             <div className="flex flex-wrap gap-2 mt-3">
               <Badge intent={activity.status === 'passed' ? 'success' : activity.status === 'failed' ? 'danger' : 'secondary'}>{activity.status}</Badge>
               {activity.language ? <Badge intent="outline">{activity.language}</Badge> : null}
@@ -121,10 +121,10 @@ export default function AdminAssignmentInsightsPage() {
         {data && (
           <>
             <div className="grid md:grid-cols-4 gap-4">
-              <Card><div className="text-sm text-muted-foreground">Уникальных пользователей</div><div className="text-3xl font-semibold mt-2">{cards.uniqueUsers}</div></Card>
-              <Card><div className="text-sm text-muted-foreground">Успешно решили</div><div className="text-3xl font-semibold mt-2">{cards.successUsers}</div></Card>
-              <Card><div className="text-sm text-muted-foreground">Всего попыток</div><div className="text-3xl font-semibold mt-2">{cards.attempts}</div></Card>
-              <Card><div className="text-sm text-muted-foreground">Среднее время (test)</div><div className="text-3xl font-semibold mt-2">{cards.avgReviewSeconds == null ? '—' : `${cards.avgReviewSeconds}s`}</div></Card>
+              <Card><div className="text-sm opacity-70">Уникальных пользователей</div><div className="text-3xl font-semibold mt-2">{cards.uniqueUsers}</div></Card>
+              <Card><div className="text-sm opacity-70">Успешно решили</div><div className="text-3xl font-semibold mt-2">{cards.successUsers}</div></Card>
+              <Card><div className="text-sm opacity-70">Всего попыток</div><div className="text-3xl font-semibold mt-2">{cards.attempts}</div></Card>
+              <Card><div className="text-sm opacity-70">Среднее время (test)</div><div className="text-3xl font-semibold mt-2">{cards.avgReviewSeconds == null ? '—' : `${cards.avgReviewSeconds}s`}</div></Card>
             </div>
 
             <div className="grid xl:grid-cols-[0.9fr,1.1fr] gap-6">
@@ -138,13 +138,13 @@ export default function AdminAssignmentInsightsPage() {
                       </div>
                     ))}
                   </div>
-                  {data.avgReviewNote ? <div className="text-xs text-muted-foreground mt-3">{data.avgReviewNote}</div> : null}
+                  {data.avgReviewNote ? <div className="text-xs opacity-60 mt-3">{data.avgReviewNote}</div> : null}
                 </Card>
 
                 <Card>
                   <div className="font-medium mb-3">Языки</div>
                   <div className="flex flex-wrap gap-2">
-                    {(data.languages || []).length ? data.languages.map((x) => <Badge key={x.language} intent="outline">{x.language}: {x.count}</Badge>) : <span className="text-sm text-muted-foreground">Данных пока нет</span>}
+                    {(data.languages || []).length ? data.languages.map((x) => <Badge key={x.language} intent="outline">{x.language}: {x.count}</Badge>) : <span className="text-sm opacity-60">Данных пока нет</span>}
                   </div>
                 </Card>
 
@@ -152,7 +152,7 @@ export default function AdminAssignmentInsightsPage() {
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="font-medium">Кто решал</div>
                     <label className="relative w-full max-w-xs">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
                       <input value={solverQuery} onChange={(e) => setSolverQuery(e.target.value)} placeholder="Поиск по имени или почте" className="h-10 w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[rgb(var(--accent))] focus:bg-[rgba(var(--card)/0.95)]" />
                     </label>
                   </div>
@@ -160,12 +160,12 @@ export default function AdminAssignmentInsightsPage() {
                     {filteredSolvers.length ? filteredSolvers.map((x) => (
                       <div key={x.userId} className="rounded-2xl border px-4 py-3">
                         <div className="font-medium">{x.fullName || x.email}</div>
-                        <div className="text-sm text-muted-foreground">{x.email}</div>
-                        <div className="text-xs text-muted-foreground mt-2">Попыток: {x.totalAttempts} · Успешных: {x.successfulAttempts}</div>
-                        <div className="text-xs text-muted-foreground mt-1">Первое действие: {fmtDate(x.firstActivityAtUtc)}</div>
-                        <div className="text-xs text-muted-foreground mt-1">Последнее действие: {fmtDate(x.lastActivityAtUtc)}</div>
+                        <div className="text-sm opacity-70">{x.email}</div>
+                        <div className="text-xs opacity-60 mt-2">Попыток: {x.totalAttempts} · Успешных: {x.successfulAttempts}</div>
+                        <div className="text-xs opacity-60 mt-1">Первое действие: {fmtDate(x.firstActivityAtUtc)}</div>
+                        <div className="text-xs opacity-60 mt-1">Последнее действие: {fmtDate(x.lastActivityAtUtc)}</div>
                       </div>
-                    )) : <div className="text-sm text-muted-foreground">Никого не найдено.</div>}
+                    )) : <div className="text-sm opacity-60">Никого не найдено.</div>}
                   </div>
                 </Card>
               </div>
@@ -174,7 +174,7 @@ export default function AdminAssignmentInsightsPage() {
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="font-medium">Последняя активность</div>
                   <label className="relative w-full max-w-xs">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
                     <input value={activityQuery} onChange={(e) => setActivityQuery(e.target.value)} placeholder="Фильтр по активности" className="h-10 w-full rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.28)] pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[rgb(var(--accent))] focus:bg-[rgba(var(--card)/0.95)]" />
                   </label>
                 </div>
@@ -184,9 +184,9 @@ export default function AdminAssignmentInsightsPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="font-medium">{x.fullName || x.email}</div>
-                          <div className="text-xs text-muted-foreground mt-1">{x.email}</div>
+                          <div className="text-xs opacity-60 mt-1">{x.email}</div>
                         </div>
-                        <div className="text-right text-xs text-muted-foreground shrink-0">
+                        <div className="text-right text-xs opacity-60 shrink-0">
                           <div>{fmtDate(x.createdAtUtc)}</div>
                           <div className="mt-1">{typeLabels[x.sourceKind] || x.sourceKind}</div>
                         </div>
@@ -205,7 +205,7 @@ export default function AdminAssignmentInsightsPage() {
                         </div>
                       ) : null}
                     </div>
-                  )) : <div className="text-sm text-muted-foreground">Активность не найдена.</div>}
+                  )) : <div className="text-sm opacity-60">Активность не найдена.</div>}
                 </div>
               </Card>
             </div>

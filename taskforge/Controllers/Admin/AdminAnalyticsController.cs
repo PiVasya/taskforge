@@ -16,6 +16,7 @@ sealed record SupportPeriodSummary(int TotalTickets, int OpenTickets, int NewTic
 [Authorize(Roles = "Admin")]
 public sealed class AdminAnalyticsController : ControllerBase
 {
+    private static readonly TimeZoneInfo AnalyticsTimeZone = ResolveAnalyticsTimeZone();
     private readonly ApplicationDbContext _db;
 
     public AdminAnalyticsController(ApplicationDbContext db)
@@ -27,30 +28,34 @@ public sealed class AdminAnalyticsController : ControllerBase
     public async Task<IActionResult> GetOverview([FromQuery] int days = 30, CancellationToken ct = default)
     {
         days = NormalizeDays(days);
-        var now = DateTime.UtcNow;
-        var from = now.Date.AddDays(-(days - 1));
+        var nowUtc = DateTime.UtcNow;
+        var localNow = ToAnalyticsTime(nowUtc);
+        var localFromDate = localNow.Date.AddDays(-(days - 1));
+        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(localFromDate, AnalyticsTimeZone);
 
-        var users = await BuildUsersBlockAsync(from, now, ct);
-        var api = await BuildApiBlockAsync(from, now, ct);
-        var assignments = await BuildAssignmentsBlockAsync(from, now, ct);
-        var support = await BuildSupportBlockAsync(from, now, ct);
+        var users = await BuildUsersBlockAsync(fromUtc, nowUtc, localFromDate, days, ct);
+        var api = await BuildApiBlockAsync(fromUtc, nowUtc, localFromDate, days, ct);
+        var assignments = await BuildAssignmentsBlockAsync(fromUtc, nowUtc, localFromDate, days, ct);
+        var support = await BuildSupportBlockAsync(fromUtc, nowUtc, localFromDate, days, ct);
 
-        var previousTo = from.AddTicks(-1);
-        var previousFrom = from.AddDays(-days);
-        var currentUsersSummary = await BuildUsersSummaryAsync(from, now, ct);
-        var previousUsersSummary = await BuildUsersSummaryAsync(previousFrom, previousTo, ct);
-        var currentApiSummary = await BuildApiSummaryAsync(from, now, ct);
-        var previousApiSummary = await BuildApiSummaryAsync(previousFrom, previousTo, ct);
-        var currentAssignmentsSummary = await BuildAssignmentsSummaryAsync(from, now, ct);
-        var previousAssignmentsSummary = await BuildAssignmentsSummaryAsync(previousFrom, previousTo, ct);
-        var currentSupportSummary = await BuildSupportSummaryAsync(from, now, ct);
-        var previousSupportSummary = await BuildSupportSummaryAsync(previousFrom, previousTo, ct);
-        var executive = await BuildExecutiveBlockAsync(days, currentUsersSummary, previousUsersSummary, currentApiSummary, previousApiSummary, currentAssignmentsSummary, previousAssignmentsSummary, currentSupportSummary, previousSupportSummary, from, now, ct);
+        var previousToUtc = fromUtc.AddTicks(-1);
+        var previousLocalFromDate = localFromDate.AddDays(-days);
+        var previousFromUtc = TimeZoneInfo.ConvertTimeToUtc(previousLocalFromDate, AnalyticsTimeZone);
+        var currentUsersSummary = await BuildUsersSummaryAsync(fromUtc, nowUtc, ct);
+        var previousUsersSummary = await BuildUsersSummaryAsync(previousFromUtc, previousToUtc, ct);
+        var currentApiSummary = await BuildApiSummaryAsync(fromUtc, nowUtc, ct);
+        var previousApiSummary = await BuildApiSummaryAsync(previousFromUtc, previousToUtc, ct);
+        var currentAssignmentsSummary = await BuildAssignmentsSummaryAsync(fromUtc, nowUtc, ct);
+        var previousAssignmentsSummary = await BuildAssignmentsSummaryAsync(previousFromUtc, previousToUtc, ct);
+        var currentSupportSummary = await BuildSupportSummaryAsync(fromUtc, nowUtc, ct);
+        var previousSupportSummary = await BuildSupportSummaryAsync(previousFromUtc, previousToUtc, ct);
+        var executive = await BuildExecutiveBlockAsync(days, currentUsersSummary, previousUsersSummary, currentApiSummary, previousApiSummary, currentAssignmentsSummary, previousAssignmentsSummary, currentSupportSummary, previousSupportSummary, fromUtc, nowUtc, ct);
 
         return Ok(new
         {
-            generatedAtUtc = now,
-            period = new { days, fromUtc = from, toUtc = now },
+            generatedAtUtc = nowUtc,
+            timeZone = AnalyticsTimeZone.Id,
+            period = new { days, fromUtc, toUtc = nowUtc, fromLocal = localFromDate, toLocal = localNow },
             users,
             api,
             assignments,
@@ -63,8 +68,10 @@ public sealed class AdminAnalyticsController : ControllerBase
     public async Task<IActionResult> GetUserDetails(Guid userId, [FromQuery] int days = 30, CancellationToken ct = default)
     {
         days = NormalizeDays(days);
-        var now = DateTime.UtcNow;
-        var from = now.Date.AddDays(-(days - 1));
+        var nowUtc = DateTime.UtcNow;
+        var localNow = ToAnalyticsTime(nowUtc);
+        var localFromDate = localNow.Date.AddDays(-(days - 1));
+        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(localFromDate, AnalyticsTimeZone);
 
         var user = await _db.Users.AsNoTracking()
             .Where(x => x.Id == userId)
@@ -83,32 +90,32 @@ public sealed class AdminAnalyticsController : ControllerBase
         if (user == null) return NotFound();
 
         var loginRows = await _db.UserLoginLogs.AsNoTracking()
-            .Where(x => x.UserId == userId && x.LoginAt >= from && x.LoginAt <= now)
+            .Where(x => x.UserId == userId && x.LoginAt >= fromUtc && x.LoginAt <= nowUtc)
             .Select(x => new { x.LoginAt, x.IpAddress, x.UserAgent })
             .ToListAsync(ct);
 
         var requestRows = await _db.RequestLogs.AsNoTracking()
-            .Where(x => x.UserId == userId && x.CreatedAtUtc >= from && x.CreatedAtUtc <= now)
+            .Where(x => x.UserId == userId && x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc <= nowUtc)
             .Select(x => new { x.Path, x.Method, x.StatusCode, x.DurationMs, x.ClientType, x.CreatedAtUtc })
             .ToListAsync(ct);
 
         var codeSolutions = await _db.UserTaskSolutions.AsNoTracking()
-            .Where(x => x.UserId == userId && x.SubmittedAt >= from && x.SubmittedAt <= now)
+            .Where(x => x.UserId == userId && x.SubmittedAt >= fromUtc && x.SubmittedAt <= nowUtc)
             .Select(x => new { x.SubmittedAt, x.PassedAllTests, x.Language })
             .ToListAsync(ct);
 
         var imageSolutions = await _db.UserImageTaskSolutions.AsNoTracking()
-            .Where(x => x.UserId == userId && x.CreatedAtUtc >= from && x.CreatedAtUtc <= now)
+            .Where(x => x.UserId == userId && x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc <= nowUtc)
             .Select(x => new { x.CreatedAtUtc, x.Passed, x.Kind, x.Language })
             .ToListAsync(ct);
 
         var testAttempts = await _db.UserTaskTestAttempts.AsNoTracking()
-            .Where(x => x.UserId == userId && x.CreatedAt >= from && x.CreatedAt <= now)
+            .Where(x => x.UserId == userId && x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
             .Select(x => new { x.CreatedAt, x.Passed, x.ScorePercent })
             .ToListAsync(ct);
 
         var supportRows = await _db.SupportTickets.AsNoTracking()
-            .Where(x => x.UserId == userId && x.CreatedAt >= from && x.CreatedAt <= now)
+            .Where(x => x.UserId == userId && x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
             .Select(x => new { x.CreatedAt, x.IsClosed, x.Type })
             .ToListAsync(ct);
 
@@ -126,7 +133,7 @@ public sealed class AdminAnalyticsController : ControllerBase
             activity = new
             {
                 totalLogins = loginRows.Count,
-                activeDays = loginRows.Select(x => x.LoginAt.Date).Distinct().Count(),
+                activeDays = loginRows.Select(x => ToAnalyticsDate(x.LoginAt)).Distinct().Count(),
                 totalRequests = requestRows.Count,
                 errorRequests = requestRows.Count(x => x.StatusCode >= 400),
                 avgLatencyMs = requestRows.Count == 0 ? 0 : Math.Round(requestRows.Average(x => (double)x.DurationMs), 1),
@@ -137,11 +144,11 @@ public sealed class AdminAnalyticsController : ControllerBase
             },
             charts = new
             {
-                loginsByDay = FillDateSeries(from, days, loginRows.GroupBy(x => x.LoginAt.Date).ToDictionary(g => g.Key, g => g.Count())),
-                requestsByDay = FillDateSeries(from, days, requestRows.GroupBy(x => x.CreatedAtUtc.Date).ToDictionary(g => g.Key, g => g.Count())),
-                requestsByHour = FillHourSeries(requestRows.GroupBy(x => x.CreatedAtUtc.Hour).ToDictionary(g => g.Key, g => g.Count())),
-                latencyByDay = FillDateSeriesDouble(from, days, requestRows.GroupBy(x => x.CreatedAtUtc.Date).ToDictionary(g => g.Key, g => g.Average(v => (double)v.DurationMs))),
-                solutionsByDay = FillDateSeries(from, days, codeSolutions.GroupBy(x => x.SubmittedAt.Date).ToDictionary(g => g.Key, g => g.Count())),
+                loginsByDay = FillDateSeries(localFromDate, days, loginRows.GroupBy(x => ToAnalyticsDate(x.LoginAt)).ToDictionary(g => g.Key, g => g.Count())),
+                requestsByDay = FillDateSeries(localFromDate, days, requestRows.GroupBy(x => ToAnalyticsDate(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Count())),
+                requestsByHour = FillHourSeries(requestRows.GroupBy(x => ToAnalyticsHour(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Count())),
+                latencyByDay = FillDateSeriesDouble(localFromDate, days, requestRows.GroupBy(x => ToAnalyticsDate(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Average(v => (double)v.DurationMs))),
+                solutionsByDay = FillDateSeries(localFromDate, days, codeSolutions.GroupBy(x => ToAnalyticsDate(x.SubmittedAt)).ToDictionary(g => g.Key, g => g.Count())),
             },
             topPaths = requestRows
                 .GroupBy(x => x.Path)
@@ -205,21 +212,22 @@ public sealed class AdminAnalyticsController : ControllerBase
         return Ok(users);
     }
 
-    private async Task<object> BuildUsersBlockAsync(DateTime from, DateTime now, CancellationToken ct)
+    private async Task<object> BuildUsersBlockAsync(DateTime fromUtc, DateTime nowUtc, DateTime localFromDate, int days, CancellationToken ct)
     {
         var allUsers = await _db.Users.AsNoTracking()
             .Select(x => new { x.Id, x.Email, x.FirstName, x.LastName, x.Role, x.CreatedAt, x.LastLoginAt })
             .ToListAsync(ct);
 
         var loginRows = await _db.UserLoginLogs.AsNoTracking()
-            .Where(x => x.LoginAt >= from && x.LoginAt <= now)
+            .Where(x => x.LoginAt >= fromUtc && x.LoginAt <= nowUtc)
             .Select(x => new { x.UserId, x.LoginAt })
             .ToListAsync(ct);
 
         var totalUsers = allUsers.Count;
-        var newUsers = allUsers.Count(x => x.CreatedAt >= from && x.CreatedAt <= now);
+        var newUsers = allUsers.Count(x => x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc);
         var activeUsers = loginRows.Select(x => x.UserId).Distinct().Count();
-        var dauToday = loginRows.Where(x => x.LoginAt.Date == now.Date).Select(x => x.UserId).Distinct().Count();
+        var localToday = ToAnalyticsDate(nowUtc);
+        var dauToday = loginRows.Where(x => ToAnalyticsDate(x.LoginAt) == localToday).Select(x => x.UserId).Distinct().Count();
 
         var usersById = allUsers.ToDictionary(x => x.Id);
         var topUsers = loginRows
@@ -235,7 +243,7 @@ public sealed class AdminAnalyticsController : ControllerBase
                     role = u?.Role,
                     value = g.Count(),
                     lastLoginAt = g.Max(v => v.LoginAt),
-                    activeDays = g.Select(v => v.LoginAt.Date).Distinct().Count(),
+                    activeDays = g.Select(v => ToAnalyticsDate(v.LoginAt)).Distinct().Count(),
                 };
             })
             .OrderByDescending(x => x.value)
@@ -248,11 +256,11 @@ public sealed class AdminAnalyticsController : ControllerBase
             .OrderByDescending(x => x.value)
             .ToList();
 
-        var retentionCutoff = now.Date.AddDays(-30);
+        var retentionCutoff = ToAnalyticsDate(nowUtc).AddDays(-30);
         var retentionCohort = allUsers.Where(x => x.CreatedAt <= retentionCutoff).Select(x => x.Id).ToHashSet();
         var retention30 = retentionCohort.Count == 0
             ? 0
-            : Math.Round(loginRows.Where(x => x.LoginAt >= retentionCutoff && retentionCohort.Contains(x.UserId)).Select(x => x.UserId).Distinct().Count() * 100.0 / retentionCohort.Count, 1);
+            : Math.Round(loginRows.Where(x => ToAnalyticsDate(x.LoginAt) >= retentionCutoff && retentionCohort.Contains(x.UserId)).Select(x => x.UserId).Distinct().Count() * 100.0 / retentionCohort.Count, 1);
 
         return new
         {
@@ -264,18 +272,18 @@ public sealed class AdminAnalyticsController : ControllerBase
                 dauToday,
                 retention30,
             },
-            loginsByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, loginRows.GroupBy(x => x.LoginAt.Date).ToDictionary(g => g.Key, g => g.Count())),
-            uniqueUsersByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, loginRows.GroupBy(x => x.LoginAt.Date).ToDictionary(g => g.Key, g => g.Select(v => v.UserId).Distinct().Count())),
-            loginsByHour = FillHourSeries(loginRows.GroupBy(x => x.LoginAt.Hour).ToDictionary(g => g.Key, g => g.Count())),
+            loginsByDay = FillDateSeries(localFromDate, days, loginRows.GroupBy(x => ToAnalyticsDate(x.LoginAt)).ToDictionary(g => g.Key, g => g.Count())),
+            uniqueUsersByDay = FillDateSeries(localFromDate, days, loginRows.GroupBy(x => ToAnalyticsDate(x.LoginAt)).ToDictionary(g => g.Key, g => g.Select(v => v.UserId).Distinct().Count())),
+            loginsByHour = FillHourSeries(loginRows.GroupBy(x => ToAnalyticsHour(x.LoginAt)).ToDictionary(g => g.Key, g => g.Count())),
             roleDistribution,
             topUsers,
         };
     }
 
-    private async Task<object> BuildApiBlockAsync(DateTime from, DateTime now, CancellationToken ct)
+    private async Task<object> BuildApiBlockAsync(DateTime fromUtc, DateTime nowUtc, DateTime localFromDate, int days, CancellationToken ct)
     {
         var rows = await _db.RequestLogs.AsNoTracking()
-            .Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= now)
+            .Where(x => x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc <= nowUtc)
             .Select(x => new { x.UserId, x.Path, x.Method, x.StatusCode, x.DurationMs, x.ClientType, x.CreatedAtUtc })
             .ToListAsync(ct);
 
@@ -303,9 +311,9 @@ public sealed class AdminAnalyticsController : ControllerBase
                 p95LatencyMs = Math.Round(p95, 1),
                 p99LatencyMs = Math.Round(p99, 1),
             },
-            requestsByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, rows.GroupBy(x => x.CreatedAtUtc.Date).ToDictionary(g => g.Key, g => g.Count())),
-            errorsByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, rows.Where(x => x.StatusCode >= 400).GroupBy(x => x.CreatedAtUtc.Date).ToDictionary(g => g.Key, g => g.Count())),
-            latencyByDay = FillDateSeriesDouble(from, (now.Date - from.Date).Days + 1, rows.GroupBy(x => x.CreatedAtUtc.Date).ToDictionary(g => g.Key, g => g.Average(v => (double)v.DurationMs))),
+            requestsByDay = FillDateSeries(localFromDate, days, rows.GroupBy(x => ToAnalyticsDate(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Count())),
+            errorsByDay = FillDateSeries(localFromDate, days, rows.Where(x => x.StatusCode >= 400).GroupBy(x => ToAnalyticsDate(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Count())),
+            latencyByDay = FillDateSeriesDouble(localFromDate, days, rows.GroupBy(x => ToAnalyticsDate(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Average(v => (double)v.DurationMs))),
             clientTypes = rows.GroupBy(x => x.ClientType).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
             methodTypes = rows.GroupBy(x => x.Method).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
             topEndpoints = rows.GroupBy(x => x.Path)
@@ -355,7 +363,7 @@ public sealed class AdminAnalyticsController : ControllerBase
         };
     }
 
-    private async Task<object> BuildAssignmentsBlockAsync(DateTime from, DateTime now, CancellationToken ct)
+    private async Task<object> BuildAssignmentsBlockAsync(DateTime fromUtc, DateTime nowUtc, DateTime localFromDate, int days, CancellationToken ct)
     {
         var assignments = await _db.TaskAssignments.AsNoTracking()
             .Select(x => new { x.Id, x.Title, x.Type, x.Difficulty, x.Rating })
@@ -363,23 +371,23 @@ public sealed class AdminAnalyticsController : ControllerBase
         var byId = assignments.ToDictionary(x => x.Id);
 
         var codeSolutions = await _db.UserTaskSolutions.AsNoTracking()
-            .Where(x => x.SubmittedAt >= from && x.SubmittedAt <= now)
+            .Where(x => x.SubmittedAt >= fromUtc && x.SubmittedAt <= nowUtc)
             .Select(x => new { x.TaskAssignmentId, x.SubmittedAt, x.PassedAllTests, x.Language })
             .ToListAsync(ct);
 
         var imageSolutions = await _db.UserImageTaskSolutions.AsNoTracking()
-            .Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= now)
+            .Where(x => x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc <= nowUtc)
             .Select(x => new { x.TaskAssignmentId, x.CreatedAtUtc, x.Passed, x.Kind, x.Language, x.IsTrial })
             .ToListAsync(ct);
 
         var testAttempts = await _db.UserTaskTestAttempts.AsNoTracking()
-            .Where(x => x.CreatedAt >= from && x.CreatedAt <= now)
+            .Where(x => x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
             .Select(x => new { x.TaskAssignmentId, x.CreatedAt, x.Passed, x.ScorePercent, x.StartedAt, x.SubmittedAt })
             .ToListAsync(ct);
 
-        var allByDay = codeSolutions.Select(x => new { Day = x.SubmittedAt.Date, Type = "code", Passed = x.PassedAllTests })
-            .Concat(imageSolutions.Select(x => new { Day = x.CreatedAtUtc.Date, Type = "image", Passed = x.Passed == true }))
-            .Concat(testAttempts.Select(x => new { Day = x.CreatedAt.Date, Type = "test", Passed = x.Passed }))
+        var allByDay = codeSolutions.Select(x => new { Day = ToAnalyticsDate(x.SubmittedAt), Type = "code", Passed = x.PassedAllTests })
+            .Concat(imageSolutions.Select(x => new { Day = ToAnalyticsDate(x.CreatedAtUtc), Type = "image", Passed = x.Passed == true }))
+            .Concat(testAttempts.Select(x => new { Day = ToAnalyticsDate(x.CreatedAt), Type = "test", Passed = x.Passed }))
             .ToList();
 
         var topAssignments = codeSolutions.Select(x => new { x.TaskAssignmentId, Passed = x.PassedAllTests })
@@ -425,8 +433,8 @@ public sealed class AdminAnalyticsController : ControllerBase
                 successRate = allByDay.Count == 0 ? 0 : Math.Round(allByDay.Count(x => x.Passed) * 100.0 / allByDay.Count, 1),
                 avgTestScore = testAttempts.Count == 0 ? 0 : Math.Round(testAttempts.Average(x => (double)x.ScorePercent), 1),
             },
-            attemptsByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, allByDay.GroupBy(x => x.Day).ToDictionary(g => g.Key, g => g.Count())),
-            successByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, allByDay.Where(x => x.Passed).GroupBy(x => x.Day).ToDictionary(g => g.Key, g => g.Count())),
+            attemptsByDay = FillDateSeries(localFromDate, days, allByDay.GroupBy(x => x.Day).ToDictionary(g => g.Key, g => g.Count())),
+            successByDay = FillDateSeries(localFromDate, days, allByDay.Where(x => x.Passed).GroupBy(x => x.Day).ToDictionary(g => g.Key, g => g.Count())),
             types = new[]
             {
                 new { label = "code", value = codeSolutions.Count },
@@ -445,15 +453,15 @@ public sealed class AdminAnalyticsController : ControllerBase
         };
     }
 
-    private async Task<object> BuildSupportBlockAsync(DateTime from, DateTime now, CancellationToken ct)
+    private async Task<object> BuildSupportBlockAsync(DateTime fromUtc, DateTime nowUtc, DateTime localFromDate, int days, CancellationToken ct)
     {
         var tickets = await _db.SupportTickets.AsNoTracking()
-            .Where(x => x.CreatedAt <= now)
+            .Where(x => x.CreatedAt <= nowUtc)
             .Select(x => new { x.Id, x.UserId, x.Type, x.IsClosed, x.CreatedAt, x.UpdatedAt, x.AssignedAdminId })
             .ToListAsync(ct);
 
         var messages = await _db.SupportMessages.AsNoTracking()
-            .Where(x => x.CreatedAt >= from && x.CreatedAt <= now)
+            .Where(x => x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
             .Select(x => new { x.TicketId, x.CreatedAt, x.IsFromAdmin, x.AuthorName, x.AuthorUserId, x.Source })
             .ToListAsync(ct);
 
@@ -467,8 +475,8 @@ public sealed class AdminAnalyticsController : ControllerBase
             .ToListAsync(ct);
         var adminsById = admins.ToDictionary(x => x.Id);
 
-        var ticketsInPeriod = tickets.Where(x => x.CreatedAt >= from && x.CreatedAt <= now).ToList();
-        var closedInPeriod = tickets.Where(x => x.IsClosed && x.UpdatedAt >= from && x.UpdatedAt <= now).ToList();
+        var ticketsInPeriod = tickets.Where(x => x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc).ToList();
+        var closedInPeriod = tickets.Where(x => x.IsClosed && x.UpdatedAt >= fromUtc && x.UpdatedAt <= nowUtc).ToList();
 
         var avgFirstResponse = ticketsInPeriod
             .Select(ticket =>
@@ -477,7 +485,7 @@ public sealed class AdminAnalyticsController : ControllerBase
                     .OrderBy(m => m.CreatedAt)
                     .FirstOrDefault();
                 if (firstAdmin == null) return (double?)null;
-                return (firstAdmin.CreatedAt - ticket.CreatedAt).TotalMinutes;
+                return (double?)(firstAdmin.CreatedAt - ticket.CreatedAt).TotalMinutes;
             })
             .Where(x => x != null)
             .Select(x => x!.Value)
@@ -516,9 +524,9 @@ public sealed class AdminAnalyticsController : ControllerBase
                 avgFirstResponseMinutes = avgFirstResponse.Count == 0 ? 0 : Math.Round(avgFirstResponse.Average(), 1),
                 avgCloseMinutes = avgClose.Count == 0 ? 0 : Math.Round(avgClose.Average(), 1),
             },
-            ticketsByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, ticketsInPeriod.GroupBy(x => x.CreatedAt.Date).ToDictionary(g => g.Key, g => g.Count())),
-            closedByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, closedInPeriod.GroupBy(x => x.UpdatedAt.Date).ToDictionary(g => g.Key, g => g.Count())),
-            messagesByDay = FillDateSeries(from, (now.Date - from.Date).Days + 1, messages.GroupBy(x => x.CreatedAt.Date).ToDictionary(g => g.Key, g => g.Count())),
+            ticketsByDay = FillDateSeries(localFromDate, days, ticketsInPeriod.GroupBy(x => ToAnalyticsDate(x.CreatedAt)).ToDictionary(g => g.Key, g => g.Count())),
+            closedByDay = FillDateSeries(localFromDate, days, closedInPeriod.GroupBy(x => ToAnalyticsDate(x.UpdatedAt)).ToDictionary(g => g.Key, g => g.Count())),
+            messagesByDay = FillDateSeries(localFromDate, days, messages.GroupBy(x => ToAnalyticsDate(x.CreatedAt)).ToDictionary(g => g.Key, g => g.Count())),
             ticketTypes = ticketsInPeriod.GroupBy(x => x.Type).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
             topAdmins,
         };
@@ -803,6 +811,27 @@ public sealed class AdminAnalyticsController : ControllerBase
         }
         return result;
     }
+
+
+    private static TimeZoneInfo ResolveAnalyticsTimeZone()
+    {
+        foreach (var id in new[] { "Europe/Warsaw", "Central European Standard Time", TimeZoneInfo.Local.Id })
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+            catch { }
+        }
+        return TimeZoneInfo.Utc;
+    }
+
+    private static DateTime ToAnalyticsTime(DateTime utc)
+    {
+        if (utc.Kind == DateTimeKind.Unspecified) utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(utc.ToUniversalTime(), AnalyticsTimeZone);
+    }
+
+    private static DateTime ToAnalyticsDate(DateTime utc) => ToAnalyticsTime(utc).Date;
+
+    private static int ToAnalyticsHour(DateTime utc) => ToAnalyticsTime(utc).Hour;
 
     private static double CalculatePercentile(double[] sorted, double percentile)
     {
