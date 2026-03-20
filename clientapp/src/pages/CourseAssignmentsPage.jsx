@@ -297,14 +297,18 @@ export default function CourseAssignmentsPage() {
 
   return (
     <Layout>
-      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Button variant="outline" title="Вернуться к курсам" className="shrink-0" onClick={() => nav("/courses")}>
             ← Курсы
           </Button>
           <h1 className="min-w-0 text-xl font-semibold leading-tight sm:text-2xl flex items-center gap-2 flex-wrap">
             <Layers size={22} className="shrink-0" /> <span className="break-words">Задания курса</span>
           </h1>
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-500">Теперь у центральной области заметно больше воздуха по ширине: меньше пустых границ, карточки плотнее раскладываются по сетке, а боковые панели не съедают основное пространство.</p>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">
@@ -336,8 +340,9 @@ export default function CourseAssignmentsPage() {
           </IfEditor>
         </div>
       </div>
+      </div>
 
-      <Card className="mb-6">
+      <Card className="page-search-card mb-6 rounded-[24px] p-3 sm:p-4">
         <div className="flex items-center gap-3">
           <div className="relative flex-1">
             <Input
@@ -352,7 +357,7 @@ export default function CourseAssignmentsPage() {
       {err && <div className="text-red-500 mb-4">{err}</div>}
       {loading && <div className="text-neutral-500">Загрузка…</div>}
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <div className="auto-fill-grid auto-fill-grid--dense">
         {filtered.map((a, idx) => {
           const solved = !!a.solvedByCurrentUser;
 
@@ -489,7 +494,7 @@ export default function CourseAssignmentsPage() {
           const CardBase = (
             <Card
               className={
-                "transition hover:shadow-lg " +
+                "h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
                 (solved ? "opacity-60 hover:opacity-90" : "")
               }
             >
@@ -502,7 +507,7 @@ export default function CourseAssignmentsPage() {
           const EditorCard = (
             <Card
               className={
-                "relative transition hover:shadow-lg " +
+                "relative h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
                 (solved ? "opacity-60 hover:opacity-90" : "")
               }
             >

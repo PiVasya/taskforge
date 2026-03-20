@@ -62,7 +62,7 @@ function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButto
 export default function Layout({ children, fullWidth = false, hideFooter = false }) {
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
     const root = document.documentElement;
-    const palettes = ['blue', 'pink', 'apple', 'red', 'honey'];
+    const palettes = ['blue', 'pink', 'apple', 'red', 'honey', 'violet'];
     const palette = palettes.includes(nextColorTheme) ? nextColorTheme : 'pink';
 
     root.classList.remove('blue', 'pink', 'apple', 'red', 'honey');
@@ -236,7 +236,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   })();
 
   const mainWrapClass = fullWidth
-    ? 'w-full max-w-none px-3 sm:px-6 lg:px-8 py-4 sm:py-8 relative z-10'
+    ? 'w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
     : 'container-app py-4 sm:py-8 relative z-10';
 
   return (
@@ -435,9 +435,9 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       </header>
 
       <main className={mainWrapClass}>
-        <div className={`items-start gap-6 ${access ? 'xl:grid xl:grid-cols-[17rem,minmax(0,1fr),18rem]' : ''}`}>
+        <div className={`items-start gap-5 2xl:gap-7 ${access ? 'xl:grid xl:grid-cols-[14.75rem,minmax(0,1fr),15rem] 2xl:grid-cols-[15.25rem,minmax(0,1fr),15.5rem]' : ''}`}>
           {access && (
-            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start">
+            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">
                 <div className="side-nav-section-title">Основное</div>
                 <div className="mt-2 space-y-1.5">
@@ -460,7 +460,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </aside>
           )}
 
-          <section className="min-w-0">
+          <section className="min-w-0 xl:px-1 2xl:px-2">
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -471,7 +471,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           </section>
 
           {access && (
-            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start">
+            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-4">
                 <div className="flex items-start gap-3">
                   <div className="h-12 w-12 rounded-2xl grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300 shrink-0">

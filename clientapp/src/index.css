@@ -66,7 +66,8 @@ html:not(.dark).blue,
 html:not(.dark).pink,
 html:not(.dark).apple,
 html:not(.dark).red,
-html:not(.dark).honey {
+html:not(.dark).honey,
+html:not(.dark).violet {
   /* базовый бордер = средний brand-тон */
   --border: var(--brand-300);
 }
@@ -130,6 +131,18 @@ html:not(.dark).honey .border-neutral-300\/70,
 html:not(.dark).honey .border-gray-200,
 html:not(.dark).honey .border-slate-200 {
   border-color: rgba(var(--border) / 0.58) !important;
+}
+
+html:not(.dark).violet .border-neutral-200,
+html:not(.dark).violet .border-neutral-200\/60,
+html:not(.dark).violet .border-neutral-200\/70,
+html:not(.dark).violet .border-neutral-200\/80,
+html:not(.dark).violet .border-neutral-300,
+html:not(.dark).violet .border-neutral-300\/60,
+html:not(.dark).violet .border-neutral-300\/70,
+html:not(.dark).violet .border-gray-200,
+html:not(.dark).violet .border-slate-200 {
+  border-color: rgba(var(--border) / 0.60) !important;
 }
 
 /* Цветовая тема: BLUE (дефолт). Класс нужен для явного выбора в UI. */
@@ -250,6 +263,29 @@ html.honey {
   --fg: 148 163 184;
 }
 
+/* Цветовая тема: VIOLET */
+html.violet {
+  --page-bg: 250 245 255;
+  --card: 253 249 255;
+  --muted: 243 232 255;
+
+  --brand-50: 245 243 255;
+  --brand-100: 237 233 254;
+  --brand-200: 221 214 254;
+  --brand-300: 196 181 253;
+  --brand-400: 167 139 250;
+  --brand-500: 139 92 246;
+  --brand-600: 124 58 237;
+  --brand-700: 109 40 217;
+  --brand-800: 91 33 182;
+  --brand-900: 76 29 149;
+
+  --fx-1: 168 85 247;
+  --fx-2: 244 114 182;
+  --fx-3: 34 211 238;
+  --fg: 148 163 184;
+}
+
 /*
   Режим: DARK.
   Раньше здесь были neutral-900/800 для всех тем, из‑за чего PINK/APPLE выглядели «синими».
@@ -299,8 +335,16 @@ html.dark.honey {
   --fg: 254 243 199;    /* amber-100 */
 }
 
+html.dark.violet {
+  --page-bg: 24 16 38;
+  --card: 28 18 46;
+  --muted: 42 28 64;
+  --border: 82 58 128;
+  --fg: 237 233 254;
+}
+
 /* запасной вариант, если вдруг на html нет theme-класса */
-html.dark:not(.blue):not(.pink):not(.apple):not(.red):not(.honey) {
+html.dark:not(.blue):not(.pink):not(.apple):not(.red):not(.honey):not(.violet) {
   --page-bg: 15 23 42;
   --card: 15 23 42;
   --muted: 30 41 59;
@@ -377,7 +421,7 @@ header .btn-primary {
   @apply font-medium;
 }
 
-.container-app { @apply mx-auto max-w-7xl px-3 sm:px-6 lg:px-8; }
+.container-app { width: min(1740px, calc(100vw - 24px)); max-width: none; margin-left: auto; margin-right: auto; padding-left: 0.75rem; padding-right: 0.75rem; }
 
 html, body, #root { min-height: 100%; }
 body { overflow-x: hidden; }
@@ -386,6 +430,30 @@ body { overflow-x: hidden; }
   body {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+  }
+}
+
+@media (min-width: 640px) {
+  .container-app {
+    width: min(1780px, calc(100vw - 32px));
+    padding-left: 1.1rem;
+    padding-right: 1.1rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .container-app {
+    width: min(1860px, calc(100vw - 44px));
+    padding-left: 1.35rem;
+    padding-right: 1.35rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  .container-app {
+    width: min(1940px, calc(100vw - 56px));
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
   }
 }
 
@@ -409,7 +477,7 @@ body { overflow-x: hidden; }
   .badge { font-size: 11px; }
   .input, .select, .textarea { font-size: 16px; }
   header .btn-outline, header .btn-primary { padding-left: .8rem; padding-right: .8rem; }
-  .container-app { padding-left: .75rem; padding-right: .75rem; }
+  .container-app { width: min(100vw - 16px, 100%); padding-left: .75rem; padding-right: .75rem; }
 }
 
 @media (max-width: 480px) {
@@ -1012,6 +1080,47 @@ html.dark .bg-fx__blob {
   100% { transform: translate3d(-5%, 22%, 0) scale(1); }
 }
 
+/* ====== Layout polish / wider shell ====== */
+.layout-topbar-surface {
+  background: linear-gradient(180deg, rgba(var(--card) / 0.86), rgba(var(--card) / 0.72));
+}
+
+.page-hero-card {
+  border: 1px solid rgba(var(--border) / 0.52);
+  background: linear-gradient(180deg, rgba(var(--card) / 0.72), rgba(var(--card) / 0.58));
+  backdrop-filter: blur(14px);
+}
+
+.page-search-card {
+  border: 1px solid rgba(var(--border) / 0.48);
+  background: linear-gradient(180deg, rgba(var(--card) / 0.66), rgba(var(--card) / 0.52));
+}
+
+.auto-fill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 1.25rem;
+}
+
+.auto-fill-grid.auto-fill-grid--dense {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+@media (min-width: 1280px) {
+  .auto-fill-grid { gap: 1.35rem; }
+}
+
+@media (min-width: 1536px) {
+  .auto-fill-grid {
+    grid-template-columns: repeat(auto-fill, minmax(292px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .auto-fill-grid.auto-fill-grid--dense {
+    grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+  }
+}
+
 /* ====== Social-like layout helpers (без смены основной палитры) ====== */
 .side-nav-section-title {
   @apply px-2 text-[11px] font-semibold uppercase tracking-[0.18em];
@@ -1019,23 +1128,23 @@ html.dark .bg-fx__blob {
 }
 
 .side-nav-link {
-  @apply flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition;
+  @apply flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
 }
 
 .side-nav-link:hover {
-  background: rgba(var(--border) / 0.14);
+  background: rgba(var(--border) / 0.16);
 }
 
 .side-nav-link.is-active {
-  background: rgba(var(--accent) / 0.10);
-  border-color: rgba(var(--accent) / 0.26);
+  background: linear-gradient(180deg, rgba(var(--accent) / 0.13), rgba(var(--accent) / 0.08));
+  border-color: rgba(var(--accent) / 0.28);
 }
 
 .side-nav-icon {
-  @apply h-10 w-10 shrink-0 rounded-2xl grid place-items-center;
+  @apply h-9 w-9 shrink-0 rounded-2xl grid place-items-center;
   background: rgba(var(--border) / 0.12);
 }
 

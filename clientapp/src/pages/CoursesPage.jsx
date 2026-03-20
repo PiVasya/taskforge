@@ -54,8 +54,13 @@ export default function CoursesPage() {
 
   return (
     <Layout>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Курсы</h1>
+      <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="max-w-3xl">
+          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-400">Каталог</div>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Курсы</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-500">Сделали центральную часть шире: меньше пустых полей по краям, больше места для карточек и поиска, при этом левый и правый блоки остались на своих местах.</p>
+        </div>
 
         {canEdit && isEditorMode && (
           <Button onClick={handleCreate} title="Создать курс">
@@ -64,8 +69,9 @@ export default function CoursesPage() {
           </Button>
         )}
       </div>
+      </div>
 
-      <Card className="mb-6">
+      <Card className="page-search-card mb-6 rounded-[24px] p-3 sm:p-4">
         <Input
           placeholder="Поиск по названию/описанию…"
           value={q}
@@ -76,7 +82,7 @@ export default function CoursesPage() {
       {err && <div className="text-red-500 mb-4">{err}</div>}
       {loading && <div className="text-neutral-500">Загрузка…</div>}
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <div className="auto-fill-grid">
         {filtered.map((c) => {
           const href = canEdit && isEditorMode && c.canEdit ? `/courses/${c.id}/edit` : `/course/${c.id}`;
           const showOwnerBadge = canEdit && isEditorMode;
@@ -105,9 +111,9 @@ export default function CoursesPage() {
                   )
                 }
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-lg font-semibold">{c.title}</div>
+                <div className="flex h-full items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-lg font-semibold leading-7">{c.title}</div>
                     {c.description && (
                       <p className="text-sm text-neutral-500 mt-1 line-clamp-2">{c.description}</p>
                     )}
