@@ -1011,3 +1011,50 @@ html.dark .bg-fx__blob {
   50%  { transform: translate3d(18%, -8%, 0) scale(1.07); }
   100% { transform: translate3d(-5%, 22%, 0) scale(1); }
 }
+
+/* ====== Social-like layout helpers (без смены основной палитры) ====== */
+.side-nav-section-title {
+  @apply px-2 text-[11px] font-semibold uppercase tracking-[0.18em];
+  color: rgb(var(--text-muted));
+}
+
+.side-nav-link {
+  @apply flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+}
+
+.side-nav-link:hover {
+  background: rgba(var(--border) / 0.14);
+}
+
+.side-nav-link.is-active {
+  background: rgba(var(--accent) / 0.10);
+  border-color: rgba(var(--accent) / 0.26);
+}
+
+.side-nav-icon {
+  @apply h-10 w-10 shrink-0 rounded-2xl grid place-items-center;
+  background: rgba(var(--border) / 0.12);
+}
+
+.side-nav-link.is-active .side-nav-icon {
+  background: rgba(var(--accent) / 0.14);
+  color: rgb(var(--accent));
+}
+
+.side-nav-subtitle {
+  @apply mt-0.5 block truncate text-xs;
+  color: rgb(var(--text-muted));
+}
+
+.side-nav-chevron {
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.side-nav-link.is-active .side-nav-chevron {
+  opacity: 0.8;
+  color: rgb(var(--accent));
+}

@@ -1,13 +1,5 @@
-// clientapp/src/components/Layout.jsx
-//
-// Компонент-шаблон для всей страницы. Содержит шапку с навигацией,
-// переключатель темы, кнопку режима редактора и меню администраторов.
-// В мобильной версии используется выпадающее меню «…», в которое также
-// помещены ссылки на страницы и действия. На широких экранах админские
-// ссылки прячутся за отдельной кнопкой с тремя точками.
-
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   PanelsTopLeft,
   LogOut,
@@ -28,6 +20,10 @@ import {
   UserCog,
   Link2,
   Menu,
+  House,
+  GraduationCap,
+  Trophy,
+  ChevronRight,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -35,9 +31,35 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 import api from '../api/http';
 
+function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButton = false }) {
+  const cls = `side-nav-link ${active ? 'is-active' : ''}`;
+
+  if (asButton) {
+    return (
+      <button type="button" className={cls} onClick={onClick}>
+        <span className="side-nav-icon"><Icon size={18} /></span>
+        <span className="min-w-0 flex-1 text-left">
+          <span className="block truncate font-medium">{label}</span>
+          {subtitle ? <span className="side-nav-subtitle">{subtitle}</span> : null}
+        </span>
+        <ChevronRight size={16} className="side-nav-chevron" />
+      </button>
+    );
+  }
+
+  return (
+    <Link to={to} className={cls}>
+      <span className="side-nav-icon"><Icon size={18} /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{label}</span>
+        {subtitle ? <span className="side-nav-subtitle">{subtitle}</span> : null}
+      </span>
+      <ChevronRight size={16} className="side-nav-chevron" />
+    </Link>
+  );
+}
+
 export default function Layout({ children, fullWidth = false, hideFooter = false }) {
-  // Вся тема завязана на классах у <html>: html.dark и html.(blue|pink|apple).
-  // Если классов нет — CSS-переменные (например --page-bg) не задаются, и фон выглядит белым.
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
     const root = document.documentElement;
     const palettes = ['blue', 'pink', 'apple', 'red', 'honey'];
@@ -49,6 +71,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     if (nextMode === 'dark') root.classList.add('dark');
     else root.classList.remove('dark');
   };
+
   const readUiSettings = () => {
     try {
       const raw = localStorage.getItem('uiSettings');
@@ -58,41 +81,29 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     }
   };
 
-  // Темы = цвет (blue|pink|apple) + режим (light|dark)
   const initialUi = readUiSettings();
   const [colorTheme, setColorTheme] = useState(() => initialUi?.colorTheme || localStorage.getItem('colorTheme') || 'pink');
   const [mode, setMode] = useState(() => initialUi?.mode || localStorage.getItem('mode') || 'dark');
   const lastTrackedPathRef = useRef('');
-  const isDark = mode === 'dark';
-
-  // Ревизия UI-настроек. Нужна, чтобы фоновые эффекты (Canvas) могли
-  // перечитать CSS-переменные даже если тема «не изменилась» по значениям,
-  // но классы у <html> применились позже (часто после auto-refresh токена).
   const [uiRev, setUiRev] = useState(0);
 
-  // Применяем классы темы ДО первой отрисовки, чтобы не было "белого" фона
-  // и чтобы Canvas-эффекты могли сразу прочитать правильные CSS-переменные.
   useLayoutEffect(() => {
     applyHtmlThemeClasses(mode, colorTheme);
   }, [mode, colorTheme]);
 
   const [bgFx, setBgFx] = useState(() => (typeof initialUi?.bgFx === 'boolean' ? initialUi.bgFx : localStorage.getItem('bgFx') === '1'));
   const [fxMode, setFxMode] = useState(() => initialUi?.fxMode || localStorage.getItem('fxMode') || 'random');
-  // Вариант фоновых эффектов (0..4). Читаем из localStorage, а не sessionStorage.
   const [fxVariant, setFxVariant] = useState(() => {
     if (initialUi?.fxVariant != null) return String(initialUi.fxVariant);
     const stored = localStorage.getItem('fxVariant');
     return stored != null ? stored : '2';
   });
 
-  // Тема/палитра меняются на странице «Настройки». Чтобы Layout реагировал без перезагрузки,
-  // слушаем кастомное событие (в том же табе) и storage-события (между табами).
   useEffect(() => {
     const applyFromStorage = () => {
       const nextColor = localStorage.getItem('colorTheme') || 'pink';
       const nextMode = localStorage.getItem('mode') || 'dark';
 
-      // Применяем сразу, чтобы не ждать перерендера.
       applyHtmlThemeClasses(nextMode, nextColor);
       setColorTheme(nextColor);
       setMode(nextMode);
@@ -100,8 +111,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       setBgFx(localStorage.getItem('bgFx') === '1');
       setFxMode(ui?.fxMode || localStorage.getItem('fxMode') || 'random');
       setFxVariant(String(ui?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'));
-
-      // даже если значения не поменялись, просим Canvas перечитать CSS vars
       setUiRev((r) => r + 1);
     };
 
@@ -117,7 +126,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     window.addEventListener('storage', onStorage);
     window.addEventListener('tf-ui-settings-changed', onLocalUiChanged);
 
-    // первичное применение при первом рендере
     applyFromStorage();
     return () => {
       window.removeEventListener('storage', onStorage);
@@ -128,7 +136,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin, roles } = useEditorMode();
   const canUseMinecraft = isAdmin || roles.includes('Minecraft');
-  const nav = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
@@ -140,18 +147,8 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     api.post('/api/activity/page-view', { path, title }).catch(() => {});
   }, [access, location.pathname, location.search]);
 
-  // ===== Квоты (5 отправок решений и 5 загрузок топа) =====
-  // применяем классы для темы и сохраняем в localStorage
-
-  // ===== Автосворачивание навигации в "..." при переполнении =====
-  const headerRowRef = useRef(null);
-  const [forceCompact, setForceCompact] = useState(false);
-
-  // мобильное меню (гамбургер)
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileMenuRef = useRef(null);
-
-  // admin (three-dots) menu
   const [adminOpen, setAdminOpen] = useState(false);
   const adminRef = useRef(null);
 
@@ -179,7 +176,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     };
   }, [adminOpen]);
 
-  // закрытие мобильного меню по клику вне
   useEffect(() => {
     if (!mobileOpen) return;
     const onDown = (e) => {
@@ -195,475 +191,351 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     };
   }, [mobileOpen]);
 
-  // закрывать меню при переходах
   useEffect(() => {
     setMobileOpen(false);
     setAdminOpen(false);
   }, [location.pathname]);
 
-  useLayoutEffect(() => {
-    const el = headerRowRef.current;
-    if (!el) return;
+  const currentPath = location.pathname;
+  const isActive = (href) => currentPath === href || currentPath.startsWith(`${href}/`);
+  const supportHref = isAdmin ? '/admin/support' : '/support';
+  const primaryNav = [
+    { to: '/news', label: 'Лента', subtitle: 'Новости и обновления', icon: House, active: isActive('/news') },
+    { to: '/courses', label: 'Курсы', subtitle: 'Каталог заданий', icon: GraduationCap, active: isActive('/courses') || isActive('/course') },
+    access && { to: '/my/solutions', label: 'Мои решения', subtitle: 'История отправок', icon: ListOrdered, active: isActive('/my/solutions') },
+    access && { to: '/leaderboard', label: 'Рейтинг', subtitle: 'Топ студентов', icon: Trophy, active: isActive('/leaderboard') },
+    access && { to: supportHref, label: 'Поддержка', subtitle: isAdmin ? 'Тикеты пользователей' : 'Мои обращения', icon: LifeBuoy, active: isActive(supportHref) },
+    access && canUseMinecraft && { to: '/minecraft/chat', label: 'Minecraft', subtitle: 'Игровой чат', icon: MessageSquare, active: isActive('/minecraft/chat') },
+  ].filter(Boolean);
 
-    const check = () => {
-      try {
-        // если строка не помещается — включаем компактный режим
-        const overflow = el.scrollWidth > el.clientWidth + 4;
-        setForceCompact(overflow);
-      } catch {
-        // ignore
-      }
-    };
+  const adminNav = isAdmin
+    ? [
+        { to: '/admin/analytics', label: 'Аналитика', subtitle: 'Сводки и графики', icon: BarChart2, active: isActive('/admin/analytics') },
+        { to: '/admin/activity', label: 'Действия', subtitle: 'Логи пользователей', icon: Activity, active: isActive('/admin/activity') },
+        { to: '/admin/users', label: 'Пользователи', subtitle: 'Профили и роли', icon: UserCog, active: isActive('/admin/users') },
+        { to: '/admin/groups', label: 'Группы', subtitle: 'Команды и потоки', icon: Users, active: isActive('/admin/groups') },
+        { to: '/admin/solutions', label: 'Решения', subtitle: 'Проверки и статусы', icon: ListOrdered, active: isActive('/admin/solutions') },
+        { to: '/admin/badges', label: 'Бейджи', subtitle: 'Награды и витрина', icon: Award, active: isActive('/admin/badges') },
+        { to: '/admin/minecraft-links', label: 'Связи Minecraft', subtitle: 'Привязки игроков', icon: Link2, active: isActive('/admin/minecraft-links') },
+        { to: '/admin/system-status', label: 'Статус', subtitle: 'Компоненты и раннеры', icon: Activity, active: isActive('/admin/system-status') },
+        { to: '/admin/feature-roles', label: 'Доп. роли', subtitle: 'Права и фичи', icon: Shield, active: isActive('/admin/feature-roles') },
+      ]
+    : [];
 
-    check();
-    const ro = new ResizeObserver(() => check());
-    ro.observe(el);
-    return () => {
-      try { ro.disconnect(); } catch {}
-    };
-  }, [access, isAdmin, canEdit, isEditorMode, mode, colorTheme]);
+  const roleBadges = roles.filter(Boolean).slice(0, 4);
+  const currentViewTitle = (() => {
+    if (currentPath.startsWith('/admin/')) return 'Админ-панель';
+    if (currentPath.startsWith('/minecraft/')) return 'Minecraft';
+    if (currentPath.startsWith('/support')) return 'Поддержка';
+    if (currentPath.startsWith('/course') || currentPath.startsWith('/courses')) return 'Курсы';
+    if (currentPath.startsWith('/leaderboard')) return 'Рейтинг';
+    if (currentPath.startsWith('/settings')) return 'Настройки';
+    if (currentPath.startsWith('/profile')) return 'Профиль';
+    if (currentPath.startsWith('/my/solutions')) return 'Мои решения';
+    return 'Лента';
+  })();
+
+  const mainWrapClass = fullWidth
+    ? 'w-full max-w-none px-3 sm:px-6 lg:px-8 py-4 sm:py-8 relative z-10'
+    : 'container-app py-4 sm:py-8 relative z-10';
 
   return (
-    // isolate + z-слои: чтобы фиксированный фон не "проваливался" под body (иначе эффекты не видны)
     <div className="min-h-screen relative isolate">
-      {/* фон: (по переключателю) мягкий градиент + размытые блики */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         {bgFx && (
           <>
             <div className="absolute inset-0 bg-gradient-to-b from-brand-600/12 via-transparent to-transparent blur-2xl" />
             <div className="absolute inset-0">
-            {/* Canvas-эффекты (туман / пыль+кометы / нейросвязи / аврора / сердечки) */}
-            <BgFxCanvas
-              enabled={bgFx}
-              variant={fxMode === 'random' ? 'random' : Number(fxVariant) || 0}
-              uiRev={uiRev}
-            />
+              <BgFxCanvas
+                enabled={bgFx}
+                variant={fxMode === 'random' ? 'random' : Number(fxVariant) || 0}
+                uiRev={uiRev}
+              />
             </div>
           </>
         )}
       </div>
+
       <header className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-neutral-900/60" style={{ borderBottom: '1px solid rgba(var(--border) / 0.7)' }}>
-        <div ref={headerRowRef} className="container-app flex min-h-16 items-center justify-between gap-2 py-2 sm:gap-3">
-          {/* Логотип и название */}
-          <Link to="/news" className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <div className="h-9 w-9 shrink-0 rounded-xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
+        <div className="container-app flex min-h-16 items-center justify-between gap-3 py-2">
+          <Link to="/news" className="flex min-w-0 items-center gap-3">
+            <div className="h-11 w-11 shrink-0 rounded-2xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100">
               <PanelsTopLeft size={18} />
             </div>
-            <div className="font-semibold truncate text-base sm:text-base">TaskForge</div>
-            {/* подпись "Платформа задач" убрали — она съедает место и ломает хедер */}
+            <div className="min-w-0">
+              <div className="font-semibold truncate text-base">TaskForge</div>
+              <div className="hidden sm:block text-xs text-neutral-500 dark:text-neutral-400 truncate">{currentViewTitle}</div>
+            </div>
           </Link>
 
-          {/* Правая панель — крупные экраны */}
-          <div className={`hidden xl:flex items-center gap-2 ${forceCompact ? 'xl:hidden' : ''}`}
-          >
-            {/* Быстрые переключатели темы/палитры убраны из хедера — оставлены только на странице настроек */}
-            {/* курсы */}
+          <div className="flex items-center gap-2">
             {access && (
-              <Link to="/courses" className="btn-outline" title="Курсы">
-                <PanelsTopLeft size={18} />
-                <span className="hidden 2xl:inline">Курсы</span>
-              </Link>
-            )}
-
-            {/* режим редактора */}
-            {canEdit && (
-              <button
-                className={`btn-outline ${isEditorMode ? 'border-brand-600/60' : ''}`}
-                onClick={toggle}
-                title="Режим редактора"
+              <Link
+                to="/profile"
+                className="hidden xl:flex items-center gap-3 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/80 px-3 py-2 shadow-soft"
+                title="Профиль"
               >
-                {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                <span className="hidden 2xl:inline">{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
-              </button>
-            )}
-
-            {/* профиль удалён */}
-
-            {/* настройки */}
-            {access && (
-              <Link to="/settings" className="btn-outline" title="Настройки">
-                <Settings size={18} />
-                <span className="hidden 2xl:inline">Настройки</span>
+                <div className="h-10 w-10 rounded-2xl grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300">
+                  <User size={18} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">Личный кабинет</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+                    {isAdmin ? 'Администратор' : canEdit ? 'Редактор' : 'Студент'}
+                  </div>
+                </div>
               </Link>
             )}
 
-            {/* мои решения */}
-            {access && (
-              <Link to="/my/solutions" className="btn-outline" title="Мои решения">
-                <ListOrdered size={18} />
-                <span className="hidden 2xl:inline">Мои решения</span>
-              </Link>
-            )}
-
-            {/* топ */}
-            {access && (
-              <Link to="/leaderboard" className="btn-outline" title="Топ студентов">
-                <BarChart2 size={18} />
-                <span className="hidden sm:inline">Топ</span>
-              </Link>
-            )}
-
-            {access && canUseMinecraft && (
-              <Link to="/minecraft/chat" className="btn-outline" title="Minecraft">
-                <MessageSquare size={18} />
-                <span className="hidden 2xl:inline">Minecraft</span>
-              </Link>
-            )}
-
-            {/* админские действия — отдельное меню на три точки */}
-            {access && isAdmin && (
-              <div className="relative" ref={adminRef}>
+            {access ? (
+              <div className="hidden md:block relative" ref={adminRef}>
                 <button
                   className="btn-outline"
                   onClick={() => setAdminOpen((v) => !v)}
                   aria-haspopup="menu"
                   aria-expanded={adminOpen}
-                  title="Админские действия"
+                  title="Быстрые действия"
                 >
                   <MoreHorizontal size={18} />
                 </button>
                 {adminOpen && (
-                  <div
-                    role="menu"
-                    className="absolute right-0 mt-2 w-56 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50"
-                  >
-                    <Link
-                      role="menuitem"
-                      to="/admin/solutions"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Решения пользователей"
-                    >
-                      <ListOrdered size={18} />
-                      <span className="ml-2">Решения</span>
+                  <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
+                    <Link to="/profile" className="btn-ghost w-full justify-start" onClick={() => setAdminOpen(false)}>
+                      <User size={18} />
+                      <span className="ml-2">Профиль</span>
                     </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/badges"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Бейджи"
-                    >
-                      <Award size={18} />
-                      <span className="ml-2">Бейджи</span>
+                    <Link to="/settings" className="btn-ghost w-full justify-start" onClick={() => setAdminOpen(false)}>
+                      <Settings size={18} />
+                      <span className="ml-2">Настройки</span>
                     </Link>
-
-                    <Link
-                      role="menuitem"
-                      to="/admin/groups"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Группы пользователей"
-                    >
-                      <Users size={18} />
-                      <span className="ml-2">Группы</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/support"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Обращения пользователей"
-                    >
-                      <LifeBuoy size={18} />
-                      <span className="ml-2">Обращения</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/feature-roles"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Дополнительные роли"
-                    >
-                      <Shield size={18} />
-                      <span className="ml-2">Доп. роли</span>
-                    </Link>
-
-                    <Link
-                      role="menuitem"
-                      to="/admin/users"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Пользователи"
-                    >
-                      <UserCog size={18} />
-                      <span className="ml-2">Пользователи</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/minecraft-links"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Связи Minecraft"
-                    >
-                      <Link2 size={18} />
-                      <span className="ml-2">Связи Minecraft</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/analytics"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Аналитика"
-                    >
-                      <BarChart2 size={18} />
-                      <span className="ml-2">Аналитика</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/activity"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Действия пользователей"
-                    >
-                      <Activity size={18} />
-                      <span className="ml-2">Действия</span>
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      to="/admin/system-status"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => setAdminOpen(false)}
-                      title="Статус компонентов"
-                    >
-                      <Activity size={18} />
-                      <span className="ml-2">Статус компонентов</span>
-                    </Link>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* вход/выход */}
-            {access ? (
-              <button className="btn-outline" onClick={handleLogout} title="Выйти">
-                <LogOut size={18} />
-                <span className="hidden sm:inline">Выйти</span>
-              </button>
-            ) : (
-              <Link to="/login" className="btn-primary" title="Войти">
-                <LogIn size={18} />
-                <span className="hidden sm:inline">Войти</span>
-              </Link>
-            )}
-          </div>
-
-          {/* Мобильное меню (гамбургер) — реальные кнопки/ссылки, совпадающие с десктопом */}
-          <div className="relative xl:hidden" ref={mobileMenuRef}>
-            <button
-              className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
-              onClick={() => setMobileOpen((v) => !v)}
-              title="Меню"
-              aria-haspopup="menu"
-              aria-expanded={mobileOpen}
-            >
-              <Menu size={18} />
-            </button>
-
-            {mobileOpen && (
-              <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1rem))] max-h-[75dvh] overflow-y-auto rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
-                <div className="flex flex-col">
-                  <Link
-                    to="/courses"
-                    className="btn-ghost w-full justify-start"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    <PanelsTopLeft size={18} />
-                    <span className="ml-2">Курсы</span>
-                  </Link>
-
-                  {access && (
-                    <>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          className="btn-ghost w-full justify-start"
-                          onClick={() => {
-                            toggle();
-                            setMobileOpen(false);
-                          }}
-                          title="Режим редактора"
-                        >
-                          {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
-                          <span className="ml-2">{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
-                        </button>
-                      )}
-
-                      <Link
-                        to="/settings"
-                        className="btn-ghost w-full justify-start"
-                        onClick={() => setMobileOpen(false)}
-                      >
-                        <Settings size={18} />
-                        <span className="ml-2">Настройки</span>
-                      </Link>
-
-                      <Link
-                        to="/my/solutions"
-                        className="btn-ghost w-full justify-start"
-                        onClick={() => setMobileOpen(false)}
-                      >
-                        <ListOrdered size={18} />
-                        <span className="ml-2">Мои решения</span>
-                      </Link>
-
-                      <Link
-                        to="/leaderboard"
-                        className="btn-ghost w-full justify-start"
-                        onClick={() => setMobileOpen(false)}
-                      >
-                        <BarChart2 size={18} />
-                        <span className="ml-2">Топ</span>
-                      </Link>
-
-                      {canUseMinecraft && (
-                        <Link
-                          to="/minecraft/chat"
-                          className="btn-ghost w-full justify-start"
-                          onClick={() => setMobileOpen(false)}
-                        >
-                          <MessageSquare size={18} />
-                          <span className="ml-2">Minecraft</span>
-                        </Link>
-                      )}
-
-                      {isAdmin && (
-                        <>
-                          <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                          <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Админка</div>
-
-                          <Link
-                            to="/admin/solutions"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <ListOrdered size={18} />
-                            <span className="ml-2">Решения</span>
-                          </Link>
-                          <Link
-                            to="/admin/badges"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Award size={18} />
-                            <span className="ml-2">Бейджи</span>
-                          </Link>
-                          <Link
-                            to="/admin/groups"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Users size={18} />
-                            <span className="ml-2">Группы</span>
-                          </Link>
-                          <Link
-                            to="/admin/support"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <LifeBuoy size={18} />
-                            <span className="ml-2">Техподдержка</span>
-                          </Link>
-                          <Link
-                            to="/admin/users"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <UserCog size={18} />
-                            <span className="ml-2">Пользователи</span>
-                          </Link>
-                          <Link
-                            to="/admin/minecraft-links"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Link2 size={18} />
-                            <span className="ml-2">Связи Minecraft</span>
-                          </Link>
-                          <Link
-                            to="/admin/analytics"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <BarChart2 size={18} />
-                            <span className="ml-2">Аналитика</span>
-                          </Link>
-                          <Link
-                            to="/admin/activity"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Activity size={18} />
-                            <span className="ml-2">Действия</span>
-                          </Link>
-                          <Link
-                            to="/admin/system-status"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Activity size={18} />
-                            <span className="ml-2">Статус компонентов</span>
-                          </Link>
-                          <Link
-                            to="/admin/feature-roles"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Shield size={18} />
-                            <span className="ml-2">Доп. роли</span>
-                          </Link>
-                        </>
-                      )}
-
-                      <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                    {canEdit && (
                       <button
                         type="button"
                         className="btn-ghost w-full justify-start"
                         onClick={() => {
-                          setMobileOpen(false);
-                          handleLogout();
+                          toggle();
+                          setAdminOpen(false);
                         }}
                       >
-                        <LogOut size={18} />
-                        <span className="ml-2">Выйти</span>
+                        {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
+                        <span className="ml-2">{isEditorMode ? 'Режим редактора' : 'Режим просмотра'}</span>
                       </button>
-                    </>
-                  )}
-
-                  {!access && (
-                    <>
-                      <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                      <Link
-                        to="/login"
-                        className="btn-ghost w-full justify-start"
-                        onClick={() => setMobileOpen(false)}
-                      >
-                        <LogIn size={18} />
-                        <span className="ml-2">Войти</span>
-                      </Link>
-                    </>
-                  )}
-                </div>
+                    )}
+                    <Link to={supportHref} className="btn-ghost w-full justify-start" onClick={() => setAdminOpen(false)}>
+                      <LifeBuoy size={18} />
+                      <span className="ml-2">Поддержка</span>
+                    </Link>
+                    <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                    <button type="button" className="btn-ghost w-full justify-start" onClick={handleLogout}>
+                      <LogOut size={18} />
+                      <span className="ml-2">Выйти</span>
+                    </button>
+                  </div>
+                )}
               </div>
+            ) : (
+              <Link to="/login" className="hidden md:inline-flex btn-primary" title="Войти">
+                <LogIn size={18} />
+                <span>Войти</span>
+              </Link>
             )}
+
+            <div className="relative xl:hidden" ref={mobileMenuRef}>
+              <button
+                className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
+                onClick={() => setMobileOpen((v) => !v)}
+                title="Меню"
+                aria-haspopup="menu"
+                aria-expanded={mobileOpen}
+              >
+                <Menu size={18} />
+              </button>
+
+              {mobileOpen && (
+                <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1rem))] max-h-[75dvh] overflow-y-auto rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
+                  <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Навигация</div>
+                  <div className="flex flex-col">
+                    {primaryNav.map((item) => (
+                      <Link key={item.to} to={item.to} className="btn-ghost w-full justify-start" onClick={() => setMobileOpen(false)}>
+                        <item.icon size={18} />
+                        <span className="ml-2">{item.label}</span>
+                      </Link>
+                    ))}
+
+                    {access && (
+                      <>
+                        <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                        <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Аккаунт</div>
+
+                        <Link to="/profile" className="btn-ghost w-full justify-start" onClick={() => setMobileOpen(false)}>
+                          <User size={18} />
+                          <span className="ml-2">Профиль</span>
+                        </Link>
+                        <Link to="/settings" className="btn-ghost w-full justify-start" onClick={() => setMobileOpen(false)}>
+                          <Settings size={18} />
+                          <span className="ml-2">Настройки</span>
+                        </Link>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            className="btn-ghost w-full justify-start"
+                            onClick={() => {
+                              toggle();
+                              setMobileOpen(false);
+                            }}
+                          >
+                            {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
+                            <span className="ml-2">{isEditorMode ? 'Режим редактора' : 'Режим просмотра'}</span>
+                          </button>
+                        )}
+
+                        {isAdmin && (
+                          <>
+                            <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                            <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Админка</div>
+                            {adminNav.map((item) => (
+                              <Link key={item.to} to={item.to} className="btn-ghost w-full justify-start" onClick={() => setMobileOpen(false)}>
+                                <item.icon size={18} />
+                                <span className="ml-2">{item.label}</span>
+                              </Link>
+                            ))}
+                          </>
+                        )}
+
+                        <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                        <button
+                          type="button"
+                          className="btn-ghost w-full justify-start"
+                          onClick={() => {
+                            setMobileOpen(false);
+                            handleLogout();
+                          }}
+                        >
+                          <LogOut size={18} />
+                          <span className="ml-2">Выйти</span>
+                        </button>
+                      </>
+                    )}
+
+                    {!access && (
+                      <>
+                        <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                        <Link to="/login" className="btn-ghost w-full justify-start" onClick={() => setMobileOpen(false)}>
+                          <LogIn size={18} />
+                          <span className="ml-2">Войти</span>
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
-      <main
-        className={
-          fullWidth
-            ? "w-full max-w-none px-3 sm:px-6 lg:px-8 py-4 sm:py-8 relative z-10"
-            : "container-app py-4 sm:py-8 relative z-10"
-        }
-      >
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-        >
-          {children}
-        </motion.div>
+      <main className={mainWrapClass}>
+        <div className={`items-start gap-6 ${access ? 'xl:grid xl:grid-cols-[17rem,minmax(0,1fr),18rem]' : ''}`}>
+          {access && (
+            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start">
+              <div className="card p-3">
+                <div className="side-nav-section-title">Основное</div>
+                <div className="mt-2 space-y-1.5">
+                  {primaryNav.map((item) => (
+                    <SideNavLink key={item.to} {...item} />
+                  ))}
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="card p-3">
+                  <div className="side-nav-section-title">Админка</div>
+                  <div className="mt-2 space-y-1.5 max-h-[52vh] overflow-y-auto pr-1">
+                    {adminNav.map((item) => (
+                      <SideNavLink key={item.to} {...item} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </aside>
+          )}
+
+          <section className="min-w-0">
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              {children}
+            </motion.div>
+          </section>
+
+          {access && (
+            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start">
+              <div className="card p-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-12 w-12 rounded-2xl grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300 shrink-0">
+                    <User size={20} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold truncate">Личный кабинет</div>
+                    <div className="text-sm text-neutral-500 dark:text-neutral-400">
+                      {isAdmin ? 'Администратор' : canEdit ? 'Редактор' : 'Участник'}
+                    </div>
+                  </div>
+                </div>
+
+                {roleBadges.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {roleBadges.map((role) => (
+                      <span key={role} className="badge badge-outline">{role}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="card p-3">
+                <div className="side-nav-section-title">Быстрые действия</div>
+                <div className="mt-2 space-y-1.5">
+                  <SideNavLink to="/profile" icon={User} label="Профиль" subtitle="Личные данные" active={isActive('/profile')} />
+                  <SideNavLink to="/settings" icon={Settings} label="Настройки" subtitle="Тема и интерфейс" active={isActive('/settings')} />
+                  {canEdit && (
+                    <SideNavLink
+                      asButton
+                      icon={isEditorMode ? PencilLine : Eye}
+                      label={isEditorMode ? 'Режим редактора' : 'Режим просмотра'}
+                      subtitle={isEditorMode ? 'Инструменты редактирования включены' : 'Обычный режим работы'}
+                      active={isEditorMode}
+                      onClick={toggle}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="card p-3">
+                <div className="side-nav-section-title">Сессия</div>
+                <div className="mt-2 space-y-1.5">
+                  <Link to={supportHref} className="side-nav-link">
+                    <span className="side-nav-icon"><LifeBuoy size={18} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">Поддержка</span>
+                      <span className="side-nav-subtitle">Связь и обращения</span>
+                    </span>
+                    <ChevronRight size={16} className="side-nav-chevron" />
+                  </Link>
+                  <button type="button" className="side-nav-link" onClick={handleLogout}>
+                    <span className="side-nav-icon"><LogOut size={18} /></span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block truncate font-medium">Выйти</span>
+                      <span className="side-nav-subtitle">Завершить текущую сессию</span>
+                    </span>
+                    <ChevronRight size={16} className="side-nav-chevron" />
+                  </button>
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
       </main>
 
       {!hideFooter && (
@@ -671,11 +543,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           <div className="container-app py-4 sm:py-6 text-sm text-neutral-500 dark:text-neutral-400 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>© {new Date().getFullYear()} TaskForge</div>
             {access && (
-              <Link
-                to={isAdmin ? "/admin/support" : "/support"}
-                className="inline-flex items-center gap-2 hover:text-neutral-700 dark:hover:text-neutral-200 transition"
-                title="Техподдержка"
-              >
+              <Link to={supportHref} className="inline-flex items-center gap-2 hover:text-neutral-700 dark:hover:text-neutral-200 transition" title="Техподдержка">
                 <LifeBuoy size={16} className="opacity-70" />
                 <span className="opacity-80">Техподдержка</span>
               </Link>
