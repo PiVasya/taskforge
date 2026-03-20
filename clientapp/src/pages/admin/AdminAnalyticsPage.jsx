@@ -247,59 +247,72 @@ function BarChart({ data = [], color = 'rgb(var(--accent))', height = 260, value
 }
 
 function DonutChart({ data = [], size = 220 }) {
-  if (!Array.isArray(data) || data.length === 0 || data.every((x) => !Number(x.value))) return <EmptyState />;
-  const total = data.reduce((sum, item) => sum + Number(item.value || 0), 0);
-  const radius = 42;
-  const stroke = 16;
-  const circumference = 2 * Math.PI * radius;
+  const items = Array.isArray(data)
+    ? data
+        .map((item) => ({
+          label: item?.label || 'Без названия',
+          value: Number(item?.value || 0),
+        }))
+        .filter((item) => item.value > 0)
+    : [];
+
+  if (items.length === 0) return <EmptyState />;
+
+  const total = items.reduce((sum, item) => sum + item.value, 0);
   const palette = [
     'rgb(var(--accent))',
     'rgb(var(--accent-700))',
     'rgb(var(--accent2))',
-    'rgb(var(--accent3))',
-    'rgba(var(--accent),0.45)',
+    'rgba(var(--accent) / 0.58)',
+    'rgba(var(--accent2) / 0.62)',
   ];
-  let offset = 0;
+
+  let current = 0;
+  const slices = items.map((item, idx) => {
+    const start = current;
+    const percent = total ? (item.value / total) * 100 : 0;
+    current += percent;
+    return `${palette[idx % palette.length]} ${start.toFixed(3)}% ${current.toFixed(3)}%`;
+  });
+
+  const donutBackground = `conic-gradient(from -90deg, ${slices.join(', ')})`;
+  const holeSize = '61%';
+
   return (
-    <div className="grid gap-6 md:grid-cols-[auto,1fr] md:items-center">
-      <div className="mx-auto" style={{ width: size, height: size }}>
-        <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-          <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(var(--border),0.32)" strokeWidth={stroke} />
-          {data.map((item, idx) => {
-            const value = Number(item.value || 0);
-            const dash = (value / total) * circumference;
-            const el = (
-              <circle
-                key={item.label}
-                cx="60"
-                cy="60"
-                r={radius}
-                fill="none"
-                stroke={palette[idx % palette.length]}
-                strokeWidth={stroke}
-                strokeDasharray={`${dash} ${circumference - dash}`}
-                strokeDashoffset={-offset}
-                strokeLinecap="round"
-              />
-            );
-            offset += dash;
-            return el;
-          })}
-          <circle cx="60" cy="60" r="25" fill="rgba(var(--card),0.98)" />
-          <text x="60" y="57" textAnchor="middle" className="fill-current text-[11px] font-semibold rotate-90 origin-center">{formatNumber(total)}</text>
-          <text x="60" y="70" textAnchor="middle" className="fill-current text-[5px] rotate-90 origin-center">всего</text>
-        </svg>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,15rem),1fr] xl:items-center">
+      <div className="mx-auto w-full max-w-[15rem]">
+        <div
+          className="relative mx-auto rounded-full border border-[rgba(var(--border)/0.45)] shadow-[inset_0_0_0_1px_rgba(var(--border),0.12)]"
+          style={{
+            width: size,
+            height: size,
+            maxWidth: '100%',
+            background: `radial-gradient(circle at 50% 50%, rgb(var(--card)) 0 ${holeSize}, transparent calc(${holeSize} + 1px)), ${donutBackground}`,
+          }}
+        >
+          <div
+            className="absolute inset-[22%] rounded-full border border-[rgba(var(--border)/0.32)] bg-[rgba(var(--card)/0.96)] backdrop-blur-sm"
+            aria-hidden="true"
+          />
+          <div className="absolute inset-0 grid place-items-center text-center">
+            <div>
+              <div className="text-[2rem] font-semibold leading-none tracking-tight text-neutral-900 dark:text-neutral-50">{formatNumber(total)}</div>
+              <div className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">Всего</div>
+            </div>
+          </div>
+        </div>
       </div>
+
       <div className="space-y-3">
-        {data.map((item, idx) => {
+        {items.map((item, idx) => {
           const value = Number(item.value || 0);
           return (
             <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.34)] px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex min-w-0 items-center gap-3">
                 <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: palette[idx % palette.length] }} />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate text-sm font-medium">{item.label}</span>
               </div>
-              <div className="text-right shrink-0">
+              <div className="shrink-0 text-right">
                 <div className="font-semibold">{formatNumber(value)}</div>
                 <div className="text-xs text-neutral-500 dark:text-neutral-400">{formatPercent(total ? (value / total) * 100 : 0)}</div>
               </div>
@@ -334,7 +347,8 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
         </div>
       ) : null}
       <div className="overflow-hidden rounded-3xl border border-[rgba(var(--border)/0.55)]">
-        <table className="w-full table-fixed">
+        <div className="overflow-x-auto">
+          <table className="min-w-[42rem] w-full table-fixed md:min-w-0">
           <thead className="bg-[rgba(var(--muted)/0.38)]">
             <tr>
               {columns.map((col, idx) => (
@@ -372,7 +386,8 @@ function RankedTable({ rows = [], columns = [], onRowClick, activeId, searchValu
               );
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
     </div>
   );

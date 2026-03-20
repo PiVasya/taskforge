@@ -65,7 +65,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     const palettes = ['blue', 'pink', 'apple', 'red', 'honey', 'violet'];
     const palette = palettes.includes(nextColorTheme) ? nextColorTheme : 'pink';
 
-    root.classList.remove('blue', 'pink', 'apple', 'red', 'honey');
+    root.classList.remove('blue', 'pink', 'apple', 'red', 'honey', 'violet');
     root.classList.add(palette);
 
     if (nextMode === 'dark') root.classList.add('dark');
@@ -435,7 +435,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       </header>
 
       <main className={mainWrapClass}>
-        <div className={`items-start gap-5 2xl:gap-7 ${access ? 'xl:grid xl:grid-cols-[14.75rem,minmax(0,1fr),15rem] 2xl:grid-cols-[15.25rem,minmax(0,1fr),15.5rem]' : ''}`}>
+        <div className={`layout-shell items-start gap-5 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[13.5rem,minmax(0,1fr),13.75rem] 2xl:grid-cols-[14rem,minmax(0,1fr),14.25rem]' : ''}`}>
           {access && (
             <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">
@@ -460,7 +460,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </aside>
           )}
 
-          <section className="min-w-0 xl:px-1 2xl:px-2">
+          <section className="layout-main-column min-w-0 xl:px-1 2xl:px-2">
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}

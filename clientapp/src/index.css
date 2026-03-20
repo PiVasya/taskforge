@@ -424,7 +424,32 @@ header .btn-primary {
 .container-app { width: min(1740px, calc(100vw - 24px)); max-width: none; margin-left: auto; margin-right: auto; padding-left: 0.75rem; padding-right: 0.75rem; }
 
 html, body, #root { min-height: 100%; }
+html { overflow-x: clip; }
 body { overflow-x: hidden; }
+
+* { box-sizing: border-box; }
+img, svg, video, canvas { max-width: 100%; }
+
+.layout-shell > * { min-width: 0; }
+.layout-main-column { min-width: 0; overflow-x: clip; }
+.layout-main-column > * { min-width: 0; max-width: 100%; }
+.layout-main-column .container-app {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+.layout-main-column .card,
+.layout-main-column .page-hero-card,
+.layout-main-column .page-search-card {
+  max-width: 100%;
+}
+.layout-main-column .overflow-x-auto {
+  max-width: 100%;
+}
+
 
 @supports (padding: max(0px)) {
   body {
@@ -1166,4 +1191,15 @@ html.dark .bg-fx__blob {
 .side-nav-link.is-active .side-nav-chevron {
   opacity: 0.8;
   color: rgb(var(--accent));
+}
+
+@media (max-width: 1535px) {
+  .layout-main-column .container-app {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 1279px) {
+  .layout-main-column { overflow-x: visible; }
 }

@@ -54,7 +54,7 @@ export default function AdminUserActionsPage() {
 
   return (
     <Layout>
-      <div className="container-app py-6 space-y-6">
+      <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 text-2xl font-semibold">

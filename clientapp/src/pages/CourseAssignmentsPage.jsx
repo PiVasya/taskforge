@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -308,7 +308,6 @@ export default function CourseAssignmentsPage() {
             <Layers size={22} className="shrink-0" /> <span className="break-words">Задания курса</span>
           </h1>
           </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-500">Теперь у центральной области заметно больше воздуха по ширине: меньше пустых границ, карточки плотнее раскладываются по сетке, а боковые панели не съедают основное пространство.</p>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">

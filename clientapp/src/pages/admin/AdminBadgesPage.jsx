@@ -207,7 +207,7 @@ export default function AdminBadgesPage() {
 
   return (
     <Layout>
-      <div className="container-app py-6 space-y-4">
+      <div className="space-y-4">
         <h1 className="text-2xl font-semibold">Бейджи</h1>
 
         {pageError ? (
