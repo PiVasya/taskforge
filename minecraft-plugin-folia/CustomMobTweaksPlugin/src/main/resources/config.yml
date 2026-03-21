@@ -1,0 +1,19 @@
+blaze-fireball-lightning:
+  enabled: true
+  effect-only: true
+  fire-ticks: 0
+
+bogged-arrow-wither:
+  enabled: true
+  duration-ticks: 40
+  amplifier: 0
+
+wither-skeleton-stun:
+  enabled: true
+  duration-ticks: 30
+  slowness-amplifier: 10
+  apply-weakness: true
+  apply-darkness: true
+
+messages:
+  debug: false
