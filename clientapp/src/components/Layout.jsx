@@ -31,16 +31,16 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 import api from '../api/http';
 
-function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButton = false }) {
-  const cls = `side-nav-link ${active ? 'is-active' : ''}`;
+function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButton = false, compact = false }) {
+  const cls = `side-nav-link ${active ? 'is-active' : ''} ${compact ? 'is-compact' : ''}`;
+  const title = subtitle ? `${label} — ${subtitle}` : label;
 
   if (asButton) {
     return (
-      <button type="button" className={cls} onClick={onClick}>
+      <button type="button" className={cls} onClick={onClick} title={title}>
         <span className="side-nav-icon"><Icon size={18} /></span>
         <span className="min-w-0 flex-1 text-left">
-          <span className="block truncate font-medium">{label}</span>
-          {subtitle ? <span className="side-nav-subtitle">{subtitle}</span> : null}
+          <span className="side-nav-label">{label}</span>
         </span>
         <ChevronRight size={16} className="side-nav-chevron" />
       </button>
@@ -48,11 +48,10 @@ function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButto
   }
 
   return (
-    <Link to={to} className={cls}>
+    <Link to={to} className={cls} title={title}>
       <span className="side-nav-icon"><Icon size={18} /></span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{label}</span>
-        {subtitle ? <span className="side-nav-subtitle">{subtitle}</span> : null}
+        <span className={`side-nav-label ${compact ? 'is-compact' : ''}`}>{label}</span>
       </span>
       <ChevronRight size={16} className="side-nav-chevron" />
     </Link>
@@ -65,7 +64,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     const palettes = ['blue', 'pink', 'apple', 'red', 'honey', 'violet'];
     const palette = palettes.includes(nextColorTheme) ? nextColorTheme : 'pink';
 
-    root.classList.remove('blue', 'pink', 'apple', 'red', 'honey', 'violet');
+    root.classList.remove('blue', 'pink', 'apple', 'red', 'honey');
     root.classList.add(palette);
 
     if (nextMode === 'dark') root.classList.add('dark');
@@ -435,14 +434,14 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       </header>
 
       <main className={mainWrapClass}>
-        <div className={`layout-shell items-start gap-5 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[13.5rem,minmax(0,1fr),13.75rem] 2xl:grid-cols-[14rem,minmax(0,1fr),14.25rem]' : ''}`}>
+        <div className={`items-start gap-5 2xl:gap-7 ${access ? 'xl:grid xl:grid-cols-[14.75rem,minmax(0,1fr),15rem] 2xl:grid-cols-[15.25rem,minmax(0,1fr),15.5rem]' : ''}`}>
           {access && (
             <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">
                 <div className="side-nav-section-title">Основное</div>
                 <div className="mt-2 space-y-1.5">
                   {primaryNav.map((item) => (
-                    <SideNavLink key={item.to} {...item} />
+                    <SideNavLink key={item.to} {...item} compact />
                   ))}
                 </div>
               </div>
@@ -452,7 +451,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                   <div className="side-nav-section-title">Админка</div>
                   <div className="mt-2 space-y-1.5 max-h-[52vh] overflow-y-auto pr-1">
                     {adminNav.map((item) => (
-                      <SideNavLink key={item.to} {...item} />
+                      <SideNavLink key={item.to} {...item} compact />
                     ))}
                   </div>
                 </div>
@@ -460,7 +459,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </aside>
           )}
 
-          <section className="layout-main-column min-w-0 xl:px-1 2xl:px-2">
+          <section className="min-w-0 xl:px-1 2xl:px-2">
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}

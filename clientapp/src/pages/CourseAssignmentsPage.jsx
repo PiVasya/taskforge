@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -17,6 +17,15 @@ import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
+
+function previewAssignmentTitle(value, fallback = 'Без названия') {
+  const text = String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text || fallback;
+}
 
 function previewAssignmentDescription(value) {
   if (!value) return '';
@@ -359,6 +368,7 @@ export default function CourseAssignmentsPage() {
       <div className="auto-fill-grid auto-fill-grid--dense">
         {filtered.map((a, idx) => {
           const solved = !!a.solvedByCurrentUser;
+          const title = previewAssignmentTitle(a.title, `Задание ${idx + 1}`);
 
           const ViewWrap = ({ children }) => (
             <Link to={`/assignment/${a.id}`} className="block group">
@@ -374,144 +384,141 @@ export default function CourseAssignmentsPage() {
           const EditorToolbar =
             sortMode === "default" ? (
               <IfEditor>
-	                <div
-	                  className="mt-3 flex items-center justify-end gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-1 backdrop-blur sm:absolute sm:right-3 sm:top-3 sm:mt-0"
-	                  onMouseDown={(e) => {
-	                    // не даём карточке "увести" фокус/перейти по ссылке при клике по контролам
-	                    e.preventDefault();
-	                    e.stopPropagation();
-	                  }}
-	                >
-	                  <div
-	                    className="flex items-center gap-2"
-	                    title="Позиция задания в курсе"
-	                    onClick={(e) => {
-	                      e.preventDefault();
-	                      e.stopPropagation();
-	                    }}
-	                  >
-	                    <span className="text-xs text-neutral-400">№</span>
-	                    <Input
-	                      type="number"
-	                      inputMode="numeric"
-	                      className="w-16 h-8 text-sm"
-	                      min={1}
-	                      max={orderedAll.length}
-	                      value={posDraft[a.id] ?? String(positionById.get(a.id) ?? "")}
-	                      onChange={(e) => setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))}
-	                      onKeyDown={(e) => {
-	                        if (e.key === "Enter") e.currentTarget.blur();
-	                        if (e.key === "Escape") {
-	                          setPosDraft((p) => {
-	                            const next = { ...p };
-	                            delete next[a.id];
-	                            return next;
-	                          });
-	                          e.currentTarget.blur();
-	                        }
-	                      }}
-	                      onBlur={() => {
-	                        const raw = posDraft[a.id];
-	                        if (raw === undefined) return;
-	
-	                        setPosDraft((p) => {
-	                          const next = { ...p };
-	                          delete next[a.id];
-	                          return next;
-	                        });
-	
-	                        const n = parseInt(String(raw), 10);
-	                        if (!Number.isFinite(n)) return;
-	                        moveToPosition(a.id, n);
-	                      }}
-	                    />
-	                  </div>
-	
-	                  <div className="flex items-center overflow-hidden rounded-lg border border-white/10">
-	                    <button
-	                      type="button"
-	                      className="p-2 hover:bg-white/10"
-	                      title="Выше"
-	                      onClick={(e) => {
-	                        e.preventDefault();
-	                        e.stopPropagation();
-	                        swapByIndex(idx, idx - 1);
-	                      }}
-	                    >
-	                      <ArrowUp size={16} />
-	                    </button>
-	                    <button
-	                      type="button"
-	                      className="p-2 border-l border-white/10 hover:bg-white/10"
-	                      title="Ниже"
-	                      onClick={(e) => {
-	                        e.preventDefault();
-	                        e.stopPropagation();
-	                        swapByIndex(idx, idx + 1);
-	                      }}
-	                    >
-	                      <ArrowDown size={16} />
-	                    </button>
-	                  </div>
-	                </div>
+                <div
+                  className="flex items-center gap-2 rounded-2xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.36)] px-2.5 py-2 shadow-soft"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    className="h-9 w-[4.7rem] shrink-0 text-sm"
+                    min={1}
+                    max={orderedAll.length}
+                    title="Позиция задания в курсе"
+                    value={posDraft[a.id] ?? String(positionById.get(a.id) ?? "")}
+                    onChange={(e) => setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") {
+                        setPosDraft((p) => {
+                          const next = { ...p };
+                          delete next[a.id];
+                          return next;
+                        });
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => {
+                      const raw = posDraft[a.id];
+                      if (raw === undefined) return;
+
+                      setPosDraft((p) => {
+                        const next = { ...p };
+                        delete next[a.id];
+                        return next;
+                      });
+
+                      const n = parseInt(String(raw), 10);
+                      if (!Number.isFinite(n)) return;
+                      moveToPosition(a.id, n);
+                    }}
+                  />
+
+                  <div className="flex items-center overflow-hidden rounded-xl border border-[rgba(var(--border)/0.55)]">
+                    <button
+                      type="button"
+                      className="grid h-9 w-9 place-items-center hover:bg-[rgba(var(--border)/0.18)]"
+                      title="Выше"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        swapByIndex(idx, idx - 1);
+                      }}
+                    >
+                      <ArrowUp size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="grid h-9 w-9 place-items-center border-l border-[rgba(var(--border)/0.55)] hover:bg-[rgba(var(--border)/0.18)]"
+                      title="Ниже"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        swapByIndex(idx, idx + 1);
+                      }}
+                    >
+                      <ArrowDown size={16} />
+                    </button>
+                  </div>
+                </div>
               </IfEditor>
             ) : null;
 
-          const CardBody = (
-            <div className="flex items-start justify-between gap-4 sm:pr-28">
-              <div className="min-w-0 grow">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={
-                      "text-lg font-semibold truncate " +
-                      (solved ? "opacity-70" : "")
-                    }
-                    title={a.title}
-                  >
-                    {a.title}
-                  </div>
-                  {solved && (
-                    <span className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 px-2 py-0.5 text-[rgb(var(--text))] text-xs opacity-70">
-                      <CheckCircle2 size={14} />
-                      Решено
-                    </span>
-                  )}
-                </div>
-
-                {a.description && (
-                  <p className="mt-1 line-clamp-3 text-sm leading-6 text-neutral-500 sm:line-clamp-2">
-                    {previewAssignmentDescription(a.description)}
-                  </p>
-                )}
-                {a.tags && (
-                  <div className="mt-2 text-xs text-neutral-400">{a.tags}</div>
+          const CardMain = (
+            <div className="assignment-card-main min-w-0">
+              <div className="assignment-card-heading">
+                <div className="assignment-card-kicker">Задание {positionById.get(a.id) ?? idx + 1}</div>
+                {solved && (
+                  <span className="assignment-card-status">
+                    <CheckCircle2 size={14} />
+                    Решено
+                  </span>
                 )}
               </div>
+
+              <div className="assignment-card-title-wrap">
+                <div
+                  className={
+                    "assignment-card-title" +
+                    (solved ? " opacity-70" : "")
+                  }
+                  title={title}
+                >
+                  {title}
+                </div>
+                <div className="assignment-card-title-tooltip" aria-hidden="true">{title}</div>
+              </div>
+
+              {a.description && (
+                <p className="mt-3 text-sm leading-6 text-neutral-500 line-clamp-3">
+                  {previewAssignmentDescription(a.description)}
+                </p>
+              )}
+              {a.tags && (
+                <div className="mt-2 text-xs text-neutral-400 break-words">{a.tags}</div>
+              )}
             </div>
           );
 
           const CardBase = (
             <Card
               className={
-                "h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
+                "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
                 (solved ? "opacity-60 hover:opacity-90" : "")
               }
             >
-              {CardBody}
+              {CardMain}
             </Card>
           );
 
-          // В редакторе НЕ кладём инпут/кнопки внутрь ссылки (иначе браузер ведёт себя странно)
-          // Поэтому: карточка = div, тулбар сверху, а ссылкой делаем только тело.
           const EditorCard = (
             <Card
               className={
-                "relative h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
+                "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
                 (solved ? "opacity-60 hover:opacity-90" : "")
               }
             >
-              {EditorToolbar}
-              <EditWrap>{CardBody}</EditWrap>
+              <div className="flex h-full flex-col gap-4">
+                <div className="flex justify-end">{EditorToolbar}</div>
+                <EditWrap>{CardMain}</EditWrap>
+              </div>
             </Card>
           );
 

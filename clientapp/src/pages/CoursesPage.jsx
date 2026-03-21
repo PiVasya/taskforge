@@ -59,6 +59,7 @@ export default function CoursesPage() {
         <div className="max-w-3xl">
           <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-400">Каталог</div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Курсы</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-500">Сделали центральную часть шире: меньше пустых полей по краям, больше места для карточек и поиска, при этом левый и правый блоки остались на своих местах.</p>
         </div>
 
         {canEdit && isEditorMode && (

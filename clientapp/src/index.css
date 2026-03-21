@@ -424,32 +424,7 @@ header .btn-primary {
 .container-app { width: min(1740px, calc(100vw - 24px)); max-width: none; margin-left: auto; margin-right: auto; padding-left: 0.75rem; padding-right: 0.75rem; }
 
 html, body, #root { min-height: 100%; }
-html { overflow-x: clip; }
 body { overflow-x: hidden; }
-
-* { box-sizing: border-box; }
-img, svg, video, canvas { max-width: 100%; }
-
-.layout-shell > * { min-width: 0; }
-.layout-main-column { min-width: 0; overflow-x: clip; }
-.layout-main-column > * { min-width: 0; max-width: 100%; }
-.layout-main-column .container-app {
-  width: 100%;
-  max-width: none;
-  margin-left: 0;
-  margin-right: 0;
-  padding-left: 0;
-  padding-right: 0;
-}
-.layout-main-column .card,
-.layout-main-column .page-hero-card,
-.layout-main-column .page-search-card {
-  max-width: 100%;
-}
-.layout-main-column .overflow-x-auto {
-  max-width: 100%;
-}
-
 
 @supports (padding: max(0px)) {
   body {
@@ -1157,6 +1132,11 @@ html.dark .bg-fx__blob {
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
+  min-width: 0;
+}
+
+.side-nav-link.is-compact {
+  @apply py-3;
 }
 
 .side-nav-link:hover {
@@ -1169,7 +1149,7 @@ html.dark .bg-fx__blob {
 }
 
 .side-nav-icon {
-  @apply h-9 w-9 shrink-0 rounded-2xl grid place-items-center;
+  @apply h-10 w-10 shrink-0 rounded-2xl grid place-items-center;
   background: rgba(var(--border) / 0.12);
 }
 
@@ -1178,9 +1158,12 @@ html.dark .bg-fx__blob {
   color: rgb(var(--accent));
 }
 
-.side-nav-subtitle {
-  @apply mt-0.5 block truncate text-xs;
-  color: rgb(var(--text-muted));
+.side-nav-label {
+  @apply block truncate text-[0.98rem] font-medium leading-5;
+}
+
+.side-nav-label.is-compact {
+  @apply text-[0.98rem] leading-5;
 }
 
 .side-nav-chevron {
@@ -1193,13 +1176,110 @@ html.dark .bg-fx__blob {
   color: rgb(var(--accent));
 }
 
-@media (max-width: 1535px) {
-  .layout-main-column .container-app {
-    padding-left: 0;
-    padding-right: 0;
-  }
+
+.assignment-card {
+  position: relative;
+  overflow: visible;
 }
 
-@media (max-width: 1279px) {
-  .layout-main-column { overflow-x: visible; }
+.assignment-card-main {
+  min-width: 0;
+}
+
+.assignment-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.assignment-card-kicker {
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(var(--text-muted));
+}
+
+.assignment-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(var(--border) / 0.55);
+  background: rgba(var(--muted) / 0.34);
+  padding: 0.32rem 0.65rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.assignment-card-title-wrap {
+  position: relative;
+  margin-top: 0.6rem;
+  min-width: 0;
+}
+
+.assignment-card-title {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-right: 2.5rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.assignment-card-title::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2.4rem;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(var(--card) / 0), rgba(var(--card) / 0.92) 72%);
+}
+
+.assignment-card-title-tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.6rem);
+  z-index: 12;
+  max-width: min(28rem, calc(100vw - 4rem));
+  transform: translateY(6px);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 1rem;
+  border: 1px solid rgba(var(--border) / 0.62);
+  background: rgba(var(--card) / 0.96);
+  box-shadow: 0 22px 44px rgba(0 0 0 / 0.16);
+  padding: 0.8rem 0.95rem;
+  font-size: 0.94rem;
+  line-height: 1.45;
+  color: rgb(var(--text));
+  backdrop-filter: blur(12px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.assignment-card:hover .assignment-card-title-tooltip,
+.assignment-card:focus-within .assignment-card-title-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 640px) {
+  .assignment-card-title {
+    font-size: 1.18rem;
+    padding-right: 2rem;
+  }
+
+  .assignment-card-title-tooltip {
+    max-width: min(24rem, calc(100vw - 2rem));
+  }
 }

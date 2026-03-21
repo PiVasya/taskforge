@@ -326,7 +326,7 @@ export default function MySolutionsPage() {
 
   return (
     <Layout>
-      <div className="space-y-4">
+      <div className="container-app py-6 space-y-4">
         <h1 className="text-2xl font-semibold">Мои решения</h1>
 
         <Card className="p-4 space-y-3">
@@ -394,7 +394,7 @@ export default function MySolutionsPage() {
                           {new Date(item.submittedAt).toLocaleString()} • {item.language}
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 items-center">
+                      <div className="flex gap-2 items-center">
                         {item.passedAllTests ? (
                           <Badge intent="success">Все тесты пройдены ({item.passedCount})</Badge>
                         ) : (
@@ -455,7 +455,7 @@ export default function MySolutionsPage() {
                           {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 items-center">
+                      <div className="flex gap-2 items-center">
                         <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
                         {a.allowReview === false ? <Badge intent="secondary">Просмотр скрыт</Badge> : null}
                         {a.allowReview !== false ? (

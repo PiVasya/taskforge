@@ -449,7 +449,7 @@ export default function AdminSolutionsPage() {
 
   return (
     <Layout>
-      <div className="space-y-4">
+      <div className="container-app py-6 space-y-4">
         <h1 className="text-2xl font-semibold">Управление пользователями</h1>
 
         {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
@@ -591,7 +591,7 @@ export default function AdminSolutionsPage() {
                           {new Date(item.submittedAt).toLocaleString()} • {item.language}
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 items-center">
+                      <div className="flex gap-2 items-center">
                         {item.passedAllTests ? (
                           <Badge intent="success">Все тесты пройдены ({item.passedCount})</Badge>
                         ) : (
@@ -664,7 +664,7 @@ export default function AdminSolutionsPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-2">
                         {item.passed === true ? (
                           <Badge intent="success">Зачёт</Badge>
                         ) : item.passed === false ? (
@@ -790,7 +790,7 @@ export default function AdminSolutionsPage() {
                           {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 items-center">
+                      <div className="flex gap-2 items-center">
                         <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
                         {a.allowReview === false ? (
                           <Badge intent="secondary">Скрыт для студента</Badge>
