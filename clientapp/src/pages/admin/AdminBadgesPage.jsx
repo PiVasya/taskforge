@@ -207,7 +207,7 @@ export default function AdminBadgesPage() {
 
   return (
     <Layout>
-      <div className="container-app py-6 space-y-4">
+      <div className="py-6 space-y-4 min-w-0">
         <h1 className="text-2xl font-semibold">Бейджи</h1>
 
         {pageError ? (
@@ -224,13 +224,14 @@ export default function AdminBadgesPage() {
 
         {/* поиск и выбор пользователя */}
         <Card className="p-4 space-y-3">
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.9fr)] items-end">
+            <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Поиск пользователя
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap min-w-0">
                 <Input
+                  className="min-w-0"
                   placeholder="email / имя / фамилия"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -243,7 +244,7 @@ export default function AdminBadgesPage() {
                 </Button>
               </div>
             </div>
-            <div className="space-y-1 min-w-[220px]">
+            <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">Пользователь</div>
               <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
                 <option value="">— не выбрано —</option>

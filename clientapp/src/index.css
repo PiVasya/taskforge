@@ -424,7 +424,15 @@ header .btn-primary {
 .container-app { width: min(1740px, calc(100vw - 24px)); max-width: none; margin-left: auto; margin-right: auto; padding-left: 0.75rem; padding-right: 0.75rem; }
 
 html, body, #root { min-height: 100%; }
-body { overflow-x: hidden; }
+body { overflow-x: clip; }
+
+main .container-app .container-app {
+  width: 100%;
+  max-width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+}
+
 
 @supports (padding: max(0px)) {
   body {
@@ -1174,6 +1182,55 @@ html.dark .bg-fx__blob {
 .side-nav-link.is-active .side-nav-chevron {
   opacity: 0.8;
   color: rgb(var(--accent));
+}
+
+
+.header-quick-row {
+  gap: 0.6rem;
+}
+
+.header-quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.7rem 0.95rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(var(--border) / 0.68);
+  background: rgba(var(--card) / 0.72);
+  box-shadow: 0 6px 18px rgba(0 0 0 / 0.06);
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.header-quick-action:hover {
+  background: rgba(var(--border) / 0.18);
+  transform: translateY(-1px);
+}
+
+.header-quick-action.is-active {
+  background: linear-gradient(180deg, rgba(var(--accent) / 0.13), rgba(var(--accent) / 0.08));
+  border-color: rgba(var(--accent) / 0.28);
+  color: rgb(var(--text));
+}
+
+.dashboard-sticky-rail {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.25rem;
+  scrollbar-width: thin;
+}
+
+.dashboard-sticky-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-sticky-rail::-webkit-scrollbar-thumb {
+  background: rgba(var(--border) / 0.45);
+  border-radius: 9999px;
 }
 
 

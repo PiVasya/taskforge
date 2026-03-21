@@ -449,7 +449,7 @@ export default function AdminSolutionsPage() {
 
   return (
     <Layout>
-      <div className="container-app py-6 space-y-4">
+      <div className="py-6 space-y-4 min-w-0">
         <h1 className="text-2xl font-semibold">Управление пользователями</h1>
 
         {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
@@ -470,13 +470,14 @@ export default function AdminSolutionsPage() {
             </Button>
           </div>
 
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.25fr)_minmax(180px,0.55fr)_auto] items-end">
+            <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Поиск пользователя
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap min-w-0">
                 <Input
+                  className="min-w-0"
                   placeholder="email / имя / фамилия"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -490,7 +491,7 @@ export default function AdminSolutionsPage() {
               </div>
             </div>
 
-            <div className="space-y-1 min-w-[220px]">
+            <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Пользователь
               </div>
@@ -504,7 +505,7 @@ export default function AdminSolutionsPage() {
               </Select>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Период
               </div>
@@ -523,7 +524,7 @@ export default function AdminSolutionsPage() {
               </Select>
             </div>
 
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap items-end gap-2 min-w-0">
               <Button
                 onClick={() => {
                   if (tab === 'tests') return loadTestAttempts();
@@ -842,7 +843,7 @@ export default function AdminSolutionsPage() {
             </div>
 
             <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1 min-w-[260px]">
+              <div className="space-y-1 min-w-0">
                 <div className="text-xs uppercase tracking-wide text-neutral-500">Добавить в группу</div>
                 <Select value={groupToAdd} onChange={(e) => setGroupToAdd(e.target.value)} disabled={groupsLoading}>
                   <option value="">— выберите группу —</option>

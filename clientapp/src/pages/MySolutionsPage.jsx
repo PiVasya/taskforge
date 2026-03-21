@@ -326,7 +326,7 @@ export default function MySolutionsPage() {
 
   return (
     <Layout>
-      <div className="container-app py-6 space-y-4">
+      <div className="py-6 space-y-4 min-w-0">
         <h1 className="text-2xl font-semibold">Мои решения</h1>
 
         <Card className="p-4 space-y-3">

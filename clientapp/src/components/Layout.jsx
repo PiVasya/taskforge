@@ -58,6 +58,26 @@ function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButto
   );
 }
 
+function HeaderAction({ to, icon: Icon, label, active, onClick, asButton = false }) {
+  const cls = `header-quick-action ${active ? 'is-active' : ''}`;
+
+  if (asButton) {
+    return (
+      <button type="button" className={cls} onClick={onClick} title={label}>
+        <Icon size={16} />
+        <span>{label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <Link to={to} className={cls} title={label}>
+      <Icon size={16} />
+      <span>{label}</span>
+    </Link>
+  );
+}
+
 export default function Layout({ children, fullWidth = false, hideFooter = false }) {
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
     const root = document.documentElement;
@@ -207,7 +227,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     access && canUseMinecraft && { to: '/minecraft/chat', label: 'Minecraft', subtitle: 'Игровой чат', icon: MessageSquare, active: isActive('/minecraft/chat') },
   ].filter(Boolean);
 
-  const adminNav = isAdmin
+  const adminPrimaryNav = isAdmin
     ? [
         { to: '/admin/analytics', label: 'Аналитика', subtitle: 'Сводки и графики', icon: BarChart2, active: isActive('/admin/analytics') },
         { to: '/admin/activity', label: 'Действия', subtitle: 'Логи пользователей', icon: Activity, active: isActive('/admin/activity') },
@@ -215,11 +235,18 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         { to: '/admin/groups', label: 'Группы', subtitle: 'Команды и потоки', icon: Users, active: isActive('/admin/groups') },
         { to: '/admin/solutions', label: 'Решения', subtitle: 'Проверки и статусы', icon: ListOrdered, active: isActive('/admin/solutions') },
         { to: '/admin/badges', label: 'Бейджи', subtitle: 'Награды и витрина', icon: Award, active: isActive('/admin/badges') },
+      ]
+    : [];
+
+  const adminSecondaryNav = isAdmin
+    ? [
         { to: '/admin/minecraft-links', label: 'Связи Minecraft', subtitle: 'Привязки игроков', icon: Link2, active: isActive('/admin/minecraft-links') },
         { to: '/admin/system-status', label: 'Статус', subtitle: 'Компоненты и раннеры', icon: Activity, active: isActive('/admin/system-status') },
         { to: '/admin/feature-roles', label: 'Доп. роли', subtitle: 'Права и фичи', icon: Shield, active: isActive('/admin/feature-roles') },
       ]
     : [];
+
+  const adminNav = [...adminPrimaryNav, ...adminSecondaryNav];
 
   const roleBadges = roles.filter(Boolean).slice(0, 4);
   const currentViewTitle = (() => {
@@ -267,6 +294,25 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </div>
           </Link>
 
+          {access && (
+            <div className="header-quick-row hidden xl:flex min-w-0 flex-1 justify-center px-4">
+              {isAdmin && (
+                <HeaderAction to="/admin/analytics" icon={BarChart2} label="Аналитика" active={isActive('/admin/analytics')} />
+              )}
+              <HeaderAction to={supportHref} icon={LifeBuoy} label="Поддержка" active={isActive(supportHref)} />
+              <HeaderAction to="/settings" icon={Settings} label="Настройки" active={isActive('/settings')} />
+              {canEdit && (
+                <HeaderAction
+                  asButton
+                  icon={isEditorMode ? PencilLine : Eye}
+                  label={isEditorMode ? 'Редактор' : 'Просмотр'}
+                  active={isEditorMode}
+                  onClick={toggle}
+                />
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             {access && (
               <Link
@@ -298,7 +344,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                   <MoreHorizontal size={18} />
                 </button>
                 {adminOpen && (
-                  <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
+                  <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
                     <Link to="/profile" className="btn-ghost w-full justify-start" onClick={() => setAdminOpen(false)}>
                       <User size={18} />
                       <span className="ml-2">Профиль</span>
@@ -320,11 +366,23 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                         <span className="ml-2">{isEditorMode ? 'Режим редактора' : 'Режим просмотра'}</span>
                       </button>
                     )}
+                    {isAdmin && adminSecondaryNav.length > 0 && (
+                      <>
+                        <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
+                        <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Система</div>
+                        {adminSecondaryNav.map((item) => (
+                          <Link key={item.to} to={item.to} className="btn-ghost w-full justify-start" onClick={() => setAdminOpen(false)}>
+                            <item.icon size={18} />
+                            <span className="ml-2">{item.label}</span>
+                          </Link>
+                        ))}
+                      </>
+                    )}
+                    <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
                     <Link to={supportHref} className="btn-ghost w-full justify-start" onClick={() => setAdminOpen(false)}>
                       <LifeBuoy size={18} />
                       <span className="ml-2">Поддержка</span>
                     </Link>
-                    <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
                     <button type="button" className="btn-ghost w-full justify-start" onClick={handleLogout}>
                       <LogOut size={18} />
                       <span className="ml-2">Выйти</span>
@@ -434,9 +492,9 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       </header>
 
       <main className={mainWrapClass}>
-        <div className={`items-start gap-5 2xl:gap-7 ${access ? 'xl:grid xl:grid-cols-[14.75rem,minmax(0,1fr),15rem] 2xl:grid-cols-[15.25rem,minmax(0,1fr),15.5rem]' : ''}`}>
+        <div className={`items-start gap-4 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[13rem,minmax(0,1fr),12.5rem] 2xl:grid-cols-[13.5rem,minmax(0,1fr),13rem]' : ''}`}>
           {access && (
-            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
+            <aside className="dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">
                 <div className="side-nav-section-title">Основное</div>
                 <div className="mt-2 space-y-1.5">
@@ -450,7 +508,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                 <div className="card p-3">
                   <div className="side-nav-section-title">Админка</div>
                   <div className="mt-2 space-y-1.5 max-h-[52vh] overflow-y-auto pr-1">
-                    {adminNav.map((item) => (
+                    {adminPrimaryNav.map((item) => (
                       <SideNavLink key={item.to} {...item} compact />
                     ))}
                   </div>
@@ -459,7 +517,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </aside>
           )}
 
-          <section className="min-w-0 xl:px-1 2xl:px-2">
+          <section className="min-w-0 overflow-x-hidden xl:px-1 2xl:px-2">
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -470,7 +528,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           </section>
 
           {access && (
-            <aside className="hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
+            <aside className="dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-4">
                 <div className="flex items-start gap-3">
                   <div className="h-12 w-12 rounded-2xl grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300 shrink-0">
@@ -492,52 +550,12 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                   </div>
                 )}
               </div>
-
-              <div className="card p-3">
-                <div className="side-nav-section-title">Быстрые действия</div>
-                <div className="mt-2 space-y-1.5">
-                  <SideNavLink to="/profile" icon={User} label="Профиль" subtitle="Личные данные" active={isActive('/profile')} />
-                  <SideNavLink to="/settings" icon={Settings} label="Настройки" subtitle="Тема и интерфейс" active={isActive('/settings')} />
-                  {canEdit && (
-                    <SideNavLink
-                      asButton
-                      icon={isEditorMode ? PencilLine : Eye}
-                      label={isEditorMode ? 'Режим редактора' : 'Режим просмотра'}
-                      subtitle={isEditorMode ? 'Инструменты редактирования включены' : 'Обычный режим работы'}
-                      active={isEditorMode}
-                      onClick={toggle}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="card p-3">
-                <div className="side-nav-section-title">Сессия</div>
-                <div className="mt-2 space-y-1.5">
-                  <Link to={supportHref} className="side-nav-link">
-                    <span className="side-nav-icon"><LifeBuoy size={18} /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">Поддержка</span>
-                      <span className="side-nav-subtitle">Связь и обращения</span>
-                    </span>
-                    <ChevronRight size={16} className="side-nav-chevron" />
-                  </Link>
-                  <button type="button" className="side-nav-link" onClick={handleLogout}>
-                    <span className="side-nav-icon"><LogOut size={18} /></span>
-                    <span className="min-w-0 flex-1 text-left">
-                      <span className="block truncate font-medium">Выйти</span>
-                      <span className="side-nav-subtitle">Завершить текущую сессию</span>
-                    </span>
-                    <ChevronRight size={16} className="side-nav-chevron" />
-                  </button>
-                </div>
-              </div>
             </aside>
           )}
         </div>
       </main>
 
-      {!hideFooter && (
+      {!hideFooter && !access && (
         <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70 relative z-10">
           <div className="container-app py-4 sm:py-6 text-sm text-neutral-500 dark:text-neutral-400 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>© {new Date().getFullYear()} TaskForge</div>
