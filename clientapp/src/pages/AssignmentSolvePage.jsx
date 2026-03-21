@@ -13,7 +13,6 @@ import StatementViewer from '../components/tiptap/StatementViewer';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
-import { runTests as runCompilerTests } from '../api/compiler';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 
@@ -244,34 +243,6 @@ export default function AssignmentSolvePage() {
     setError('');
     setResult(null);
     try {
-      // SMOKE: первый публичный тест
-      const firstPublic = (a?.testCases || []).find((t) => !t.isHidden);
-      if (firstPublic) {
-        try {
-          const smoke = await runCompilerTests({ language, code, testCases: [firstPublic] });
-          const scase = (smoke?.results || smoke?.testCases || smoke?.cases || [])[0] || {};
-          const failed =
-            Boolean(scase.error || scase.compileError || scase.stderr) ||
-            scase.status === 'FAIL' || scase.passed === false || scase.ok === false;
-          if (failed) {
-            try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: smoke })); } catch {}
-            window.open(`/assignment/${assignmentId}/results?view=smoke`, '_blank', 'noopener,noreferrer');
-            notify.error('Пробный прогон не прошёл. Детали — на странице результатов.');
-            setSubmitting(false);
-            return;
-          }
-        } catch (smokeErr) {
-          const msg = smokeErr?.response?.data?.error || smokeErr?.message || 'Ошибка пробного прогона';
-          const payload = { results: [{ compileStderr: msg }] };
-          try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: payload })); } catch {}
-          window.open(`/assignment/${assignmentId}/results?view=smoke`, '_blank', 'noopener,noreferrer');
-          notify.error(msg);
-          setSubmitting(false);
-          return;
-        }
-      }
-
-      // Полный прогон
       const r = await submitSolution(assignmentId, { language, code });
 
       const cases = r?.cases ?? r?.testCases ?? r?.results ?? [];

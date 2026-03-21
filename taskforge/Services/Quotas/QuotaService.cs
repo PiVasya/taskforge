@@ -107,7 +107,9 @@ public sealed class QuotaService : IQuotaService
             }
 
             var nextAt = lastRefillAtAfter + cfg.RefillInterval;
-            var retryAfter = newTokens > 0 ? 0 : Math.Max(1, (int)Math.Ceiling((nextAt - now).TotalSeconds));
+            var retryAfter = newTokens >= cfg.Capacity
+                ? 0
+                : Math.Max(1, (int)Math.Ceiling((nextAt - now).TotalSeconds));
 
             return new QuotaConsumeResult(
                 Allowed: true,
@@ -150,7 +152,9 @@ public sealed class QuotaService : IQuotaService
 
             var (tokensAfter, lastRefillAfter) = ApplyRefillView(e.Tokens, e.LastRefillAtUtc, now, cfg.Capacity, cfg.RefillInterval);
             var nextAt = lastRefillAfter + cfg.RefillInterval;
-            var retry = tokensAfter > 0 ? 0 : Math.Max(1, (int)Math.Ceiling((nextAt - now).TotalSeconds));
+            var retry = tokensAfter >= cfg.Capacity
+                ? 0
+                : Math.Max(1, (int)Math.Ceiling((nextAt - now).TotalSeconds));
 
             return new QuotaConsumeResult(
                 Allowed: tokensAfter > 0,

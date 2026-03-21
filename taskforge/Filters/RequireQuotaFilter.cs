@@ -38,6 +38,8 @@ public sealed class RequireQuotaFilter : IAsyncActionFilter
         context.HttpContext.Response.Headers["X-Quota-Bucket"] = res.Bucket;
         context.HttpContext.Response.Headers["X-Quota-Remaining"] = res.Remaining.ToString();
         context.HttpContext.Response.Headers["X-Quota-Capacity"] = res.Capacity.ToString();
+        context.HttpContext.Response.Headers["X-Quota-Retry-After"] = res.RetryAfterSeconds.ToString();
+        context.HttpContext.Response.Headers["X-Quota-Next-Refill-At"] = res.NextRefillAtUtc.ToString("O");
 
         if (!res.Allowed)
         {

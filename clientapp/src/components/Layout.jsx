@@ -30,6 +30,8 @@ import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 import BgFxCanvas from './bgfx/BgFxCanvas';
 import api from '../api/http';
+import { QuotaProvider } from '../contexts/QuotaContext';
+import QuotaStatusBar from './QuotaStatusBar';
 
 function SideNavLink({ to, icon: Icon, label, subtitle, active, onClick, asButton = false, compact = false }) {
   const cls = `side-nav-link ${active ? 'is-active' : ''} ${compact ? 'is-compact' : ''}`;
@@ -266,7 +268,8 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     : 'container-app py-4 sm:py-8 relative z-10';
 
   return (
-    <div className="min-h-screen relative isolate">
+    <QuotaProvider enabled={!!access}>
+      <div className="min-h-screen relative isolate">
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         {bgFx && (
           <>
@@ -489,6 +492,12 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </div>
           </div>
         </div>
+
+        {access && (
+          <div className="container-app pb-3">
+            <QuotaStatusBar />
+          </div>
+        )}
       </header>
 
       <main className={mainWrapClass}>
@@ -568,6 +577,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           </div>
         </footer>
       )}
-    </div>
+      </div>
+    </QuotaProvider>
   );
 }

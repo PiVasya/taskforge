@@ -29,7 +29,8 @@ function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
 
     const remRaw = h['x-quota-remaining'] ?? h['X-Quota-Remaining'];
     const capRaw = h['x-quota-capacity'] ?? h['X-Quota-Capacity'];
-    const retryRaw = h['retry-after'] ?? h['Retry-After'] ?? fallbackRetry;
+    const retryRaw = h['x-quota-retry-after'] ?? h['X-Quota-Retry-After'] ?? h['retry-after'] ?? h['Retry-After'] ?? fallbackRetry;
+    const nextRefillAtUtc = h['x-quota-next-refill-at'] ?? h['X-Quota-Next-Refill-At'] ?? undefined;
 
     const remaining = remRaw == null ? undefined : Number(remRaw);
     const capacity = capRaw == null ? undefined : Number(capRaw);
@@ -37,7 +38,7 @@ function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
 
     window.dispatchEvent(
       new CustomEvent('quota:update', {
-        detail: { bucket, remaining, capacity, retryAfterSeconds },
+        detail: { bucket, remaining, capacity, retryAfterSeconds, nextRefillAtUtc },
       })
     );
   } catch {
