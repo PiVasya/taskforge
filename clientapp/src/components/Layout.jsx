@@ -501,7 +501,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       </header>
 
       <main className={mainWrapClass}>
-        <div className={`items-start gap-4 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[13rem,minmax(0,1fr),12.5rem] 2xl:grid-cols-[13.5rem,minmax(0,1fr),13rem]' : ''}`}>
+        <div className={`items-start gap-4 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[14.75rem,minmax(0,1fr),11.75rem] 2xl:grid-cols-[15.5rem,minmax(0,1fr),12rem]' : ''}`}>
           {access && (
             <aside className="dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">

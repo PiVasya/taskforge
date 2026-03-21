@@ -1136,7 +1136,7 @@ html.dark .bg-fx__blob {
 }
 
 .side-nav-link {
-  @apply flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition;
+  @apply flex w-full items-center gap-2.5 rounded-2xl px-3 py-2.5 text-left transition;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
@@ -1157,7 +1157,7 @@ html.dark .bg-fx__blob {
 }
 
 .side-nav-icon {
-  @apply h-10 w-10 shrink-0 rounded-2xl grid place-items-center;
+  @apply h-9 w-9 shrink-0 rounded-2xl grid place-items-center;
   background: rgba(var(--border) / 0.12);
 }
 
@@ -1167,11 +1167,11 @@ html.dark .bg-fx__blob {
 }
 
 .side-nav-label {
-  @apply block truncate text-[0.98rem] font-medium leading-5;
+  @apply block truncate text-[0.94rem] font-medium leading-5;
 }
 
 .side-nav-label.is-compact {
-  @apply text-[0.98rem] leading-5;
+  @apply text-[0.94rem] leading-5;
 }
 
 .side-nav-chevron {

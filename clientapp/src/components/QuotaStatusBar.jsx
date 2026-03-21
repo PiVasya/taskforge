@@ -1,5 +1,5 @@
 import React from 'react';
-import { TimerReset, Zap, Trophy } from 'lucide-react';
+import { Zap, Trophy } from 'lucide-react';
 import { useQuota } from '../contexts/QuotaContext';
 
 function fmtEta(sec) {
@@ -44,10 +44,6 @@ export default function QuotaStatusBar({ className = '' }) {
     <div className={['hidden md:flex flex-wrap items-center justify-center gap-2', className].join(' ')}>
       <BucketChip icon={Zap} label="Задания" bucket={tasks} />
       <BucketChip icon={Trophy} label="Топ" bucket={top} />
-      <div className="hidden 2xl:inline-flex items-center gap-2 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/70 px-3 py-2 text-xs text-neutral-500 dark:text-neutral-400 shadow-soft">
-        <TimerReset size={15} />
-        Без лишних запросов: таймер идёт локально, обновление — только по событию и на рефиле.
-      </div>
     </div>
   );
 }
