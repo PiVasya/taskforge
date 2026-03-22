@@ -298,21 +298,24 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           </Link>
 
           {access && (
-            <div className="header-quick-row hidden xl:flex min-w-0 flex-1 justify-center px-4">
-              {isAdmin && (
-                <HeaderAction to="/admin/analytics" icon={BarChart2} label="Аналитика" active={isActive('/admin/analytics')} />
-              )}
-              <HeaderAction to={supportHref} icon={LifeBuoy} label="Поддержка" active={isActive(supportHref)} />
-              <HeaderAction to="/settings" icon={Settings} label="Настройки" active={isActive('/settings')} />
-              {canEdit && (
-                <HeaderAction
-                  asButton
-                  icon={isEditorMode ? PencilLine : Eye}
-                  label={isEditorMode ? 'Редактор' : 'Просмотр'}
-                  active={isEditorMode}
-                  onClick={toggle}
-                />
-              )}
+            <div className="header-center-cluster hidden xl:flex min-w-0 flex-1 justify-center px-4">
+              <div className="header-quick-row min-w-0">
+                {isAdmin && (
+                  <HeaderAction to="/admin/analytics" icon={BarChart2} label="Аналитика" active={isActive('/admin/analytics')} />
+                )}
+                <HeaderAction to={supportHref} icon={LifeBuoy} label="Поддержка" active={isActive(supportHref)} />
+                <HeaderAction to="/settings" icon={Settings} label="Настройки" active={isActive('/settings')} />
+                {canEdit && (
+                  <HeaderAction
+                    asButton
+                    icon={isEditorMode ? PencilLine : Eye}
+                    label={isEditorMode ? 'Редактор' : 'Просмотр'}
+                    active={isEditorMode}
+                    onClick={toggle}
+                  />
+                )}
+              </div>
+              <QuotaStatusBar compact />
             </div>
           )}
 
@@ -493,11 +496,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           </div>
         </div>
 
-        {access && (
-          <div className="container-app pb-3">
-            <QuotaStatusBar />
-          </div>
-        )}
       </header>
 
       <main className={mainWrapClass}>

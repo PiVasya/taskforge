@@ -9,6 +9,12 @@ import { AlertTriangle, Save, Search, Trash2, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
+const formatTelegramHandle = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  return raw.startsWith('@') ? raw : `@${raw}`;
+};
+
 const sortOptions = [
   { value: 'createdAt', label: 'Дата регистрации' },
   { value: 'lastLoginAt', label: 'Дата последнего входа' },
@@ -173,7 +179,7 @@ export default function AdminUsersPage() {
                   <Field label="Фамилия"><Input value={user.lastName || ''} onChange={(e) => updateLocal(user.id, { lastName: e.target.value })} /></Field>
                   <Field label="Телефон"><Input value={user.phoneNumber || ''} onChange={(e) => updateLocal(user.id, { phoneNumber: e.target.value })} /></Field>
                   <Field label="Minecraft nick"><Input value={user.minecraftNick || ''} onChange={(e) => updateLocal(user.id, { minecraftNick: e.target.value })} /></Field>
-                  <Field label="Telegram username"><Input value={user.telegramUsername || ''} onChange={(e) => updateLocal(user.id, { telegramUsername: e.target.value })} /></Field>
+                  <Field label="Telegram username"><Input value={user.telegramUsername || ''} onChange={(e) => updateLocal(user.id, { telegramUsername: e.target.value })} placeholder={user.telegramLinkedAtUtc ? 'username не передан Telegram' : '@username'} /></Field>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Field label="Email подтверждён"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.emailConfirmed} onChange={(e) => updateLocal(user.id, { emailConfirmed: e.target.checked })} /><span className="text-sm">Да</span></label></Field>
                     <Field label="Lockout enabled"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.lockoutEnabled} onChange={(e) => updateLocal(user.id, { lockoutEnabled: e.target.checked })} /><span className="text-sm">Да</span></label></Field>
@@ -197,6 +203,7 @@ export default function AdminUsersPage() {
                     <div>Последний вход: {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '—'}</div>
                     <div>Minecraft привязан: {user.minecraftLinkedAtUtc ? new Date(user.minecraftLinkedAtUtc).toLocaleString() : 'нет'}</div>
                     <div>Telegram привязан: {user.telegramLinkedAtUtc ? new Date(user.telegramLinkedAtUtc).toLocaleString() : 'нет'}</div>
+                    <div>Telegram username: {formatTelegramHandle(user.telegramUsername) || (user.telegramLinkedAtUtc ? 'не задан в Telegram' : 'нет')}</div>
                   </div>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                     <Button className="w-full sm:w-auto" onClick={() => save(user)}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
