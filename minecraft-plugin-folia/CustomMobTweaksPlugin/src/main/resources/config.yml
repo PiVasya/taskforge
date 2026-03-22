@@ -15,5 +15,64 @@ wither-skeleton-stun:
   apply-weakness: true
   apply-darkness: true
 
+snow-golem-snowball:
+  enabled: true
+  damage: 0.5
+  slowness-chance: 0.15
+  slowness-duration-ticks: 20
+  slowness-amplifier: 0
+
+breeze-wind-charge:
+  enabled: true
+  bonus-damage: 1.0
+  vertical-knockback: 0.35
+  spawn-cloud-particles: true
+
+breeze-fireball-primary:
+  enabled: true
+  projectile-speed-multiplier: 1.15
+  bonus-damage: 1.0
+  fire-ticks: 40
+  incendiary: false
+
+drowned-trident-glow:
+  enabled: true
+  duration-ticks: 80
+  amplifier: 0
+
+pillager-armor-pierce:
+  enabled: true
+  ignore-armor: true
+  ignore-protection-enchants: true
+  bonus-damage: 0.6
+
+stray-chill:
+  enabled: true
+  duration-ticks: 60
+  amplifier: 0
+
+skeleton-sniper:
+  enabled: true
+  include-strays: true
+  include-bogged: false
+  follow-range: 56.0
+  minimum-distance: 9.0
+  preferred-distance: 24.0
+  retreat-when-close: true
+  retreat-strength: 0.28
+  speed-multiplier: 1.22
+  base-damage-bonus: 0.0
+  far-shot-damage-bonus: 0.35
+  prediction-factor: 0.7
+  require-line-of-sight: true
+  disable-arrow-gravity: true
+  critical: false
+  aim-at-body: true
+  continuous-homing: true
+  homing-ticks: 18
+  homing-turn-rate: 0.35
+  homing-lead-factor: 0.35
+  max-track-distance: 40.0
+
 messages:
   debug: false
