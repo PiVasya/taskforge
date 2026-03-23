@@ -118,7 +118,8 @@ namespace taskforge.Services
             SolvedByCurrentUser =
                 a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
                 || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
-                || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false),
+                || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false)
+                || _db.UserTaskMathAttempts.Any(m => m.TaskAssignmentId == a.Id && m.UserId == currentUserId && m.Passed),
             Sort = a.Sort,
             CanEdit = a.Course.OwnerId == currentUserId
                       || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
@@ -169,7 +170,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         SolvedByCurrentUser =
             a.Solutions.Any(s => s.PassedAllTests)
             || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
-            || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false),
+            || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false)
+            || _db.UserTaskMathAttempts.Any(m => m.TaskAssignmentId == a.Id && m.UserId == currentUserId && m.Passed),
         TestCases = visibleCases,
         Sort = a.Sort,
         ImageTestReferenceKey = a.Type == "image-test" ? a.ImageTestReferenceKey : (canEdit ? a.ImageTestReferenceKey : null),

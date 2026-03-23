@@ -9,6 +9,7 @@ namespace taskforge.Constants
         public const string CodeTest = "code-test";
         public const string Test = "test";
         public const string ImageTest = "image-test";
+        public const string Math = "math";
 
         public static string Normalize(string? type)
         {
@@ -21,7 +22,7 @@ namespace taskforge.Constants
         public static bool IsSupported(string? type)
         {
             var t = Normalize(type);
-            return t == CodeTest || t == Test || t == ImageTest;
+            return t == CodeTest || t == Test || t == ImageTest || t == Math;
         }
     }
 }

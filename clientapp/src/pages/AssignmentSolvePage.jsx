@@ -8,6 +8,7 @@ import { Card, Button, Select, Textarea, Badge } from '../components/ui';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
 import TaskTestSolve from './TaskTestSolve';
+import MathTaskSolve from './MathTaskSolve';
 import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -393,6 +394,42 @@ export default function AssignmentSolvePage() {
 
         {renderAdminQuickInsights()}
         <TaskTestSolve assignment={a} assignmentId={a.id} />
+      </Layout>
+    );
+  }
+
+
+  // ===== Новый тип задания: math =====
+  if (a.type === 'math') {
+    return (
+      <Layout>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-1"
+              onClick={() => nav(`/course/${a.courseId}`)}
+            >
+              <ArrowLeft size={16} /> к заданиям курса
+            </Button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <QuotaPill bucket="tasks" />
+            {isAdmin && (
+              <Link to={`/admin/assignments/${a.id}/insights`} className="btn-outline">
+                <BarChart3 size={16} className="mr-2" /> Аналитика задания
+              </Link>
+            )}
+            <IfEditor>
+              <Link to={`/assignment/${a.id}/edit`} className="btn-outline">
+                Редактировать
+              </Link>
+            </IfEditor>
+          </div>
+        </div>
+
+        {renderAdminQuickInsights()}
+        <MathTaskSolve assignment={a} assignmentId={a.id} />
       </Layout>
     );
   }

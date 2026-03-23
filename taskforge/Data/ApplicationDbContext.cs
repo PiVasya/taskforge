@@ -52,6 +52,11 @@ namespace taskforge.Data
         public DbSet<TaskTestQuestion> TaskTestQuestions { get; set; } = null!;
         public DbSet<UserTaskTestAttempt> UserTaskTestAttempts { get; set; } = null!;
 
+        // ===== Math задания =====
+        public DbSet<TaskMathSettings> TaskMathSettings { get; set; } = null!;
+        public DbSet<TaskMathBlock> TaskMathBlocks { get; set; } = null!;
+        public DbSet<UserTaskMathAttempt> UserTaskMathAttempts { get; set; } = null!;
+
         // Наборы данных для бейджей и связей между пользователями и бейджами.
         public DbSet<Badge> Badges { get; set; } = null!;
         public DbSet<UserBadge> UserBadges { get; set; } = null!;
@@ -65,6 +70,25 @@ namespace taskforge.Data
             {
                 entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
                 entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
+            });
+
+
+            // Math task content JSON columns
+            modelBuilder.Entity<TaskMathBlock>(entity =>
+            {
+                entity.Property(x => x.DataJson).HasColumnType("jsonb");
+                entity.Property(x => x.PromptContentJson).HasColumnType("jsonb");
+            });
+
+            modelBuilder.Entity<TaskMathSettings>(entity =>
+            {
+                entity.Property(x => x.AttemptTimeLimitsJson).HasColumnType("jsonb");
+            });
+
+            modelBuilder.Entity<UserTaskMathAttempt>(entity =>
+            {
+                entity.Property(x => x.BlockOrderJson).HasColumnType("jsonb");
+                entity.Property(x => x.AnswersJson).HasColumnType("jsonb");
             });
 
             // 🔹 User

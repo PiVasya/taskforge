@@ -48,6 +48,7 @@ builder.Services.AddScoped<IUserGroupService, taskforge.Services.UserGroups.User
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ITaskTestService, TaskTestService>();
+builder.Services.AddScoped<ITaskMathService, TaskMathService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
 builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();

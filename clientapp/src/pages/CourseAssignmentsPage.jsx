@@ -338,6 +338,7 @@ export default function CourseAssignmentsPage() {
                   <option value="code-test">code-test</option>
                   <option value="test">test</option>
                   <option value="image-test">image-test</option>
+                  <option value="math">math</option>
                 </select>
 
                 <Button className="w-full sm:w-auto" onClick={handleCreate}>

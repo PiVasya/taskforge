@@ -8,10 +8,12 @@ import { notifyOnce } from "../utils/notifyOnce";
 
 import { getAssignment, updateAssignment, deleteAssignment } from "../api/assignments";
 import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
+import { getMathTaskEdit, saveMathTaskEdit } from "../api/mathTasks";
 
 import { Card, Button, Field, Input, Textarea, Select } from "../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle } from "lucide-react";
 import TaskTestEditor from "./TaskTestEditor";
+import MathTaskEditor from "./MathTaskEditor";
 import StatementEditor from "../components/tiptap/StatementEditor";
 import { uploadImageTestReference } from "../api/imageTests";
 
@@ -66,6 +68,16 @@ export default function AssignmentEditPage() {
     attemptTimeLimitsSeconds: [],
   });
   const [testQuestions, setTestQuestions] = useState([]);
+
+
+  const [mathSettings, setMathSettings] = useState({
+    maxAttempts: 1,
+    passPercent: 60,
+    shuffleBlocks: false,
+    allowReview: true,
+    attemptTimeLimitsSeconds: [],
+  });
+  const [mathBlocks, setMathBlocks] = useState([]);
 
   // image-test
   const [imageTestReferenceKey, setImageTestReferenceKey] = useState("");
@@ -127,7 +139,6 @@ export default function AssignmentEditPage() {
         // если это тест — подтягиваем настройки/вопросы
         if ((a.type || "").trim() === "test") {
           try {
-
             const te = await getTaskTestEdit(assignmentId);
             setTestSettings(te.settings || {
               shuffleQuestions: true,
@@ -140,6 +151,22 @@ export default function AssignmentEditPage() {
             setTestQuestions(Array.isArray(te.questions) ? te.questions : []);
           } catch (e2) {
             // не блокируем редактор базовых полей
+          }
+        }
+
+        if ((a.type || "").trim() === "math") {
+          try {
+            const me = await getMathTaskEdit(assignmentId);
+            setMathSettings(me.settings || {
+              maxAttempts: 1,
+              passPercent: 60,
+              shuffleBlocks: false,
+              allowReview: true,
+              attemptTimeLimitsSeconds: [],
+            });
+            setMathBlocks(Array.isArray(me.blocks) ? me.blocks : []);
+          } catch (e2) {
+            // ignore
           }
         }
       } catch (e) {
@@ -175,7 +202,7 @@ export default function AssignmentEditPage() {
     if (!normalizedTitle) issues.push('Укажи название задания.');
     if (normalizedTitle.length > 200) issues.push('Название не должно быть длиннее 200 символов.');
     if (!plainDescription) issues.push('Заполни условие задания.');
-    if (!['code-test', 'image-test', 'test'].includes(normalizedType)) issues.push('Выбран неподдерживаемый тип задания.');
+    if (!['code-test', 'image-test', 'test', 'math'].includes(normalizedType)) issues.push('Выбран неподдерживаемый тип задания.');
     if (![1, 2, 3].includes(Number(difficulty))) issues.push('Сложность должна быть 1, 2 или 3.');
     if (!Number.isFinite(Number(rating)) || Number(rating) < 0) issues.push('Рейтинг должен быть целым числом не меньше 0.');
 
@@ -233,8 +260,49 @@ export default function AssignmentEditPage() {
       }
     }
 
+    if (normalizedType === 'math') {
+      if (!Array.isArray(mathBlocks) || mathBlocks.length === 0) {
+        issues.push('Добавь хотя бы один блок в math-задание.');
+      } else {
+        mathBlocks.forEach((b, idx) => {
+          const prompt = String(b?.prompt ?? '').trim();
+          const rich = String(b?.promptContentJson ?? '').trim();
+          const kind = String(b?.kind || 'info');
+          if (!prompt && !rich) issues.push(`Math-блок #${idx + 1}: заполни текст блока.`);
+          if (['single-choice', 'multi-choice'].includes(kind)) {
+            const opts = Array.isArray(b?.options) ? b.options.filter((o) => String(o?.text ?? '').trim()) : [];
+            const correct = Array.isArray(b?.correctOptionKeys) ? b.correctOptionKeys.filter(Boolean) : [];
+            if (opts.length < 2) issues.push(`Math-блок #${idx + 1}: минимум два варианта.`);
+            if (correct.length === 0) issues.push(`Math-блок #${idx + 1}: отметь правильные варианты.`);
+          }
+          if (['number', 'expression', 'set'].includes(kind)) {
+            const answers = Array.isArray(b?.acceptedAnswers) ? b.acceptedAnswers.map((x) => String(x || '').trim()).filter(Boolean) : [];
+            if (answers.length === 0) issues.push(`Math-блок #${idx + 1}: добавь допустимые ответы.`);
+          }
+          if (kind === 'order') {
+            const items = Array.isArray(b?.orderItems) ? b.orderItems.map((x) => String(x || '').trim()).filter(Boolean) : [];
+            if (items.length < 2) issues.push(`Math-блок #${idx + 1}: нужно минимум два шага.`);
+          }
+          if (kind === 'match') {
+            const left = Array.isArray(b?.matchLeftItems) ? b.matchLeftItems.filter((x) => String(x?.text || '').trim()) : [];
+            const right = Array.isArray(b?.matchRightItems) ? b.matchRightItems.filter((x) => String(x?.text || '').trim()) : [];
+            const pairs = Array.isArray(b?.matchPairs) ? b.matchPairs.filter((x) => String(x?.leftKey || '').trim() && String(x?.rightKey || '').trim()) : [];
+            if (!left.length || !right.length || !pairs.length) issues.push(`Math-блок #${idx + 1}: заполни элементы и пары.`);
+          }
+        });
+      }
+
+      if (!Number.isFinite(Number(mathSettings?.maxAttempts)) || Number(mathSettings?.maxAttempts) < 1) {
+        issues.push('У math-задания количество попыток должно быть не меньше 1.');
+      }
+      const mathPassPercent = Number(mathSettings?.passPercent);
+      if (!Number.isFinite(mathPassPercent) || mathPassPercent < 0 || mathPassPercent > 100) {
+        issues.push('У math-задания проходной процент должен быть от 0 до 100.');
+      }
+    }
+
     return [...new Set(issues)];
-  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings]);
+  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
 
   useEffect(() => {
     if (saveIssues.length > 0) {
@@ -242,7 +310,7 @@ export default function AssignmentEditPage() {
       setErr('');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings]);
+  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
 
   const addTest = () =>
     setTestCases((prev) => [
@@ -336,6 +404,28 @@ export default function AssignmentEditPage() {
         await saveTaskTestEdit(assignmentId, {
           settings: testSettings,
           questions: cleanedQuestions,
+        });
+      }
+
+      if ((type || "").trim() === "math") {
+        const cleanedBlocks = (mathBlocks || []).map((b) => ({
+          ...b,
+          acceptedAnswers: Array.isArray(b?.acceptedAnswers)
+            ? b.acceptedAnswers
+                .map((x) => (typeof x === "string" ? x : ""))
+                .map((x) => x.replace(/\r/g, ""))
+                .filter((x) => x.trim().length > 0)
+            : [],
+          orderItems: Array.isArray(b?.orderItems)
+            ? b.orderItems
+                .map((x) => (typeof x === "string" ? x : ""))
+                .map((x) => x.replace(/\r/g, ""))
+                .filter((x) => x.trim().length > 0)
+            : [],
+        }));
+        await saveMathTaskEdit(assignmentId, {
+          settings: mathSettings,
+          blocks: cleanedBlocks,
         });
       }
       notify.success("Изменения сохранены");
@@ -460,6 +550,7 @@ export default function AssignmentEditPage() {
                   <option value="code-test">code-test</option>
                   <option value="image-test">image-test</option>
                   <option value="test">test</option>
+                  <option value="math">math</option>
                 </Select>
               </Field>
 
@@ -758,6 +849,15 @@ export default function AssignmentEditPage() {
               setSettings={setTestSettings}
               questions={testQuestions}
               setQuestions={setTestQuestions}
+            />
+          )}
+
+          {type === 'math' && (
+            <MathTaskEditor
+              settings={mathSettings}
+              setSettings={setMathSettings}
+              blocks={mathBlocks}
+              setBlocks={setMathBlocks}
             />
           )}
         </div>
