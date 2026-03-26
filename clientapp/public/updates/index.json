@@ -241,14 +241,14 @@
   },
   {
     "id": "2026-03-04-minecraft-integration",
-    "title": "Minecraft: привязка аккаунта и игровые ограничения",
+    "title": "Открыт Bedrock-порт сервера",
     "date": "2026-03-04",
     "pinned": false,
     "tags": [
-      "игры",
-      "интеграция"
+      "Minecraft",
+      "Bedrock"
     ],
-    "summary": "Привязывайте аккаунт к Minecraft и следите, чтобы рейтинг позволял играть без ограничений.",
+    "summary": "Для Bedrock Edition теперь доступен отдельный адрес: bedrock.taskforge.by.",
     "file": "2026-03-04-minecraft-integration.json"
   },
   {
@@ -265,26 +265,26 @@
   },
   {
     "id": "2026-03-07-claim-tutorial",
-    "title": "Как пользоваться приватом",
+    "title": "Приваты уже доступны",
     "date": "2026-03-07",
     "pinned": false,
     "tags": [
-      "гайд",
-      "Minecraft"
+      "Minecraft",
+      "приваты"
     ],
-    "summary": "Пошаговое руководство по привату чанков: команды /claim, /claim see, /claim map и другие.",
+    "summary": "На сервере уже работают приваты: /claim, /claim autoaddchunk название, /unclaim и /claim settings.",
     "file": "2026-03-07-claim-tutorial.json"
   },
   {
     "id": "2026-03-07-registration-guide",
-    "title": "Как зарегистрироваться",
+    "title": "Minecraft-сервер уже открыт",
     "date": "2026-03-07",
     "pinned": false,
     "tags": [
-      "гайд",
-      "регистрация"
+      "Minecraft",
+      "сервер"
     ],
-    "summary": "Новая обучающая статья: как создать учётную запись TaskForge и начать пользоваться сайтом.",
+    "summary": "Основной адрес сервера — mc.taskforge.by. В новости есть команда /register и инструкция по привязке аккаунта сайта к игре.",
     "file": "2026-03-07-registration-guide.json"
   }
 ]

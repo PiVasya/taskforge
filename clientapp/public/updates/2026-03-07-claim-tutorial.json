@@ -3,35 +3,354 @@
   "content": [
     {
       "type": "heading",
-      "attrs": {"level": 2},
-      "content": [ {"type": "text", "text": "Как пользоваться приватом"} ]
-    },
-    {
-      "type": "paragraph",
-      "content": [ {"type": "text", "text": "В этом руководстве рассказываем, как защитить свою территорию на сервере с помощью привата."} ]
-    },
-    {
-      "type": "paragraph",
-      "content": [ {"type": "text", "text": "Приват создаётся по чанкам – зонам размером 16×16 блоков. Вы можете защищать отдельные чанки или автоматически приватить новые по мере расширения базы."} ]
-    },
-    {
-      "type": "bulletList",
+      "attrs": {
+        "level": 2
+      },
       "content": [
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Заприватить текущий чанк: /claim." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Показать границы привата: /claim see." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Открыть карту ближайших приватных и свободных чанков: /claim map." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Приватить новые чанки при строительстве: /claim autoclaim или /claim autoaddchunk. Повторный ввод выключает режим." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Добавить друга: /claim add Ник. Удалить: /claim remove Ник." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Выгнать нарушителя: /claim kick Ник. Забанить: /claim ban Ник." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Изменить название привата: /claim setname Название." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Установить точку телепорта: /claim setspawn." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Телепортироваться в свой приват: /claim tp Название." } ] } ] },
-        { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Снять приват: /unclaim." } ] } ] }
+        {
+          "type": "text",
+          "text": "Приваты уже доступны"
+        }
       ]
     },
     {
       "type": "paragraph",
-      "content": [ {"type": "text", "text": "Используйте эти команды, чтобы надёжно защитить свои постройки и управлять доступом."} ]
+      "content": [
+        {
+          "type": "text",
+          "text": "На сервере уже работают приваты. Территория защищается по чанкам, поэтому вы можете быстро занять базу, расширить её и настроить доступ под себя."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Основные команды"
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "создать приват на текущем чанке: "
+                },
+                {
+                  "type": "text",
+                  "text": "/claim",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "включить автоматическое добавление новых чанков в приват: "
+                },
+                {
+                  "type": "text",
+                  "text": "/claim autoaddchunk название",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "снять приват: "
+                },
+                {
+                  "type": "text",
+                  "text": "/unclaim",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "открыть настройки привата: "
+                },
+                {
+                  "type": "text",
+                  "text": "/claim settings",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Как работают команды"
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "/claim",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " — создаёт приват на чанке, где вы сейчас стоите."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "/claim autoaddchunk название",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " — включает режим автодобавления чанков в выбранный приват. Это удобно, когда вы расширяете базу и не хотите каждый раз приватить новый кусок земли вручную."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "/unclaim",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " — снимает приват с текущей территории, поэтому используйте команду осторожно."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "/claim settings",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " — открывает настройки привата, где можно менять разрешения и поведение территории."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Как выключить autoaddchunk"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Если вы включили режим "
+        },
+        {
+          "type": "text",
+          "text": "/claim autoaddchunk название",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", а потом решили остановить автодобавление, в нашей настройке SCS его можно выключить повторным вводом той же команды для этого же привата."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "То есть логика простая: включили режим — строитесь и расширяетесь — повторно ввели команду и остановили автоматическое добавление чанков."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Пример выключения: "
+        },
+        {
+          "type": "text",
+          "text": "/claim autoaddchunk base",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " — если ваш приват называется "
+        },
+        {
+          "type": "text",
+          "text": "base",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " и вы хотите отключить режим именно для него."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Зачем нужен claim settings"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Через "
+        },
+        {
+          "type": "text",
+          "text": "/claim settings",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " можно гибко управлять приватом: настраивать доступ, вход, взаимодействие и поведение игроков внутри территории. Это главная команда, если вам нужен не просто приват, а нормальная настроенная база."
+        }
+      ]
     }
   ]
 }

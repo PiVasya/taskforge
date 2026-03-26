@@ -9,7 +9,7 @@
       "content": [
         {
           "type": "text",
-          "text": "Minecraft: привязка аккаунта и игровые ограничения"
+          "text": "Открыт Bedrock-порт сервера"
         }
       ]
     },
@@ -18,50 +18,84 @@
       "content": [
         {
           "type": "text",
-          "text": "Связка TaskForge с Minecraft стала заметной частью платформы."
+          "text": "Теперь к TaskForge-серверу можно подключаться не только с Java Edition, но и с Bedrock Edition."
         }
       ]
     },
     {
-      "type": "bullet_list",
+      "type": "paragraph",
       "content": [
         {
-          "type": "list_item",
+          "type": "text",
+          "text": "Адрес для Bedrock-подключения: "
+        },
+        {
+          "type": "text",
+          "text": "bedrock.taskforge.by",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Что это даёт"
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
           "content": [
             {
               "type": "paragraph",
               "content": [
                 {
                   "type": "text",
-                  "text": "можно быстро привязать игровой аккаунт к профилю"
+                  "text": "можно заходить с Bedrock-клиента;"
                 }
               ]
             }
           ]
         },
         {
-          "type": "list_item",
+          "type": "listItem",
           "content": [
             {
               "type": "paragraph",
               "content": [
                 {
                   "type": "text",
-                  "text": "часть ограничений на сервере зависит от вашего прогресса"
+                  "text": "становится удобнее подключаться с телефона и других устройств;"
                 }
               ]
             }
           ]
         },
         {
-          "type": "list_item",
+          "type": "listItem",
           "content": [
             {
               "type": "paragraph",
               "content": [
                 {
                   "type": "text",
-                  "text": "если активности на сайте мало, в игре могут действовать ограничения"
+                  "text": "Java-адрес и Bedrock-адрес теперь разведены отдельно, поэтому подключение стало понятнее."
                 }
               ]
             }
@@ -74,7 +108,42 @@
       "content": [
         {
           "type": "text",
-          "text": "Это мотивирует решать задачи и делает игровые привилегии понятнее."
+          "text": "Если играете с Java Edition — используйте "
+        },
+        {
+          "type": "text",
+          "text": "mc.taskforge.by",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ". Если играете с Bedrock Edition — используйте "
+        },
+        {
+          "type": "text",
+          "text": "bedrock.taskforge.by",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Короче говоря: сервер открыт, приваты работают, Bedrock тоже уже доступен — можно заходить и играть с той версии, которая удобнее именно вам."
         }
       ]
     }

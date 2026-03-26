@@ -3,41 +3,262 @@
   "content": [
     {
       "type": "heading",
-      "attrs": {"level": 2},
-      "content": [ {"type": "text", "text": "Как зарегистрироваться"} ]
+      "attrs": {
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Minecraft-сервер уже открыт"
+        }
+      ]
     },
     {
       "type": "paragraph",
-      "content": [ {"type": "text", "text": "Если вы здесь впервые, вот краткое руководство по созданию учётной записи TaskForge."} ]
+      "content": [
+        {
+          "type": "text",
+          "text": "Сервер TaskForge уже запущен и готов к игре. Заходить можно прямо сейчас."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Основной адрес сервера: "
+        },
+        {
+          "type": "text",
+          "text": "mc.taskforge.by",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Если вы заходите впервые"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "После входа на сервер зарегистрируйтесь командой "
+        },
+        {
+          "type": "text",
+          "text": "/register пароль пароль",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ". Пароль нужно указать дважды одинаково — это защита от опечатки."
+        }
+      ]
     },
     {
       "type": "bulletList",
       "content": [
         {
           "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Откройте сайт TaskForge и нажмите кнопку «Регистрация» в правом верхнем углу."} ] } ]
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "пример: "
+                },
+                {
+                  "type": "text",
+                  "text": "/register MySecret123 MySecret123",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         },
         {
           "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Заполните форму, указав ваш электронный адрес и придумав надёжный пароль."} ] } ]
-        },
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "если аккаунт уже зарегистрирован, потом вход выполняется через вашу стандартную команду авторизации на сервере."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3
+      },
+      "content": [
         {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Подтвердите пароль и согласитесь с условиями использования."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "На вашу почту придёт письмо – перейдите по ссылке для подтверждения регистрации."} ] } ]
-        },
-        {
-          "type": "listItem",
-          "content": [ {"type": "paragraph", "content": [ {"type": "text", "text": "Теперь вы можете войти, создать профиль и приступать к решению задач!"} ] } ]
+          "type": "text",
+          "text": "Как привязать аккаунт сайта к Minecraft"
         }
       ]
     },
     {
       "type": "paragraph",
-      "content": [ {"type": "text", "text": "Регистрация занимает всего пару минут и открывает доступ ко всем курсам и заданиям на платформе."} ]
+      "content": [
+        {
+          "type": "text",
+          "text": "Привязка идёт в связке сайт → сервер → снова сайт. Это самый удобный сценарий, и он уже поддержан в профиле."
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "зайдите на сайт TaskForge и откройте "
+                },
+                {
+                  "type": "text",
+                  "text": "Профиль → Minecraft",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": ";"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "введите свой игровой ник точно так же, как он выглядит на сервере;"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "нажмите кнопку отправки кода в игру — игрок в этот момент должен быть "
+                },
+                {
+                  "type": "text",
+                  "text": "онлайн",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": ";"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "код придёт вам в Minecraft;"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "вернитесь на сайт, введите полученный код и подтвердите привязку."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Если код не дошёл в игру, на сайте может появиться запасной вариант кода — его тоже можно использовать для подтверждения."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "После привязки профиль на сайте и игровой аккаунт будут связаны между собой, а Minecraft-разделы и интеграции начнут работать корректно."
+        }
+      ]
     }
   ]
 }
