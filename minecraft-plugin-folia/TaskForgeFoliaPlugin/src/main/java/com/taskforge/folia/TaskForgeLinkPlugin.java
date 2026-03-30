@@ -68,8 +68,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int taskForgeTimeoutSeconds;
     private boolean debuffsEnabled;
     private int debuffDurationSeconds;
+    private boolean immediateDebuffsForNegativeScore;
+    private int debuffReapplyIntervalSeconds;
     private boolean chatEnabled;
     private int chatPollIntervalSeconds;
+    private boolean chatPollOnlyWhenPlayersOnline;
+    private boolean chatForwardJoinQuit;
+    private boolean chatForwardPlayerMessages;
+    private boolean chatForwardAdvancements;
+    private boolean chatIncludeRecipeAdvancements;
+    private boolean chatIncludeRootAdvancements;
     private String chatSitePrefix;
     private String chatMinecraftPrefix;
     private volatile Instant chatCursorUtc = Instant.EPOCH;
@@ -78,11 +86,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private final Set<String> exemptNicksLower = ConcurrentHashMap.newKeySet();
     private final Set<String> exemptUuidsLower = ConcurrentHashMap.newKeySet();
 
-    // Soft enforcement: first problematic join -> warning only, no debuffs.
-    // Next join (if still problematic) -> debuffs.
-    private final java.util.Map<java.util.UUID, Boolean> warnedOnce = new java.util.concurrent.ConcurrentHashMap<>();
-
-    private final java.util.Set<java.util.UUID> graceOnline = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    // Кого сейчас нужно держать под дебаффами локально.
+    private final java.util.Set<java.util.UUID> debuffedPlayers = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private void migrateConfigKeys() {
         boolean changed = false;
@@ -192,8 +197,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         taskForgeTimeoutSeconds = Math.max(1, getConfig().getInt("taskforge.timeoutSeconds", 4));
         debuffsEnabled = getConfig().getBoolean("debuffs.enabled", true);
         debuffDurationSeconds = Math.max(30, getConfig().getInt("debuffs.durationSeconds", 600));
+        immediateDebuffsForNegativeScore = getConfig().getBoolean("debuffs.immediateForNegativeScore", true);
+        debuffReapplyIntervalSeconds = Math.max(5, getConfig().getInt("debuffs.reapplyIntervalSeconds", 20));
         chatEnabled = getConfig().getBoolean("chat.enabled", true);
-        chatPollIntervalSeconds = Math.max(2, getConfig().getInt("chat.pollIntervalSeconds", 3));
+        chatPollIntervalSeconds = Math.max(5, getConfig().getInt("chat.pollIntervalSeconds", 12));
+        chatPollOnlyWhenPlayersOnline = getConfig().getBoolean("chat.pollOnlyWhenPlayersOnline", true);
+        chatForwardJoinQuit = getConfig().getBoolean("chat.forwardJoinQuit", true);
+        chatForwardPlayerMessages = getConfig().getBoolean("chat.forwardPlayerMessages", true);
+        chatForwardAdvancements = getConfig().getBoolean("chat.forwardAdvancements", true);
+        chatIncludeRecipeAdvancements = getConfig().getBoolean("chat.includeRecipeAdvancements", false);
+        chatIncludeRootAdvancements = getConfig().getBoolean("chat.includeRootAdvancements", false);
         chatSitePrefix = getConfig().getString("chat.sitePrefix", "§d[TaskForge]§r ");
         chatMinecraftPrefix = getConfig().getString("chat.minecraftPrefix", "[MC] ");
         chatCursorUtc = Instant.now();
@@ -257,8 +270,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             return t;
         });
         janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
+        if (debuffsEnabled) {
+            janitor.scheduleAtFixedRate(this::reapplyTrackedDebuffsSafe, debuffReapplyIntervalSeconds, debuffReapplyIntervalSeconds, TimeUnit.SECONDS);
+        }
         if (chatEnabled && canCallTaskForge()) {
-            janitor.scheduleAtFixedRate(this::pollSiteChatSafe, 3, chatPollIntervalSeconds, TimeUnit.SECONDS);
+            janitor.scheduleAtFixedRate(this::pollSiteChatSafe, chatPollIntervalSeconds, chatPollIntervalSeconds, TimeUnit.SECONDS);
         }
     }
 
@@ -343,11 +359,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     }
 
     void applyDebuffs(Player p, boolean debuffed) {
-        if (!debuffsEnabled) return;
+        if (!debuffsEnabled || p == null) return;
 
-        // "Infinite" debuffs: duration in Bukkit is int ticks.
-        // Integer.MAX_VALUE ticks is effectively permanent. We re-check on join/death
-        // to remove debuffs if the player becomes eligible.
+        if (debuffed) debuffedPlayers.add(p.getUniqueId());
+        else debuffedPlayers.remove(p.getUniqueId());
+
+        // Держим эффекты активными локально, чтобы они не "терялись" после молока/смерти/чужих чисток.
         int ticks = Integer.MAX_VALUE;
         p.getScheduler().run(this, task -> {
             if (!p.isOnline()) return;
@@ -362,6 +379,33 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 p.removePotionEffect(PotionEffectType.MINING_FATIGUE);
             }
         }, null);
+    }
+
+    private void reapplyTrackedDebuffsSafe() {
+        try {
+            for (Player pl : Bukkit.getOnlinePlayers()) {
+                if (pl != null && debuffedPlayers.contains(pl.getUniqueId())) {
+                    applyDebuffs(pl, true);
+                }
+            }
+        } catch (Exception ex) {
+            getLogger().warning("Failed to reapply tracked debuffs: " + ex.getMessage());
+        }
+    }
+
+    private boolean shouldPollSiteChatNow() {
+        if (!chatEnabled || !canCallTaskForge()) return false;
+        if (!chatPollOnlyWhenPlayersOnline) return true;
+        return !Bukkit.getOnlinePlayers().isEmpty();
+    }
+
+    private boolean shouldForwardAdvancementKey(String key) {
+        if (!chatForwardAdvancements) return false;
+        String lower = (key == null ? "" : key.trim().toLowerCase(Locale.ROOT));
+        if (lower.isEmpty()) return false;
+        if (!chatIncludeRecipeAdvancements && lower.contains("recipes/")) return false;
+        if (!chatIncludeRootAdvancements && lower.endsWith("/root")) return false;
+        return true;
     }
 
     void sendChat(Player p, String message) {
@@ -404,6 +448,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     }
 
     void forwardMinecraftChatAsync(Player p, String message) {
+        if (!chatForwardPlayerMessages) return;
         forwardMinecraftEventAsync(p, message, "chat");
     }
 
@@ -441,10 +486,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     }
 
     private void pollSiteChat() throws Exception {
-        if (!chatEnabled || !canCallTaskForge()) return;
+        if (!shouldPollSiteChatNow()) return;
 
         String after = java.net.URLEncoder.encode(chatCursorUtc.toString(), StandardCharsets.UTF_8);
-        String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/chat/bridge/pull?afterUtc=" + after + "&take=50";
+        String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/chat/bridge/pull?afterUtc=" + after + "&take=25";
 
         HttpRequest req = newTaskForgeRequest(url)
                 .GET()
@@ -518,7 +563,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         boolean debuffed;
         boolean chargedThisWeek;
         int score;
-        int weeklyPenalty;
+        int weeklyPenaltyCurrent;
         int penaltyTotal;
         int effectiveScore;
     }
@@ -530,7 +575,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         @EventHandler
         public void onJoin(PlayerJoinEvent e) {
             Player p = e.getPlayer();
-            if (p != null && !plugin.isExempt(p)) {
+            if (p != null && !plugin.isExempt(p) && plugin.chatForwardJoinQuit) {
                 plugin.forwardMinecraftEventAsync(p, p.getName() + " зашёл на сервер", "join");
             }
 
@@ -556,22 +601,18 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
                 // Optional info about the weekly penalty.
                 if (st.chargedThisWeek) {
-                    p.getScheduler().run(plugin, t -> p.sendMessage("§eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenalty + ")"), null);
+                    p.getScheduler().run(plugin, t -> p.sendMessage("§eTaskForge: на этой неделе вход засчитан (-" + st.weeklyPenaltyCurrent + ")"), null);
                 }
 
                 // Незалинкованный игрок должен получать дебафф сразу.
                 if (!linked) {
-                    plugin.graceOnline.remove(p.getUniqueId());
-                    plugin.warnedOnce.remove(p.getUniqueId());
                     plugin.sendChat(p, "§eTaskForge: §6привяжи аккаунт на сайте TaskForge (профиль → Minecraft). Пока аккаунт не привязан, действует ограничение.");
                     plugin.applyDebuffs(p, true);
                     return;
                 }
 
-                // Всё хорошо — точно снимаем дебаффы и чистим grace.
+                // Всё хорошо — точно снимаем дебаффы.
                 if (!st.debuffed) {
-                    plugin.graceOnline.remove(p.getUniqueId());
-                    plugin.warnedOnce.remove(p.getUniqueId());
                     plugin.applyDebuffs(p, false);
                     return;
                 }
@@ -581,14 +622,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     " штраф=" + st.penaltyTotal + " итог=" + st.effectiveScore +
                     " (нужно ≥0). Решай задачи и зайди снова.");
 
-                // Soft mode оставляем только для случая нехватки рейтинга.
-                if (plugin.warnedOnce.putIfAbsent(p.getUniqueId(), true) == null) {
-                    plugin.graceOnline.add(p.getUniqueId());
+                if (!plugin.immediateDebuffsForNegativeScore) {
+                    plugin.sendChat(p, "§eTaskForge: §7Сейчас действует мягкий режим — дебаффы включатся при следующем входе, если рейтинг не восстановится.");
                     plugin.applyDebuffs(p, false);
                     return;
                 }
 
-                plugin.graceOnline.remove(p.getUniqueId());
                 plugin.applyDebuffs(p, true);
             }, plugin.tfExecutor);
         }
@@ -597,10 +636,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         public void onQuit(PlayerQuitEvent e) {
             Player p = e.getPlayer();
             if (p == null) return;
-            if (!plugin.isExempt(p)) {
+            if (!plugin.isExempt(p) && plugin.chatForwardJoinQuit) {
                 plugin.forwardMinecraftEventAsync(p, p.getName() + " вышел с сервера", "quit");
             }
-            plugin.graceOnline.remove(p.getUniqueId());
+            plugin.debuffedPlayers.remove(p.getUniqueId());
         }
 
         @EventHandler
@@ -610,6 +649,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             String key = e.getAdvancement() != null && e.getAdvancement().getKey() != null
                     ? e.getAdvancement().getKey().getKey()
                     : "advancement";
+            if (!plugin.shouldForwardAdvancementKey(key)) return;
             plugin.forwardMinecraftEventAsync(p, p.getName() + " получил достижение: " + key, "advancement");
         }
 
@@ -617,7 +657,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         public void onChat(AsyncPlayerChatEvent e) {
             Player p = e.getPlayer();
             if (p == null) return;
-            if (plugin.isExempt(p)) return;
+            if (plugin.isExempt(p) || !plugin.chatForwardPlayerMessages) return;
             plugin.forwardMinecraftChatAsync(p, e.getMessage());
         }
 
@@ -629,21 +669,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 plugin.applyDebuffs(p, false);
                 return;
             }
-            if (!plugin.canCallTaskForge()) return;
+            if (!plugin.debuffedPlayers.contains(p.getUniqueId())) return;
 
-            plugin.getStatusAsync(p).thenAcceptAsync(st -> {
-                // Death re-check: if player is in the grace window (first warning join), do nothing.
-                if (plugin.graceOnline.contains(p.getUniqueId())) return;
-
-                if (st == null) {
-                    plugin.applyDebuffs(p, false);
-                    return;
-                }
-
-                final boolean linked = st.linked;
-                final boolean shouldDebuff = !linked || st.debuffed;
-                plugin.applyDebuffs(p, shouldDebuff);
-            }, plugin.tfExecutor);
+            p.getScheduler().runDelayed(plugin, task -> plugin.applyDebuffs(p, true), null, 40L);
         }
     }
 

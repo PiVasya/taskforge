@@ -21,12 +21,19 @@ namespace taskforge.Services
         public async Task<IReadOnlyList<MinecraftChatMessage>> GetRecentAsync(int take, CancellationToken ct = default)
         {
             take = Math.Clamp(take, 1, 200);
-            var list = await _db.MinecraftChatMessages
+            var raw = await _db.MinecraftChatMessages
                 .AsNoTracking()
                 .OrderByDescending(x => x.CreatedAtUtc)
-                .Take(take)
+                .Take(Math.Min(take * 4, 400))
                 .ToListAsync(ct);
-            return list.OrderBy(x => x.CreatedAtUtc).ToList();
+
+            var list = raw
+                .Where(x => !IsSuppressedFromFeed(x.Source, x.Message))
+                .Take(take)
+                .OrderBy(x => x.CreatedAtUtc)
+                .ToList();
+
+            return list;
         }
 
         public async Task<IReadOnlyList<MinecraftChatMessage>> GetOutgoingForMinecraftAsync(DateTime? afterUtc, int take, CancellationToken ct = default)
@@ -120,6 +127,15 @@ namespace taskforge.Services
             await _hub.Clients.Group("minecraft-chat").SendAsync("ReceiveMessage", payload, ct);
         }
 
+
+        private static bool IsSuppressedFromFeed(string? source, string? message)
+        {
+            if (!string.Equals((source ?? string.Empty).Trim(), "MinecraftAdvancement", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var lower = (message ?? string.Empty).Trim().ToLowerInvariant();
+            return lower.Contains("recipes/") || lower.Contains("/root");
+        }
 
         private static string NormalizeSource(string? kind)
         {

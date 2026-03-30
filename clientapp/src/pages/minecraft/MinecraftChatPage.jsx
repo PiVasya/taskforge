@@ -16,6 +16,13 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function shouldHideMinecraftMessage(m) {
+  const source = String(m?.source ?? m?.Source ?? '');
+  const message = String(m?.message ?? m?.Message ?? '').toLowerCase();
+  if (source !== 'MinecraftAdvancement') return false;
+  return message.includes('recipes/') || message.includes('/root');
+}
+
 export default function MinecraftChatPage() {
   const notify = useNotify();
   const { access } = useAuth();
@@ -43,7 +50,7 @@ export default function MinecraftChatPage() {
       ]);
       if (!mounted.current) return;
       setPageError(null);
-      setMessages(Array.isArray(data) ? data : []);
+      setMessages((Array.isArray(data) ? data : []).filter((x) => !shouldHideMinecraftMessage(x)));
       setMeta({
         onlinePlayers: chatMeta?.onlinePlayers ?? null,
         available: Boolean(chatMeta?.available),
@@ -78,6 +85,7 @@ export default function MinecraftChatPage() {
           setMessages((prev) => {
             const id = msg.id ?? msg.Id;
             if (id && prev.some((x) => (x.id ?? x.Id) === id)) return prev;
+            if (shouldHideMinecraftMessage(msg)) return prev;
             const next = [...prev, msg].sort((a, b) => new Date(a.createdAtUtc ?? a.CreatedAtUtc) - new Date(b.createdAtUtc ?? b.CreatedAtUtc));
             requestAnimationFrame(() => scrollToBottom(true));
             return next;

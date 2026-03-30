@@ -97,6 +97,7 @@ namespace taskforge.Controllers.Integrations
         public async Task<IActionResult> PostIncomingMinecraft([FromBody] IncomingMinecraftChatDto dto, CancellationToken ct = default)
         {
             if (!IsPluginAuthorized()) return Unauthorized();
+            if (ShouldIgnoreIncoming(dto)) return Ok(new { ignored = true });
 
             var created = await _chat.AddMinecraftMessageAsync(dto.Nick, dto.Uuid, dto.Message, dto.Kind, ct);
             return Ok(ToDto(created));
@@ -109,6 +110,19 @@ namespace taskforge.Controllers.Integrations
             if (!IsPluginAuthorized()) return Unauthorized();
             var list = await _chat.GetOutgoingForMinecraftAsync(afterUtc, take, ct);
             return Ok(list.Select(ToDto));
+        }
+
+
+        private static bool ShouldIgnoreIncoming(IncomingMinecraftChatDto dto)
+        {
+            if (dto is null) return true;
+            var kind = (dto.Kind ?? string.Empty).Trim();
+            var message = (dto.Message ?? string.Empty).Trim();
+            if (!kind.Equals("advancement", StringComparison.OrdinalIgnoreCase)) return false;
+            if (message.Length == 0) return true;
+
+            var lower = message.ToLowerInvariant();
+            return lower.Contains("recipes/") || lower.Contains("/root");
         }
 
         private bool IsPluginAuthorized()
