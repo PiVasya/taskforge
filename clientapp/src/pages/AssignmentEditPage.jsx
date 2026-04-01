@@ -16,6 +16,7 @@ import TaskTestEditor from "./TaskTestEditor";
 import MathTaskEditor from "./MathTaskEditor";
 import StatementEditor from "../components/tiptap/StatementEditor";
 import { uploadImageTestReference } from "../api/imageTests";
+import { analyzeAiAssignment } from "../api/aiAdmin";
 
 
 
@@ -475,6 +476,24 @@ export default function AssignmentEditPage() {
     }
   };
 
+  const runAiAudit = async () => {
+    try {
+      setBusy(true);
+      await analyzeAiAssignment({
+        assignmentId,
+        includeStats: true,
+        includeAttempts: true,
+        prompt: 'Проанализируй это задание, найди слабые места, ambiguity, скучные distractors и предложи улучшения под TaskForge.',
+        priority: 12,
+      });
+      notify.success('AI-аудит задания поставлен в очередь. Смотри результаты в /admin/ai');
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось поставить AI-аудит в очередь');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <Layout fullWidth>
@@ -506,8 +525,11 @@ export default function AssignmentEditPage() {
                 <h2 className="text-xl font-semibold mb-1">Готовность задания</h2>
                 <div className="text-sm text-neutral-500">Здесь видно, что ещё нужно заполнить до сохранения.</div>
               </div>
-              <div className={`text-sm font-medium ${validationIssues.length === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                {validationIssues.length === 0 ? 'Готово к сохранению' : `Нужно исправить: ${validationIssues.length}`}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" disabled={busy} onClick={runAiAudit}>AI-аудит</Button>
+                <div className={`text-sm font-medium ${validationIssues.length === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {validationIssues.length === 0 ? 'Готово к сохранению' : `Нужно исправить: ${validationIssues.length}`}
+                </div>
               </div>
             </div>
 

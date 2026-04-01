@@ -1,0 +1,1044 @@
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using taskforge.Data;
+using taskforge.Data.Models.DTO.AI;
+using taskforge.Data.Models.Entities.AI;
+using taskforge.Services.Interfaces;
+
+namespace taskforge.Services.AI;
+
+public sealed partial class AiJobService : IAiJobService
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
+
+    private readonly ApplicationDbContext _db;
+    private readonly ILogger<AiJobService> _log;
+    private readonly AiOptions _aiOptions;
+
+    public AiJobService(ApplicationDbContext db, ILogger<AiJobService> log, IOptions<AiOptions> aiOptions)
+    {
+        _db = db;
+        _log = log;
+        _aiOptions = aiOptions.Value;
+    }
+
+    public async Task<AiJobListResponseDto> GetAdminJobsAsync(string? status, string? type, int page, int pageSize, CancellationToken ct = default)
+    {
+        page = page <= 0 ? 1 : page;
+        pageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+        status = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
+        type = string.IsNullOrWhiteSpace(type) ? null : type.Trim().ToLowerInvariant();
+
+        var q = _db.AiJobs.AsNoTracking().Include(x => x.Files).AsQueryable();
+        if (status != null) q = q.Where(x => x.Status.ToLower() == status);
+        if (type != null) q = q.Where(x => x.Type.ToLower().Contains(type));
+
+        var total = await q.CountAsync(ct);
+        var items = await q.OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new AiJobListItemDto
+            {
+                Id = x.Id,
+                Type = x.Type,
+                Status = x.Status,
+                Priority = x.Priority,
+                ModelName = x.ModelName,
+                WorkerId = x.WorkerId,
+                CreatedByDisplayName = x.CreatedByDisplayName,
+                TargetEntityType = x.TargetEntityType,
+                TargetEntityId = x.TargetEntityId,
+                CourseId = x.CourseId,
+                CreatedAtUtc = x.CreatedAtUtc,
+                StartedAtUtc = x.StartedAtUtc,
+                CompletedAtUtc = x.CompletedAtUtc,
+                FilesCount = x.Files.Count,
+            })
+            .ToListAsync(ct);
+
+        return new AiJobListResponseDto { Total = total, Items = items };
+    }
+
+    public async Task<AiJobDetailsDto?> GetAdminJobAsync(Guid id, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs.AsNoTracking().Include(x => x.Files).FirstOrDefaultAsync(x => x.Id == id, ct);
+        return job == null ? null : MapDetails(job);
+    }
+
+    public async Task<AiJobDetailsDto> EnqueueAsync(CreateAiJobRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var job = new AiJob
+        {
+            Id = Guid.NewGuid(),
+            Type = request.Type.Trim(),
+            Status = "pending",
+            Priority = request.Priority,
+            CreatedByUserId = createdByUserId,
+            CreatedByDisplayName = string.IsNullOrWhiteSpace(createdByDisplayName) ? null : createdByDisplayName.Trim(),
+            TargetEntityType = string.IsNullOrWhiteSpace(request.TargetEntityType) ? null : request.TargetEntityType.Trim(),
+            TargetEntityId = request.TargetEntityId,
+            CourseId = request.CourseId,
+            InputJson = NormalizeJsonOrNull(request.InputJson),
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+
+        foreach (var f in request.Files ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(f.FileKey)) continue;
+            job.Files.Add(new AiJobFile
+            {
+                Id = Guid.NewGuid(),
+                FileKey = f.FileKey.Trim(),
+                OriginalName = string.IsNullOrWhiteSpace(f.OriginalName) ? null : f.OriginalName.Trim(),
+                MimeType = string.IsNullOrWhiteSpace(f.MimeType) ? null : f.MimeType.Trim(),
+                PublicUrl = string.IsNullOrWhiteSpace(f.PublicUrl) ? null : f.PublicUrl.Trim(),
+                CreatedAtUtc = DateTime.UtcNow,
+            });
+        }
+
+        _db.AiJobs.Add(job);
+        await _db.SaveChangesAsync(ct);
+        _log.LogInformation("AI job enqueued: {JobId} {Type}", job.Id, job.Type);
+        return MapDetails(job);
+    }
+
+    public Task<AiJobDetailsDto> QueueGenerateAssignmentFromTextAsync(AiGenerateAssignmentFromTextRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var input = new
+        {
+            requestType = "assignment_generate_from_text",
+            assignmentType = request.AssignmentType.Trim(),
+            courseId = request.CourseId,
+            prompt = request.Prompt,
+            sourceText = request.SourceText,
+            titleHint = request.TitleHint,
+            difficulty = request.Difficulty,
+            count = Math.Clamp(request.Count, 1, 10),
+            notes = request.Notes,
+            enableSelfCheck = request.EnableSelfCheck,
+            targetSchema = BuildTargetSchema(request.AssignmentType),
+        };
+
+        return EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "assignment_generate_from_text",
+            TargetEntityType = "course",
+            TargetEntityId = request.CourseId,
+            CourseId = request.CourseId,
+            Priority = request.Priority,
+            InputJson = JsonSerializer.Serialize(input, JsonOptions),
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public Task<AiJobDetailsDto> QueueGenerateAssignmentFromFileAsync(AiGenerateAssignmentFromFileRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var input = new
+        {
+            requestType = "assignment_generate_from_file",
+            assignmentType = request.AssignmentType.Trim(),
+            courseId = request.CourseId,
+            prompt = request.Prompt,
+            titleHint = request.TitleHint,
+            difficulty = request.Difficulty,
+            count = Math.Clamp(request.Count, 1, 10),
+            notes = request.Notes,
+            enableSelfCheck = request.EnableSelfCheck,
+            file = new { request.FileKey, request.OriginalName, request.MimeType, request.PublicUrl },
+            targetSchema = BuildTargetSchema(request.AssignmentType),
+        };
+
+        return EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "assignment_generate_from_file",
+            TargetEntityType = "course",
+            TargetEntityId = request.CourseId,
+            CourseId = request.CourseId,
+            Priority = request.Priority,
+            InputJson = JsonSerializer.Serialize(input, JsonOptions),
+            Files = new List<AiJobFileDto>
+            {
+                new()
+                {
+                    FileKey = request.FileKey,
+                    OriginalName = request.OriginalName,
+                    MimeType = request.MimeType,
+                    PublicUrl = request.PublicUrl,
+                }
+            }
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public async Task<AiJobDetailsDto?> QueueAnalyzeAssignmentAsync(AiAnalyzeAssignmentRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var payload = await BuildAssignmentAnalysisInputAsync(request, ct);
+        if (payload == null) return null;
+
+        return await EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "assignment_analyze_existing",
+            TargetEntityType = "assignment",
+            TargetEntityId = request.AssignmentId,
+            CourseId = payload.Value.CourseId,
+            Priority = request.Priority,
+            InputJson = payload.Value.Json,
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public async Task<AiJobDetailsDto?> QueueReviewSubmissionAsync(AiReviewSubmissionRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var payload = await BuildSubmissionReviewInputAsync(request, ct);
+        if (payload == null) return null;
+
+        return await EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "submission_review",
+            TargetEntityType = payload.Value.TargetEntityType,
+            TargetEntityId = payload.Value.TargetEntityId,
+            CourseId = payload.Value.CourseId,
+            Priority = request.Priority,
+            InputJson = payload.Value.Json,
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public async Task<AiJobDetailsDto?> QueueReviewUserAsync(AiReviewUserRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var payload = await BuildUserRiskInputAsync(request, ct);
+        if (payload == null) return null;
+
+        return await EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "user_risk_review",
+            TargetEntityType = "user",
+            TargetEntityId = request.UserId,
+            Priority = request.Priority,
+            InputJson = payload,
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public async Task<IReadOnlyList<AiSubmissionReviewListItemDto>> GetSubmissionReviewsAsync(Guid? userId, Guid? assignmentId, CancellationToken ct = default)
+    {
+        var q = _db.AiSubmissionReviews.AsNoTracking().AsQueryable();
+        if (userId != null) q = q.Where(x => x.UserId == userId);
+        if (assignmentId != null) q = q.Where(x => x.AssignmentId == assignmentId);
+        return await q.OrderByDescending(x => x.CreatedAtUtc)
+            .Take(100)
+            .Select(x => new AiSubmissionReviewListItemDto
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                UserId = x.UserId,
+                AssignmentId = x.AssignmentId,
+                SourceType = x.SourceType,
+                SourceAttemptId = x.SourceAttemptId,
+                Verdict = x.Verdict,
+                Score = x.Score,
+                Summary = x.Summary,
+                SignalsJson = x.SignalsJson,
+                CreatedAtUtc = x.CreatedAtUtc,
+            })
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<AiUserRiskReportListItemDto>> GetUserRiskReportsAsync(Guid? userId, CancellationToken ct = default)
+    {
+        var q = _db.AiUserRiskReports.AsNoTracking().AsQueryable();
+        if (userId != null) q = q.Where(x => x.UserId == userId);
+        return await q.OrderByDescending(x => x.CreatedAtUtc)
+            .Take(100)
+            .Select(x => new AiUserRiskReportListItemDto
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                UserId = x.UserId,
+                RiskLevel = x.RiskLevel,
+                Score = x.Score,
+                Summary = x.Summary,
+                SignalsJson = x.SignalsJson,
+                CreatedAtUtc = x.CreatedAtUtc,
+                ExpiresAtUtc = x.ExpiresAtUtc,
+            })
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<AiAssignmentInsightListItemDto>> GetAssignmentInsightsAsync(Guid? assignmentId, CancellationToken ct = default)
+    {
+        var q = _db.AiAssignmentInsights.AsNoTracking().AsQueryable();
+        if (assignmentId != null) q = q.Where(x => x.AssignmentId == assignmentId);
+        return await q.OrderByDescending(x => x.CreatedAtUtc)
+            .Take(100)
+            .Select(x => new AiAssignmentInsightListItemDto
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                AssignmentId = x.AssignmentId,
+                Kind = x.Kind,
+                Summary = x.Summary,
+                SuggestionsJson = x.SuggestionsJson,
+                CreatedAtUtc = x.CreatedAtUtc,
+            })
+            .ToListAsync(ct);
+    }
+
+    public async Task<AiWorkerPullResponseDto?> PullNextAsync(string workerId, IReadOnlyCollection<string> capabilities, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var caps = (capabilities ?? Array.Empty<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToLowerInvariant())
+            .ToHashSet();
+
+        var candidates = await _db.AiJobs
+            .Include(x => x.Files)
+            .Where(x => (x.Status == "pending" || x.Status == "retry") && (x.NextAttemptAtUtc == null || x.NextAttemptAtUtc <= now))
+            .OrderByDescending(x => x.Priority)
+            .ThenBy(x => x.CreatedAtUtc)
+            .Take(20)
+            .ToListAsync(ct);
+
+        var job = candidates.FirstOrDefault(x => caps.Count == 0 || caps.Contains(x.Type.Trim().ToLowerInvariant()) || caps.Contains("*"));
+        if (job == null) return null;
+
+        job.Status = "running";
+        job.WorkerId = workerId;
+        job.StartedAtUtc ??= now;
+        job.HeartbeatAtUtc = now;
+        await _db.SaveChangesAsync(ct);
+
+        return new AiWorkerPullResponseDto
+        {
+            Id = job.Id,
+            Type = job.Type,
+            Priority = job.Priority,
+            ModelName = job.ModelName,
+            TargetEntityType = job.TargetEntityType,
+            TargetEntityId = job.TargetEntityId,
+            CourseId = job.CourseId,
+            InputJson = job.InputJson,
+            Files = job.Files.Select(MapFile).ToList(),
+        };
+    }
+
+    public async Task<bool> HeartbeatAsync(Guid jobId, string workerId, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
+        if (job == null) return false;
+        if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal)) return false;
+        job.HeartbeatAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<bool> CompleteAsync(Guid jobId, AiWorkerCompleteRequestDto request, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs.Include(x => x.Files).FirstOrDefaultAsync(x => x.Id == jobId, ct);
+        if (job == null) return false;
+        if (!string.Equals(job.WorkerId, request.WorkerId, StringComparison.Ordinal)) return false;
+
+        job.Status = "done";
+        job.CompletedAtUtc = DateTime.UtcNow;
+        job.HeartbeatAtUtc = job.CompletedAtUtc;
+        job.ModelName = string.IsNullOrWhiteSpace(request.ModelName) ? job.ModelName : request.ModelName.Trim();
+        job.ResultJson = NormalizeJsonOrNull(request.ResultJson) ?? request.ResultJson;
+        job.ErrorText = null;
+
+        await PersistDerivedArtifactsAsync(job, ct);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<bool> FailAsync(Guid jobId, AiWorkerFailRequestDto request, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
+        if (job == null) return false;
+        if (!string.Equals(job.WorkerId, request.WorkerId, StringComparison.Ordinal)) return false;
+
+        job.ErrorText = request.ErrorText;
+        job.HeartbeatAtUtc = DateTime.UtcNow;
+        if (request.Retryable)
+        {
+            job.Status = "retry";
+            job.RetryCount += 1;
+            job.NextAttemptAtUtc = DateTime.UtcNow.AddSeconds(Math.Clamp(request.RetryDelaySeconds, 5, 3600));
+            job.WorkerId = null;
+        }
+        else
+        {
+            job.Status = "failed";
+            job.CompletedAtUtc = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<AiJobDetailsDto?> QueueValidateDraftAsync(Guid draftId, ValidateAiDraftRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var draft = await _db.AiGeneratedAssignmentDrafts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == draftId, ct);
+        if (draft == null) return null;
+
+        var input = new
+        {
+            requestType = "assignment_validate_draft",
+            draftId = draft.Id,
+            courseId = draft.CourseId,
+            assignmentType = draft.AssignmentType,
+            prompt = request.Prompt,
+            usePythonSelfCheck = request.UsePythonSelfCheck,
+            draft = JsonSerializer.Deserialize<object>(draft.DraftJson ?? "{}"),
+            targetSchema = BuildTargetSchema(draft.AssignmentType),
+        };
+
+        return await EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "assignment_validate_draft",
+            TargetEntityType = "ai-draft",
+            TargetEntityId = draft.Id,
+            CourseId = draft.CourseId,
+            Priority = request.Priority,
+            InputJson = JsonSerializer.Serialize(input, JsonOptions),
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public async Task<IReadOnlyList<AiGeneratedDraftDto>> GetDraftsAsync(CancellationToken ct = default)
+    {
+        return await _db.AiGeneratedAssignmentDrafts.AsNoTracking()
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .Select(x => new AiGeneratedDraftDto
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                CourseId = x.CourseId,
+                AssignmentType = x.AssignmentType,
+                Title = x.Title,
+                DraftJson = x.DraftJson,
+                Status = x.Status,
+                CreatedAtUtc = x.CreatedAtUtc,
+                UpdatedAtUtc = x.UpdatedAtUtc,
+                ReviewedAtUtc = x.ReviewedAtUtc,
+            })
+            .ToListAsync(ct);
+    }
+
+    public async Task<AiGeneratedDraftDto?> GetDraftAsync(Guid id, CancellationToken ct = default)
+    {
+        return await _db.AiGeneratedAssignmentDrafts.AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new AiGeneratedDraftDto
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                CourseId = x.CourseId,
+                AssignmentType = x.AssignmentType,
+                Title = x.Title,
+                DraftJson = x.DraftJson,
+                Status = x.Status,
+                CreatedAtUtc = x.CreatedAtUtc,
+                UpdatedAtUtc = x.UpdatedAtUtc,
+                ReviewedAtUtc = x.ReviewedAtUtc,
+            })
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<bool> ReviewDraftAsync(Guid id, Guid reviewedByUserId, string action, CancellationToken ct = default)
+    {
+        var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (draft == null) return false;
+        var normalized = (action ?? string.Empty).Trim().ToLowerInvariant();
+        draft.Status = normalized switch
+        {
+            "approve" or "approved" => "approved",
+            "reject" or "rejected" => "rejected",
+            _ => "reviewed"
+        };
+        draft.ReviewedByUserId = reviewedByUserId;
+        draft.ReviewedAtUtc = DateTime.UtcNow;
+        draft.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    private async Task<(Guid? CourseId, string Json)?> BuildAssignmentAnalysisInputAsync(AiAnalyzeAssignmentRequestDto request, CancellationToken ct)
+    {
+        var assignment = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.AssignmentId, ct);
+        if (assignment == null) return null;
+
+        var input = new
+        {
+            requestType = "assignment_analyze_existing",
+            prompt = request.Prompt,
+            includeStats = request.IncludeStats,
+            includeAttempts = request.IncludeAttempts,
+            assignment = new
+            {
+                assignment.Id,
+                assignment.CourseId,
+                assignment.Title,
+                assignment.Description,
+                assignment.Type,
+                assignment.Tags,
+                assignment.Difficulty,
+                assignment.Rating,
+                assignment.AllowedLanguagesCsv,
+                assignment.ImageTestSimilarityThreshold,
+                hasImageReference = !string.IsNullOrWhiteSpace(assignment.ImageTestReferenceKey),
+                details = await BuildAssignmentTypeDataAsync(assignment, ct),
+            },
+            stats = request.IncludeStats ? await BuildAssignmentStatsAsync(assignment, request.IncludeAttempts, ct) : null,
+        };
+
+        return (assignment.CourseId, JsonSerializer.Serialize(input, JsonOptions));
+    }
+
+    private async Task<object?> BuildAssignmentTypeDataAsync(taskforge.Data.Models.Entities.TaskAssignment assignment, CancellationToken ct)
+    {
+        var type = (assignment.Type ?? string.Empty).Trim().ToLowerInvariant();
+        if (type == "test")
+        {
+            var settings = await _db.TaskTestSettings.AsNoTracking().FirstOrDefaultAsync(x => x.TaskAssignmentId == assignment.Id, ct);
+            var questions = await _db.TaskTestQuestions.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id)
+                .OrderBy(x => x.Order)
+                .Select(x => new { x.Id, x.Order, x.Type, x.Prompt, x.DataJson })
+                .ToListAsync(ct);
+            return new
+            {
+                settings = settings == null ? null : new { settings.MaxAttempts, settings.PassPercent, settings.ShuffleQuestions, settings.ShuffleAnswers, settings.AllowReview, settings.AttemptTimeLimitsJson },
+                questions,
+            };
+        }
+
+        if (type == "math")
+        {
+            var settings = await _db.TaskMathSettings.AsNoTracking().FirstOrDefaultAsync(x => x.TaskAssignmentId == assignment.Id, ct);
+            var blocks = await _db.TaskMathBlocks.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id)
+                .OrderBy(x => x.Order)
+                .Select(x => new { x.Id, x.Order, x.Kind, x.Prompt, x.PromptContentJson, x.DataJson, x.Score, x.IsRequired })
+                .ToListAsync(ct);
+            return new
+            {
+                settings = settings == null ? null : new { settings.MaxAttempts, settings.PassPercent, settings.ShuffleBlocks, settings.AllowReview, settings.AttemptTimeLimitsJson },
+                blocks,
+            };
+        }
+
+        if (type == "image-test")
+        {
+            return new
+            {
+                assignment.ImageTestSimilarityThreshold,
+                hasReferenceImage = !string.IsNullOrWhiteSpace(assignment.ImageTestReferenceKey),
+                assignment.AllowedLanguagesCsv,
+            };
+        }
+
+        var publicCases = await _db.TaskTestCases.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id && !x.IsHidden)
+            .Select(x => new { x.Input, x.ExpectedOutput })
+            .Take(10)
+            .ToListAsync(ct);
+        var hiddenCount = await _db.TaskTestCases.AsNoTracking().CountAsync(x => x.TaskAssignmentId == assignment.Id && x.IsHidden, ct);
+        return new
+        {
+            assignment.AllowedLanguagesCsv,
+            publicCases,
+            hiddenTestsCount = hiddenCount,
+        };
+    }
+
+    private async Task<object> BuildAssignmentStatsAsync(taskforge.Data.Models.Entities.TaskAssignment assignment, bool includeAttempts, CancellationToken ct)
+    {
+        var type = (assignment.Type ?? string.Empty).Trim().ToLowerInvariant();
+        if (type == "test")
+        {
+            var attempts = _db.UserTaskTestAttempts.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id);
+            var total = await attempts.CountAsync(ct);
+            var passed = await attempts.CountAsync(x => x.Passed, ct);
+            var recent = includeAttempts
+                ? await attempts.OrderByDescending(x => x.SubmittedAt ?? x.UpdatedAt).Take(10)
+                    .Select(x => new { x.Id, x.UserId, x.AttemptNumber, x.ScorePercent, x.Passed, x.TimeExpired, x.SubmittedAt })
+                    .ToListAsync(ct)
+                : null;
+            return new { totalAttempts = total, passedAttempts = passed, passRate = total > 0 ? Math.Round((double)passed / total, 4) : 0d, recentAttempts = recent };
+        }
+
+        if (type == "math")
+        {
+            var attempts = _db.UserTaskMathAttempts.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id);
+            var total = await attempts.CountAsync(ct);
+            var passed = await attempts.CountAsync(x => x.Passed, ct);
+            var recent = includeAttempts
+                ? await attempts.OrderByDescending(x => x.SubmittedAt ?? x.UpdatedAt).Take(10)
+                    .Select(x => new { x.Id, x.UserId, x.AttemptNumber, x.TotalScore, x.EarnedScore, x.ScorePercent, x.Passed, x.TimeExpired, x.SubmittedAt })
+                    .ToListAsync(ct)
+                : null;
+            return new { totalAttempts = total, passedAttempts = passed, passRate = total > 0 ? Math.Round((double)passed / total, 4) : 0d, recentAttempts = recent };
+        }
+
+        if (type == "image-test")
+        {
+            var attempts = _db.UserImageTaskSolutions.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id && !x.IsTrial);
+            var total = await attempts.CountAsync(ct);
+            var passed = await attempts.CountAsync(x => x.Passed == true, ct);
+            var recent = includeAttempts
+                ? await attempts.OrderByDescending(x => x.CreatedAtUtc).Take(10)
+                    .Select(x => new { x.Id, x.UserId, x.Kind, x.Language, x.SimilarityPercent, x.ThresholdPercent, x.Passed, x.CreatedAtUtc })
+                    .ToListAsync(ct)
+                : null;
+            return new { totalAttempts = total, passedAttempts = passed, passRate = total > 0 ? Math.Round((double)passed / total, 4) : 0d, recentAttempts = recent };
+        }
+
+        {
+            var attempts = _db.UserTaskSolutions.AsNoTracking().Where(x => x.TaskAssignmentId == assignment.Id);
+            var total = await attempts.CountAsync(ct);
+            var passed = await attempts.CountAsync(x => x.PassedAllTests, ct);
+            var recent = includeAttempts
+                ? await attempts.OrderByDescending(x => x.SubmittedAt).Take(10)
+                    .Select(x => new { x.Id, x.UserId, x.Language, x.PassedAllTests, x.PassedCount, x.FailedCount, x.SubmittedAt })
+                    .ToListAsync(ct)
+                : null;
+            return new { totalAttempts = total, passedAttempts = passed, passRate = total > 0 ? Math.Round((double)passed / total, 4) : 0d, recentAttempts = recent };
+        }
+    }
+
+    private async Task<(string TargetEntityType, Guid? TargetEntityId, Guid? CourseId, string Json)?> BuildSubmissionReviewInputAsync(AiReviewSubmissionRequestDto request, CancellationToken ct)
+    {
+        var normalized = (request.SourceType ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is "code" or "code-test" or "solution")
+        {
+            var item = await _db.UserTaskSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.SourceAttemptId, ct);
+            if (item == null) return null;
+            var assignment = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.TaskAssignmentId, ct);
+            if (assignment == null) return null;
+            var json = JsonSerializer.Serialize(new
+            {
+                requestType = "submission_review",
+                prompt = request.Prompt,
+                sourceType = "code",
+                sourceAttemptId = item.Id,
+                userId = item.UserId,
+                assignmentId = assignment.Id,
+                assignment = new { assignment.Id, assignment.CourseId, assignment.Title, assignment.Type, assignment.Difficulty, assignment.Rating },
+                submission = new { item.Id, item.Language, item.SubmittedCode, item.PassedAllTests, item.PassedCount, item.FailedCount, item.SubmittedAt },
+            }, JsonOptions);
+            return ("assignment", assignment.Id, assignment.CourseId, json);
+        }
+
+        if (normalized is "test" or "test-attempt")
+        {
+            var item = await _db.UserTaskTestAttempts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.SourceAttemptId, ct);
+            if (item == null) return null;
+            var assignment = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.TaskAssignmentId, ct);
+            if (assignment == null) return null;
+            var json = JsonSerializer.Serialize(new
+            {
+                requestType = "submission_review",
+                prompt = request.Prompt,
+                sourceType = "test",
+                sourceAttemptId = item.Id,
+                userId = item.UserId,
+                assignmentId = assignment.Id,
+                assignment = new { assignment.Id, assignment.CourseId, assignment.Title, assignment.Type, assignment.Difficulty, assignment.Rating },
+                submission = new { item.Id, item.AttemptNumber, item.StartedAt, item.TimeLimitSeconds, item.TimeExpired, item.SubmittedAt, item.ScorePercent, item.Passed, item.QuestionOrderJson, item.AnswersJson },
+            }, JsonOptions);
+            return ("assignment", assignment.Id, assignment.CourseId, json);
+        }
+
+        if (normalized is "math" or "math-attempt")
+        {
+            var item = await _db.UserTaskMathAttempts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.SourceAttemptId, ct);
+            if (item == null) return null;
+            var assignment = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.TaskAssignmentId, ct);
+            if (assignment == null) return null;
+            var json = JsonSerializer.Serialize(new
+            {
+                requestType = "submission_review",
+                prompt = request.Prompt,
+                sourceType = "math",
+                sourceAttemptId = item.Id,
+                userId = item.UserId,
+                assignmentId = assignment.Id,
+                assignment = new { assignment.Id, assignment.CourseId, assignment.Title, assignment.Type, assignment.Difficulty, assignment.Rating },
+                submission = new { item.Id, item.AttemptNumber, item.StartedAt, item.TimeLimitSeconds, item.TimeExpired, item.SubmittedAt, item.TotalScore, item.EarnedScore, item.ScorePercent, item.Passed, item.BlockOrderJson, item.AnswersJson },
+            }, JsonOptions);
+            return ("assignment", assignment.Id, assignment.CourseId, json);
+        }
+
+        if (normalized is "image" or "image-test")
+        {
+            var item = await _db.UserImageTaskSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.SourceAttemptId, ct);
+            if (item == null) return null;
+            var assignment = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.TaskAssignmentId, ct);
+            if (assignment == null) return null;
+            var json = JsonSerializer.Serialize(new
+            {
+                requestType = "submission_review",
+                prompt = request.Prompt,
+                sourceType = "image",
+                sourceAttemptId = item.Id,
+                userId = item.UserId,
+                assignmentId = assignment.Id,
+                assignment = new { assignment.Id, assignment.CourseId, assignment.Title, assignment.Type, assignment.Difficulty, assignment.Rating },
+                submission = new { item.Id, item.Kind, item.IsTrial, item.Language, item.SubmittedCode, item.SimilarityPercent, item.ThresholdPercent, item.Passed, item.Stdout, item.Stderr, item.RunnerError, item.CreatedAtUtc },
+            }, JsonOptions);
+            return ("assignment", assignment.Id, assignment.CourseId, json);
+        }
+
+        return null;
+    }
+
+    private async Task<string?> BuildUserRiskInputAsync(AiReviewUserRequestDto request, CancellationToken ct)
+    {
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.UserId, ct);
+        if (user == null) return null;
+
+        var codeAttempts = _db.UserTaskSolutions.AsNoTracking().Where(x => x.UserId == user.Id);
+        var testAttempts = _db.UserTaskTestAttempts.AsNoTracking().Where(x => x.UserId == user.Id);
+        var mathAttempts = _db.UserTaskMathAttempts.AsNoTracking().Where(x => x.UserId == user.Id);
+        var imageAttempts = _db.UserImageTaskSolutions.AsNoTracking().Where(x => x.UserId == user.Id && !x.IsTrial);
+
+        var supportSummary = request.IncludeSupport
+            ? new
+            {
+                ticketsCount = await _db.SupportTickets.AsNoTracking().CountAsync(x => x.UserId == user.Id, ct),
+                recentTickets = await _db.SupportTickets.AsNoTracking().Where(x => x.UserId == user.Id).OrderByDescending(x => x.UpdatedAt).Take(5)
+                    .Select(x => new { x.Id, x.Type, x.IsClosed, x.CreatedAt, x.UpdatedAt, x.AssignedAdminId })
+                    .ToListAsync(ct),
+                recentMessages = await _db.SupportMessages.AsNoTracking().Where(x => x.AuthorUserId == user.Id).OrderByDescending(x => x.CreatedAt).Take(10)
+                    .Select(x => new { x.Id, x.TicketId, x.Text, x.CreatedAt, x.IsFromAdmin, x.Source })
+                    .ToListAsync(ct),
+            }
+            : null;
+
+        var minecraftSummary = request.IncludeMinecraft
+            ? new
+            {
+                linkedNick = user.MinecraftNick,
+                linkedAtUtc = user.MinecraftLinkedAtUtc,
+                recentMessages = await _db.MinecraftChatMessages.AsNoTracking().Where(x => x.UserId == user.Id).OrderByDescending(x => x.CreatedAtUtc).Take(20)
+                    .Select(x => new { x.Id, x.Source, x.AuthorName, x.MinecraftNick, x.Message, x.CreatedAtUtc })
+                    .ToListAsync(ct),
+            }
+            : null;
+
+        var input = new
+        {
+            requestType = "user_risk_review",
+            prompt = request.Prompt,
+            user = new
+            {
+                user.Id,
+                user.Email,
+                user.FirstName,
+                user.LastName,
+                user.Role,
+                user.CreatedAt,
+                user.LastLoginAt,
+                user.TelegramChatId,
+                user.TelegramUsername,
+                user.TelegramLinkedAtUtc,
+                user.MinecraftNick,
+                user.MinecraftUuid,
+                user.MinecraftLinkedAtUtc,
+            },
+            aggregates = new
+            {
+                codeAttemptsCount = await codeAttempts.CountAsync(ct),
+                codePassedCount = await codeAttempts.CountAsync(x => x.PassedAllTests, ct),
+                testAttemptsCount = await testAttempts.CountAsync(ct),
+                testPassedCount = await testAttempts.CountAsync(x => x.Passed, ct),
+                mathAttemptsCount = await mathAttempts.CountAsync(ct),
+                mathPassedCount = await mathAttempts.CountAsync(x => x.Passed, ct),
+                imageAttemptsCount = await imageAttempts.CountAsync(ct),
+                imagePassedCount = await imageAttempts.CountAsync(x => x.Passed == true, ct),
+            },
+            recentAttempts = request.IncludeRecentAttempts ? new
+            {
+                code = await codeAttempts.OrderByDescending(x => x.SubmittedAt).Take(8).Select(x => new { x.Id, x.TaskAssignmentId, x.Language, x.PassedAllTests, x.PassedCount, x.FailedCount, x.SubmittedAt }).ToListAsync(ct),
+                test = await testAttempts.OrderByDescending(x => x.SubmittedAt ?? x.UpdatedAt).Take(8).Select(x => new { x.Id, x.TaskAssignmentId, x.AttemptNumber, x.ScorePercent, x.Passed, x.TimeExpired, x.SubmittedAt }).ToListAsync(ct),
+                math = await mathAttempts.OrderByDescending(x => x.SubmittedAt ?? x.UpdatedAt).Take(8).Select(x => new { x.Id, x.TaskAssignmentId, x.AttemptNumber, x.TotalScore, x.EarnedScore, x.ScorePercent, x.Passed, x.TimeExpired, x.SubmittedAt }).ToListAsync(ct),
+                image = await imageAttempts.OrderByDescending(x => x.CreatedAtUtc).Take(8).Select(x => new { x.Id, x.TaskAssignmentId, x.Kind, x.Language, x.SimilarityPercent, x.ThresholdPercent, x.Passed, x.CreatedAtUtc }).ToListAsync(ct),
+            } : null,
+            support = supportSummary,
+            minecraft = minecraftSummary,
+        };
+
+        return JsonSerializer.Serialize(input, JsonOptions);
+    }
+
+    private async Task PersistDerivedArtifactsAsync(AiJob job, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(job.ResultJson)) return;
+        JsonDocument? doc = null;
+        try
+        {
+            doc = JsonDocument.Parse(job.ResultJson);
+        }
+        catch
+        {
+            return;
+        }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (job.Type.StartsWith("assignment_generate", StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryBuildDraft(job, root, out var draft))
+                {
+                    var existing = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.JobId == job.Id, ct);
+                    if (existing == null) _db.AiGeneratedAssignmentDrafts.Add(draft);
+                    else
+                    {
+                        existing.AssignmentType = draft.AssignmentType;
+                        existing.Title = draft.Title;
+                        existing.DraftJson = draft.DraftJson;
+                        existing.Status = draft.Status;
+                        existing.CourseId = draft.CourseId;
+                        existing.UpdatedAtUtc = DateTime.UtcNow;
+                    }
+                }
+            }
+
+            if (job.Type.Equals("submission_review", StringComparison.OrdinalIgnoreCase))
+            {
+                var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(summary))
+                {
+                    _db.AiSubmissionReviews.Add(new AiSubmissionReview
+                    {
+                        Id = Guid.NewGuid(),
+                        JobId = job.Id,
+                        UserId = ExtractGuid(root, "userId"),
+                        AssignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId,
+                        SourceType = root.TryGetProperty("sourceType", out var st) ? st.GetString() : job.TargetEntityType,
+                        SourceAttemptId = ExtractGuid(root, "sourceAttemptId"),
+                        Verdict = root.TryGetProperty("verdict", out var v) ? (v.GetString() ?? "needs-review") : "needs-review",
+                        Score = root.TryGetProperty("score", out var sc) && sc.TryGetDouble(out var dbl) ? dbl : null,
+                        Summary = summary,
+                        SignalsJson = root.TryGetProperty("signals", out var sig) ? sig.GetRawText() : null,
+                        CreatedAtUtc = DateTime.UtcNow,
+                    });
+                }
+            }
+
+            if (job.Type.Equals("user_risk_review", StringComparison.OrdinalIgnoreCase))
+            {
+                var userId = ExtractGuid(root, "userId") ?? job.TargetEntityId;
+                var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+                if (userId != null && !string.IsNullOrWhiteSpace(summary))
+                {
+                    _db.AiUserRiskReports.Add(new AiUserRiskReport
+                    {
+                        Id = Guid.NewGuid(),
+                        JobId = job.Id,
+                        UserId = userId.Value,
+                        RiskLevel = root.TryGetProperty("riskLevel", out var rl) ? (rl.GetString() ?? "low") : "low",
+                        Score = root.TryGetProperty("score", out var sc) && sc.TryGetDouble(out var dbl) ? dbl : 0,
+                        Summary = summary,
+                        SignalsJson = root.TryGetProperty("signals", out var sig) ? sig.GetRawText() : null,
+                        CreatedAtUtc = DateTime.UtcNow,
+                    });
+                }
+            }
+
+            if (job.Type.Equals("assignment_validate_draft", StringComparison.OrdinalIgnoreCase))
+            {
+                var draftId = ExtractGuid(root, "draftId") ?? job.TargetEntityId;
+                if (draftId != null)
+                {
+                    var existingDraft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == draftId.Value, ct);
+                    if (existingDraft != null)
+                    {
+                        existingDraft.DraftJson = MergeDraftValidation(existingDraft.DraftJson, root);
+                        existingDraft.Status = MapDraftStatusFromValidationRoot(root, existingDraft.Status);
+                        existingDraft.UpdatedAtUtc = DateTime.UtcNow;
+                    }
+                }
+            }
+
+            if (job.Type.Equals("assignment_analyze_existing", StringComparison.OrdinalIgnoreCase))
+            {
+                var assignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId;
+                var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+                if (assignmentId != null && !string.IsNullOrWhiteSpace(summary))
+                {
+                    _db.AiAssignmentInsights.Add(new AiAssignmentInsight
+                    {
+                        Id = Guid.NewGuid(),
+                        JobId = job.Id,
+                        AssignmentId = assignmentId.Value,
+                        Kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? "quality-audit") : "quality-audit",
+                        Summary = summary,
+                        SuggestionsJson = root.TryGetProperty("suggestions", out var sug) ? sug.GetRawText() : null,
+                        CreatedAtUtc = DateTime.UtcNow,
+                    });
+                }
+            }
+        }
+    }
+
+    private static bool TryBuildDraft(AiJob job, JsonElement root, out AiGeneratedAssignmentDraft draft)
+    {
+        draft = new AiGeneratedAssignmentDraft();
+        if (!root.TryGetProperty("draft", out var draftNode) || draftNode.ValueKind != JsonValueKind.Object)
+            return false;
+
+        var title = draftNode.TryGetProperty("title", out var t) ? t.GetString() : null;
+        var assignmentType = draftNode.TryGetProperty("assignmentType", out var at) ? at.GetString() : null;
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(assignmentType))
+            return false;
+
+        draft = new AiGeneratedAssignmentDraft
+        {
+            Id = Guid.NewGuid(),
+            JobId = job.Id,
+            RequestedByUserId = job.CreatedByUserId,
+            CourseId = ExtractGuid(draftNode, "courseId") ?? job.CourseId,
+            AssignmentType = assignmentType.Trim(),
+            Title = title.Trim(),
+            DraftJson = JsonSerializer.Serialize(draftNode, JsonOptions),
+            Status = MapDraftStatusFromDraftNode(draftNode),
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        };
+        return true;
+    }
+
+
+    private static string MapDraftStatusFromDraftNode(JsonElement draftNode)
+    {
+        var selfCheckStatus = ExtractSelfCheckStatus(draftNode);
+        return selfCheckStatus switch
+        {
+            "passed" => "ready",
+            "failed" => "needs-fix",
+            "needs-review" => "needs-review",
+            _ => "draft",
+        };
+    }
+
+    private static string MapDraftStatusFromValidationRoot(JsonElement validationRoot, string? fallback)
+    {
+        var status = validationRoot.TryGetProperty("status", out var value) && value.ValueKind == JsonValueKind.String
+            ? (value.GetString() ?? string.Empty).Trim().ToLowerInvariant()
+            : string.Empty;
+        return status switch
+        {
+            "passed" => "ready",
+            "failed" => "needs-fix",
+            "needs-review" => "needs-review",
+            _ => string.IsNullOrWhiteSpace(fallback) ? "draft" : fallback!,
+        };
+    }
+
+    private static string? ExtractSelfCheckStatus(JsonElement draftNode)
+    {
+        if (!draftNode.TryGetProperty("meta", out var meta) || meta.ValueKind != JsonValueKind.Object) return null;
+        if (!meta.TryGetProperty("selfCheck", out var selfCheck) || selfCheck.ValueKind != JsonValueKind.Object) return null;
+        if (!selfCheck.TryGetProperty("status", out var status) || status.ValueKind != JsonValueKind.String) return null;
+        var value = status.GetString();
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+    }
+
+    private static Guid? ExtractGuid(JsonElement root, string property)
+    {
+        if (!root.TryGetProperty(property, out var p)) return null;
+        return p.ValueKind switch
+        {
+            JsonValueKind.String when Guid.TryParse(p.GetString(), out var g) => g,
+            _ => null,
+        };
+    }
+
+    private static string? NormalizeJsonOrNull(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            return JsonSerializer.Serialize(doc.RootElement, JsonOptions);
+        }
+        catch
+        {
+            return JsonSerializer.Serialize(new { text = value.Trim() }, JsonOptions);
+        }
+    }
+
+    private static AiJobDetailsDto MapDetails(AiJob job) => new()
+    {
+        Id = job.Id,
+        Type = job.Type,
+        Status = job.Status,
+        Priority = job.Priority,
+        ModelName = job.ModelName,
+        WorkerId = job.WorkerId,
+        CreatedByDisplayName = job.CreatedByDisplayName,
+        TargetEntityType = job.TargetEntityType,
+        TargetEntityId = job.TargetEntityId,
+        CourseId = job.CourseId,
+        CreatedAtUtc = job.CreatedAtUtc,
+        StartedAtUtc = job.StartedAtUtc,
+        CompletedAtUtc = job.CompletedAtUtc,
+        HeartbeatAtUtc = job.HeartbeatAtUtc,
+        NextAttemptAtUtc = job.NextAttemptAtUtc,
+        RetryCount = job.RetryCount,
+        InputJson = job.InputJson,
+        ResultJson = job.ResultJson,
+        ErrorText = job.ErrorText,
+        Files = job.Files.Select(MapFile).ToList(),
+    };
+
+    private static AiJobFileDto MapFile(AiJobFile f) => new()
+    {
+        FileKey = f.FileKey,
+        OriginalName = f.OriginalName,
+        MimeType = f.MimeType,
+        PublicUrl = f.PublicUrl,
+    };
+
+    private static object BuildTargetSchema(string? assignmentType)
+    {
+        var normalized = (assignmentType ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "math" => new
+            {
+                assignmentType = "math",
+                settings = new { maxAttempts = 3, passPercent = 60, shuffleBlocks = false, allowReview = true, attemptTimeLimitsSeconds = Array.Empty<int?>() },
+                blocks = new object[]
+                {
+                    new { blockType = "info", title = "Условие", promptContent = new { type = "doc", content = Array.Empty<object>() }, points = 0 },
+                    new { blockType = "number", title = "Числовой ответ", promptContent = new { type = "doc", content = Array.Empty<object>() }, points = 1 },
+                },
+                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Нужно проверить ответы через Python before publish." } }
+            },
+            "test" => new
+            {
+                assignmentType = "test",
+                settings = new { maxAttempts = 3, passPercent = 60, shuffleQuestions = true, shuffleAnswers = true, allowReview = true, attemptTimeLimitsSeconds = Array.Empty<int?>() },
+                questions = new object[]
+                {
+                    new { type = "single-choice", prompt = "Вопрос", options = new[] { new { key = "a", text = "Вариант A" }, new { key = "b", text = "Вариант B" } }, correctOptionKeys = new[] { "a" } }
+                },
+                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Нужно проверить правильность вопросов и ответов." } }
+            },
+            "code-test" => new
+            {
+                assignmentType = "code-test",
+                allowedLanguages = new[] { "python", "cpp", "csharp" },
+                publicTests = new[] { new { input = "2\n", expectedOutput = "4" } },
+                hiddenTests = new[] { new { input = "5\n", expectedOutput = "25" } },
+                referenceSolutionPython = "import sys\n\ndef solve(data: str) -> str:\n    n = int(data.strip())\n    return str(n * n)\n\nif __name__ == '__main__':\n    print(solve(sys.stdin.read()))",
+                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Нужно прогнать reference solution по public/hidden tests before publish." } }
+            },
+            _ => new
+            {
+                assignmentType = assignmentType,
+                title = "Draft assignment",
+                description = "AI-generated draft",
+            },
+        };
+    }
+}

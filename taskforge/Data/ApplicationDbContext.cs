@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data.Models;
 using taskforge.Data.Models.Entities;
+using taskforge.Data.Models.Entities.AI;
 
 namespace taskforge.Data
 {
@@ -57,6 +58,14 @@ namespace taskforge.Data
         public DbSet<TaskMathBlock> TaskMathBlocks { get; set; } = null!;
         public DbSet<UserTaskMathAttempt> UserTaskMathAttempts { get; set; } = null!;
 
+        // ===== AI =====
+        public DbSet<AiJob> AiJobs { get; set; } = null!;
+        public DbSet<AiJobFile> AiJobFiles { get; set; } = null!;
+        public DbSet<AiGeneratedAssignmentDraft> AiGeneratedAssignmentDrafts { get; set; } = null!;
+        public DbSet<AiSubmissionReview> AiSubmissionReviews { get; set; } = null!;
+        public DbSet<AiUserRiskReport> AiUserRiskReports { get; set; } = null!;
+        public DbSet<AiAssignmentInsight> AiAssignmentInsights { get; set; } = null!;
+
         // Наборы данных для бейджей и связей между пользователями и бейджами.
         public DbSet<Badge> Badges { get; set; } = null!;
         public DbSet<UserBadge> UserBadges { get; set; } = null!;
@@ -89,6 +98,66 @@ namespace taskforge.Data
             {
                 entity.Property(x => x.BlockOrderJson).HasColumnType("jsonb");
                 entity.Property(x => x.AnswersJson).HasColumnType("jsonb");
+            });
+
+            // ===== AI =====
+            modelBuilder.Entity<AiJob>(entity =>
+            {
+                entity.Property(x => x.InputJson).HasColumnType("jsonb");
+                entity.Property(x => x.ResultJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.StartedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.HeartbeatAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.CompletedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.NextAttemptAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasIndex(x => new { x.Status, x.Priority, x.CreatedAtUtc });
+                entity.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiJobFile>(entity =>
+            {
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Job).WithMany(x => x.Files).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<AiGeneratedAssignmentDraft>(entity =>
+            {
+                entity.Property(x => x.DraftJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.ReviewedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasIndex(x => x.JobId).IsUnique();
+                entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(x => x.RequestedByUser).WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiSubmissionReview>(entity =>
+            {
+                entity.Property(x => x.SignalsJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Assignment).WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiUserRiskReport>(entity =>
+            {
+                entity.Property(x => x.SignalsJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.ExpiresAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<AiAssignmentInsight>(entity =>
+            {
+                entity.Property(x => x.SuggestionsJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Assignment).WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.Cascade);
             });
 
             // 🔹 User

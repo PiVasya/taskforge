@@ -5,5 +5,6 @@ namespace taskforge.Constants
         public const string Admin = "Admin";
         public const string Editor = "Editor";
         public const string User = "User";
+        public const string AiAgent = "AiAgent";
     }
 }

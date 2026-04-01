@@ -1,0 +1,24 @@
+services:
+  taskforge-ai-worker:
+    image: ghcr.io/pivasya/taskforge-ai-worker:latest
+    container_name: taskforge-ai-worker
+    environment:
+      TASKFORGE_API_BASE: ${TASKFORGE_API_BASE}
+      TASKFORGE_INTERNAL_KEY: ${TASKFORGE_INTERNAL_KEY}
+      TASKFORGE_AI_WORKER_ID: ${TASKFORGE_AI_WORKER_ID:-taskforge-ai-worker-remote}
+      TASKFORGE_AI_CAPABILITIES: ${TASKFORGE_AI_CAPABILITIES:-*}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:14b}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-10}
+    restart: unless-stopped
+
+  ollama:
+    profiles: ["with-ollama"]
+    image: ollama/ollama:latest
+    container_name: taskforge-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  ollama-data:
