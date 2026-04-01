@@ -423,7 +423,7 @@ function UserSpotlight({ data, loading, error }) {
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
         <MetricCard icon={Users} label="Входы" value={formatNumber(activity.totalLogins)} hint="За выбранный период" />
         <MetricCard icon={Database} label="Запросы к API" value={formatNumber(activity.totalRequests)} hint={`Ошибок: ${formatNumber(activity.errorRequests)}`} />
-        <MetricCard icon={BarChart3} label="Code/image/test" value={`${formatNumber(activity.codeSubmits)} / ${formatNumber(activity.imageSubmits)} / ${formatNumber(activity.testAttempts)}`} hint="Отправки и попытки" />
+        <MetricCard icon={BarChart3} label="Code/image/test/math" value={`${formatNumber(activity.codeSubmits)} / ${formatNumber(activity.imageSubmits)} / ${formatNumber(activity.testAttempts)} / ${formatNumber(activity.mathAttempts)}`} hint="Отправки и попытки" />
         <MetricCard icon={Clock3} label="Средняя задержка" value={formatMs(activity.avgLatencyMs)} hint={`Тикетов: ${formatNumber(activity.ticketsCreated)}`} />
       </div>
 
@@ -557,7 +557,7 @@ export default function AdminAnalyticsPage() {
       icon: BarChart3,
       label: 'Попытки по заданиям',
       value: formatNumber(assignmentTotals.totalAttempts),
-      hint: `Успешность: ${formatPercent(assignmentTotals.successRate)} · code/test/image: ${formatNumber(assignmentTotals.codeAttempts)} / ${formatNumber(assignmentTotals.testAttempts)} / ${formatNumber(assignmentTotals.imageAttempts)}`,
+      hint: `Успешность: ${formatPercent(assignmentTotals.successRate)} · code/test/image/math: ${formatNumber(assignmentTotals.codeAttempts)} / ${formatNumber(assignmentTotals.testAttempts)} / ${formatNumber(assignmentTotals.imageAttempts)} / ${formatNumber(assignmentTotals.mathAttempts)}`,
     },
     {
       icon: LifeBuoy,
@@ -783,16 +783,16 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
-              <ChartCard title="Попытки по заданиям" subtitle="Сколько действий по code/test/image вообще было за период.">
+              <ChartCard title="Попытки по заданиям" subtitle="Сколько действий по code/test/image/math вообще было за период.">
                 <LineAreaChart data={data.assignments?.attemptsByDay || []} color="rgb(var(--accent))" />
               </ChartCard>
-              <ChartCard title="Успешные попытки по дням" subtitle={`Общая успешность: ${formatPercent(assignmentTotals.successRate)} · средний score тестов: ${formatPercent(assignmentTotals.avgTestScore)}`}>
+              <ChartCard title="Успешные попытки по дням" subtitle={`Общая успешность: ${formatPercent(assignmentTotals.successRate)} · средний score test/math: ${formatPercent(assignmentTotals.avgTestScore)}`}>
                 <LineAreaChart data={data.assignments?.successByDay || []} color="rgb(var(--accent2))" />
               </ChartCard>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
-              <ChartCard title="Типы активностей в заданиях" subtitle="Каких попыток больше: code, image или test.">
+              <ChartCard title="Типы активностей в заданиях" subtitle="Каких попыток больше: code, image, test или math.">
                 <DonutChart data={data.assignments?.types || []} />
               </ChartCard>
               <ChartCard title="Топ языков решений" subtitle="Какие языки реально используют чаще всего.">

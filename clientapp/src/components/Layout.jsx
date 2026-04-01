@@ -80,6 +80,23 @@ function HeaderAction({ to, icon: Icon, label, active, onClick, asButton = false
   );
 }
 
+function getDisplayName(user) {
+  const first = String(user?.firstName || '').trim();
+  const last = String(user?.lastName || '').trim();
+  const full = [last, first].filter(Boolean).join(' ');
+  if (full) return full;
+  return String(user?.email || 'Личный кабинет').trim() || 'Личный кабинет';
+}
+
+function getInitials(user) {
+  const first = String(user?.firstName || '').trim();
+  const last = String(user?.lastName || '').trim();
+  const initials = `${last ? last[0] : ''}${first ? first[0] : ''}`.trim();
+  if (initials) return initials.toUpperCase();
+  const email = String(user?.email || '').trim();
+  return email ? email[0].toUpperCase() : 'TF';
+}
+
 export default function Layout({ children, fullWidth = false, hideFooter = false }) {
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
     const root = document.documentElement;
@@ -154,7 +171,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     };
   }, []);
 
-  const { access, logout } = useAuth();
+  const { access, logout, user } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin, roles } = useEditorMode();
   const canUseMinecraft = isAdmin || roles.includes('Minecraft');
   const location = useLocation();
@@ -263,6 +280,12 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     return 'Лента';
   })();
 
+
+  const displayName = getDisplayName(user);
+  const displaySubline = isAdmin ? 'Администратор' : canEdit ? 'Редактор' : (user?.email || 'Участник');
+  const avatarUrl = user?.profilePictureUrl || user?.avatarUrl || '';
+  const avatarFallback = getInitials(user);
+
   const mainWrapClass = fullWidth
     ? 'w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
     : 'container-app py-4 sm:py-8 relative z-10';
@@ -323,17 +346,19 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             {access && (
               <Link
                 to="/profile"
-                className="hidden xl:flex items-center gap-3 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/80 px-3 py-2 shadow-soft"
+                className="hidden xl:flex items-center gap-3 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/80 px-3 py-2 shadow-soft max-w-[20rem]"
                 title="Профиль"
               >
-                <div className="h-10 w-10 rounded-2xl grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300">
-                  <User size={18} />
+                <div className="h-10 w-10 rounded-2xl overflow-hidden shrink-0 grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300 font-semibold">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                  ) : (
+                    <span>{avatarFallback}</span>
+                  )}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold truncate">Личный кабинет</div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
-                    {isAdmin ? 'Администратор' : canEdit ? 'Редактор' : 'Студент'}
-                  </div>
+                  <div className="text-sm font-semibold truncate">{displayName}</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate">{displaySubline}</div>
                 </div>
               </Link>
             )}
@@ -499,7 +524,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
       </header>
 
       <main className={mainWrapClass}>
-        <div className={`items-start gap-4 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[14.75rem,minmax(0,1fr),11.75rem] 2xl:grid-cols-[15.5rem,minmax(0,1fr),12rem]' : ''}`}>
+        <div className={`items-start gap-4 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[15rem,minmax(0,1fr)] 2xl:grid-cols-[15.5rem,minmax(0,1fr)]' : ''}`}>
           {access && (
             <aside className="dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">
@@ -534,31 +559,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </motion.div>
           </section>
 
-          {access && (
-            <aside className="dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
-              <div className="card p-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-12 w-12 rounded-2xl grid place-items-center bg-brand-600/15 text-brand-700 dark:text-brand-300 shrink-0">
-                    <User size={20} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold truncate">Личный кабинет</div>
-                    <div className="text-sm text-neutral-500 dark:text-neutral-400">
-                      {isAdmin ? 'Администратор' : canEdit ? 'Редактор' : 'Участник'}
-                    </div>
-                  </div>
-                </div>
-
-                {roleBadges.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {roleBadges.map((role) => (
-                      <span key={role} className="badge badge-outline">{role}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </aside>
-          )}
         </div>
       </main>
 

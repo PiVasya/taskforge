@@ -28,6 +28,8 @@ namespace taskforge.Data.Models.DTO
 
         public int TestCount { get; set; }
         public int SolvedTestsCountForCurrentUser { get; set; }
+        public int MathCount { get; set; }
+        public int SolvedMathCountForCurrentUser { get; set; }
 
         public bool IsCompletedForCurrentUser { get; set; }
 
@@ -52,6 +54,8 @@ namespace taskforge.Data.Models.DTO
 
         public int TestCount { get; set; }
         public int SolvedTestsCountForCurrentUser { get; set; }
+        public int MathCount { get; set; }
+        public int SolvedMathCountForCurrentUser { get; set; }
 
         public bool IsCompletedForCurrentUser { get; set; }
 

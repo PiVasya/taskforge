@@ -28,6 +28,7 @@ const sortOptions = [
   { value: 'codeSolutions', label: 'Решённые code' },
   { value: 'passedTests', label: 'Пройденные test' },
   { value: 'imageSolutions', label: 'Решённые image' },
+  { value: 'mathSolutions', label: 'Решённые math' },
   { value: 'totalSolved', label: 'Всего решённых' },
   { value: 'linked', label: 'Наличие привязок' },
   { value: 'emailConfirmed', label: 'Email подтверждён' },
@@ -69,7 +70,8 @@ export default function AdminUsersPage() {
         case 'codeSolutions': return user.codeSolutions ?? 0;
         case 'passedTests': return user.passedTests ?? 0;
         case 'imageSolutions': return user.imageSolutions ?? 0;
-        case 'totalSolved': return (user.codeSolutions ?? 0) + (user.passedTests ?? 0) + (user.imageSolutions ?? 0);
+        case 'mathSolutions': return user.mathSolutions ?? 0;
+        case 'totalSolved': return (user.codeSolutions ?? 0) + (user.passedTests ?? 0) + (user.imageSolutions ?? 0) + (user.mathSolutions ?? 0);
         case 'linked': return (user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0;
         case 'emailConfirmed': return user.emailConfirmed ? 1 : 0;
         case 'lockoutEnabled': return user.lockoutEnabled ? 1 : 0;
@@ -77,7 +79,7 @@ export default function AdminUsersPage() {
       }
     };
 
-    if (!['codeSolutions','passedTests','imageSolutions','totalSolved','linked','emailConfirmed','lockoutEnabled'].includes(sortBy)) {
+    if (!['codeSolutions','passedTests','imageSolutions','mathSolutions','totalSolved','linked','emailConfirmed','lockoutEnabled'].includes(sortBy)) {
       return items;
     }
 
@@ -192,6 +194,7 @@ export default function AdminUsersPage() {
                       <Badge>Code: {user.codeSolutions ?? 0}</Badge>
                       <Badge>Test: {user.passedTests ?? 0}</Badge>
                       <Badge>Image: {user.imageSolutions ?? 0}</Badge>
+                      <Badge>Math: {user.mathSolutions ?? 0}</Badge>
                     </div>
                   </div>
                   <div>

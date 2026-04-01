@@ -92,11 +92,19 @@ namespace taskforge.Services
             var result = new List<CourseListItemDto>(data.Count);
             foreach (var c in data)
             {
-                var codeAssignmentIds = c.Assignments.Where(a => a.Type != "test").Select(a => a.Id).ToList();
+                var codeAssignmentIds = c.Assignments.Where(a => a.Type == "code-test").Select(a => a.Id).ToList();
+                var imageAssignmentIds = c.Assignments.Where(a => a.Type == "image-test").Select(a => a.Id).ToList();
                 var testAssignmentIds = c.Assignments.Where(a => a.Type == "test").Select(a => a.Id).ToList();
+                var mathAssignmentIds = c.Assignments.Where(a => a.Type == "math").Select(a => a.Id).ToList();
 
                 var solvedCodes = await _db.UserTaskSolutions.AsNoTracking()
                     .Where(s => s.UserId == currentUserId && s.PassedAllTests && codeAssignmentIds.Contains(s.TaskAssignmentId))
+                    .Select(s => s.TaskAssignmentId)
+                    .Distinct()
+                    .CountAsync();
+
+                var solvedImages = await _db.UserImageTaskSolutions.AsNoTracking()
+                    .Where(s => s.UserId == currentUserId && s.Passed == true && s.IsTrial == false && imageAssignmentIds.Contains(s.TaskAssignmentId))
                     .Select(s => s.TaskAssignmentId)
                     .Distinct()
                     .CountAsync();
@@ -107,10 +115,16 @@ namespace taskforge.Services
                     .Distinct()
                     .CountAsync();
 
+                var solvedMath = await _db.UserTaskMathAttempts.AsNoTracking()
+                    .Where(t => t.UserId == currentUserId && t.Passed && mathAssignmentIds.Contains(t.TaskAssignmentId))
+                    .Select(t => t.TaskAssignmentId)
+                    .Distinct()
+                    .CountAsync();
+
                 var canEdit = await _access.CanEditCourseAsync(currentUserId, role, c.Id);
 
-                var total = codeAssignmentIds.Count + testAssignmentIds.Count;
-                var completed = total > 0 && (solvedCodes + solvedTests) == total;
+                var total = codeAssignmentIds.Count + imageAssignmentIds.Count + testAssignmentIds.Count + mathAssignmentIds.Count;
+                var completed = total > 0 && (solvedCodes + solvedImages + solvedTests + solvedMath) == total;
 
                 var ownerIds = await _db.CourseOwners.AsNoTracking()
                     .Where(o => o.CourseId == c.Id)
@@ -130,10 +144,12 @@ namespace taskforge.Services
                     IsPublic = c.IsPublic,
                     OwnerId = c.OwnerId,
                     CreatedAt = c.CreatedAt,
-                    AssignmentCount = codeAssignmentIds.Count,
-                    SolvedCountForCurrentUser = solvedCodes,
+                    AssignmentCount = codeAssignmentIds.Count + imageAssignmentIds.Count,
+                    SolvedCountForCurrentUser = solvedCodes + solvedImages,
                     TestCount = testAssignmentIds.Count,
                     SolvedTestsCountForCurrentUser = solvedTests,
+                    MathCount = mathAssignmentIds.Count,
+                    SolvedMathCountForCurrentUser = solvedMath,
                     IsCompletedForCurrentUser = completed,
                     CanEdit = canEdit,
                     OwnerIds = ownerIds,
@@ -156,11 +172,19 @@ namespace taskforge.Services
 
             if (c == null) return null;
 
-            var codeAssignmentIds = c.Assignments.Where(a => a.Type != "test").Select(a => a.Id).ToList();
+            var codeAssignmentIds = c.Assignments.Where(a => a.Type == "code-test").Select(a => a.Id).ToList();
+            var imageAssignmentIds = c.Assignments.Where(a => a.Type == "image-test").Select(a => a.Id).ToList();
             var testAssignmentIds = c.Assignments.Where(a => a.Type == "test").Select(a => a.Id).ToList();
+            var mathAssignmentIds = c.Assignments.Where(a => a.Type == "math").Select(a => a.Id).ToList();
 
             var solvedCodes = await _db.UserTaskSolutions.AsNoTracking()
                 .Where(s => s.UserId == currentUserId && s.PassedAllTests && codeAssignmentIds.Contains(s.TaskAssignmentId))
+                .Select(s => s.TaskAssignmentId)
+                .Distinct()
+                .CountAsync();
+
+            var solvedImages = await _db.UserImageTaskSolutions.AsNoTracking()
+                .Where(s => s.UserId == currentUserId && s.Passed == true && s.IsTrial == false && imageAssignmentIds.Contains(s.TaskAssignmentId))
                 .Select(s => s.TaskAssignmentId)
                 .Distinct()
                 .CountAsync();
@@ -171,8 +195,14 @@ namespace taskforge.Services
                 .Distinct()
                 .CountAsync();
 
-            var total = codeAssignmentIds.Count + testAssignmentIds.Count;
-            var completed = total > 0 && (solvedCodes + solvedTests) == total;
+            var solvedMath = await _db.UserTaskMathAttempts.AsNoTracking()
+                .Where(t => t.UserId == currentUserId && t.Passed && mathAssignmentIds.Contains(t.TaskAssignmentId))
+                .Select(t => t.TaskAssignmentId)
+                .Distinct()
+                .CountAsync();
+
+            var total = codeAssignmentIds.Count + imageAssignmentIds.Count + testAssignmentIds.Count + mathAssignmentIds.Count;
+            var completed = total > 0 && (solvedCodes + solvedImages + solvedTests + solvedMath) == total;
 
             var canEdit = await _access.CanEditCourseAsync(currentUserId, role, courseId);
 
@@ -195,10 +225,12 @@ namespace taskforge.Services
                 OwnerId = c.OwnerId,
                 CreatedAt = c.CreatedAt,
                 UpdatedAt = c.UpdatedAt,
-                AssignmentCount = codeAssignmentIds.Count,
-                SolvedCountForCurrentUser = solvedCodes,
+                AssignmentCount = codeAssignmentIds.Count + imageAssignmentIds.Count,
+                SolvedCountForCurrentUser = solvedCodes + solvedImages,
                 TestCount = testAssignmentIds.Count,
                 SolvedTestsCountForCurrentUser = solvedTests,
+                MathCount = mathAssignmentIds.Count,
+                SolvedMathCountForCurrentUser = solvedMath,
                 IsCompletedForCurrentUser = completed,
                 CanEdit = canEdit,
                 OwnerIds = ownerIds,

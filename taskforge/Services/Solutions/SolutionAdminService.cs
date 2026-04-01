@@ -78,18 +78,47 @@ namespace taskforge.Services
         {
             var since = days.HasValue ? DateTime.UtcNow.AddDays(-days.Value) : (DateTime?)null;
 
-            var q = _db.UserTaskSolutions
+            var codeQ = _db.UserTaskSolutions
                 .AsNoTracking()
                 .Where(s => s.PassedAllTests);
 
+            var testQ = _db.UserTaskTestAttempts
+                .AsNoTracking()
+                .Where(s => s.Passed);
+
+            var imageQ = _db.UserImageTaskSolutions
+                .AsNoTracking()
+                .Where(s => s.Passed == true && s.IsTrial == false);
+
+            var mathQ = _db.UserTaskMathAttempts
+                .AsNoTracking()
+                .Where(s => s.Passed);
+
             if (since.HasValue)
-                q = q.Where(s => s.SubmittedAt >= since.Value);
+            {
+                codeQ = codeQ.Where(s => s.SubmittedAt >= since.Value);
+                testQ = testQ.Where(s => s.CreatedAt >= since.Value);
+                imageQ = imageQ.Where(s => s.CreatedAtUtc >= since.Value);
+                mathQ = mathQ.Where(s => s.CreatedAt >= since.Value);
+            }
 
             if (courseId.HasValue)
-                q = q.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            {
+                codeQ = codeQ.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+                testQ = testQ.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+                imageQ = imageQ.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+                mathQ = mathQ.Where(s => s.TaskAssignment.CourseId == courseId.Value);
+            }
 
-            var data = await q
-                .Select(s => new { s.UserId, s.TaskAssignmentId, Rating = s.TaskAssignment.Rating })
+            var codeRows = await codeQ.Select(s => new { s.UserId, s.TaskAssignmentId, Rating = s.TaskAssignment.Rating }).ToListAsync();
+            var testRows = await testQ.Select(s => new { s.UserId, s.TaskAssignmentId, Rating = s.TaskAssignment.Rating }).ToListAsync();
+            var imageRows = await imageQ.Select(s => new { s.UserId, s.TaskAssignmentId, Rating = s.TaskAssignment.Rating }).ToListAsync();
+            var mathRows = await mathQ.Select(s => new { s.UserId, s.TaskAssignmentId, Rating = s.TaskAssignment.Rating }).ToListAsync();
+
+            var data = codeRows
+                .Concat(testRows)
+                .Concat(imageRows)
+                .Concat(mathRows)
                 .Distinct()
                 .GroupBy(x => x.UserId)
                 .Select(g => new
@@ -101,7 +130,7 @@ namespace taskforge.Services
                 .OrderByDescending(x => x.Score)
                 .ThenByDescending(x => x.Solved)
                 .Take(Math.Clamp(top, 1, 100))
-                .ToListAsync();
+                .ToList();
 
             var userIds = data.Select(d => d.UserId).ToArray();
 

@@ -235,6 +235,158 @@ namespace taskforge.Services.Assignments
             };
         }
 
+        public async Task<List<TaskMathAttemptListItemDto>> GetAttemptsAsync(
+            Guid userId,
+            Guid? courseId,
+            Guid? assignmentId,
+            int? days,
+            int skip,
+            int take,
+            CancellationToken ct)
+        {
+            if (skip < 0) skip = 0;
+            if (take <= 0) take = 50;
+            if (take > 5000) take = 5000;
+
+            var q = _db.UserTaskMathAttempts
+                .AsNoTracking()
+                .Include(a => a.TaskAssignment!)
+                .ThenInclude(t => t.Course)
+                .Where(a => a.UserId == userId && a.SubmittedAt != null);
+
+            if (courseId.HasValue)
+                q = q.Where(a => a.TaskAssignment != null && a.TaskAssignment.CourseId == courseId.Value);
+            if (assignmentId.HasValue)
+                q = q.Where(a => a.TaskAssignmentId == assignmentId.Value);
+            if (days.HasValue)
+            {
+                var since = DateTime.UtcNow.AddDays(-Math.Abs(days.Value));
+                q = q.Where(a => a.SubmittedAt >= since);
+            }
+
+            var list = await q
+                .OrderByDescending(a => a.SubmittedAt)
+                .ThenByDescending(a => a.AttemptNumber)
+                .Skip(skip)
+                .Take(take)
+                .ToListAsync(ct);
+
+            if (list.Count == 0) return new List<TaskMathAttemptListItemDto>();
+
+            var ids = list.Select(x => x.TaskAssignmentId).Distinct().ToArray();
+            var settings = await _db.TaskMathSettings
+                .AsNoTracking()
+                .Where(s => ids.Contains(s.TaskAssignmentId))
+                .ToListAsync(ct);
+            var allowMap = settings.ToDictionary(s => s.TaskAssignmentId, s => s.AllowReview);
+
+            return list.Select(a =>
+            {
+                var ta = a.TaskAssignment;
+                var c = ta?.Course;
+                return new TaskMathAttemptListItemDto
+                {
+                    AttemptId = a.Id,
+                    TaskAssignmentId = a.TaskAssignmentId,
+                    CourseId = ta?.CourseId ?? Guid.Empty,
+                    CourseTitle = c?.Title ?? string.Empty,
+                    AssignmentTitle = ta?.Title ?? string.Empty,
+                    AttemptNumber = a.AttemptNumber,
+                    SubmittedAt = a.SubmittedAt ?? a.UpdatedAt,
+                    TotalScore = a.TotalScore,
+                    EarnedScore = a.EarnedScore,
+                    ScorePercent = a.ScorePercent,
+                    Passed = a.Passed,
+                    TimeExpired = a.TimeExpired,
+                    AllowReview = allowMap.TryGetValue(a.TaskAssignmentId, out var ar) ? ar : true,
+                };
+            }).ToList();
+        }
+
+        public async Task<TaskMathAttemptReviewDto?> GetAttemptReviewAsync(Guid userId, Guid attemptId, bool isAdmin, CancellationToken ct)
+        {
+            var attempt = await _db.UserTaskMathAttempts
+                .AsNoTracking()
+                .Include(a => a.User)
+                .Include(a => a.TaskAssignment!)
+                .ThenInclude(t => t.Course)
+                .FirstOrDefaultAsync(a => a.Id == attemptId, ct);
+
+            if (attempt == null) return null;
+            if (!isAdmin && attempt.UserId != userId) return null;
+            if (attempt.SubmittedAt == null) return null;
+
+            var settings = await _db.TaskMathSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.TaskAssignmentId == attempt.TaskAssignmentId, ct)
+                ?? new TaskMathSettings { TaskAssignmentId = attempt.TaskAssignmentId, AllowReview = true };
+
+            if (!isAdmin && !settings.AllowReview)
+                throw new UnauthorizedAccessException("Просмотр попытки отключён");
+
+            var blocks = await _db.TaskMathBlocks
+                .AsNoTracking()
+                .Where(x => x.TaskAssignmentId == attempt.TaskAssignmentId)
+                .OrderBy(x => x.Order)
+                .ThenBy(x => x.Id)
+                .ToListAsync(ct);
+
+            var blockMap = blocks.ToDictionary(x => x.Id, x => x);
+            var order = ParseGuidArray(attempt.BlockOrderJson);
+            if (order.Count == 0)
+                order = blocks.Select(x => x.Id).ToList();
+
+            var req = SafeDeserialize<TaskMathSubmitRequestDto>(attempt.AnswersJson) ?? new TaskMathSubmitRequestDto
+            {
+                AttemptId = attempt.Id,
+                Answers = new List<TaskMathAnswerDto>()
+            };
+            var ansMap = (req.Answers ?? new List<TaskMathAnswerDto>())
+                .Where(x => x != null && x.BlockId != Guid.Empty)
+                .GroupBy(x => x.BlockId)
+                .ToDictionary(g => g.Key, g => g.Last());
+
+            var dto = new TaskMathAttemptReviewDto
+            {
+                AttemptId = attempt.Id,
+                TaskAssignmentId = attempt.TaskAssignmentId,
+                CourseId = attempt.TaskAssignment?.CourseId ?? Guid.Empty,
+                CourseTitle = attempt.TaskAssignment?.Course?.Title ?? string.Empty,
+                AssignmentTitle = attempt.TaskAssignment?.Title ?? string.Empty,
+                UserId = attempt.UserId,
+                UserEmail = attempt.User?.Email,
+                AttemptNumber = attempt.AttemptNumber,
+                StartedAt = attempt.StartedAt,
+                SubmittedAt = attempt.SubmittedAt.Value,
+                PassPercent = ClampPercent(settings.PassPercent),
+                TotalScore = attempt.TotalScore,
+                EarnedScore = attempt.EarnedScore,
+                ScorePercent = attempt.ScorePercent,
+                Passed = attempt.Passed,
+                TimeExpired = attempt.TimeExpired,
+                AllowReview = settings.AllowReview,
+                Blocks = new List<TaskMathAttemptReviewBlockDto>()
+            };
+
+            var idx = 0;
+            foreach (var blockId in order)
+            {
+                if (!blockMap.TryGetValue(blockId, out var block)) continue;
+                ansMap.TryGetValue(blockId, out var ans);
+                dto.Blocks.Add(BuildReviewBlockDto(block, ans, idx++));
+            }
+
+            return dto;
+        }
+
+        public async Task DeleteAttemptAsync(Guid attemptId, CancellationToken ct)
+        {
+            var entity = await _db.UserTaskMathAttempts.FirstOrDefaultAsync(x => x.Id == attemptId, ct);
+            if (entity == null) return;
+            _db.UserTaskMathAttempts.Remove(entity);
+            await _db.SaveChangesAsync(ct);
+        }
+
         public async Task<TaskMathEditDto> GetEditAsync(Guid assignmentId, Guid userId, CancellationToken ct)
         {
             var assignment = await _db.TaskAssignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct)
@@ -451,6 +603,57 @@ namespace taskforge.Services.Assignments
             }
 
             return false;
+        }
+
+        private static TaskMathAttemptReviewBlockDto BuildReviewBlockDto(TaskMathBlock block, TaskMathAnswerDto? userAnswer, int order)
+        {
+            var kind = NormalizeKind(block.Kind);
+            var dto = new TaskMathAttemptReviewBlockDto
+            {
+                Id = block.Id,
+                Order = order,
+                Kind = kind,
+                Prompt = block.Prompt,
+                PromptContentJson = block.PromptContentJson,
+                Score = Math.Max(0, block.Score),
+                IsRequired = block.IsRequired,
+                UserAnswer = userAnswer,
+                IsCorrect = IsInfo(kind) || IsCorrect(block, userAnswer),
+            };
+
+            if (kind == "single-choice" || kind == "multi-choice")
+            {
+                var data = SafeDeserialize<ChoiceData>(block.DataJson) ?? new ChoiceData();
+                dto.Options = data.Options ?? new List<TaskMathOptionDto>();
+                dto.CorrectOptionKeys = data.CorrectOptionKeys ?? new List<string>();
+                return dto;
+            }
+
+            if (kind == "number" || kind == "expression" || kind == "set")
+            {
+                var data = SafeDeserialize<TextData>(block.DataJson) ?? new TextData();
+                dto.AcceptedAnswers = data.AcceptedAnswers ?? new List<string>();
+                dto.NumericTolerance = data.NumericTolerance;
+                return dto;
+            }
+
+            if (kind == "order")
+            {
+                var data = SafeDeserialize<OrderData>(block.DataJson) ?? new OrderData();
+                dto.OrderItems = data.Items ?? new List<string>();
+                return dto;
+            }
+
+            if (kind == "match")
+            {
+                var data = SafeDeserialize<MatchData>(block.DataJson) ?? new MatchData();
+                dto.MatchLeftItems = data.LeftItems ?? new List<TaskMathOptionDto>();
+                dto.MatchRightItems = data.RightItems ?? new List<TaskMathOptionDto>();
+                dto.MatchPairs = data.Pairs ?? new List<TaskMathMatchPairDto>();
+                return dto;
+            }
+
+            return dto;
         }
 
         private static List<TaskMathBlockPublicDto> BuildPublicBlocks(Guid attemptId, List<TaskMathBlock> orderedBlocks)

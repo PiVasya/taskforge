@@ -37,7 +37,8 @@ namespace taskforge.Controllers.Admin
             IReadOnlyList<string> FeatureRoles,
             int CodeSolutions,
             int PassedTests,
-            int ImageSolutions);
+            int ImageSolutions,
+            int MathSolutions);
 
         public sealed record AdminUserStatsDto(int Total, int Linked, int Admins);
 
@@ -156,10 +157,17 @@ namespace taskforge.Controllers.Admin
                 .Select(g => new { UserId = g.Key, Count = g.Select(x => x.TaskAssignmentId).Distinct().Count() })
                 .ToListAsync(ct);
 
+            var mathCounts = await _db.UserTaskMathAttempts.AsNoTracking()
+                .Where(x => ids.Contains(x.UserId) && x.Passed)
+                .GroupBy(x => x.UserId)
+                .Select(g => new { UserId = g.Key, Count = g.Select(x => x.TaskAssignmentId).Distinct().Count() })
+                .ToListAsync(ct);
+
             var roleMap = featureRoles.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.Code).OrderBy(x => x).ToList());
             var codeMap = codeCounts.ToDictionary(x => x.UserId, x => x.Count);
             var testMap = testCounts.ToDictionary(x => x.UserId, x => x.Count);
             var imageMap = imageCounts.ToDictionary(x => x.UserId, x => x.Count);
+            var mathMap = mathCounts.ToDictionary(x => x.UserId, x => x.Count);
 
             var statsQuery = _db.Users.AsNoTracking().AsQueryable();
 
@@ -204,7 +212,8 @@ namespace taskforge.Controllers.Admin
                 roleMap.TryGetValue(u.Id, out var rr) ? rr : Array.Empty<string>(),
                 codeMap.TryGetValue(u.Id, out var code) ? code : 0,
                 testMap.TryGetValue(u.Id, out var test) ? test : 0,
-                imageMap.TryGetValue(u.Id, out var img) ? img : 0
+                imageMap.TryGetValue(u.Id, out var img) ? img : 0,
+                mathMap.TryGetValue(u.Id, out var math) ? math : 0
             )).ToList();
 
             return Ok(new { items = result, stats });
@@ -257,6 +266,7 @@ namespace taskforge.Controllers.Admin
             await _db.UserTaskSolutions.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
             await _db.UserImageTaskSolutions.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
             await _db.UserTaskTestAttempts.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.UserTaskMathAttempts.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
             await _db.UserFeatureRoles.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
             await _db.UserGroupMembers.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
             await _db.MinecraftWeeklyJoins.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);

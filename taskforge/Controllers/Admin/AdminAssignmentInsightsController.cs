@@ -34,6 +34,8 @@ namespace taskforge.Controllers.Admin
             int PassedTests,
             int ImageAttempts,
             int PassedImages,
+            int MathAttempts,
+            int PassedMath,
             double? AvgReviewSeconds,
             IReadOnlyList<LanguageStatDto> Languages,
             IReadOnlyList<SolverStatDto> Solvers,
@@ -95,8 +97,23 @@ namespace taskforge.Controllers.Admin
                     x.SimilarityPercent,
                     x.CreatedAtUtc,
                     x.SubmittedCode,
-                    x.Kind,
                     x.IsTrial
+                })
+                .ToListAsync(ct);
+
+            var mathRows = await _db.UserTaskMathAttempts.AsNoTracking()
+                .Where(x => x.TaskAssignmentId == assignmentId)
+                .Select(x => new
+                {
+                    x.UserId,
+                    FullName = (x.User!.FirstName + " " + x.User!.LastName).Trim(),
+                    Email = x.User!.Email,
+                    x.Passed,
+                    x.ScorePercent,
+                    x.StartedAt,
+                    x.SubmittedAt,
+                    x.TotalScore,
+                    x.EarnedScore
                 })
                 .ToListAsync(ct);
 
@@ -158,6 +175,22 @@ namespace taskforge.Controllers.Admin
                 null,
                 x.CreatedAtUtc
             )));
+            activity.AddRange(mathRows.Select(x => new ActivityDto(
+                x.UserId,
+                x.FullName,
+                x.Email,
+                "math",
+                x.Passed ? "passed" : "failed",
+                null,
+                false,
+                null,
+                null,
+                null,
+                x.ScorePercent,
+                null,
+                x.SubmittedAt != null ? Math.Round((x.SubmittedAt.Value - x.StartedAt).TotalSeconds, 2) : null,
+                x.SubmittedAt ?? x.StartedAt
+            )));
             activity = activity.OrderByDescending(x => x.CreatedAtUtc).Take(80).ToList();
 
             var solverStats = activity
@@ -181,10 +214,11 @@ namespace taskforge.Controllers.Admin
             var successUsers = activity.Where(x => x.Status == "passed").Select(x => x.UserId).Distinct().Count();
             var durations = testRows.Where(x => x.SubmittedAt != null && x.SubmittedAt >= x.StartedAt)
                 .Select(x => (x.SubmittedAt!.Value - x.StartedAt).TotalSeconds)
+                .Concat(mathRows.Where(x => x.SubmittedAt != null && x.SubmittedAt >= x.StartedAt).Select(x => (x.SubmittedAt!.Value - x.StartedAt).TotalSeconds))
                 .Where(x => x >= 0)
                 .ToList();
             double? avgReviewSeconds = durations.Count > 0 ? Math.Round(durations.Average(), 2) : null;
-            var avgReviewNote = avgReviewSeconds == null ? "Для code/image точное время выполнения в текущей модели не хранится. Показывается среднее время только по test-попыткам." : null;
+            var avgReviewNote = avgReviewSeconds == null ? "Для code/image точное время выполнения в текущей модели не хранится. Показывается среднее время по test/math-попыткам." : null;
 
             return Ok(new AssignmentInsightSummaryDto(
                 assignment.Id,
@@ -202,6 +236,8 @@ namespace taskforge.Controllers.Admin
                 testRows.Count(x => x.Passed),
                 imageRows.Count,
                 imageRows.Count(x => x.Passed == true),
+                mathRows.Count,
+                mathRows.Count(x => x.Passed),
                 avgReviewSeconds,
                 languages,
                 solverStats,
@@ -209,6 +245,5 @@ namespace taskforge.Controllers.Admin
                 avgReviewNote
             ));
         }
-
     }
 }

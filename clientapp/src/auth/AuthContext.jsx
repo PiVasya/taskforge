@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { setAccessToken } from '../api/http';
 import { AuthApi } from '../api/auth';
 import { getMyUiSettings } from '../api/uiSettings';
+import { getProfile } from '../api/profile';
 
 // Persist UI settings in localStorage and notify Layout.
 // Layout reads both a combined JSON (uiSettings) and individual keys.
@@ -46,7 +47,7 @@ const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
 export default function AuthProvider({ children }) {
-  const [user] = useState(null);
+  const [user, setUser] = useState(null);
   const [access, _setAccess] = useState(null);
   const [ready, setReady] = useState(false);
 
@@ -57,6 +58,16 @@ export default function AuthProvider({ children }) {
     _setAccess(token || null);
     setAccessToken(token || null);
   };
+
+
+  const pullProfileOnce = useCallback(async () => {
+    try {
+      const profile = await getProfile();
+      setUser(profile || null);
+    } catch {
+      setUser(null);
+    }
+  }, []);
 
   const pullUiSettingsOnce = useCallback(async () => {
     if (uiLoadedRef.current) return;
@@ -72,23 +83,26 @@ export default function AuthProvider({ children }) {
   const doLogin = useCallback(async (email, password) => {
     const res = await AuthApi.login({ email, password });
     applyAccess(res.accessToken || null);
+    await pullProfileOnce();
     // After we have an access token, pull UI settings chosen for this user.
     await pullUiSettingsOnce();
-  }, [pullUiSettingsOnce]);
+  }, [pullProfileOnce, pullUiSettingsOnce]);
 
   const doLogout = useCallback(async () => {
     try { await AuthApi.logout(); } catch { }
     applyAccess(null);
+    setUser(null);
     uiLoadedRef.current = false;
   }, []);
 
   const doRefresh = useCallback(async () => {
     const res = await AuthApi.refresh();
     applyAccess(res.accessToken || null);
+    await pullProfileOnce();
     // Refresh is executed on app load. If it succeeds, we are logged in.
     await pullUiSettingsOnce();
     return res;
-  }, [pullUiSettingsOnce]);
+  }, [pullProfileOnce, pullUiSettingsOnce]);
 
   // On app load: try to refresh using HttpOnly refresh cookie.
   useEffect(() => {

@@ -219,6 +219,16 @@ public sealed class MinecraftLinkController : ControllerBase
         foreach (var r in imageRows)
             dict[r.TaskAssignmentId] = dict.TryGetValue(r.TaskAssignmentId, out var cur) ? Math.Max(cur, r.Rating) : r.Rating;
 
+        var mathRows = await _db.UserTaskMathAttempts
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.Passed)
+            .Include(m => m.TaskAssignment)
+            .Select(m => new { m.TaskAssignmentId, Rating = m.TaskAssignment.Rating })
+            .ToListAsync(ct);
+
+        foreach (var r in mathRows)
+            dict[r.TaskAssignmentId] = dict.TryGetValue(r.TaskAssignmentId, out var cur) ? Math.Max(cur, r.Rating) : r.Rating;
+
         return dict.Values.Sum();
     }
 

@@ -17,6 +17,8 @@ import {
 import { getUserTaskTestAttempts, getAdminTaskTestAttemptReview } from '../../api/taskTestAttempts';
 import { deleteAdminTaskTestAttempt } from '../../api/taskTestAttempts';
 import { getAdminGroups, addGroupMember, removeGroupMember } from '../../api/groups';
+import { getUserMathAttempts, getAdminMathAttemptReview, deleteAdminMathAttempt } from '../../api/mathTaskAttempts';
+import MathAttemptReview from '../../components/math/MathAttemptReview';
 import CodeEditor from '../../components/CodeEditor';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
@@ -33,7 +35,7 @@ const FILTER_OPTIONS = [
 export default function AdminSolutionsPage() {
   const notify = useNotify();
   const [pageError, setPageError] = useState(null);
-  const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'images' | 'groups'
+  const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'images' | 'math' | 'groups'
 
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
@@ -56,6 +58,11 @@ export default function AdminSolutionsPage() {
   const [imageListLoading, setImageListLoading] = useState(false);
   const [imageDetailsMap, setImageDetailsMap] = useState({});
   const [expandedImageId, setExpandedImageId] = useState(null);
+
+  const [mathAttempts, setMathAttempts] = useState([]);
+  const [mathListLoading, setMathListLoading] = useState(false);
+  const [mathDetailsMap, setMathDetailsMap] = useState({});
+  const [expandedMathAttemptId, setExpandedMathAttemptId] = useState(null);
 
   const [groups, setGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
@@ -136,6 +143,26 @@ export default function AdminSolutionsPage() {
     }
   };
 
+  const loadMathAttempts = async () => {
+    if (!userId) {
+      setMathAttempts([]);
+      return;
+    }
+    setMathListLoading(true);
+    try {
+      const data = await getUserMathAttempts(userId, { days: filterDays });
+      setMathAttempts(Array.isArray(data) ? data : []);
+      setPageError(null);
+      setExpandedMathAttemptId(null);
+      setMathDetailsMap({});
+    } catch (e) {
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить math-попытки');
+      setPageError(parsed);
+    } finally {
+      setMathListLoading(false);
+    }
+  };
+
   const loadGroups = async () => {
     setGroupsLoading(true);
     try {
@@ -171,6 +198,7 @@ export default function AdminSolutionsPage() {
       loadSolutions();
       loadTestAttempts();
       loadImageSolutions();
+      loadMathAttempts();
       loadUserGroups();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,6 +284,33 @@ export default function AdminSolutionsPage() {
     }
 
     setExpandedImageId(id);
+  };
+
+  const displayedMathAttempts = useMemo(() => {
+    const list = [...(mathAttempts || [])];
+    list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    return list;
+  }, [mathAttempts]);
+
+  const handleToggleMathAttempt = async (attempt) => {
+    const id = attempt.attemptId;
+    if (expandedMathAttemptId === id) {
+      setExpandedMathAttemptId(null);
+      return;
+    }
+
+    if (!mathDetailsMap[id]) {
+      try {
+        const dto = await getAdminMathAttemptReview(id);
+        setMathDetailsMap((prev) => ({ ...prev, [id]: dto }));
+      } catch (e) {
+        const parsed = handleApiError(e, notify, 'Не удалось загрузить детали math-попытки');
+        setPageError(parsed);
+        return;
+      }
+    }
+
+    setExpandedMathAttemptId(id);
   };
 
   const handleToggleTestAttempt = async (attempt) => {
@@ -465,6 +520,9 @@ export default function AdminSolutionsPage() {
             <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>
               Картинки
             </Button>
+            <Button variant={tab === 'math' ? 'primary' : 'outline'} onClick={() => setTab('math')}>
+              Математика
+            </Button>
             <Button variant={tab === 'groups' ? 'primary' : 'outline'} onClick={() => setTab('groups')}>
               Группы
             </Button>
@@ -529,18 +587,21 @@ export default function AdminSolutionsPage() {
                 onClick={() => {
                   if (tab === 'tests') return loadTestAttempts();
                   if (tab === 'images') return loadImageSolutions();
+                  if (tab === 'math') return loadMathAttempts();
                   if (tab === 'groups') return loadUserGroups();
                   return loadSolutions();
                 }}
-                disabled={!userId || listLoading || testListLoading || searchLoading}
+                disabled={!userId || listLoading || testListLoading || imageListLoading || mathListLoading || searchLoading}
               >
                 {tab === 'tests'
                   ? 'Загрузить попытки тестов'
                   : tab === 'images'
                     ? 'Загрузить решения (картинки)'
-                    : tab === 'groups'
-                      ? 'Обновить группы'
-                      : 'Загрузить решения'}
+                    : tab === 'math'
+                      ? 'Загрузить math-попытки'
+                      : tab === 'groups'
+                        ? 'Обновить группы'
+                        : 'Загрузить решения'}
               </Button>
               {tab === 'code' && (
                 <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
@@ -564,6 +625,9 @@ export default function AdminSolutionsPage() {
           <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
         {tab === 'images' && imageListLoading && (
+          <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
+        )}
+        {tab === 'math' && mathListLoading && (
           <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
 
@@ -832,6 +896,77 @@ export default function AdminSolutionsPage() {
         {tab === 'tests' && !testListLoading && !displayedAttempts.length && selectedUser && (
           <Card className="p-4 text-neutral-600 dark:text-neutral-400">
             Для этого пользователя нет попыток тестов за выбранный период.
+          </Card>
+        )}
+
+
+        {tab === 'math' && !mathListLoading && displayedMathAttempts.length > 0 && (
+          <Card className="p-4 space-y-4">
+            <div className="text-sm text-neutral-600 dark:text-neutral-300">
+              Всего math-попыток: {displayedMathAttempts.length}
+            </div>
+
+            <div className="space-y-6">
+              {displayedMathAttempts.map((a) => {
+                const id = a.attemptId;
+                const dto = mathDetailsMap[id] || null;
+                const expanded = expandedMathAttemptId === id;
+
+                return (
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div>
+                        <div className="font-medium text-neutral-900 dark:text-neutral-50">
+                          {a.courseTitle} • {a.assignmentTitle}
+                        </div>
+                        <div className="text-xs text-neutral-600 dark:text-neutral-400">
+                          {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
+                        <Badge intent="secondary">{a.earnedScore}/{a.totalScore}</Badge>
+                        <Button variant="outline" className="inline-flex items-center gap-2" onClick={() => handleToggleMathAttempt(a)}>
+                          {expanded ? 'Скрыть' : 'Просмотреть'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          intent="danger"
+                          className="inline-flex items-center gap-2"
+                          onClick={async () => {
+                            const ok = window.confirm('Удалить эту math-попытку?');
+                            if (!ok) return;
+                            try {
+                              await deleteAdminMathAttempt(id);
+                              setMathAttempts((prev) => prev.filter((x) => x.attemptId !== id));
+                              setMathDetailsMap((prev) => {
+                                const copy = { ...prev };
+                                delete copy[id];
+                                return copy;
+                              });
+                              if (expandedMathAttemptId === id) setExpandedMathAttemptId(null);
+                            } catch (e) {
+                              const parsed = handleApiError(e, notify, 'Не удалось удалить math-попытку');
+                              setPageError(parsed);
+                            }
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {expanded ? <MathAttemptReview dto={dto} admin /> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+        {tab === 'math' && !mathListLoading && !displayedMathAttempts.length && selectedUser && (
+          <Card className="p-4 text-neutral-600 dark:text-neutral-400">
+            Для этого пользователя нет math-попыток за выбранный период.
           </Card>
         )}
 

@@ -58,7 +58,7 @@ namespace taskforge.Services
                     throw new UnauthorizedAccessException("Group is not accessible");
             }
 
-            // учитываем и код-решения, и тестовые попытки
+            // учитываем code/image/test/math
             var memberIdsQuery = _db.UserGroupMembers.AsNoTracking()
                 .Where(m => !groupId.HasValue || m.GroupId == groupId.Value)
                 .Select(m => m.UserId);
@@ -79,17 +79,27 @@ namespace taskforge.Services
                     ? t.TaskAssignment.CourseId == courseId.Value
                     : accessibleCourseIds.Contains(t.TaskAssignment.CourseId));
 
+            var mathQ = _db.UserTaskMathAttempts
+                .AsNoTracking()
+                .Where(t => t.Passed)
+                .Include(t => t.TaskAssignment)
+                .Where(t => courseId.HasValue
+                    ? t.TaskAssignment.CourseId == courseId.Value
+                    : accessibleCourseIds.Contains(t.TaskAssignment.CourseId));
+
             if (days.HasValue && days.Value > 0)
             {
                 var since = DateTime.UtcNow.AddDays(-days.Value);
                 codeQ = codeQ.Where(s => s.SubmittedAt >= since);
                 testQ = testQ.Where(t => t.SubmittedAt != null && t.SubmittedAt >= since);
+                mathQ = mathQ.Where(t => t.SubmittedAt != null && t.SubmittedAt >= since);
             }
 
             if (groupId.HasValue)
             {
                 codeQ = codeQ.Where(s => memberIdsQuery.Contains(s.UserId));
                 testQ = testQ.Where(t => memberIdsQuery.Contains(t.UserId));
+                mathQ = mathQ.Where(t => memberIdsQuery.Contains(t.UserId));
             }
 
             var codeRows = await codeQ
@@ -103,6 +113,16 @@ namespace taskforge.Services
                 .ToListAsync();
 
             var testRows = await testQ
+                .Select(t => new
+                {
+                    t.UserId,
+                    TaskAssignmentId = t.TaskAssignmentId,
+                    Rating = t.TaskAssignment.Rating,
+                    SubmittedAt = t.SubmittedAt
+                })
+                .ToListAsync();
+
+            var mathRows = await mathQ
                 .Select(t => new
                 {
                     t.UserId,
@@ -145,6 +165,7 @@ namespace taskforge.Services
             var allSolved = codeRows
                 .Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt })
                 .Concat(testRows.Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt }))
+                .Concat(mathRows.Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt }))
                 .Concat(imageRows.Select(x => new { x.UserId, x.TaskAssignmentId, x.Rating, x.SubmittedAt }))
                 .ToList();
             if (allSolved.Count == 0)
@@ -173,6 +194,7 @@ namespace taskforge.Services
                         Score = distinctAssignments.Sum(x => x.Rating),
                         TotalAttempts = codeRows.Count(x => x.UserId == g.Key)
                                      + testRows.Count(x => x.UserId == g.Key)
+                                     + mathRows.Count(x => x.UserId == g.Key)
                                      + imageRows.Count(x => x.UserId == g.Key),
                         LastSubmitAt = (DateTime?)distinctAssignments.Max(x => x.LastSubmitAt)
                     };

@@ -144,6 +144,12 @@ namespace taskforge.Controllers.Admin
                 .ToListAsync(ct);
             foreach (var x in imageRows) Add(x.UserId, x.TaskAssignmentId, x.Rating);
 
+            var mathRows = await _db.UserTaskMathAttempts.AsNoTracking()
+                .Where(x => userIds.Contains(x.UserId) && x.Passed)
+                .Select(x => new { x.UserId, x.TaskAssignmentId, x.TaskAssignment!.Rating })
+                .ToListAsync(ct);
+            foreach (var x in mathRows) Add(x.UserId, x.TaskAssignmentId, x.Rating);
+
             return dict.ToDictionary(x => x.Key, x => x.Value.Values.Sum());
         }
     }

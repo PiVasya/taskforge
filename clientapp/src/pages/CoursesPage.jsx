@@ -121,8 +121,15 @@ export default function CoursesPage() {
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
                       <Badge variant="info">Заданий: {c.assignmentCount ?? "—"}</Badge>
                       <Badge variant="info">Тестов: {c.testCount ?? "—"}</Badge>
+                      <Badge variant="info">Math: {c.mathCount ?? "—"}</Badge>
                       {typeof c.solvedCountForCurrentUser === "number" && (
                         <Badge variant="primary">Код решено: {c.solvedCountForCurrentUser}</Badge>
+                      )}
+                      {typeof c.solvedTestCountForCurrentUser === "number" && (
+                        <Badge variant="primary">Тестов решено: {c.solvedTestCountForCurrentUser}</Badge>
+                      )}
+                      {typeof c.solvedMathCountForCurrentUser === "number" && (
+                        <Badge variant="primary">Math решено: {c.solvedMathCountForCurrentUser}</Badge>
                       )}
                       {typeof c.solvedTestsCountForCurrentUser === "number" && (
                         <Badge variant="primary">Тесты решено: {c.solvedTestsCountForCurrentUser}</Badge>

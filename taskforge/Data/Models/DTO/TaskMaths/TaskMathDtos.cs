@@ -98,6 +98,67 @@ namespace taskforge.Data.Models.DTO.TaskMaths
         public List<TaskMathAnswerDto> Answers { get; set; } = new();
     }
 
+
+
+    public sealed class TaskMathAttemptListItemDto
+    {
+        public Guid AttemptId { get; set; }
+        public Guid TaskAssignmentId { get; set; }
+        public Guid CourseId { get; set; }
+        public string CourseTitle { get; set; } = "";
+        public string AssignmentTitle { get; set; } = "";
+        public int AttemptNumber { get; set; }
+        public DateTime SubmittedAt { get; set; }
+        public int TotalScore { get; set; }
+        public int EarnedScore { get; set; }
+        public int ScorePercent { get; set; }
+        public bool Passed { get; set; }
+        public bool TimeExpired { get; set; }
+        public bool AllowReview { get; set; }
+    }
+
+    public sealed class TaskMathAttemptReviewBlockDto
+    {
+        public Guid Id { get; set; }
+        public int Order { get; set; }
+        public string Kind { get; set; } = "";
+        public string Prompt { get; set; } = "";
+        public string? PromptContentJson { get; set; }
+        public int Score { get; set; }
+        public bool IsRequired { get; set; }
+        public bool IsCorrect { get; set; }
+        public TaskMathAnswerDto? UserAnswer { get; set; }
+        public List<TaskMathOptionDto>? Options { get; set; }
+        public List<string>? OrderItems { get; set; }
+        public List<TaskMathOptionDto>? MatchLeftItems { get; set; }
+        public List<TaskMathOptionDto>? MatchRightItems { get; set; }
+        public List<string>? AcceptedAnswers { get; set; }
+        public List<string>? CorrectOptionKeys { get; set; }
+        public double? NumericTolerance { get; set; }
+        public List<TaskMathMatchPairDto>? MatchPairs { get; set; }
+    }
+
+    public sealed class TaskMathAttemptReviewDto
+    {
+        public Guid AttemptId { get; set; }
+        public Guid TaskAssignmentId { get; set; }
+        public Guid CourseId { get; set; }
+        public string CourseTitle { get; set; } = "";
+        public string AssignmentTitle { get; set; } = "";
+        public Guid UserId { get; set; }
+        public string? UserEmail { get; set; }
+        public int AttemptNumber { get; set; }
+        public DateTime StartedAt { get; set; }
+        public DateTime SubmittedAt { get; set; }
+        public int PassPercent { get; set; }
+        public int TotalScore { get; set; }
+        public int EarnedScore { get; set; }
+        public int ScorePercent { get; set; }
+        public bool Passed { get; set; }
+        public bool TimeExpired { get; set; }
+        public bool AllowReview { get; set; }
+        public List<TaskMathAttemptReviewBlockDto> Blocks { get; set; } = new();
+    }
     public sealed class TaskMathSubmitResultDto
     {
         public Guid AttemptId { get; set; }

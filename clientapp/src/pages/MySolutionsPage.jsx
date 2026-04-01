@@ -6,6 +6,8 @@ import CodeEditor from '../components/CodeEditor';
 import { getMySolutions, getMySolutionDetails } from '../api/solutions';
 import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTestAttempts';
 import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
+import { getMyMathAttempts, getMyMathAttemptReview } from '../api/mathTaskAttempts';
+import MathAttemptReview from '../components/math/MathAttemptReview';
 import { useNotify } from '../components/notify/NotifyProvider';
 
 const FILTER_OPTIONS = [
@@ -43,6 +45,13 @@ export default function MySolutionsPage() {
   const [imageSkip, setImageSkip] = useState(0);
   const [imageDetails, setImageDetails] = useState({});
   const [expandedImageId, setExpandedImageId] = useState(null);
+
+  const [mathAttempts, setMathAttempts] = useState([]);
+  const [mathListLoading, setMathListLoading] = useState(false);
+  const [mathHasMore, setMathHasMore] = useState(true);
+  const [mathSkip, setMathSkip] = useState(0);
+  const [mathDetails, setMathDetails] = useState({});
+  const [expandedMathAttemptId, setExpandedMathAttemptId] = useState(null);
 
   const loadSolutions = async ({ reset = false } = {}) => {
     setListLoading(true);
@@ -92,6 +101,29 @@ export default function MySolutionsPage() {
     }
   };
 
+  const loadMathAttempts = async ({ reset = false } = {}) => {
+    setMathListLoading(true);
+    try {
+      const skip = reset ? 0 : mathSkip;
+      const list = await getMyMathAttempts({ days: filterDays, skip, take: PAGE_SIZE });
+      const arr = Array.isArray(list) ? list : [];
+
+      if (reset) {
+        setMathAttempts(arr);
+        setMathSkip(arr.length);
+      } else {
+        setMathAttempts((prev) => [...prev, ...arr]);
+        setMathSkip((prev) => prev + arr.length);
+      }
+
+      setMathHasMore(arr.length === PAGE_SIZE);
+    } catch (e) {
+      console.error('Failed to load my math attempts', e);
+    } finally {
+      setMathListLoading(false);
+    }
+  };
+
   const loadImageSolutions = async ({ reset = false } = {}) => {
     setImageListLoading(true);
     try {
@@ -126,6 +158,9 @@ export default function MySolutionsPage() {
     setImageSkip(0);
     setImageHasMore(true);
     loadImageSolutions({ reset: true });
+    setMathSkip(0);
+    setMathHasMore(true);
+    loadMathAttempts({ reset: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDays]);
 
@@ -151,6 +186,42 @@ export default function MySolutionsPage() {
     list.sort((a, b) => new Date(b.createdAtUtc) - new Date(a.createdAtUtc));
     return list;
   }, [imageSolutions]);
+
+  const displayedMathAttempts = useMemo(() => {
+    const list = [...mathAttempts];
+    list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    return list;
+  }, [mathAttempts]);
+
+  const handleToggleMathAttempt = async (attempt) => {
+    const id = attempt.attemptId;
+    if (expandedMathAttemptId === id) {
+      setExpandedMathAttemptId(null);
+      return;
+    }
+
+    if (attempt.allowReview === false) {
+      notify.warn('Просмотр результатов для этого math-задания отключён');
+      return;
+    }
+
+    if (!mathDetails[id]) {
+      try {
+        const dto = await getMyMathAttemptReview(id);
+        setMathDetails((prev) => ({ ...prev, [id]: dto }));
+      } catch (e) {
+        if (e?.response?.status === 403) {
+          notify.warn('Просмотр результатов для этого math-задания отключён');
+        } else {
+          console.error('Failed to load math attempt review', e);
+          notify.error('Не удалось загрузить просмотр math-попытки');
+        }
+        return;
+      }
+    }
+
+    setExpandedMathAttemptId(id);
+  };
 
   const handleToggleImageSolution = async (id) => {
     if (expandedImageId === id) {
@@ -340,6 +411,9 @@ export default function MySolutionsPage() {
             <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>
               Картинки
             </Button>
+            <Button variant={tab === 'math' ? 'primary' : 'outline'} onClick={() => setTab('math')}>
+              Математика
+            </Button>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">
@@ -358,6 +432,7 @@ export default function MySolutionsPage() {
           {tab === 'code' && listLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
           {tab === 'tests' && testListLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
           {tab === 'images' && imageListLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
+          {tab === 'math' && mathListLoading && <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div>}
 
           {tab === 'code' && !listLoading && !displayedSolutions.length && (
             <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений нет.</div>
@@ -367,6 +442,9 @@ export default function MySolutionsPage() {
           )}
           {tab === 'images' && !imageListLoading && !displayedImageSolutions.length && (
             <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений по картинкам нет.</div>
+          )}
+          {tab === 'math' && !mathListLoading && !displayedMathAttempts.length && (
+            <div className="text-neutral-500 dark:text-neutral-400">За выбранный период math-попыток нет.</div>
           )}
         </Card>
 
@@ -600,6 +678,58 @@ export default function MySolutionsPage() {
               disabled={imageListLoading}
             >
               {imageListLoading ? 'Загрузка…' : 'Загрузить ещё'}
+            </Button>
+          </div>
+        )}
+
+        {tab === 'math' && !mathListLoading && displayedMathAttempts.length > 0 && (
+          <Card className="p-4 space-y-4">
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">
+              Всего math-попыток: {displayedMathAttempts.length}
+            </div>
+
+            <div className="space-y-6">
+              {displayedMathAttempts.map((a) => {
+                const id = a.attemptId;
+                const dto = mathDetails[id] || null;
+                const expanded = expandedMathAttemptId === id;
+                return (
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div>
+                        <div className="font-medium">{a.courseTitle} • {a.assignmentTitle}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+                          {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
+                        <Badge intent="secondary">{a.earnedScore}/{a.totalScore}</Badge>
+                        {a.allowReview === false ? <Badge intent="secondary">Просмотр скрыт</Badge> : null}
+                        {a.allowReview !== false ? (
+                          <Button variant="primary" onClick={() => handleToggleMathAttempt(a)}>
+                            {expanded ? 'Скрыть' : 'Просмотреть'}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {expanded ? <MathAttemptReview dto={dto} /> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+        {tab === 'math' && mathHasMore && (
+          <div className="pt-2 flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => loadMathAttempts({ reset: false })}
+              disabled={mathListLoading}
+            >
+              {mathListLoading ? 'Загрузка…' : 'Загрузить ещё'}
             </Button>
           </div>
         )}

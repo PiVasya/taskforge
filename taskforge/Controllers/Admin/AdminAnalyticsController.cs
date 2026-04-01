@@ -8,7 +8,7 @@ namespace taskforge.Controllers.Admin;
 
 sealed record UserPeriodSummary(int TotalUsers, int NewUsers, int ActiveUsers, int DauToday, double Retention30);
 sealed record ApiPeriodSummary(int TotalRequests, int UniqueUsers, int Errors4xx, int Errors5xx, double AvgLatencyMs, double P95LatencyMs, double P99LatencyMs);
-sealed record AssignmentPeriodSummary(int TotalAttempts, int CodeAttempts, int ImageAttempts, int TestAttempts, double SuccessRate, double AvgTestScore);
+sealed record AssignmentPeriodSummary(int TotalAttempts, int CodeAttempts, int ImageAttempts, int TestAttempts, int MathAttempts, double SuccessRate, double AvgTestScore);
 sealed record SupportPeriodSummary(int TotalTickets, int OpenTickets, int NewTickets, int ClosedTickets, int TotalMessages, double AvgFirstResponseMinutes, double AvgCloseMinutes);
 
 [ApiController]
@@ -114,6 +114,11 @@ public sealed class AdminAnalyticsController : ControllerBase
             .Select(x => new { x.CreatedAt, x.Passed, x.ScorePercent })
             .ToListAsync(ct);
 
+        var mathAttempts = await _db.UserTaskMathAttempts.AsNoTracking()
+            .Where(x => x.UserId == userId && x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
+            .Select(x => new { x.CreatedAt, x.Passed, x.ScorePercent })
+            .ToListAsync(ct);
+
         var supportRows = await _db.SupportTickets.AsNoTracking()
             .Where(x => x.UserId == userId && x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
             .Select(x => new { x.CreatedAt, x.IsClosed, x.Type })
@@ -140,6 +145,7 @@ public sealed class AdminAnalyticsController : ControllerBase
                 codeSubmits = codeSolutions.Count,
                 imageSubmits = imageSolutions.Count,
                 testAttempts = testAttempts.Count,
+                mathAttempts = mathAttempts.Count,
                 ticketsCreated = supportRows.Count,
             },
             charts = new
@@ -149,6 +155,7 @@ public sealed class AdminAnalyticsController : ControllerBase
                 requestsByHour = FillHourSeries(requestRows.GroupBy(x => ToAnalyticsHour(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Count())),
                 latencyByDay = FillDateSeriesDouble(localFromDate, days, requestRows.GroupBy(x => ToAnalyticsDate(x.CreatedAtUtc)).ToDictionary(g => g.Key, g => g.Average(v => (double)v.DurationMs))),
                 solutionsByDay = FillDateSeries(localFromDate, days, codeSolutions.GroupBy(x => ToAnalyticsDate(x.SubmittedAt)).ToDictionary(g => g.Key, g => g.Count())),
+                mathByDay = FillDateSeries(localFromDate, days, mathAttempts.GroupBy(x => ToAnalyticsDate(x.CreatedAt)).ToDictionary(g => g.Key, g => g.Count())),
             },
             topPaths = requestRows
                 .GroupBy(x => x.Path)
@@ -385,14 +392,21 @@ public sealed class AdminAnalyticsController : ControllerBase
             .Select(x => new { x.TaskAssignmentId, x.CreatedAt, x.Passed, x.ScorePercent, x.StartedAt, x.SubmittedAt })
             .ToListAsync(ct);
 
+        var mathAttempts = await _db.UserTaskMathAttempts.AsNoTracking()
+            .Where(x => x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc)
+            .Select(x => new { x.TaskAssignmentId, x.CreatedAt, x.Passed, x.ScorePercent, x.StartedAt, x.SubmittedAt })
+            .ToListAsync(ct);
+
         var allByDay = codeSolutions.Select(x => new { Day = ToAnalyticsDate(x.SubmittedAt), Type = "code", Passed = x.PassedAllTests })
             .Concat(imageSolutions.Select(x => new { Day = ToAnalyticsDate(x.CreatedAtUtc), Type = "image", Passed = x.Passed == true }))
             .Concat(testAttempts.Select(x => new { Day = ToAnalyticsDate(x.CreatedAt), Type = "test", Passed = x.Passed }))
+            .Concat(mathAttempts.Select(x => new { Day = ToAnalyticsDate(x.CreatedAt), Type = "math", Passed = x.Passed }))
             .ToList();
 
         var topAssignments = codeSolutions.Select(x => new { x.TaskAssignmentId, Passed = x.PassedAllTests })
             .Concat(imageSolutions.Select(x => new { x.TaskAssignmentId, Passed = x.Passed == true }))
             .Concat(testAttempts.Select(x => new { x.TaskAssignmentId, Passed = x.Passed }))
+            .Concat(mathAttempts.Select(x => new { x.TaskAssignmentId, Passed = x.Passed }))
             .GroupBy(x => x.TaskAssignmentId)
             .Select(g =>
             {
@@ -430,8 +444,9 @@ public sealed class AdminAnalyticsController : ControllerBase
                 codeAttempts = codeSolutions.Count,
                 imageAttempts = imageSolutions.Count,
                 testAttempts = testAttempts.Count,
+                mathAttempts = mathAttempts.Count,
                 successRate = allByDay.Count == 0 ? 0 : Math.Round(allByDay.Count(x => x.Passed) * 100.0 / allByDay.Count, 1),
-                avgTestScore = testAttempts.Count == 0 ? 0 : Math.Round(testAttempts.Average(x => (double)x.ScorePercent), 1),
+                avgTestScore = (testAttempts.Count + mathAttempts.Count) == 0 ? 0 : Math.Round(testAttempts.Select(x => (double)x.ScorePercent).Concat(mathAttempts.Select(x => (double)x.ScorePercent)).Average(), 1),
             },
             attemptsByDay = FillDateSeries(localFromDate, days, allByDay.GroupBy(x => x.Day).ToDictionary(g => g.Key, g => g.Count())),
             successByDay = FillDateSeries(localFromDate, days, allByDay.Where(x => x.Passed).GroupBy(x => x.Day).ToDictionary(g => g.Key, g => g.Count())),
@@ -440,6 +455,7 @@ public sealed class AdminAnalyticsController : ControllerBase
                 new { label = "code", value = codeSolutions.Count },
                 new { label = "image", value = imageSolutions.Count },
                 new { label = "test", value = testAttempts.Count },
+                new { label = "math", value = mathAttempts.Count },
             },
             languages = codeSolutions.Where(x => !string.IsNullOrWhiteSpace(x.Language)).Select(x => new { Language = x.Language! })
                 .Concat(imageSolutions.Where(x => !string.IsNullOrWhiteSpace(x.Language)).Select(x => new { Language = x.Language! }))
@@ -573,9 +589,11 @@ public sealed class AdminAnalyticsController : ControllerBase
         var code = await _db.UserTaskSolutions.AsNoTracking().Where(x => x.SubmittedAt >= from && x.SubmittedAt <= to).Select(x => x.PassedAllTests).ToListAsync(ct);
         var image = await _db.UserImageTaskSolutions.AsNoTracking().Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= to).Select(x => x.Passed == true).ToListAsync(ct);
         var test = await _db.UserTaskTestAttempts.AsNoTracking().Where(x => x.CreatedAt >= from && x.CreatedAt <= to).Select(x => new { x.Passed, x.ScorePercent }).ToListAsync(ct);
-        var totalAttempts = code.Count + image.Count + test.Count;
-        var passed = code.Count(x => x) + image.Count(x => x) + test.Count(x => x.Passed);
-        return new AssignmentPeriodSummary(totalAttempts, code.Count, image.Count, test.Count, totalAttempts == 0 ? 0 : Math.Round(passed * 100.0 / totalAttempts, 1), test.Count == 0 ? 0 : Math.Round(test.Average(x => (double)x.ScorePercent), 1));
+        var math = await _db.UserTaskMathAttempts.AsNoTracking().Where(x => x.CreatedAt >= from && x.CreatedAt <= to).Select(x => new { x.Passed, x.ScorePercent }).ToListAsync(ct);
+        var totalAttempts = code.Count + image.Count + test.Count + math.Count;
+        var passed = code.Count(x => x) + image.Count(x => x) + test.Count(x => x.Passed) + math.Count(x => x.Passed);
+        var avgScoreSource = test.Select(x => (double)x.ScorePercent).Concat(math.Select(x => (double)x.ScorePercent)).ToList();
+        return new AssignmentPeriodSummary(totalAttempts, code.Count, image.Count, test.Count, math.Count, totalAttempts == 0 ? 0 : Math.Round(passed * 100.0 / totalAttempts, 1), avgScoreSource.Count == 0 ? 0 : Math.Round(avgScoreSource.Average(), 1));
     }
 
     private async Task<SupportPeriodSummary> BuildSupportSummaryAsync(DateTime from, DateTime to, CancellationToken ct)
@@ -673,9 +691,11 @@ public sealed class AdminAnalyticsController : ControllerBase
         var code = await _db.UserTaskSolutions.AsNoTracking().Where(x => x.SubmittedAt >= from && x.SubmittedAt <= to).Select(x => new { x.TaskAssignmentId, Passed = x.PassedAllTests }).ToListAsync(ct);
         var image = await _db.UserImageTaskSolutions.AsNoTracking().Where(x => x.CreatedAtUtc >= from && x.CreatedAtUtc <= to).Select(x => new { x.TaskAssignmentId, Passed = x.Passed == true }).ToListAsync(ct);
         var test = await _db.UserTaskTestAttempts.AsNoTracking().Where(x => x.CreatedAt >= from && x.CreatedAt <= to).Select(x => new { x.TaskAssignmentId, x.Passed }).ToListAsync(ct);
+        var math = await _db.UserTaskMathAttempts.AsNoTracking().Where(x => x.CreatedAt >= from && x.CreatedAt <= to).Select(x => new { x.TaskAssignmentId, x.Passed }).ToListAsync(ct);
         var failingAssignments = code.Select(x => new { x.TaskAssignmentId, x.Passed })
             .Concat(image.Select(x => new { x.TaskAssignmentId, x.Passed }))
             .Concat(test.Select(x => new { x.TaskAssignmentId, x.Passed }))
+            .Concat(math.Select(x => new { x.TaskAssignmentId, x.Passed }))
             .GroupBy(x => x.TaskAssignmentId)
             .Where(g => g.Count() >= 5)
             .Select(g =>
