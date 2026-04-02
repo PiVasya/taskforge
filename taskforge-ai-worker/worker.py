@@ -29,17 +29,27 @@ def log(*parts: Any) -> None:
 
 def post(path: str, payload: Dict[str, Any], expected: Optional[List[int]] = None):
     expected = expected or [200]
+    body_preview = json.dumps(payload, ensure_ascii=False)[:1200]
+    log("HTTP POST >>>", path, "expected=", expected, "payload=", body_preview)
+    started = time.time()
     resp = session.post(f"{API_BASE}{path}", json=payload, timeout=30)
+    elapsed_ms = int((time.time() - started) * 1000)
+    text_preview = (resp.text or "")[:1200]
+    log("HTTP POST <<<", path, "status=", resp.status_code, "elapsedMs=", elapsed_ms, "response=", text_preview)
     if resp.status_code not in expected:
         raise RuntimeError(f"POST {path} -> {resp.status_code}: {resp.text[:500]}")
     return resp
 
 
 def pull_job():
+    log("polling for job", {"workerId": WORKER_ID, "capabilities": CAPABILITIES})
     resp = post("/api/internal/ai/jobs/pull", {"workerId": WORKER_ID, "capabilities": CAPABILITIES}, expected=[200, 204])
     if resp.status_code == 204:
+        log("poll result: no job")
         return None
-    return resp.json()
+    job = resp.json()
+    log("poll result: picked job", {"id": job.get("id"), "type": job.get("type"), "priority": job.get("priority"), "courseId": job.get("courseId"), "targetEntityType": job.get("targetEntityType"), "targetEntityId": job.get("targetEntityId")})
+    return job
 
 
 def heartbeat(job_id: str):
@@ -65,9 +75,15 @@ def fail(job_id: str, error_text: str, retryable: bool = True, retry_delay_secon
 
 def parse_payload(job: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        value = json.loads(job.get("inputJson") or "{}")
-        return value if isinstance(value, dict) else {}
-    except Exception:
+        raw = job.get("inputJson") or "{}"
+        value = json.loads(raw)
+        if isinstance(value, dict):
+            log("parsed payload ok", {"jobId": job.get("id"), "keys": list(value.keys())[:30], "inputJsonLen": len(raw)})
+            return value
+        log("parsed payload is not dict", {"jobId": job.get("id"), "type": type(value).__name__})
+        return {}
+    except Exception as ex:
+        log("parsed payload failed", {"jobId": job.get("id"), "error": str(ex), "inputJsonPreview": (job.get("inputJson") or "")[:800]})
         return {}
 
 
@@ -134,16 +150,23 @@ def build_prompt(job: Dict[str, Any]) -> str:
 
 
 def call_ollama(prompt: str) -> Dict[str, Any]:
+    prompt_preview = prompt[:2000]
+    log("ollama request >>>", {"base": OLLAMA_BASE, "model": OLLAMA_MODEL, "timeout": TIMEOUT, "promptLen": len(prompt), "promptPreview": prompt_preview})
+    started = time.time()
     resp = requests.post(
         f"{OLLAMA_BASE}/api/generate",
         json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.2}},
         timeout=TIMEOUT,
     )
+    elapsed_ms = int((time.time() - started) * 1000)
+    response_preview = (resp.text or "")[:2000]
+    log("ollama response <<<", {"status": resp.status_code, "elapsedMs": elapsed_ms, "bodyPreview": response_preview})
     resp.raise_for_status()
     data = resp.json()
     raw = (data.get("response") or "").strip()
     if not raw:
         raise RuntimeError("Ollama returned empty response")
+    log("ollama parsed response", {"responseLen": len(raw), "responsePreview": raw[:1200]})
     return json.loads(raw)
 
 
@@ -307,6 +330,7 @@ def attach_self_check(result: Dict[str, Any], draft: Dict[str, Any], validation:
 
 
 def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
+    log("building fallback result", {"jobId": job.get("id"), "type": job.get("type")})
     payload = parse_payload(job)
     t = (job.get("type") or "").lower().strip()
     if t.startswith("assignment_generate"):
@@ -366,46 +390,65 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    log("process_job >>>", {"jobId": job.get("id"), "type": job.get("type"), "courseId": job.get("courseId"), "targetEntityType": job.get("targetEntityType"), "targetEntityId": job.get("targetEntityId")})
     payload = parse_payload(job)
     job_type = (job.get("type") or "").lower().strip()
     if job_type == "assignment_validate_draft":
         draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+        log("running local validation self-check", {"jobId": job.get("id"), "draftKeys": list(draft.keys())[:30]})
         validation = run_self_check(draft)
         validation["draftId"] = payload.get("draftId") or job.get("targetEntityId")
+        log("process_job <<< validation result", {"jobId": job.get("id"), "status": validation.get("status"), "score": validation.get("score"), "summary": validation.get("summary")})
         return validation
     prompt = build_prompt(job)
+    log("built prompt", {"jobId": job.get("id"), "promptLen": len(prompt), "promptPreview": prompt[:1500]})
     try:
         result = call_ollama(prompt)
     except Exception as ex:
         log("ollama failed, using fallback:", ex)
-        return fallback_result(job)
+        fallback = fallback_result(job)
+        log("process_job <<< fallback result", {"jobId": job.get("id"), "keys": list(fallback.keys())[:30]})
+        return fallback
     if job_type.startswith("assignment_generate") and payload.get("enableSelfCheck", True):
         draft = result.get("draft")
         if isinstance(draft, dict):
-            result = attach_self_check(result, draft, run_self_check(draft))
+            validation = run_self_check(draft)
+            log("self-check generated draft", {"jobId": job.get("id"), "status": validation.get("status"), "score": validation.get("score"), "summary": validation.get("summary")})
+            result = attach_self_check(result, draft, validation)
+    log("process_job <<< result ready", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
     return result
 
 
 def main():
     if not API_KEY:
         raise RuntimeError("TASKFORGE_INTERNAL_KEY is not configured")
-    log("started", {"api": API_BASE, "workerId": WORKER_ID, "capabilities": CAPABILITIES, "ollama": OLLAMA_BASE, "model": OLLAMA_MODEL})
+    log("started", {"api": API_BASE, "workerId": WORKER_ID, "capabilities": CAPABILITIES, "ollama": OLLAMA_BASE, "model": OLLAMA_MODEL, "pollInterval": POLL_INTERVAL, "timeout": TIMEOUT})
     while True:
+        loop_started = time.time()
         try:
+            log("loop tick >>>")
             job = pull_job()
             if not job:
+                log("loop tick no job; sleeping", POLL_INTERVAL)
                 time.sleep(POLL_INTERVAL)
                 continue
             job_id = job["id"]
+            log("sending heartbeat before processing", {"jobId": job_id, "workerId": WORKER_ID})
             heartbeat(job_id)
             log("picked job", job_id, job.get("type"))
             result = process_job(job)
+            result_preview = json.dumps(result, ensure_ascii=False)[:2000]
+            log("sending complete", {"jobId": job_id, "resultPreview": result_preview})
             complete(job_id, result)
-            log("completed job", job_id)
+            log("completed job", job_id, "loopElapsedMs=", int((time.time() - loop_started) * 1000))
         except KeyboardInterrupt:
             raise
         except Exception as ex:
-            log("loop error:", ex)
+            log("loop error:", repr(ex))
+            log("loop error type:", type(ex).__name__)
+            print("[taskforge-ai-worker] traceback follows", flush=True)
+            import traceback
+            traceback.print_exc()
             time.sleep(POLL_INTERVAL)
 
 

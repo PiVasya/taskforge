@@ -102,6 +102,7 @@ public sealed partial class AiJobService : IAiJobService
 
         _db.AiJobs.Add(job);
         await _db.SaveChangesAsync(ct);
+        Console.WriteLine($"[AiJobService] enqueued jobId={job.Id} type='{job.Type}' priority={job.Priority} courseId='{job.CourseId}' targetType='{job.TargetEntityType}' targetId='{job.TargetEntityId}' files={job.Files.Count} createdBy='{job.CreatedByDisplayName}' inputJson.len={job.InputJson?.Length ?? 0}");
         _log.LogInformation("AI job enqueued: {JobId} {Type}", job.Id, job.Type);
         return MapDetails(job);
     }
@@ -291,6 +292,8 @@ public sealed partial class AiJobService : IAiJobService
             .Select(x => x.Trim().ToLowerInvariant())
             .ToHashSet();
 
+        Console.WriteLine($"[AiJobService] pull-next >>> workerId='{workerId}' caps='[{string.Join(",", caps)}]' utcNow={now:O}");
+
         var candidates = await _db.AiJobs
             .Include(x => x.Files)
             .Where(x => (x.Status == "pending" || x.Status == "retry") && (x.NextAttemptAtUtc == null || x.NextAttemptAtUtc <= now))
@@ -299,14 +302,28 @@ public sealed partial class AiJobService : IAiJobService
             .Take(20)
             .ToListAsync(ct);
 
+        Console.WriteLine($"[AiJobService] pull-next found {candidates.Count} candidate(s)");
+        foreach (var candidate in candidates)
+        {
+            var candidateType = candidate.Type?.Trim().ToLowerInvariant() ?? string.Empty;
+            var capabilityMatch = caps.Count == 0 || caps.Contains(candidateType) || caps.Contains("*");
+            Console.WriteLine($"[AiJobService] candidate jobId={candidate.Id} type='{candidate.Type}' status='{candidate.Status}' priority={candidate.Priority} retryCount={candidate.RetryCount} nextAttemptAt='{candidate.NextAttemptAtUtc:O}' files={candidate.Files.Count} capabilityMatch={capabilityMatch} workerId='{candidate.WorkerId}' startedAt='{candidate.StartedAtUtc:O}' heartbeatAt='{candidate.HeartbeatAtUtc:O}'");
+        }
+
         var job = candidates.FirstOrDefault(x => caps.Count == 0 || caps.Contains(x.Type.Trim().ToLowerInvariant()) || caps.Contains("*"));
-        if (job == null) return null;
+        if (job == null)
+        {
+            Console.WriteLine($"[AiJobService] pull-next <<< no matching job for workerId='{workerId}'");
+            return null;
+        }
 
         job.Status = "running";
         job.WorkerId = workerId;
         job.StartedAtUtc ??= now;
         job.HeartbeatAtUtc = now;
         await _db.SaveChangesAsync(ct);
+
+        Console.WriteLine($"[AiJobService] pull-next <<< picked jobId={job.Id} type='{job.Type}' status='{job.Status}' workerId='{job.WorkerId}' startedAt='{job.StartedAtUtc:O}' heartbeatAt='{job.HeartbeatAtUtc:O}'");
 
         return new AiWorkerPullResponseDto
         {
@@ -324,19 +341,38 @@ public sealed partial class AiJobService : IAiJobService
 
     public async Task<bool> HeartbeatAsync(Guid jobId, string workerId, CancellationToken ct = default)
     {
+        Console.WriteLine($"[AiJobService] heartbeat >>> jobId={jobId} workerId='{workerId}'");
         var job = await _db.AiJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
-        if (job == null) return false;
-        if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal)) return false;
+        if (job == null)
+        {
+            Console.WriteLine($"[AiJobService] heartbeat <<< jobId={jobId} not found");
+            return false;
+        }
+        if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[AiJobService] heartbeat <<< worker mismatch jobId={jobId} expectedWorkerId='{job.WorkerId}' actualWorkerId='{workerId}'");
+            return false;
+        }
         job.HeartbeatAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        Console.WriteLine($"[AiJobService] heartbeat <<< updated jobId={jobId} heartbeatAt='{job.HeartbeatAtUtc:O}'");
         return true;
     }
 
     public async Task<bool> CompleteAsync(Guid jobId, AiWorkerCompleteRequestDto request, CancellationToken ct = default)
     {
+        Console.WriteLine($"[AiJobService] complete >>> jobId={jobId} workerId='{request.WorkerId}' model='{request.ModelName}' resultJson.len={request.ResultJson?.Length ?? 0}");
         var job = await _db.AiJobs.Include(x => x.Files).FirstOrDefaultAsync(x => x.Id == jobId, ct);
-        if (job == null) return false;
-        if (!string.Equals(job.WorkerId, request.WorkerId, StringComparison.Ordinal)) return false;
+        if (job == null)
+        {
+            Console.WriteLine($"[AiJobService] complete <<< jobId={jobId} not found");
+            return false;
+        }
+        if (!string.Equals(job.WorkerId, request.WorkerId, StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[AiJobService] complete <<< worker mismatch jobId={jobId} expectedWorkerId='{job.WorkerId}' actualWorkerId='{request.WorkerId}'");
+            return false;
+        }
 
         job.Status = "done";
         job.CompletedAtUtc = DateTime.UtcNow;
@@ -345,16 +381,27 @@ public sealed partial class AiJobService : IAiJobService
         job.ResultJson = NormalizeJsonOrNull(request.ResultJson) ?? request.ResultJson;
         job.ErrorText = null;
 
+        Console.WriteLine($"[AiJobService] complete persisting artifacts for jobId={jobId} type='{job.Type}' resultJson.normalized.len={job.ResultJson?.Length ?? 0}");
         await PersistDerivedArtifactsAsync(job, ct);
         await _db.SaveChangesAsync(ct);
+        Console.WriteLine($"[AiJobService] complete <<< saved jobId={jobId} status='{job.Status}' completedAt='{job.CompletedAtUtc:O}' model='{job.ModelName}'");
         return true;
     }
 
     public async Task<bool> FailAsync(Guid jobId, AiWorkerFailRequestDto request, CancellationToken ct = default)
     {
+        Console.WriteLine($"[AiJobService] fail >>> jobId={jobId} workerId='{request.WorkerId}' retryable={request.Retryable} retryDelaySeconds={request.RetryDelaySeconds} errorText='{request.ErrorText}'");
         var job = await _db.AiJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
-        if (job == null) return false;
-        if (!string.Equals(job.WorkerId, request.WorkerId, StringComparison.Ordinal)) return false;
+        if (job == null)
+        {
+            Console.WriteLine($"[AiJobService] fail <<< jobId={jobId} not found");
+            return false;
+        }
+        if (!string.Equals(job.WorkerId, request.WorkerId, StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[AiJobService] fail <<< worker mismatch jobId={jobId} expectedWorkerId='{job.WorkerId}' actualWorkerId='{request.WorkerId}'");
+            return false;
+        }
 
         job.ErrorText = request.ErrorText;
         job.HeartbeatAtUtc = DateTime.UtcNow;
@@ -364,14 +411,17 @@ public sealed partial class AiJobService : IAiJobService
             job.RetryCount += 1;
             job.NextAttemptAtUtc = DateTime.UtcNow.AddSeconds(Math.Clamp(request.RetryDelaySeconds, 5, 3600));
             job.WorkerId = null;
+            Console.WriteLine($"[AiJobService] fail retry scheduled jobId={jobId} retryCount={job.RetryCount} nextAttemptAt='{job.NextAttemptAtUtc:O}'");
         }
         else
         {
             job.Status = "failed";
             job.CompletedAtUtc = DateTime.UtcNow;
+            Console.WriteLine($"[AiJobService] fail terminal jobId={jobId} completedAt='{job.CompletedAtUtc:O}'");
         }
 
         await _db.SaveChangesAsync(ct);
+        Console.WriteLine($"[AiJobService] fail <<< saved jobId={jobId} status='{job.Status}' workerId='{job.WorkerId}'");
         return true;
     }
 
@@ -599,6 +649,7 @@ public sealed partial class AiJobService : IAiJobService
                     .ToListAsync(ct)
                 : null;
             return new { totalAttempts = total, passedAttempts = passed, passRate = total > 0 ? Math.Round((double)passed / total, 4) : 0d, recentAttempts = recent };
+            Console.WriteLine($"[AiJobService] persist-artifacts <<< finished jobId={job.Id} type='{job.Type}'");
         }
     }
 
@@ -769,14 +820,20 @@ public sealed partial class AiJobService : IAiJobService
 
     private async Task PersistDerivedArtifactsAsync(AiJob job, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(job.ResultJson)) return;
+        Console.WriteLine($"[AiJobService] persist-artifacts >>> jobId={job.Id} type='{job.Type}' resultJson.len={job.ResultJson?.Length ?? 0}");
+        if (string.IsNullOrWhiteSpace(job.ResultJson))
+        {
+            Console.WriteLine($"[AiJobService] persist-artifacts <<< skipped empty result for jobId={job.Id}");
+            return;
+        }
         JsonDocument? doc = null;
         try
         {
             doc = JsonDocument.Parse(job.ResultJson);
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"[AiJobService] persist-artifacts <<< invalid json for jobId={job.Id}: {ex.Message}");
             return;
         }
 
@@ -787,8 +844,13 @@ public sealed partial class AiJobService : IAiJobService
             {
                 if (TryBuildDraft(job, root, out var draft))
                 {
+                    Console.WriteLine($"[AiJobService] persist-artifacts draft built jobId={job.Id} draftId={draft.Id} assignmentType='{draft.AssignmentType}' title='{draft.Title}' status='{draft.Status}' courseId='{draft.CourseId}'");
                     var existing = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.JobId == job.Id, ct);
-                    if (existing == null) _db.AiGeneratedAssignmentDrafts.Add(draft);
+                    if (existing == null)
+                    {
+                        _db.AiGeneratedAssignmentDrafts.Add(draft);
+                        Console.WriteLine($"[AiJobService] persist-artifacts draft inserted jobId={job.Id} draftId={draft.Id}");
+                    }
                     else
                     {
                         existing.AssignmentType = draft.AssignmentType;
@@ -797,7 +859,12 @@ public sealed partial class AiJobService : IAiJobService
                         existing.Status = draft.Status;
                         existing.CourseId = draft.CourseId;
                         existing.UpdatedAtUtc = DateTime.UtcNow;
+                        Console.WriteLine($"[AiJobService] persist-artifacts draft updated jobId={job.Id} existingDraftId={existing.Id} status='{existing.Status}'");
                     }
+                }
+                else
+                {
+                    Console.WriteLine($"[AiJobService] persist-artifacts draft build failed jobId={job.Id}");
                 }
             }
 
@@ -806,6 +873,7 @@ public sealed partial class AiJobService : IAiJobService
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
                 if (!string.IsNullOrWhiteSpace(summary))
                 {
+                    Console.WriteLine($"[AiJobService] persist-artifacts submission-review add jobId={job.Id} assignmentId='{ExtractGuid(root, "assignmentId") ?? job.TargetEntityId}' summary.len={summary?.Length ?? 0}");
                     _db.AiSubmissionReviews.Add(new AiSubmissionReview
                     {
                         Id = Guid.NewGuid(),
@@ -829,6 +897,7 @@ public sealed partial class AiJobService : IAiJobService
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
                 if (userId != null && !string.IsNullOrWhiteSpace(summary))
                 {
+                    Console.WriteLine($"[AiJobService] persist-artifacts user-risk add jobId={job.Id} userId='{userId}' summary.len={summary?.Length ?? 0}");
                     _db.AiUserRiskReports.Add(new AiUserRiskReport
                     {
                         Id = Guid.NewGuid(),
@@ -854,6 +923,11 @@ public sealed partial class AiJobService : IAiJobService
                         existingDraft.DraftJson = MergeDraftValidation(existingDraft.DraftJson, root);
                         existingDraft.Status = MapDraftStatusFromValidationRoot(root, existingDraft.Status);
                         existingDraft.UpdatedAtUtc = DateTime.UtcNow;
+                        Console.WriteLine($"[AiJobService] persist-artifacts validation merged jobId={job.Id} draftId={existingDraft.Id} status='{existingDraft.Status}'");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[AiJobService] persist-artifacts validation draft not found jobId={job.Id} targetDraftId='{draftId}'");
                     }
                 }
             }
@@ -864,6 +938,7 @@ public sealed partial class AiJobService : IAiJobService
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
                 if (assignmentId != null && !string.IsNullOrWhiteSpace(summary))
                 {
+                    Console.WriteLine($"[AiJobService] persist-artifacts assignment-insight add jobId={job.Id} assignmentId='{assignmentId}' summary.len={summary?.Length ?? 0}");
                     _db.AiAssignmentInsights.Add(new AiAssignmentInsight
                     {
                         Id = Guid.NewGuid(),
