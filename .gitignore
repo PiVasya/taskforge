@@ -444,3 +444,4 @@ nbdist/
 # НО: если ты хочешь коммитить готовый jar (например релиз плагина),
 # тогда удали строки выше и добавь исключение для конкретного файла:
 # !minecraft-plugin-folia/TaskForgeFoliaPlugin/build/libs/*.jar
+.directory
