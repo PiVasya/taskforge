@@ -649,7 +649,6 @@ public sealed partial class AiJobService : IAiJobService
                     .ToListAsync(ct)
                 : null;
             return new { totalAttempts = total, passedAttempts = passed, passRate = total > 0 ? Math.Round((double)passed / total, 4) : 0d, recentAttempts = recent };
-            Console.WriteLine($"[AiJobService] persist-artifacts <<< finished jobId={job.Id} type='{job.Type}'");
         }
     }
 
@@ -951,6 +950,8 @@ public sealed partial class AiJobService : IAiJobService
                     });
                 }
             }
+
+            Console.WriteLine($"[AiJobService] persist-artifacts <<< finished jobId={job.Id} type='{job.Type}'");
         }
     }
 
