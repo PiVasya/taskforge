@@ -306,11 +306,11 @@ public sealed partial class AiJobService : IAiJobService
         foreach (var candidate in candidates)
         {
             var candidateType = candidate.Type?.Trim().ToLowerInvariant() ?? string.Empty;
-            var capabilityMatch = caps.Count == 0 || caps.Contains(candidateType) || caps.Contains("*");
+            var capabilityMatch = CapabilityMatches(caps, candidateType);
             Console.WriteLine($"[AiJobService] candidate jobId={candidate.Id} type='{candidate.Type}' status='{candidate.Status}' priority={candidate.Priority} retryCount={candidate.RetryCount} nextAttemptAt='{candidate.NextAttemptAtUtc:O}' files={candidate.Files.Count} capabilityMatch={capabilityMatch} workerId='{candidate.WorkerId}' startedAt='{candidate.StartedAtUtc:O}' heartbeatAt='{candidate.HeartbeatAtUtc:O}'");
         }
 
-        var job = candidates.FirstOrDefault(x => caps.Count == 0 || caps.Contains(x.Type.Trim().ToLowerInvariant()) || caps.Contains("*"));
+        var job = candidates.FirstOrDefault(x => CapabilityMatches(caps, x.Type?.Trim().ToLowerInvariant() ?? string.Empty));
         if (job == null)
         {
             Console.WriteLine($"[AiJobService] pull-next <<< no matching job for workerId='{workerId}'");
@@ -337,6 +337,51 @@ public sealed partial class AiJobService : IAiJobService
             InputJson = job.InputJson,
             Files = job.Files.Select(MapFile).ToList(),
         };
+    }
+
+    private static bool CapabilityMatches(IReadOnlySet<string> caps, string jobType)
+    {
+        if (caps == null || caps.Count == 0 || caps.Contains("*"))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(jobType))
+        {
+            return false;
+        }
+
+        if (caps.Contains(jobType))
+        {
+            return true;
+        }
+
+        if (caps.Contains("assignment") && jobType.StartsWith("assignment_"))
+        {
+            return true;
+        }
+
+        if (caps.Contains("generate") && (jobType.StartsWith("assignment_generate_") || jobType == "assignment_improve_existing"))
+        {
+            return true;
+        }
+
+        if (caps.Contains("analyze") && (jobType == "assignment_analyze_existing" || jobType == "assignment_validate_draft" || jobType == "support_message_review" || jobType == "minecraft_chat_review"))
+        {
+            return true;
+        }
+
+        if (caps.Contains("review") && (jobType.EndsWith("_review") || jobType == "assignment_validate_draft"))
+        {
+            return true;
+        }
+
+        if (caps.Contains("risk") && jobType == "user_risk_review")
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public async Task<bool> HeartbeatAsync(Guid jobId, string workerId, CancellationToken ct = default)
