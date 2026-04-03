@@ -18,11 +18,14 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:14b")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "8"))
 CAPABILITIES = [x.strip() for x in os.getenv("TASKFORGE_AI_CAPABILITIES", "*").split(",") if x.strip()]
 TIMEOUT = int(os.getenv("TASKFORGE_AI_TIMEOUT_SECONDS", "240"))
-MAX_REFERENCE_ASSIGNMENTS = int(os.getenv("TASKFORGE_AI_MAX_REFERENCE_ASSIGNMENTS", "100"))
+MAX_REFERENCE_ASSIGNMENTS = int(os.getenv("TASKFORGE_AI_MAX_REFERENCE_ASSIGNMENTS", "20"))
 MIN_PUBLIC_TESTS = int(os.getenv("TASKFORGE_AI_MIN_PUBLIC_TESTS", "2"))
 MIN_HIDDEN_TESTS = int(os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "5"))
 MIN_DESCRIPTION_LEN = int(os.getenv("TASKFORGE_AI_MIN_DESCRIPTION_LEN", "200"))
 MAX_REPAIR_ATTEMPTS = int(os.getenv("TASKFORGE_AI_REPAIR_ATTEMPTS", "2"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", os.getenv("OLLAMA_CONTEXT_LENGTH", "16384")))
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.15"))
+MAX_REFERENCE_DESCRIPTION_LEN = int(os.getenv("TASKFORGE_AI_REFERENCE_DESCRIPTION_LEN", "260"))
 
 session = requests.Session()
 session.headers.update({"X-Internal-Key": API_KEY})
@@ -146,6 +149,13 @@ def truncate_text(value: Any, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
+def summarize_description(value: Any, limit: int = MAX_REFERENCE_DESCRIPTION_LEN) -> str:
+    raw = str(value or "")
+    raw = raw.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    raw = " ".join(raw.split())
+    return raw if len(raw) <= limit else raw[:limit] + "..."
+
+
 def compact_reference_assignments(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     refs = payload.get("referenceAssignments")
     if not isinstance(refs, list):
@@ -160,7 +170,7 @@ def compact_reference_assignments(payload: Dict[str, Any]) -> List[Dict[str, Any
             "courseId": item.get("courseId"),
             "type": item.get("type"),
             "title": truncate_text(item.get("title"), 160),
-            "description": truncate_text(item.get("description") or item.get("Description"), 500),
+            "descriptionSummary": summarize_description(item.get("description") or item.get("Description"), MAX_REFERENCE_DESCRIPTION_LEN),
             "difficulty": item.get("difficulty"),
             "rating": item.get("rating"),
             "tags": item.get("tags"),
@@ -168,7 +178,7 @@ def compact_reference_assignments(payload: Dict[str, Any]) -> List[Dict[str, Any
             "hiddenTestsCount": item.get("hiddenTestsCount"),
             "blocksCount": item.get("blocksCount"),
             "questionsCount": item.get("questionsCount"),
-            "publicCases": item.get("publicCases")[:3] if isinstance(item.get("publicCases"), list) else [],
+            "publicCases": item.get("publicCases")[:2] if isinstance(item.get("publicCases"), list) else [],
             "forbiddenCalls": item.get("forbiddenCalls")[:10] if isinstance(item.get("forbiddenCalls"), list) else [],
             "requiredCalls": item.get("requiredCalls")[:10] if isinstance(item.get("requiredCalls"), list) else [],
         })
@@ -238,17 +248,19 @@ def build_job_specific_instructions(job_type: str, payload: Dict[str, Any]) -> s
 
 def build_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     payload_for_prompt = dict(payload)
+    payload_for_prompt["count"] = min(int(payload.get("count") or 1), 1)
     payload_for_prompt["referenceAssignments"] = compact_reference_assignments(payload)
+    prompt_payload = json.dumps(payload_for_prompt, ensure_ascii=False, indent=2)
     return (
         "Ты — TaskForge AI. Возвращай только валидный JSON без markdown.\n\n"
         f"Тип job: {job.get('type')}\n"
         f"Target entity type: {job.get('targetEntityType') or '-'}\n"
         f"Target entity id: {job.get('targetEntityId') or '-'}\n"
         f"Course id: {job.get('courseId') or '-'}\n\n"
+        "Изучи referenceAssignments как примеры стиля и структуры, но не копируй формулировки и тесты дословно.\n"
         f"{build_job_specific_instructions(job.get('type') or '', payload)}\n\n"
-        "referenceAssignments уже отсортированы backend'ом по релевантности. Изучи их перед генерацией.\n"
-        "Если referenceAssignments пусты, всё равно сгенерируй полноценный draft по qualityGates.\n\n"
-        f"Payload:\n{json.dumps(payload_for_prompt, ensure_ascii=False, indent=2)}\n\n"
+        "referenceAssignments уже сжаты и отсортированы backend'ом по релевантности. Если их нет, всё равно сгенерируй полноценный draft по qualityGates.\n\n"
+        f"Payload:\n{prompt_payload}\n\n"
         f"Files:\n{files_text(job)}"
     )
 
@@ -275,7 +287,7 @@ def call_ollama(prompt: str) -> Dict[str, Any]:
     started = time.time()
     resp = requests.post(
         f"{OLLAMA_BASE}/api/generate",
-        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.15}},
+        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": OLLAMA_TEMPERATURE, "num_ctx": OLLAMA_NUM_CTX}},
         timeout=TIMEOUT,
     )
     elapsed_ms = int((time.time() - started) * 1000)
