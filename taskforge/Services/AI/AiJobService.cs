@@ -1432,4 +1432,85 @@ public sealed partial class AiJobService : IAiJobService
             },
         };
     }
+
+    public async Task<bool> DeleteDraftAsync(Guid id, CancellationToken ct = default)
+    {
+        var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (draft == null) return false;
+
+        // Unlink batch-item if connected
+        if (draft.BatchItemId.HasValue)
+        {
+            var batchItem = await _db.AiBatchItems.FirstOrDefaultAsync(x => x.Id == draft.BatchItemId.Value, ct);
+            if (batchItem != null) batchItem.DraftId = null;
+        }
+
+        _db.AiGeneratedAssignmentDrafts.Remove(draft);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<bool> DeleteJobAsync(Guid id, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs
+            .Include(j => j.Files)
+            .FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job == null) return false;
+
+        if (job.Files.Count > 0) _db.AiJobFiles.RemoveRange(job.Files);
+        _db.AiJobs.Remove(job);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<int> ClearJobsAsync(string? statusFilter, CancellationToken ct = default)
+    {
+        IQueryable<AiJob> query = _db.AiJobs;
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+        {
+            var s = statusFilter.Trim().ToLowerInvariant();
+            query = query.Where(j => j.Status.ToLower() == s);
+        }
+        else
+        {
+            // By default, clear only completed & failed — never running/pending
+            query = query.Where(j => j.Status == "done" || j.Status == "failed");
+        }
+
+        var jobIds = await query.Select(j => j.Id).ToListAsync(ct);
+        if (jobIds.Count == 0) return 0;
+
+        // Remove linked files
+        await _db.AiJobFiles.Where(f => jobIds.Contains(f.JobId)).ExecuteDeleteAsync(ct);
+        var deleted = await _db.AiJobs.Where(j => jobIds.Contains(j.Id)).ExecuteDeleteAsync(ct);
+        return deleted;
+    }
+
+    public async Task<bool> RetryJobAsync(Guid id, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job == null) return false;
+        job.Status = "pending";
+        job.ErrorText = null;
+        job.WorkerId = null;
+        job.StartedAtUtc = null;
+        job.CompletedAtUtc = null;
+        job.HeartbeatAtUtc = null;
+        job.NextAttemptAtUtc = null;
+        job.ResultJson = null;
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<bool> CancelJobAsync(Guid id, CancellationToken ct = default)
+    {
+        var job = await _db.AiJobs.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job == null) return false;
+        if (job.Status is "done" or "failed") return false;
+        job.Status = "cancelled";
+        job.CompletedAtUtc = DateTime.UtcNow;
+        job.ErrorText = "Cancelled by admin";
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
 }

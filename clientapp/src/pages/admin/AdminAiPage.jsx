@@ -11,6 +11,12 @@ import {
   publishAiDraft,
   reviewAiDraft,
   validateAiDraft,
+  deleteAiDraft,
+  deleteAiBatch,
+  deleteAiJob,
+  clearAiJobs,
+  retryAiJob,
+  cancelAiJob,
 } from '../../api/aiAdmin';
 import { createCourse, getCourses } from '../../api/courses';
 import { handleApiError } from '../../utils/handleApiError';
@@ -21,12 +27,15 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Eye,
   FileStack,
   FolderPlus,
   LayoutDashboard,
   ListTodo,
   RefreshCcw,
   Sparkles,
+  StopCircle,
+  Trash2,
   Wand2,
   X,
 } from 'lucide-react';
@@ -265,6 +274,7 @@ export default function AdminAiPage() {
   var [courses, setCourses] = useState([]);
   var [selectedJob, setSelectedJob] = useState(null);
   var [selectedBatch, setSelectedBatch] = useState(null);
+  var [selectedBatchItem, setSelectedBatchItem] = useState(null);
   var [loading, setLoading] = useState(true);
   var [busy, setBusy] = useState(false);
   var [pageError, setPageError] = useState('');
@@ -509,6 +519,132 @@ export default function AdminAiPage() {
       next[id] = !prev[id];
       return next;
     });
+  };
+
+  /* ── Delete actions ─────────────────────────────── */
+  var deleteDraftNow = async function (id) {
+    if (!confirm('Удалить этот черновик навсегда?')) return;
+    try {
+      setBusy(true);
+      await deleteAiDraft(id);
+      notify.success('Черновик удалён');
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось удалить черновик');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  var deleteBatchNow = async function (id) {
+    if (!confirm('Удалить пакет и все его элементы/черновики навсегда?')) return;
+    try {
+      setBusy(true);
+      await deleteAiBatch(id);
+      notify.success('Пакет удалён');
+      setSelectedBatch(null);
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось удалить пакет');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  var deleteJobNow = async function (id) {
+    if (!confirm('Удалить это задание из очереди?')) return;
+    try {
+      setBusy(true);
+      await deleteAiJob(id);
+      notify.success('Задание удалено');
+      if (selectedJob && selectedJob.id === id) setSelectedJob(null);
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось удалить задание');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  var clearJobsNow = async function (statusFilter) {
+    var label = statusFilter || 'завершённые и упавшие';
+    if (!confirm('Очистить все ' + label + ' задания? Это необратимо.')) return;
+    try {
+      setBusy(true);
+      var result = await clearAiJobs(statusFilter || undefined);
+      notify.success('Удалено заданий: ' + ((result && result.deleted) || 0));
+      setSelectedJob(null);
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось очистить задания');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  var retryJobNow = async function (id) {
+    try {
+      setBusy(true);
+      await retryAiJob(id);
+      notify.success('Задание перезапущено');
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось перезапустить задание');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  var cancelJobNow = async function (id) {
+    if (!confirm('Отменить это задание?')) return;
+    try {
+      setBusy(true);
+      await cancelAiJob(id);
+      notify.success('Задание отменено');
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось отменить задание');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  var publishBatchDrafts = async function (batch) {
+    var courseId = batch.courseId || courseScopeId;
+    if (!courseId) {
+      notify.error('Сначала выбери курс на вкладке «Обзор»');
+      return;
+    }
+    var batchDrafts = drafts.filter(function (d) {
+      return d.batchId === batch.id && (d.status || '').toLowerCase() !== 'published';
+    });
+    if (batchDrafts.length === 0) {
+      notify.error('Нет неопубликованных черновиков в этом пакете');
+      return;
+    }
+    if (!confirm('Опубликовать все ' + batchDrafts.length + ' черновиков из этого пакета?')) return;
+    try {
+      setBusy(true);
+      var published = 0;
+      var errors = 0;
+      for (var i = 0; i < batchDrafts.length; i++) {
+        try {
+          await publishAiDraft(batchDrafts[i].id, {
+            courseId: courseId,
+            forceWithoutPassedSelfCheck: true,
+          });
+          published++;
+        } catch (e) {
+          errors++;
+        }
+      }
+      notify.success('Опубликовано: ' + published + (errors ? ', ошибок: ' + errors : ''));
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Ошибка при публикации пакета');
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* ── Course scope selector ──────────────────────── */
@@ -835,6 +971,9 @@ export default function AdminAiPage() {
               <Button variant="outline" onClick={load}>
                 <RefreshCcw size={14} /> Обновить
               </Button>
+              <Button variant="outline" disabled={busy} onClick={function () { clearJobsNow(); }} className="text-red-600 dark:text-red-400">
+                <Trash2 size={14} /> Очистить историю
+              </Button>
               <Badge intent="secondary">показано: {filteredJobs.length}</Badge>
             </div>
           </Card>
@@ -875,6 +1014,40 @@ export default function AdminAiPage() {
                         >
                           Открыть
                         </Button>
+                        {(job.status === 'failed' || job.status === 'error') ? (
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={function () {
+                              retryJobNow(job.id);
+                            }}
+                            className="text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950/30"
+                          >
+                            <RefreshCcw size={14} />
+                          </Button>
+                        ) : null}
+                        {(job.status === 'pending' || job.status === 'running') ? (
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={function () {
+                              cancelJobNow(job.id);
+                            }}
+                            className="text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/30"
+                          >
+                            <StopCircle size={14} />
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={function () {
+                            deleteJobNow(job.id);
+                          }}
+                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
                       </div>
                     </div>
                   </Card>
@@ -897,6 +1070,39 @@ export default function AdminAiPage() {
                 <Badge intent={statusTone(selectedJob.status)}>{statusLabel(selectedJob.status)}</Badge>
                 {selectedJob.modelName ? <Badge intent="secondary">{selectedJob.modelName}</Badge> : null}
                 {selectedJob.workerId ? <Badge intent="secondary">{selectedJob.workerId}</Badge> : null}
+                {(selectedJob.status === 'failed' || selectedJob.status === 'error') ? (
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={function () {
+                      retryJobNow(selectedJob.id);
+                    }}
+                    className="text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950/30 ml-auto"
+                  >
+                    <RefreshCcw size={14} /> Перезапустить
+                  </Button>
+                ) : (selectedJob.status === 'pending' || selectedJob.status === 'running') ? (
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={function () {
+                      cancelJobNow(selectedJob.id);
+                    }}
+                    className="text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/30 ml-auto"
+                  >
+                    <StopCircle size={14} /> Отменить
+                  </Button>
+                ) : <span className="ml-auto" />}
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={function () {
+                    deleteJobNow(selectedJob.id);
+                  }}
+                  className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                >
+                  <Trash2 size={14} /> Удалить
+                </Button>
               </div>
               <div>
                 <span className="opacity-70">Тип:</span> <span className="break-all">{selectedJob.type}</span>
@@ -938,6 +1144,28 @@ export default function AdminAiPage() {
                   className="font-mono text-xs"
                 />
               </Field>
+              {selectedJob.artifacts && selectedJob.artifacts.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="font-medium">Артефакты ({selectedJob.artifacts.length})</div>
+                  {selectedJob.artifacts.map(function (art) {
+                    return (
+                      <details key={art.id} className="rounded-xl border p-3 text-xs">
+                        <summary className="cursor-pointer flex items-center gap-2">
+                          <Badge intent={art.status === 'ok' || art.status === 'done' ? 'success' : art.status === 'error' ? 'danger' : 'secondary'}>
+                            {art.status || '—'}
+                          </Badge>
+                          <span className="font-medium">{art.stageCode || art.artifactType}</span>
+                          {art.modelName ? <span className="opacity-50">({art.modelName})</span> : null}
+                          <span className="opacity-50 ml-auto">{art.createdAtUtc ? new Date(art.createdAtUtc).toLocaleString() : ''}</span>
+                        </summary>
+                        <pre className="mt-2 whitespace-pre-wrap break-all max-h-[300px] overflow-auto font-mono">
+                          {prettyJson(art.payloadJson)}
+                        </pre>
+                      </details>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           )}
         </Card>
@@ -946,6 +1174,154 @@ export default function AdminAiPage() {
   };
 
   /* ── Batches ────────────────────────────────────── */
+  var renderBatchItemPreview = function (item) {
+    var draft = item.draftId ? drafts.find(function (d) { return d.id === item.draftId; }) : null;
+    var preview = draft ? extractDraftPreview(draft.draftJson) : null;
+    var parsed = draft ? tryParse(draft.draftJson) : null;
+
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2 items-center justify-between">
+          <div className="font-medium text-base">
+            #{item.index + 1} · {item.targetSkill || item.microGoal || 'слот'}
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Badge intent={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
+            {item.draftId ? <Badge intent="success">черновик создан</Badge> : null}
+          </div>
+        </div>
+        <div className="text-xs opacity-70">
+          сложность: {item.difficultyTarget} · починок: {item.repairCount}
+        </div>
+        {item.microGoal ? <div className="text-sm opacity-80">{item.microGoal}</div> : null}
+
+        {/* Rich preview if draft exists */}
+        {preview ? (
+          <div className="rounded-xl border border-neutral-200/70 dark:border-neutral-800 bg-white dark:bg-neutral-900/60 p-4 space-y-3">
+            <div className="text-lg font-semibold">{preview.title || 'Без названия'}</div>
+            {parsed && parsed.description ? (
+              <div
+                className="text-sm opacity-90 prose prose-sm dark:prose-invert max-w-none"
+                dangerouslySetInnerHTML={{ __html: parsed.description }}
+              />
+            ) : preview.description ? (
+              <div className="text-sm opacity-90">{preview.description}</div>
+            ) : null}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-70">
+              {preview.assignmentType ? <span className="font-medium uppercase">{preview.assignmentType}</span> : null}
+              {preview.difficulty != null ? <span>Сложность: {preview.difficulty}</span> : null}
+              {preview.languages ? <span>Языки: {preview.languages}</span> : null}
+              {preview.publicTests != null ? <span>Открытых тестов: {preview.publicTests}</span> : null}
+              {preview.hiddenTests != null ? <span>Скрытых тестов: {preview.hiddenTests}</span> : null}
+              {preview.blocks != null ? <span>Блоков: {preview.blocks}</span> : null}
+              {preview.questions != null ? <span>Вопросов: {preview.questions}</span> : null}
+              {preview.tags ? <span>Теги: {preview.tags}</span> : null}
+            </div>
+
+            {/* Show public tests for code-test */}
+            {parsed && Array.isArray(parsed.publicTests) && parsed.publicTests.length > 0 ? (
+              <div>
+                <div className="text-xs font-medium opacity-70 mb-1">Примеры тестов:</div>
+                <div className="space-y-1">
+                  {parsed.publicTests.slice(0, 3).map(function (t, i) {
+                    return (
+                      <div key={i} className="flex gap-3 text-xs font-mono bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
+                        <span className="opacity-50">вход:</span>
+                        <span className="whitespace-pre-wrap">{(t.input || '').trim()}</span>
+                        <span className="opacity-50 ml-auto">→</span>
+                        <span className="whitespace-pre-wrap">{(t.expectedOutput || '').trim()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Show questions for test */}
+            {parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0 ? (
+              <div>
+                <div className="text-xs font-medium opacity-70 mb-1">Вопросы:</div>
+                <div className="space-y-1">
+                  {parsed.questions.slice(0, 5).map(function (q, i) {
+                    return (
+                      <div key={i} className="text-xs bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
+                        <span className="opacity-50 mr-2">{i + 1}.</span>
+                        <span>{q.prompt || q.text || '—'}</span>
+                        {q.type ? <span className="opacity-40 ml-2">({q.type})</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Show blocks for math */}
+            {parsed && Array.isArray(parsed.blocks) && parsed.blocks.length > 0 ? (
+              <div>
+                <div className="text-xs font-medium opacity-70 mb-1">Блоки:</div>
+                <div className="space-y-1">
+                  {parsed.blocks.slice(0, 5).map(function (b, i) {
+                    return (
+                      <div key={i} className="text-xs bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
+                        <span className="font-medium mr-2">{b.blockType || 'block'}</span>
+                        <span>{b.title || b.prompt || '—'}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Draft action buttons */}
+            {draft ? (
+              <div className="flex gap-2 flex-wrap pt-2 border-t border-neutral-200/50 dark:border-neutral-800">
+                {(draft.status || '').toLowerCase() !== 'published' ? (
+                  <>
+                    <Button variant="outline" disabled={busy} onClick={function () { publishDraftNow(draft, true); }} className="gap-1">
+                      <Sparkles size={14} /> Опубликовать
+                    </Button>
+                    <Button variant="outline" disabled={busy} onClick={function () { reviewDraftNow(draft.id, 'approve'); }} className="gap-1">
+                      <Check size={14} /> Одобрить
+                    </Button>
+                    <Button variant="outline" disabled={busy} onClick={function () { deleteDraftNow(draft.id); }} className="gap-1 text-red-500">
+                      <Trash2 size={14} /> Удалить черновик
+                    </Button>
+                  </>
+                ) : (
+                  <span className="text-sm text-green-600 flex items-center gap-1"><Check size={14} /> Опубликован</span>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-sm opacity-60 italic">Черновик ещё не создан для этого слота.</div>
+        )}
+
+        {/* Raw JSON: collapsed */}
+        <details>
+          <summary className="cursor-pointer opacity-60 text-xs hover:opacity-100 transition">JSON-детали</summary>
+          <div className="mt-2 space-y-2">
+            {item.briefJson ? (
+              <Field label="BriefJson">
+                <Textarea rows={5} readOnly value={prettyJson(item.briefJson)} className="font-mono text-xs" />
+              </Field>
+            ) : null}
+            {item.referencePackJson ? (
+              <Field label="ReferencePackJson">
+                <Textarea rows={5} readOnly value={prettyJson(item.referencePackJson)} className="font-mono text-xs" />
+              </Field>
+            ) : null}
+            {item.scorecardJson ? (
+              <Field label="ScorecardJson">
+                <Textarea rows={5} readOnly value={prettyJson(item.scorecardJson)} className="font-mono text-xs" />
+              </Field>
+            ) : null}
+          </div>
+        </details>
+      </div>
+    );
+  };
+
   var renderBatches = function () {
     return (
       <div className="grid xl:grid-cols-[0.92fr,1.08fr] gap-6">
@@ -996,6 +1372,16 @@ export default function AdminAiPage() {
                         >
                           Открыть
                         </Button>
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={function () {
+                            deleteBatchNow(batch.id);
+                          }}
+                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
                       </div>
                     </div>
                   </Card>
@@ -1018,7 +1404,7 @@ export default function AdminAiPage() {
             <div className="text-sm opacity-70 mt-4">Выбери пакет слева.</div>
           ) : (
             <div className="space-y-4 text-sm mt-4">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
                 <Badge intent={statusTone(selectedBatch.status)}>{statusLabel(selectedBatch.status)}</Badge>
                 {selectedBatch.currentStage ? (
                   <Badge intent="secondary">стадия: {selectedBatch.currentStage}</Badge>
@@ -1027,6 +1413,22 @@ export default function AdminAiPage() {
                   элементов: {selectedBatch.itemsCount || (selectedBatch.items ? selectedBatch.items.length : 0)}
                 </Badge>
                 <Badge intent="secondary">готово: {selectedBatch.readyItemsCount || 0}</Badge>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={function () { publishBatchDrafts(selectedBatch); }}
+                  className="gap-1 ml-auto"
+                >
+                  <Sparkles size={14} /> Опубликовать все
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={function () { deleteBatchNow(selectedBatch.id); }}
+                  className="gap-1 text-red-500"
+                >
+                  <Trash2 size={14} /> Удалить пакет
+                </Button>
               </div>
               <div>
                 <span className="opacity-70">Id:</span>{' '}
@@ -1046,122 +1448,69 @@ export default function AdminAiPage() {
                 <span className="opacity-70">Промпт:</span> {selectedBatch.prompt}
               </div>
 
-              {selectedBatch.plannerFeedbackJson ? (
-                <details>
-                  <summary className="cursor-pointer opacity-80 text-xs">PlannerFeedbackJson</summary>
-                  <Textarea
-                    rows={6}
-                    readOnly
-                    value={prettyJson(selectedBatch.plannerFeedbackJson)}
-                    className="mt-2 font-mono text-xs"
-                  />
-                </details>
-              ) : null}
-              {selectedBatch.batchReviewJson ? (
-                <details>
-                  <summary className="cursor-pointer opacity-80 text-xs">BatchReviewJson</summary>
-                  <Textarea
-                    rows={6}
-                    readOnly
-                    value={prettyJson(selectedBatch.batchReviewJson)}
-                    className="mt-2 font-mono text-xs"
-                  />
-                </details>
-              ) : null}
-              {selectedBatch.qualityLedgerJson ? (
-                <details>
-                  <summary className="cursor-pointer opacity-80 text-xs">QualityLedgerJson</summary>
-                  <Textarea
-                    rows={6}
-                    readOnly
-                    value={prettyJson(selectedBatch.qualityLedgerJson)}
-                    className="mt-2 font-mono text-xs"
-                  />
-                </details>
-              ) : null}
-              {selectedBatch.exportManifestJson ? (
-                <details>
-                  <summary className="cursor-pointer opacity-80 text-xs">ExportManifestJson</summary>
-                  <Textarea
-                    rows={6}
-                    readOnly
-                    value={prettyJson(selectedBatch.exportManifestJson)}
-                    className="mt-2 font-mono text-xs"
-                  />
-                </details>
-              ) : null}
+              {/* Pipeline data — collapsed */}
+              <details>
+                <summary className="cursor-pointer opacity-60 text-xs hover:opacity-100 transition">Pipeline JSON-данные</summary>
+                <div className="mt-2 space-y-2">
+                  {selectedBatch.plannerFeedbackJson ? (
+                    <Field label="PlannerFeedbackJson">
+                      <Textarea rows={6} readOnly value={prettyJson(selectedBatch.plannerFeedbackJson)} className="font-mono text-xs" />
+                    </Field>
+                  ) : null}
+                  {selectedBatch.batchReviewJson ? (
+                    <Field label="BatchReviewJson">
+                      <Textarea rows={6} readOnly value={prettyJson(selectedBatch.batchReviewJson)} className="font-mono text-xs" />
+                    </Field>
+                  ) : null}
+                  {selectedBatch.qualityLedgerJson ? (
+                    <Field label="QualityLedgerJson">
+                      <Textarea rows={6} readOnly value={prettyJson(selectedBatch.qualityLedgerJson)} className="font-mono text-xs" />
+                    </Field>
+                  ) : null}
+                  {selectedBatch.exportManifestJson ? (
+                    <Field label="ExportManifestJson">
+                      <Textarea rows={6} readOnly value={prettyJson(selectedBatch.exportManifestJson)} className="font-mono text-xs" />
+                    </Field>
+                  ) : null}
+                </div>
+              </details>
 
+              {/* Batch items — rich view */}
               <div className="space-y-3 mt-2">
-                <div className="font-medium">Элементы пакета</div>
+                <div className="font-medium flex items-center gap-2">
+                  Элементы пакета
+                  {selectedBatch.items && selectedBatch.items.length > 0 ? (
+                    <Badge intent="secondary">{selectedBatch.items.length}</Badge>
+                  ) : null}
+                </div>
                 {(!selectedBatch.items || selectedBatch.items.length === 0) ? (
                   <div className="opacity-70">Элементов пока нет (pipeline ещё не создал слоты).</div>
                 ) : null}
                 {(selectedBatch.items || []).map(function (item) {
+                  var isSelected = selectedBatchItem && selectedBatchItem.id === item.id;
                   return (
                     <div
                       key={item.id}
-                      className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3 space-y-2"
+                      className={'rounded-2xl border p-4 transition cursor-pointer ' +
+                        (isSelected ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.04)] ring-1 ring-[rgba(var(--accent)/0.2)]' : 'border-neutral-200/70 dark:border-neutral-800 hover:border-[rgba(var(--accent)/0.3)]')
+                      }
+                      onClick={function () { setSelectedBatchItem(isSelected ? null : item); }}
                     >
-                      <div className="flex flex-wrap gap-2 items-center justify-between">
-                        <div className="font-medium">
-                          #{item.index + 1} · {item.targetSkill || item.microGoal || 'слот'}
+                      {isSelected ? (
+                        renderBatchItemPreview(item)
+                      ) : (
+                        <div className="flex flex-wrap gap-2 items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Eye size={14} className="opacity-40 shrink-0" />
+                            <span className="font-medium">#{item.index + 1} · {item.targetSkill || item.microGoal || 'слот'}</span>
+                          </div>
+                          <div className="flex gap-2 flex-wrap items-center">
+                            <span className="text-xs opacity-60">сл. {item.difficultyTarget}</span>
+                            <Badge intent={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
+                            {item.draftId ? <Badge intent="success">черновик</Badge> : null}
+                          </div>
                         </div>
-                        <div className="flex gap-2 flex-wrap">
-                          <Badge intent={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
-                          {item.draftId ? <Badge intent="success">черновик создан</Badge> : null}
-                        </div>
-                      </div>
-                      <div className="text-xs opacity-70">
-                        сложность: {item.difficultyTarget} · починок: {item.repairCount}
-                      </div>
-                      {item.microGoal ? <div className="text-sm opacity-80">{item.microGoal}</div> : null}
-                      {item.draftId ? (
-                        <div className="flex gap-2 flex-wrap">
-                          <Button
-                            variant="outline"
-                            onClick={function () {
-                              setActiveTab('drafts');
-                            }}
-                          >
-                            Перейти к черновикам
-                          </Button>
-                        </div>
-                      ) : null}
-                      <details>
-                        <summary className="cursor-pointer opacity-80 text-xs">JSON-детали</summary>
-                        <div className="mt-2 space-y-2">
-                          {item.briefJson ? (
-                            <Field label="BriefJson">
-                              <Textarea
-                                rows={5}
-                                readOnly
-                                value={prettyJson(item.briefJson)}
-                                className="font-mono text-xs"
-                              />
-                            </Field>
-                          ) : null}
-                          {item.referencePackJson ? (
-                            <Field label="ReferencePackJson">
-                              <Textarea
-                                rows={5}
-                                readOnly
-                                value={prettyJson(item.referencePackJson)}
-                                className="font-mono text-xs"
-                              />
-                            </Field>
-                          ) : null}
-                          {item.scorecardJson ? (
-                            <Field label="ScorecardJson">
-                              <Textarea
-                                rows={5}
-                                readOnly
-                                value={prettyJson(item.scorecardJson)}
-                                className="font-mono text-xs"
-                              />
-                            </Field>
-                          ) : null}
-                        </div>
-                      </details>
+                      )}
                     </div>
                   );
                 })}
@@ -1303,16 +1652,6 @@ export default function AdminAiPage() {
                         variant="outline"
                         disabled={busy}
                         onClick={function () {
-                          reviewDraftNow(draft.id, 'reject');
-                        }}
-                        className="gap-1"
-                      >
-                        <X size={14} /> Отклонить
-                      </Button>
-                      <Button
-                        variant="outline"
-                        disabled={busy}
-                        onClick={function () {
                           validateDraftNow(draft);
                         }}
                         className="gap-1"
@@ -1328,11 +1667,33 @@ export default function AdminAiPage() {
                       >
                         <Sparkles size={14} /> Опубликовать{pub.force ? ' (force)' : ''}
                       </Button>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={function () {
+                          deleteDraftNow(draft.id);
+                        }}
+                        className="gap-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                      >
+                        <Trash2 size={14} /> Удалить
+                      </Button>
                     </>
                   ) : (
-                    <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                      <Check size={14} /> Опубликован
-                    </span>
+                    <>
+                      <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+                        <Check size={14} /> Опубликован
+                      </span>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={function () {
+                          deleteDraftNow(draft.id);
+                        }}
+                        className="gap-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 ml-auto"
+                      >
+                        <Trash2 size={14} /> Удалить запись
+                      </Button>
+                    </>
                   )}
                   {draft.batchId ? (
                     <Button

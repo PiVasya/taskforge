@@ -166,4 +166,46 @@ public sealed class AdminAiController : ControllerBase
         var data = await _jobs.PublishDraftAsync(id, _current.GetUserId(), request, ct);
         return data == null ? NotFound() : Ok(data);
     }
+
+    [HttpDelete("drafts/{id:guid}")]
+    public async Task<IActionResult> DeleteDraft(Guid id, CancellationToken ct = default)
+    {
+        var ok = await _jobs.DeleteDraftAsync(id, ct);
+        return ok ? NoContent() : NotFound();
+    }
+
+    [HttpDelete("batches/{id:guid}")]
+    public async Task<IActionResult> DeleteBatch(Guid id, CancellationToken ct = default)
+    {
+        var ok = await _jobs.DeleteBatchAsync(id, ct);
+        return ok ? NoContent() : NotFound();
+    }
+
+    [HttpDelete("jobs/{id:guid}")]
+    public async Task<IActionResult> DeleteJob(Guid id, CancellationToken ct = default)
+    {
+        var ok = await _jobs.DeleteJobAsync(id, ct);
+        return ok ? NoContent() : NotFound();
+    }
+
+    [HttpPost("jobs/clear")]
+    public async Task<IActionResult> ClearJobs([FromQuery] string? status, CancellationToken ct = default)
+    {
+        var count = await _jobs.ClearJobsAsync(status, ct);
+        return Ok(new { deleted = count });
+    }
+
+    [HttpPost("jobs/{id:guid}/retry")]
+    public async Task<IActionResult> RetryJob(Guid id, CancellationToken ct = default)
+    {
+        var ok = await _jobs.RetryJobAsync(id, ct);
+        return ok ? Ok() : NotFound();
+    }
+
+    [HttpPost("jobs/{id:guid}/cancel")]
+    public async Task<IActionResult> CancelJob(Guid id, CancellationToken ct = default)
+    {
+        var ok = await _jobs.CancelJobAsync(id, ct);
+        return ok ? Ok() : NotFound();
+    }
 }

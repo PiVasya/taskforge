@@ -73,3 +73,28 @@ export async function validateAiDraft(id, payload = {}) {
   const { data } = await api.post(`/api/admin/ai/drafts/${id}/validate`, payload);
   return data;
 }
+
+export async function deleteAiDraft(id) {
+  await api.delete(`/api/admin/ai/drafts/${id}`);
+}
+
+export async function deleteAiBatch(id) {
+  await api.delete(`/api/admin/ai/batches/${id}`);
+}
+
+export async function deleteAiJob(id) {
+  await api.delete(`/api/admin/ai/jobs/${id}`);
+}
+
+export async function clearAiJobs(status) {
+  const { data } = await api.post('/api/admin/ai/jobs/clear', null, { params: status ? { status } : {} });
+  return data;
+}
+
+export async function retryAiJob(id) {
+  await api.post(`/api/admin/ai/jobs/${id}/retry`);
+}
+
+export async function cancelAiJob(id) {
+  await api.post(`/api/admin/ai/jobs/${id}/cancel`);
+}

@@ -2063,4 +2063,38 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
         return JsonSerializer.Serialize(new { flags = values.OrderBy(x => x).ToArray(), slotIndex = index, updatedAtUtc = DateTime.UtcNow }, JsonOptions);
     }
 
+    public async Task<bool> DeleteBatchAsync(Guid id, CancellationToken ct = default)
+    {
+        var batch = await _db.AiBatches
+            .Include(b => b.Items)
+            .FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (batch == null) return false;
+
+        var batchItemIds = batch.Items.Select(i => i.Id).ToList();
+        var draftIds = batch.Items.Where(i => i.DraftId.HasValue).Select(i => i.DraftId!.Value).ToList();
+
+        // Delete drafts that belong to this batch
+        if (draftIds.Count > 0)
+            await _db.AiGeneratedAssignmentDrafts.Where(d => draftIds.Contains(d.Id)).ExecuteDeleteAsync(ct);
+
+        // Delete decision logs & reference snapshots for this batch
+        await _db.AiDecisionLogs.Where(dl => dl.BatchId == id).ExecuteDeleteAsync(ct);
+        await _db.AiReferenceSnapshots.Where(rs => rs.BatchId == id).ExecuteDeleteAsync(ct);
+
+        // Delete decision logs & reference snapshots for batch items
+        if (batchItemIds.Count > 0)
+        {
+            await _db.AiDecisionLogs.Where(dl => dl.BatchItemId.HasValue && batchItemIds.Contains(dl.BatchItemId.Value)).ExecuteDeleteAsync(ct);
+            await _db.AiReferenceSnapshots.Where(rs => rs.BatchItemId.HasValue && batchItemIds.Contains(rs.BatchItemId.Value)).ExecuteDeleteAsync(ct);
+        }
+
+        // Delete items, then batch
+        if (batchItemIds.Count > 0)
+            await _db.AiBatchItems.Where(i => batchItemIds.Contains(i.Id)).ExecuteDeleteAsync(ct);
+
+        _db.AiBatches.Remove(batch);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
 }
