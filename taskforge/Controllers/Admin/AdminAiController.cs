@@ -42,7 +42,31 @@ public sealed class AdminAiController : ControllerBase
         return CreatedAtAction(nameof(GetJob), new { id = data.Id }, data);
     }
 
-    [HttpPost("generate/from-text")]
+    
+    [HttpPost("batches/generate")]
+    public async Task<IActionResult> GenerateBatch([FromBody] AiGenerateAssignmentBatchRequestDto request, CancellationToken ct = default)
+    {
+        var userId = _current.GetUserId();
+        var name = User?.Identity?.Name;
+        var data = await _jobs.QueueGenerateAssignmentBatchAsync(request, userId, name, ct);
+        return CreatedAtAction(nameof(GetBatch), new { id = data.Id }, data);
+    }
+
+    [HttpGet("batches")]
+    public async Task<IActionResult> GetBatches(CancellationToken ct = default)
+    {
+        var data = await _jobs.GetBatchesAsync(ct);
+        return Ok(data);
+    }
+
+    [HttpGet("batches/{id:guid}")]
+    public async Task<IActionResult> GetBatch(Guid id, CancellationToken ct = default)
+    {
+        var data = await _jobs.GetBatchAsync(id, ct);
+        return data == null ? NotFound() : Ok(data);
+    }
+
+[HttpPost("generate/from-text")]
     public async Task<IActionResult> GenerateFromText([FromBody] AiGenerateAssignmentFromTextRequestDto request, CancellationToken ct = default)
     {
         var userId = _current.GetUserId();

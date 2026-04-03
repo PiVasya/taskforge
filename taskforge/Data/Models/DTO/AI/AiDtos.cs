@@ -16,6 +16,16 @@ public sealed class CreateAiJobRequestDto
 
     public int Priority { get; set; } = 0;
 
+    public Guid? ParentJobId { get; set; }
+
+    [MaxLength(80)]
+    public string? StageCode { get; set; }
+
+    [MaxLength(160)]
+    public string? StageLabel { get; set; }
+
+    public int? StageOrder { get; set; }
+
     public string? InputJson { get; set; }
 
     public List<AiJobFileDto> Files { get; set; } = new();
@@ -143,6 +153,104 @@ public sealed class AiReviewUserRequestDto
     public int Priority { get; set; } = 10;
 }
 
+
+public sealed class AiGenerateAssignmentBatchRequestDto
+{
+    [Required]
+    public Guid CourseId { get; set; }
+
+    [Required, MaxLength(50)]
+    public string AssignmentType { get; set; } = "math";
+
+    [Required]
+    public string Prompt { get; set; } = string.Empty;
+
+    public int Count { get; set; } = 5;
+
+    [MaxLength(80)]
+    public string? Mode { get; set; } = "topic-pack";
+
+    public int Difficulty { get; set; } = 2;
+
+    public string? Notes { get; set; }
+
+    public int Priority { get; set; } = 20;
+}
+
+public sealed class AiBatchListItemDto
+{
+    public Guid Id { get; set; }
+    public Guid? CourseId { get; set; }
+    public string AssignmentType { get; set; } = string.Empty;
+    public string Mode { get; set; } = string.Empty;
+    public int RequestedCount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? CurrentStage { get; set; }
+    public string Prompt { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+    public int ItemsCount { get; set; }
+    public int ReadyItemsCount { get; set; }
+}
+
+public sealed class AiBatchItemDto
+{
+    public Guid Id { get; set; }
+    public int Index { get; set; }
+    public string? TargetSkill { get; set; }
+    public int DifficultyTarget { get; set; }
+    public string? MicroGoal { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public Guid? DraftId { get; set; }
+    public int RepairCount { get; set; }
+    public string? BriefJson { get; set; }
+    public string? BriefReviewJson { get; set; }
+    public string? ContextReviewJson { get; set; }
+    public string? DecisionLogJson { get; set; }
+    public string? PlannerSignalsJson { get; set; }
+    public string? HistoricalSlotPriorsJson { get; set; }
+    public string? AntiPatternFlagsJson { get; set; }
+    public string? ReplanHistoryJson { get; set; }
+    public string? ReferencePackJson { get; set; }
+    public string? StylePackJson { get; set; }
+    public string? PolicyPackJson { get; set; }
+    public string? NegativePackJson { get; set; }
+    public string? ExemplarPackJson { get; set; }
+    public string? ReferenceSignalsJson { get; set; }
+    public string? ScorecardJson { get; set; }
+}
+
+public sealed class AiBatchDetailsDto : AiBatchListItemDto
+{
+    public string? CanonicalRequestJson { get; set; }
+    public string? CourseProfileJson { get; set; }
+    public string? GapAnalysisJson { get; set; }
+    public string? AssignmentOntologyJson { get; set; }
+    public string? ExemplarSignalsJson { get; set; }
+    public string? NegativeMemoryJson { get; set; }
+    public string? CoverageJson { get; set; }
+    public string? PlanJson { get; set; }
+    public string? SummaryJson { get; set; }
+    public string? DecisionSummaryJson { get; set; }
+    public string? BatchReviewJson { get; set; }
+    public string? ReviewLedgerJson { get; set; }
+    public string? StudentJourneyJson { get; set; }
+    public string? PublicationAuditJson { get; set; }
+    public string? PublishPackJson { get; set; }
+    public string? QualityLedgerJson { get; set; }
+    public string? ExportManifestJson { get; set; }
+    public string? PlannerFeedbackJson { get; set; }
+    public string? HistoricalPlannerPriorsJson { get; set; }
+    public string? PositiveMemoryJson { get; set; }
+    public string? BatchMemoryJson { get; set; }
+    public string? InstitutionalMemoryJson { get; set; }
+    public string? AntiPatternMemoryJson { get; set; }
+    public string? ReplanLedgerJson { get; set; }
+    public string? DecisionLogDigestJson { get; set; }
+    public string? FeedbackLoopStateJson { get; set; }
+    public List<AiBatchItemDto> Items { get; set; } = new();
+}
+
 public class AiJobListItemDto
 {
     public Guid Id { get; set; }
@@ -158,11 +266,16 @@ public class AiJobListItemDto
     public DateTime CreatedAtUtc { get; set; }
     public DateTime? StartedAtUtc { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
+    public Guid? ParentJobId { get; set; }
+    public string? StageCode { get; set; }
+    public string? StageLabel { get; set; }
+    public int? StageOrder { get; set; }
     public int FilesCount { get; set; }
 }
 
 public sealed class AiJobDetailsDto : AiJobListItemDto
 {
+    public List<AiArtifactDto> Artifacts { get; set; } = new();
     public string? InputJson { get; set; }
     public string? ResultJson { get; set; }
     public string? ErrorText { get; set; }
@@ -177,6 +290,8 @@ public sealed class AiGeneratedDraftDto
     public Guid Id { get; set; }
     public Guid JobId { get; set; }
     public Guid? CourseId { get; set; }
+    public Guid? BatchId { get; set; }
+    public Guid? BatchItemId { get; set; }
     public string AssignmentType { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string DraftJson { get; set; } = "{}";
@@ -259,6 +374,20 @@ public sealed class PublishAiDraftRequestDto
     public bool ForceWithoutPassedSelfCheck { get; set; } = false;
 }
 
+
+public sealed class AiArtifactDto
+{
+    public Guid Id { get; set; }
+    public Guid JobId { get; set; }
+    public Guid? DraftId { get; set; }
+    public string ArtifactType { get; set; } = string.Empty;
+    public string? StageCode { get; set; }
+    public string? Status { get; set; }
+    public string? PayloadJson { get; set; }
+    public string? ModelName { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
 public sealed class PublishAiDraftResultDto
 {
     public Guid DraftId { get; set; }
@@ -291,6 +420,10 @@ public sealed class AiWorkerPullResponseDto
     public string? TargetEntityType { get; set; }
     public Guid? TargetEntityId { get; set; }
     public Guid? CourseId { get; set; }
+    public Guid? ParentJobId { get; set; }
+    public string? StageCode { get; set; }
+    public string? StageLabel { get; set; }
+    public int? StageOrder { get; set; }
     public string? InputJson { get; set; }
     public List<AiJobFileDto> Files { get; set; } = new();
 }

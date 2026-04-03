@@ -20,6 +20,15 @@ public sealed class AiGeneratedAssignmentDraft
     public Guid? CourseId { get; set; }
     public Course? Course { get; set; }
 
+    public Guid? BatchId { get; set; }
+    public AiBatch? Batch { get; set; }
+
+    public Guid? BatchItemId { get; set; }
+    public AiBatchItem? BatchItem { get; set; }
+
+    public Guid? ParentJobId { get; set; }
+    public AiJob? ParentJob { get; set; }
+
     [Required, MaxLength(50)]
     public string AssignmentType { get; set; } = string.Empty;
 

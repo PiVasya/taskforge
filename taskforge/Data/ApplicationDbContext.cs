@@ -62,6 +62,12 @@ namespace taskforge.Data
         public DbSet<AiJob> AiJobs { get; set; } = null!;
         public DbSet<AiJobFile> AiJobFiles { get; set; } = null!;
         public DbSet<AiGeneratedAssignmentDraft> AiGeneratedAssignmentDrafts { get; set; } = null!;
+        public DbSet<AiBatch> AiBatches { get; set; } = null!;
+        public DbSet<AiBatchItem> AiBatchItems { get; set; } = null!;
+        public DbSet<AiArtifact> AiArtifacts { get; set; } = null!;
+        public DbSet<AiReviewFinding> AiReviewFindings { get; set; } = null!;
+        public DbSet<AiReferenceSnapshot> AiReferenceSnapshots { get; set; } = null!;
+        public DbSet<AiDecisionLog> AiDecisionLogs { get; set; } = null!;
         public DbSet<AiSubmissionReview> AiSubmissionReviews { get; set; } = null!;
         public DbSet<AiUserRiskReport> AiUserRiskReports { get; set; } = null!;
         public DbSet<AiAssignmentInsight> AiAssignmentInsights { get; set; } = null!;
@@ -113,6 +119,7 @@ namespace taskforge.Data
                 entity.HasIndex(x => new { x.Status, x.Priority, x.CreatedAtUtc });
                 entity.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
                 entity.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.ParentJob).WithMany().HasForeignKey(x => x.ParentJobId).OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<AiJobFile>(entity =>
@@ -132,6 +139,96 @@ namespace taskforge.Data
                 entity.HasOne(x => x.RequestedByUser).WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.SetNull);
                 entity.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.SetNull);
                 entity.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Batch).WithMany().HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.BatchItem).WithOne(x => x.Draft).HasForeignKey<AiGeneratedAssignmentDraft>(x => x.BatchItemId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.ParentJob).WithMany().HasForeignKey(x => x.ParentJobId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiBatch>(entity =>
+            {
+                entity.Property(x => x.CanonicalRequestJson).HasColumnType("jsonb");
+                entity.Property(x => x.CourseProfileJson).HasColumnType("jsonb");
+                entity.Property(x => x.GapAnalysisJson).HasColumnType("jsonb");
+                entity.Property(x => x.AssignmentOntologyJson).HasColumnType("jsonb");
+                entity.Property(x => x.ExemplarSignalsJson).HasColumnType("jsonb");
+                entity.Property(x => x.NegativeMemoryJson).HasColumnType("jsonb");
+                entity.Property(x => x.CoverageJson).HasColumnType("jsonb");
+                entity.Property(x => x.PlanJson).HasColumnType("jsonb");
+                entity.Property(x => x.SummaryJson).HasColumnType("jsonb");
+                entity.Property(x => x.DecisionSummaryJson).HasColumnType("jsonb");
+                entity.Property(x => x.BatchReviewJson).HasColumnType("jsonb");
+                entity.Property(x => x.ReviewLedgerJson).HasColumnType("jsonb");
+                entity.Property(x => x.StudentJourneyJson).HasColumnType("jsonb");
+                entity.Property(x => x.PublicationAuditJson).HasColumnType("jsonb");
+                entity.Property(x => x.PlannerFeedbackJson).HasColumnType("jsonb");
+                entity.Property(x => x.HistoricalPlannerPriorsJson).HasColumnType("jsonb");
+                entity.Property(x => x.PositiveMemoryJson).HasColumnType("jsonb");
+                entity.Property(x => x.BatchMemoryJson).HasColumnType("jsonb");
+                entity.Property(x => x.InstitutionalMemoryJson).HasColumnType("jsonb");
+                entity.Property(x => x.AntiPatternMemoryJson).HasColumnType("jsonb");
+                entity.Property(x => x.ReplanLedgerJson).HasColumnType("jsonb");
+                entity.Property(x => x.DecisionLogDigestJson).HasColumnType("jsonb");
+                entity.Property(x => x.FeedbackLoopStateJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiBatchItem>(entity =>
+            {
+                entity.Property(x => x.BriefJson).HasColumnType("jsonb");
+                entity.Property(x => x.BriefReviewJson).HasColumnType("jsonb");
+                entity.Property(x => x.ContextReviewJson).HasColumnType("jsonb");
+                entity.Property(x => x.ReferencePackJson).HasColumnType("jsonb");
+                entity.Property(x => x.StylePackJson).HasColumnType("jsonb");
+                entity.Property(x => x.PolicyPackJson).HasColumnType("jsonb");
+                entity.Property(x => x.NegativePackJson).HasColumnType("jsonb");
+                entity.Property(x => x.ExemplarPackJson).HasColumnType("jsonb");
+                entity.Property(x => x.ReferenceSignalsJson).HasColumnType("jsonb");
+                entity.Property(x => x.DecisionLogJson).HasColumnType("jsonb");
+                entity.Property(x => x.PlannerSignalsJson).HasColumnType("jsonb");
+                entity.Property(x => x.AntiPatternFlagsJson).HasColumnType("jsonb");
+                entity.Property(x => x.ReplanHistoryJson).HasColumnType("jsonb");
+                entity.Property(x => x.ScorecardJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasIndex(x => new { x.BatchId, x.Index }).IsUnique();
+                entity.HasOne(x => x.Batch).WithMany(x => x.Items).HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+
+            modelBuilder.Entity<AiArtifact>(entity =>
+            {
+                entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Job).WithMany(x => x.Artifacts).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(x => x.Draft).WithMany().HasForeignKey(x => x.DraftId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiReviewFinding>(entity =>
+            {
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Artifact).WithMany(x => x.Findings).HasForeignKey(x => x.ArtifactId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(x => x.Draft).WithMany().HasForeignKey(x => x.DraftId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiReferenceSnapshot>(entity =>
+            {
+                entity.Property(x => x.CompactSummaryJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Batch).WithMany(x => x.ReferenceSnapshots).HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(x => x.BatchItem).WithMany(x => x.ReferenceSnapshots).HasForeignKey(x => x.BatchItemId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AiDecisionLog>(entity =>
+            {
+                entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Batch).WithMany(x => x.DecisionLogs).HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(x => x.BatchItem).WithMany(x => x.DecisionLogs).HasForeignKey(x => x.BatchItemId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<AiSubmissionReview>(entity =>

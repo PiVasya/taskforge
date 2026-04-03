@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.DTO.AI;
 using taskforge.Data.Models.Entities.AI;
@@ -56,6 +58,10 @@ public sealed partial class AiJobService : IAiJobService
                 CreatedAtUtc = x.CreatedAtUtc,
                 StartedAtUtc = x.StartedAtUtc,
                 CompletedAtUtc = x.CompletedAtUtc,
+                ParentJobId = x.ParentJobId,
+                StageCode = x.StageCode,
+                StageLabel = x.StageLabel,
+                StageOrder = x.StageOrder,
                 FilesCount = x.Files.Count,
             })
             .ToListAsync(ct);
@@ -65,7 +71,7 @@ public sealed partial class AiJobService : IAiJobService
 
     public async Task<AiJobDetailsDto?> GetAdminJobAsync(Guid id, CancellationToken ct = default)
     {
-        var job = await _db.AiJobs.AsNoTracking().Include(x => x.Files).FirstOrDefaultAsync(x => x.Id == id, ct);
+        var job = await _db.AiJobs.AsNoTracking().Include(x => x.Files).Include(x => x.Artifacts).FirstOrDefaultAsync(x => x.Id == id, ct);
         return job == null ? null : MapDetails(job);
     }
 
@@ -82,6 +88,10 @@ public sealed partial class AiJobService : IAiJobService
             TargetEntityType = string.IsNullOrWhiteSpace(request.TargetEntityType) ? null : request.TargetEntityType.Trim(),
             TargetEntityId = request.TargetEntityId,
             CourseId = request.CourseId,
+            ParentJobId = request.ParentJobId,
+            StageCode = string.IsNullOrWhiteSpace(request.StageCode) ? null : request.StageCode.Trim(),
+            StageLabel = string.IsNullOrWhiteSpace(request.StageLabel) ? null : request.StageLabel.Trim(),
+            StageOrder = request.StageOrder,
             InputJson = NormalizeJsonOrNull(request.InputJson),
             CreatedAtUtc = DateTime.UtcNow,
         };
@@ -332,6 +342,10 @@ public sealed partial class AiJobService : IAiJobService
             TargetEntityType = job.TargetEntityType,
             TargetEntityId = job.TargetEntityId,
             CourseId = job.CourseId,
+            ParentJobId = job.ParentJobId,
+            StageCode = job.StageCode,
+            StageLabel = job.StageLabel,
+            StageOrder = job.StageOrder,
             InputJson = job.InputJson,
             Files = job.Files.Select(MapFile).ToList(),
         };
@@ -359,7 +373,7 @@ public sealed partial class AiJobService : IAiJobService
             return true;
         }
 
-        if (caps.Contains("generate") && (jobType.StartsWith("assignment_generate_") || jobType == "assignment_improve_existing"))
+        if (caps.Contains("generate") && (jobType.StartsWith("assignment_generate_") || jobType == "assignment_improve_existing" || jobType == AiFoundryJobTypes.BatchPlan || jobType == AiFoundryJobTypes.BriefGenerate))
         {
             return true;
         }
@@ -426,6 +440,8 @@ public sealed partial class AiJobService : IAiJobService
 
         Console.WriteLine($"[AiJobService] complete persisting artifacts for jobId={jobId} type='{job.Type}' resultJson.normalized.len={job.ResultJson?.Length ?? 0}");
         await PersistDerivedArtifactsAsync(job, ct);
+        await _db.SaveChangesAsync(ct);
+        await SyncFoundryProgressAfterCompletionAsync(job, ct);
         await _db.SaveChangesAsync(ct);
         Console.WriteLine($"[AiJobService] complete <<< saved jobId={jobId} status='{job.Status}' completedAt='{job.CompletedAtUtc:O}' model='{job.ModelName}'");
         return true;
@@ -507,6 +523,8 @@ public sealed partial class AiJobService : IAiJobService
                 Id = x.Id,
                 JobId = x.JobId,
                 CourseId = x.CourseId,
+                BatchId = x.BatchId,
+                BatchItemId = x.BatchItemId,
                 AssignmentType = x.AssignmentType,
                 Title = x.Title,
                 DraftJson = x.DraftJson,
@@ -527,6 +545,8 @@ public sealed partial class AiJobService : IAiJobService
                 Id = x.Id,
                 JobId = x.JobId,
                 CourseId = x.CourseId,
+                BatchId = x.BatchId,
+                BatchItemId = x.BatchItemId,
                 AssignmentType = x.AssignmentType,
                 Title = x.Title,
                 DraftJson = x.DraftJson,
@@ -890,6 +910,15 @@ public sealed partial class AiJobService : IAiJobService
                 {
                     Console.WriteLine($"[AiJobService] persist-artifacts draft built jobId={job.Id} draftId={draft.Id} assignmentType='{draft.AssignmentType}' title='{draft.Title}' status='{draft.Status}' courseId='{draft.CourseId}'");
                     var existing = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.JobId == job.Id, ct);
+                    if (string.Equals(job.TargetEntityType, "ai-batch-item", StringComparison.OrdinalIgnoreCase) && job.TargetEntityId != null)
+                    {
+                        var batchItem = await _db.AiBatchItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == job.TargetEntityId.Value, ct);
+                        if (batchItem != null)
+                        {
+                            draft.BatchItemId = batchItem.Id;
+                            draft.BatchId = batchItem.BatchId;
+                        }
+                    }
                     if (existing == null)
                     {
                         _db.AiGeneratedAssignmentDrafts.Add(draft);
@@ -976,6 +1005,29 @@ public sealed partial class AiJobService : IAiJobService
                 }
             }
 
+            if (job.Type.Equals("assignment_repair", StringComparison.OrdinalIgnoreCase))
+            {
+                var draftId = ExtractGuid(root, "draftId") ?? job.TargetEntityId;
+                if (draftId != null && root.TryGetProperty("draft", out var repairedDraftNode) && repairedDraftNode.ValueKind == JsonValueKind.Object)
+                {
+                    var existingDraft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == draftId.Value, ct);
+                    if (existingDraft != null)
+                    {
+                        if (repairedDraftNode.TryGetProperty("title", out var titleNode) && titleNode.ValueKind == JsonValueKind.String)
+                        {
+                            existingDraft.Title = (titleNode.GetString() ?? existingDraft.Title).Trim();
+                        }
+                        existingDraft.AssignmentType = repairedDraftNode.TryGetProperty("assignmentType", out var typeNode) && typeNode.ValueKind == JsonValueKind.String
+                            ? (typeNode.GetString() ?? existingDraft.AssignmentType).Trim()
+                            : existingDraft.AssignmentType;
+                        existingDraft.DraftJson = JsonSerializer.Serialize(repairedDraftNode, JsonOptions);
+                        existingDraft.Status = MapDraftStatusFromDraftNode(repairedDraftNode);
+                        existingDraft.UpdatedAtUtc = DateTime.UtcNow;
+                        Console.WriteLine($"[AiJobService] persist-artifacts repair merged jobId={job.Id} draftId={existingDraft.Id} status='{existingDraft.Status}'");
+                    }
+                }
+            }
+
             if (job.Type.Equals("assignment_analyze_existing", StringComparison.OrdinalIgnoreCase))
             {
                 var assignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId;
@@ -1017,6 +1069,7 @@ public sealed partial class AiJobService : IAiJobService
             JobId = job.Id,
             RequestedByUserId = job.CreatedByUserId,
             CourseId = ExtractGuid(draftNode, "courseId") ?? job.CourseId,
+            BatchItemId = string.Equals(job.TargetEntityType, "ai-batch-item", StringComparison.OrdinalIgnoreCase) ? job.TargetEntityId : null,
             AssignmentType = assignmentType.Trim(),
             Title = title.Trim(),
             DraftJson = JsonSerializer.Serialize(draftNode, JsonOptions),
@@ -1102,6 +1155,10 @@ public sealed partial class AiJobService : IAiJobService
         CreatedAtUtc = job.CreatedAtUtc,
         StartedAtUtc = job.StartedAtUtc,
         CompletedAtUtc = job.CompletedAtUtc,
+        ParentJobId = job.ParentJobId,
+        StageCode = job.StageCode,
+        StageLabel = job.StageLabel,
+        StageOrder = job.StageOrder,
         HeartbeatAtUtc = job.HeartbeatAtUtc,
         NextAttemptAtUtc = job.NextAttemptAtUtc,
         RetryCount = job.RetryCount,
@@ -1109,6 +1166,20 @@ public sealed partial class AiJobService : IAiJobService
         ResultJson = job.ResultJson,
         ErrorText = job.ErrorText,
         Files = job.Files.Select(MapFile).ToList(),
+        Artifacts = job.Artifacts.OrderBy(x => x.CreatedAtUtc).Select(MapArtifact).ToList(),
+    };
+
+    private static AiArtifactDto MapArtifact(AiArtifact x) => new()
+    {
+        Id = x.Id,
+        JobId = x.JobId,
+        DraftId = x.DraftId,
+        ArtifactType = x.ArtifactType,
+        StageCode = x.StageCode,
+        Status = x.Status,
+        PayloadJson = x.PayloadJson,
+        ModelName = x.ModelName,
+        CreatedAtUtc = x.CreatedAtUtc,
     };
 
     private static AiJobFileDto MapFile(AiJobFile f) => new()
@@ -1119,27 +1190,33 @@ public sealed partial class AiJobService : IAiJobService
         PublicUrl = f.PublicUrl,
     };
 
-    private async Task<object> BuildGenerationInputAsync(string requestType, string? assignmentType, Guid? courseId, string? prompt, string? titleHint, int difficulty, int count, string? notes, bool enableSelfCheck, string? sourceText, object? file, CancellationToken ct)
+    private async Task<object> BuildGenerationInputAsync(string requestType, string? assignmentType, Guid? courseId, string? prompt, string? titleHint, int difficulty, int count, string? notes, bool enableSelfCheck, string? sourceText, object? file, CancellationToken ct, object? referenceAssignmentsOverride = null, object? additional = null)
     {
         var normalizedAssignmentType = (assignmentType ?? string.Empty).Trim();
-        var referenceAssignments = await BuildReferenceAssignmentsAsync(courseId, normalizedAssignmentType, ct);
-        return new
+        var referenceAssignments = referenceAssignmentsOverride ?? await BuildReferenceAssignmentsAsync(courseId, normalizedAssignmentType, ct);
+        JsonObject root = new JsonObject
         {
-            requestType,
-            assignmentType = normalizedAssignmentType,
-            courseId,
-            prompt,
-            sourceText,
-            titleHint,
-            difficulty,
-            count = Math.Clamp(count, 1, 10),
-            notes,
-            enableSelfCheck,
-            file,
-            targetSchema = BuildTargetSchema(normalizedAssignmentType),
-            qualityGates = BuildQualityGates(normalizedAssignmentType),
-            referenceAssignments,
+            ["requestType"] = requestType,
+            ["assignmentType"] = normalizedAssignmentType,
+            ["courseId"] = courseId?.ToString(),
+            ["prompt"] = prompt,
+            ["sourceText"] = sourceText,
+            ["titleHint"] = titleHint,
+            ["difficulty"] = difficulty,
+            ["count"] = Math.Clamp(count, 1, 10),
+            ["notes"] = notes,
+            ["enableSelfCheck"] = enableSelfCheck,
+            ["file"] = file == null ? null : JsonSerializer.SerializeToNode(file, JsonOptions),
+            ["targetSchema"] = JsonSerializer.SerializeToNode(BuildTargetSchema(normalizedAssignmentType), JsonOptions),
+            ["qualityGates"] = JsonSerializer.SerializeToNode(BuildQualityGates(normalizedAssignmentType), JsonOptions),
+            ["referenceAssignments"] = JsonSerializer.SerializeToNode(referenceAssignments, JsonOptions),
         };
+        if (additional != null && JsonSerializer.SerializeToNode(additional, JsonOptions) is JsonNode additionalNode && additionalNode is JsonObject additionalObj)
+        {
+            foreach (var kv in additionalObj)
+                root[kv.Key] = kv.Value;
+        }
+        return root;
     }
 
     private async Task<List<object>> BuildReferenceAssignmentsAsync(Guid? courseId, string? assignmentType, CancellationToken ct)

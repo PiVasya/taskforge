@@ -8,6 +8,9 @@ public interface IAiJobService
     Task<AiJobDetailsDto?> GetAdminJobAsync(Guid id, CancellationToken ct = default);
     Task<AiJobDetailsDto> EnqueueAsync(CreateAiJobRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<AiJobDetailsDto> QueueGenerateAssignmentFromTextAsync(AiGenerateAssignmentFromTextRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
+    Task<AiBatchDetailsDto> QueueGenerateAssignmentBatchAsync(AiGenerateAssignmentBatchRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
+    Task<IReadOnlyList<AiBatchListItemDto>> GetBatchesAsync(CancellationToken ct = default);
+    Task<AiBatchDetailsDto?> GetBatchAsync(Guid id, CancellationToken ct = default);
     Task<AiJobDetailsDto> QueueGenerateAssignmentFromFileAsync(AiGenerateAssignmentFromFileRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<AiJobDetailsDto?> QueueAnalyzeAssignmentAsync(AiAnalyzeAssignmentRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<AiJobDetailsDto?> QueueReviewSubmissionAsync(AiReviewSubmissionRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);

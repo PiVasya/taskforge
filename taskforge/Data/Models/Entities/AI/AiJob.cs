@@ -29,6 +29,17 @@ public sealed class AiJob
     public Guid? CourseId { get; set; }
     public Course? Course { get; set; }
 
+    public Guid? ParentJobId { get; set; }
+    public AiJob? ParentJob { get; set; }
+
+    [MaxLength(80)]
+    public string? StageCode { get; set; }
+
+    [MaxLength(160)]
+    public string? StageLabel { get; set; }
+
+    public int? StageOrder { get; set; }
+
     public string? InputJson { get; set; }
     public string? ResultJson { get; set; }
     public string? ErrorText { get; set; }
@@ -48,4 +59,5 @@ public sealed class AiJob
     public DateTime? NextAttemptAtUtc { get; set; }
 
     public ICollection<AiJobFile> Files { get; set; } = new List<AiJobFile>();
+    public ICollection<AiArtifact> Artifacts { get; set; } = new List<AiArtifact>();
 }
