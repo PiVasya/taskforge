@@ -23,6 +23,7 @@ from prompt_builder import (
     build_gap_analysis_prompt,
     build_batch_plan_prompt,
     build_brief_prompt,
+    build_brief_repair_prompt,
     build_reference_pack_prompt,
     build_batch_review_prompt,
     build_student_journey_prompt,
@@ -99,7 +100,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Brief repair ──────────────────────────────────
     if job_type == "assignment_brief_repair":
-        return fallback_result(job)
+        return _ollama_stage(build_brief_repair_prompt)
 
     # ── Per-stage reviews (deterministic) ─────────────
     if job_type == "assignment_structural_review":
@@ -167,6 +168,8 @@ def main():
     log(f"started api={API_BASE} worker={WORKER_ID} model={OLLAMA_MODEL} poll={POLL_INTERVAL}s")
     while True:
         loop_started = time.time()
+        job = None
+        job_id = None
         try:
             job = pull_job()
             if not job:
@@ -184,6 +187,11 @@ def main():
             raise
         except Exception as ex:
             logger.error(f"loop error: {type(ex).__name__}: {ex}", exc_info=True)
+            if job_id:
+                try:
+                    fail(job_id, f"{type(ex).__name__}: {ex}")
+                except Exception as fail_ex:
+                    logger.error(f"fail() call also failed: {fail_ex}")
             time.sleep(POLL_INTERVAL)
 
 

@@ -340,8 +340,20 @@ public sealed partial class AiJobService
         if (rootNode is not JsonObject rootObj)
             rootObj = new JsonObject();
 
-        var meta = rootObj["meta"] as JsonObject ?? new JsonObject();
-        var reviews = meta["aiReviews"] as JsonObject ?? new JsonObject();
+        // Detach "meta" from rootObj before reparenting to avoid
+        // "The node already has a parent" when meta is already a child.
+        var meta = rootObj["meta"] as JsonObject;
+        if (meta != null)
+            rootObj.Remove("meta");
+        else
+            meta = new JsonObject();
+
+        var reviews = meta["aiReviews"] as JsonObject;
+        if (reviews != null)
+            meta.Remove("aiReviews");
+        else
+            reviews = new JsonObject();
+
         reviews[reviewKey] = string.IsNullOrWhiteSpace(reviewJson) ? new JsonObject() : JsonNode.Parse(reviewJson!);
         meta["aiReviews"] = reviews;
         rootObj["meta"] = meta;
@@ -1360,7 +1372,14 @@ public sealed partial class AiJobService
         if (rootNode is not JsonObject rootObj)
             rootObj = new JsonObject();
 
-        var meta = rootObj["meta"] as JsonObject ?? new JsonObject();
+        // Detach "meta" from rootObj before reparenting to avoid
+        // "The node already has a parent" when meta is already a child.
+        var meta = rootObj["meta"] as JsonObject;
+        if (meta != null)
+            rootObj.Remove("meta");
+        else
+            meta = new JsonObject();
+
         meta[metaKey] = string.IsNullOrWhiteSpace(metaJson) ? null : JsonNode.Parse(metaJson!);
         rootObj["meta"] = meta;
         return rootObj.ToJsonString(JsonOptions);

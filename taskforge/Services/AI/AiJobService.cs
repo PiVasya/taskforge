@@ -1234,8 +1234,11 @@ public sealed partial class AiJobService : IAiJobService
         };
         if (additional != null && JsonSerializer.SerializeToNode(additional, JsonOptions) is JsonNode additionalNode && additionalNode is JsonObject additionalObj)
         {
-            foreach (var kv in additionalObj)
+            foreach (var kv in additionalObj.ToList())
+            {
+                additionalObj.Remove(kv.Key);
                 root[kv.Key] = kv.Value;
+            }
         }
         return root;
     }

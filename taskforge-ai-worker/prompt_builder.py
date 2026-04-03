@@ -333,6 +333,29 @@ def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     )
 
 
+def build_brief_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    extra_rules = [
+        "Обнови generationPrompt, sourceText и notes так, чтобы они устранили все замечания review.",
+        "Сохрани targetSkill и difficultyTarget, если review не требует их изменения.",
+        "Не расширяй brief — одна задача = одна учебная цель.",
+    ]
+    if detect_beginner_char_array_track(payload):
+        extra_rules.extend([
+            "Это beginner C++ char[] task. Не уводи brief в cstring/scanf/fgets.",
+            "Верни brief к базовым ручным операциям char[] через cin/cout.",
+        ])
+    return (
+        "Ты — TaskForge AI brief repair agent. Верни только валидный JSON без markdown.\n\n"
+        "Нужно исправить brief по результатам brief review. Не генерируй draft — только brief.\n"
+        "Используй findings и reviewResults для понимания, что именно нужно починить.\n"
+        "Формат JSON: {\"titleHint\":\"...\",\"summary\":\"...\",\"generationPrompt\":\"...\","
+        "\"sourceText\":\"...\",\"notes\":\"...\",\"difficultyTarget\":2,\"targetSkill\":\"...\","
+        "\"decisionLog\":[{\"stage\":\"brief_repair\",\"message\":\"...\"}]}.\n"
+        + "\n".join(extra_rules) + "\n\n"
+        + f"Brief repair payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+    )
+
 def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
     extra = (
