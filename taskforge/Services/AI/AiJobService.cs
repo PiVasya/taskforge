@@ -1242,8 +1242,8 @@ public sealed partial class AiJobService : IAiJobService
 
     private async Task<List<object>> BuildReferenceAssignmentsAsync(Guid? courseId, string? assignmentType, CancellationToken ct)
     {
-        const int minDesired = 20;
-        const int maxDesired = 100;
+        const int minDesired = 8;
+        const int maxDesired = 24;
         var normalizedType = NormalizeDraftAssignmentType(assignmentType, default);
 
         var assignments = new List<taskforge.Data.Models.Entities.TaskAssignment>();
@@ -1289,7 +1289,7 @@ public sealed partial class AiJobService : IAiJobService
     private async Task<object> BuildReferenceAssignmentSummaryAsync(taskforge.Data.Models.Entities.TaskAssignment assignment, CancellationToken ct)
     {
         var description = (assignment.Description ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
-        if (description.Length > 1200) description = description[..1200] + "...";
+        if (description.Length > 500) description = description[..500] + "...";
 
         var publicCases = new List<object>();
         int? hiddenTestsCount = null;
@@ -1302,7 +1302,7 @@ public sealed partial class AiJobService : IAiJobService
             publicCases = await _db.TaskTestCases.AsNoTracking()
                 .Where(x => x.TaskAssignmentId == assignment.Id && !x.IsHidden)
                 .OrderBy(x => x.Id)
-                .Take(3)
+                 .Take(2)
                 .Select(x => (object)new { x.Input, x.ExpectedOutput })
                 .ToListAsync(ct);
             hiddenTestsCount = await _db.TaskTestCases.AsNoTracking().CountAsync(x => x.TaskAssignmentId == assignment.Id && x.IsHidden, ct);

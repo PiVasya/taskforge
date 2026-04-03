@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import re
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -214,6 +215,266 @@ def compact_historical_slot_priors(payload: Dict[str, Any]) -> Dict[str, Any]:
         "routeHints": (priors.get("routeHints")[:5] if isinstance(priors.get("routeHints"), list) else []),
     }
 
+
+def unique_string_list(values: Any, limit: int = 12) -> List[str]:
+    result: List[str] = []
+    seen = set()
+    if not isinstance(values, list):
+        return result
+    for raw in values:
+        text = normalize_text(raw)
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def strip_conflicting_lists(preferred: Any, blocked: Any, limit: int = 12) -> (List[str], List[str], List[str]):
+    preferred_list = unique_string_list(preferred, limit)
+    blocked_list = unique_string_list(blocked, limit)
+    preferred_keys = {x.casefold() for x in preferred_list}
+    overlap = [x for x in blocked_list if x.casefold() in preferred_keys]
+    blocked_list = [x for x in blocked_list if x.casefold() not in preferred_keys]
+    return preferred_list, blocked_list, overlap
+
+
+def detect_beginner_char_array_track(payload: Dict[str, Any]) -> bool:
+    prompt = normalize_text(payload.get("prompt")).lower()
+    if not prompt or "char" not in prompt or "c++" not in prompt:
+        return False
+    beginner_markers = ["прост", "вводн", "базов", "нович", "с нуля", "beginner", "intro"]
+    advanced_markers = ["strcat", "strcpy", "strlen", "cstring", "fgets", "scanf", "printf"]
+    return any(m in prompt for m in beginner_markers) and not any(m in prompt for m in advanced_markers)
+
+
+def compact_course_profile(value: Any) -> Dict[str, Any]:
+    cp = value if isinstance(value, dict) else {}
+    return {
+        "dominantSkills": unique_string_list(cp.get("dominantSkills"), 8),
+        "difficultyDistribution": cp.get("difficultyDistribution") if isinstance(cp.get("difficultyDistribution"), dict) else {},
+        "styleProfile": cp.get("styleProfile") if isinstance(cp.get("styleProfile"), dict) else {},
+        "policyProfile": cp.get("policyProfile") if isinstance(cp.get("policyProfile"), dict) else {},
+        "testProfile": cp.get("testProfile") if isinstance(cp.get("testProfile"), dict) else {},
+        "assignmentOntology": cp.get("assignmentOntology") if isinstance(cp.get("assignmentOntology"), dict) else {},
+        "exemplarSignals": cp.get("exemplarSignals") if isinstance(cp.get("exemplarSignals"), (dict, list)) else cp.get("exemplarSignals"),
+        "negativePatterns": unique_string_list(cp.get("negativePatterns"), 10),
+    }
+
+
+def compact_gap_analysis_object(value: Any) -> Dict[str, Any]:
+    ga = value if isinstance(value, dict) else {}
+    return {
+        "coveredTopics": unique_string_list(ga.get("coveredTopics"), 8),
+        "missingTopics": unique_string_list(ga.get("missingTopics"), 8),
+        "weakCoverageTopics": unique_string_list(ga.get("weakCoverageTopics"), 6),
+        "duplicateClusters": unique_string_list(ga.get("duplicateClusters"), 6),
+        "recommendedFocus": unique_string_list(ga.get("recommendedFocus"), 8),
+        "curriculumRisks": unique_string_list(ga.get("curriculumRisks"), 8),
+    }
+
+
+def compact_plan_object(value: Any) -> Dict[str, Any]:
+    plan = value if isinstance(value, dict) else {}
+    tasks = []
+    for item in (plan.get("tasks") if isinstance(plan.get("tasks"), list) else [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        tasks.append({
+            "index": item.get("index"),
+            "targetSkill": normalize_text(item.get("targetSkill")),
+            "microGoal": truncate_text(item.get("microGoal"), 220),
+            "difficultyTarget": item.get("difficultyTarget"),
+            "whyItExists": truncate_text(item.get("whyItExists"), 220),
+            "antiDuplicateHints": unique_string_list(item.get("antiDuplicateHints"), 5),
+            "decisionLog": (item.get("decisionLog")[:3] if isinstance(item.get("decisionLog"), list) else []),
+        })
+    return {"tasks": tasks}
+
+
+def compact_brief_object(value: Any) -> Dict[str, Any]:
+    brief = value if isinstance(value, dict) else {}
+    return {
+        "titleHint": truncate_text(brief.get("titleHint"), 160),
+        "summary": truncate_text(brief.get("summary"), 260),
+        "generationPrompt": truncate_text(brief.get("generationPrompt"), 600),
+        "sourceText": truncate_text(brief.get("sourceText"), 400),
+        "notes": truncate_text(brief.get("notes"), 320),
+        "difficultyTarget": brief.get("difficultyTarget"),
+        "targetSkill": truncate_text(brief.get("targetSkill"), 160),
+        "decisionLog": (brief.get("decisionLog")[:3] if isinstance(brief.get("decisionLog"), list) else []),
+    }
+
+
+def compact_brief_review_object(value: Any) -> Dict[str, Any]:
+    review = value if isinstance(value, dict) else {}
+    checks = []
+    for item in (review.get("checks") if isinstance(review.get("checks"), list) else [])[:8]:
+        if isinstance(item, dict):
+            checks.append({
+                "name": normalize_text(item.get("name")),
+                "status": normalize_text(item.get("status")),
+                "details": truncate_text(item.get("details"), 180),
+            })
+    findings = []
+    for item in (review.get("findings") if isinstance(review.get("findings"), list) else [])[:6]:
+        if isinstance(item, dict):
+            findings.append({
+                "severity": normalize_text(item.get("severity")),
+                "code": normalize_text(item.get("code")),
+                "message": truncate_text(item.get("message"), 180),
+            })
+    return {
+        "status": normalize_text(review.get("status")),
+        "score": review.get("score"),
+        "checks": checks,
+        "findings": findings,
+        "titleHint": truncate_text(review.get("titleHint"), 160),
+    }
+
+
+def compact_payload_for_stage(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    compact = {}
+    job_type = normalize_text(job_type).lower()
+    keep_scalar = ["mode", "count", "notes", "prompt", "batchId", "courseId", "difficulty", "requestType", "assignmentType", "batchItemId"]
+    for key in keep_scalar:
+        if key in payload:
+            compact[key] = payload.get(key)
+    if isinstance(payload.get("qualityGates"), dict):
+        compact["qualityGates"] = payload.get("qualityGates")
+    if isinstance(payload.get("targetSchema"), dict):
+        ts = payload.get("targetSchema")
+        compact["targetSchema"] = {
+            "assignmentType": ts.get("assignmentType"),
+            "requiredFields": ts.get("requiredFields"),
+            "descriptionFormat": ts.get("descriptionFormat"),
+            "quality": ts.get("quality"),
+            "codePolicy": ts.get("codePolicy"),
+            "meta": ts.get("meta"),
+        }
+    compact["referenceAssignments"] = compact_reference_assignments(payload)
+    priors = compact_historical_planner_priors(payload)
+    if priors:
+        compact["historicalPlannerPriors"] = priors
+    slot_priors = compact_historical_slot_priors(payload)
+    if slot_priors:
+        compact["historicalSlotPriors"] = slot_priors
+    if isinstance(payload.get("courseProfile"), dict):
+        compact["courseProfile"] = {
+            "summary": truncate_text(payload.get("courseProfile", {}).get("summary"), 300) if isinstance(payload.get("courseProfile"), dict) else "",
+            "courseProfile": compact_course_profile(payload.get("courseProfile", {}).get("courseProfile") if isinstance(payload.get("courseProfile"), dict) else {}),
+        }
+    if isinstance(payload.get("gapAnalysis"), dict):
+        compact["gapAnalysis"] = {
+            "summary": truncate_text(payload.get("gapAnalysis", {}).get("summary"), 300) if isinstance(payload.get("gapAnalysis"), dict) else "",
+            "coverage": payload.get("gapAnalysis", {}).get("coverage") if isinstance(payload.get("gapAnalysis"), dict) else {},
+            "gapAnalysis": compact_gap_analysis_object(payload.get("gapAnalysis", {}).get("gapAnalysis") if isinstance(payload.get("gapAnalysis"), dict) else {}),
+        }
+    if isinstance(payload.get("plan"), dict):
+        compact["plan"] = compact_plan_object(payload.get("plan"))
+    if isinstance(payload.get("task"), dict):
+        task = payload.get("task")
+        compact["task"] = {
+            "index": task.get("index") or task.get("Index"),
+            "targetSkill": task.get("targetSkill") or task.get("TargetSkill"),
+            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 220),
+            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
+            "whyItExists": truncate_text(task.get("whyItExists") or task.get("WhyItExists"), 220),
+            "antiDuplicateHints": unique_string_list(task.get("antiDuplicateHints") or task.get("AntiDuplicateHints"), 5),
+        }
+    if isinstance(payload.get("brief"), dict):
+        compact["brief"] = compact_brief_object(payload.get("brief"))
+    if isinstance(payload.get("briefReview"), dict):
+        compact["briefReview"] = compact_brief_review_object(payload.get("briefReview"))
+    for key in ["batchMemory", "positiveMemory", "institutionalMemory", "antiPatternMemory", "plannerFeedback", "decisionLogDigest", "replanLedger"]:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            compact[key] = value
+        elif isinstance(value, list):
+            compact[key] = value[:8]
+    return compact
+
+
+def sanitize_result_payload(job_type: str, payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return result
+    sanitized = json.loads(json.dumps(result, ensure_ascii=False))
+
+    def _sanitize_policy_dict(target: Dict[str, Any], prefer_key: str, block_key: str):
+        preferred, blocked, overlap = strip_conflicting_lists(target.get(prefer_key), target.get(block_key))
+        if preferred or prefer_key in target:
+            target[prefer_key] = preferred
+        if blocked or block_key in target:
+            target[block_key] = blocked
+        if overlap:
+            log("sanitized policy overlap", {"jobType": job_type, "preferKey": prefer_key, "blockKey": block_key, "overlap": overlap[:8]})
+
+    if isinstance(sanitized.get("courseProfile"), dict):
+        cp = sanitized["courseProfile"]
+        policy = cp.get("policyProfile") if isinstance(cp.get("policyProfile"), dict) else None
+        if isinstance(policy, dict):
+            _sanitize_policy_dict(policy, "enforcedMethods", "forbiddenFunctions")
+            policy["enforcedMethods"] = unique_string_list(policy.get("enforcedMethods"), 8)
+            policy["forbiddenFunctions"] = unique_string_list(policy.get("forbiddenFunctions"), 10)
+        if detect_beginner_char_array_track(payload):
+            negative = unique_string_list(cp.get("negativePatterns"), 12)
+            extra = [
+                "не смешивай cout/cin стиль с scanf/printf/fgets в одной beginner-задаче",
+                "не прыгай сразу в cstring-функции, если не запрошены явно",
+                "не делай взаимоисключающие policy rules",
+            ]
+            cp["negativePatterns"] = unique_string_list(negative + extra, 12)
+
+    if isinstance(sanitized.get("plan"), dict) and isinstance(sanitized["plan"].get("tasks"), list):
+        beginner_track = detect_beginner_char_array_track(payload)
+        seen_skills = set()
+        for idx, task in enumerate(sanitized["plan"]["tasks"], start=1):
+            if not isinstance(task, dict):
+                continue
+            skill = normalize_text(task.get("targetSkill"))
+            micro = normalize_text(task.get("microGoal"))
+            if beginner_track and any(x in (skill + " " + micro).lower() for x in ["fgets", "strcat", "strcpy", "strlen", "cstring"]):
+                replacements = [
+                    ("char array initialization and output", "Объявить char[] и вывести его посимвольно или целиком через cout", 1),
+                    ("char array input with cin", "Считать одно слово в char[] через cin и вывести его", 1),
+                    ("char array length with loop", "Найти длину char[] вручную циклом до \0", 2),
+                    ("char array symbol replacement", "Заменить указанный символ в char[] и вывести результат", 2),
+                    ("char array comparison basics", "Сравнить два коротких char[] посимвольно и вывести yes/no", 2),
+                ]
+                repl = replacements[(idx - 1) % len(replacements)]
+                task["targetSkill"], task["microGoal"], task["difficultyTarget"] = repl
+                hints = unique_string_list(task.get("antiDuplicateHints"), 6)
+                task["antiDuplicateHints"] = unique_string_list(hints + ["не использовать fgets/strcat/strcpy/strlen без явного запроса"], 6)
+            low = normalize_text(task.get("targetSkill")).casefold()
+            if low in seen_skills and low:
+                task["targetSkill"] = f"{task.get('targetSkill')} #{idx}"
+            if low:
+                seen_skills.add(low)
+
+    if job_type == "assignment_brief_generate":
+        beginner_track = detect_beginner_char_array_track(payload)
+        if beginner_track:
+            gp = normalize_text(sanitized.get("generationPrompt"))
+            bad = ["fgets", "strcat", "strcpy", "strlen", "cstring", "scanf", "printf"]
+            if any(x in gp.lower() for x in bad):
+                task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+                skill = normalize_text(task.get("targetSkill") or task.get("TargetSkill") or sanitized.get("targetSkill") or "char array basics")
+                micro = normalize_text(task.get("microGoal") or task.get("MicroGoal") or sanitized.get("summary") or "Одно простое действие с char[]")
+                sanitized["generationPrompt"] = f"Создай одну простую beginner-задачу по C++ на тему char[]. Учебная цель: {micro}. Разрешены только базовые операции: объявление char[], ввод/вывод через cin/cout, цикл по символам, поиск длины вручную, простая замена символов. Не используй scanf/printf/fgets/cstring-функции, если они не запрошены явно. Цель должна быть одна: {skill}."
+                sanitized["notes"] = truncate_text((normalize_text(sanitized.get("notes")) + " Не смешивай C-style IO и cstring-функции в beginner-заче.").strip(), 320)
+        sanitized["sourceText"] = truncate_text(sanitized.get("sourceText") or payload.get("prompt"), 400)
+
+    if isinstance(sanitized.get("policyPack"), dict):
+        pp = sanitized["policyPack"]
+        _sanitize_policy_dict(pp, "requiredCalls", "forbiddenCalls")
+        _sanitize_policy_dict(pp, "enforcedMethods", "forbiddenFunctions")
+
+    return sanitized
 
 
 def extract_historical_skill_biases(payload: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -477,24 +738,34 @@ def build_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any], bad_result
 
 
 def build_course_profile_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
-    compact_payload = dict(payload)
-    compact_payload["referenceAssignments"] = compact_reference_assignments(payload)
+    compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    beginner_track = detect_beginner_char_array_track(payload)
+    extra_rules = []
+    if beginner_track:
+        extra_rules.extend([
+            "Для beginner C++ char[] track не смешивай стиль cout/cin с scanf/printf/fgets.",
+            "Не записывай одну и ту же функцию одновременно в enforcedMethods и forbiddenFunctions.",
+            "Если prompt не просит cstring явно, не делай strcat/strcpy/strlen обязательными core skills курса.",
+        ])
     return (
         "Ты — TaskForge AI course profiler. Верни только валидный JSON без markdown.\n\n"
         "Нужно построить профиль курса по существующим referenceAssignments.\n"
-        "Формат JSON: {\"courseProfile\":{\"dominantSkills\":[...],\"difficultyDistribution\":{...},\"styleProfile\":{...},\"policyProfile\":{...},\"testProfile\":{...},\"assignmentOntology\":{...},\"exemplarSignals\":{...},\"negativePatterns\":[...]},\"summary\":\"...\",\"decisionSummary\":{...}}.\n\n"
-        f"Payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        "Формат JSON: {\"courseProfile\":{\"dominantSkills\":[...],\"difficultyDistribution\":{...},\"styleProfile\":{...},\"policyProfile\":{...},\"testProfile\":{...},\"assignmentOntology\":{...},\"exemplarSignals\":{...},\"negativePatterns\":[...]},\"summary\":\"...\",\"decisionSummary\":{...}}.\n"
+        "policyProfile должен быть внутренне согласованным: один и тот же метод нельзя помещать и в ожидаемые/обязательные, и в запрещённые.\n"
+        + ("\n".join(extra_rules) + "\n\n" if extra_rules else "\n")
+        + f"Payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
     )
 
 
 def build_gap_analysis_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
-    compact_payload = dict(payload)
-    compact_payload["referenceAssignments"] = compact_reference_assignments(payload)
+    compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    extra = "Для beginner C++ char[] track recommendedFocus должен строить мягкую прогрессию от базовых операций к чуть более сложным, без раннего прыжка в cstring." if detect_beginner_char_array_track(payload) else ""
     return (
         "Ты — TaskForge AI gap analyst. Верни только валидный JSON без markdown.\n\n"
         "Нужно проанализировать пробелы курса и вернуть, чего не хватает относительно запроса.\n"
-        "Формат JSON: {\"gapAnalysis\":{\"coveredTopics\":[...],\"missingTopics\":[...],\"weakCoverageTopics\":[...],\"duplicateClusters\":[...],\"recommendedFocus\":[...],\"curriculumRisks\":[...]} ,\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...}}.\n\n"
-        f"Payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        "Формат JSON: {\"gapAnalysis\":{\"coveredTopics\":[...],\"missingTopics\":[...],\"weakCoverageTopics\":[...],\"duplicateClusters\":[...],\"recommendedFocus\":[...],\"curriculumRisks\":[...]} ,\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...}}.\n"
+        + (extra + "\n\n" if extra else "\n")
+        + f"Payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
     )
 
 
@@ -565,10 +836,19 @@ def fallback_gap_analysis(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[
 
 def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     request_kind = "replan" if (job.get("type") or "").lower().strip() == "assignment_batch_replan" else "plan"
-    compact_payload = dict(payload)
-    compact_payload["referenceAssignments"] = compact_reference_assignments(payload)
-    compact_payload["historicalPlannerPriors"] = compact_historical_planner_priors(payload)
-    compact_payload["historicalSlotPriors"] = compact_historical_slot_priors(payload)
+    compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    extra_rules = [
+        "Не делай пустой план. Количество tasks должно соответствовать count.",
+        "Избегай исторически слабых targetSkill patterns и risky transitions, если их можно обойти.",
+        "Не планируй взаимоисключающие policy requirements.",
+    ]
+    if detect_beginner_char_array_track(payload):
+        extra_rules.extend([
+            "Это beginner C++ char[] pack: построй мягкую лесенку из 5 отдельных микронавыков.",
+            "Предпочитай последовательность: объявление/вывод -> ввод слова в char[] -> ручной проход циклом -> ручной поиск длины/индекса -> простая замена/сравнение символов.",
+            "Не используй fgets, scanf, printf, strcat, strcpy, strlen, cstring, если это не запрошено явно.",
+            "Одна задача = одна учебная цель. Не смешивай несколько операций в одном slot.",
+        ])
     return (
         "Ты — TaskForge AI planner. Верни только валидный JSON без markdown.\n\n"
         f"Сейчас режим: {request_kind}. Нужно построить план набора задач, а не сами задачи.\n"
@@ -576,37 +856,45 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         "Historical planner priors — это память о сильных/слабых skill patterns, risky transitions, anti-patterns и repair routes из прошлых batch waves того же курса.\n"
         "Сначала нормализуй запрос, потом верни coverage/gaps и план пакета.\n"
         "Формат JSON: {\"canonicalRequest\":{...},\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...},\"plan\":{\"tasks\":[{\"index\":1,\"targetSkill\":\"...\",\"microGoal\":\"...\",\"difficultyTarget\":2,\"whyItExists\":\"...\",\"antiDuplicateHints\":[\"...\"],\"decisionLog\":[{\"stage\":\"batch_plan\",\"message\":\"...\"}]}]}}\n"
-        "Не делай пустой план. Количество tasks должно соответствовать count.\n"
-        "Избегай исторически слабых targetSkill patterns и risky transitions, если их можно обойти.\n\n"
-        f"Batch payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + "\n".join(extra_rules) + "\n\n"
+        + f"Batch payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
     )
 
 
 def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
-    compact_payload = dict(payload)
-    compact_payload["referenceAssignments"] = compact_reference_assignments(payload)
-    compact_payload["historicalPlannerPriors"] = compact_historical_planner_priors(payload)
-    compact_payload["historicalSlotPriors"] = compact_historical_slot_priors(payload)
+    compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    extra_rules = [
+        "generationPrompt должен быть понятным, узким и не смешивать много учебных целей.",
+        "sourceText должен отражать исходный пользовательский intent, а не случайный reference fragment.",
+        "Не создавай взаимоисключающие требования по policy.",
+    ]
+    if detect_beginner_char_array_track(payload):
+        extra_rules.extend([
+            "Это beginner C++ char[] task. Делай одну маленькую цель и базовый IO через cin/cout.",
+            "Не предлагай fgets/scanf/printf/cstring-функции, если их нет в явном user intent.",
+            "Для beginner track предпочитай ручные операции с char[]: цикл по символам, поиск длины вручную, замена символа, сравнение символов.",
+        ])
     return (
         "Ты — TaskForge AI brief writer. Верни только валидный JSON без markdown.\n\n"
         "Нужно написать идеальный brief для одной будущей задачи, а не сам draft задания.\n"
         "Используй historicalPlannerPriors, historicalSlotPriors, institutionalMemory и antiPatternMemory как ограничения: усиливай удачные patterns и не повторяй исторически слабые.\n"
         "Формат JSON: {\"titleHint\":\"...\",\"summary\":\"...\",\"generationPrompt\":\"...\",\"sourceText\":\"...\",\"notes\":\"...\",\"difficultyTarget\":2,\"targetSkill\":\"...\",\"decisionLog\":[{\"stage\":\"brief_generate\",\"message\":\"...\"}]}.\n"
-        "generationPrompt должен быть понятным, узким и не смешивать много учебных целей.\n\n"
-        f"Brief payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + "\n".join(extra_rules) + "\n\n"
+        + f"Brief payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
     )
 
 
 def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
-    compact_payload = dict(payload)
-    compact_payload["referenceAssignments"] = compact_reference_assignments(payload)
-    compact_payload["historicalPlannerPriors"] = compact_historical_planner_priors(payload)
-    compact_payload["historicalSlotPriors"] = compact_historical_slot_priors(payload)
+    compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    extra = "policyPack должен быть внутренне согласованным: одно и то же нельзя одновременно помещать в required/enforced и forbidden."
+    if detect_beginner_char_array_track(payload):
+        extra += " Для beginner C++ char[] track generationHints должны уводить в базовые ручные операции и не форсировать cstring/fgets без явного запроса."
     return (
         "Ты — TaskForge AI reference pack builder. Верни только валидный JSON без markdown.\n\n"
         "Нужно собрать compact reference pack для одной будущей задачи: stylePack, policyPack, negativePack, exemplarPack, signals, generationHints.\n"
         "Используй brief, briefReview, courseProfile, antiPatternMemory, historicalPlannerPriors и historicalSlotPriors.\n"
         "Negative pack должен явно перечислять, чего НЕ надо повторять из слабых исторических паттернов.\n"
+        f"{extra}\n"
         "Формат JSON: {\"stylePack\":{...},\"policyPack\":{...},\"negativePack\":{...},\"exemplarPack\":{...},\"signals\":{...},\"generationHints\":{...},\"decisionLog\":[{\"stage\":\"reference_pack_build\",\"message\":\"...\"}]}.\n\n"
         f"Reference pack payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
     )
@@ -1488,6 +1776,7 @@ def run_brief_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
     title_hint = normalize_text(brief.get("titleHint"))
     generation_prompt = normalize_text(brief.get("generationPrompt"))
     source_text = normalize_text(brief.get("sourceText"))
+    notes = normalize_text(brief.get("notes"))
     difficulty = int(brief.get("difficultyTarget") or 0)
     target_skill = normalize_text(brief.get("targetSkill"))
     if not target_skill:
@@ -1499,7 +1788,7 @@ def run_brief_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
     if not source_text or len(source_text) < 10:
         findings.append({"severity": "medium", "code": "brief.short_source_text", "message": "sourceText слишком короткий.", "suggestedRepair": "Добавь предметную суть темы и edge cases."})
     checks.append({"name": "sourceText", "status": "passed" if source_text and len(source_text) >= 10 else "warning", "details": str(len(source_text))})
-    broad_markers = ["и т.п", "и т.д", "всё", "несколько больших тем", "поиск +", "вставка +"]
+    broad_markers = ["и т.п", "и т.д", "всё", "несколько больших тем", "поиск +", "вставка +", "topic pack", "5 simple c++ tasks", "including"]
     broad = any(m in generation_prompt.lower() for m in broad_markers)
     if broad:
         findings.append({"severity": "high", "code": "brief.too_broad", "message": "Brief слишком широкий и размытый.", "suggestedRepair": "Сузь brief до одной учебной цели и одной основной операции."})
@@ -1507,12 +1796,42 @@ def run_brief_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
     if difficulty < 1 or difficulty > 5:
         findings.append({"severity": "medium", "code": "brief.bad_difficulty", "message": "difficultyTarget вне диапазона 1..5.", "suggestedRepair": "Приведи difficultyTarget к диапазону 1..5."})
     checks.append({"name": "difficultyTarget", "status": "passed" if 1 <= difficulty <= 5 else "warning", "details": str(difficulty)})
+
+    beginner_track = detect_beginner_char_array_track(payload)
+    gp_lower = generation_prompt.lower()
+    st_lower = source_text.lower()
+    if beginner_track and any(x in gp_lower for x in ["fgets", "strcat", "strcpy", "strlen", "cstring", "scanf", "printf"]):
+        findings.append({"severity": "high", "code": "brief.beginner_track_drift", "message": "Brief уехал в C-style IO/cstring, хотя нужен базовый beginner char[] track.", "suggestedRepair": "Верни brief к базовым операциям char[] через cin/cout и ручные циклы."})
+        checks.append({"name": "beginner-track-alignment", "status": "failed", "details": generation_prompt[:120]})
+    else:
+        checks.append({"name": "beginner-track-alignment", "status": "passed" if beginner_track else "warning", "details": "ok" if beginner_track else "n/a"})
+
+    if source_text and source_text.strip().startswith('{\"type\"'):
+        findings.append({"severity": "medium", "code": "brief.source_text_polluted", "message": "sourceText выглядит как подмешанный reference/doc fragment, а не user intent.", "suggestedRepair": "Верни в sourceText исходный пользовательский запрос или его чистую нормализацию."})
+        checks.append({"name": "sourceText-origin", "status": "warning", "details": "reference-fragment"})
+    else:
+        checks.append({"name": "sourceText-origin", "status": "passed", "details": "user-intent" if source_text else "missing"})
+
+    skill_low = target_skill.casefold()
+    prompt_tokens = [x for x in re.split(r"[^\wа-яА-Я]+", generation_prompt.lower()) if len(x) >= 4]
+    token_set = set(prompt_tokens)
+    if target_skill and not any(tok in skill_low for tok in token_set if tok in {"char", "array", "strlen", "strcpy", "strcat", "symbol", "string", "ввод", "вывод"}):
+        findings.append({"severity": "medium", "code": "brief.skill_prompt_mismatch", "message": "targetSkill и generationPrompt слабо согласованы.", "suggestedRepair": "Сделай targetSkill и generationPrompt про одну и ту же операцию."})
+        checks.append({"name": "skill-prompt-alignment", "status": "warning", "details": target_skill})
+    else:
+        checks.append({"name": "skill-prompt-alignment", "status": "passed", "details": target_skill or "missing"})
+
+    if notes and len(notes) > 280:
+        checks.append({"name": "notes-size", "status": "warning", "details": str(len(notes))})
+    else:
+        checks.append({"name": "notes-size", "status": "passed", "details": str(len(notes))})
+
     status = "passed"
     if any(f["severity"] == "high" for f in findings):
         status = "failed"
-    elif findings:
+    elif findings or any(c.get("status") == "warning" for c in checks):
         status = "needs-review"
-    score = max(0.0, 1.0 - 0.2 * len([f for f in findings if f["severity"] == "high"]) - 0.1 * len([f for f in findings if f["severity"] != "high"]))
+    score = max(0.0, 1.0 - 0.22 * len([f for f in findings if f["severity"] == "high"]) - 0.08 * len([f for f in findings if f["severity"] != "high"]) - 0.03 * len([c for c in checks if c.get("status") == "warning"]))
     return {"status": status, "score": round(score, 3), "summary": "Brief review completed", "checks": checks, "findings": findings, "titleHint": title_hint}
 
 
@@ -1931,6 +2250,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as ex:
             log("course profile ollama failed, using fallback:", ex)
             result = fallback_course_profile(payload, job)
+        result = sanitize_result_payload(job_type, payload, result)
         log("process_job <<< course profile", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
         return result
     if job_type == "assignment_gap_analysis":
@@ -1941,6 +2261,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as ex:
             log("gap analysis ollama failed, using fallback:", ex)
             result = fallback_gap_analysis(payload, job)
+        result = sanitize_result_payload(job_type, payload, result)
         log("process_job <<< gap analysis", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
         return result
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
@@ -1951,6 +2272,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as ex:
             log("batch plan/replan ollama failed, using fallback:", ex)
             result = fallback_result(job)
+        result = sanitize_result_payload(job_type, payload, result)
         log("process_job <<< batch plan/replan", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
         return result
     if job_type == "assignment_reference_pack_build":
@@ -1961,6 +2283,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as ex:
             log("reference pack ollama failed, using fallback:", ex)
             result = fallback_result(job)
+        result = sanitize_result_payload(job_type, payload, result)
         log("process_job <<< reference pack", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
         return result
     if job_type == "assignment_brief_generate":
@@ -1971,6 +2294,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as ex:
             log("brief ollama failed, using fallback:", ex)
             result = fallback_result(job)
+        result = sanitize_result_payload(job_type, payload, result)
         log("process_job <<< brief result", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
         return result
     if job_type == "assignment_validate_draft":
