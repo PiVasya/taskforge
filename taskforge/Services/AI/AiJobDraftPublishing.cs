@@ -38,9 +38,8 @@ public sealed partial class AiJobService
         var title = (request.TitleOverride ?? ReadString(root, "title") ?? draft.Title ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(title)) throw new ValidationException("У draft отсутствует title");
 
-        var description = (ReadString(root, "description") ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(description))
-            description = "<p>Черновик задания опубликован из AI-draft.</p>";
+        var description = NormalizeDraftDescription(root);
+        if (string.IsNullOrWhiteSpace(description)) throw new ValidationException("У draft отсутствует полноценное условие (description).");
 
         var difficulty = Clamp(ReadInt(root, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
         var rating = Math.Max(0, request.Rating ?? ReadInt(root, "rating") ?? 1);
@@ -153,22 +152,15 @@ public sealed partial class AiJobService
     private async Task PublishCodeDraftAsync(TaskAssignment assignment, JsonElement root, CancellationToken ct)
     {
         var langs = ReadStringArray(root, "allowedLanguages");
-        assignment.AllowedLanguagesCsv = string.Join(",", langs.Count > 0 ? langs : new List<string> { "python" });
+        assignment.AllowedLanguagesCsv = string.Join(",", langs.Count > 0 ? langs : new List<string> { "python", "cpp", "csharp" });
+        assignment.CodeForbiddenCallsJson = BuildStringListDocument(root, "forbiddenCalls");
+        assignment.CodeRequiredCallsJson = BuildStringListDocument(root, "requiredCalls");
 
-        var allTests = ReadTestCases(root, false, "publicTests", "tests")
-            .Concat(ReadTestCases(root, true, "hiddenTests"))
-            .ToList();
-        if (allTests.Count == 0)
-        {
-            allTests.Add(new TaskTestCase
-            {
-                Id = Guid.NewGuid(),
-                TaskAssignmentId = assignment.Id,
-                Input = "2\n",
-                ExpectedOutput = "4",
-                IsHidden = false,
-            });
-        }
+        var publicTests = ReadTestCases(root, false, "publicTests", "tests").ToList();
+        var hiddenTests = ReadTestCases(root, true, "hiddenTests").ToList();
+        if (publicTests.Count < 2) throw new ValidationException("У code-test draft должно быть минимум 2 publicTests.");
+        if (hiddenTests.Count < 5) throw new ValidationException("У code-test draft должно быть минимум 5 hiddenTests.");
+        var allTests = publicTests.Concat(hiddenTests).ToList();
 
         foreach (var test in allTests)
         {
@@ -224,6 +216,24 @@ public sealed partial class AiJobService
         }
 
         await Task.CompletedTask;
+    }
+
+    private static string NormalizeDraftDescription(JsonElement root)
+    {
+        var raw = (ReadString(root, "description") ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        if (!raw.Contains('<'))
+        {
+            raw = $"<p>{System.Net.WebUtility.HtmlEncode(raw)}</p>";
+        }
+        return raw;
+    }
+
+    private static JsonDocument? BuildStringListDocument(JsonElement root, string property)
+    {
+        var items = ReadStringArray(root, property);
+        if (items.Count == 0) return null;
+        return JsonDocument.Parse(JsonSerializer.Serialize(items, JsonOptions));
     }
 
     private static string NormalizeDraftAssignmentType(string? assignmentType, JsonElement root)

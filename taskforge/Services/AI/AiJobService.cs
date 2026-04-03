@@ -107,24 +107,23 @@ public sealed partial class AiJobService : IAiJobService
         return MapDetails(job);
     }
 
-    public Task<AiJobDetailsDto> QueueGenerateAssignmentFromTextAsync(AiGenerateAssignmentFromTextRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    public async Task<AiJobDetailsDto> QueueGenerateAssignmentFromTextAsync(AiGenerateAssignmentFromTextRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
     {
-        var input = new
-        {
-            requestType = "assignment_generate_from_text",
-            assignmentType = request.AssignmentType.Trim(),
-            courseId = request.CourseId,
-            prompt = request.Prompt,
-            sourceText = request.SourceText,
-            titleHint = request.TitleHint,
-            difficulty = request.Difficulty,
-            count = Math.Clamp(request.Count, 1, 10),
-            notes = request.Notes,
-            enableSelfCheck = request.EnableSelfCheck,
-            targetSchema = BuildTargetSchema(request.AssignmentType),
-        };
+        var input = await BuildGenerationInputAsync(
+            requestType: "assignment_generate_from_text",
+            assignmentType: request.AssignmentType,
+            courseId: request.CourseId,
+            prompt: request.Prompt,
+            titleHint: request.TitleHint,
+            difficulty: request.Difficulty,
+            count: request.Count,
+            notes: request.Notes,
+            enableSelfCheck: request.EnableSelfCheck,
+            sourceText: request.SourceText,
+            file: null,
+            ct: ct);
 
-        return EnqueueAsync(new CreateAiJobRequestDto
+        return await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = "assignment_generate_from_text",
             TargetEntityType = "course",
@@ -135,24 +134,23 @@ public sealed partial class AiJobService : IAiJobService
         }, createdByUserId, createdByDisplayName, ct);
     }
 
-    public Task<AiJobDetailsDto> QueueGenerateAssignmentFromFileAsync(AiGenerateAssignmentFromFileRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    public async Task<AiJobDetailsDto> QueueGenerateAssignmentFromFileAsync(AiGenerateAssignmentFromFileRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
     {
-        var input = new
-        {
-            requestType = "assignment_generate_from_file",
-            assignmentType = request.AssignmentType.Trim(),
-            courseId = request.CourseId,
-            prompt = request.Prompt,
-            titleHint = request.TitleHint,
-            difficulty = request.Difficulty,
-            count = Math.Clamp(request.Count, 1, 10),
-            notes = request.Notes,
-            enableSelfCheck = request.EnableSelfCheck,
-            file = new { request.FileKey, request.OriginalName, request.MimeType, request.PublicUrl },
-            targetSchema = BuildTargetSchema(request.AssignmentType),
-        };
+        var input = await BuildGenerationInputAsync(
+            requestType: "assignment_generate_from_file",
+            assignmentType: request.AssignmentType,
+            courseId: request.CourseId,
+            prompt: request.Prompt,
+            titleHint: request.TitleHint,
+            difficulty: request.Difficulty,
+            count: request.Count,
+            notes: request.Notes,
+            enableSelfCheck: request.EnableSelfCheck,
+            sourceText: null,
+            file: new { request.FileKey, request.OriginalName, request.MimeType, request.PublicUrl },
+            ct: ct);
 
-        return EnqueueAsync(new CreateAiJobRequestDto
+        return await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = "assignment_generate_from_file",
             TargetEntityType = "course",
@@ -485,6 +483,8 @@ public sealed partial class AiJobService : IAiJobService
             usePythonSelfCheck = request.UsePythonSelfCheck,
             draft = JsonSerializer.Deserialize<object>(draft.DraftJson ?? "{}"),
             targetSchema = BuildTargetSchema(draft.AssignmentType),
+            referenceAssignments = await BuildReferenceAssignmentsAsync(draft.CourseId, draft.AssignmentType, ct),
+            validationRules = BuildQualityGates(draft.AssignmentType),
         };
 
         return await EnqueueAsync(new CreateAiJobRequestDto
@@ -1119,6 +1119,172 @@ public sealed partial class AiJobService : IAiJobService
         PublicUrl = f.PublicUrl,
     };
 
+    private async Task<object> BuildGenerationInputAsync(string requestType, string? assignmentType, Guid? courseId, string? prompt, string? titleHint, int difficulty, int count, string? notes, bool enableSelfCheck, string? sourceText, object? file, CancellationToken ct)
+    {
+        var normalizedAssignmentType = (assignmentType ?? string.Empty).Trim();
+        var referenceAssignments = await BuildReferenceAssignmentsAsync(courseId, normalizedAssignmentType, ct);
+        return new
+        {
+            requestType,
+            assignmentType = normalizedAssignmentType,
+            courseId,
+            prompt,
+            sourceText,
+            titleHint,
+            difficulty,
+            count = Math.Clamp(count, 1, 10),
+            notes,
+            enableSelfCheck,
+            file,
+            targetSchema = BuildTargetSchema(normalizedAssignmentType),
+            qualityGates = BuildQualityGates(normalizedAssignmentType),
+            referenceAssignments,
+        };
+    }
+
+    private async Task<List<object>> BuildReferenceAssignmentsAsync(Guid? courseId, string? assignmentType, CancellationToken ct)
+    {
+        const int minDesired = 20;
+        const int maxDesired = 100;
+        var normalizedType = NormalizeDraftAssignmentType(assignmentType, default);
+
+        var assignments = new List<taskforge.Data.Models.Entities.TaskAssignment>();
+        var seen = new HashSet<Guid>();
+
+        async Task LoadChunkAsync(IQueryable<taskforge.Data.Models.Entities.TaskAssignment> query, int take)
+        {
+            if (take <= 0) return;
+            var chunk = await query
+                .AsNoTracking()
+                .OrderByDescending(x => x.UpdatedAt)
+                .ThenByDescending(x => x.CreatedAt)
+                .Take(take)
+                .ToListAsync(ct);
+            foreach (var item in chunk)
+            {
+                if (seen.Add(item.Id)) assignments.Add(item);
+            }
+        }
+
+        if (courseId != null)
+        {
+            await LoadChunkAsync(_db.TaskAssignments.Where(x => x.CourseId == courseId.Value && x.Type == normalizedType), maxDesired);
+            if (assignments.Count < minDesired)
+                await LoadChunkAsync(_db.TaskAssignments.Where(x => x.CourseId == courseId.Value && x.Type != normalizedType), minDesired - assignments.Count);
+        }
+
+        if (assignments.Count < maxDesired)
+            await LoadChunkAsync(_db.TaskAssignments.Where(x => x.Type == normalizedType), maxDesired - assignments.Count);
+        if (assignments.Count < maxDesired)
+            await LoadChunkAsync(_db.TaskAssignments, maxDesired - assignments.Count);
+
+        var result = new List<object>(assignments.Count);
+        foreach (var assignment in assignments.Take(maxDesired))
+        {
+            result.Add(await BuildReferenceAssignmentSummaryAsync(assignment, ct));
+        }
+
+        Console.WriteLine($"[AiJobService] built reference assignments type='{normalizedType}' requestedCourseId='{courseId}' count={result.Count}");
+        return result;
+    }
+
+    private async Task<object> BuildReferenceAssignmentSummaryAsync(taskforge.Data.Models.Entities.TaskAssignment assignment, CancellationToken ct)
+    {
+        var description = (assignment.Description ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
+        if (description.Length > 1200) description = description[..1200] + "...";
+
+        var publicCases = new List<object>();
+        int? hiddenTestsCount = null;
+        int? blocksCount = null;
+        int? questionsCount = null;
+
+        var type = (assignment.Type ?? string.Empty).Trim().ToLowerInvariant();
+        if (type == "code-test")
+        {
+            publicCases = await _db.TaskTestCases.AsNoTracking()
+                .Where(x => x.TaskAssignmentId == assignment.Id && !x.IsHidden)
+                .OrderBy(x => x.Id)
+                .Take(3)
+                .Select(x => (object)new { x.Input, x.ExpectedOutput })
+                .ToListAsync(ct);
+            hiddenTestsCount = await _db.TaskTestCases.AsNoTracking().CountAsync(x => x.TaskAssignmentId == assignment.Id && x.IsHidden, ct);
+        }
+        else if (type == "math")
+        {
+            blocksCount = await _db.TaskMathBlocks.AsNoTracking().CountAsync(x => x.TaskAssignmentId == assignment.Id, ct);
+        }
+        else if (type == "test")
+        {
+            questionsCount = await _db.TaskTestQuestions.AsNoTracking().CountAsync(x => x.TaskAssignmentId == assignment.Id, ct);
+        }
+
+        return new
+        {
+            assignment.Id,
+            assignment.CourseId,
+            assignment.Type,
+            assignment.Title,
+            Description = description,
+            assignment.Tags,
+            assignment.Difficulty,
+            assignment.Rating,
+            assignment.AllowedLanguagesCsv,
+            publicCases,
+            hiddenTestsCount,
+            blocksCount,
+            questionsCount,
+            forbiddenCalls = ParseJsonStringArray(assignment.CodeForbiddenCallsJson),
+            requiredCalls = ParseJsonStringArray(assignment.CodeRequiredCallsJson),
+        };
+    }
+
+    private static object BuildQualityGates(string? assignmentType)
+    {
+        var normalized = NormalizeDraftAssignmentType(assignmentType, default);
+        return normalized switch
+        {
+            "code-test" => new
+            {
+                minDescriptionLength = 200,
+                minPublicTests = 2,
+                minHiddenTests = 5,
+                requireReferenceSolutionPython = true,
+                requireAllowedLanguages = true,
+                requireCodePolicyReview = true,
+                requireEdgeCases = true,
+            },
+            "test" => new
+            {
+                minDescriptionLength = 120,
+                minQuestions = 5,
+                requireDiverseQuestionTypes = true,
+            },
+            "math" => new
+            {
+                minDescriptionLength = 120,
+                minBlocks = 2,
+                requireAtLeastOneAnswerBlock = true,
+            },
+            _ => new
+            {
+                minDescriptionLength = 120,
+            },
+        };
+    }
+
+    private static List<string> ParseJsonStringArray(JsonDocument? doc)
+    {
+        var result = new List<string>();
+        if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return result;
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String) continue;
+            var value = item.GetString();
+            if (!string.IsNullOrWhiteSpace(value)) result.Add(value.Trim());
+        }
+        return result;
+    }
+
     private static object BuildTargetSchema(string? assignmentType)
     {
         var normalized = (assignmentType ?? string.Empty).Trim().ToLowerInvariant();
@@ -1127,38 +1293,44 @@ public sealed partial class AiJobService : IAiJobService
             "math" => new
             {
                 assignmentType = "math",
-                settings = new { maxAttempts = 3, passPercent = 60, shuffleBlocks = false, allowReview = true, attemptTimeLimitsSeconds = Array.Empty<int?>() },
+                requiredFields = new[] { "assignmentType", "title", "description", "settings", "blocks" },
+                descriptionFormat = new { allowed = new[] { "html", "rich-text" }, minLength = 120, sections = new[] { "problem", "hints" } },
+                settings = new { maxAttempts = "int >= 1", passPercent = "int 1..100", shuffleBlocks = "bool", allowReview = "bool", attemptTimeLimitsSeconds = "int?[]" },
                 blocks = new object[]
                 {
-                    new { blockType = "info", title = "Условие", promptContent = new { type = "doc", content = Array.Empty<object>() }, points = 0 },
-                    new { blockType = "number", title = "Числовой ответ", promptContent = new { type = "doc", content = Array.Empty<object>() }, points = 1 },
+                    new { blockType = "info|number|expression|set|single-choice|multi-choice|order|match", title = "string", prompt = "string optional", promptContent = "rich-text optional", points = "int >= 0", isRequired = "bool" }
                 },
-                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Нужно проверить ответы через Python before publish." } }
+                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить структуру блоков перед публикацией." } }
             },
             "test" => new
             {
                 assignmentType = "test",
-                settings = new { maxAttempts = 3, passPercent = 60, shuffleQuestions = true, shuffleAnswers = true, allowReview = true, attemptTimeLimitsSeconds = Array.Empty<int?>() },
+                requiredFields = new[] { "assignmentType", "title", "description", "settings", "questions" },
+                descriptionFormat = new { allowed = new[] { "html", "rich-text" }, minLength = 120, sections = new[] { "problem", "instructions" } },
+                settings = new { maxAttempts = "int >= 1", passPercent = "int 1..100", shuffleQuestions = "bool", shuffleAnswers = "bool", allowReview = "bool", attemptTimeLimitsSeconds = "int?[]" },
                 questions = new object[]
                 {
-                    new { type = "single-choice", prompt = "Вопрос", options = new[] { new { key = "a", text = "Вариант A" }, new { key = "b", text = "Вариант B" } }, correctOptionKeys = new[] { "a" } }
+                    new { type = "single-choice|multi-choice|fill|text", prompt = "string", options = "required for choice", correctOptionKeys = "required for choice", acceptedAnswers = "required for fill/text" }
                 },
-                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Нужно проверить правильность вопросов и ответов." } }
+                quality = new { minQuestions = 5, mustAvoidDuplicates = true },
+                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить вопросы и ответы перед публикацией." } }
             },
             "code-test" => new
             {
                 assignmentType = "code-test",
+                requiredFields = new[] { "assignmentType", "title", "description", "allowedLanguages", "publicTests", "hiddenTests", "referenceSolutionPython" },
+                descriptionFormat = new { allowed = new[] { "html", "rich-text" }, minLength = 200, sections = new[] { "problem", "input", "output", "constraints", "notes" } },
                 allowedLanguages = new[] { "python", "cpp", "csharp" },
-                publicTests = new[] { new { input = "2\n", expectedOutput = "4" } },
-                hiddenTests = new[] { new { input = "5\n", expectedOutput = "25" } },
-                referenceSolutionPython = "import sys\n\ndef solve(data: str) -> str:\n    n = int(data.strip())\n    return str(n * n)\n\nif __name__ == '__main__':\n    print(solve(sys.stdin.read()))",
-                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Нужно прогнать reference solution по public/hidden tests before publish." } }
+                publicTests = new[] { new { input = "string", expectedOutput = "string" } },
+                hiddenTests = new[] { new { input = "string", expectedOutput = "string" } },
+                codePolicy = new { forbiddenCalls = "string[] optional", requiredCalls = "string[] optional" },
+                quality = new { minPublicTests = 2, minHiddenTests = 5, requireEdgeCases = true, requireDeterministicReferenceSolution = true },
+                meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить reference solution и все тесты перед публикацией." } }
             },
             _ => new
             {
                 assignmentType = assignmentType,
-                title = "Draft assignment",
-                description = "AI-generated draft",
+                requiredFields = new[] { "title", "description" },
             },
         };
     }
