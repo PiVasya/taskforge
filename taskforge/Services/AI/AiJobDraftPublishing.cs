@@ -18,28 +18,31 @@ public sealed partial class AiJobService
         var root = doc.RootElement;
         var courseId = request.CourseId ?? draft.CourseId ?? ExtractGuid(root, "courseId");
         var selfCheckStatus = ExtractSelfCheckStatus(root);
+        var isApproved = string.Equals(draft.Status, "approved", StringComparison.OrdinalIgnoreCase);
         var requiresPassedSelfCheck = _aiOptions.RequirePassedSelfCheckForPublish;
-        if (requiresPassedSelfCheck && !request.ForceWithoutPassedSelfCheck)
+        // If draft was manually approved by admin, treat as force-publish
+        var effectiveForce = request.ForceWithoutPassedSelfCheck || isApproved;
+        if (requiresPassedSelfCheck && !effectiveForce)
         {
             if (string.IsNullOrWhiteSpace(selfCheckStatus))
-                throw new ValidationException("Перед публикацией AI-draft должен пройти self-check.");
+                throw new ValidationException("Self-check не пройден. Сначала одобри черновик или запусти self-check.");
             if (!string.Equals(selfCheckStatus, "passed", StringComparison.OrdinalIgnoreCase))
-                throw new ValidationException($"Перед публикацией AI-draft должен иметь self-check со статусом passed. Сейчас: {selfCheckStatus}.");
+                throw new ValidationException($"Self-check не пройден (статус: {selfCheckStatus}). Одобри черновик вручную или перезапусти self-check.");
         }
-        if (courseId == null) throw new ValidationException("У draft не указан courseId. Передай CourseId при публикации.");
+        if (courseId == null) throw new ValidationException("Курс не указан. Выбери курс перед публикацией.");
 
         var courseExists = await _db.Courses.AsNoTracking().AnyAsync(x => x.Id == courseId.Value, ct);
-        if (!courseExists) throw new ValidationException("Курс для публикации draft не найден");
+        if (!courseExists) throw new ValidationException("Курс не найден. Проверь, что курс существует.");
 
         var assignmentType = NormalizeDraftAssignmentType(draft.AssignmentType, root);
         if (assignmentType != "math" && assignmentType != "test" && assignmentType != "code-test")
-            throw new ValidationException($"Публикация AI-draft пока поддерживается только для math/test/code-test. Сейчас: {assignmentType}");
+            throw new ValidationException($"Публикация поддерживается только для math, test, code-test. Текущий тип: {assignmentType}");
 
         var title = (request.TitleOverride ?? ReadString(root, "title") ?? draft.Title ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(title)) throw new ValidationException("У draft отсутствует title");
+        if (string.IsNullOrWhiteSpace(title)) throw new ValidationException("У черновика нет названия (title).");
 
         var description = NormalizeDraftDescription(root);
-        if (string.IsNullOrWhiteSpace(description)) throw new ValidationException("У draft отсутствует полноценное условие (description).");
+        if (string.IsNullOrWhiteSpace(description)) throw new ValidationException("У черновика нет условия (description). AI не сгенерировал описание.");
 
         var difficulty = Clamp(ReadInt(root, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
         var rating = Math.Max(0, request.Rating ?? ReadInt(root, "rating") ?? 1);
@@ -158,8 +161,8 @@ public sealed partial class AiJobService
 
         var publicTests = ReadTestCases(root, false, "publicTests", "tests").ToList();
         var hiddenTests = ReadTestCases(root, true, "hiddenTests").ToList();
-        if (publicTests.Count < 2) throw new ValidationException("У code-test draft должно быть минимум 2 publicTests.");
-        if (hiddenTests.Count < 5) throw new ValidationException("У code-test draft должно быть минимум 5 hiddenTests.");
+        if (publicTests.Count < 2) throw new ValidationException($"Нужно минимум 2 открытых теста (publicTests), сейчас: {publicTests.Count}.");
+        if (hiddenTests.Count < 5) throw new ValidationException($"Нужно минимум 5 скрытых тестов (hiddenTests), сейчас: {hiddenTests.Count}.");
         var allTests = publicTests.Concat(hiddenTests).ToList();
 
         foreach (var test in allTests)

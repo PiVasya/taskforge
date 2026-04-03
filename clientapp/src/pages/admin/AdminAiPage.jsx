@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '../../components/ui';
 import {
@@ -16,7 +16,11 @@ import { createCourse, getCourses } from '../../api/courses';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import {
+  AlertTriangle,
   Brain,
+  Check,
+  ChevronDown,
+  ChevronUp,
   FileStack,
   FolderPlus,
   LayoutDashboard,
@@ -24,8 +28,10 @@ import {
   RefreshCcw,
   Sparkles,
   Wand2,
+  X,
 } from 'lucide-react';
 
+/* ── Tabs ───────────────────────────────────────── */
 const AI_TABS = [
   { key: 'overview', label: 'Обзор', icon: LayoutDashboard },
   { key: 'create', label: 'Новый пакет', icon: Wand2 },
@@ -34,10 +40,12 @@ const AI_TABS = [
   { key: 'drafts', label: 'Черновики', icon: FileStack },
 ];
 
+/* ── Defaults ───────────────────────────────────── */
 const batchEmpty = {
   courseId: '',
-  assignmentType: 'math',
-  prompt: 'Собери пакет заданий для нового Foundry batch pipeline. Нужны логичные шаги, градация сложности и пригодность для текущего редактора TaskForge.',
+  assignmentType: 'code-test',
+  prompt:
+    'Собери пакет заданий для нового Foundry batch pipeline. Нужны логичные шаги, градация сложности и пригодность для текущего редактора TaskForge.',
   count: 5,
   mode: 'topic-pack',
   difficulty: 2,
@@ -51,14 +59,17 @@ const courseCreateEmpty = {
   isPublic: false,
 };
 
+/* ── Helpers ─────────────────────────────────────── */
 function statusTone(status) {
   switch ((status || '').toLowerCase()) {
     case 'done':
     case 'ready':
     case 'published':
+    case 'approved':
       return 'success';
     case 'failed':
     case 'error':
+    case 'rejected':
       return 'danger';
     case 'running':
     case 'processing':
@@ -66,6 +77,25 @@ function statusTone(status) {
     default:
       return 'secondary';
   }
+}
+
+function statusLabel(status) {
+  const s = (status || '').toLowerCase();
+  const map = {
+    pending: 'Ожидает',
+    running: 'Выполняется',
+    processing: 'Обработка',
+    done: 'Готово',
+    ready: 'Готов',
+    published: 'Опубликован',
+    approved: 'Одобрен',
+    rejected: 'Отклонён',
+    failed: 'Ошибка',
+    error: 'Ошибка',
+    draft: 'Черновик',
+    reviewed: 'Проверен',
+  };
+  return map[s] || status || '—';
 }
 
 function prettyJson(value) {
@@ -77,29 +107,87 @@ function prettyJson(value) {
   }
 }
 
-function extractSelfCheck(draftJson) {
+function tryParse(value) {
   try {
-    const parsed = typeof draftJson === 'string' ? JSON.parse(draftJson) : draftJson;
-    return parsed?.meta?.selfCheck || parsed?.selfCheck || null;
+    return typeof value === 'string' ? JSON.parse(value) : value;
   } catch (e) {
     return null;
   }
 }
 
+function extractSelfCheck(draftJson) {
+  var parsed = tryParse(draftJson);
+  return (parsed && (parsed.meta ? parsed.meta.selfCheck : null)) || (parsed ? parsed.selfCheck : null) || null;
+}
+
 function selfCheckTone(status) {
   switch ((status || '').toLowerCase()) {
-    case 'passed': return 'success';
-    case 'failed': return 'danger';
-    case 'needs-review': return 'outline';
-    default: return 'secondary';
+    case 'passed':
+      return 'success';
+    case 'failed':
+      return 'danger';
+    case 'needs-review':
+      return 'outline';
+    default:
+      return 'secondary';
   }
 }
 
-function canPublishDraft(draft) {
-  const selfCheck = extractSelfCheck(draft?.draftJson);
-  return !!selfCheck && String(selfCheck.status || '').toLowerCase() === 'passed' && draft?.status !== 'published';
+/**
+ * Определяет, можно ли опубликовать черновик.
+ * Publish доступен если:
+ * - draft не уже published
+ * - draft одобрен (approved) ИЛИ selfCheck passed —
+ *   если ни того ни другого, будет force publish
+ */
+function getPublishability(draft) {
+  if (!draft) return { can: false, reason: 'Нет черновика', force: false };
+  var st = (draft.status || '').toLowerCase();
+  if (st === 'published') return { can: false, reason: 'Уже опубликован', force: false };
+
+  var selfCheck = extractSelfCheck(draft.draftJson);
+  var selfCheckPassed = selfCheck && String(selfCheck.status || '').toLowerCase() === 'passed';
+  var isApproved = st === 'approved';
+
+  if (isApproved && selfCheckPassed)
+    return { can: true, reason: 'Одобрен + self-check пройден', force: false };
+  if (selfCheckPassed) return { can: true, reason: 'Self-check пройден', force: false };
+  if (isApproved)
+    return { can: true, reason: 'Одобрен (self-check не пройден — force)', force: true };
+
+  return { can: true, reason: 'Не проверен — будет force-публикация', force: true };
 }
 
+/** Вытаскивает человекочитаемую информацию из DraftJson */
+function extractDraftPreview(draftJson) {
+  var parsed = tryParse(draftJson);
+  if (!parsed) return null;
+
+  var info = {};
+  info.title = parsed.title || '';
+  info.difficulty = parsed.difficulty;
+  info.description = (parsed.description || '').replace(/<[^>]*>/g, '').slice(0, 300);
+  info.assignmentType = parsed.assignmentType;
+  info.tags = parsed.tags;
+
+  // code-test specifics
+  if (parsed.publicTests) info.publicTests = Array.isArray(parsed.publicTests) ? parsed.publicTests.length : 0;
+  if (parsed.hiddenTests) info.hiddenTests = Array.isArray(parsed.hiddenTests) ? parsed.hiddenTests.length : 0;
+  if (parsed.allowedLanguages)
+    info.languages = Array.isArray(parsed.allowedLanguages) ? parsed.allowedLanguages.join(', ') : parsed.allowedLanguages;
+  if (parsed.forbiddenCalls)
+    info.forbiddenCalls = Array.isArray(parsed.forbiddenCalls) ? parsed.forbiddenCalls.length : 0;
+
+  // math specifics
+  if (parsed.blocks) info.blocks = Array.isArray(parsed.blocks) ? parsed.blocks.length : 0;
+
+  // test specifics
+  if (parsed.questions) info.questions = Array.isArray(parsed.questions) ? parsed.questions.length : 0;
+
+  return info;
+}
+
+/* ── Small UI components ─────────────────────────── */
 function TabButton({ active, icon: Icon, children, onClick, count }) {
   return (
     <button
@@ -123,7 +211,9 @@ function SectionTitle({ icon: Icon, title, subtitle }) {
   return (
     <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
       <div>
-        <div className="font-medium flex items-center gap-2"><Icon size={18} /> {title}</div>
+        <div className="font-medium flex items-center gap-2">
+          <Icon size={18} /> {title}
+        </div>
         {subtitle ? <div className="text-sm opacity-70 mt-1">{subtitle}</div> : null}
       </div>
     </div>
@@ -140,169 +230,259 @@ function CompactStatCard({ title, value, hint }) {
   );
 }
 
+function DraftPreviewCard({ draft }) {
+  var preview = extractDraftPreview(draft && draft.draftJson);
+  if (!preview) return null;
+
+  return (
+    <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/50 p-3 text-sm space-y-1">
+      {preview.title ? <div className="font-medium">{preview.title}</div> : null}
+      {preview.description ? <div className="opacity-80 line-clamp-3">{preview.description}</div> : null}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-70">
+        {preview.difficulty != null ? <span>Сложность: {preview.difficulty}</span> : null}
+        {preview.languages ? <span>Языки: {preview.languages}</span> : null}
+        {preview.publicTests != null ? <span>Открытых тестов: {preview.publicTests}</span> : null}
+        {preview.hiddenTests != null ? <span>Скрытых тестов: {preview.hiddenTests}</span> : null}
+        {preview.blocks != null ? <span>Блоков: {preview.blocks}</span> : null}
+        {preview.questions != null ? <span>Вопросов: {preview.questions}</span> : null}
+        {preview.forbiddenCalls != null && preview.forbiddenCalls > 0 ? (
+          <span>Запрещённых вызовов: {preview.forbiddenCalls}</span>
+        ) : null}
+        {preview.tags ? <span>Теги: {preview.tags}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════
+   Main page component
+   ════════════════════════════════════════════════════ */
 export default function AdminAiPage() {
-  const notify = useNotify();
-  const [jobs, setJobs] = useState([]);
-  const [batches, setBatches] = useState([]);
-  const [drafts, setDrafts] = useState([]);
-  const [courses, setCourses] = useState([]);
-  const [selectedJob, setSelectedJob] = useState(null);
-  const [selectedBatch, setSelectedBatch] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [pageError, setPageError] = useState('');
-  const [activeTab, setActiveTab] = useState('overview');
-  const [filters, setFilters] = useState({ status: '', type: '', query: '' });
-  const [courseScopeId, setCourseScopeId] = useState('');
-  const [showCreateCourse, setShowCreateCourse] = useState(false);
-  const [courseCreateForm, setCourseCreateForm] = useState(courseCreateEmpty);
-  const [batchForm, setBatchForm] = useState(batchEmpty);
+  var notify = useNotify();
+  var [jobs, setJobs] = useState([]);
+  var [batches, setBatches] = useState([]);
+  var [drafts, setDrafts] = useState([]);
+  var [courses, setCourses] = useState([]);
+  var [selectedJob, setSelectedJob] = useState(null);
+  var [selectedBatch, setSelectedBatch] = useState(null);
+  var [loading, setLoading] = useState(true);
+  var [busy, setBusy] = useState(false);
+  var [pageError, setPageError] = useState('');
+  var [activeTab, setActiveTab] = useState('overview');
+  var [filters, setFilters] = useState({ status: '', type: '', query: '' });
+  var [courseScopeId, setCourseScopeId] = useState('');
+  var [showCreateCourse, setShowCreateCourse] = useState(false);
+  var [courseCreateForm, setCourseCreateForm] = useState(courseCreateEmpty);
+  var [batchForm, setBatchForm] = useState(batchEmpty);
+  var [expandedDrafts, setExpandedDrafts] = useState({});
 
-  const load = async () => {
-    try {
-      setLoading(true);
-      const [jobsData, batchesData, draftsData, coursesData] = await Promise.all([
-        getAiJobs({ status: filters.status || undefined, type: filters.type || undefined, page: 1, pageSize: 100 }),
-        getAiBatches(),
-        getAiDrafts(),
-        getCourses(),
-      ]);
-      setJobs(Array.isArray(jobsData.items) ? jobsData.items : []);
-      setBatches(Array.isArray(batchesData) ? batchesData : []);
-      setDrafts(Array.isArray(draftsData) ? draftsData : []);
-      setCourses(Array.isArray(coursesData) ? coursesData : []);
-      setPageError('');
-    } catch (e) {
-      const parsed = handleApiError(e, notify, 'Не удалось загрузить AI-раздел');
-      setPageError(parsed?.userMessage || 'Не удалось загрузить AI-раздел');
-    } finally {
-      setLoading(false);
-    }
-  };
+  var load = useCallback(
+    async function () {
+      try {
+        setLoading(true);
+        var results = await Promise.all([
+          getAiJobs({ status: filters.status || undefined, type: filters.type || undefined, page: 1, pageSize: 100 }),
+          getAiBatches(),
+          getAiDrafts(),
+          getCourses(),
+        ]);
+        setJobs(Array.isArray(results[0].items) ? results[0].items : []);
+        setBatches(Array.isArray(results[1]) ? results[1] : []);
+        setDrafts(Array.isArray(results[2]) ? results[2] : []);
+        setCourses(Array.isArray(results[3]) ? results[3] : []);
+        setPageError('');
+      } catch (e) {
+        var parsed = handleApiError(e, notify, 'Не удалось загрузить AI-раздел');
+        setPageError((parsed && parsed.userMessage) || 'Не удалось загрузить AI-раздел');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [filters.status, filters.type, notify],
+  );
 
-  useEffect(() => {
-    load();
-  }, []); // eslint-disable-line
+  useEffect(
+    function () {
+      load();
+    },
+    [], // eslint-disable-line
+  );
 
-  useEffect(() => {
-    if (!courseScopeId) return;
-    setBatchForm((prev) => ({ ...prev, courseId: courseScopeId }));
-  }, [courseScopeId]);
+  useEffect(
+    function () {
+      if (!courseScopeId) return;
+      setBatchForm(function (prev) {
+        return Object.assign({}, prev, { courseId: courseScopeId });
+      });
+    },
+    [courseScopeId],
+  );
 
-  const selectedCourse = useMemo(
-    () => courses.find((course) => String(course.id) === String(courseScopeId)) || null,
+  var selectedCourse = useMemo(
+    function () {
+      return courses.find(function (c) { return String(c.id) === String(courseScopeId); }) || null;
+    },
     [courses, courseScopeId],
   );
 
-  const filteredJobs = useMemo(() => {
-    const q = (filters.query || '').trim().toLowerCase();
-    if (!q) return jobs;
-    return jobs.filter((job) => {
-      const blob = [job.id, job.type, job.status, job.targetEntityType, job.targetEntityId, job.workerId].join(' ').toLowerCase();
-      return blob.includes(q);
-    });
-  }, [filters.query, jobs]);
+  var filteredJobs = useMemo(
+    function () {
+      var q = (filters.query || '').trim().toLowerCase();
+      if (!q) return jobs;
+      return jobs.filter(function (job) {
+        return [job.id, job.type, job.status, job.targetEntityType, job.targetEntityId, job.workerId]
+          .join(' ')
+          .toLowerCase()
+          .includes(q);
+      });
+    },
+    [filters.query, jobs],
+  );
 
-  const filteredBatches = useMemo(() => {
-    const q = (filters.query || '').trim().toLowerCase();
-    if (!q) return batches;
-    return batches.filter((batch) => {
-      const blob = [batch.id, batch.status, batch.currentStage, batch.assignmentType, batch.mode, batch.prompt].join(' ').toLowerCase();
-      return blob.includes(q);
-    });
-  }, [filters.query, batches]);
+  var filteredBatches = useMemo(
+    function () {
+      var q = (filters.query || '').trim().toLowerCase();
+      if (!q) return batches;
+      return batches.filter(function (batch) {
+        return [batch.id, batch.status, batch.currentStage, batch.assignmentType, batch.mode, batch.prompt]
+          .join(' ')
+          .toLowerCase()
+          .includes(q);
+      });
+    },
+    [filters.query, batches],
+  );
 
-  const loadAndOpenBatch = async (batchId) => {
+  /* ── Counters ───────────────────────────────────── */
+  var draftCounts = useMemo(
+    function () {
+      var publishable = 0;
+      var approved = 0;
+      var rejected = 0;
+      var published = 0;
+      var total = drafts.length;
+      for (var i = 0; i < drafts.length; i++) {
+        var st = (drafts[i].status || '').toLowerCase();
+        if (st === 'published') published++;
+        else if (st === 'approved') approved++;
+        else if (st === 'rejected') rejected++;
+        if (getPublishability(drafts[i]).can) publishable++;
+      }
+      return { publishable: publishable, approved: approved, rejected: rejected, published: published, total: total };
+    },
+    [drafts],
+  );
+
+  /* ── Actions ────────────────────────────────────── */
+  var loadAndOpenBatch = async function (batchId) {
     await load();
     if (!batchId) return;
     try {
-      const data = await getAiBatch(batchId);
+      var data = await getAiBatch(batchId);
       setSelectedBatch(data || null);
       setActiveTab('batches');
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось открыть batch');
+      handleApiError(e, notify, 'Не удалось открыть пакет');
     }
   };
 
-  const openJob = async (id) => {
+  var openJob = async function (id) {
     try {
-      const data = await getAiJob(id);
+      var data = await getAiJob(id);
       setSelectedJob(data || null);
       setActiveTab('queue');
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось открыть AI job');
+      handleApiError(e, notify, 'Не удалось открыть задание');
     }
   };
 
-  const openBatch = async (id) => {
+  var openBatch = async function (id) {
     try {
-      const data = await getAiBatch(id);
+      var data = await getAiBatch(id);
       setSelectedBatch(data || null);
       setActiveTab('batches');
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось открыть batch');
+      handleApiError(e, notify, 'Не удалось открыть пакет');
     }
   };
 
-  const submitBatch = async () => {
+  var submitBatch = async function () {
+    if (!batchForm.courseId) {
+      notify.error('Сначала выбери курс');
+      return;
+    }
     try {
       setBusy(true);
-      const created = await generateAiBatch({
-        ...batchForm,
+      var created = await generateAiBatch({
         courseId: batchForm.courseId || null,
+        assignmentType: batchForm.assignmentType,
+        prompt: batchForm.prompt,
         count: Number(batchForm.count || 1),
         difficulty: Number(batchForm.difficulty || 2),
+        mode: batchForm.mode,
+        notes: batchForm.notes,
         priority: Number(batchForm.priority || 20),
       });
-      notify.success('Foundry batch поставлен в очередь');
-      await loadAndOpenBatch(created?.id);
+      notify.success('Пакет создан и поставлен в очередь');
+      await loadAndOpenBatch(created && created.id);
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось создать Foundry batch');
+      handleApiError(e, notify, 'Не удалось создать пакет');
     } finally {
       setBusy(false);
     }
   };
 
-  const reviewDraftNow = async (id, action) => {
+  var reviewDraftNow = async function (id, action) {
     try {
+      setBusy(true);
       await reviewAiDraft(id, action);
-      notify.success(action === 'approve' ? 'Черновик approved' : 'Черновик rejected');
+      notify.success(action === 'approve' ? 'Черновик одобрен' : 'Черновик отклонён');
       await load();
     } catch (e) {
       handleApiError(e, notify, 'Не удалось обновить статус черновика');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const publishDraftNow = async (draft) => {
+  var publishDraftNow = async function (draft, forcePublish) {
+    var courseId = draft.courseId || courseScopeId || null;
+    if (!courseId) {
+      notify.error('Не указан курс. Выбери курс на вкладке «Обзор» перед публикацией.');
+      return;
+    }
     try {
       setBusy(true);
-      const data = await publishAiDraft(draft.id, { courseId: draft.courseId || courseScopeId || null });
-      notify.success(`Черновик опубликован как задание: ${data?.assignmentId || ''}`.trim());
+      var data = await publishAiDraft(draft.id, {
+        courseId: courseId,
+        forceWithoutPassedSelfCheck: !!forcePublish,
+      });
+      notify.success('Черновик опубликован как задание: ' + ((data && data.assignmentId) || ''));
       await load();
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось опубликовать AI draft');
+      handleApiError(e, notify, 'Не удалось опубликовать черновик');
     } finally {
       setBusy(false);
     }
   };
 
-  const validateDraftNow = async (draft) => {
+  var validateDraftNow = async function (draft) {
     try {
       setBusy(true);
-      const data = await validateAiDraft(draft.id, { usePythonSelfCheck: true });
-      notify.success('AI self-check поставлен в очередь');
-      await openJob(data?.id);
+      var data = await validateAiDraft(draft.id, { usePythonSelfCheck: true });
+      notify.success('Self-check запущен');
+      await openJob(data && data.id);
     } catch (e) {
-      handleApiError(e, notify, 'Не удалось запустить AI self-check');
+      handleApiError(e, notify, 'Не удалось запустить self-check');
     } finally {
       setBusy(false);
     }
   };
 
-  const handleCreateCourse = async () => {
+  var handleCreateCourse = async function () {
     try {
       setBusy(true);
-      const created = await createCourse({
+      var created = await createCourse({
         title: courseCreateForm.title || 'Новый курс',
         description: courseCreateForm.description || '',
         isPublic: !!courseCreateForm.isPublic,
@@ -313,7 +493,7 @@ export default function AdminAiPage() {
       setCourseCreateForm(courseCreateEmpty);
       setShowCreateCourse(false);
       await load();
-      if (created?.id) {
+      if (created && created.id) {
         setCourseScopeId(created.id);
       }
     } catch (e) {
@@ -323,319 +503,916 @@ export default function AdminAiPage() {
     }
   };
 
-  const renderCourseScopeCard = () => (
-    <Card>
-      <SectionTitle icon={FolderPlus} title="Курс для Foundry batch" subtitle="Выбери курс, в который будет создаваться новый batch. Старые single-shot генераторы убраны из UI." />
-      <div className="grid lg:grid-cols-[1fr,auto,auto] gap-3 mt-4 items-end">
-        <Field label="Текущий курс">
-          <Select value={courseScopeId} onChange={(e) => setCourseScopeId(e.target.value)}>
-            <option value="">Не выбран</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>{course.title || course.id}</option>
-            ))}
-          </Select>
-        </Field>
-        <Button variant="outline" onClick={() => setShowCreateCourse((prev) => !prev)}>
-          <FolderPlus size={16} />
-          <span className="ml-1">{showCreateCourse ? 'Скрыть создание' : 'Создать новый курс'}</span>
-        </Button>
-        <Button variant="outline" onClick={load}><RefreshCcw size={16} /> <span className="ml-1">Обновить</span></Button>
-      </div>
-      {selectedCourse ? (
-        <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-4 text-sm space-y-1">
-          <div className="font-medium">{selectedCourse.title || 'Без названия'}</div>
-          <div className="opacity-70 break-all">{selectedCourse.id}</div>
-          <div className="opacity-80">{selectedCourse.description || 'Без описания'}</div>
-        </div>
-      ) : null}
-      {showCreateCourse ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-700 p-4 grid md:grid-cols-2 gap-4">
-          <Field label="Название курса">
-            <Input value={courseCreateForm.title} onChange={(e) => setCourseCreateForm((prev) => ({ ...prev, title: e.target.value }))} />
-          </Field>
-          <label className="text-sm flex items-center gap-2 mt-7"><input type="checkbox" checked={!!courseCreateForm.isPublic} onChange={(e) => setCourseCreateForm((prev) => ({ ...prev, isPublic: e.target.checked }))} /> Public</label>
-          <div className="md:col-span-2">
-            <Field label="Описание">
-              <Textarea rows={4} value={courseCreateForm.description} onChange={(e) => setCourseCreateForm((prev) => ({ ...prev, description: e.target.value }))} />
-            </Field>
-          </div>
-          <div className="md:col-span-2 flex gap-2 flex-wrap">
-            <Button disabled={busy} onClick={handleCreateCourse}>Создать курс</Button>
-            <Button variant="outline" onClick={() => setCourseCreateForm(courseCreateEmpty)}>Сбросить</Button>
-          </div>
-        </div>
-      ) : null}
-    </Card>
-  );
+  var toggleDraftExpanded = function (id) {
+    setExpandedDrafts(function (prev) {
+      var next = Object.assign({}, prev);
+      next[id] = !prev[id];
+      return next;
+    });
+  };
 
-  const renderOverview = () => (
-    <div className="space-y-6">
-      {renderCourseScopeCard()}
-      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <CompactStatCard title="Jobs" value={jobs.length} hint="Все AI jobs" />
-        <CompactStatCard title="Batches" value={batches.length} hint="Foundry batch сущности" />
-        <CompactStatCard title="Ready drafts" value={drafts.filter((d) => String(d.status || '').toLowerCase() === 'ready').length} hint="Готовы к review/publish" />
-        <CompactStatCard title="Running jobs" value={jobs.filter((j) => String(j.status || '').toLowerCase() === 'running').length} hint="Сейчас обрабатываются worker'ом" />
-      </div>
+  /* ── Course scope selector ──────────────────────── */
+  var renderCourseScopeCard = function () {
+    return (
       <Card>
-        <SectionTitle icon={Sparkles} title="Что осталось в этой странице" subtitle="Только новый маршрут: создать Foundry batch, смотреть батчи, смотреть очередь jobs и публиковать готовые drafts." />
-        <div className="mt-4 text-sm opacity-80 space-y-2">
-          <div>• legacy single-shot генераторы удалены из UI;</div>
-          <div>• ручной generic enqueue удалён;</div>
-          <div>• фронт теперь толкает только <code>/api/admin/ai/batches/generate</code>.</div>
-        </div>
-      </Card>
-    </div>
-  );
-
-  const renderCreate = () => (
-    <div className="space-y-6">
-      {renderCourseScopeCard()}
-      <Card>
-        <SectionTitle icon={Wand2} title="Создать Foundry batch" subtitle="Эта форма создаёт только batch job и больше не может запустить старый assignment_generate_from_text / from_file путь." />
-        <div className="grid md:grid-cols-2 gap-4 mt-4">
-          <Field label="Course id">
-            <Input value={batchForm.courseId} onChange={(e) => setBatchForm((p) => ({ ...p, courseId: e.target.value }))} placeholder="обязательно" />
-          </Field>
-          <Field label="Assignment type">
-            <Select value={batchForm.assignmentType} onChange={(e) => setBatchForm((p) => ({ ...p, assignmentType: e.target.value }))}>
-              <option value="math">math</option>
-              <option value="test">test</option>
-              <option value="code-test">code-test</option>
+        <SectionTitle
+          icon={FolderPlus}
+          title="Курс"
+          subtitle="Выбери курс, в который будут создаваться задания из пакета."
+        />
+        <div className="grid lg:grid-cols-[1fr,auto,auto] gap-3 mt-4 items-end">
+          <Field label="Текущий курс">
+            <Select
+              value={courseScopeId}
+              onChange={function (e) {
+                setCourseScopeId(e.target.value);
+              }}
+            >
+              <option value="">— не выбран —</option>
+              {courses.map(function (course) {
+                return (
+                  <option key={course.id} value={course.id}>
+                    {course.title || course.id}
+                  </option>
+                );
+              })}
             </Select>
           </Field>
-          <Field label="Mode">
-            <Input value={batchForm.mode} onChange={(e) => setBatchForm((p) => ({ ...p, mode: e.target.value }))} placeholder="topic-pack" />
-          </Field>
-          <Field label="Difficulty">
-            <Input type="number" min="1" max="5" value={batchForm.difficulty} onChange={(e) => setBatchForm((p) => ({ ...p, difficulty: e.target.value }))} />
-          </Field>
-          <Field label="Count">
-            <Input type="number" min="1" max="20" value={batchForm.count} onChange={(e) => setBatchForm((p) => ({ ...p, count: e.target.value }))} />
-          </Field>
-          <Field label="Priority">
-            <Input type="number" min="0" max="100" value={batchForm.priority} onChange={(e) => setBatchForm((p) => ({ ...p, priority: e.target.value }))} />
-          </Field>
-          <div className="md:col-span-2">
-            <Field label="Prompt">
-              <Textarea rows={6} value={batchForm.prompt} onChange={(e) => setBatchForm((p) => ({ ...p, prompt: e.target.value }))} />
-            </Field>
-          </div>
-          <div className="md:col-span-2">
-            <Field label="Notes">
-              <Textarea rows={4} value={batchForm.notes} onChange={(e) => setBatchForm((p) => ({ ...p, notes: e.target.value }))} />
-            </Field>
-          </div>
+          <Button
+            variant="outline"
+            onClick={function () {
+              setShowCreateCourse(function (prev) {
+                return !prev;
+              });
+            }}
+          >
+            <FolderPlus size={16} />
+            <span className="ml-1">{showCreateCourse ? 'Скрыть' : 'Создать курс'}</span>
+          </Button>
+          <Button variant="outline" onClick={load}>
+            <RefreshCcw size={16} /> <span className="ml-1">Обновить</span>
+          </Button>
         </div>
-        <div className="mt-4 flex gap-2 flex-wrap">
-          <Button disabled={busy || !batchForm.courseId} onClick={submitBatch}>Создать batch</Button>
-          <Button variant="outline" onClick={() => setBatchForm({ ...batchEmpty, courseId: courseScopeId || '' })}>Сбросить</Button>
-        </div>
+        {selectedCourse ? (
+          <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-4 text-sm space-y-1">
+            <div className="font-medium">{selectedCourse.title || 'Без названия'}</div>
+            <div className="opacity-70 break-all text-xs">{selectedCourse.id}</div>
+            {selectedCourse.description ? <div className="opacity-80">{selectedCourse.description}</div> : null}
+          </div>
+        ) : null}
+        {showCreateCourse ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-700 p-4 grid md:grid-cols-2 gap-4">
+            <Field label="Название курса">
+              <Input
+                value={courseCreateForm.title}
+                onChange={function (e) {
+                  setCourseCreateForm(function (prev) {
+                    return Object.assign({}, prev, { title: e.target.value });
+                  });
+                }}
+              />
+            </Field>
+            <label className="text-sm flex items-center gap-2 mt-7">
+              <input
+                type="checkbox"
+                checked={!!courseCreateForm.isPublic}
+                onChange={function (e) {
+                  setCourseCreateForm(function (prev) {
+                    return Object.assign({}, prev, { isPublic: e.target.checked });
+                  });
+                }}
+              />{' '}
+              Публичный
+            </label>
+            <div className="md:col-span-2">
+              <Field label="Описание">
+                <Textarea
+                  rows={4}
+                  value={courseCreateForm.description}
+                  onChange={function (e) {
+                    setCourseCreateForm(function (prev) {
+                      return Object.assign({}, prev, { description: e.target.value });
+                    });
+                  }}
+                />
+              </Field>
+            </div>
+            <div className="md:col-span-2 flex gap-2 flex-wrap">
+              <Button disabled={busy} onClick={handleCreateCourse}>
+                Создать курс
+              </Button>
+              <Button
+                variant="outline"
+                onClick={function () {
+                  setCourseCreateForm(courseCreateEmpty);
+                }}
+              >
+                Сбросить
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Card>
-    </div>
-  );
+    );
+  };
 
-  const renderJobsQueue = () => (
-    <div className="grid xl:grid-cols-[0.92fr,1.08fr] gap-6">
-      <div className="space-y-4">
+  /* ── Overview ───────────────────────────────────── */
+  var renderOverview = function () {
+    return (
+      <div className="space-y-6">
+        {renderCourseScopeCard()}
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <CompactStatCard title="Всего jobs" value={jobs.length} hint="Все AI-задания в очереди" />
+          <CompactStatCard title="Пакеты" value={batches.length} hint="Foundry batch-сущности" />
+          <CompactStatCard
+            title="Готовы к публикации"
+            value={draftCounts.publishable}
+            hint={'Одобрено: ' + draftCounts.approved + ' · Отклонено: ' + draftCounts.rejected}
+          />
+          <CompactStatCard
+            title="Опубликовано"
+            value={draftCounts.published}
+            hint={'Всего черновиков: ' + draftCounts.total}
+          />
+        </div>
         <Card>
-          <SectionTitle icon={ListTodo} title="Очередь jobs" subtitle="Здесь должны появляться Foundry stage jobs вместо старых single-shot генераторов." />
-          <div className="grid md:grid-cols-3 gap-4 mt-4">
-            <Field label="Статус"><Input value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))} placeholder="pending / running / done / failed" /></Field>
-            <Field label="Тип"><Input value={filters.type} onChange={(e) => setFilters((p) => ({ ...p, type: e.target.value }))} placeholder="assignment_batch_plan / ..." /></Field>
-            <Field label="Поиск"><Input value={filters.query} onChange={(e) => setFilters((p) => ({ ...p, query: e.target.value }))} placeholder="search" /></Field>
-          </div>
-          <div className="mt-4 flex gap-2 flex-wrap">
-            <Button variant="outline" onClick={load}>Обновить</Button>
-            <Badge intent="secondary">показано: {filteredJobs.length}</Badge>
+          <SectionTitle
+            icon={Sparkles}
+            title="Как это работает"
+            subtitle="Batch pipeline: создай пакет → AI пройдёт все стадии → черновики появятся → одобри и опубликуй."
+          />
+          <div className="mt-4 text-sm opacity-80 space-y-2">
+            <div>1. Выбери курс наверху</div>
+            <div>2. Перейди на вкладку «Новый пакет» и создай batch</div>
+            <div>3. Следи за прогрессом на «Пакеты» и «Очередь»</div>
+            <div>4. Когда черновики готовы — одобри и опубликуй на «Черновики»</div>
           </div>
         </Card>
-
-        <div className="space-y-3 max-h-[72vh] overflow-auto pr-1">
-          {loading ? <Card>Загрузка…</Card> : filteredJobs.map((job) => (
-            <Card key={job.id} className={selectedJob?.id === job.id ? 'ring-2 ring-brand-500/30' : ''}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="font-medium break-all">{job.type}</div>
-                  <div className="text-xs opacity-70 mt-1 break-all">{job.id}</div>
-                  <div className="text-sm opacity-80 mt-2">target: {job.targetEntityType || '—'} {job.targetEntityId || ''}</div>
-                  <div className="text-xs opacity-60 mt-1">created: {job.createdAtUtc ? new Date(job.createdAtUtc).toLocaleString() : '—'}</div>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <Badge intent={statusTone(job.status)}>{job.status}</Badge>
-                  <Button variant="outline" onClick={() => openJob(job.id)}>Открыть</Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {!loading && filteredJobs.length === 0 ? <Card>AI jobs пока нет.</Card> : null}
-        </div>
       </div>
+    );
+  };
 
-      <Card>
-        <SectionTitle icon={Brain} title="Детали job" subtitle="Смотри input/result и проверяй, что stages идут по batch-цепочке." />
-        {!selectedJob ? <div className="text-sm opacity-70 mt-4">Выбери job слева.</div> : (
-          <div className="space-y-3 text-sm mt-4">
-            <div className="flex flex-wrap gap-2">
-              <Badge intent={statusTone(selectedJob.status)}>{selectedJob.status}</Badge>
-              {selectedJob.modelName ? <Badge intent="secondary">model: {selectedJob.modelName}</Badge> : null}
-              {selectedJob.workerId ? <Badge intent="secondary">worker: {selectedJob.workerId}</Badge> : null}
-            </div>
-            <div><span className="opacity-70">Type:</span> <span className="break-all">{selectedJob.type}</span></div>
-            <div><span className="opacity-70">Target:</span> <span className="break-all">{selectedJob.targetEntityType || '—'} {selectedJob.targetEntityId || ''}</span></div>
-            <div><span className="opacity-70">Created:</span> {selectedJob.createdAtUtc ? new Date(selectedJob.createdAtUtc).toLocaleString() : '—'}</div>
-            <div><span className="opacity-70">Started:</span> {selectedJob.startedAtUtc ? new Date(selectedJob.startedAtUtc).toLocaleString() : '—'}</div>
-            <div><span className="opacity-70">Completed:</span> {selectedJob.completedAtUtc ? new Date(selectedJob.completedAtUtc).toLocaleString() : '—'}</div>
-            <Field label="InputJson"><Textarea rows={12} readOnly value={prettyJson(selectedJob.inputJson)} /></Field>
-            <Field label="ResultJson"><Textarea rows={12} readOnly value={prettyJson(selectedJob.resultJson)} /></Field>
-            <Field label="Error"><Textarea rows={4} readOnly value={selectedJob.errorText || ''} /></Field>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-
-  const renderBatches = () => (
-    <div className="grid xl:grid-cols-[0.92fr,1.08fr] gap-6">
-      <div className="space-y-4">
+  /* ── Create batch ───────────────────────────────── */
+  var renderCreate = function () {
+    return (
+      <div className="space-y-6">
+        {renderCourseScopeCard()}
         <Card>
-          <SectionTitle icon={Sparkles} title="Foundry batches" subtitle="Отдельный список batch-сущностей, чтобы видеть stage и прогресс без копания в jobs." />
-          <div className="mt-4 flex gap-2 flex-wrap">
-            <Button variant="outline" onClick={load}>Обновить</Button>
-            <Badge intent="secondary">всего: {filteredBatches.length}</Badge>
+          <SectionTitle
+            icon={Wand2}
+            title="Создать Foundry-пакет"
+            subtitle="Форма создаёт batch-задание, которое AI обработает в несколько стадий."
+          />
+          <div className="grid md:grid-cols-2 gap-4 mt-4">
+            <Field label="Курс (id)">
+              <Input
+                value={batchForm.courseId}
+                onChange={function (e) {
+                  setBatchForm(function (p) {
+                    return Object.assign({}, p, { courseId: e.target.value });
+                  });
+                }}
+                placeholder="выбери курс наверху"
+              />
+            </Field>
+            <Field label="Тип задания">
+              <Select
+                value={batchForm.assignmentType}
+                onChange={function (e) {
+                  setBatchForm(function (p) {
+                    return Object.assign({}, p, { assignmentType: e.target.value });
+                  });
+                }}
+              >
+                <option value="code-test">code-test (программирование)</option>
+                <option value="math">math (математика/блоки)</option>
+                <option value="test">test (тест/квиз)</option>
+              </Select>
+            </Field>
+            <Field label="Режим">
+              <Input
+                value={batchForm.mode}
+                onChange={function (e) {
+                  setBatchForm(function (p) {
+                    return Object.assign({}, p, { mode: e.target.value });
+                  });
+                }}
+                placeholder="topic-pack"
+              />
+            </Field>
+            <Field label="Сложность (1–5)">
+              <Input
+                type="number"
+                min="1"
+                max="5"
+                value={batchForm.difficulty}
+                onChange={function (e) {
+                  setBatchForm(function (p) {
+                    return Object.assign({}, p, { difficulty: e.target.value });
+                  });
+                }}
+              />
+            </Field>
+            <Field label="Количество заданий">
+              <Input
+                type="number"
+                min="1"
+                max="20"
+                value={batchForm.count}
+                onChange={function (e) {
+                  setBatchForm(function (p) {
+                    return Object.assign({}, p, { count: e.target.value });
+                  });
+                }}
+              />
+            </Field>
+            <Field label="Приоритет">
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                value={batchForm.priority}
+                onChange={function (e) {
+                  setBatchForm(function (p) {
+                    return Object.assign({}, p, { priority: e.target.value });
+                  });
+                }}
+              />
+            </Field>
+            <div className="md:col-span-2">
+              <Field label="Промпт (что генерировать)">
+                <Textarea
+                  rows={6}
+                  value={batchForm.prompt}
+                  onChange={function (e) {
+                    setBatchForm(function (p) {
+                      return Object.assign({}, p, { prompt: e.target.value });
+                    });
+                  }}
+                />
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Заметки (необязательно)">
+                <Textarea
+                  rows={3}
+                  value={batchForm.notes}
+                  onChange={function (e) {
+                    setBatchForm(function (p) {
+                      return Object.assign({}, p, { notes: e.target.value });
+                    });
+                  }}
+                />
+              </Field>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2 flex-wrap items-center">
+            <Button disabled={busy || !batchForm.courseId} onClick={submitBatch}>
+              Создать пакет
+            </Button>
+            <Button
+              variant="outline"
+              onClick={function () {
+                setBatchForm(Object.assign({}, batchEmpty, { courseId: courseScopeId || '' }));
+              }}
+            >
+              Сбросить
+            </Button>
+            {!batchForm.courseId ? (
+              <span className="text-sm text-amber-600 flex items-center gap-1">
+                <AlertTriangle size={14} /> Сначала выбери курс
+              </span>
+            ) : null}
           </div>
         </Card>
-
-        <div className="space-y-3 max-h-[72vh] overflow-auto pr-1">
-          {loading ? <Card>Загрузка…</Card> : filteredBatches.map((batch) => (
-            <Card key={batch.id} className={selectedBatch?.id === batch.id ? 'ring-2 ring-brand-500/30' : ''}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="font-medium break-all">{batch.assignmentType} · {batch.mode || '—'}</div>
-                  <div className="text-xs opacity-70 mt-1 break-all">{batch.id}</div>
-                  <div className="text-sm opacity-80 mt-2 line-clamp-3">{batch.prompt}</div>
-                  <div className="text-xs opacity-60 mt-1">updated: {batch.updatedAtUtc ? new Date(batch.updatedAtUtc).toLocaleString() : '—'}</div>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <Badge intent={statusTone(batch.status)}>{batch.status}</Badge>
-                  {batch.currentStage ? <Badge intent="secondary">{batch.currentStage}</Badge> : null}
-                  <Button variant="outline" onClick={() => openBatch(batch.id)}>Открыть</Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {!loading && filteredBatches.length === 0 ? <Card>Foundry batches пока нет.</Card> : null}
-        </div>
       </div>
+    );
+  };
 
-      <Card>
-        <SectionTitle icon={Brain} title="Детали batch" subtitle="Смотри items, review json и текущую стадию оркестрации." />
-        {!selectedBatch ? <div className="text-sm opacity-70 mt-4">Выбери batch слева.</div> : (
-          <div className="space-y-4 text-sm mt-4">
-            <div className="flex flex-wrap gap-2">
-              <Badge intent={statusTone(selectedBatch.status)}>{selectedBatch.status}</Badge>
-              {selectedBatch.currentStage ? <Badge intent="secondary">{selectedBatch.currentStage}</Badge> : null}
-              <Badge intent="secondary">items: {selectedBatch.itemsCount ?? selectedBatch.items?.length ?? 0}</Badge>
-              <Badge intent="secondary">ready: {selectedBatch.readyItemsCount ?? 0}</Badge>
+  /* ── Jobs queue ─────────────────────────────────── */
+  var renderJobsQueue = function () {
+    return (
+      <div className="grid xl:grid-cols-[0.92fr,1.08fr] gap-6">
+        <div className="space-y-4">
+          <Card>
+            <SectionTitle icon={ListTodo} title="Очередь AI-заданий" subtitle="Foundry-стадии и другие AI-задания." />
+            <div className="grid md:grid-cols-3 gap-4 mt-4">
+              <Field label="Статус">
+                <Input
+                  value={filters.status}
+                  onChange={function (e) {
+                    setFilters(function (p) {
+                      return Object.assign({}, p, { status: e.target.value });
+                    });
+                  }}
+                  placeholder="pending / running / done / failed"
+                />
+              </Field>
+              <Field label="Тип">
+                <Input
+                  value={filters.type}
+                  onChange={function (e) {
+                    setFilters(function (p) {
+                      return Object.assign({}, p, { type: e.target.value });
+                    });
+                  }}
+                  placeholder="assignment_batch_plan / ..."
+                />
+              </Field>
+              <Field label="Поиск">
+                <Input
+                  value={filters.query}
+                  onChange={function (e) {
+                    setFilters(function (p) {
+                      return Object.assign({}, p, { query: e.target.value });
+                    });
+                  }}
+                  placeholder="id, тип, worker..."
+                />
+              </Field>
             </div>
-            <div><span className="opacity-70">Id:</span> <span className="break-all">{selectedBatch.id}</span></div>
-            <div><span className="opacity-70">Course:</span> <span className="break-all">{selectedBatch.courseId || '—'}</span></div>
-            <div><span className="opacity-70">Assignment type:</span> {selectedBatch.assignmentType}</div>
-            <div><span className="opacity-70">Mode:</span> {selectedBatch.mode || '—'}</div>
-            <div><span className="opacity-70">Prompt:</span> {selectedBatch.prompt}</div>
-            <Field label="PlannerFeedbackJson"><Textarea rows={8} readOnly value={prettyJson(selectedBatch.plannerFeedbackJson)} /></Field>
-            <Field label="BatchReviewJson"><Textarea rows={8} readOnly value={prettyJson(selectedBatch.batchReviewJson)} /></Field>
-            <Field label="QualityLedgerJson"><Textarea rows={8} readOnly value={prettyJson(selectedBatch.qualityLedgerJson)} /></Field>
-            <Field label="ExportManifestJson"><Textarea rows={8} readOnly value={prettyJson(selectedBatch.exportManifestJson)} /></Field>
-            <div className="space-y-3">
-              {(selectedBatch.items || []).map((item) => (
-                <div key={item.id} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3 space-y-2">
-                  <div className="flex flex-wrap gap-2 items-center justify-between">
-                    <div className="font-medium">#{item.index + 1} · {item.targetSkill || 'slot'}</div>
-                    <div className="flex gap-2 flex-wrap">
-                      <Badge intent={statusTone(item.status)}>{item.status}</Badge>
-                      {item.draftId ? <Badge intent="secondary">draft linked</Badge> : null}
+            <div className="mt-4 flex gap-2 flex-wrap items-center">
+              <Button variant="outline" onClick={load}>
+                <RefreshCcw size={14} /> Обновить
+              </Button>
+              <Badge intent="secondary">показано: {filteredJobs.length}</Badge>
+            </div>
+          </Card>
+
+          <div className="space-y-3 max-h-[72vh] overflow-auto pr-1">
+            {loading ? (
+              <Card className="text-center opacity-70 py-8">Загрузка…</Card>
+            ) : (
+              filteredJobs.map(function (job) {
+                return (
+                  <Card
+                    key={job.id}
+                    className={selectedJob && selectedJob.id === job.id ? 'ring-2 ring-brand-500/30' : ''}
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="font-medium break-all">{job.type}</div>
+                        <div className="text-xs opacity-50 mt-1 break-all font-mono">{job.id}</div>
+                        {job.targetEntityType ? (
+                          <div className="text-sm opacity-80 mt-1">
+                            {job.targetEntityType}{' '}
+                            {job.targetEntityId ? (
+                              <span className="font-mono text-xs">{job.targetEntityId}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        <div className="text-xs opacity-50 mt-1">
+                          {job.createdAtUtc ? new Date(job.createdAtUtc).toLocaleString() : '—'}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <Badge intent={statusTone(job.status)}>{statusLabel(job.status)}</Badge>
+                        <Button
+                          variant="outline"
+                          onClick={function () {
+                            openJob(job.id);
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                      </div>
                     </div>
+                  </Card>
+                );
+              })
+            )}
+            {!loading && filteredJobs.length === 0 ? (
+              <Card className="text-center opacity-70 py-8">AI-заданий пока нет.</Card>
+            ) : null}
+          </div>
+        </div>
+
+        <Card>
+          <SectionTitle icon={Brain} title="Детали задания" subtitle="Input, результат и статус обработки." />
+          {!selectedJob ? (
+            <div className="text-sm opacity-70 mt-4">Выбери задание слева.</div>
+          ) : (
+            <div className="space-y-3 text-sm mt-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge intent={statusTone(selectedJob.status)}>{statusLabel(selectedJob.status)}</Badge>
+                {selectedJob.modelName ? <Badge intent="secondary">{selectedJob.modelName}</Badge> : null}
+                {selectedJob.workerId ? <Badge intent="secondary">{selectedJob.workerId}</Badge> : null}
+              </div>
+              <div>
+                <span className="opacity-70">Тип:</span> <span className="break-all">{selectedJob.type}</span>
+              </div>
+              <div>
+                <span className="opacity-70">Цель:</span>{' '}
+                <span className="break-all">
+                  {selectedJob.targetEntityType || '—'} {selectedJob.targetEntityId || ''}
+                </span>
+              </div>
+              <div>
+                <span className="opacity-70">Создано:</span>{' '}
+                {selectedJob.createdAtUtc ? new Date(selectedJob.createdAtUtc).toLocaleString() : '—'}
+              </div>
+              <div>
+                <span className="opacity-70">Начато:</span>{' '}
+                {selectedJob.startedAtUtc ? new Date(selectedJob.startedAtUtc).toLocaleString() : '—'}
+              </div>
+              <div>
+                <span className="opacity-70">Завершено:</span>{' '}
+                {selectedJob.completedAtUtc ? new Date(selectedJob.completedAtUtc).toLocaleString() : '—'}
+              </div>
+              {selectedJob.errorText ? (
+                <div className="rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/30 p-3">
+                  <div className="font-medium text-red-600 dark:text-red-400 flex items-center gap-1 mb-1">
+                    <AlertTriangle size={14} /> Ошибка
                   </div>
-                  <div className="text-xs opacity-70">difficulty: {item.difficultyTarget} · repairs: {item.repairCount}</div>
-                  {item.microGoal ? <div className="text-sm opacity-80">{item.microGoal}</div> : null}
-                  <details>
-                    <summary className="cursor-pointer opacity-80">JSON детали</summary>
-                    <div className="mt-2 space-y-2">
-                      <Field label="BriefJson"><Textarea rows={6} readOnly value={prettyJson(item.briefJson)} /></Field>
-                      <Field label="ReferencePackJson"><Textarea rows={6} readOnly value={prettyJson(item.referencePackJson)} /></Field>
-                      <Field label="ScorecardJson"><Textarea rows={6} readOnly value={prettyJson(item.scorecardJson)} /></Field>
-                    </div>
-                  </details>
+                  <pre className="text-xs whitespace-pre-wrap break-all">{selectedJob.errorText}</pre>
                 </div>
-              ))}
+              ) : null}
+              <Field label="InputJson">
+                <Textarea rows={12} readOnly value={prettyJson(selectedJob.inputJson)} className="font-mono text-xs" />
+              </Field>
+              <Field label="ResultJson">
+                <Textarea
+                  rows={12}
+                  readOnly
+                  value={prettyJson(selectedJob.resultJson)}
+                  className="font-mono text-xs"
+                />
+              </Field>
             </div>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-
-  const renderDrafts = () => (
-    <Card>
-      <SectionTitle icon={FileStack} title="Drafts" subtitle="Готовые или проверяемые черновики из batch pipeline." />
-      <div className="space-y-3 mt-4 max-h-[74vh] overflow-auto pr-1">
-        {drafts.map((draft) => {
-          const selfCheck = extractSelfCheck(draft.draftJson);
-          return (
-            <div key={draft.id} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-4 space-y-2">
-              <div className="flex flex-wrap gap-2 items-center justify-between">
-                <div className="font-medium">{draft.title}</div>
-                <div className="flex gap-2 flex-wrap">
-                  <Badge intent="secondary">{draft.assignmentType}</Badge>
-                  <Badge intent={statusTone(draft.status)}>{draft.status}</Badge>
-                  {draft.batchId ? <Badge intent="secondary">batch</Badge> : null}
-                  {selfCheck?.status ? <Badge intent={selfCheckTone(selfCheck.status)}>{selfCheck.status}</Badge> : null}
-                </div>
-              </div>
-              <div className="text-xs opacity-70 break-all">draft id: {draft.id}</div>
-              {draft.batchId ? <div className="text-xs opacity-70 break-all">batch id: {draft.batchId}</div> : null}
-              <div className="text-sm opacity-80">{draft.summary || 'Без summary'}</div>
-              <Field label="DraftJson"><Textarea rows={8} readOnly value={prettyJson(draft.draftJson)} /></Field>
-              <div className="flex gap-2 flex-wrap">
-                <Button variant="outline" disabled={busy} onClick={() => reviewDraftNow(draft.id, 'approve')}>Approve</Button>
-                <Button variant="outline" disabled={busy} onClick={() => reviewDraftNow(draft.id, 'reject')}>Reject</Button>
-                <Button variant="outline" disabled={busy} onClick={() => validateDraftNow(draft)}>Self-check</Button>
-                <Button disabled={busy || !canPublishDraft(draft)} onClick={() => publishDraftNow(draft)}>Publish</Button>
-                {draft.batchId ? <Button variant="outline" onClick={() => openBatch(draft.batchId)}>Открыть batch</Button> : null}
-              </div>
-            </div>
-          );
-        })}
-        {!drafts.length ? <Card>Drafts пока нет.</Card> : null}
+          )}
+        </Card>
       </div>
-    </Card>
-  );
+    );
+  };
 
+  /* ── Batches ────────────────────────────────────── */
+  var renderBatches = function () {
+    return (
+      <div className="grid xl:grid-cols-[0.92fr,1.08fr] gap-6">
+        <div className="space-y-4">
+          <Card>
+            <SectionTitle
+              icon={Sparkles}
+              title="Пакеты (batches)"
+              subtitle="Batch-сущности и их прогресс через стадии pipeline."
+            />
+            <div className="mt-4 flex gap-2 flex-wrap items-center">
+              <Button variant="outline" onClick={load}>
+                <RefreshCcw size={14} /> Обновить
+              </Button>
+              <Badge intent="secondary">всего: {filteredBatches.length}</Badge>
+            </div>
+          </Card>
+
+          <div className="space-y-3 max-h-[72vh] overflow-auto pr-1">
+            {loading ? (
+              <Card className="text-center opacity-70 py-8">Загрузка…</Card>
+            ) : (
+              filteredBatches.map(function (batch) {
+                return (
+                  <Card
+                    key={batch.id}
+                    className={selectedBatch && selectedBatch.id === batch.id ? 'ring-2 ring-brand-500/30' : ''}
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="font-medium break-all">
+                          {batch.assignmentType} · {batch.mode || '—'}
+                        </div>
+                        <div className="text-xs opacity-50 mt-1 break-all font-mono">{batch.id}</div>
+                        <div className="text-sm opacity-80 mt-1 line-clamp-2">{batch.prompt}</div>
+                        <div className="text-xs opacity-50 mt-1">
+                          {batch.updatedAtUtc ? new Date(batch.updatedAtUtc).toLocaleString() : '—'}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <Badge intent={statusTone(batch.status)}>{statusLabel(batch.status)}</Badge>
+                        {batch.currentStage ? <Badge intent="secondary">{batch.currentStage}</Badge> : null}
+                        <Button
+                          variant="outline"
+                          onClick={function () {
+                            openBatch(batch.id);
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+            {!loading && filteredBatches.length === 0 ? (
+              <Card className="text-center opacity-70 py-8">Пакетов пока нет.</Card>
+            ) : null}
+          </div>
+        </div>
+
+        <Card>
+          <SectionTitle
+            icon={Brain}
+            title="Детали пакета"
+            subtitle="Элементы пакета, review-данные и текущая стадия."
+          />
+          {!selectedBatch ? (
+            <div className="text-sm opacity-70 mt-4">Выбери пакет слева.</div>
+          ) : (
+            <div className="space-y-4 text-sm mt-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge intent={statusTone(selectedBatch.status)}>{statusLabel(selectedBatch.status)}</Badge>
+                {selectedBatch.currentStage ? (
+                  <Badge intent="secondary">стадия: {selectedBatch.currentStage}</Badge>
+                ) : null}
+                <Badge intent="secondary">
+                  элементов: {selectedBatch.itemsCount || (selectedBatch.items ? selectedBatch.items.length : 0)}
+                </Badge>
+                <Badge intent="secondary">готово: {selectedBatch.readyItemsCount || 0}</Badge>
+              </div>
+              <div>
+                <span className="opacity-70">Id:</span>{' '}
+                <span className="break-all font-mono text-xs">{selectedBatch.id}</span>
+              </div>
+              <div>
+                <span className="opacity-70">Курс:</span>{' '}
+                <span className="break-all font-mono text-xs">{selectedBatch.courseId || '—'}</span>
+              </div>
+              <div>
+                <span className="opacity-70">Тип:</span> {selectedBatch.assignmentType}
+              </div>
+              <div>
+                <span className="opacity-70">Режим:</span> {selectedBatch.mode || '—'}
+              </div>
+              <div>
+                <span className="opacity-70">Промпт:</span> {selectedBatch.prompt}
+              </div>
+
+              {selectedBatch.plannerFeedbackJson ? (
+                <details>
+                  <summary className="cursor-pointer opacity-80 text-xs">PlannerFeedbackJson</summary>
+                  <Textarea
+                    rows={6}
+                    readOnly
+                    value={prettyJson(selectedBatch.plannerFeedbackJson)}
+                    className="mt-2 font-mono text-xs"
+                  />
+                </details>
+              ) : null}
+              {selectedBatch.batchReviewJson ? (
+                <details>
+                  <summary className="cursor-pointer opacity-80 text-xs">BatchReviewJson</summary>
+                  <Textarea
+                    rows={6}
+                    readOnly
+                    value={prettyJson(selectedBatch.batchReviewJson)}
+                    className="mt-2 font-mono text-xs"
+                  />
+                </details>
+              ) : null}
+              {selectedBatch.qualityLedgerJson ? (
+                <details>
+                  <summary className="cursor-pointer opacity-80 text-xs">QualityLedgerJson</summary>
+                  <Textarea
+                    rows={6}
+                    readOnly
+                    value={prettyJson(selectedBatch.qualityLedgerJson)}
+                    className="mt-2 font-mono text-xs"
+                  />
+                </details>
+              ) : null}
+              {selectedBatch.exportManifestJson ? (
+                <details>
+                  <summary className="cursor-pointer opacity-80 text-xs">ExportManifestJson</summary>
+                  <Textarea
+                    rows={6}
+                    readOnly
+                    value={prettyJson(selectedBatch.exportManifestJson)}
+                    className="mt-2 font-mono text-xs"
+                  />
+                </details>
+              ) : null}
+
+              <div className="space-y-3 mt-2">
+                <div className="font-medium">Элементы пакета</div>
+                {(!selectedBatch.items || selectedBatch.items.length === 0) ? (
+                  <div className="opacity-70">Элементов пока нет (pipeline ещё не создал слоты).</div>
+                ) : null}
+                {(selectedBatch.items || []).map(function (item) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3 space-y-2"
+                    >
+                      <div className="flex flex-wrap gap-2 items-center justify-between">
+                        <div className="font-medium">
+                          #{item.index + 1} · {item.targetSkill || item.microGoal || 'слот'}
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <Badge intent={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
+                          {item.draftId ? <Badge intent="success">черновик создан</Badge> : null}
+                        </div>
+                      </div>
+                      <div className="text-xs opacity-70">
+                        сложность: {item.difficultyTarget} · починок: {item.repairCount}
+                      </div>
+                      {item.microGoal ? <div className="text-sm opacity-80">{item.microGoal}</div> : null}
+                      {item.draftId ? (
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            variant="outline"
+                            onClick={function () {
+                              setActiveTab('drafts');
+                            }}
+                          >
+                            Перейти к черновикам
+                          </Button>
+                        </div>
+                      ) : null}
+                      <details>
+                        <summary className="cursor-pointer opacity-80 text-xs">JSON-детали</summary>
+                        <div className="mt-2 space-y-2">
+                          {item.briefJson ? (
+                            <Field label="BriefJson">
+                              <Textarea
+                                rows={5}
+                                readOnly
+                                value={prettyJson(item.briefJson)}
+                                className="font-mono text-xs"
+                              />
+                            </Field>
+                          ) : null}
+                          {item.referencePackJson ? (
+                            <Field label="ReferencePackJson">
+                              <Textarea
+                                rows={5}
+                                readOnly
+                                value={prettyJson(item.referencePackJson)}
+                                className="font-mono text-xs"
+                              />
+                            </Field>
+                          ) : null}
+                          {item.scorecardJson ? (
+                            <Field label="ScorecardJson">
+                              <Textarea
+                                rows={5}
+                                readOnly
+                                value={prettyJson(item.scorecardJson)}
+                                className="font-mono text-xs"
+                              />
+                            </Field>
+                          ) : null}
+                        </div>
+                      </details>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  };
+
+  /* ── Drafts (the main thing!) ───────────────────── */
+  var renderDrafts = function () {
+    return (
+      <Card>
+        <SectionTitle
+          icon={FileStack}
+          title="Черновики"
+          subtitle="Готовые черновики из batch pipeline. Одобри и опубликуй."
+        />
+        <div className="flex gap-2 flex-wrap text-xs mt-3 mb-2">
+          <Badge intent="secondary">Всего: {draftCounts.total}</Badge>
+          <Badge intent="success">Одобрено: {draftCounts.approved}</Badge>
+          <Badge intent="danger">Отклонено: {draftCounts.rejected}</Badge>
+          <Badge intent="success">Опубликовано: {draftCounts.published}</Badge>
+        </div>
+        {!courseScopeId ? (
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-800/30 p-3 text-sm flex items-center gap-2 mb-4">
+            <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+            <span>Курс не выбран. Для публикации нужно выбрать курс на вкладке «Обзор».</span>
+          </div>
+        ) : null}
+        <div className="space-y-4 mt-4 max-h-[76vh] overflow-auto pr-1">
+          {drafts.length === 0 ? (
+            <div className="text-center opacity-70 py-8">
+              Черновиков пока нет. Создай пакет, чтобы AI начал генерировать.
+            </div>
+          ) : null}
+          {drafts.map(function (draft) {
+            var selfCheck = extractSelfCheck(draft.draftJson);
+            var pub = getPublishability(draft);
+            var isExpanded = !!expandedDrafts[draft.id];
+            var isPublished = (draft.status || '').toLowerCase() === 'published';
+
+            return (
+              <div
+                key={draft.id}
+                className={
+                  'rounded-2xl border p-4 space-y-3 ' +
+                  (isPublished
+                    ? 'border-green-300/50 bg-green-50/30 dark:border-green-800/30 dark:bg-green-950/10'
+                    : 'border-neutral-200/70 dark:border-neutral-800')
+                }
+              >
+                {/* Header */}
+                <div className="flex flex-wrap gap-2 items-center justify-between">
+                  <div className="font-medium text-base">{draft.title || 'Без названия'}</div>
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <Badge intent="secondary">{draft.assignmentType}</Badge>
+                    <Badge intent={statusTone(draft.status)}>{statusLabel(draft.status)}</Badge>
+                    {selfCheck && selfCheck.status ? (
+                      <Badge intent={selfCheckTone(selfCheck.status)}>
+                        {selfCheck.status === 'passed'
+                          ? 'self-check \u2713'
+                          : selfCheck.status === 'failed'
+                            ? 'self-check \u2717'
+                            : selfCheck.status}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* IDs */}
+                <div className="text-xs opacity-50 font-mono break-all">id: {draft.id}</div>
+                {draft.batchId ? (
+                  <div className="text-xs opacity-50 font-mono break-all">batch: {draft.batchId}</div>
+                ) : null}
+
+                {/* Preview */}
+                <DraftPreviewCard draft={draft} />
+
+                {/* Self-check details */}
+                {selfCheck ? (
+                  <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/50 p-3 text-sm">
+                    <div className="font-medium mb-1">
+                      Self-check: {selfCheck.status || '—'} (score: {selfCheck.score != null ? selfCheck.score : '—'})
+                    </div>
+                    {selfCheck.checks && selfCheck.checks.length ? (
+                      <div className="space-y-1 text-xs">
+                        {selfCheck.checks.map(function (c, i) {
+                          return (
+                            <div key={i} className="flex items-center gap-2">
+                              {c.status === 'passed' ? (
+                                <Check size={12} className="text-green-600" />
+                              ) : (
+                                <X size={12} className="text-red-500" />
+                              )}
+                              <span className="opacity-80">
+                                {c.name}: {c.detail || c.status}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {/* Publish info */}
+                {!isPublished && pub.reason ? (
+                  <div
+                    className={
+                      'text-xs flex items-center gap-1 ' +
+                      (pub.can
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-amber-600 dark:text-amber-400')
+                    }
+                  >
+                    {pub.can ? <Check size={12} /> : <AlertTriangle size={12} />}
+                    {pub.reason}
+                  </div>
+                ) : null}
+
+                {/* Actions */}
+                <div className="flex gap-2 flex-wrap items-center">
+                  {!isPublished ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={function () {
+                          reviewDraftNow(draft.id, 'approve');
+                        }}
+                        className="gap-1"
+                      >
+                        <Check size={14} /> Одобрить
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={function () {
+                          reviewDraftNow(draft.id, 'reject');
+                        }}
+                        className="gap-1"
+                      >
+                        <X size={14} /> Отклонить
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={function () {
+                          validateDraftNow(draft);
+                        }}
+                        className="gap-1"
+                      >
+                        Self-check
+                      </Button>
+                      <Button
+                        disabled={busy || !pub.can || (!courseScopeId && !draft.courseId)}
+                        onClick={function () {
+                          publishDraftNow(draft, pub.force);
+                        }}
+                        className="gap-1"
+                      >
+                        <Sparkles size={14} /> Опубликовать{pub.force ? ' (force)' : ''}
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <Check size={14} /> Опубликован
+                    </span>
+                  )}
+                  {draft.batchId ? (
+                    <Button
+                      variant="outline"
+                      onClick={function () {
+                        openBatch(draft.batchId);
+                      }}
+                    >
+                      Открыть пакет
+                    </Button>
+                  ) : null}
+                </div>
+
+                {/* Expandable raw JSON */}
+                <button
+                  type="button"
+                  onClick={function () {
+                    toggleDraftExpanded(draft.id);
+                  }}
+                  className="text-xs opacity-60 flex items-center gap-1 hover:opacity-100 transition"
+                >
+                  {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  {isExpanded ? 'Скрыть JSON' : 'Показать JSON'}
+                </button>
+                {isExpanded ? (
+                  <Textarea rows={14} readOnly value={prettyJson(draft.draftJson)} className="font-mono text-xs" />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    );
+  };
+
+  /* ── Layout ─────────────────────────────────────── */
   return (
-    <Layout title="Admin AI">
+    <Layout title="AI Foundry">
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2"><Sparkles size={22} /> AI Foundry Admin</h1>
-            <p className="text-sm opacity-70 mt-1">Фронт очищен от legacy single-shot генераторов. Эта страница работает только с новым batch pipeline.</p>
+            <h1 className="text-2xl font-semibold flex items-center gap-2">
+              <Sparkles size={22} /> AI Foundry
+            </h1>
+            <p className="text-sm opacity-70 mt-1">
+              Создавай пакеты заданий, следи за стадиями pipeline и публикуй готовые черновики.
+            </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {AI_TABS.map((tab) => (
-              <TabButton
-                key={tab.key}
-                active={activeTab === tab.key}
-                icon={tab.icon}
-                count={tab.key === 'queue' ? jobs.length : tab.key === 'batches' ? batches.length : tab.key === 'drafts' ? drafts.length : undefined}
-                onClick={() => setActiveTab(tab.key)}
-              >
-                {tab.label}
-              </TabButton>
-            ))}
+            {AI_TABS.map(function (tab) {
+              return (
+                <TabButton
+                  key={tab.key}
+                  active={activeTab === tab.key}
+                  icon={tab.icon}
+                  count={
+                    tab.key === 'queue'
+                      ? jobs.length
+                      : tab.key === 'batches'
+                        ? batches.length
+                        : tab.key === 'drafts'
+                          ? drafts.length
+                          : undefined
+                  }
+                  onClick={function () {
+                    setActiveTab(tab.key);
+                  }}
+                >
+                  {tab.label}
+                </TabButton>
+              );
+            })}
           </div>
         </div>
 
-        {pageError ? <Card className="border-red-300/60 text-red-500">{pageError}</Card> : null}
+        {pageError ? (
+          <Card className="border-red-300/60 bg-red-50/30 dark:bg-red-950/20 p-4 flex items-center gap-2 text-red-600 dark:text-red-400">
+            <AlertTriangle size={18} /> {pageError}
+          </Card>
+        ) : null}
 
         {activeTab === 'overview' ? renderOverview() : null}
         {activeTab === 'create' ? renderCreate() : null}
@@ -644,9 +1421,33 @@ export default function AdminAiPage() {
         {activeTab === 'drafts' ? renderDrafts() : null}
 
         <div className="grid md:grid-cols-3 gap-4">
-          <CompactStatCard title="Foundry stages seen" value={jobs.filter((job) => String(job.type || '').startsWith('assignment_batch_')).length} hint="Сколько stage jobs уже видно в очереди" />
-          <CompactStatCard title="Batches ready" value={batches.filter((batch) => String(batch.status || '').toLowerCase() === 'ready').length} hint="Пакеты, дошедшие до ready" />
-          <CompactStatCard title="Published drafts" value={drafts.filter((draft) => String(draft.status || '').toLowerCase() === 'published').length} hint="Уже ушли в assignment" />
+          <CompactStatCard
+            title="Foundry-стадии"
+            value={
+              jobs.filter(function (job) {
+                return String(job.type || '').startsWith('assignment_');
+              }).length
+            }
+            hint="AI-задания типа assignment_*"
+          />
+          <CompactStatCard
+            title="Выполняется"
+            value={
+              jobs.filter(function (j) {
+                return (j.status || '').toLowerCase() === 'running';
+              }).length
+            }
+            hint="Сейчас обрабатывает worker"
+          />
+          <CompactStatCard
+            title="Ошибки"
+            value={
+              jobs.filter(function (j) {
+                return (j.status || '').toLowerCase() === 'failed';
+              }).length
+            }
+            hint="Упавшие задания"
+          />
         </div>
       </div>
     </Layout>

@@ -1,0 +1,38 @@
+"""Environment configuration, constants and shared HTTP session."""
+
+import os
+import socket
+
+import requests
+
+# ── Backend API ──────────────────────────────────────
+API_BASE: str = os.getenv("TASKFORGE_API_BASE", "http://api:8080").rstrip("/")
+API_KEY: str = os.getenv("TASKFORGE_INTERNAL_KEY", "")
+WORKER_ID: str = os.getenv("TASKFORGE_AI_WORKER_ID", f"ai-worker-{socket.gethostname()}")
+
+# ── Ollama ───────────────────────────────────────────
+OLLAMA_BASE: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3:14b")
+OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", os.getenv("OLLAMA_CONTEXT_LENGTH", "16384")))
+OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.15"))
+
+# ── Worker behaviour ─────────────────────────────────
+POLL_INTERVAL: int = int(os.getenv("POLL_INTERVAL_SECONDS", "8"))
+CAPABILITIES: list = [
+    x.strip()
+    for x in os.getenv("TASKFORGE_AI_CAPABILITIES", "*").split(",")
+    if x.strip()
+]
+TIMEOUT: int = int(os.getenv("TASKFORGE_AI_TIMEOUT_SECONDS", "240"))
+
+# ── Quality gates defaults ───────────────────────────
+MAX_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_MAX_REFERENCE_ASSIGNMENTS", "20"))
+MIN_PUBLIC_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_PUBLIC_TESTS", "2"))
+MIN_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "5"))
+MIN_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_MIN_DESCRIPTION_LEN", "200"))
+MAX_REPAIR_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_REPAIR_ATTEMPTS", "2"))
+MAX_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_REFERENCE_DESCRIPTION_LEN", "260"))
+
+# ── Shared HTTP session ──────────────────────────────
+session: requests.Session = requests.Session()
+session.headers.update({"X-Internal-Key": API_KEY})
