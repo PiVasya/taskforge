@@ -373,22 +373,43 @@ public sealed partial class AiJobService : IAiJobService
             return true;
         }
 
-        if (caps.Contains("generate") && (jobType.StartsWith("assignment_generate_") || jobType == "assignment_improve_existing" || jobType == AiFoundryJobTypes.BatchPlan || jobType == AiFoundryJobTypes.BriefGenerate))
+        if (caps.Contains("generate") && (
+            jobType.StartsWith("assignment_generate_")
+            || jobType == "assignment_improve_existing"
+            || jobType == AiFoundryJobTypes.BatchPlan
+            || jobType == AiFoundryJobTypes.BatchReplan
+            || jobType == AiFoundryJobTypes.BriefGenerate
+            || jobType == AiFoundryJobTypes.BriefRepair
+            || jobType == AiFoundryJobTypes.Repair))
         {
             return true;
         }
 
-        if (caps.Contains("analyze") && (jobType == "assignment_analyze_existing" || jobType == "assignment_validate_draft" || jobType == "support_message_review" || jobType == "minecraft_chat_review"))
+        if (caps.Contains("analyze") && (
+            jobType == "assignment_analyze_existing"
+            || jobType == "assignment_validate_draft"
+            || jobType == "support_message_review"
+            || jobType == "minecraft_chat_review"
+            || jobType == AiFoundryJobTypes.CourseProfileBuild
+            || jobType == AiFoundryJobTypes.GapAnalysis
+            || jobType == AiFoundryJobTypes.ReferencePackBuild
+            || jobType == AiFoundryJobTypes.BatchPublishPrepare
+            || jobType == AiFoundryJobTypes.PlannerFeedback))
         {
             return true;
         }
 
-        if (caps.Contains("review") && (jobType.EndsWith("_review") || jobType == "assignment_validate_draft"))
+        if (caps.Contains("review") && (
+            jobType.EndsWith("_review")
+            || jobType == "assignment_validate_draft"
+            || jobType == AiFoundryJobTypes.StudentJourneyReview))
         {
             return true;
         }
 
-        if (caps.Contains("risk") && jobType == "user_risk_review")
+        if (caps.Contains("risk") && (
+            jobType == "user_risk_review"
+            || jobType == AiFoundryJobTypes.RuntimeReview))
         {
             return true;
         }
