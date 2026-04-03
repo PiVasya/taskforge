@@ -523,7 +523,7 @@ export default function AdminAiPage() {
 
   /* ── Delete actions ─────────────────────────────── */
   var deleteDraftNow = async function (id) {
-    if (!confirm('Удалить этот черновик навсегда?')) return;
+    if (!window.confirm('Удалить этот черновик навсегда?')) return;
     try {
       setBusy(true);
       await deleteAiDraft(id);
@@ -537,7 +537,7 @@ export default function AdminAiPage() {
   };
 
   var deleteBatchNow = async function (id) {
-    if (!confirm('Удалить пакет и все его элементы/черновики навсегда?')) return;
+    if (!window.confirm('Удалить пакет и все его элементы/черновики навсегда?')) return;
     try {
       setBusy(true);
       await deleteAiBatch(id);
@@ -552,7 +552,7 @@ export default function AdminAiPage() {
   };
 
   var deleteJobNow = async function (id) {
-    if (!confirm('Удалить это задание из очереди?')) return;
+    if (!window.confirm('Удалить это задание из очереди?')) return;
     try {
       setBusy(true);
       await deleteAiJob(id);
@@ -568,7 +568,7 @@ export default function AdminAiPage() {
 
   var clearJobsNow = async function (statusFilter) {
     var label = statusFilter || 'завершённые и упавшие';
-    if (!confirm('Очистить все ' + label + ' задания? Это необратимо.')) return;
+    if (!window.confirm('Очистить все ' + label + ' задания? Это необратимо.')) return;
     try {
       setBusy(true);
       var result = await clearAiJobs(statusFilter || undefined);
@@ -596,7 +596,7 @@ export default function AdminAiPage() {
   };
 
   var cancelJobNow = async function (id) {
-    if (!confirm('Отменить это задание?')) return;
+    if (!window.confirm('Отменить это задание?')) return;
     try {
       setBusy(true);
       await cancelAiJob(id);
@@ -622,7 +622,7 @@ export default function AdminAiPage() {
       notify.error('Нет неопубликованных черновиков в этом пакете');
       return;
     }
-    if (!confirm('Опубликовать все ' + batchDrafts.length + ' черновиков из этого пакета?')) return;
+    if (!window.confirm('Опубликовать все ' + batchDrafts.length + ' черновиков из этого пакета?')) return;
     try {
       setBusy(true);
       var published = 0;
