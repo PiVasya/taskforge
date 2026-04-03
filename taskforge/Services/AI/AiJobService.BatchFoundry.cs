@@ -13,6 +13,7 @@ public sealed partial class AiJobService
 {
     public async Task<AiBatchDetailsDto> QueueGenerateAssignmentBatchAsync(AiGenerateAssignmentBatchRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
     {
+        Console.WriteLine($"[AiJobService][Foundry] batch-queue >>> courseId='{request.CourseId}' assignmentType='{request.AssignmentType}' mode='{request.Mode}' count={request.Count} difficulty={request.Difficulty} prompt='{PreviewForConsole(request.Prompt, 160)}'");
         var batch = new AiBatch
         {
             Id = Guid.NewGuid(),
@@ -29,6 +30,7 @@ public sealed partial class AiJobService
         };
         _db.AiBatches.Add(batch);
         await _db.SaveChangesAsync(ct);
+        ConsoleFoundryBatch("batch-created", batch);
 
         var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
         var input = new
@@ -47,6 +49,7 @@ public sealed partial class AiJobService
             qualityGates = BuildQualityGates(batch.AssignmentType),
         };
 
+        ConsoleFoundryBatch("batch-enqueue-course-profile", batch, $"priority={request.Priority} stageCode='{AiFoundryStages.CourseProfileBuild}'");
         await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = AiFoundryJobTypes.CourseProfileBuild,
@@ -60,6 +63,7 @@ public sealed partial class AiJobService
             InputJson = JsonSerializer.Serialize(input, JsonOptions),
         }, createdByUserId, createdByDisplayName, ct);
 
+        ConsoleFoundryBatch("batch-queue-finish", batch);
         return await GetBatchAsync(batch.Id, ct) ?? throw new InvalidOperationException("Batch was created but could not be loaded.");
     }
 
@@ -161,6 +165,7 @@ public sealed partial class AiJobService
 
     private async Task PersistCourseProfileAndEnqueueGapAnalysisAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("course-profile-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -205,6 +210,7 @@ public sealed partial class AiJobService
 
     private async Task PersistGapAnalysisAndEnqueueBatchPlanAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("gap-analysis-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -259,6 +265,7 @@ public sealed partial class AiJobService
 
 private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, CancellationToken ct)
 {
+    ConsoleFoundry(isReplan ? "batch-replan-persist-start" : "batch-plan-persist-start", completedJob);
     if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
         return;
 
@@ -421,6 +428,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task PersistTaskBriefAndEnqueueBriefReviewAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("brief-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -474,6 +482,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
     }
     private async Task PersistBriefReviewAndContinueAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("brief-review-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -603,6 +612,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task PersistBriefRepairAndRequeueReviewAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("brief-repair-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -655,6 +665,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task PersistReferencePackAndEnqueueDraftGenerationAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("reference-pack-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -783,6 +794,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task MaybeEnqueueBatchReviewAsync(Guid batchId, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] maybe-enqueue-batch-review >>> batchId={batchId}");
         var batch = await _db.AiBatches.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == batchId, ct);
         if (batch == null)
             return;
@@ -854,6 +866,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task MaybeEnqueueStudentJourneyReviewAsync(Guid batchId, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] maybe-enqueue-student-journey >>> batchId={batchId}");
         var batch = await _db.AiBatches.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == batchId, ct);
         if (batch == null || string.IsNullOrWhiteSpace(batch.BatchReviewJson))
             return;
@@ -926,6 +939,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task MaybeEnqueueBatchPublishPrepareAsync(Guid batchId, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] maybe-enqueue-publish-prepare >>> batchId={batchId}");
         var batch = await _db.AiBatches.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == batchId, ct);
         if (batch == null || string.IsNullOrWhiteSpace(batch.BatchReviewJson) || string.IsNullOrWhiteSpace(batch.StudentJourneyJson))
             return;
@@ -982,6 +996,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task MaybeEnqueuePlannerFeedbackAsync(Guid batchId, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] maybe-enqueue-planner-feedback >>> batchId={batchId}");
         var batch = await _db.AiBatches.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == batchId, ct);
         if (batch == null || string.IsNullOrWhiteSpace(batch.PublicationAuditJson))
             return;
@@ -1060,6 +1075,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     private async Task PersistPlannerFeedbackAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("planner-feedback-persist-start", completedJob);
         if (completedJob.TargetEntityId == null || string.IsNullOrWhiteSpace(completedJob.ResultJson))
             return;
 
@@ -1082,6 +1098,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
 private async Task AutoRoutePlannerFeedbackAsync(AiBatch batch, AiJob completedJob, CancellationToken ct)
 {
+    ConsoleFoundryBatch("planner-feedback-autoroute-start", batch, $"sourceJobId='{completedJob.Id}'");
     if (string.IsNullOrWhiteSpace(completedJob.ResultJson))
         return;
     try
@@ -1250,6 +1267,7 @@ private async Task AutoRoutePlannerFeedbackAsync(AiBatch batch, AiJob completedJ
 
 private async Task MaybeEnqueueBatchReplanAsync(Guid batchId, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct)
 {
+    Console.WriteLine($"[AiJobService][Foundry] maybe-enqueue-batch-replan >>> batchId={batchId}");
     var batch = await _db.AiBatches.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == batchId, ct);
     if (batch == null || string.IsNullOrWhiteSpace(batch.PlannerFeedbackJson))
         return;
@@ -1871,6 +1889,7 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
 
     private async Task CreateBatchDecisionLogAsync(Guid batchId, Guid? batchItemId, Guid? jobId, string stageCode, string decisionType, string message, string? payloadJson, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] decision-log >>> batchId={batchId} batchItemId='{batchItemId}' jobId='{jobId}' stageCode='{stageCode}' decisionType='{decisionType}' message='{PreviewForConsole(message, 160)}' payloadLen={payloadJson?.Length ?? 0}");
         _db.AiDecisionLogs.Add(new AiDecisionLog
         {
             Id = Guid.NewGuid(),
@@ -1888,6 +1907,7 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
 
     private async Task PersistReferenceSnapshotsAsync(Guid batchId, Guid? batchItemId, Guid? jobId, string role, string? inputJson, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] reference-snapshot >>> batchId={batchId} batchItemId='{batchItemId}' jobId='{jobId}' role='{role}' inputLen={inputJson?.Length ?? 0}");
         if (string.IsNullOrWhiteSpace(inputJson))
             return;
         try

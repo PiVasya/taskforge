@@ -26,7 +26,6 @@ from prompt_builder import (
     build_brief_repair_prompt,
     build_reference_pack_prompt,
     build_batch_review_prompt,
-    build_student_journey_prompt,
 )
 from reviews import (
     run_structural_review,
@@ -52,112 +51,193 @@ from fallbacks import (
 from repair import try_improve_generation, fallback_repair_result
 
 
+def _preview(value: Any, limit: int = 120) -> str:
+    if value is None:
+        return "-"
+    text = str(value).replace("\n", " ").replace("\r", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def _job_context(job: Dict[str, Any], payload: Dict[str, Any] | None = None) -> str:
+    payload = payload or {}
+    parts = [
+        f"job={job.get('id')}",
+        f"type={job.get('type')}",
+    ]
+    stage_code = job.get("stageCode") or payload.get("stageCode")
+    stage_label = job.get("stageLabel") or payload.get("stageLabel")
+    if stage_code or stage_label:
+        parts.append(f"stage={stage_code or '-'}")
+        parts.append(f"stageLabel={_preview(stage_label, 80)}")
+    target_type = job.get("targetEntityType")
+    target_id = job.get("targetEntityId")
+    if target_type or target_id:
+        parts.append(f"target={target_type or '-'}:{target_id or '-'}")
+    course_id = job.get("courseId") or payload.get("courseId")
+    if course_id:
+        parts.append(f"course={course_id}")
+    for key, label in (("batchId", "batch"), ("batchItemId", "item"), ("draftId", "draft")):
+        value = payload.get(key)
+        if value:
+            parts.append(f"{label}={value}")
+    prompt = payload.get("prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        parts.append(f"prompt={_preview(prompt, 90)}")
+    return " ".join(parts)
+
+
+def _result_summary(result: Dict[str, Any] | None) -> str:
+    if not isinstance(result, dict):
+        return f"type={type(result).__name__}"
+    keys = sorted(result.keys())[:12]
+    parts = [f"keys={keys}"]
+    status = result.get("status")
+    if status is not None:
+        parts.append(f"status={status}")
+    score = result.get("score")
+    if score is not None:
+        parts.append(f"score={score}")
+    summary = result.get("summary") or result.get("message") or result.get("title")
+    if summary is not None:
+        parts.append(f"summary={_preview(summary, 100)}")
+    return " ".join(parts)
+
+
+def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None = None, **extra: Any) -> None:
+    parts = [event, _job_context(job, payload)]
+    for key, value in extra.items():
+        if value is None:
+            continue
+        parts.append(f"{key}={_preview(value, 160)}")
+    log(*parts)
+
+
 # ── Job dispatcher ────────────────────────────────────
 
 def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     payload = parse_payload(job)
     job_type = (job.get("type") or "").lower().strip()
+    _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20])
+
+    def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
+        _log_stage("stage-done", job, payload, result=_result_summary(result))
+        return result
 
     def _ollama_stage(prompt_builder, fallback_fn=None, sanitize=True):
+        builder_name = getattr(prompt_builder, "__name__", "prompt_builder")
+        _log_stage("stage-prepare-prompt", job, payload, builder=builder_name)
         prompt = prompt_builder(job, payload)
+        _log_stage("stage-prompt-ready", job, payload, builder=builder_name, prompt_len=len(prompt))
         try:
             result = call_ollama(prompt)
         except Exception as ex:
-            logger.warning(f"ollama failed for {job_type}: {ex}")
+            logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
             result = fallback_fn(payload, job) if fallback_fn else fallback_result(job)
+            _log_stage("stage-fallback-result", job, payload, builder=builder_name, fallback_type=type(result).__name__)
         if sanitize:
             result = sanitize_result_payload(job_type, payload, result)
+            _log_stage("stage-sanitized", job, payload, result=_result_summary(result))
         return result
 
     # ── Profiling / gap ───────────────────────────────
     if job_type == "assignment_course_profile_build":
-        return _ollama_stage(build_course_profile_prompt, fallback_fn=fallback_course_profile)
+        return _finish(_ollama_stage(build_course_profile_prompt, fallback_fn=fallback_course_profile))
     if job_type == "assignment_gap_analysis":
-        return _ollama_stage(build_gap_analysis_prompt, fallback_fn=fallback_gap_analysis)
+        return _finish(_ollama_stage(build_gap_analysis_prompt, fallback_fn=fallback_gap_analysis))
 
     # ── Batch plan / replan ───────────────────────────
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
-        return _ollama_stage(build_batch_plan_prompt)
+        return _finish(_ollama_stage(build_batch_plan_prompt))
 
     # ── Reference pack ────────────────────────────────
     if job_type == "assignment_reference_pack_build":
-        return _ollama_stage(build_reference_pack_prompt)
+        return _finish(_ollama_stage(build_reference_pack_prompt))
 
     # ── Brief generate ────────────────────────────────
     if job_type == "assignment_brief_generate":
-        return _ollama_stage(build_brief_prompt)
+        return _finish(_ollama_stage(build_brief_prompt))
 
     # ── Validate draft ────────────────────────────────
     if job_type == "assignment_validate_draft":
         draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
         validation = run_self_check(draft)
         validation["draftId"] = payload.get("draftId") or job.get("targetEntityId")
-        return validation
+        return _finish(validation)
 
     # ── Brief review ──────────────────────────────────
     if job_type == "assignment_brief_review":
-        return run_brief_review(payload, job)
+        return _finish(run_brief_review(payload, job))
 
     # ── Brief repair ──────────────────────────────────
     if job_type == "assignment_brief_repair":
-        return _ollama_stage(build_brief_repair_prompt)
+        return _finish(_ollama_stage(build_brief_repair_prompt))
 
     # ── Per-stage reviews (deterministic) ─────────────
     if job_type == "assignment_structural_review":
-        return run_structural_review(payload, job)
+        return _finish(run_structural_review(payload, job))
     if job_type == "assignment_pedagogy_review":
-        return fallback_pedagogy_review(payload, job)
+        return _finish(fallback_pedagogy_review(payload, job))
     if job_type == "assignment_style_review":
-        return run_style_review(payload, job)
+        return _finish(run_style_review(payload, job))
     if job_type == "assignment_similarity_review":
-        return run_similarity_review(payload, job)
+        return _finish(run_similarity_review(payload, job))
     if job_type == "assignment_batch_context_review":
-        return run_batch_context_review(payload, job)
+        return _finish(run_batch_context_review(payload, job))
     if job_type == "assignment_test_strength_review":
-        return run_test_strength_review(payload, job)
+        return _finish(run_test_strength_review(payload, job))
     if job_type == "assignment_runtime_review":
-        return run_runtime_review(payload, job)
+        return _finish(run_runtime_review(payload, job))
 
     # ── Batch-level stages ────────────────────────────
     if job_type == "assignment_student_journey_review":
-        return run_student_journey_review(payload, job)
+        return _finish(run_student_journey_review(payload, job))
     if job_type == "assignment_batch_publish_prepare":
-        return run_batch_publish_prepare(payload, job)
+        return _finish(run_batch_publish_prepare(payload, job))
     if job_type == "assignment_batch_planner_feedback":
-        return run_batch_planner_feedback(payload, job)
+        return _finish(run_batch_planner_feedback(payload, job))
     if job_type == "assignment_batch_review":
         prompt = build_batch_review_prompt(job, payload)
+        _log_stage("stage-prompt-ready", job, payload, builder="build_batch_review_prompt", prompt_len=len(prompt))
         try:
             result = call_ollama(prompt)
         except Exception as ex:
-            logger.warning(f"batch review ollama failed: {ex}")
+            logger.warning(f"batch review ollama failed: {ex} [{_job_context(job, payload)}]")
             result = run_batch_review(payload, job)
-        return result
+            _log_stage("stage-fallback-result", job, payload, builder="build_batch_review_prompt", fallback="run_batch_review")
+        return _finish(result)
 
     # ── Draft repair ──────────────────────────────────
     if job_type == "assignment_repair":
         prompt = build_prompt(job, payload)
+        _log_stage("stage-prompt-ready", job, payload, builder="build_prompt", prompt_len=len(prompt))
         try:
             result = call_ollama(prompt)
         except Exception as ex:
-            logger.warning(f"repair ollama failed: {ex}")
-            return fallback_repair_result(payload, job)
+            logger.warning(f"repair ollama failed: {ex} [{_job_context(job, payload)}]")
+            return _finish(fallback_repair_result(payload, job))
         repaired_draft = result.get("draft") if isinstance(result.get("draft"), dict) else None
         if isinstance(repaired_draft, dict):
             result["draftValidation"] = run_self_check(repaired_draft)
-        return result
+            validation = result.get("draftValidation") if isinstance(result.get("draftValidation"), dict) else {}
+            _log_stage("stage-repair-validation", job, payload, validation=_result_summary(validation))
+        return _finish(result)
 
     # ── Default: generic generation ───────────────────
     prompt = build_prompt(job, payload)
+    _log_stage("stage-prompt-ready", job, payload, builder="build_prompt", prompt_len=len(prompt))
     try:
         result = call_ollama(prompt)
     except Exception as ex:
-        logger.warning(f"ollama failed for {job_type}: {ex}")
-        return fallback_result(job)
+        logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
+        return _finish(fallback_result(job))
     if job_type.startswith("assignment_generate") and payload.get("enableSelfCheck", True):
+        before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
         result = try_improve_generation(job, payload, result)
-    log("process_job <<< result ready", {"jobId": job.get("id"), "keys": list(result.keys())[:30]})
-    return result
+        after_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
+        _log_stage("stage-self-check-finished", job, payload, before_keys=before_keys, after_keys=after_keys)
+    return _finish(result)
 
 
 # ── Main poll loop ────────────────────────────────────
@@ -176,13 +256,13 @@ def main():
                 time.sleep(POLL_INTERVAL)
                 continue
             job_id = job["id"]
-            job_type = job.get("type", "?")
             heartbeat(job_id)
-            log(f"processing {job_type} job={job_id}")
+            log(f"processing {_job_context(job)}")
             result = process_job(job)
+            log(f"completing {_job_context(job)} result={_result_summary(result)}")
             complete(job_id, result)
             elapsed = int((time.time() - loop_started) * 1000)
-            log(f"done {job_type} job={job_id} in {elapsed}ms")
+            log(f"done {_job_context(job)} elapsed_ms={elapsed}")
         except KeyboardInterrupt:
             raise
         except Exception as ex:

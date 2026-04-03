@@ -11,6 +11,7 @@ public sealed partial class AiJobService
 {
     private async Task SyncFoundryProgressAfterCompletionAsync(AiJob completedJob, CancellationToken ct)
     {
+        ConsoleFoundry("sync-start", completedJob);
         if (string.Equals(completedJob.Type, AiFoundryJobTypes.CourseProfileBuild, StringComparison.OrdinalIgnoreCase))
         {
             await PersistCourseProfileAndEnqueueGapAnalysisAsync(completedJob, ct);
@@ -128,10 +129,13 @@ public sealed partial class AiJobService
             await MarkDraftAndBatchItemRepairedAsync(completedJob, ct);
             await EnqueuePostRepairReviewsAsync(completedJob, ct);
         }
+
+        ConsoleFoundry("sync-finish", completedJob);
     }
 
     private async Task EnsureDraftReviewJobsAsync(AiJob parentJob, AiGeneratedAssignmentDraft draft, CancellationToken ct)
     {
+        ConsoleFoundryDraft("ensure-review-jobs-start", draft, $"parentJobId='{parentJob.Id}'");
         var expectedTypes = GetExpectedDraftReviewTypes(draft);
         var existingTypes = await _db.AiJobs
             .Where(x => x.ParentJobId == parentJob.Id && x.TargetEntityId == draft.Id && expectedTypes.Contains(x.Type))
@@ -251,6 +255,7 @@ public sealed partial class AiJobService
 
     private async Task PersistDraftReviewArtifactAsync(AiJob reviewJob, CancellationToken ct)
     {
+        ConsoleFoundry("persist-review-artifact-start", reviewJob);
         if (await _db.AiArtifacts.AnyAsync(x => x.JobId == reviewJob.Id && x.ArtifactType == "draft-review", ct))
         {
             return;
@@ -363,6 +368,7 @@ public sealed partial class AiJobService
 
     private async Task TryScheduleRepairAfterReviewsAsync(AiJob reviewJob, CancellationToken ct)
     {
+        ConsoleFoundry("repair-routing-start", reviewJob);
         var draftId = reviewJob.TargetEntityId;
         if (draftId == null && !string.IsNullOrWhiteSpace(reviewJob.InputJson))
         {
@@ -564,6 +570,7 @@ public sealed partial class AiJobService
 
     private async Task PersistDraftRepairArtifactAsync(AiJob repairJob, CancellationToken ct)
     {
+        ConsoleFoundry("persist-draft-repair-artifact-start", repairJob);
         if (await _db.AiArtifacts.AnyAsync(x => x.JobId == repairJob.Id && x.ArtifactType == "draft-repair", ct))
             return;
 
@@ -596,6 +603,7 @@ public sealed partial class AiJobService
 
     private async Task EnqueuePostRepairReviewsAsync(AiJob repairJob, CancellationToken ct)
     {
+        ConsoleFoundry("post-repair-review-enqueue-start", repairJob);
         var draftId = repairJob.TargetEntityId;
         if (draftId == null)
             return;
@@ -609,6 +617,7 @@ public sealed partial class AiJobService
 
     private async Task PersistReviewFindingsAsync(AiJob reviewJob, CancellationToken ct)
     {
+        ConsoleFoundry("persist-review-findings-start", reviewJob);
         if (string.IsNullOrWhiteSpace(reviewJob.ResultJson))
             return;
 
@@ -647,6 +656,7 @@ public sealed partial class AiJobService
 
     private async Task<Guid?> RefreshDraftScorecardAsync(AiJob reviewJob, CancellationToken ct)
     {
+        ConsoleFoundry("scorecard-refresh-from-job-start", reviewJob);
         var draftId = reviewJob.TargetEntityId;
         if (draftId == null && !string.IsNullOrWhiteSpace(reviewJob.InputJson))
         {
@@ -664,6 +674,7 @@ public sealed partial class AiJobService
 
     private async Task<string?> RefreshDraftScorecardAsync(Guid draftId, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] scorecard-refresh >>> draftId={draftId}");
         var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == draftId, ct);
         if (draft == null)
             return null;
@@ -696,11 +707,13 @@ public sealed partial class AiJobService
         await _db.SaveChangesAsync(ct);
         if (draft.BatchId != null)
             await RefreshBatchSummaryAsync(draft.BatchId.Value, ct);
+        ConsoleFoundryDraft("scorecard-refresh-done", draft, $"reviews={reviews.Count} scorecardJsonLen={scorecardJson?.Length ?? 0}");
         return scorecardJson;
     }
 
     private async Task RefreshBatchSummaryAsync(Guid batchId, CancellationToken ct)
     {
+        Console.WriteLine($"[AiJobService][Foundry] batch-summary-refresh >>> batchId={batchId}");
         var batch = await _db.AiBatches.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == batchId, ct);
         if (batch == null)
             return;
@@ -1387,6 +1400,7 @@ public sealed partial class AiJobService
 
     private async Task MarkDraftAndBatchItemRepairedAsync(AiJob repairJob, CancellationToken ct)
     {
+        ConsoleFoundry("mark-draft-repaired-start", repairJob);
         var draftId = repairJob.TargetEntityId;
         if (draftId == null && !string.IsNullOrWhiteSpace(repairJob.InputJson))
         {

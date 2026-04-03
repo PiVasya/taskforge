@@ -17,11 +17,13 @@ from typing import Any, Dict, List
 
 from text_utils import normalize_text, safe_int
 from validators import summarize_status, summarize_gate_status, build_findings_from_checks
+from log import log
 
 
 # ── Batch coherence review ────────────────────────────
 
 def run_batch_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
+    log(f"batch-review >>> job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} items={len(payload.get('batchItems') or [])} peerDrafts={len(payload.get('batchPeerDrafts') or [])}")
     drafts = payload.get("batchPeerDrafts") if isinstance(payload.get("batchPeerDrafts"), list) else []
     batch_items = payload.get("batchItems") if isinstance(payload.get("batchItems"), list) else []
     titles: List[str] = []
@@ -98,7 +100,7 @@ def run_batch_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
 
     status = summarize_status(checks)
     score = max(0.05, 0.95 - dup * 0.08 - difficulty_jumps * 0.1 - repeated_skills * 0.05 - weak_items * 0.12)
-    return {
+    result = {
         "status": status,
         "score": round(score, 3),
         "summary": "Batch coherence review completed",
@@ -114,11 +116,14 @@ def run_batch_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
             "repeatedSkills": repeated_skills,
         },
     }
+    log(f"batch-review <<< job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} status={result.get('status')} score={result.get('score')} findings={len(result.get('findings') or [])}")
+    return result
 
 
 # ── Student journey review ────────────────────────────
 
 def run_student_journey_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
+    log(f"student-journey >>> job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} items={len(payload.get('batchItems') or [])}")
     batch_items = sorted(
         [x for x in (payload.get("batchItems") if isinstance(payload.get("batchItems"), list) else []) if isinstance(x, dict)],
         key=lambda x: safe_int(x.get("index") or x.get("Index"), 0),
@@ -217,7 +222,7 @@ def run_student_journey_review(payload: Dict[str, Any], job: Dict[str, Any]) -> 
             "difficultyTarget": safe_int(item.get("difficultyTarget") or item.get("DifficultyTarget"), 0),
             "itemScore": scorecard.get("overallScore"),
         })
-    return {
+    result = {
         "status": status,
         "score": round(score, 3),
         "summary": "Student journey review completed.",
@@ -230,11 +235,14 @@ def run_student_journey_review(payload: Dict[str, Any], job: Dict[str, Any]) -> 
             "weakPrerequisites": weak_prereq, "repeatedAdjacent": repeated_adjacent,
         },
     }
+    log(f"student-journey <<< job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} status={result.get('status')} score={result.get('score')} findings={len(result.get('findings') or [])}")
+    return result
 
 
 # ── Batch publish preparation ─────────────────────────
 
 def run_batch_publish_prepare(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
+    log(f"publish-prepare >>> job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} items={len(payload.get('batchItems') or [])}")
     batch_items = [x for x in (payload.get("batchItems") if isinstance(payload.get("batchItems"), list) else []) if isinstance(x, dict)]
     batch_review = payload.get("batchReview") if isinstance(payload.get("batchReview"), dict) else {}
     student_journey = payload.get("studentJourney") if isinstance(payload.get("studentJourney"), dict) else {}
@@ -303,7 +311,7 @@ def run_batch_publish_prepare(payload: Dict[str, Any], job: Dict[str, Any]) -> D
         })
 
     score = max(0.05, min(0.99, (avg_score * 0.55 + batch_review_score * 0.25 + student_journey_score * 0.20) / 100.0))
-    return {
+    result = {
         "status": summarize_status(checks),
         "score": round(score, 3),
         "summary": "Batch publication readiness prepared.",
@@ -334,11 +342,14 @@ def run_batch_publish_prepare(payload: Dict[str, Any], job: Dict[str, Any]) -> D
             "weakItems": len(weak_items), "itemsCount": len(batch_items),
         },
     }
+    log(f"publish-prepare <<< job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} status={result.get('status')} score={result.get('score')} readiness={(result.get('publicationDecision') or {}).get('readiness')}")
+    return result
 
 
 # ── Planner feedback ─────────────────────────────────
 
 def run_batch_planner_feedback(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
+    log(f"planner-feedback >>> job={job.get('id')} batch={payload.get('batchId') or job.get('targetEntityId')} items={len(payload.get('batchItems') or [])}")
     batch_items = sorted(
         [x for x in (payload.get("batchItems") if isinstance(payload.get("batchItems"), list) else []) if isinstance(x, dict)],
         key=lambda x: safe_int(x.get("index") or x.get("Index"), 0),

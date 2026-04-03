@@ -452,6 +452,8 @@ public sealed partial class AiJobService : IAiJobService
             return false;
         }
 
+        ConsoleFoundry("complete-loaded", job, $"incomingWorker='{request.WorkerId}' incomingModel='{request.ModelName}' incomingResultLen={request.ResultJson?.Length ?? 0}");
+
         job.Status = "done";
         job.CompletedAtUtc = DateTime.UtcNow;
         job.HeartbeatAtUtc = job.CompletedAtUtc;
@@ -459,11 +461,13 @@ public sealed partial class AiJobService : IAiJobService
         job.ResultJson = NormalizeJsonOrNull(request.ResultJson) ?? request.ResultJson;
         job.ErrorText = null;
 
-        Console.WriteLine($"[AiJobService] complete persisting artifacts for jobId={jobId} type='{job.Type}' resultJson.normalized.len={job.ResultJson?.Length ?? 0}");
+        ConsoleFoundry("complete-before-artifacts", job, $"normalizedResultLen={job.ResultJson?.Length ?? 0} resultPreview='{PreviewForConsole(job.ResultJson, 220)}'");
         await PersistDerivedArtifactsAsync(job, ct);
         await _db.SaveChangesAsync(ct);
+        ConsoleFoundry("complete-after-artifacts", job);
         await SyncFoundryProgressAfterCompletionAsync(job, ct);
         await _db.SaveChangesAsync(ct);
+        ConsoleFoundry("complete-after-sync", job);
         Console.WriteLine($"[AiJobService] complete <<< saved jobId={jobId} status='{job.Status}' completedAt='{job.CompletedAtUtc:O}' model='{job.ModelName}'");
         return true;
     }
