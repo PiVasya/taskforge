@@ -10,18 +10,18 @@ export async function getAiJob(id) {
   return data;
 }
 
-export async function createAiJob(payload) {
-  const { data } = await api.post('/api/admin/ai/jobs', payload);
+export async function getAiBatches() {
+  const { data } = await api.get('/api/admin/ai/batches');
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getAiBatch(id) {
+  const { data } = await api.get(`/api/admin/ai/batches/${id}`);
   return data;
 }
 
-export async function generateAiAssignmentFromText(payload) {
-  const { data } = await api.post('/api/admin/ai/generate/from-text', payload);
-  return data;
-}
-
-export async function generateAiAssignmentFromFile(payload) {
-  const { data } = await api.post('/api/admin/ai/generate/from-file', payload);
+export async function generateAiBatch(payload) {
+  const { data } = await api.post('/api/admin/ai/batches/generate', payload);
   return data;
 }
 
