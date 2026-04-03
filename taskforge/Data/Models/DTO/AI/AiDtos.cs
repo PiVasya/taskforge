@@ -177,7 +177,7 @@ public sealed class AiGenerateAssignmentBatchRequestDto
     public int Priority { get; set; } = 20;
 }
 
-public sealed class AiBatchListItemDto
+public class AiBatchListItemDto
 {
     public Guid Id { get; set; }
     public Guid? CourseId { get; set; }

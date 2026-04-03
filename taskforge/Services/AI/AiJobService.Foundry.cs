@@ -403,12 +403,12 @@ public sealed partial class AiJobService
             draft.UpdatedAtUtc = DateTime.UtcNow;
             if (draft.BatchItemId != null)
             {
-                var item = await _db.AiBatchItems.FirstOrDefaultAsync(x => x.Id == draft.BatchItemId.Value, ct);
-                if (item != null)
+                var batchItem = await _db.AiBatchItems.FirstOrDefaultAsync(x => x.Id == draft.BatchItemId.Value, ct);
+                if (batchItem != null)
                 {
-                    item.Status = draft.Status;
-                    item.ScorecardJson = scorecardJson;
-                    item.UpdatedAtUtc = DateTime.UtcNow;
+                    batchItem.Status = draft.Status;
+                    batchItem.ScorecardJson = scorecardJson;
+                    batchItem.UpdatedAtUtc = DateTime.UtcNow;
                 }
             }
             await _db.SaveChangesAsync(ct);
@@ -1395,6 +1395,37 @@ public sealed partial class AiJobService
         await _db.SaveChangesAsync(ct);
         if (draft.BatchId != null)
             await RefreshBatchSummaryAsync(draft.BatchId.Value, ct);
+    }
+
+
+    private async Task<string> BuildDecisionLogDigestJsonAsync(Guid batchId, CancellationToken ct)
+    {
+        var logs = await _db.AiDecisionLogs.AsNoTracking()
+            .Where(x => x.BatchId == batchId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(20)
+            .Select(x => new { x.StageCode, x.DecisionType, x.Message, x.CreatedAtUtc, x.BatchItemId })
+            .ToListAsync(ct);
+
+        return JsonSerializer.Serialize(new
+        {
+            generatedAtUtc = DateTime.UtcNow,
+            total = logs.Count,
+            recent = logs
+        }, JsonOptions);
+    }
+
+    private static string BuildFeedbackLoopStateJson(AiBatch batch, IDictionary<string, int> routeCounts, string? readiness)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            batchId = batch.Id,
+            generatedAtUtc = DateTime.UtcNow,
+            readiness,
+            routeCounts,
+            currentStage = batch.CurrentStage,
+            status = batch.Status
+        }, JsonOptions);
     }
 
     private sealed record FoundryRepairRoutingPlan(string PrimaryRoute, IReadOnlyList<string> Routes, string PublishRecommendation, int OverallScore, bool NeedsRepair)

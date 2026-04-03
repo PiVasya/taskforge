@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Constants;
@@ -16,7 +19,7 @@ public sealed partial class AiJobService
             CourseId = request.CourseId,
             CreatedByUserId = createdByUserId,
             Prompt = request.Prompt,
-            AssignmentType = NormalizeDraftAssignmentType(request.AssignmentType, "math"),
+            AssignmentType = NormalizeDraftAssignmentType(request.AssignmentType, default),
             Mode = string.IsNullOrWhiteSpace(request.Mode) ? "topic-pack" : request.Mode.Trim(),
             RequestedCount = Math.Clamp(request.Count, 1, 20),
             Status = "pending",
@@ -1951,6 +1954,113 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
         {
             return null;
         }
+    }
+
+
+    private static string AppendJsonHistory(string? existingJson, object entry)
+    {
+        JsonArray array;
+        try
+        {
+            array = string.IsNullOrWhiteSpace(existingJson)
+                ? new JsonArray()
+                : (JsonNode.Parse(existingJson!) as JsonArray ?? new JsonArray(JsonNode.Parse(existingJson!)));
+        }
+        catch
+        {
+            array = new JsonArray();
+        }
+
+        array.Add(JsonSerializer.SerializeToNode(entry, JsonOptions));
+        return array.ToJsonString(JsonOptions);
+    }
+
+    private static string MergeJsonSignals(string? existingJson, object patch)
+    {
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(existingJson)
+                ? new JsonObject()
+                : (JsonNode.Parse(existingJson!) as JsonObject ?? new JsonObject());
+        }
+        catch
+        {
+            root = new JsonObject();
+        }
+
+        var patchNode = JsonSerializer.SerializeToNode(patch, JsonOptions) as JsonObject;
+        if (patchNode != null)
+        {
+            foreach (var kv in patchNode)
+                root[kv.Key] = kv.Value?.DeepClone();
+        }
+
+        if (patchNode != null && patchNode.TryGetPropertyValue("fingerprint", out var fpNode) && fpNode is JsonValue fpVal && fpVal.TryGetValue<string>(out var fp) && !string.IsNullOrWhiteSpace(fp))
+        {
+            var fps = root["fingerprints"] as JsonArray ?? new JsonArray();
+            if (!fps.Any(x => string.Equals(x?.GetValue<string>(), fp, StringComparison.Ordinal)))
+                fps.Add(fp);
+            root["fingerprints"] = fps;
+        }
+
+        return root.ToJsonString(JsonOptions);
+    }
+
+    private static string ComputePlannerRecommendationFingerprint(JsonElement slot)
+    {
+        var raw = slot.GetRawText();
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+        return Convert.ToHexString(bytes);
+    }
+
+    private static bool HasPlannerSignalFingerprint(string? plannerSignalsJson, string fingerprint)
+    {
+        if (string.IsNullOrWhiteSpace(plannerSignalsJson) || string.IsNullOrWhiteSpace(fingerprint))
+            return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(plannerSignalsJson);
+            if (doc.RootElement.TryGetProperty("fingerprints", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var node in arr.EnumerateArray())
+                {
+                    if (node.ValueKind == JsonValueKind.String && string.Equals(node.GetString(), fingerprint, StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            if (doc.RootElement.TryGetProperty("fingerprint", out var single) && single.ValueKind == JsonValueKind.String)
+                return string.Equals(single.GetString(), fingerprint, StringComparison.Ordinal);
+        }
+        catch { }
+        return false;
+    }
+
+    private static string? MergeAntiPatternFlags(string? existingFlagsJson, string? antiPatternMemoryJson, string? plannerFeedbackJson, int index)
+    {
+        var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void addJsonArrayStrings(string? json, params string[] props)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                foreach (var prop in props)
+                {
+                    if (doc.RootElement.TryGetProperty(prop, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var n in arr.EnumerateArray())
+                            if (n.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(n.GetString())) values.Add(n.GetString()!);
+                    }
+                }
+            }
+            catch { }
+        }
+        addJsonArrayStrings(existingFlagsJson, "flags");
+        addJsonArrayStrings(antiPatternMemoryJson, "antiPatterns", "flags");
+        addJsonArrayStrings(plannerFeedbackJson, "antiPatterns", "flags");
+        if (values.Count == 0) return existingFlagsJson;
+        return JsonSerializer.Serialize(new { flags = values.OrderBy(x => x).ToArray(), slotIndex = index, updatedAtUtc = DateTime.UtcNow }, JsonOptions);
     }
 
 }
