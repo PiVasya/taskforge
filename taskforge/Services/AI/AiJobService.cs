@@ -1108,6 +1108,9 @@ public sealed partial class AiJobService : IAiJobService
 
     private static string MapDraftStatusFromDraftNode(JsonElement draftNode)
     {
+        if (IsFallbackDraft(draftNode))
+            return "fallback-review";
+
         var selfCheckStatus = ExtractSelfCheckStatus(draftNode);
         return selfCheckStatus switch
         {
@@ -1116,6 +1119,38 @@ public sealed partial class AiJobService : IAiJobService
             "needs-review" => "needs-review",
             _ => "draft",
         };
+    }
+
+    private static bool IsFallbackDraft(JsonElement draftNode)
+    {
+        var title = ReadString(draftNode, "title") ?? string.Empty;
+        if (title.Trim().StartsWith("AI fallback", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var tags = ReadString(draftNode, "tags") ?? string.Empty;
+        if (tags.Contains("ai,fallback", StringComparison.OrdinalIgnoreCase) || tags.Contains("fallback", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var metaNode = GetPropertyOrNull(draftNode, "meta");
+        var generationSource = ReadString(metaNode, "generationSource") ?? ReadString(metaNode, "source");
+        if (string.Equals(generationSource, "fallback", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private static bool IsFallbackDraftJson(string? draftJson)
+    {
+        if (string.IsNullOrWhiteSpace(draftJson)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(draftJson);
+            return IsFallbackDraft(doc.RootElement);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string MapDraftStatusFromValidationRoot(JsonElement validationRoot, string? fallback)

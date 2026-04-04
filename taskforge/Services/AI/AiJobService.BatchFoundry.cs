@@ -785,7 +785,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         batch.PublishPackJson = await BuildPublishPackJsonAsync(batch.Id, completedJob.ResultJson, ct);
         batch.QualityLedgerJson = await BuildQualityLedgerJsonAsync(batch.Id, completedJob.ResultJson, ct);
         batch.ExportManifestJson = await BuildExportManifestJsonAsync(batch.Id, batch.PublishPackJson, batch.QualityLedgerJson, completedJob.ResultJson, ct);
-        batch.Status = ExtractBatchPublishStatus(completedJob.ResultJson);
+        batch.Status = ExtractPublishPackReadiness(batch.PublishPackJson) ?? ExtractBatchPublishStatus(completedJob.ResultJson);
         batch.CurrentStage = AiFoundryStages.PlannerFeedback;
         batch.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -1456,7 +1456,7 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
         var itemIds = batch.Items.Where(x => x.DraftId != null).Select(x => x.DraftId!.Value).ToList();
         var drafts = await _db.AiGeneratedAssignmentDrafts.AsNoTracking()
             .Where(x => itemIds.Contains(x.Id))
-            .Select(x => new { x.Id, x.BatchItemId, x.Title, x.Status, x.AssignmentType, x.CreatedAtUtc, x.UpdatedAtUtc })
+            .Select(x => new { x.Id, x.BatchItemId, x.Title, x.Status, x.AssignmentType, x.CreatedAtUtc, x.UpdatedAtUtc, x.DraftJson })
             .ToListAsync(ct);
 
         var readiness = ExtractBatchPublicationReadiness(publicationAuditJson) ?? batch.Status;
@@ -1479,10 +1479,24 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
                 primaryRoute = route,
                 item.Status,
             };
-            if (score >= 80 && item.DraftId != null && (item.Status == "ready" || item.Status == "reviewed" || item.Status == "repaired"))
+            var isFallbackDraft = draft != null && IsFallbackDraftJson(draft.DraftJson);
+            var publishableStatus = item.Status == "ready" || item.Status == "reviewed" || item.Status == "repaired";
+            if (score >= 80 && item.DraftId != null && publishableStatus && !isFallbackDraft)
                 readyItems.Add(row);
             else
-                blockedItems.Add(row);
+                blockedItems.Add(new
+                {
+                    item.Index,
+                    item.Id,
+                    item.DraftId,
+                    title = draft?.Title,
+                    item.TargetSkill,
+                    item.DifficultyTarget,
+                    overallScore = score,
+                    primaryRoute = route,
+                    item.Status,
+                    blockReason = isFallbackDraft ? "fallback-draft" : "quality-or-status",
+                });
         }
 
         return JsonSerializer.Serialize(new
@@ -1490,8 +1504,8 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
             version = "wave15-publish-pack",
             generatedAtUtc = DateTime.UtcNow,
             batchId,
-            readiness,
-            shouldPublish = string.Equals(readiness, "ready", StringComparison.OrdinalIgnoreCase),
+            readiness = blockedItems.Count == 0 && readyItems.Count > 0 ? "ready-for-publish" : "needs-review",
+            shouldPublish = blockedItems.Count == 0 && readyItems.Count > 0,
             readyDrafts = readyItems,
             blockedDrafts = blockedItems,
             publishableCount = readyItems.Count,
@@ -1504,6 +1518,19 @@ private async Task ResetBatchItemForReplanAsync(AiBatchItem item, bool isReplan,
         }, JsonOptions);
     }
 
+
+    private static string? ExtractPublishPackReadiness(string? publishPackJson)
+    {
+        if (string.IsNullOrWhiteSpace(publishPackJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(publishPackJson);
+            if (doc.RootElement.TryGetProperty("readiness", out var node) && node.ValueKind == JsonValueKind.String)
+                return node.GetString();
+        }
+        catch { }
+        return null;
+    }
 
     private async Task<string> BuildQualityLedgerJsonAsync(Guid batchId, string? publicationAuditJson, CancellationToken ct)
     {

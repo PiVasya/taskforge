@@ -22,6 +22,9 @@ public sealed partial class AiJobService
         var requiresPassedSelfCheck = _aiOptions.RequirePassedSelfCheckForPublish;
         // If draft was manually approved by admin, treat as force-publish
         var effectiveForce = request.ForceWithoutPassedSelfCheck || isApproved;
+        var isFallbackDraft = IsFallbackDraft(root);
+        if (isFallbackDraft && !effectiveForce)
+            throw new ValidationException("Этот черновик создан fallback-веткой после сбоя/таймаута AI. Сначала перегенерируй или одобри вручную, если публиковать всё-таки нужно.");
         if (requiresPassedSelfCheck && !effectiveForce)
         {
             if (string.IsNullOrWhiteSpace(selfCheckStatus))

@@ -11,7 +11,15 @@ This file contains only the job-routing dispatcher and the main poll loop.
 import time
 from typing import Any, Dict
 
-from config import API_BASE, API_KEY, WORKER_ID, OLLAMA_MODEL, POLL_INTERVAL
+from config import (
+    API_BASE,
+    API_KEY,
+    WORKER_ID,
+    OLLAMA_MODEL,
+    POLL_INTERVAL,
+    MAX_JOB_RETRIES,
+    RETRYABLE_STAGE_DELAY_SECONDS,
+)
 from log import log, logger
 from api_client import pull_job, heartbeat, complete, fail
 from payload import parse_payload, sanitize_result_payload
@@ -49,6 +57,12 @@ from fallbacks import (
     fallback_gap_analysis,
 )
 from repair import try_improve_generation, fallback_repair_result
+
+
+class RetryableStageError(RuntimeError):
+    def __init__(self, message: str, retry_delay_seconds: int | None = None):
+        super().__init__(message)
+        self.retry_delay_seconds = retry_delay_seconds or RETRYABLE_STAGE_DELAY_SECONDS
 
 
 def _preview(value: Any, limit: int = 120) -> str:
@@ -125,7 +139,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         _log_stage("stage-done", job, payload, result=_result_summary(result))
         return result
 
-    def _ollama_stage(prompt_builder, fallback_fn=None, sanitize=True):
+    def _ollama_stage(prompt_builder, fallback_fn=None, sanitize=True, allow_fallback=True):
         builder_name = getattr(prompt_builder, "__name__", "prompt_builder")
         _log_stage("stage-prepare-prompt", job, payload, builder=builder_name)
         prompt = prompt_builder(job, payload)
@@ -134,6 +148,8 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             result = call_ollama(prompt)
         except Exception as ex:
             logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
+            if not allow_fallback:
+                raise RetryableStageError(f"{job_type} failed: {ex}") from ex
             result = fallback_fn(payload, job) if fallback_fn else fallback_result(job)
             _log_stage("stage-fallback-result", job, payload, builder=builder_name, fallback_type=type(result).__name__)
         if sanitize:
@@ -149,15 +165,15 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Batch plan / replan ───────────────────────────
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
-        return _finish(_ollama_stage(build_batch_plan_prompt))
+        return _finish(_ollama_stage(build_batch_plan_prompt, allow_fallback=False))
 
     # ── Reference pack ────────────────────────────────
     if job_type == "assignment_reference_pack_build":
-        return _finish(_ollama_stage(build_reference_pack_prompt))
+        return _finish(_ollama_stage(build_reference_pack_prompt, allow_fallback=False))
 
     # ── Brief generate ────────────────────────────────
     if job_type == "assignment_brief_generate":
-        return _finish(_ollama_stage(build_brief_prompt))
+        return _finish(_ollama_stage(build_brief_prompt, allow_fallback=False))
 
     # ── Validate draft ────────────────────────────────
     if job_type == "assignment_validate_draft":
@@ -172,7 +188,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Brief repair ──────────────────────────────────
     if job_type == "assignment_brief_repair":
-        return _finish(_ollama_stage(build_brief_repair_prompt))
+        return _finish(_ollama_stage(build_brief_repair_prompt, allow_fallback=False))
 
     # ── Per-stage reviews (deterministic) ─────────────
     if job_type == "assignment_structural_review":
@@ -231,7 +247,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         result = call_ollama(prompt)
     except Exception as ex:
         logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
-        return _finish(fallback_result(job))
+        raise RetryableStageError(f"{job_type} failed: {ex}") from ex
     if job_type.startswith("assignment_generate") and payload.get("enableSelfCheck", True):
         before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
         result = try_improve_generation(job, payload, result)
@@ -265,6 +281,17 @@ def main():
             log(f"done {_job_context(job)} elapsed_ms={elapsed}")
         except KeyboardInterrupt:
             raise
+        except RetryableStageError as ex:
+            logger.warning(f"retryable stage error: {ex}")
+            if job_id:
+                retry_count = int(job.get("retryCount") or job.get("RetryCount") or 0) if isinstance(job, dict) else 0
+                retryable = retry_count < max(1, MAX_JOB_RETRIES)
+                delay = getattr(ex, "retry_delay_seconds", RETRYABLE_STAGE_DELAY_SECONDS)
+                try:
+                    fail(job_id, str(ex), retryable=retryable, retry_delay_seconds=delay)
+                except Exception as fail_ex:
+                    logger.error(f"fail() call also failed: {fail_ex}")
+            time.sleep(POLL_INTERVAL)
         except Exception as ex:
             logger.error(f"loop error: {type(ex).__name__}: {ex}", exc_info=True)
             if job_id:

@@ -76,6 +76,8 @@ function statusTone(status) {
     case 'published':
     case 'approved':
       return 'success';
+    case 'fallback-review':
+      return 'outline';
     case 'failed':
     case 'error':
     case 'rejected':
@@ -103,6 +105,7 @@ function statusLabel(status) {
     error: 'Ошибка',
     draft: 'Черновик',
     reviewed: 'Проверен',
+    'fallback-review': 'Fallback — перепроверить',
   };
   return map[s] || status || '—';
 }
@@ -127,6 +130,16 @@ function tryParse(value) {
 function extractSelfCheck(draftJson) {
   var parsed = tryParse(draftJson);
   return (parsed && (parsed.meta ? parsed.meta.selfCheck : null)) || (parsed ? parsed.selfCheck : null) || null;
+}
+
+function isFallbackDraft(draft) {
+  if (!draft) return false;
+  var parsed = tryParse(draft.draftJson);
+  var title = String((parsed && parsed.title) || draft.title || '').toLowerCase();
+  var tags = String((parsed && parsed.tags) || '').toLowerCase();
+  var meta = parsed && parsed.meta ? parsed.meta : null;
+  var source = String((meta && (meta.generationSource || meta.source)) || '').toLowerCase();
+  return title.indexOf('ai fallback') === 0 || tags.indexOf('fallback') >= 0 || source === 'fallback';
 }
 
 function selfCheckTone(status) {
@@ -157,12 +170,16 @@ function getPublishability(draft) {
   var selfCheck = extractSelfCheck(draft.draftJson);
   var selfCheckPassed = selfCheck && String(selfCheck.status || '').toLowerCase() === 'passed';
   var isApproved = st === 'approved';
+  var fallbackDraft = isFallbackDraft(draft);
+
+  if (fallbackDraft && !isApproved)
+    return { can: false, reason: 'Fallback-черновик: сначала перегенерируй или одобри вручную', force: false };
 
   if (isApproved && selfCheckPassed)
     return { can: true, reason: 'Одобрен + self-check пройден', force: false };
   if (selfCheckPassed) return { can: true, reason: 'Self-check пройден', force: false };
   if (isApproved)
-    return { can: true, reason: 'Одобрен (self-check не пройден — force)', force: true };
+    return { can: true, reason: fallbackDraft ? 'Одобрен fallback-черновик — force' : 'Одобрен (self-check не пройден — force)', force: true };
 
   return { can: true, reason: 'Не проверен — будет force-публикация', force: true };
 }
@@ -616,7 +633,7 @@ export default function AdminAiPage() {
       return;
     }
     var batchDrafts = drafts.filter(function (d) {
-      return d.batchId === batch.id && (d.status || '').toLowerCase() !== 'published';
+      return d.batchId === batch.id && (d.status || '').toLowerCase() !== 'published' && !isFallbackDraft(d);
     });
     if (batchDrafts.length === 0) {
       notify.error('Нет неопубликованных черновиков в этом пакете');

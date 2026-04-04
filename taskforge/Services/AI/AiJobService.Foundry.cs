@@ -417,14 +417,17 @@ public sealed partial class AiJobService
 
         if (!routing.NeedsRepair)
         {
-            draft.Status = routing.PublishRecommendation == "ready" ? "ready" : "reviewed";
+            var draftStatus = IsFallbackDraftJson(draft.DraftJson)
+                ? "fallback-review"
+                : (routing.PublishRecommendation == "ready" ? "ready" : "reviewed");
+            draft.Status = draftStatus;
             draft.UpdatedAtUtc = DateTime.UtcNow;
             if (draft.BatchItemId != null)
             {
                 var batchItem = await _db.AiBatchItems.FirstOrDefaultAsync(x => x.Id == draft.BatchItemId.Value, ct);
                 if (batchItem != null)
                 {
-                    batchItem.Status = draft.Status;
+                    batchItem.Status = draftStatus;
                     batchItem.ScorecardJson = scorecardJson;
                     batchItem.UpdatedAtUtc = DateTime.UtcNow;
                 }

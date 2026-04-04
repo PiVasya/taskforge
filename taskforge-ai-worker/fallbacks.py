@@ -108,17 +108,32 @@ def fallback_gap_analysis(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[
 
 # ── Fallback: plan tasks ─────────────────────────────
 
-def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
-    count = max(1, safe_int(payload.get("count"), 1))
-    prompt = normalize_text(payload.get("prompt"))
-    words = [x for x in re.split(r"[^\wа-яА-Я]+", prompt) if len(x) >= 4]
-    unique_words: List[str] = []
+GENERIC_PROMPT_STOPWORDS = {
+    "придумай", "придумать", "задание", "задания", "задачу", "задачи",
+    "чтобы", "были", "будут", "самые", "сложные", "сложная", "сложный",
+    "данном", "этом", "курсе", "сделать", "отдельную", "теме", "тема",
+    "учебная", "цель", "реализовать", "создать", "создайте", "нужно",
+    "одно", "качественное", "without", "task", "tasks", "assignment",
+}
+
+def _extract_prompt_seeds(prompt: str) -> List[str]:
+    words = [x for x in re.split(r"[^\wа-яА-Я]+", normalize_text(prompt)) if len(x) >= 4]
+    result: List[str] = []
     seen: set = set()
     for word in words:
         low = word.lower()
-        if low not in seen:
-            seen.add(low)
-            unique_words.append(word)
+        if low in GENERIC_PROMPT_STOPWORDS:
+            continue
+        if low in seen:
+            continue
+        seen.add(low)
+        result.append(word)
+    return result
+
+def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    count = max(1, safe_int(payload.get("count"), 1))
+    prompt = normalize_text(payload.get("prompt"))
+    unique_words = _extract_prompt_seeds(prompt)
     biases = extract_historical_skill_biases(payload)
     strong = biases["strong"]
     weak = {x.lower() for x in biases["weak"]}
@@ -203,6 +218,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
         assignment_type = str(payload.get("assignmentType") or "math").strip().lower()
         if assignment_type == "code-test":
             draft = {
+                "meta": {"generationSource": "fallback", "publishBlockedReason": "model-unavailable"},
                 "assignmentType": "code-test",
                 "title": "AI fallback: сумма чисел от 1 до n",
                 "description": (
@@ -242,6 +258,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
             return attach_self_check({"draft": draft}, draft, run_self_check(draft))
         if assignment_type == "test":
             draft = {
+                "meta": {"generationSource": "fallback", "publishBlockedReason": "model-unavailable"},
                 "assignmentType": "test",
                 "title": "AI fallback: базовый тест",
                 "description": "<p>Ответьте на вопросы по теме.</p><p>Внимательно прочитайте формулировки и выберите правильные варианты.</p>",
@@ -260,6 +277,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
         # math (default)
         draft = {
             "assignmentType": "math",
+            "meta": {"generationSource": "fallback", "publishBlockedReason": "model-unavailable"},
             "title": "AI fallback: простая математическая задача",
             "description": "<p>Решите предложенную задачу и введите ответы в блоки.</p>",
             "courseId": job.get("courseId"),
