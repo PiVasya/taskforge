@@ -370,6 +370,10 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
             '"coverage":{"coverageBand":"low|medium|high","noveltyGoal":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-batch-plan-repair"},'
             '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
         )
+    elif stage == "draft_generate":
+        expected = (
+            '{"draft":{"assignmentType":"code-test","title":"...","description":"<p>...</p>","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-generate-repair"}}'
+        )
     else:
         expected = (
             '{"canonicalRequest":{"domain":"...","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
@@ -459,6 +463,82 @@ def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
         "\"exemplarPack\":{...},\"signals\":{...},\"generationHints\":{...},"
         "\"decisionLog\":[{\"stage\":\"reference_pack_build\",\"message\":\"...\"}]}.\n\n"
         f"Reference pack payload:\n{_prompt_json(compact_payload)}"
+    )
+
+
+def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    reference_pack = payload.get("referencePack") if isinstance(payload.get("referencePack"), dict) else {}
+    target_schema = payload.get("targetSchema") if isinstance(payload.get("targetSchema"), dict) else {}
+    quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+
+    compact_payload = {
+        "requestType": normalize_text(payload.get("requestType") or "assignment_generate_from_text"),
+        "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
+        "courseId": payload.get("courseId"),
+        "batchId": payload.get("batchId"),
+        "batchItemId": payload.get("batchItemId"),
+        "difficulty": safe_int(payload.get("difficulty"), safe_int(brief.get("difficultyTarget"), 3)),
+        "titleHint": truncate_text(payload.get("titleHint") or brief.get("titleHint") or task.get("targetSkill"), 160),
+        "prompt": truncate_text(payload.get("prompt") or brief.get("generationPrompt"), 500),
+        "sourceText": truncate_text(payload.get("sourceText") or brief.get("sourceText") or brief.get("summary"), 500),
+        "notes": truncate_text(payload.get("notes") or brief.get("notes"), 320),
+        "brief": {
+            "titleHint": truncate_text(brief.get("titleHint"), 160),
+            "summary": truncate_text(brief.get("summary"), 260),
+            "generationPrompt": truncate_text(brief.get("generationPrompt"), 700),
+            "sourceText": truncate_text(brief.get("sourceText"), 400),
+            "difficultyTarget": brief.get("difficultyTarget"),
+            "targetSkill": truncate_text(brief.get("targetSkill"), 160),
+        },
+        "task": {
+            "targetSkill": truncate_text(task.get("targetSkill") or task.get("TargetSkill"), 160),
+            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 220),
+            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
+        },
+        "qualityGates": quality_gates,
+        "targetSchema": target_schema,
+        "referencePack": {
+            "stylePack": reference_pack.get("stylePack") if isinstance(reference_pack.get("stylePack"), dict) else {},
+            "policyPack": reference_pack.get("policyPack") if isinstance(reference_pack.get("policyPack"), dict) else {},
+            "negativePack": reference_pack.get("negativePack") if isinstance(reference_pack.get("negativePack"), dict) else reference_pack.get("negativePack"),
+            "signals": reference_pack.get("signals") if isinstance(reference_pack.get("signals"), dict) else {},
+            "generationHints": reference_pack.get("generationHints") if isinstance(reference_pack.get("generationHints"), dict) else {},
+            "exemplarPack": reference_pack.get("exemplarPack") if isinstance(reference_pack.get("exemplarPack"), (dict, list)) else reference_pack.get("exemplarPack"),
+        },
+        "referenceAssignments": compact_reference_assignments(payload, limit=3, description_len=100, include_cases=True),
+    }
+
+    return (
+        "Ты — TaskForge AI draft generator. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
+        "Нужно создать полноценный publishable draft для одной задачи. Ответ обязан иметь top-level ключ draft.\n"
+        "Не возвращай пустой объект {}, не возвращай только sourceText, не возвращай заготовки без tests или description.\n"
+        "Если referencePack частично пустой, всё равно собери полноценный draft по brief, qualityGates и targetSchema.\n\n"
+        "Формат ответа строго такой:\n"
+        "{\n"
+        "  \"draft\": {\n"
+        "    \"assignmentType\": \"code-test|test|math\",\n"
+        "    \"title\": \"...\",\n"
+        "    \"description\": \"<p>...</p>\",\n"
+        "    \"allowedLanguages\": [\"python\",\"cpp\",\"csharp\"],\n"
+        "    \"publicTests\": [{\"input\":\"...\",\"expectedOutput\":\"...\"}],\n"
+        "    \"hiddenTests\": [{\"input\":\"...\",\"expectedOutput\":\"...\"}],\n"
+        "    \"referenceSolutionPython\": \"...\",\n"
+        "    \"requiredCalls\": [\"...\"],\n"
+        "    \"forbiddenCalls\": [\"...\"],\n"
+        "    \"meta\": {\"generationSource\": \"llm\"}\n"
+        "  },\n"
+        "  \"summary\": \"1-2 коротких предложения\",\n"
+        "  \"decisionSummary\": {\"confidence\": \"low|medium|high\", \"source\": \"llm-draft-generate\"}\n"
+        "}\n\n"
+        "Правила:\n"
+        "- description обязан быть полноценным HTML-условием с блоками problem/input/output/constraints/notes.\n"
+        "- Для code-test обязательно: title, description, allowedLanguages, publicTests, hiddenTests, referenceSolutionPython.\n"
+        "- referenceSolutionPython должен проходить все сгенерированные tests.\n"
+        "- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.\n"
+        "- Не копируй referenceAssignments дословно.\n\n"
+        f"Draft payload:\n{_prompt_json(compact_payload)}"
     )
 
 

@@ -92,6 +92,20 @@ public sealed partial class AiJobService
                 }
                 await EnsureDraftReviewJobsAsync(completedJob, draft, ct);
             }
+            else if (string.Equals(completedJob.TargetEntityType, "ai-batch-item", StringComparison.OrdinalIgnoreCase) && completedJob.TargetEntityId != null)
+            {
+                var item = await _db.AiBatchItems.Include(x => x.Batch).FirstOrDefaultAsync(x => x.Id == completedJob.TargetEntityId.Value, ct);
+                if (item != null)
+                {
+                    item.Status = "draft-missing";
+                    item.UpdatedAtUtc = DateTime.UtcNow;
+                    item.Batch.Status = "drafting";
+                    item.Batch.CurrentStage = AiFoundryStages.DraftGenerate;
+                    item.Batch.UpdatedAtUtc = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(ct);
+                    await CreateBatchDecisionLogAsync(item.BatchId, item.Id, completedJob.Id, AiFoundryStages.DraftGenerate, "draft-missing", "Draft generation завершилась без draft JSON. Требуется repair/fallback на уровне worker или повторный прогон stage.", completedJob.ResultJson, ct);
+                }
+            }
         }
 
         if (string.Equals(completedJob.Type, AiFoundryJobTypes.StructuralReview, StringComparison.OrdinalIgnoreCase)

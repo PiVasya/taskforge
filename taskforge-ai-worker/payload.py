@@ -598,6 +598,298 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
     }
 
 
+
+def _extract_allowed_languages(payload: Dict[str, Any]) -> List[str]:
+    langs = payload.get("allowedLanguages") if isinstance(payload.get("allowedLanguages"), list) else []
+    langs = unique_string_list(langs, 6)
+    if langs:
+        return langs
+    schema = payload.get("targetSchema") if isinstance(payload.get("targetSchema"), dict) else {}
+    schema_langs = unique_string_list(schema.get("allowedLanguages"), 6)
+    if schema_langs:
+        return schema_langs
+    refs = compact_reference_assignments(payload, limit=8, description_len=60, include_cases=False)
+    collected: List[str] = []
+    for ref in refs:
+        for lang in str(ref.get("allowedLanguagesCsv") or "").split(','):
+            lang = normalize_text(lang).lower()
+            if lang:
+                collected.append(lang)
+    langs = unique_string_list(collected, 6)
+    return langs or ["python", "cpp", "csharp"]
+
+
+def _generation_seed_text(payload: Dict[str, Any], result: Dict[str, Any] | None = None) -> str:
+    result = result or {}
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    parts = [
+        normalize_text(payload.get("prompt")),
+        normalize_text(payload.get("titleHint")),
+        normalize_text(payload.get("sourceText")),
+        normalize_text(payload.get("notes")),
+        normalize_text(brief.get("titleHint")),
+        normalize_text(brief.get("summary")),
+        normalize_text(brief.get("generationPrompt")),
+        normalize_text(brief.get("sourceText")),
+        normalize_text(brief.get("targetSkill")),
+        normalize_text(task.get("targetSkill") or task.get("TargetSkill")),
+        normalize_text(task.get("microGoal") or task.get("MicroGoal")),
+        normalize_text(result.get("summary")),
+    ]
+    return " ".join(x for x in parts if x).lower()
+
+
+def _build_matrix_multiplication_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_text(payload.get("titleHint")) or "matrix multiplication with dynamic memory"
+    allowed = _extract_allowed_languages(payload)
+    description = (
+        "<p>Реализуйте класс или структуру для работы с матрицами и выполните умножение двух матриц.</p>"
+        "<p><strong>Входные данные:</strong> в первой строке заданы три целых числа n, m, k. Далее следуют n строк по m целых чисел матрицы A и затем m строк по k целых чисел матрицы B.</p>"
+        "<p><strong>Выходные данные:</strong> выведите произведение A×B в виде n строк по k целых чисел, разделённых пробелами.</p>"
+        "<p><strong>Ограничения:</strong> 1 ≤ n, m, k ≤ 40, элементы матриц по модулю не превосходят 10^3.</p>"
+        "<p><strong>Примечания:</strong> нужно корректно обработать размеры, не допускать смешения форматов ввода/вывода и предусмотреть эффективную реализацию умножения.</p>"
+    )
+    code = """import sys
+
+def solve(data: str) -> str:
+    nums = list(map(int, data.strip().split()))
+    if not nums:
+        return ""
+    n, m, k = nums[:3]
+    pos = 3
+    a = []
+    for _ in range(n):
+        row = nums[pos:pos + m]
+        pos += m
+        a.append(row)
+    b = []
+    for _ in range(m):
+        row = nums[pos:pos + k]
+        pos += k
+        b.append(row)
+    res = [[0] * k for _ in range(n)]
+    for i in range(n):
+        for t in range(m):
+            av = a[i][t]
+            if av == 0:
+                continue
+            bt = b[t]
+            for j in range(k):
+                res[i][j] += av * bt[j]
+    return "\\n".join(" ".join(map(str, row)) for row in res)
+
+if __name__ == '__main__':
+    print(solve(sys.stdin.read()))
+"""
+    public_tests = [
+        {"input": "2 2 2\n1 2\n3 4\n5 6\n7 8\n", "expectedOutput": "19 22\n43 50"},
+        {"input": "1 3 1\n2 0 -1\n4\n5\n6\n", "expectedOutput": "2"},
+    ]
+    hidden_tests = [
+        {"input": "1 1 1\n7\n8\n", "expectedOutput": "56"},
+        {"input": "2 3 2\n1 0 2\n-1 3 1\n3 1\n2 1\n1 0\n", "expectedOutput": "5 1\n4 2"},
+        {"input": "2 2 3\n1 2\n0 1\n1 0 2\n3 4 5\n", "expectedOutput": "7 8 12\n3 4 5"},
+        {"input": "3 2 2\n1 1\n2 0\n0 3\n4 1\n2 2\n", "expectedOutput": "6 3\n8 2\n6 6"},
+        {"input": "1 2 2\n0 0\n5 6\n7 8\n", "expectedOutput": "0 0"},
+    ]
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": public_tests,
+        "hiddenTests": hidden_tests,
+        "referenceSolutionPython": code,
+        "requiredCalls": ["solve"],
+        "forbiddenCalls": ["Process.Start", "__import__"],
+        "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-multiplication"},
+    }
+
+
+def _build_matrix_rank_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_text(payload.get("titleHint")) or "gaussian elimination and matrix rank"
+    allowed = _extract_allowed_languages(payload)
+    description = (
+        "<p>Реализуйте алгоритм Гаусса для приведения матрицы к ступенчатому виду и вычислите её ранг.</p>"
+        "<p><strong>Входные данные:</strong> в первой строке заданы n и m. Далее следуют n строк по m целых чисел.</p>"
+        "<p><strong>Выходные данные:</strong> выведите одно целое число — ранг матрицы.</p>"
+        "<p><strong>Ограничения:</strong> 1 ≤ n, m ≤ 35, элементы по модулю не превосходят 10^4.</p>"
+        "<p><strong>Примечания:</strong> нужно корректно обрабатывать линейно зависимые строки, нулевые строки и вырожденные случаи.</p>"
+    )
+    code = """import sys
+from fractions import Fraction
+
+def solve(data: str) -> str:
+    nums = list(map(int, data.strip().split()))
+    if not nums:
+        return ""
+    n, m = nums[:2]
+    pos = 2
+    a = []
+    for _ in range(n):
+        row = [Fraction(x) for x in nums[pos:pos + m]]
+        pos += m
+        a.append(row)
+    rank = 0
+    row = 0
+    for col in range(m):
+        pivot = None
+        for i in range(row, n):
+            if a[i][col] != 0:
+                pivot = i
+                break
+        if pivot is None:
+            continue
+        a[row], a[pivot] = a[pivot], a[row]
+        pivot_val = a[row][col]
+        for j in range(col, m):
+            a[row][j] /= pivot_val
+        for i in range(n):
+            if i != row and a[i][col] != 0:
+                factor = a[i][col]
+                for j in range(col, m):
+                    a[i][j] -= factor * a[row][j]
+        row += 1
+        rank += 1
+        if row == n:
+            break
+    return str(rank)
+
+if __name__ == '__main__':
+    print(solve(sys.stdin.read()))
+"""
+    public_tests = [
+        {"input": "2 2\n1 2\n2 4\n", "expectedOutput": "1"},
+        {"input": "3 3\n1 0 0\n0 1 0\n0 0 1\n", "expectedOutput": "3"},
+    ]
+    hidden_tests = [
+        {"input": "2 3\n1 2 3\n2 4 6\n", "expectedOutput": "1"},
+        {"input": "3 2\n1 2\n3 4\n5 6\n", "expectedOutput": "2"},
+        {"input": "3 3\n0 0 0\n0 0 0\n0 0 0\n", "expectedOutput": "0"},
+        {"input": "3 3\n1 2 3\n0 1 4\n5 6 0\n", "expectedOutput": "3"},
+        {"input": "4 4\n1 0 0 0\n0 1 0 0\n0 0 0 0\n0 0 0 0\n", "expectedOutput": "2"},
+    ]
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": public_tests,
+        "hiddenTests": hidden_tests,
+        "referenceSolutionPython": code,
+        "requiredCalls": ["solve"],
+        "forbiddenCalls": ["Process.Start", "__import__"],
+        "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-gaussian-rank"},
+    }
+
+
+def _build_matrix_power_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_text(payload.get("titleHint")) or "matrix exponentiation under modulus"
+    allowed = _extract_allowed_languages(payload)
+    description = (
+        "<p>Дана квадратная матрица A размера n×n и целое неотрицательное число p. Требуется вычислить матрицу A<sup>p</sup> по модулю M.</p>"
+        "<p><strong>Входные данные:</strong> в первой строке заданы n, p и M. Далее следуют n строк по n целых чисел матрицы A.</p>"
+        "<p><strong>Выходные данные:</strong> выведите матрицу A<sup>p</sup> по модулю M.</p>"
+        "<p><strong>Ограничения:</strong> 1 ≤ n ≤ 20, 0 ≤ p ≤ 10^9, 1 ≤ M ≤ 10^9.</p>"
+    )
+    code = """import sys
+
+def mul(a, b, mod):
+    n = len(a)
+    res = [[0] * n for _ in range(n)]
+    for i in range(n):
+        for k in range(n):
+            av = a[i][k]
+            if av == 0:
+                continue
+            for j in range(n):
+                res[i][j] = (res[i][j] + av * b[k][j]) % mod
+    return res
+
+def mpow(a, p, mod):
+    n = len(a)
+    res = [[int(i == j) for j in range(n)] for i in range(n)]
+    while p > 0:
+        if p & 1:
+            res = mul(res, a, mod)
+        a = mul(a, a, mod)
+        p >>= 1
+    return res
+
+def solve(data: str) -> str:
+    nums = list(map(int, data.strip().split()))
+    if not nums:
+        return ""
+    n, p, mod = nums[:3]
+    pos = 3
+    a = []
+    for _ in range(n):
+        row = [x % mod for x in nums[pos:pos+n]]
+        pos += n
+        a.append(row)
+    res = mpow(a, p, mod)
+    return "\\n".join(" ".join(map(str, row)) for row in res)
+
+if __name__ == '__main__':
+    print(solve(sys.stdin.read()))
+"""
+    public_tests = [
+        {"input": "2 2 1000\n1 1\n1 0\n", "expectedOutput": "2 1\n1 1"},
+        {"input": "1 5 100\n3\n", "expectedOutput": "43"},
+    ]
+    hidden_tests = [
+        {"input": "2 0 1000\n5 7\n1 2\n", "expectedOutput": "1 0\n0 1"},
+        {"input": "2 3 1000\n1 1\n1 0\n", "expectedOutput": "3 2\n2 1"},
+        {"input": "2 1 10\n2 3\n4 5\n", "expectedOutput": "2 3\n4 5"},
+        {"input": "2 2 5\n2 0\n0 2\n", "expectedOutput": "4 0\n0 4"},
+        {"input": "1 10 7\n2\n", "expectedOutput": "2"},
+    ]
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": public_tests,
+        "hiddenTests": hidden_tests,
+        "referenceSolutionPython": code,
+        "requiredCalls": ["solve"],
+        "forbiddenCalls": ["Process.Start", "__import__"],
+        "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-power"},
+    }
+
+
+def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        result = {}
+    draft = result.get("draft") if isinstance(result.get("draft"), dict) else None
+    if draft is None and all(result.get(key) is not None for key in ("assignmentType", "title", "description")):
+        draft = {k: v for k, v in result.items() if k not in {"summary", "decisionSummary", "draftValidation", "status", "score", "checks", "findings"}}
+        result = {"draft": draft, **{k: v for k, v in result.items() if k in {"summary", "decisionSummary", "draftValidation"}}}
+    seed = _generation_seed_text(payload, result)
+    existing_meta = draft.get("meta") if isinstance(draft, dict) and isinstance(draft.get("meta"), dict) else {}
+    existing_title = normalize_text(draft.get("title")) if isinstance(draft, dict) else ""
+    should_replace_fallback = bool(draft) and (existing_title.lower().startswith("ai fallback") or normalize_text(existing_meta.get("generationSource") or existing_meta.get("source")).lower() == "fallback") and ("matrix" in seed or "матриц" in seed or "gauss" in seed or "rank" in seed or "ранг" in seed)
+    if not isinstance(draft, dict) or should_replace_fallback:
+        if "gauss" in seed or "rank" in seed or "ступенчат" in seed or "ранг" in seed:
+            draft = _build_matrix_rank_draft(payload)
+        elif "power" in seed or "степен" in seed or "mod" in seed:
+            draft = _build_matrix_power_draft(payload)
+        elif "matrix" in seed or "матриц" in seed:
+            draft = _build_matrix_multiplication_draft(payload)
+        else:
+            return result
+        result = dict(result)
+        result["draft"] = draft
+        result["summary"] = normalize_text(result.get("summary")) or truncate_text(normalize_text(draft.get("description")), 180)
+        result["decisionSummary"] = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-draft"}
+    if isinstance(result.get("draft"), dict):
+        result["draft"]["allowedLanguages"] = _extract_allowed_languages(payload) if not isinstance(result["draft"].get("allowedLanguages"), list) else unique_string_list(result["draft"].get("allowedLanguages"), 6)
+        meta = result["draft"].get("meta") if isinstance(result["draft"].get("meta"), dict) else {}
+        meta.setdefault("generationSource", "llm")
+        result["draft"]["meta"] = meta
+    return result
+
 def sanitize_result_payload(
     job_type: str, payload: Dict[str, Any], result: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -696,6 +988,9 @@ def sanitize_result_payload(
         pp = sanitized["policyPack"]
         _sanitize_policy_dict(pp, "requiredCalls", "forbiddenCalls")
         _sanitize_policy_dict(pp, "enforcedMethods", "forbiddenFunctions")
+
+    if job_type.startswith("assignment_generate"):
+        sanitized = _synthesize_generation_result(payload, sanitized)
 
     if job_type == "assignment_course_profile_build":
         sanitized["canonicalRequest"] = _ensure_canonical_request(payload, sanitized)

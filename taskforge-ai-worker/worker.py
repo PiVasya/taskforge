@@ -53,6 +53,7 @@ from prompt_builder import (
     build_reference_pack_prompt,
     build_batch_review_prompt,
     build_stage_schema_repair_prompt,
+    build_draft_generate_prompt,
 )
 from reviews import (
     run_structural_review,
@@ -156,10 +157,14 @@ def _stage_required_keys(job_type: str) -> tuple[list[str], list[str]]:
         return (["stylePack", "policyPack", "exemplarPack"], ["generationHints", "signals"])
     if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
         return (["titleHint", "generationPrompt", "targetSkill"], ["summary", "difficultyTarget"])
+    if job_type == "assignment_generate_from_text":
+        return (["draft"], ["summary", "decisionSummary", "draftValidation"])
+    if job_type == "assignment_repair":
+        return (["draft"], ["repairSummary", "draftValidation"])
     return ([], [])
 
 
-def _schema_missing_reason(job_type: str, result: Dict[str, Any]) -> str | None:
+def _schema_missing_reason(job_type: str, payload: Dict[str, Any], result: Dict[str, Any]) -> str | None:
     required, _ = _stage_required_keys(job_type)
     for key in required:
         if key == "plan":
@@ -176,6 +181,25 @@ def _schema_missing_reason(job_type: str, result: Dict[str, Any]) -> str | None:
             return "missing courseDigest"
         if key == "courseProfile" and not isinstance(result.get("courseProfile"), dict):
             return "missing courseProfile"
+        if key == "draft":
+            draft = result.get("draft") if isinstance(result.get("draft"), dict) else None
+            if not isinstance(draft, dict):
+                return "missing draft"
+            if not str(draft.get("title") or "").strip():
+                return "missing draft.title"
+            if not str(draft.get("assignmentType") or payload.get("assignmentType") or "").strip():
+                return "missing draft.assignmentType"
+            if not str(draft.get("description") or "").strip():
+                return "missing draft.description"
+            assignment_type = str(draft.get("assignmentType") or payload.get("assignmentType") or "").strip().lower()
+            if assignment_type == "code-test":
+                if not isinstance(draft.get("publicTests"), list) or not draft.get("publicTests"):
+                    return "missing draft.publicTests"
+                if not isinstance(draft.get("hiddenTests"), list) or not draft.get("hiddenTests"):
+                    return "missing draft.hiddenTests"
+                if not str(draft.get("referenceSolutionPython") or "").strip():
+                    return "missing draft.referenceSolutionPython"
+            continue
         value = result.get(key)
         if value is None or (isinstance(value, str) and not value.strip()):
             return f"missing {key}"
@@ -183,9 +207,9 @@ def _schema_missing_reason(job_type: str, result: Dict[str, Any]) -> str | None:
 
 
 def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], job_type: str, bad_result: Dict[str, Any]) -> Dict[str, Any]:
-    if job_type not in {"assignment_course_profile_build", "assignment_gap_analysis", "assignment_batch_plan", "assignment_batch_replan"}:
+    if job_type not in {"assignment_course_profile_build", "assignment_gap_analysis", "assignment_batch_plan", "assignment_batch_replan", "assignment_generate_from_text"}:
         return bad_result
-    stage = "batch_plan" if job_type in {"assignment_batch_plan", "assignment_batch_replan"} else ("gap_analysis" if job_type == "assignment_gap_analysis" else "course_profile_build")
+    stage = "batch_plan" if job_type in {"assignment_batch_plan", "assignment_batch_replan"} else ("gap_analysis" if job_type == "assignment_gap_analysis" else ("draft_generate" if job_type == "assignment_generate_from_text" else "course_profile_build"))
     prompt = build_stage_schema_repair_prompt(stage, payload, bad_result)
     required, preferred = _stage_required_keys(job_type)
     repair_cfg = _stage_llm_config(job_type, payload, _job_retry_count(job))
@@ -238,6 +262,8 @@ def _stage_retry_limit(job_type: str) -> int:
         return REFERENCE_PACK_MAX_RETRIES
     if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
         return BRIEF_MAX_RETRIES
+    if job_type == "assignment_generate_from_text":
+        return MAX_JOB_RETRIES
     return MAX_JOB_RETRIES
 
 
@@ -253,6 +279,10 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
         return OllamaCallConfig(stage="brief", timeout=BRIEF_TIMEOUT, num_predict=420 if compact_mode else BRIEF_NUM_PREDICT, temperature=0.12, required_keys=["titleHint", "generationPrompt", "targetSkill"], preferred_keys=["summary", "difficultyTarget"])
     if job_type == "assignment_reference_pack_build":
         return OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12, required_keys=["stylePack", "policyPack", "exemplarPack"], preferred_keys=["generationHints", "signals"])
+    if job_type == "assignment_generate_from_text":
+        return OllamaCallConfig(stage="draft_generate", timeout=GENERATION_TIMEOUT, num_predict=1200 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["summary", "decisionSummary", "draftValidation"])
+    if job_type == "assignment_repair":
+        return OllamaCallConfig(stage="repair", timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"])
     return OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15)
 
 
@@ -266,14 +296,14 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20], compact_mode=payload.get("__compactMode"), retry_count=retry_count)
 
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
-        missing_reason = _schema_missing_reason(job_type, result)
+        missing_reason = _schema_missing_reason(job_type, payload, result)
         if missing_reason:
             _log_stage("stage-schema-invalid", job, payload, reason=missing_reason, result=_result_summary(result))
             try:
                 result = _repair_invalid_stage_result(job, payload, job_type, result)
             except Exception as ex:
                 _log_stage("stage-schema-repair-failed", job, payload, error=ex)
-            missing_reason = _schema_missing_reason(job_type, result)
+            missing_reason = _schema_missing_reason(job_type, payload, result)
             if missing_reason:
                 _log_stage("stage-schema-fallback", job, payload, reason=missing_reason)
                 fallback_job = dict(job)
@@ -336,6 +366,16 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     # ── Brief generate ────────────────────────────────
     if job_type == "assignment_brief_generate":
         return _finish(_ollama_stage(build_brief_prompt, allow_fallback=False))
+
+    # ── Draft generate ────────────────────────────────
+    if job_type == "assignment_generate_from_text":
+        result = _ollama_stage(build_draft_generate_prompt, allow_fallback=True, stage_name="draft_generate")
+        if payload.get("enableSelfCheck", True):
+            before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
+            result = try_improve_generation(job, payload, result)
+            after_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
+            _log_stage("stage-self-check-finished", job, payload, before_keys=before_keys, after_keys=after_keys)
+        return _finish(result)
 
     # ── Validate draft ────────────────────────────────
     if job_type == "assignment_validate_draft":
