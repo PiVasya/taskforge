@@ -240,75 +240,121 @@ def build_repair_prompt(
 
 def build_course_profile_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
-    beginner_track = detect_beginner_char_array_track(payload)
-    extra_rules: List[str] = []
-    if beginner_track:
-        extra_rules.extend([
-            "Для beginner C++ char[] track не смешивай стиль cout/cin с scanf/printf/fgets.",
-            "Не записывай одну и ту же функцию одновременно в enforcedMethods и forbiddenFunctions.",
-            "Если prompt не просит cstring явно, не делай strcat/strcpy/strlen обязательными core skills курса.",
-        ])
     return (
-        "Ты — TaskForge AI course profiler. Верни только валидный JSON без markdown.\n\n"
-        "Нужно построить профиль курса по существующим referenceAssignments.\n"
-        "Формат JSON: {\"courseProfile\":{\"dominantSkills\":[...],\"difficultyDistribution\":{...},"
-        "\"styleProfile\":{...},\"policyProfile\":{...},\"testProfile\":{...},"
-        "\"assignmentOntology\":{...},\"exemplarSignals\":{...},\"negativePatterns\":[...]},"
-        "\"summary\":\"...\",\"decisionSummary\":{...}}.\n"
-        "policyProfile должен быть внутренне согласованным: один и тот же метод нельзя "
-        "помещать и в ожидаемые/обязательные, и в запрещённые.\n"
-        + ("\n".join(extra_rules) + "\n\n" if extra_rules else "\n")
-        + f"Payload:\n{_prompt_json(compact_payload)}"
+        "Ты — TaskForge AI request normalizer and course profiler. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
+        "Твоя задача не писать длинний анализ, а подготовить короткий usable digest для следующих стадий. "
+        "Нужен компактный, строгий, практический output.\n\n"
+        "Верни JSON строго этой формы:\n"
+        "{\n"
+        "  \"canonicalRequest\": {\n"
+        "    \"domain\": \"...\",\n"
+        "    \"assignmentType\": \"code-test|math|test\",\n"
+        "    \"mode\": \"topic-pack|...\",\n"
+        "    \"count\": 2,\n"
+        "    \"difficulty\": 3,\n"
+        "    \"mustInclude\": [\"...\"],\n"
+        "    \"avoid\": [\"generic titles\", \"duplicate topics\"],\n"
+        "    \"sourcePrompt\": \"...\"\n"
+        "  },\n"
+        "  \"courseDigest\": {\n"
+        "    \"referenceCount\": 0,\n"
+        "    \"assignmentTypes\": [\"...\"],\n"
+        "    \"languages\": [\"...\"],\n"
+        "    \"recentReferenceTitles\": [\"...\"],\n"
+        "    \"teachingStyle\": [\"...\"]\n"
+        "  },\n"
+        "  \"courseProfile\": {\n"
+        "    \"dominantSkills\": [\"...\"],\n"
+        "    \"negativePatterns\": [\"...\"],\n"
+        "    \"styleProfile\": {\"tone\": \"...\", \"htmlPreferred\": true},\n"
+        "    \"policyProfile\": {\"allowedLanguages\": [\"...\"], \"constraints\": [\"...\"]},\n"
+        "    \"assignmentOntology\": {\"topicBuckets\": [\"...\"], \"difficultyBand\": \"...\"}\n"
+        "  },\n"
+        "  \"summary\": \"Очень короткое summary 1-2 предложения\",\n"
+        "  \"decisionSummary\": {\"confidence\": \"low|medium|high\", \"source\": \"llm-course-profile\"}\n"
+        "}\n\n"
+        "Правила:\n"
+        "- Не пиши длинные rationale.\n"
+        "- Не пересказывай referenceAssignments по одному.\n"
+        "- Сведи курс в короткий digest, пригодный для planner stage.\n"
+        "- canonicalRequest должен нормализовать исходный запрос пользователя, а не копировать его дословно.\n\n"
+        f"Payload:\n{_prompt_json(compact_payload)}"
     )
 
 
 def build_gap_analysis_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
-    retry_mode = normalize_text(payload.get("__compactMode")).lower()
-    extra = (
-        "Для beginner C++ char[] track recommendedFocus должен строить мягкую прогрессию "
-        "от базовых операций к чуть более сложным, без раннего прыжка в cstring."
-        if detect_beginner_char_array_track(payload) else ""
-    )
-    retry_note = "Работай в compact retry mode: без длинных объяснений, только JSON." if retry_mode else ""
     return (
         "Ты — TaskForge AI gap analyst. Верни только один валидный JSON-объект без markdown и текста вокруг.\n\n"
-        "Нужно определить, какие темы уже покрыты курсом, какие темы просит пользователь и каких тем реально не хватает. "
-        "Не пересказывай referenceAssignments по одному. Своди их в короткие кластеры.\n"
-        "Формат JSON: {\"gapAnalysis\":{\"coveredTopics\":[...],\"missingTopics\":[...],"
-        "\"weakCoverageTopics\":[...],\"duplicateClusters\":[...],\"recommendedFocus\":[...],"
-        "\"curriculumRisks\":[...]},\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...}}.\n"
-        + (extra + "\n" if extra else "")
-        + (retry_note + "\n" if retry_note else "")
-        + f"Payload:\n{_prompt_json(compact_payload)}"
+        "Нужно сравнить canonicalRequest с коротким digest курса и определить, что уже покрыто, а чего реально не хватает для нового batch. "
+        "Ответ должен быть коротким и operational.\n\n"
+        "Верни JSON строго этой формы:\n"
+        "{\n"
+        "  \"gapAnalysis\": {\n"
+        "    \"coveredTopics\": [\"...\"],\n"
+        "    \"missingTopics\": [\"...\"],\n"
+        "    \"weakCoverageTopics\": [\"...\"],\n"
+        "    \"duplicateClusters\": [\"...\"],\n"
+        "    \"recommendedFocus\": [\"...\"],\n"
+        "    \"curriculumRisks\": [\"...\"]\n"
+        "  },\n"
+        "  \"coverage\": {\"matchedReferenceCount\": 0, \"coverageBand\": \"low|medium|high\"},\n"
+        "  \"summary\": \"Очень короткое summary 1-2 предложения\",\n"
+        "  \"decisionSummary\": {\"confidence\": \"low|medium|high\", \"source\": \"llm-gap-analysis\"}\n"
+        "}\n\n"
+        "Правила:\n"
+        "- missingTopics и recommendedFocus должны быть короткими и пригодными для planner.\n"
+        "- Не повторяй generic слова вроде 'задания', 'придумай', 'сложное'.\n"
+        "- Не придумывай новые домены, если запрос явно про матрицы.\n"
+        "- Не пиши больших блоков текста.\n\n"
+        f"Payload:\n{_prompt_json(compact_payload)}"
     )
+
 
 def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     request_kind = "replan" if (job.get("type") or "").lower().strip() == "assignment_batch_replan" else "plan"
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
-    retry_mode = normalize_text(payload.get("__compactMode")).lower()
-    extra_rules = [
-        "Не делай пустой план.",
-        "Количество tasks должно строго соответствовать count.",
-        "Каждый slot = одна учебная цель и один targetSkill.",
-        "Не используй generic targetSkill вроде 'Придумай' или 'задания'.",
-        "Избегай дословных дублей referenceAssignments и слишком широких тем.",
-    ]
-    if detect_beginner_char_array_track(payload):
-        extra_rules.extend([
-            "Это beginner C++ char[] pack: построй мягкую лесенку из отдельных микронавыков.",
-            "Не используй fgets, scanf, printf, strcat, strcpy, strlen, cstring, если это не запрошено явно.",
-        ])
-    if retry_mode:
-        extra_rules.append("Это compact retry mode: отвечай кратко, без длинных rationale и только нужными полями JSON.")
+    compact_mode = normalize_text(payload.get("__compactMode")).lower()
+    retry_note = "Работай в ultra-compact mode." if compact_mode == "ultra" else ("Работай в compact mode." if compact_mode else "")
     return (
-        "Ты — TaskForge AI planner. Верни только один валидный JSON-объект без markdown и текста вокруг.\n\n"
-        f"Сейчас режим: {request_kind}. Нужно спланировать набор задач, а не генерировать сами задания.\n"
-        "Используй prompt пользователя, courseProfile, gapAnalysis и historicalPlannerPriors, если они есть.\n"
-        "Формат JSON: {\"canonicalRequest\":{...},\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...},\"plan\":{\"tasks\":[{\"index\":1,\"targetSkill\":\"...\",\"microGoal\":\"...\",\"difficultyTarget\":2,\"whyItExists\":\"...\",\"antiDuplicateHints\":[\"...\"],\"decisionLog\":[{\"stage\":\"batch_plan\",\"message\":\"...\"}]}]}}\n"
-        + "\n".join(extra_rules) + "\n\n"
+        "Ты — TaskForge AI planner. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
+        f"Режим: {request_kind}. Нужно спланировать batch slot-ы, а не писать сами задания.\n"
+        "Каждый slot должен быть одной чёткой учебной целью. План должен быть разнообразным, без generic тем и без дублей.\n\n"
+        "Верни JSON строго этой формы:\n"
+        "{\n"
+        "  \"canonicalRequest\": {\"domain\": \"...\", \"count\": 2, \"difficulty\": 3, \"mustInclude\": [\"...\"], \"avoid\": [\"...\"]},\n"
+        "  \"coverage\": {\"coverageBand\": \"low|medium|high\", \"noveltyGoal\": \"...\"},\n"
+        "  \"summary\": \"Очень короткое summary 1-2 предложения\",\n"
+        "  \"decisionSummary\": {\"confidence\": \"low|medium|high\", \"source\": \"llm-batch-plan\"},\n"
+        "  \"plan\": {\n"
+        "    \"tasks\": [\n"
+        "      {\n"
+        "        \"index\": 1,\n"
+        "        \"titleHint\": \"...\",\n"
+        "        \"targetSkill\": \"...\",\n"
+        "        \"primarySkill\": \"...\",\n"
+        "        \"microGoal\": \"...\",\n"
+        "        \"uniqueAngle\": \"...\",\n"
+        "        \"difficultyTarget\": 3,\n"
+        "        \"mustInclude\": [\"...\"],\n"
+        "        \"antiDuplicateHints\": [\"...\"],\n"
+        "        \"whyItExists\": \"...\",\n"
+        "        \"decisionLog\": [{\"stage\": \"batch_plan\", \"message\": \"...\"}]\n"
+        "      }\n"
+        "    ]\n"
+        "  }\n"
+        "}\n\n"
+        "Правила:\n"
+        "- Количество tasks должно строго совпадать с count.\n"
+        "- targetSkill не может быть generic: запрещены 'Придумай', 'задания', 'task', 'advanced task'.\n"
+        "- Каждый task должен отличаться по primarySkill или uniqueAngle.\n"
+        "- Для matrix запроса все tasks должны быть действительно про матрицы.\n"
+        "- Не пиши длинные описания.\n"
+        + (retry_note + "\n" if retry_note else "")
+        + "\n"
         + f"Batch payload:\n{_prompt_json(compact_payload)}"
     )
+
 
 def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)

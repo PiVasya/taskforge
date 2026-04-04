@@ -20,12 +20,29 @@ from config import (
     MAX_JOB_RETRIES,
     RETRYABLE_STAGE_DELAY_SECONDS,
     PLANNER_FALLBACK_AFTER_RETRY_COUNT,
+    COURSE_PROFILE_TIMEOUT,
+    GAP_ANALYSIS_TIMEOUT,
+    BATCH_PLAN_TIMEOUT,
+    BRIEF_TIMEOUT,
+    REFERENCE_PACK_TIMEOUT,
+    GENERATION_TIMEOUT,
+    COURSE_PROFILE_NUM_PREDICT,
+    GAP_ANALYSIS_NUM_PREDICT,
+    BATCH_PLAN_NUM_PREDICT,
+    BRIEF_NUM_PREDICT,
+    REFERENCE_PACK_NUM_PREDICT,
+    GENERATION_NUM_PREDICT,
+    COURSE_PROFILE_MAX_RETRIES,
+    GAP_ANALYSIS_MAX_RETRIES,
+    BATCH_PLAN_MAX_RETRIES,
+    REFERENCE_PACK_MAX_RETRIES,
+    BRIEF_MAX_RETRIES,
 )
 from log import log, logger
 from api_client import pull_job, heartbeat, complete, fail
 from payload import parse_payload, sanitize_result_payload
 from validators import run_self_check
-from ollama import call_ollama
+from ollama import call_ollama, OllamaCallConfig
 from prompt_builder import (
     build_prompt,
     build_course_profile_prompt,
@@ -136,35 +153,83 @@ def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None =
     log(*parts)
 
 
+def _set_compact_mode(payload: Dict[str, Any], job_type: str, retry_count: int) -> None:
+    if job_type == "assignment_course_profile_build":
+        if retry_count >= 2:
+            payload["__compactMode"] = "ultra"
+        elif retry_count >= 1:
+            payload["__compactMode"] = "compact"
+    elif job_type == "assignment_gap_analysis":
+        if retry_count >= 2:
+            payload["__compactMode"] = "ultra"
+        elif retry_count >= 1:
+            payload["__compactMode"] = "compact"
+    elif job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
+        if retry_count >= 2:
+            payload["__compactMode"] = "ultra"
+        elif retry_count >= 1:
+            payload["__compactMode"] = "compact"
+
+
+def _stage_retry_limit(job_type: str) -> int:
+    if job_type == "assignment_course_profile_build":
+        return COURSE_PROFILE_MAX_RETRIES
+    if job_type == "assignment_gap_analysis":
+        return GAP_ANALYSIS_MAX_RETRIES
+    if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
+        return BATCH_PLAN_MAX_RETRIES
+    if job_type == "assignment_reference_pack_build":
+        return REFERENCE_PACK_MAX_RETRIES
+    if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
+        return BRIEF_MAX_RETRIES
+    return MAX_JOB_RETRIES
+
+
+def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) -> OllamaCallConfig:
+    compact_mode = str(payload.get("__compactMode") or "").strip().lower()
+    if job_type == "assignment_course_profile_build":
+        return OllamaCallConfig(stage="course_profile_build", timeout=COURSE_PROFILE_TIMEOUT, num_predict=360 if compact_mode else COURSE_PROFILE_NUM_PREDICT, temperature=0.1)
+    if job_type == "assignment_gap_analysis":
+        return OllamaCallConfig(stage="gap_analysis", timeout=GAP_ANALYSIS_TIMEOUT, num_predict=280 if compact_mode else GAP_ANALYSIS_NUM_PREDICT, temperature=0.1)
+    if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
+        return OllamaCallConfig(stage="batch_plan", timeout=BATCH_PLAN_TIMEOUT, num_predict=260 if compact_mode else BATCH_PLAN_NUM_PREDICT, temperature=0.08)
+    if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
+        return OllamaCallConfig(stage="brief", timeout=BRIEF_TIMEOUT, num_predict=420 if compact_mode else BRIEF_NUM_PREDICT, temperature=0.12)
+    if job_type == "assignment_reference_pack_build":
+        return OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12)
+    return OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15)
+
+
 # ── Job dispatcher ────────────────────────────────────
 
 def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     payload = parse_payload(job)
     job_type = (job.get("type") or "").lower().strip()
     retry_count = _job_retry_count(job)
-    if job_type == "assignment_gap_analysis" and retry_count >= 1:
-        payload["__compactMode"] = "compact"
-    if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
-        if retry_count >= PLANNER_FALLBACK_AFTER_RETRY_COUNT:
-            payload["__compactMode"] = "ultra"
-        elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
-    _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20])
+    _set_compact_mode(payload, job_type, retry_count)
+    _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20], compact_mode=payload.get("__compactMode"), retry_count=retry_count)
 
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
         _log_stage("stage-done", job, payload, result=_result_summary(result))
         return result
 
-    def _ollama_stage(prompt_builder, fallback_fn=None, sanitize=True, allow_fallback=True):
+    def _ollama_stage(prompt_builder, fallback_fn=None, sanitize=True, allow_fallback=True, stage_name: str | None = None):
         builder_name = getattr(prompt_builder, "__name__", "prompt_builder")
         _log_stage("stage-prepare-prompt", job, payload, builder=builder_name)
         prompt = prompt_builder(job, payload)
-        _log_stage("stage-prompt-ready", job, payload, builder=builder_name, prompt_len=len(prompt))
+        llm_cfg = _stage_llm_config(job_type, payload, retry_count)
+        if stage_name:
+            llm_cfg.stage = stage_name
+        _log_stage("stage-prompt-ready", job, payload, builder=builder_name, prompt_len=len(prompt), timeout=llm_cfg.timeout, num_predict=llm_cfg.num_predict)
         try:
-            result = call_ollama(prompt)
+            result = call_ollama(prompt, llm_cfg)
         except Exception as ex:
             logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
+            stage_retry_limit = _stage_retry_limit(job_type)
+            should_retry = retry_count < max(0, stage_retry_limit - 1)
             planner_fallback_allowed = job_type in {"assignment_batch_plan", "assignment_batch_replan"} and retry_count >= PLANNER_FALLBACK_AFTER_RETRY_COUNT
+            if should_retry and not planner_fallback_allowed:
+                raise RetryableStageError(f"{job_type} failed: {ex}") from ex
             if not allow_fallback and not planner_fallback_allowed:
                 raise RetryableStageError(f"{job_type} failed: {ex}") from ex
             fallback_job = dict(job)
@@ -177,6 +242,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             result = sanitize_result_payload(job_type, payload, result)
             _log_stage("stage-sanitized", job, payload, result=_result_summary(result))
         return result
+
 
     # ── Profiling / gap ───────────────────────────────
     if job_type == "assignment_course_profile_build":
@@ -238,7 +304,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         prompt = build_batch_review_prompt(job, payload)
         _log_stage("stage-prompt-ready", job, payload, builder="build_batch_review_prompt", prompt_len=len(prompt))
         try:
-            result = call_ollama(prompt)
+            result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
         except Exception as ex:
             logger.warning(f"batch review ollama failed: {ex} [{_job_context(job, payload)}]")
             result = run_batch_review(payload, job)
@@ -250,7 +316,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         prompt = build_prompt(job, payload)
         _log_stage("stage-prompt-ready", job, payload, builder="build_prompt", prompt_len=len(prompt))
         try:
-            result = call_ollama(prompt)
+            result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
         except Exception as ex:
             logger.warning(f"repair ollama failed: {ex} [{_job_context(job, payload)}]")
             return _finish(fallback_repair_result(payload, job))
@@ -265,7 +331,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     prompt = build_prompt(job, payload)
     _log_stage("stage-prompt-ready", job, payload, builder="build_prompt", prompt_len=len(prompt))
     try:
-        result = call_ollama(prompt)
+        result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
     except Exception as ex:
         logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
         raise RetryableStageError(f"{job_type} failed: {ex}") from ex
@@ -306,7 +372,7 @@ def main():
             logger.warning(f"retryable stage error: {ex}")
             if job_id:
                 retry_count = int(job.get("retryCount") or job.get("RetryCount") or 0) if isinstance(job, dict) else 0
-                retryable = retry_count < max(1, MAX_JOB_RETRIES)
+                retryable = retry_count < max(1, _stage_retry_limit((job.get("type") or "").lower().strip()) - 1)
                 delay = getattr(ex, "retry_delay_seconds", RETRYABLE_STAGE_DELAY_SECONDS)
                 try:
                     fail(job_id, str(ex), retryable=retryable, retry_delay_seconds=delay)

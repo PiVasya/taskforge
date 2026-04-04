@@ -1,4 +1,4 @@
-"""Ollama LLM client."""
+"""Ollama LLM client with stage-aware budgets and JSON repair."""
 
 import json
 import re
@@ -18,6 +18,25 @@ from config import (
     OLLAMA_JSON_MODE,
 )
 from log import log
+
+
+class OllamaCallConfig:
+    def __init__(
+        self,
+        *,
+        stage: str = "generic",
+        timeout: int | None = None,
+        attempts: int | None = None,
+        num_predict: int | None = None,
+        temperature: float | None = None,
+        json_mode: bool | None = None,
+    ) -> None:
+        self.stage = stage
+        self.timeout = timeout or TIMEOUT
+        self.attempts = attempts or OLLAMA_REQUEST_ATTEMPTS
+        self.num_predict = num_predict
+        self.temperature = OLLAMA_TEMPERATURE if temperature is None else temperature
+        self.json_mode = OLLAMA_JSON_MODE if json_mode is None else json_mode
 
 
 def _strip_code_fences(text: str) -> str:
@@ -101,15 +120,20 @@ def _parse_json_response(raw: str) -> Dict[str, Any]:
                 if variant_label != "raw":
                     log(f"ollama json repaired via {variant_label} response_len={len(raw)} candidate_len={len(variant)}")
                 return parsed
-            except Exception as ex:  # pragma: no cover - best effort repair path
+            except Exception as ex:
                 last_error = ex
     raise RuntimeError(f"Could not parse Ollama JSON response: {last_error}")
 
 
-def call_ollama(prompt: str) -> Dict[str, Any]:
-    log(f"ollama >>> model={OLLAMA_MODEL} prompt_len={len(prompt)} attempts={OLLAMA_REQUEST_ATTEMPTS} timeout={TIMEOUT}s")
+def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str, Any]:
+    cfg = config or OllamaCallConfig()
+    log(
+        f"ollama >>> stage={cfg.stage} model={OLLAMA_MODEL} prompt_len={len(prompt)} "
+        f"attempts={cfg.attempts} timeout={cfg.timeout}s format={'json' if cfg.json_mode else 'text'} "
+        f"num_predict={cfg.num_predict or '-'}"
+    )
     last_error: Exception | None = None
-    for attempt in range(1, max(1, OLLAMA_REQUEST_ATTEMPTS) + 1):
+    for attempt in range(1, max(1, cfg.attempts) + 1):
         started = time.time()
         try:
             body: Dict[str, Any] = {
@@ -117,16 +141,18 @@ def call_ollama(prompt: str) -> Dict[str, Any]:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": OLLAMA_TEMPERATURE,
+                    "temperature": cfg.temperature,
                     "num_ctx": OLLAMA_NUM_CTX,
                 },
             }
-            if OLLAMA_JSON_MODE:
+            if cfg.num_predict is not None:
+                body["options"]["num_predict"] = cfg.num_predict
+            if cfg.json_mode:
                 body["format"] = "json"
             resp = requests.post(
                 f"{OLLAMA_BASE}/api/generate",
                 json=body,
-                timeout=TIMEOUT,
+                timeout=cfg.timeout,
             )
             elapsed_ms = int((time.time() - started) * 1000)
             resp.raise_for_status()
@@ -134,14 +160,14 @@ def call_ollama(prompt: str) -> Dict[str, Any]:
             raw = (data.get("response") or "").strip()
             if not raw:
                 raise RuntimeError("Ollama returned empty response")
-            parsed = _parse_json_response(raw)
-            log(f"ollama <<< attempt={attempt}/{OLLAMA_REQUEST_ATTEMPTS} {elapsed_ms}ms response_len={len(raw)}")
+            parsed = _parse_json_response(raw) if cfg.json_mode else {"text": raw}
+            log(f"ollama <<< stage={cfg.stage} attempt={attempt}/{cfg.attempts} {elapsed_ms}ms response_len={len(raw)}")
             return parsed
         except Exception as ex:
             elapsed_ms = int((time.time() - started) * 1000)
             last_error = ex
-            log(f"ollama !!! attempt={attempt}/{OLLAMA_REQUEST_ATTEMPTS} failed after {elapsed_ms}ms error={ex}")
-            if attempt >= max(1, OLLAMA_REQUEST_ATTEMPTS):
+            log(f"ollama !!! stage={cfg.stage} attempt={attempt}/{cfg.attempts} failed after {elapsed_ms}ms error={ex}")
+            if attempt >= max(1, cfg.attempts):
                 break
             time.sleep(max(1, OLLAMA_RETRY_BACKOFF_SECONDS) * attempt)
-    raise RuntimeError(f"Ollama failed after {OLLAMA_REQUEST_ATTEMPTS} attempt(s): {last_error}")
+    raise RuntimeError(f"Ollama failed after {cfg.attempts} attempt(s): {last_error}")

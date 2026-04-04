@@ -22,6 +22,8 @@ from payload import (
     compact_historical_planner_priors,
     compact_historical_slot_priors,
     extract_historical_skill_biases,
+    build_request_signals,
+    build_course_digest,
 )
 from validators import run_self_check, attach_self_check
 from reviews import (
@@ -37,73 +39,72 @@ from reviews import (
 # ── Fallback: course profile ─────────────────────────
 
 def fallback_course_profile(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
-    refs = compact_reference_assignments(payload)
+    refs = compact_reference_assignments(payload, limit=8, description_len=100, include_cases=False)
+    req = build_request_signals(payload)
+    digest = build_course_digest(payload)
     skills: List[str] = []
-    langs: Dict[str, int] = {}
-    types: Dict[str, int] = {}
     for r in refs:
         title = normalize_text(r.get("title"))
         if title:
             skills.append(title[:80])
-        for lang in (r.get("allowedLanguagesCsv") or "").split(","):
-            lang = normalize_text(lang)
-            if lang:
-                langs[lang] = langs.get(lang, 0) + 1
-        t = normalize_text(r.get("type"))
-        if t:
-            types[t] = types.get(t, 0) + 1
-    avg_hidden = round(sum(safe_int(r.get("hiddenTestsCount"), 0) for r in refs) / len(refs), 2) if refs else 0
+    domain = "matrix" if any("matrix" in x.lower() or "матриц" in x.lower() for x in [payload.get("prompt") or "", *skills]) else "general"
     return {
+        "canonicalRequest": {
+            "domain": domain,
+            "assignmentType": req.get("assignmentType") or "code-test",
+            "mode": req.get("mode") or "topic-pack",
+            "count": req.get("count") or 1,
+            "difficulty": req.get("difficulty") or 2,
+            "mustInclude": req.get("mustInclude") or [],
+            "avoid": ["generic titles", "duplicate topics", "off-topic fallback tasks"],
+            "sourcePrompt": req.get("sourcePrompt") or normalize_text(payload.get("prompt")),
+        },
+        "courseDigest": digest,
         "courseProfile": {
-            "dominantSkills": skills[:8],
-            "difficultyDistribution": {"approximate": True},
-            "styleProfile": {"descriptionLength": "mixed", "htmlPreferred": True, "tone": "teaching"},
-            "policyProfile": {"allowedLanguages": langs, "assignmentTypes": types},
-            "testProfile": {
-                "referenceCount": len(refs), "publicExamplesPerTask": "1-2",
-                "hiddenTests": "usually-present", "hiddenTestsAvg": avg_hidden,
-            },
-            "assignmentOntology": {"coreSkillSeeds": skills[:12], "assignmentTypes": list(types.keys())},
-            "exemplarSignals": {"goodPatterns": ["html-description", "examples", "hidden-tests"], "referenceCount": len(refs)},
-            "negativePatterns": ["слишком широкая задача", "дословный дубль title", "слабые edge cases"],
+            "dominantSkills": skills[:6],
+            "negativePatterns": ["слишком общий skill", "дословный дубль reference title", "off-topic fallback"],
+            "styleProfile": {"tone": "teaching", "htmlPreferred": True},
+            "policyProfile": {"allowedLanguages": digest.get("languages") or [], "constraints": ["одна задача = одна учебная цель"]},
+            "assignmentOntology": {"topicBuckets": digest.get("recentReferenceTitles") or skills[:4], "difficultyBand": "medium-high"},
         },
         "summary": f"Построен fallback course profile по {len(refs)} referenceAssignments.",
         "decisionSummary": {"profileSource": "fallback", "referenceCount": len(refs)},
     }
 
 
+
 # ── Fallback: gap analysis ───────────────────────────
 
 def fallback_gap_analysis(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     prompt = normalize_text(payload.get("prompt"))
-    refs = compact_reference_assignments(payload)
-    covered = [normalize_text(r.get("title")) for r in refs if normalize_text(r.get("title"))][:8]
-    tokens = [x for x in re.split(r"[^\wа-яА-Я]+", prompt) if len(x) > 3]
+    refs = compact_reference_assignments(payload, limit=8, description_len=100, include_cases=False)
+    covered = [normalize_text(r.get("title")) for r in refs if normalize_text(r.get("title"))][:6]
+    req = build_request_signals(payload)
+    requested = req.get("mustInclude") or []
     missing: List[str] = []
-    for t in tokens:
-        low = t.lower()
+    weak: List[str] = []
+    for token in requested:
+        low = token.lower()
         if not any(low in c.lower() for c in covered):
-            missing.append(t)
-    seen: set = set()
-    missing_unique: List[str] = []
-    for x in missing:
-        lx = x.lower()
-        if lx not in seen:
-            seen.add(lx)
-            missing_unique.append(x)
+            missing.append(token)
+        elif sum(1 for c in covered if low in c.lower()) <= 1:
+            weak.append(token)
+    if ("matrix" in prompt.lower() or "матриц" in prompt.lower()) and not missing:
+        missing = ["matrix algorithms", "advanced matrix operations"]
     return {
         "gapAnalysis": {
             "coveredTopics": covered,
-            "missingTopics": missing_unique[:10],
-            "weakCoverageTopics": missing_unique[:5],
+            "missingTopics": missing[:6],
+            "weakCoverageTopics": weak[:4],
             "duplicateClusters": [],
-            "recommendedFocus": missing_unique[:6] or ["Сделать прогрессивный набор без дублей"],
-            "curriculumRisks": ["слишком широкий prompt", "нужна прогрессия сложности"] if len(tokens) > 5 else [],
+            "recommendedFocus": (missing or weak)[:4] or ["Сделать компактный пакет по целевому домену без дублей"],
+            "curriculumRisks": ["слишком широкий prompt", "риск generic planner output"] if len(requested) > 5 else ["риск generic planner output"],
         },
-        "coverage": {"referenceCount": len(refs), "promptTokenCount": len(tokens)},
+        "coverage": {"referenceCount": len(refs), "promptTokenCount": len(requested), "coverageBand": "low" if missing else "medium"},
         "summary": f"Сделан fallback gap analysis по {len(refs)} referenceAssignments.",
-        "decisionSummary": {"gapSource": "fallback", "missingTopicsCount": len(missing_unique)},
+        "decisionSummary": {"gapSource": "fallback", "missingTopicsCount": len(missing)},
     }
+
 
 
 # ── Fallback: plan tasks ─────────────────────────────

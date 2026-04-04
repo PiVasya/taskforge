@@ -278,112 +278,163 @@ def compact_brief_review_object(value: Any) -> Dict[str, Any]:
     }
 
 
+def build_request_signals(payload: Dict[str, Any]) -> Dict[str, Any]:
+    prompt = normalize_text(payload.get("prompt"))
+    prompt_low = prompt.lower()
+    refs = compact_reference_assignments(payload, limit=8, description_len=100, include_cases=False)
+    ref_titles = [normalize_text(r.get("title")) for r in refs if normalize_text(r.get("title"))]
+    tokens = [x for x in re.split(r"[^\wа-яА-Я]+", prompt) if len(x) >= 4]
+    unique_tokens: List[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        low = token.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        unique_tokens.append(token)
+    return {
+        "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
+        "mode": normalize_text(payload.get("mode") or "topic-pack") or "topic-pack",
+        "count": max(1, safe_int(payload.get("count"), 1)),
+        "difficulty": max(1, min(5, safe_int(payload.get("difficulty"), 2))),
+        "domainHints": [
+            hint for hint in [
+                "matrix" if ("матриц" in prompt_low or "matrix" in prompt_low) else "",
+                "oop" if ("ооп" in prompt_low or "oop" in prompt_low or "класс" in prompt_low or "class" in prompt_low) else "",
+                "performance" if ("оптим" in prompt_low or "эффектив" in prompt_low or "fast" in prompt_low or "sparse" in prompt_low) else "",
+            ] if hint
+        ],
+        "mustInclude": unique_tokens[:8],
+        "referenceTitleHints": ref_titles[:5],
+        "sourcePrompt": truncate_text(prompt, 220),
+    }
+
+
+def build_course_digest(payload: Dict[str, Any]) -> Dict[str, Any]:
+    refs = compact_reference_assignments(payload, limit=8, description_len=120, include_cases=False)
+    langs: List[str] = []
+    types: List[str] = []
+    title_hints: List[str] = []
+    seen_langs: set[str] = set()
+    seen_types: set[str] = set()
+    seen_titles: set[str] = set()
+    for ref in refs:
+        title = normalize_text(ref.get("title"))
+        if title and title.casefold() not in seen_titles:
+            seen_titles.add(title.casefold())
+            title_hints.append(title[:90])
+        for lang in str(ref.get("allowedLanguagesCsv") or "").split(','):
+            lang = normalize_text(lang).lower()
+            if lang and lang not in seen_langs:
+                seen_langs.add(lang)
+                langs.append(lang)
+        typ = normalize_text(ref.get("type")).lower()
+        if typ and typ not in seen_types:
+            seen_types.add(typ)
+            types.append(typ)
+    return {
+        "referenceCount": len(refs),
+        "assignmentTypes": types[:4],
+        "languages": langs[:6],
+        "recentReferenceTitles": title_hints[:5],
+        "teachingStyle": [
+            "html-description",
+            "public-and-hidden-tests",
+            "structured-i/o",
+        ],
+    }
+
+
+def build_gap_digest(payload: Dict[str, Any]) -> Dict[str, Any]:
+    gap_raw = payload.get("gapAnalysis") if isinstance(payload.get("gapAnalysis"), dict) else {}
+    ga = gap_raw.get("gapAnalysis") if isinstance(gap_raw.get("gapAnalysis"), dict) else gap_raw
+    if not isinstance(ga, dict):
+        ga = {}
+    return {
+        "coveredTopics": _trim_list(ga.get("coveredTopics"), 6),
+        "missingTopics": _trim_list(ga.get("missingTopics"), 6),
+        "weakCoverageTopics": _trim_list(ga.get("weakCoverageTopics"), 4),
+        "recommendedFocus": _trim_list(ga.get("recommendedFocus"), 4),
+        "summary": truncate_text(gap_raw.get("summary") or ga.get("summary"), 180),
+    }
+
+
 def compact_payload_for_stage(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     compact: Dict[str, Any] = {}
     job_type = normalize_text(job_type).lower()
     compact_mode = normalize_text(payload.get("__compactMode")).lower()
-    is_planner_stage = job_type in {"assignment_batch_plan", "assignment_batch_replan"}
+    is_course_stage = job_type == "assignment_course_profile_build"
     is_gap_stage = job_type == "assignment_gap_analysis"
+    is_planner_stage = job_type in {"assignment_batch_plan", "assignment_batch_replan"}
+    is_brief_stage = job_type in {"assignment_brief_generate", "assignment_brief_repair"}
     ultra_compact = compact_mode == "ultra"
 
-    keep_scalar = [
-        "mode", "count", "notes", "prompt", "batchId", "courseId",
-        "difficulty", "requestType", "assignmentType", "batchItemId",
-    ]
+    keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType", "batchItemId"]
     if is_planner_stage:
-        keep_scalar = ["mode", "count", "prompt", "batchId", "courseId", "difficulty", "requestType", "assignmentType"]
+        keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType"]
     elif is_gap_stage:
-        keep_scalar = ["mode", "count", "prompt", "batchId", "courseId", "assignmentType", "requestType"]
+        keep_scalar = ["assignmentType", "mode", "count", "prompt", "batchId", "courseId", "requestType"]
+    elif is_course_stage:
+        keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId"]
 
     for key in keep_scalar:
         if key in payload:
             value = payload.get(key)
-            compact[key] = truncate_text(value, 240 if not ultra_compact else 160) if isinstance(value, str) else value
+            compact[key] = truncate_text(value, 180 if ultra_compact else 240) if isinstance(value, str) else value
 
-    if not is_planner_stage and isinstance(payload.get("qualityGates"), dict):
-        compact["qualityGates"] = payload.get("qualityGates")
-    if not is_planner_stage and not is_gap_stage and isinstance(payload.get("targetSchema"), dict):
-        ts = payload["targetSchema"]
-        compact["targetSchema"] = {
-            "assignmentType": ts.get("assignmentType"),
-            "requiredFields": ts.get("requiredFields"),
-            "descriptionFormat": ts.get("descriptionFormat"),
-            "quality": ts.get("quality"),
-            "codePolicy": ts.get("codePolicy"),
-            "meta": ts.get("meta"),
+    compact["requestSignals"] = build_request_signals(payload)
+    compact["courseDigest"] = build_course_digest(payload)
+
+    if not is_course_stage and isinstance(payload.get("courseProfile"), dict):
+        cp_raw = payload["courseProfile"]
+        compact["courseProfile"] = {
+            "summary": truncate_text(cp_raw.get("summary"), 160 if ultra_compact else 220),
+            "canonicalRequest": cp_raw.get("canonicalRequest") if isinstance(cp_raw.get("canonicalRequest"), dict) else None,
+            "courseDigest": cp_raw.get("courseDigest") if isinstance(cp_raw.get("courseDigest"), dict) else build_course_digest(payload),
+            "courseProfile": slim_course_profile_for_stage(cp_raw.get("courseProfile") if isinstance(cp_raw.get("courseProfile"), dict) else {}, ultra=ultra_compact),
         }
 
-    ref_limit = MAX_REFERENCE_ASSIGNMENTS
-    ref_desc_len = MAX_REFERENCE_DESCRIPTION_LEN
-    include_cases = True
-    if is_gap_stage:
-        ref_limit = GAP_ANALYSIS_REFERENCE_ASSIGNMENTS
-        ref_desc_len = GAP_ANALYSIS_REFERENCE_DESCRIPTION_LEN
-        include_cases = False
-    elif is_planner_stage:
-        ref_limit = BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY if compact_mode in {"compact", "ultra"} else BATCH_PLAN_REFERENCE_ASSIGNMENTS
-        if ultra_compact:
-            ref_limit = min(ref_limit, 2)
-        ref_desc_len = BATCH_PLAN_REFERENCE_DESCRIPTION_LEN
-        include_cases = False
+    if not is_course_stage and isinstance(payload.get("gapAnalysis"), dict):
+        ga_raw = payload["gapAnalysis"]
+        compact["gapAnalysis"] = {
+            "summary": truncate_text(ga_raw.get("summary"), 160 if ultra_compact else 220),
+            "gapDigest": build_gap_digest(payload),
+            "coverage": ga_raw.get("coverage") if isinstance(ga_raw.get("coverage"), dict) else {},
+            "gapAnalysis": slim_gap_analysis_for_stage(ga_raw.get("gapAnalysis") if isinstance(ga_raw.get("gapAnalysis"), dict) else {}, ultra=ultra_compact),
+        }
 
-    compact["referenceAssignments"] = compact_reference_assignments(
-        payload,
-        limit=ref_limit,
-        description_len=ref_desc_len,
-        include_cases=include_cases,
-    )
+    ref_limit = 6
+    ref_desc_len = 110
+    include_cases = False
+    if is_course_stage:
+        ref_limit = 5 if ultra_compact else 6
+        ref_desc_len = 90
+    elif is_gap_stage:
+        ref_limit = 4 if ultra_compact else 5
+        ref_desc_len = 90
+    elif is_planner_stage:
+        ref_limit = 3 if ultra_compact else 4
+        ref_desc_len = 80
+    elif is_brief_stage:
+        ref_limit = 4
+        ref_desc_len = 100
+        include_cases = True
+
+    compact["referenceAssignments"] = compact_reference_assignments(payload, limit=ref_limit, description_len=ref_desc_len, include_cases=include_cases)
 
     priors = compact_historical_planner_priors(payload)
-    if priors:
-        if is_planner_stage:
-            compact["historicalPlannerPriors"] = {
-                "sourceBatchCount": priors.get("sourceBatchCount") or 0,
-                "strongSkills": _trim_list(priors.get("strongSkills"), 4 if ultra_compact else 6),
-                "weakSkills": _trim_list(priors.get("weakSkills"), 4 if ultra_compact else 6),
-                "riskyTransitions": _trim_list(priors.get("riskyTransitions"), 4 if ultra_compact else 6),
-                "antiPatterns": _trim_list(priors.get("antiPatterns"), 4 if ultra_compact else 6),
-            }
-        else:
-            compact["historicalPlannerPriors"] = priors
+    if priors and (is_planner_stage or is_brief_stage):
+        compact["historicalPlannerPriors"] = {
+            "sourceBatchCount": priors.get("sourceBatchCount") or 0,
+            "strongSkills": _trim_list(priors.get("strongSkills"), 4 if ultra_compact else 5),
+            "weakSkills": _trim_list(priors.get("weakSkills"), 4 if ultra_compact else 5),
+            "riskyTransitions": _trim_list(priors.get("riskyTransitions"), 3 if ultra_compact else 4),
+            "antiPatterns": _trim_list(priors.get("antiPatterns"), 3 if ultra_compact else 4),
+        }
 
     slot_priors = compact_historical_slot_priors(payload)
-    if slot_priors:
+    if slot_priors and is_brief_stage:
         compact["historicalSlotPriors"] = slot_priors
-
-    if isinstance(payload.get("courseProfile"), dict):
-        cp_raw = payload["courseProfile"]
-        if is_planner_stage or is_gap_stage:
-            compact["courseProfile"] = {
-                "summary": truncate_text(cp_raw.get("summary"), 180 if ultra_compact else 240),
-                "courseProfile": slim_course_profile_for_stage(
-                    cp_raw.get("courseProfile") if isinstance(cp_raw.get("courseProfile"), dict) else {},
-                    ultra=ultra_compact,
-                ),
-            }
-        else:
-            compact["courseProfile"] = {
-                "summary": truncate_text(cp_raw.get("summary"), 300),
-                "courseProfile": compact_course_profile(cp_raw.get("courseProfile") if isinstance(cp_raw.get("courseProfile"), dict) else {}),
-            }
-
-    if isinstance(payload.get("gapAnalysis"), dict):
-        ga_raw = payload["gapAnalysis"]
-        if is_planner_stage:
-            compact["gapAnalysis"] = {
-                "summary": truncate_text(ga_raw.get("summary"), 180 if ultra_compact else 240),
-                "coverage": ga_raw.get("coverage") if isinstance(ga_raw.get("coverage"), dict) else {},
-                "gapAnalysis": slim_gap_analysis_for_stage(
-                    ga_raw.get("gapAnalysis") if isinstance(ga_raw.get("gapAnalysis"), dict) else {},
-                    ultra=ultra_compact,
-                ),
-            }
-        else:
-            compact["gapAnalysis"] = {
-                "summary": truncate_text(ga_raw.get("summary"), 300),
-                "coverage": ga_raw.get("coverage") if isinstance(ga_raw.get("coverage"), dict) else {},
-                "gapAnalysis": compact_gap_analysis_object(ga_raw.get("gapAnalysis") if isinstance(ga_raw.get("gapAnalysis"), dict) else {}),
-            }
 
     if isinstance(payload.get("plan"), dict):
         compact["plan"] = compact_plan_object(payload["plan"])
@@ -392,29 +443,24 @@ def compact_payload_for_stage(job_type: str, payload: Dict[str, Any]) -> Dict[st
         compact["task"] = {
             "index": task.get("index") or task.get("Index"),
             "targetSkill": task.get("targetSkill") or task.get("TargetSkill"),
-            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 220),
+            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 180),
             "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
-            "whyItExists": truncate_text(task.get("whyItExists") or task.get("WhyItExists"), 220),
-            "antiDuplicateHints": unique_string_list(task.get("antiDuplicateHints") or task.get("AntiDuplicateHints"), 5),
+            "whyItExists": truncate_text(task.get("whyItExists") or task.get("WhyItExists"), 180),
+            "antiDuplicateHints": unique_string_list(task.get("antiDuplicateHints") or task.get("AntiDuplicateHints"), 4),
         }
     if isinstance(payload.get("brief"), dict):
         compact["brief"] = compact_brief_object(payload["brief"])
     if isinstance(payload.get("briefReview"), dict):
         compact["briefReview"] = compact_brief_review_object(payload["briefReview"])
 
-    optional_memory_keys = [
-        "batchMemory", "positiveMemory", "institutionalMemory",
-        "antiPatternMemory", "plannerFeedback", "decisionLogDigest", "replanLedger",
-    ]
-    if is_planner_stage or is_gap_stage:
-        optional_memory_keys = ["plannerFeedback", "decisionLogDigest"]
-
+    optional_memory_keys = ["plannerFeedback", "decisionLogDigest"] if (is_course_stage or is_gap_stage or is_planner_stage) else ["plannerFeedback", "decisionLogDigest", "antiPatternMemory", "institutionalMemory"]
     for key in optional_memory_keys:
         value = payload.get(key)
         if isinstance(value, dict):
             compact[key] = value
         elif isinstance(value, list):
-            compact[key] = value[: (4 if ultra_compact else 8)]
+            compact[key] = value[: (3 if ultra_compact else 6)]
+
     return compact
 
 
