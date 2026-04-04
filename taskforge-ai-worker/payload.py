@@ -485,6 +485,119 @@ def extract_historical_skill_biases(payload: Dict[str, Any]) -> Dict[str, List[s
 
 # ── Result sanitisation ──────────────────────────────
 
+
+
+def _ensure_canonical_request(payload: Dict[str, Any], result: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    result = result or {}
+    existing = result.get("canonicalRequest") if isinstance(result.get("canonicalRequest"), dict) else {}
+    prompt = normalize_text(payload.get("prompt"))
+    prompt_low = prompt.lower()
+    domain = normalize_text(existing.get("domain")) or ("matrix" if ("matrix" in prompt_low or "матриц" in prompt_low) else "general")
+    difficulty = safe_int(existing.get("difficulty"), safe_int(payload.get("difficulty"), 3))
+    count = max(1, safe_int(existing.get("count"), safe_int(payload.get("count"), 1)))
+    must_include = unique_string_list(existing.get("mustInclude"), 8)
+    if not must_include:
+        must_include = ["matrices", "complex"] if domain == "matrix" else unique_string_list([payload.get("assignmentType") or "task"], 4)
+    avoid = unique_string_list(existing.get("avoid"), 8)
+    if not avoid:
+        avoid = ["generic titles", "duplicate tasks"]
+    return {
+        "domain": domain,
+        "count": count,
+        "difficulty": difficulty,
+        "mustInclude": must_include,
+        "avoid": avoid,
+    }
+
+
+def _synthesize_gap_analysis(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    canonical = _ensure_canonical_request(payload, result)
+    digest = result.get("courseDigest") if isinstance(result.get("courseDigest"), dict) else build_course_digest(payload)
+    refs = compact_reference_assignments(payload, limit=GAP_ANALYSIS_REFERENCE_ASSIGNMENTS, description_len=GAP_ANALYSIS_REFERENCE_DESCRIPTION_LEN, include_cases=False)
+    covered = unique_string_list([*(digest.get("dominantSkills") or []), canonical.get("domain")], 6)
+    if canonical.get("domain") == "matrix":
+        missing = ["advanced matrix multiplication", "matrix transformations", "matrix optimization"]
+    else:
+        missing = [canonical.get("domain") or "topic"]
+    return {
+        "gapAnalysis": {
+            "coveredTopics": covered[:6],
+            "missingTopics": missing[:6],
+            "weakCoverageTopics": unique_string_list(digest.get("negativePatterns"), 4),
+            "duplicateClusters": ["generic introductory tasks"] if canonical.get("domain") == "matrix" else [],
+            "recommendedFocus": unique_string_list([*canonical.get("mustInclude", []), *missing[:2]], 6),
+            "curriculumRisks": ["avoid generic tasks", "avoid duplicate task shapes"],
+        },
+        "coverage": {
+            "matchedReferenceCount": len(refs),
+            "coverageBand": "medium" if refs else "low",
+        },
+        "summary": f"Gap analysis repaired for {canonical.get('domain')} domain with {len(refs)} references.",
+        "decisionSummary": {"confidence": "medium", "source": "schema-repair-gap"},
+    }
+
+
+def _normalize_plan_tasks(tasks_value: Any) -> List[Dict[str, Any]]:
+    source = tasks_value if isinstance(tasks_value, list) else []
+    tasks: List[Dict[str, Any]] = []
+    for idx, item in enumerate(source, start=1):
+        if not isinstance(item, dict):
+            continue
+        tasks.append({
+            "index": safe_int(item.get("index"), idx),
+            "titleHint": normalize_text(item.get("titleHint") or item.get("title") or item.get("targetSkill") or item.get("skill") or f"Task {idx}"),
+            "targetSkill": normalize_text(item.get("targetSkill") or item.get("skill") or item.get("titleHint") or item.get("title") or f"Task {idx}"),
+            "primarySkill": normalize_text(item.get("primarySkill") or item.get("targetSkill") or item.get("skill") or "problem solving"),
+            "microGoal": normalize_text(item.get("microGoal") or item.get("goal") or item.get("summary") or item.get("title") or f"Task {idx}"),
+            "uniqueAngle": normalize_text(item.get("uniqueAngle") or item.get("angle") or item.get("whyItExists") or item.get("microGoal") or "non-duplicate slot"),
+            "difficultyTarget": safe_int(item.get("difficultyTarget"), safe_int(item.get("difficulty"), 2)),
+            "mustInclude": unique_string_list(item.get("mustInclude"), 6),
+            "antiDuplicateHints": unique_string_list(item.get("antiDuplicateHints"), 6),
+            "whyItExists": normalize_text(item.get("whyItExists") or item.get("microGoal") or item.get("summary") or "planned slot"),
+            "decisionLog": item.get("decisionLog")[:3] if isinstance(item.get("decisionLog"), list) else [{"stage": "batch_plan", "message": "Normalized planner task."}],
+        })
+    return tasks
+
+
+def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    from fallbacks import build_fallback_plan_tasks
+
+    canonical = _ensure_canonical_request(payload, result)
+    plan_obj = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+    tasks: List[Dict[str, Any]] = []
+    for candidate in (plan_obj.get("tasks"), result.get("tasks"), result.get("items"), result.get("slots")):
+        tasks = _normalize_plan_tasks(candidate)
+        if tasks:
+            break
+    if not tasks:
+        tasks = _normalize_plan_tasks(build_fallback_plan_tasks({**payload, "count": canonical.get("count"), "difficulty": canonical.get("difficulty")}))
+    count = max(1, safe_int(canonical.get("count"), len(tasks) or 1))
+    tasks = tasks[:count]
+    while len(tasks) < count:
+        extra = _normalize_plan_tasks(build_fallback_plan_tasks({**payload, "count": count, "difficulty": canonical.get("difficulty")}))
+        for item in extra:
+            if len(tasks) >= count:
+                break
+            candidate = dict(item)
+            candidate["index"] = len(tasks) + 1
+            tasks.append(candidate)
+    for idx, task in enumerate(tasks, start=1):
+        task["index"] = idx
+        if not task.get("mustInclude"):
+            task["mustInclude"] = canonical.get("mustInclude", [])[:4]
+        if not task.get("antiDuplicateHints"):
+            task["antiDuplicateHints"] = canonical.get("avoid", [])[:4]
+    coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
+    decision_summary = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-plan"}
+    return {
+        "canonicalRequest": canonical,
+        "coverage": coverage,
+        "summary": normalize_text(result.get("summary")) or f"Batch plan repaired for {canonical.get('domain')} domain.",
+        "decisionSummary": decision_summary,
+        "plan": {"tasks": tasks},
+    }
+
+
 def sanitize_result_payload(
     job_type: str, payload: Dict[str, Any], result: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -583,5 +696,27 @@ def sanitize_result_payload(
         pp = sanitized["policyPack"]
         _sanitize_policy_dict(pp, "requiredCalls", "forbiddenCalls")
         _sanitize_policy_dict(pp, "enforcedMethods", "forbiddenFunctions")
+
+    if job_type == "assignment_course_profile_build":
+        sanitized["canonicalRequest"] = _ensure_canonical_request(payload, sanitized)
+        if not isinstance(sanitized.get("courseDigest"), dict):
+            sanitized["courseDigest"] = build_course_digest(payload)
+        if not isinstance(sanitized.get("courseProfile"), dict):
+            digest = sanitized.get("courseDigest") if isinstance(sanitized.get("courseDigest"), dict) else {}
+            sanitized["courseProfile"] = {
+                "dominantSkills": unique_string_list(digest.get("dominantSkills"), 8),
+                "difficultyDistribution": digest.get("difficultyDistribution") or {},
+                "styleProfile": digest.get("styleProfile") or {},
+                "policyProfile": digest.get("policyProfile") or {},
+                "negativePatterns": unique_string_list(digest.get("negativePatterns"), 8),
+            }
+        sanitized["summary"] = normalize_text(sanitized.get("summary")) or f"Course profile prepared for {sanitized['canonicalRequest'].get('domain')} domain."
+        sanitized["decisionSummary"] = sanitized.get("decisionSummary") if isinstance(sanitized.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-course"}
+
+    if job_type == "assignment_gap_analysis" and not isinstance(sanitized.get("gapAnalysis"), dict):
+        sanitized.update(_synthesize_gap_analysis(payload, sanitized))
+
+    if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
+        sanitized.update(_synthesize_batch_plan(payload, sanitized))
 
     return sanitized

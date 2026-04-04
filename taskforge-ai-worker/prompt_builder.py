@@ -356,6 +356,37 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
     )
 
 
+def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_result: Dict[str, Any]) -> str:
+    compact_payload = compact_payload_for_stage(payload.get("requestType") or stage, payload)
+    bad_json = _prompt_json(bad_result)
+    if stage == "gap_analysis":
+        expected = (
+            '{"gapAnalysis":{"coveredTopics":["..."],"missingTopics":["..."],"weakCoverageTopics":["..."],"duplicateClusters":["..."],"recommendedFocus":["..."],"curriculumRisks":["..."]},'
+            '"coverage":{"matchedReferenceCount":0,"coverageBand":"low|medium|high"},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-gap-analysis-repair"}}'
+        )
+    elif stage == "batch_plan":
+        expected = (
+            '{"canonicalRequest":{"domain":"matrix","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
+            '"coverage":{"coverageBand":"low|medium|high","noveltyGoal":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-batch-plan-repair"},'
+            '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
+        )
+    else:
+        expected = (
+            '{"canonicalRequest":{"domain":"...","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
+            '"courseDigest":{"languages":["cpp"],"teachingStyle":["html-description"],"referenceCount":0},'
+            '"courseProfile":{"dominantSkills":["..."],"difficultyDistribution":{},"styleProfile":{},"policyProfile":{},"negativePatterns":["..."]},'
+            '"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-course-profile-repair"}}'
+        )
+    return (
+        "Ты — TaskForge AI schema repair. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
+        f"Стадия: {stage}. Предыдущий ответ имел неверную схему. Нужно вернуть ответ СТРОГО в ожидаемом формате.\n"
+        f"Ожидаемая схема JSON:\n{expected}\n\n"
+        "Если в предыдущем ответе отсутствуют поля, дострой их по payload, но обязательно верни все required top-level ключи.\n\n"
+        f"Payload:\n{_prompt_json(compact_payload)}\n\n"
+        f"Неверный ответ:\n{bad_json}"
+    )
+
+
 def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
     extra_rules = [

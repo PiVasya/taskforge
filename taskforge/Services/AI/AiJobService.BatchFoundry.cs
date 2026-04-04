@@ -218,6 +218,18 @@ public sealed partial class AiJobService
         if (batch == null)
             return;
 
+        using var gapDoc = JsonDocument.Parse(completedJob.ResultJson);
+        if (!HasGapAnalysisShape(gapDoc.RootElement))
+        {
+            batch.GapAnalysisJson = completedJob.ResultJson;
+            batch.Status = "gap-analysis-invalid-result";
+            batch.CurrentStage = AiFoundryStages.GapAnalysis;
+            batch.UpdatedAtUtc = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            await CreateBatchDecisionLogAsync(batch.Id, null, completedJob.Id, AiFoundryStages.GapAnalysis, "gap-analysis-invalid", "Gap analysis не содержит обязательные ключи gapAnalysis/coverage. Planner не поставлен.", completedJob.ResultJson, ct);
+            return;
+        }
+
         batch.GapAnalysisJson = completedJob.ResultJson;
         TryPopulateBatchSignalsFromGapAnalysis(batch, completedJob.ResultJson);
         batch.Status = "gap-analysis";
@@ -262,6 +274,33 @@ public sealed partial class AiJobService
         }, completedJob.CreatedByUserId, completedJob.CreatedByDisplayName, ct);
     }
 
+private static List<JsonElement> ExtractPlannerTasks(JsonElement root)
+{
+    var tasks = new List<JsonElement>();
+    if (root.ValueKind != JsonValueKind.Object)
+        return tasks;
+
+    if (root.TryGetProperty("plan", out var plan) && plan.ValueKind == JsonValueKind.Object && plan.TryGetProperty("tasks", out var planTasks) && planTasks.ValueKind == JsonValueKind.Array)
+        tasks.AddRange(planTasks.EnumerateArray());
+    if (tasks.Count == 0 && root.TryGetProperty("tasks", out var directTasks) && directTasks.ValueKind == JsonValueKind.Array)
+        tasks.AddRange(directTasks.EnumerateArray());
+    if (tasks.Count == 0 && root.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+        tasks.AddRange(items.EnumerateArray());
+    if (tasks.Count == 0 && root.TryGetProperty("slots", out var slots) && slots.ValueKind == JsonValueKind.Array)
+        tasks.AddRange(slots.EnumerateArray());
+
+    return tasks;
+}
+
+private static bool HasGapAnalysisShape(JsonElement root)
+{
+    return root.ValueKind == JsonValueKind.Object
+           && root.TryGetProperty("gapAnalysis", out var gap)
+           && gap.ValueKind == JsonValueKind.Object
+           && root.TryGetProperty("coverage", out var coverage)
+           && coverage.ValueKind == JsonValueKind.Object;
+}
+
 
 private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, CancellationToken ct)
 {
@@ -276,7 +315,24 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
     using var doc = JsonDocument.Parse(completedJob.ResultJson);
     var root = doc.RootElement;
     var planNode = root.TryGetProperty("plan", out var p) ? p : root;
-    batch.PlanJson = planNode.GetRawText();
+    var tasks = ExtractPlannerTasks(root);
+    if (tasks.Count == 0)
+    {
+        batch.PlanJson = completedJob.ResultJson;
+        batch.CanonicalRequestJson = root.TryGetProperty("canonicalRequest", out var invalidCanonical) ? invalidCanonical.GetRawText() : batch.CanonicalRequestJson;
+        batch.CoverageJson = root.TryGetProperty("coverage", out var invalidCoverage) ? invalidCoverage.GetRawText() : batch.CoverageJson;
+        batch.SummaryJson = root.TryGetProperty("summary", out var invalidSummary)
+            ? JsonSerializer.Serialize(new { summary = invalidSummary.ValueKind == JsonValueKind.String ? invalidSummary.GetString() : invalidSummary.GetRawText() }, JsonOptions)
+            : batch.SummaryJson;
+        batch.Status = isReplan ? "batch-replan-invalid-result" : "batch-plan-invalid-result";
+        batch.CurrentStage = isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BatchPlan;
+        batch.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        await CreateBatchDecisionLogAsync(batch.Id, null, completedJob.Id, isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BatchPlan, isReplan ? "batch-replan-invalid" : "batch-plan-invalid", "Planner result не содержит plan.tasks/items/slots. Batch оставлен на planning stage.", completedJob.ResultJson, ct);
+        return;
+    }
+
+    batch.PlanJson = JsonSerializer.Serialize(new { tasks = tasks.Select(x => JsonSerializer.Deserialize<object>(x.GetRawText(), JsonOptions)).ToList() }, JsonOptions);
     batch.CanonicalRequestJson = root.TryGetProperty("canonicalRequest", out var c) ? c.GetRawText() : batch.CanonicalRequestJson;
     batch.CourseProfileJson = root.TryGetProperty("courseProfile", out var cp) ? cp.GetRawText() : batch.CourseProfileJson;
     batch.GapAnalysisJson = root.TryGetProperty("gapAnalysis", out var ga) ? ga.GetRawText() : batch.GapAnalysisJson;
@@ -287,10 +343,6 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
     batch.Status = isReplan ? "replanned" : "planned";
     batch.CurrentStage = isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BriefGenerate;
     batch.UpdatedAtUtc = DateTime.UtcNow;
-
-    var tasks = planNode.TryGetProperty("tasks", out var tasksNode) && tasksNode.ValueKind == JsonValueKind.Array
-        ? tasksNode.EnumerateArray().ToList()
-        : new List<JsonElement>();
 
     var existingByIndex = batch.Items.ToDictionary(x => x.Index);
     var touchedIndexes = new HashSet<int>();

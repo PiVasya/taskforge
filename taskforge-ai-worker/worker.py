@@ -52,6 +52,7 @@ from prompt_builder import (
     build_brief_repair_prompt,
     build_reference_pack_prompt,
     build_batch_review_prompt,
+    build_stage_schema_repair_prompt,
 )
 from reviews import (
     run_structural_review,
@@ -144,6 +145,61 @@ def _result_summary(result: Dict[str, Any] | None) -> str:
     return " ".join(parts)
 
 
+def _stage_required_keys(job_type: str) -> tuple[list[str], list[str]]:
+    if job_type == "assignment_course_profile_build":
+        return (["canonicalRequest", "courseDigest", "courseProfile"], ["summary", "decisionSummary"])
+    if job_type == "assignment_gap_analysis":
+        return (["gapAnalysis", "coverage"], ["summary", "decisionSummary", "canonicalRequest", "courseDigest"])
+    if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
+        return (["plan"], ["canonicalRequest", "coverage", "summary", "decisionSummary"])
+    if job_type == "assignment_reference_pack_build":
+        return (["stylePack", "policyPack", "exemplarPack"], ["generationHints", "signals"])
+    if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
+        return (["titleHint", "generationPrompt", "targetSkill"], ["summary", "difficultyTarget"])
+    return ([], [])
+
+
+def _schema_missing_reason(job_type: str, result: Dict[str, Any]) -> str | None:
+    required, _ = _stage_required_keys(job_type)
+    for key in required:
+        if key == "plan":
+            plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+            tasks = plan.get("tasks") if isinstance(plan.get("tasks"), list) else None
+            if not tasks:
+                return "missing plan.tasks"
+            continue
+        if key == "gapAnalysis" and not isinstance(result.get("gapAnalysis"), dict):
+            return "missing gapAnalysis"
+        if key == "coverage" and not isinstance(result.get("coverage"), dict):
+            return "missing coverage"
+        if key == "courseDigest" and not isinstance(result.get("courseDigest"), dict):
+            return "missing courseDigest"
+        if key == "courseProfile" and not isinstance(result.get("courseProfile"), dict):
+            return "missing courseProfile"
+        value = result.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return f"missing {key}"
+    return None
+
+
+def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], job_type: str, bad_result: Dict[str, Any]) -> Dict[str, Any]:
+    if job_type not in {"assignment_course_profile_build", "assignment_gap_analysis", "assignment_batch_plan", "assignment_batch_replan"}:
+        return bad_result
+    stage = "batch_plan" if job_type in {"assignment_batch_plan", "assignment_batch_replan"} else ("gap_analysis" if job_type == "assignment_gap_analysis" else "course_profile_build")
+    prompt = build_stage_schema_repair_prompt(stage, payload, bad_result)
+    required, preferred = _stage_required_keys(job_type)
+    repair_cfg = _stage_llm_config(job_type, payload, _job_retry_count(job))
+    repair_cfg.stage = f"{stage}_schema_repair"
+    repair_cfg.timeout = min(repair_cfg.timeout, 45)
+    repair_cfg.num_predict = min(repair_cfg.num_predict or 320, 320)
+    repair_cfg.required_keys = required
+    repair_cfg.preferred_keys = preferred
+    _log_stage("stage-schema-repair-prompt", job, payload, prompt_len=len(prompt), required=required, preferred=preferred)
+    repaired = call_ollama(prompt, repair_cfg)
+    _log_stage("stage-schema-repair-raw", job, payload, result=_result_summary(repaired))
+    return sanitize_result_payload(job_type, payload, repaired)
+
+
 def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None = None, **extra: Any) -> None:
     parts = [event, _job_context(job, payload)]
     for key, value in extra.items():
@@ -188,15 +244,15 @@ def _stage_retry_limit(job_type: str) -> int:
 def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) -> OllamaCallConfig:
     compact_mode = str(payload.get("__compactMode") or "").strip().lower()
     if job_type == "assignment_course_profile_build":
-        return OllamaCallConfig(stage="course_profile_build", timeout=COURSE_PROFILE_TIMEOUT, num_predict=360 if compact_mode else COURSE_PROFILE_NUM_PREDICT, temperature=0.1)
+        return OllamaCallConfig(stage="course_profile_build", timeout=COURSE_PROFILE_TIMEOUT, num_predict=360 if compact_mode else COURSE_PROFILE_NUM_PREDICT, temperature=0.1, required_keys=["canonicalRequest", "courseDigest", "courseProfile"], preferred_keys=["summary", "decisionSummary"])
     if job_type == "assignment_gap_analysis":
-        return OllamaCallConfig(stage="gap_analysis", timeout=GAP_ANALYSIS_TIMEOUT, num_predict=280 if compact_mode else GAP_ANALYSIS_NUM_PREDICT, temperature=0.1)
+        return OllamaCallConfig(stage="gap_analysis", timeout=GAP_ANALYSIS_TIMEOUT, num_predict=280 if compact_mode else GAP_ANALYSIS_NUM_PREDICT, temperature=0.1, required_keys=["gapAnalysis", "coverage"], preferred_keys=["summary", "decisionSummary", "canonicalRequest", "courseDigest"])
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
-        return OllamaCallConfig(stage="batch_plan", timeout=BATCH_PLAN_TIMEOUT, num_predict=260 if compact_mode else BATCH_PLAN_NUM_PREDICT, temperature=0.08)
+        return OllamaCallConfig(stage="batch_plan", timeout=BATCH_PLAN_TIMEOUT, num_predict=260 if compact_mode else BATCH_PLAN_NUM_PREDICT, temperature=0.08, required_keys=["plan"], preferred_keys=["canonicalRequest", "coverage", "summary", "decisionSummary"])
     if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
-        return OllamaCallConfig(stage="brief", timeout=BRIEF_TIMEOUT, num_predict=420 if compact_mode else BRIEF_NUM_PREDICT, temperature=0.12)
+        return OllamaCallConfig(stage="brief", timeout=BRIEF_TIMEOUT, num_predict=420 if compact_mode else BRIEF_NUM_PREDICT, temperature=0.12, required_keys=["titleHint", "generationPrompt", "targetSkill"], preferred_keys=["summary", "difficultyTarget"])
     if job_type == "assignment_reference_pack_build":
-        return OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12)
+        return OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12, required_keys=["stylePack", "policyPack", "exemplarPack"], preferred_keys=["generationHints", "signals"])
     return OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15)
 
 
@@ -210,6 +266,25 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20], compact_mode=payload.get("__compactMode"), retry_count=retry_count)
 
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
+        missing_reason = _schema_missing_reason(job_type, result)
+        if missing_reason:
+            _log_stage("stage-schema-invalid", job, payload, reason=missing_reason, result=_result_summary(result))
+            try:
+                result = _repair_invalid_stage_result(job, payload, job_type, result)
+            except Exception as ex:
+                _log_stage("stage-schema-repair-failed", job, payload, error=ex)
+            missing_reason = _schema_missing_reason(job_type, result)
+            if missing_reason:
+                _log_stage("stage-schema-fallback", job, payload, reason=missing_reason)
+                fallback_job = dict(job)
+                import json as _json
+                fallback_job["inputJson"] = _json.dumps(payload, ensure_ascii=False)
+                if job_type == "assignment_course_profile_build":
+                    result = sanitize_result_payload(job_type, payload, fallback_course_profile(payload, job))
+                elif job_type == "assignment_gap_analysis":
+                    result = sanitize_result_payload(job_type, payload, fallback_gap_analysis(payload, job))
+                else:
+                    result = sanitize_result_payload(job_type, payload, fallback_result(fallback_job))
         _log_stage("stage-done", job, payload, result=_result_summary(result))
         return result
 
