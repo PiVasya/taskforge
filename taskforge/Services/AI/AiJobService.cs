@@ -58,10 +58,13 @@ public sealed partial class AiJobService : IAiJobService
                 CreatedAtUtc = x.CreatedAtUtc,
                 StartedAtUtc = x.StartedAtUtc,
                 CompletedAtUtc = x.CompletedAtUtc,
+                NextAttemptAtUtc = x.NextAttemptAtUtc,
                 ParentJobId = x.ParentJobId,
                 StageCode = x.StageCode,
                 StageLabel = x.StageLabel,
                 StageOrder = x.StageOrder,
+                RetryCount = x.RetryCount,
+                ErrorText = x.ErrorText,
                 FilesCount = x.Files.Count,
             })
             .ToListAsync(ct);

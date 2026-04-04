@@ -19,6 +19,7 @@ from config import (
     POLL_INTERVAL,
     MAX_JOB_RETRIES,
     RETRYABLE_STAGE_DELAY_SECONDS,
+    PLANNER_FALLBACK_AFTER_RETRY_COUNT,
 )
 from log import log, logger
 from api_client import pull_job, heartbeat, complete, fail
@@ -102,6 +103,13 @@ def _job_context(job: Dict[str, Any], payload: Dict[str, Any] | None = None) -> 
     return " ".join(parts)
 
 
+def _job_retry_count(job: Dict[str, Any]) -> int:
+    try:
+        return int(job.get("retryCount") or job.get("RetryCount") or 0)
+    except Exception:
+        return 0
+
+
 def _result_summary(result: Dict[str, Any] | None) -> str:
     if not isinstance(result, dict):
         return f"type={type(result).__name__}"
@@ -133,6 +141,14 @@ def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None =
 def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     payload = parse_payload(job)
     job_type = (job.get("type") or "").lower().strip()
+    retry_count = _job_retry_count(job)
+    if job_type == "assignment_gap_analysis" and retry_count >= 1:
+        payload["__compactMode"] = "compact"
+    if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
+        if retry_count >= PLANNER_FALLBACK_AFTER_RETRY_COUNT:
+            payload["__compactMode"] = "ultra"
+        elif retry_count >= 1:
+            payload["__compactMode"] = "compact"
     _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20])
 
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -148,10 +164,15 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             result = call_ollama(prompt)
         except Exception as ex:
             logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
-            if not allow_fallback:
+            planner_fallback_allowed = job_type in {"assignment_batch_plan", "assignment_batch_replan"} and retry_count >= PLANNER_FALLBACK_AFTER_RETRY_COUNT
+            if not allow_fallback and not planner_fallback_allowed:
                 raise RetryableStageError(f"{job_type} failed: {ex}") from ex
-            result = fallback_fn(payload, job) if fallback_fn else fallback_result(job)
-            _log_stage("stage-fallback-result", job, payload, builder=builder_name, fallback_type=type(result).__name__)
+            fallback_job = dict(job)
+            if payload is not None:
+                import json as _json
+                fallback_job["inputJson"] = _json.dumps(payload, ensure_ascii=False)
+            result = fallback_fn(payload, job) if fallback_fn else fallback_result(fallback_job)
+            _log_stage("stage-fallback-result", job, payload, builder=builder_name, fallback_type=type(result).__name__, planner_fallback=planner_fallback_allowed)
         if sanitize:
             result = sanitize_result_payload(job_type, payload, result)
             _log_stage("stage-sanitized", job, payload, result=_result_summary(result))

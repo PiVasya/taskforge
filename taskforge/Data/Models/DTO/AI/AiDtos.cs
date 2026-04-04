@@ -266,10 +266,13 @@ public class AiJobListItemDto
     public DateTime CreatedAtUtc { get; set; }
     public DateTime? StartedAtUtc { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
+    public DateTime? NextAttemptAtUtc { get; set; }
     public Guid? ParentJobId { get; set; }
     public string? StageCode { get; set; }
     public string? StageLabel { get; set; }
     public int? StageOrder { get; set; }
+    public int RetryCount { get; set; }
+    public string? ErrorText { get; set; }
     public int FilesCount { get; set; }
 }
 
@@ -278,10 +281,7 @@ public sealed class AiJobDetailsDto : AiJobListItemDto
     public List<AiArtifactDto> Artifacts { get; set; } = new();
     public string? InputJson { get; set; }
     public string? ResultJson { get; set; }
-    public string? ErrorText { get; set; }
     public DateTime? HeartbeatAtUtc { get; set; }
-    public DateTime? NextAttemptAtUtc { get; set; }
-    public int RetryCount { get; set; }
     public List<AiJobFileDto> Files { get; set; } = new();
 }
 

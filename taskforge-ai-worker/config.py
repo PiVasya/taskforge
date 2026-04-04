@@ -5,6 +5,14 @@ import socket
 
 import requests
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
 # ── Backend API ──────────────────────────────────────
 API_BASE: str = os.getenv("TASKFORGE_API_BASE", "http://api:8080").rstrip("/")
 API_KEY: str = os.getenv("TASKFORGE_INTERNAL_KEY", "")
@@ -15,6 +23,7 @@ OLLAMA_BASE: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3:14b")
 OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", os.getenv("OLLAMA_CONTEXT_LENGTH", "16384")))
 OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.15"))
+OLLAMA_JSON_MODE: bool = _env_bool("TASKFORGE_AI_OLLAMA_JSON_MODE", True)
 
 # ── Worker behaviour ─────────────────────────────────
 POLL_INTERVAL: int = int(os.getenv("POLL_INTERVAL_SECONDS", "8"))
@@ -28,6 +37,7 @@ OLLAMA_REQUEST_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_OLLAMA_REQUEST_ATTEMP
 OLLAMA_RETRY_BACKOFF_SECONDS: int = int(os.getenv("TASKFORGE_AI_OLLAMA_RETRY_BACKOFF_SECONDS", "8"))
 MAX_JOB_RETRIES: int = int(os.getenv("TASKFORGE_AI_MAX_JOB_RETRIES", "3"))
 RETRYABLE_STAGE_DELAY_SECONDS: int = int(os.getenv("TASKFORGE_AI_RETRYABLE_STAGE_DELAY_SECONDS", "45"))
+PLANNER_FALLBACK_AFTER_RETRY_COUNT: int = int(os.getenv("TASKFORGE_AI_PLANNER_FALLBACK_AFTER_RETRY_COUNT", "2"))
 
 # ── Quality gates defaults ───────────────────────────
 MAX_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_MAX_REFERENCE_ASSIGNMENTS", "20"))
@@ -36,6 +46,11 @@ MIN_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "5"))
 MIN_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_MIN_DESCRIPTION_LEN", "200"))
 MAX_REPAIR_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_REPAIR_ATTEMPTS", "2"))
 MAX_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_REFERENCE_DESCRIPTION_LEN", "260"))
+GAP_ANALYSIS_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_GAP_REFERENCE_ASSIGNMENTS", "8"))
+BATCH_PLAN_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_REFERENCE_ASSIGNMENTS", "6"))
+BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY", "3"))
+BATCH_PLAN_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_REFERENCE_DESCRIPTION_LEN", "140"))
+GAP_ANALYSIS_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_GAP_REFERENCE_DESCRIPTION_LEN", "160"))
 
 # ── Shared HTTP session ──────────────────────────────
 session: requests.Session = requests.Session()

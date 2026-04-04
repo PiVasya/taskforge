@@ -380,6 +380,34 @@ export default function AdminAiPage() {
     [filters.query, batches],
   );
 
+
+  var selectedBatchJobs = useMemo(
+    function () {
+      if (!selectedBatch || !selectedBatch.id) return [];
+      var itemIds = (selectedBatch.items || []).map(function (item) { return String(item.id); });
+      return jobs
+        .filter(function (job) {
+          var targetId = String(job.targetEntityId || '');
+          return targetId === String(selectedBatch.id) || itemIds.indexOf(targetId) >= 0;
+        })
+        .slice()
+        .sort(function (a, b) {
+          return new Date(b.createdAtUtc || 0).getTime() - new Date(a.createdAtUtc || 0).getTime();
+        });
+    },
+    [jobs, selectedBatch],
+  );
+
+  var selectedBatchActiveJob = useMemo(
+    function () {
+      return selectedBatchJobs.find(function (job) {
+        var st = String(job.status || '').toLowerCase();
+        return st === 'retry' || st === 'pending' || st === 'running' || st === 'processing';
+      }) || null;
+    },
+    [selectedBatchJobs],
+  );
+
   /* ── Counters ───────────────────────────────────── */
   var draftCounts = useMemo(
     function () {
@@ -1464,6 +1492,25 @@ export default function AdminAiPage() {
               <div>
                 <span className="opacity-70">Промпт:</span> {selectedBatch.prompt}
               </div>
+
+              {selectedBatchActiveJob ? (
+                <div className="rounded-2xl border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-700/40 p-3 space-y-1">
+                  <div className="font-medium">Текущий job пайплайна</div>
+                  <div className="text-xs break-all">
+                    {selectedBatchActiveJob.type} · статус: {selectedBatchActiveJob.status}
+                    {selectedBatchActiveJob.stageCode ? ' · стадия: ' + selectedBatchActiveJob.stageCode : ''}
+                  </div>
+                  {selectedBatchActiveJob.retryCount ? (
+                    <div className="text-xs opacity-80">Retry count: {selectedBatchActiveJob.retryCount}</div>
+                  ) : null}
+                  {selectedBatchActiveJob.nextAttemptAtUtc ? (
+                    <div className="text-xs opacity-80">Следующая попытка: {new Date(selectedBatchActiveJob.nextAttemptAtUtc).toLocaleString()}</div>
+                  ) : null}
+                  {selectedBatchActiveJob.errorText ? (
+                    <div className="text-xs text-red-600 break-words">Последняя ошибка: {selectedBatchActiveJob.errorText}</div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Pipeline data — collapsed */}
               <details>

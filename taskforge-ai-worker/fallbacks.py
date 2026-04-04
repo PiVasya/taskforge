@@ -130,9 +130,42 @@ def _extract_prompt_seeds(prompt: str) -> List[str]:
         result.append(word)
     return result
 
+def _build_matrix_plan_tasks(count: int, base_difficulty: int, use_oop: bool = False) -> List[Dict[str, Any]]:
+    templates = [
+        ("matrix multiplication with dynamic memory", "Реализовать умножение матриц с динамическим выделением памяти, проверкой размеров и эффективным вводом/выводом.", max(3, base_difficulty)),
+        ("gaussian elimination and matrix rank", "Построить задачу на приведение матрицы к ступенчатому виду, вычисление ранга или детерминанта и обработку вырожденных случаев.", max(3, base_difficulty + 1)),
+        ("matrix exponentiation under modulus", "Сделать задачу на быстрое возведение матрицы в степень по модулю для сложного сценария: переходы, пути или рекуррентная последовательность.", max(4, base_difficulty + 1)),
+        ("advanced matrix transformations with OOP" if use_oop else "matrix transformations and composite operations", "Сделать задачу, где нужно объединить несколько матричных преобразований, избегая смешивания нескольких несвязанных учебных целей.", max(4, base_difficulty + 1)),
+        ("sparse or block matrix optimization", "Построить задачу на оптимизацию операций над разреженными или блочными матрицами с нетривиальными ограничениями.", max(4, base_difficulty + 2)),
+    ]
+    tasks: List[Dict[str, Any]] = []
+    for i in range(count):
+        seed, micro, diff = templates[i % len(templates)]
+        tasks.append({
+            "index": i + 1,
+            "targetSkill": seed if i < len(templates) else f"{seed} #{i + 1}",
+            "microGoal": micro,
+            "difficultyTarget": max(1, min(5, diff)),
+            "whyItExists": "deterministic matrix fallback planning",
+            "antiDuplicateHints": [
+                "Не дублируй referenceAssignments по матрицам",
+                "Не своди задачу к одной примитивной операции над матрицей",
+                "Сохраняй одну чёткую учебную цель на slot",
+            ],
+            "decisionLog": [{"stage": "batch_plan", "message": "Создан matrix-specific fallback slot."}],
+        })
+    return tasks
+
+
 def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     count = max(1, safe_int(payload.get("count"), 1))
     prompt = normalize_text(payload.get("prompt"))
+    prompt_low = prompt.lower()
+    base_difficulty = max(1, min(5, safe_int(payload.get("difficulty"), 2)))
+
+    if "матриц" in prompt_low or "matrix" in prompt_low:
+        return _build_matrix_plan_tasks(count, base_difficulty, use_oop=("ооп" in prompt_low or "oop" in prompt_low))
+
     unique_words = _extract_prompt_seeds(prompt)
     biases = extract_historical_skill_biases(payload)
     strong = biases["strong"]
@@ -142,7 +175,6 @@ def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not seeds:
         seeds = [f"skill-{i+1}" for i in range(count)]
     tasks: List[Dict[str, Any]] = []
-    base_difficulty = max(1, min(5, safe_int(payload.get("difficulty"), 2)))
     for i in range(count):
         seed = seeds[i % len(seeds)]
         difficulty = max(1, min(5, base_difficulty + (1 if i >= max(2, count // 2) else 0) + (1 if i >= max(4, count - 2) else 0)))
@@ -151,7 +183,7 @@ def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             anti.append("Не повторяй исторически слабые patterns из historicalPlannerPriors")
         tasks.append({
             "index": i + 1,
-            "targetSkill": seed,
+            "targetSkill": seed if i < len(seeds) else f"{seed} #{i + 1}",
             "microGoal": f"Сделать отдельную задачу по поднавыку '{seed}' без смешивания нескольких учебных целей.",
             "difficultyTarget": difficulty,
             "whyItExists": "fallback planning with historical priors",

@@ -29,6 +29,10 @@ from payload import (
 )
 
 
+def _prompt_json(value: Dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
 # ── Generation requirements (code-test / test / math) ────────
 
 def build_generation_requirements(payload: Dict[str, Any]) -> str:
@@ -225,7 +229,7 @@ def build_repair_prompt(
         f"Тип job: {job.get('type')}\n"
         f"Попытка исправления: {attempt_no}\n\n"
         f"Требования:\n{build_job_specific_instructions(job.get('type') or '', payload)}\n\n"
-        f"Изначальный payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}\n\n"
+        f"Изначальный payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Плохой draft, который нужно переписать:\n{json.dumps(draft, ensure_ascii=False, indent=2)}\n\n"
         f"Ошибки self-check:\n{json.dumps(validation, ensure_ascii=False, indent=2)}\n\n"
         "Исправь все замечания, усили условие, добавь недостающие тесты и верни полностью новый готовый draft."
@@ -254,58 +258,57 @@ def build_course_profile_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
         "policyProfile должен быть внутренне согласованным: один и тот же метод нельзя "
         "помещать и в ожидаемые/обязательные, и в запрещённые.\n"
         + ("\n".join(extra_rules) + "\n\n" if extra_rules else "\n")
-        + f"Payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + f"Payload:\n{_prompt_json(compact_payload)}"
     )
 
 
 def build_gap_analysis_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    retry_mode = normalize_text(payload.get("__compactMode")).lower()
     extra = (
         "Для beginner C++ char[] track recommendedFocus должен строить мягкую прогрессию "
         "от базовых операций к чуть более сложным, без раннего прыжка в cstring."
         if detect_beginner_char_array_track(payload) else ""
     )
+    retry_note = "Работай в compact retry mode: без длинных объяснений, только JSON." if retry_mode else ""
     return (
-        "Ты — TaskForge AI gap analyst. Верни только валидный JSON без markdown.\n\n"
-        "Нужно проанализировать пробелы курса и вернуть, чего не хватает относительно запроса.\n"
+        "Ты — TaskForge AI gap analyst. Верни только один валидный JSON-объект без markdown и текста вокруг.\n\n"
+        "Нужно определить, какие темы уже покрыты курсом, какие темы просит пользователь и каких тем реально не хватает. "
+        "Не пересказывай referenceAssignments по одному. Своди их в короткие кластеры.\n"
         "Формат JSON: {\"gapAnalysis\":{\"coveredTopics\":[...],\"missingTopics\":[...],"
         "\"weakCoverageTopics\":[...],\"duplicateClusters\":[...],\"recommendedFocus\":[...],"
         "\"curriculumRisks\":[...]},\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...}}.\n"
-        + (extra + "\n\n" if extra else "\n")
-        + f"Payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + (extra + "\n" if extra else "")
+        + (retry_note + "\n" if retry_note else "")
+        + f"Payload:\n{_prompt_json(compact_payload)}"
     )
-
 
 def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     request_kind = "replan" if (job.get("type") or "").lower().strip() == "assignment_batch_replan" else "plan"
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    retry_mode = normalize_text(payload.get("__compactMode")).lower()
     extra_rules = [
-        "Не делай пустой план. Количество tasks должно соответствовать count.",
-        "Избегай исторически слабых targetSkill patterns и risky transitions, если их можно обойти.",
-        "Не планируй взаимоисключающие policy requirements.",
+        "Не делай пустой план.",
+        "Количество tasks должно строго соответствовать count.",
+        "Каждый slot = одна учебная цель и один targetSkill.",
+        "Не используй generic targetSkill вроде 'Придумай' или 'задания'.",
+        "Избегай дословных дублей referenceAssignments и слишком широких тем.",
     ]
     if detect_beginner_char_array_track(payload):
         extra_rules.extend([
-            "Это beginner C++ char[] pack: построй мягкую лесенку из 5 отдельных микронавыков.",
-            "Предпочитай последовательность: объявление/вывод -> ввод слова в char[] -> ручной проход циклом -> ручной поиск длины/индекса -> простая замена/сравнение символов.",
+            "Это beginner C++ char[] pack: построй мягкую лесенку из отдельных микронавыков.",
             "Не используй fgets, scanf, printf, strcat, strcpy, strlen, cstring, если это не запрошено явно.",
-            "Одна задача = одна учебная цель. Не смешивай несколько операций в одном slot.",
         ])
+    if retry_mode:
+        extra_rules.append("Это compact retry mode: отвечай кратко, без длинных rationale и только нужными полями JSON.")
     return (
-        "Ты — TaskForge AI planner. Верни только валидный JSON без markdown.\n\n"
-        f"Сейчас режим: {request_kind}. Нужно построить план набора задач, а не сами задачи.\n"
-        "Используй courseProfile, gapAnalysis и historicalPlannerPriors, если они есть.\n"
-        "Historical planner priors — это память о сильных/слабых skill patterns, risky transitions, "
-        "anti-patterns и repair routes из прошлых batch waves того же курса.\n"
-        "Сначала нормализуй запрос, потом верни coverage/gaps и план пакета.\n"
-        "Формат JSON: {\"canonicalRequest\":{...},\"coverage\":{...},\"summary\":\"...\","
-        "\"decisionSummary\":{...},\"plan\":{\"tasks\":[{\"index\":1,\"targetSkill\":\"...\","
-        "\"microGoal\":\"...\",\"difficultyTarget\":2,\"whyItExists\":\"...\","
-        "\"antiDuplicateHints\":[\"...\"],\"decisionLog\":[{\"stage\":\"batch_plan\",\"message\":\"...\"}]}]}}\n"
+        "Ты — TaskForge AI planner. Верни только один валидный JSON-объект без markdown и текста вокруг.\n\n"
+        f"Сейчас режим: {request_kind}. Нужно спланировать набор задач, а не генерировать сами задания.\n"
+        "Используй prompt пользователя, courseProfile, gapAnalysis и historicalPlannerPriors, если они есть.\n"
+        "Формат JSON: {\"canonicalRequest\":{...},\"coverage\":{...},\"summary\":\"...\",\"decisionSummary\":{...},\"plan\":{\"tasks\":[{\"index\":1,\"targetSkill\":\"...\",\"microGoal\":\"...\",\"difficultyTarget\":2,\"whyItExists\":\"...\",\"antiDuplicateHints\":[\"...\"],\"decisionLog\":[{\"stage\":\"batch_plan\",\"message\":\"...\"}]}]}}\n"
         + "\n".join(extra_rules) + "\n\n"
-        + f"Batch payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + f"Batch payload:\n{_prompt_json(compact_payload)}"
     )
-
 
 def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
@@ -329,7 +332,7 @@ def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "\"sourceText\":\"...\",\"notes\":\"...\",\"difficultyTarget\":2,\"targetSkill\":\"...\","
         "\"decisionLog\":[{\"stage\":\"brief_generate\",\"message\":\"...\"}]}.\n"
         + "\n".join(extra_rules) + "\n\n"
-        + f"Brief payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + f"Brief payload:\n{_prompt_json(compact_payload)}"
     )
 
 
@@ -353,7 +356,7 @@ def build_brief_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> s
         "\"sourceText\":\"...\",\"notes\":\"...\",\"difficultyTarget\":2,\"targetSkill\":\"...\","
         "\"decisionLog\":[{\"stage\":\"brief_repair\",\"message\":\"...\"}]}.\n"
         + "\n".join(extra_rules) + "\n\n"
-        + f"Brief repair payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        + f"Brief repair payload:\n{_prompt_json(compact_payload)}"
     )
 
 def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
@@ -378,7 +381,7 @@ def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
         "Формат JSON: {\"stylePack\":{...},\"policyPack\":{...},\"negativePack\":{...},"
         "\"exemplarPack\":{...},\"signals\":{...},\"generationHints\":{...},"
         "\"decisionLog\":[{\"stage\":\"reference_pack_build\",\"message\":\"...\"}]}.\n\n"
-        f"Reference pack payload:\n{json.dumps(compact_payload, ensure_ascii=False, indent=2)}"
+        f"Reference pack payload:\n{_prompt_json(compact_payload)}"
     )
 
 
