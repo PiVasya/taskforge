@@ -1,4 +1,4 @@
-"""Individual review stages — structural, pedagogy, style, similarity,
+﻿"""Individual review stages — structural, pedagogy, style, similarity,
 runtime, test-strength, brief review, and batch-context review.
 
 BUG-FIX: ``run_batch_context_review`` called bare ``jaccard()`` which was
@@ -88,17 +88,7 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
     findings: List[Dict[str, Any]] = []
     score = 1.0
 
-    if has_html_markup(description):
-        checks.append({"name": "style-html", "status": "passed", "details": "description использует html-структуру"})
-    else:
-        checks.append({"name": "style-html", "status": "warning", "details": "description без html-структуры"})
-        findings.append({
-            "severity": "warning", "code": "style-html",
-            "message": "Описание без привычной html-разметки курса.",
-            "suggestedRepair": "Добавь <p>, <ul>, <li> и структурируй секции.",
-            "confidence": 0.72,
-        })
-        score -= 0.15
+    checks.append({"name": "style-format", "status": "passed", "details": "description допускается в plain text; публикация нормализует его в TipTap"})
 
     if avg_len > 0:
         delta = abs(len(description) - avg_len)

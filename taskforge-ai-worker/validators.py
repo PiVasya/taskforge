@@ -1,4 +1,4 @@
-"""Draft validation, quality checks and self-check orchestration.
+﻿"""Draft validation, quality checks and self-check orchestration.
 
 BUG-FIX: ``run_self_check`` and ``attach_self_check`` were *called* in the
 original monolith but never *defined*.  They are implemented here.
@@ -37,10 +37,8 @@ def collect_quality_checks_common(draft: Dict[str, Any]) -> List[Dict[str, Any]]
         checks.append({"name": "description-length", "status": "failed", "details": f"description слишком короткое: {len(description)}"})
     else:
         checks.append({"name": "description-length", "status": "failed", "details": "description отсутствует"})
-    if has_html_markup(description):
-        checks.append({"name": "description-format", "status": "passed", "details": "description содержит html-разметку"})
-    else:
-        checks.append({"name": "description-format", "status": "warning", "details": "description без html-разметки"})
+    if description:
+        checks.append({"name": "description-format", "status": "passed", "details": "description допускается как plain text и затем нормализуется при публикации"})
     return checks
 
 

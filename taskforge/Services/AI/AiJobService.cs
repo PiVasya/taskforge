@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -1437,7 +1437,7 @@ public sealed partial class AiJobService : IAiJobService
             {
                 assignmentType = "math",
                 requiredFields = new[] { "assignmentType", "title", "description", "settings", "blocks" },
-                descriptionFormat = new { allowed = new[] { "html", "rich-text" }, minLength = 120, sections = new[] { "problem", "hints" } },
+                descriptionFormat = new { allowed = new[] { "plain-text", "tiptap-json" }, minLength = 120, sections = new[] { "problem", "hints" } },
                 settings = new { maxAttempts = "int >= 1", passPercent = "int 1..100", shuffleBlocks = "bool", allowReview = "bool", attemptTimeLimitsSeconds = "int?[]" },
                 blocks = new object[]
                 {
@@ -1449,7 +1449,7 @@ public sealed partial class AiJobService : IAiJobService
             {
                 assignmentType = "test",
                 requiredFields = new[] { "assignmentType", "title", "description", "settings", "questions" },
-                descriptionFormat = new { allowed = new[] { "html", "rich-text" }, minLength = 120, sections = new[] { "problem", "instructions" } },
+                descriptionFormat = new { allowed = new[] { "plain-text", "tiptap-json" }, minLength = 120, sections = new[] { "problem", "instructions" } },
                 settings = new { maxAttempts = "int >= 1", passPercent = "int 1..100", shuffleQuestions = "bool", shuffleAnswers = "bool", allowReview = "bool", attemptTimeLimitsSeconds = "int?[]" },
                 questions = new object[]
                 {
@@ -1462,7 +1462,7 @@ public sealed partial class AiJobService : IAiJobService
             {
                 assignmentType = "code-test",
                 requiredFields = new[] { "assignmentType", "title", "description", "allowedLanguages", "publicTests", "hiddenTests", "referenceSolutionPython" },
-                descriptionFormat = new { allowed = new[] { "html", "rich-text" }, minLength = 200, sections = new[] { "problem", "input", "output", "constraints", "notes" } },
+                descriptionFormat = new { allowed = new[] { "plain-text", "tiptap-json" }, minLength = 200, sections = new[] { "problem", "input", "output", "constraints", "notes" } },
                 allowedLanguages = new[] { "python", "cpp", "csharp" },
                 publicTests = new[] { new { input = "string", expectedOutput = "string" } },
                 hiddenTests = new[] { new { input = "string", expectedOutput = "string" } },

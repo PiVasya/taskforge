@@ -1,4 +1,4 @@
-"""Prompt construction for every job type.
+﻿"""Prompt construction for every job type.
 
 BUG-FIX: ``build_job_specific_instructions`` previously returned a *dict*
 for several job types (batch_plan, reference_pack_build, etc.).  Since
@@ -46,7 +46,7 @@ def build_generation_requirements(payload: Dict[str, Any]) -> str:
         "Затем сам проведи внутренние этапы: plan -> draft -> critique -> repair -> final.",
         "Верни только финальный JSON без markdown и без комментариев снаружи JSON.",
         "description обязано быть полноценным условием, а не одной строкой или заглушкой.",
-        "description пиши в HTML: используй <p>, <ul>, <li>, при необходимости <strong>.",
+        "description пиши как обычный человекочитаемый текст без HTML-тегов; секции разделяй пустыми строками.",
         "Нельзя возвращать служебные заглушки вроде 'AI-generated draft' или 'Черновик задания опубликован из AI-draft'.",
     ]
     if assignment_type == "code-test":
@@ -372,12 +372,12 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
         )
     elif stage == "draft_generate":
         expected = (
-            '{"draft":{"assignmentType":"code-test","title":"...","description":"<p>...</p>","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-generate-repair"}}'
+            '{"draft":{"assignmentType":"code-test","title":"...","description":"Постановка задачи...\n\nВходные данные...\n\nВыходные данные...","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-generate-repair"}}'
         )
     else:
         expected = (
             '{"canonicalRequest":{"domain":"...","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
-            '"courseDigest":{"languages":["cpp"],"teachingStyle":["html-description"],"referenceCount":0},'
+            '"courseDigest":{"languages":["cpp"],"teachingStyle":["structured-statement"],"referenceCount":0},'
             '"courseProfile":{"dominantSkills":["..."],"difficultyDistribution":{},"styleProfile":{},"policyProfile":{},"negativePatterns":["..."]},'
             '"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-course-profile-repair"}}'
         )
@@ -520,7 +520,7 @@ def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
         "  \"draft\": {\n"
         "    \"assignmentType\": \"code-test|test|math\",\n"
         "    \"title\": \"...\",\n"
-        "    \"description\": \"<p>...</p>\",\n"
+        "    \"description\": \"Постановка задачи...\n\nВходные данные...\n\nВыходные данные...\",\n"
         "    \"allowedLanguages\": [\"python\",\"cpp\",\"csharp\"],\n"
         "    \"publicTests\": [{\"input\":\"...\",\"expectedOutput\":\"...\"}],\n"
         "    \"hiddenTests\": [{\"input\":\"...\",\"expectedOutput\":\"...\"}],\n"
@@ -533,7 +533,7 @@ def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
         "  \"decisionSummary\": {\"confidence\": \"low|medium|high\", \"source\": \"llm-draft-generate\"}\n"
         "}\n\n"
         "Правила:\n"
-        "- description обязан быть полноценным HTML-условием с блоками problem/input/output/constraints/notes.\n"
+        "- description обязан быть полноценным текстовым условием с блоками problem/input/output/constraints/notes, но без HTML-тегов.\n"
         "- Для code-test обязательно: title, description, allowedLanguages, publicTests, hiddenTests, referenceSolutionPython.\n"
         "- referenceSolutionPython должен проходить все сгенерированные tests.\n"
         "- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.\n"

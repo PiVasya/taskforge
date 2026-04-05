@@ -38,14 +38,15 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
         repaired["title"] = title.replace("AI fallback:", "").strip() or title
 
     description = str(repaired.get("description") or "")
-    if description and not has_html_markup(description):
-        repaired["description"] = f"<p>{description}</p>"
+    if description and has_html_markup(description):
+        description = normalize_text(description)
+        repaired["description"] = description
     if len(normalize_text(repaired.get("description"))) < MIN_DESCRIPTION_LEN or "description" in routes:
         repaired["description"] = (
-            "<p>Исправленная AI-версией формулировка задания.</p>"
-            "<p><strong>Входные данные:</strong> явно укажи формат ввода, включая пробелы и крайние случаи.</p>"
-            "<p><strong>Выходные данные:</strong> выведите точный результат решения задачи.</p>"
-            "<p><strong>Примечание:</strong> формулировка была автоматически расширена после review и scorecard aggregation.</p>"
+            "Исправленная AI-версией формулировка задания.\n\n"
+            "Входные данные: явно укажи формат ввода, включая пробелы и крайние случаи.\n\n"
+            "Выходные данные: выведите точный результат решения задачи.\n\n"
+            "Примечание: формулировка была автоматически расширена после review и scorecard aggregation."
         )
 
     if repaired.get("assignmentType") == "code-test":

@@ -338,7 +338,7 @@ def build_course_digest(payload: Dict[str, Any]) -> Dict[str, Any]:
         "languages": langs[:6],
         "recentReferenceTitles": title_hints[:5],
         "teachingStyle": [
-            "html-description",
+            "tiptap-or-legacy-text",
             "public-and-hidden-tests",
             "structured-i/o",
         ],

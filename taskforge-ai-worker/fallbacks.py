@@ -63,7 +63,7 @@ def fallback_course_profile(payload: Dict[str, Any], job: Dict[str, Any]) -> Dic
         "courseProfile": {
             "dominantSkills": skills[:6],
             "negativePatterns": ["слишком общий skill", "дословный дубль reference title", "off-topic fallback"],
-            "styleProfile": {"tone": "teaching", "htmlPreferred": True},
+            "styleProfile": {"tone": "teaching", "tiptapPreferred": True},
             "policyProfile": {"allowedLanguages": digest.get("languages") or [], "constraints": ["одна задача = одна учебная цель"]},
             "assignmentOntology": {"topicBuckets": digest.get("recentReferenceTitles") or skills[:4], "difficultyBand": "medium-high"},
         },
@@ -358,7 +358,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
         if slot_priors.get("weakExamples"):
             avoid.append("Не повторяй слабые historical slot patterns для этого targetSkill")
         return {
-            "stylePack": {"targetDescriptionStyle": "html-structured", "targetLength": 500, "notes": ["Держи полноценное описание с вводом/выводом", "Учитывай historical planner priors"]},
+            "stylePack": {"targetDescriptionStyle": "plain-text-to-tiptap", "targetLength": 500, "notes": ["Держи полноценное текстовое описание с вводом/выводом без HTML", "Учитывай historical planner priors"]},
             "policyPack": {"allowedLanguages": payload.get("assignmentType"), "requiredCalls": [], "forbiddenCalls": []},
             "negativePack": {"avoid": avoid, "historicalAntiPatterns": priors.get("antiPatterns") or []},
             "exemplarPack": {"selectedReferences": compact_reference_assignments(payload)[:8]},
