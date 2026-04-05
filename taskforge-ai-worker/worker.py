@@ -56,8 +56,10 @@ from prompt_builder import (
     build_draft_generate_prompt,
     build_draft_body_generate_prompt,
     build_draft_title_generate_prompt,
+    build_draft_title_repair_prompt,
     build_draft_course_style_analysis_prompt,
     build_draft_generation_spec_prompt,
+    build_draft_content_plan_prompt,
 )
 from reviews import (
     run_structural_review,
@@ -331,6 +333,51 @@ def _coerce_generation_spec(payload: Dict[str, Any], style_analysis: Dict[str, A
     return {"generationSpec": spec, "summary": result.get("summary") or "Generation spec completed."}
 
 
+
+
+def _fallback_content_plan(payload: Dict[str, Any], style_analysis: Dict[str, Any], spec: Dict[str, Any]) -> Dict[str, Any]:
+    generation_spec = spec.get("generationSpec") if isinstance(spec, dict) else {}
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    return {
+        "contentPlan": {
+            "pedagogicalGoal": str(task.get("microGoal") or task.get("MicroGoal") or brief.get("summary") or generation_spec.get("exactTask") or "Сделать отдельную задачу в стиле курса").strip(),
+            "noveltyHook": str(generation_spec.get("distinctFromPeers") or "Сделать задачу отличимой от соседних items.").strip(),
+            "inputModel": str(generation_spec.get("ioContract") or "Явно описать входные данные.").strip(),
+            "outputModel": "Явно описать ожидаемый вывод без лишнего шума.",
+            "constraintsPlan": str(generation_spec.get("constraintsFocus") or "Сфокусироваться на минимально нужных ограничениях.").strip(),
+            "sectionPlan": (style_analysis.get("courseStyle") or {}).get("descriptionSections") if isinstance(style_analysis.get("courseStyle"), dict) else ["Суть", "Входные данные", "Выходные данные", "Ограничения", "Примечания"],
+            "publicTestPlan": ["Базовый пример", "Пограничный компактный пример"],
+            "hiddenTestPlan": ["Минимальный кейс", "Типичный кейс", "Пограничный кейс"],
+            "titleShape": str(generation_spec.get("titleDirection") or brief.get("titleHint") or "Короткое course-native название").strip(),
+            "bannedOverlaps": generation_spec.get("avoid") or [],
+            "coursePhrasingRules": generation_spec.get("keepStyle") or [],
+        },
+        "summary": "Fallback content plan built from generation spec.",
+    }
+
+
+def _coerce_content_plan(payload: Dict[str, Any], style_analysis: Dict[str, Any], spec: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return _fallback_content_plan(payload, style_analysis, spec)
+    plan = result.get("contentPlan") if isinstance(result.get("contentPlan"), dict) else {}
+    required = ["pedagogicalGoal", "noveltyHook", "inputModel", "outputModel", "constraintsPlan", "sectionPlan", "publicTestPlan", "hiddenTestPlan", "titleShape"]
+    if any(not plan.get(k) for k in required):
+        return _fallback_content_plan(payload, style_analysis, spec)
+    return {"contentPlan": plan, "summary": result.get("summary") or "Draft content plan completed."}
+
+
+def _title_looks_bad(title: str) -> bool:
+    low = (title or "").strip().lower()
+    if not low or low == "__pending_title__":
+        return True
+    banned = ["revised", "draft", "pending", "final", "version", "task"]
+    if any(word in low for word in banned):
+        return True
+    if all(ord(ch) < 128 for ch in low) and len(low.split()) <= 8:
+        return True
+    return False
+
 def _merge_generated_title(result: Dict[str, Any], title_result: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     draft = result.get("draft") if isinstance(result.get("draft"), dict) else {}
     title = ""
@@ -340,9 +387,7 @@ def _merge_generated_title(result: Dict[str, Any], title_result: Dict[str, Any],
     spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
     if isinstance(spec, dict):
         direction = str(spec.get("titleDirection") or "").strip()
-    looks_placeholder = not title or title == "__PENDING_TITLE__"
-    looks_ascii_slot = bool(title) and all((ord(ch) < 128) for ch in title) and len(title.split()) <= 8
-    if looks_placeholder or looks_ascii_slot:
+    if _title_looks_bad(title):
         if direction:
             draft_with_direction = dict(draft)
             draft_with_direction["description"] = f"{direction}. {draft.get('description') or ''}".strip()
@@ -387,6 +432,18 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     enriched_payload["styleAnalysis"] = style_result
     enriched_payload["generationSpec"] = spec_result.get("generationSpec") if isinstance(spec_result, dict) else {}
 
+    content_prompt = build_draft_content_plan_prompt(job, enriched_payload)
+    content_cfg = OllamaCallConfig(stage="draft_content_plan", timeout=min(50, llm_cfg.timeout), num_predict=360, temperature=0.08, required_keys=["contentPlan"], preferred_keys=["summary"])
+    _log_stage("substage-prepare", job, enriched_payload, substage="draft_content_plan", prompt_len=len(content_prompt), timeout=content_cfg.timeout, num_predict=content_cfg.num_predict)
+    try:
+        content_raw = call_ollama(content_prompt, content_cfg)
+    except Exception as ex:
+        logger.warning(f"draft content plan failed: {ex} [{_job_context(job, enriched_payload)}]")
+        content_raw = {}
+    content_result = _coerce_content_plan(payload, style_result, spec_result, content_raw)
+    enriched_payload["contentPlan"] = content_result.get("contentPlan") if isinstance(content_result, dict) else {}
+    _log_stage("substage-done", job, enriched_payload, substage="draft_content_plan", result=_result_summary(content_result))
+
     body_prompt = build_draft_body_generate_prompt(job, enriched_payload)
     body_cfg = OllamaCallConfig(stage="draft_body_generate", timeout=min(llm_cfg.timeout, max(60, llm_cfg.timeout)), num_predict=min(llm_cfg.num_predict or 1200, 1400), temperature=0.10, required_keys=["draft"], preferred_keys=["summary", "decisionSummary"])
     _log_stage("substage-prepare", job, enriched_payload, substage="draft_body_generate", prompt_len=len(body_prompt), timeout=body_cfg.timeout, num_predict=body_cfg.num_predict)
@@ -409,6 +466,17 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     except Exception as ex:
         logger.warning(f"draft title ollama failed: {ex} [{_job_context(job, enriched_payload)}]")
         title_result = {"title": _derive_course_style_title(enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})}
+    if _title_looks_bad(str((title_result or {}).get("title") or "")):
+        try:
+            repair_prompt = build_draft_title_repair_prompt(job, enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {}, str((title_result or {}).get("title") or ""))
+            repair_cfg = OllamaCallConfig(stage="draft_title_repair", timeout=min(35, llm_cfg.timeout), num_predict=80, temperature=0.06, required_keys=["title"], preferred_keys=["summary"])
+            _log_stage("substage-prepare", job, enriched_payload, substage="draft_title_repair", prompt_len=len(repair_prompt), timeout=repair_cfg.timeout, num_predict=repair_cfg.num_predict)
+            repaired_title = call_ollama(repair_prompt, repair_cfg)
+            if isinstance(repaired_title, dict) and str(repaired_title.get("title") or "").strip():
+                title_result = repaired_title
+            _log_stage("substage-done", job, enriched_payload, substage="draft_title_repair", result=_result_summary(repaired_title if isinstance(repaired_title, dict) else {"title": repaired_title}))
+        except Exception as ex:
+            logger.warning(f"draft title repair failed: {ex} [{_job_context(job, enriched_payload)}]")
     _log_stage("substage-done", job, enriched_payload, substage="draft_title_generate", result=_result_summary(title_result if isinstance(title_result, dict) else {"title": title_result}))
 
     result = _merge_generated_title(body_result, title_result if isinstance(title_result, dict) else {}, enriched_payload)

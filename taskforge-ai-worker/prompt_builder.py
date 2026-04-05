@@ -33,6 +33,67 @@ def _prompt_json(value: Dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _collect_reference_buckets(payload: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    refs = compact_reference_assignments(payload, limit=10, description_len=140, include_cases=True)
+    if not refs:
+        return {"styleAnchors": [], "difficultyAnchors": [], "topicAnchors": [], "negativeAnchors": []}
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    target_skill = normalize_text(task.get("targetSkill") or task.get("TargetSkill") or brief.get("targetSkill") or brief.get("titleHint") or "")
+    difficulty_target = safe_int(task.get("difficultyTarget") or task.get("DifficultyTarget") or brief.get("difficultyTarget") or payload.get("difficulty"), 2)
+    style_anchors = refs[:3]
+    difficulty_anchors = [r for r in refs if safe_int(r.get("difficulty"), difficulty_target) == difficulty_target][:3] or refs[:2]
+    def _topic_score(item: Dict[str, Any]) -> int:
+        hay = normalize_text(f"{item.get('title') or ''} {item.get('descriptionSummary') or ''} {item.get('tags') or ''}").lower()
+        if not target_skill:
+            return 0
+        return sum(1 for token in re.split(r"[^\wа-яА-Я]+", target_skill.lower()) if len(token) >= 3 and token in hay)
+    topic_anchors = sorted(refs, key=_topic_score, reverse=True)[:3]
+    negative_anchors = refs[-2:] if len(refs) >= 2 else refs[:1]
+    return {"styleAnchors": style_anchors, "difficultyAnchors": difficulty_anchors, "topicAnchors": topic_anchors, "negativeAnchors": negative_anchors}
+
+
+def _extract_course_phrase_bank(payload: Dict[str, Any], limit: int = 10) -> Dict[str, List[str]]:
+    refs = payload.get("referenceAssignments") if isinstance(payload.get("referenceAssignments"), list) else []
+    intro, input_lines, output_lines, constraints = [], [], [], []
+    for item in refs[:10]:
+        if not isinstance(item, dict):
+            continue
+        desc = strip_html_to_text(item.get("description") or item.get("Description") or "")
+        parts = [x.strip() for x in re.split(r"\n+", desc) if x.strip()]
+        if parts:
+            intro.append(parts[0][:140])
+        for part in parts[1:8]:
+            low = part.lower()
+            if ("вход" in low or "input" in low) and len(input_lines) < limit:
+                input_lines.append(part[:140])
+            if ("выход" in low or "output" in low) and len(output_lines) < limit:
+                output_lines.append(part[:140])
+            if ("огранич" in low or "constraint" in low) and len(constraints) < limit:
+                constraints.append(part[:140])
+    return {
+        "introPhrases": unique_string_list(intro, limit),
+        "inputPhrases": unique_string_list(input_lines, limit),
+        "outputPhrases": unique_string_list(output_lines, limit),
+        "constraintPhrases": unique_string_list(constraints, limit),
+    }
+
+
+def _compact_peer_context(payload: Dict[str, Any], limit: int = 6) -> List[Dict[str, Any]]:
+    peers = payload.get("batchPeerItems") if isinstance(payload.get("batchPeerItems"), list) else []
+    compact_peers = []
+    for peer in peers[:limit]:
+        if not isinstance(peer, dict):
+            continue
+        compact_peers.append({
+            "index": peer.get("index") or peer.get("Index"),
+            "targetSkill": truncate_text(peer.get("targetSkill") or peer.get("TargetSkill"), 140),
+            "microGoal": truncate_text(peer.get("microGoal") or peer.get("MicroGoal"), 180),
+            "status": normalize_text(peer.get("status") or peer.get("Status")),
+        })
+    return compact_peers
+
+
 # ── Generation requirements (code-test / test / math) ────────
 
 def build_generation_requirements(payload: Dict[str, Any]) -> str:
@@ -445,6 +506,8 @@ def build_brief_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> s
 
 def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     compact_payload = compact_payload_for_stage(job.get("type") or "", payload)
+    anchor_buckets = _collect_reference_buckets(payload)
+    phrase_bank = _extract_course_phrase_bank(payload)
     extra = (
         "policyPack должен быть внутренне согласованным: "
         "одно и то же нельзя одновременно помещать в required/enforced и forbidden."
@@ -454,18 +517,21 @@ def build_reference_pack_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
             " Для beginner C++ char[] track generationHints должны уводить "
             "в базовые ручные операции и не форсировать cstring/fgets без явного запроса."
         )
+    reference_payload = dict(compact_payload)
+    reference_payload["anchorBuckets"] = anchor_buckets
+    reference_payload["coursePhraseBank"] = phrase_bank
     return (
         "Ты — TaskForge AI reference pack builder. Верни только валидный JSON без markdown.\n\n"
-        "Нужно собрать compact reference pack для одной будущей задачи: "
-        "stylePack, policyPack, negativePack, exemplarPack, signals, generationHints.\n"
-        "Используй brief, briefReview, courseProfile, antiPatternMemory, "
-        "historicalPlannerPriors и historicalSlotPriors.\n"
-        "Negative pack должен явно перечислять, чего НЕ надо повторять из слабых исторических паттернов.\n"
+        "Нужно собрать сильный course-native reference pack для одной будущей задачи: stylePack, policyPack, negativePack, exemplarPack, signals, generationHints.\n"
+        "Собирай pack не вообще по теме, а по ролям: style anchors, difficulty anchors, topic anchors, negative anchors.\n"
+        "Выдели style fingerprint курса: title patterns, phrase bank, section order, test style, допустимые ограничения, anti-patterns.\n"
+        "Negative pack должен явно перечислять, чего НЕ надо повторять из слабых исторических паттернов и ближайших reference assignments.\n"
         f"{extra}\n"
-        "Формат JSON: {\"stylePack\":{...},\"policyPack\":{...},\"negativePack\":{...},"
-        "\"exemplarPack\":{...},\"signals\":{...},\"generationHints\":{...},"
-        "\"decisionLog\":[{\"stage\":\"reference_pack_build\",\"message\":\"...\"}]}.\n\n"
-        f"Reference pack payload:\n{_prompt_json(compact_payload)}"
+        "Формат JSON: {\"stylePack\":{...},\"policyPack\":{...},\"negativePack\":{...},\"exemplarPack\":{...},\"signals\":{...},\"generationHints\":{...},\"decisionLog\":[{\"stage\":\"reference_pack_build\",\"message\":\"...\"}]}.\n"
+        "В stylePack желательно вернуть: titleFingerprint, descriptionFingerprint, testFingerprint, phraseBank, sectionOrder, toneRules.\n"
+        "В exemplarPack желательно вернуть: styleAnchors, difficultyAnchors, topicAnchors, negativeAnchors.\n"
+        "В generationHints желательно вернуть: styleContract, bannedOverlapIds, noveltyTargets, titleDos, titleDonts.\n\n"
+        f"Reference pack payload:\n{_prompt_json(reference_payload)}"
     )
 
 
@@ -539,17 +605,7 @@ def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[
 def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> str:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
-    peers = payload.get("batchPeerItems") if isinstance(payload.get("batchPeerItems"), list) else []
-    compact_peers = []
-    for peer in peers[:6]:
-        if not isinstance(peer, dict):
-            continue
-        compact_peers.append({
-            "index": peer.get("index") or peer.get("Index"),
-            "targetSkill": truncate_text(peer.get("targetSkill") or peer.get("TargetSkill"), 140),
-            "microGoal": truncate_text(peer.get("microGoal") or peer.get("MicroGoal"), 180),
-            "status": normalize_text(peer.get("status") or peer.get("Status")),
-        })
+    compact_peers = _compact_peer_context(payload, limit=6)
     compact_payload = {
         "prompt": truncate_text(payload.get("prompt"), 220),
         "brief": {
@@ -567,6 +623,8 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         },
         "styleAnalysis": style_analysis,
         "peerItems": compact_peers,
+        "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
+        "anchorBuckets": _collect_reference_buckets(payload),
     }
     return (
         "Ты — TaskForge AI generation planner. Верни только JSON без markdown.\n\n"
@@ -580,8 +638,45 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         "- titleDirection: каким по смыслу должно быть название.\n"
         "- distinctFromPeers: почему эта задача не совпадает с соседними.\n"
         "- keepStyle: 3-6 коротких правил курса, которые обязательно сохранить.\n"
-        "- avoid: 3-6 коротких ошибок, которые нельзя допустить.\n\n"
+        "- avoid: 3-6 коротких ошибок, которые нельзя допустить.\n"
+        "- noveltyPlan: чем задача будет отличаться от ближайших topic/negative anchors.\n"
+        "- titleDos/titleDonts: короткие правила для названия.\n\n"
         f"Generation spec payload:\n{_prompt_json(compact_payload)}"
+    )
+
+
+def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    style_analysis = payload.get("styleAnalysis") if isinstance(payload.get("styleAnalysis"), dict) else {}
+    generation_spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
+    reference_pack = payload.get("referencePack") if isinstance(payload.get("referencePack"), dict) else {}
+    compact_payload = {
+        "brief": {
+            "summary": truncate_text(brief.get("summary"), 240),
+            "generationPrompt": truncate_text(brief.get("generationPrompt"), 300),
+            "targetSkill": truncate_text(brief.get("targetSkill"), 120),
+            "titleHint": truncate_text(brief.get("titleHint"), 120),
+        },
+        "task": {
+            "targetSkill": truncate_text(task.get("targetSkill") or task.get("TargetSkill"), 160),
+            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 220),
+            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
+        },
+        "styleAnalysis": style_analysis,
+        "generationSpec": generation_spec,
+        "anchorBuckets": _collect_reference_buckets(payload),
+        "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
+        "styleContract": (reference_pack.get("generationHints") or {}).get("styleContract") if isinstance(reference_pack.get("generationHints"), dict) else None,
+        "peerItems": _compact_peer_context(payload, limit=6),
+    }
+    return (
+        "Ты — TaskForge AI draft content planner. Верни только JSON без markdown.\n\n"
+        "Не пиши ещё полное условие. Сначала составь content plan для будущего draft.\n"
+        "План должен удерживать стиль курса, уникальность относительно соседних items и конкретную учебную цель.\n"
+        "Верни JSON: {\"contentPlan\":{...},\"summary\":\"...\"}.\n"
+        "В contentPlan должны быть поля: pedagogicalGoal, noveltyHook, inputModel, outputModel, constraintsPlan, sectionPlan, publicTestPlan, hiddenTestPlan, titleShape, bannedOverlaps, coursePhrasingRules.\n\n"
+        f"Draft content plan payload:\n{_prompt_json(compact_payload)}"
     )
 
 
@@ -592,6 +687,7 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
     quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
     style_analysis = payload.get("styleAnalysis") if isinstance(payload.get("styleAnalysis"), dict) else {}
     generation_spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
+    content_plan = payload.get("contentPlan") if isinstance(payload.get("contentPlan"), dict) else {}
     compact_payload = {
         "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
         "courseId": payload.get("courseId"),
@@ -625,6 +721,9 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
         },
         "styleAnalysis": style_analysis,
         "generationSpec": generation_spec,
+        "contentPlan": content_plan,
+        "anchorBuckets": _collect_reference_buckets(payload),
+        "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
         "referenceAssignments": compact_reference_assignments(payload, limit=6, description_len=150, include_cases=True),
     }
     min_hidden = quality_gates.get("minHiddenTests", MIN_HIDDEN_TESTS)
@@ -632,7 +731,7 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
     return (
         "Ты — TaskForge AI draft body generator. Верни только один валидный JSON без markdown.\n\n"
         "Нужно сгенерировать только тело задания и тесты в стиле курса. Название пока НЕ придумывай: поставь в draft.title точную строку __PENDING_TITLE__.\n"
-        "Сначала изучи course style analysis, generation spec, referenceAssignments и exemplarPack. Только после этого пиши draft.\n"
+        "Сначала изучи course style analysis, generation spec, content plan, referenceAssignments и exemplarPack. Только после этого пиши draft.\n"
         "Подражай стилю условий и тестов курса, но не копируй текст, title и тесты дословно.\n"
         "Верни JSON формата:\n"
         '{"draft":{"assignmentType":"code-test","title":"__PENDING_TITLE__","description":"Полное условие без HTML","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"...","requiredCalls":["solve"],"forbiddenCalls":["Process.Start","__import__"],"meta":{"generationSource":"llm-body"}},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-body"}}\n\n'
@@ -640,10 +739,11 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
         "- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.\n"
         "- description должен выглядеть как условие из этого курса: суть задачи, входные данные, выходные данные, ограничения, примечание.\n"
         "- Строго следуй generationSpec.exactTask и generationSpec.ioContract.\n"
-        "- Сначала выполни generationSpec.distinctFromPeers: новая задача должна заметно отличаться от соседних slot-ов.\n"
+        "- Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.\n"
         f"- Сгенерируй минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests и от {min_hidden} до {max_hidden} hiddenTests, не больше {max_hidden}.\n"
         "- Скрытые тесты делай компактными, но покрывающими крайние случаи.\n"
-        "- Не уходи в другую микроцель: строго соблюдай targetSkill и microGoal.\n"
+        "- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.\n"
+        "- Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.\n"
         "- Не используй чужие title из referenceAssignments.\n\n"
         f"Draft body payload:\n{_prompt_json(compact_payload)}"
     )
@@ -668,7 +768,21 @@ def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, An
         f"Course title examples:\n{json.dumps(examples, ensure_ascii=False)}\n\n"
         f"Style analysis:\n{json.dumps(style_analysis, ensure_ascii=False)}\n\n"
         f"Generation spec:\n{json.dumps(generation_spec, ensure_ascii=False)}\n\n"
+        f"Course phrase bank:\n{json.dumps(_extract_course_phrase_bank(payload, limit=6), ensure_ascii=False)}\n\n"
         f"Draft body:\n{json.dumps(body_preview, ensure_ascii=False)}"
+    )
+
+
+def build_draft_title_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any], bad_title: str) -> str:
+    return (
+        "Ты — TaskForge AI title repair agent. Верни только JSON без markdown.\n\n"
+        "Нужно починить только название задания. Не меняй условие, тесты и решение.\n"
+        "Запрещено возвращать служебные слова вроде revised, draft, pending, final, version, task.\n"
+        "Верни JSON: {\"title\":\"...\",\"summary\":\"...\",\"decisionSummary\":{\"source\":\"llm-title-repair\",\"confidence\":\"low|medium|high\"}}\n\n"
+        f"Bad title: {json.dumps(bad_title, ensure_ascii=False)}\n\n"
+        f"Course title examples:\n{json.dumps(_compact_title_examples(payload, limit=12), ensure_ascii=False)}\n\n"
+        f"Style analysis:\n{json.dumps(payload.get('styleAnalysis') if isinstance(payload.get('styleAnalysis'), dict) else {}, ensure_ascii=False)}\n\n"
+        f"Draft body:\n{json.dumps({'description': truncate_text(strip_html_to_text(draft.get('description') or ''), 600), 'targetSkill': ((payload.get('task') or {}).get('targetSkill') or (payload.get('brief') or {}).get('targetSkill'))}, ensure_ascii=False)}"
     )
 
 

@@ -384,14 +384,38 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
             avoid.append("Не повторяй исторические anti-patterns из historicalPlannerPriors")
         if slot_priors.get("weakExamples"):
             avoid.append("Не повторяй слабые historical slot patterns для этого targetSkill")
+        refs = compact_reference_assignments(payload)[:8]
+        style_anchors = refs[:3]
+        difficulty_anchors = refs[:2]
+        topic_anchors = refs[:3]
+        negative_anchors = refs[-2:] if len(refs) >= 2 else refs[:1]
         return {
-            "stylePack": {"targetDescriptionStyle": "plain-text-to-tiptap", "targetLength": 500, "notes": ["Держи полноценное текстовое описание с вводом/выводом без HTML", "Учитывай historical planner priors"]},
+            "stylePack": {
+                "targetDescriptionStyle": "plain-text-to-tiptap",
+                "targetLength": 500,
+                "notes": ["Держи полноценное текстовое описание с вводом/выводом без HTML", "Учитывай historical planner priors"],
+                "titleFingerprint": {"pattern": "Короткое конкретное название в стиле курса", "dos": ["Конкретность", "Без служебных слов"], "donts": ["revised", "draft", "слишком длинный title"]},
+                "descriptionFingerprint": {"sectionOrder": ["Суть", "Входные данные", "Выходные данные", "Ограничения", "Примечания"], "tone": "Короткий учебный стиль курса"},
+                "testFingerprint": {"publicTests": "простые и читаемые", "hiddenTests": "маленькие edge cases"},
+                "phraseBank": {"intro": ["Составьте программу...", "Требуется..."], "constraints": ["Ограничения:"]},
+            },
             "policyPack": {"allowedLanguages": payload.get("assignmentType"), "requiredCalls": [], "forbiddenCalls": []},
-            "negativePack": {"avoid": avoid, "historicalAntiPatterns": priors.get("antiPatterns") or []},
-            "exemplarPack": {"selectedReferences": compact_reference_assignments(payload)[:8]},
+            "negativePack": {"avoid": avoid, "historicalAntiPatterns": priors.get("antiPatterns") or [], "negativeAnchors": negative_anchors},
+            "exemplarPack": {"selectedReferences": refs, "styleAnchors": style_anchors, "difficultyAnchors": difficulty_anchors, "topicAnchors": topic_anchors, "negativeAnchors": negative_anchors},
             "signals": {"targetSkill": brief.get("targetSkill") or brief.get("titleHint"), "difficultyTarget": brief.get("difficultyTarget") or payload.get("difficulty") or 2, "historicalSlotPriors": slot_priors},
-            "generationHints": {"titleHint": brief.get("titleHint"), "generationPrompt": brief.get("generationPrompt") or normalize_text(payload.get("prompt")), "sourceText": brief.get("sourceText"), "notes": brief.get("notes"), "historicalPlannerPriors": priors, "historicalSlotPriors": slot_priors},
-            "decisionLog": [{"stage": "reference_pack_build", "message": "Fallback reference pack собран с учётом historical planner priors."}],
+            "generationHints": {
+                "titleHint": brief.get("titleHint"),
+                "generationPrompt": brief.get("generationPrompt") or normalize_text(payload.get("prompt")),
+                "sourceText": brief.get("sourceText"),
+                "notes": brief.get("notes"),
+                "historicalPlannerPriors": priors,
+                "historicalSlotPriors": slot_priors,
+                "styleContract": ["Сохраняй секции условия", "Держи короткий course-native title", "Не копируй references дословно"],
+                "noveltyTargets": ["Отличаться от соседних items", "Не повторять negative anchors"],
+                "titleDos": ["Коротко", "По делу"],
+                "titleDonts": ["revised", "draft", "version"],
+            },
+            "decisionLog": [{"stage": "reference_pack_build", "message": "Fallback reference pack собран с учётом historical planner priors и style anchors."}],
         }
 
     # ── batch review ──────────────────────────────────
