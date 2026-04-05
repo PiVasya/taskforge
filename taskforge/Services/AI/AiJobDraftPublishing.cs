@@ -351,7 +351,7 @@ public sealed partial class AiJobService
                 .Select(x => x.Trim())
                 .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
             if (string.IsNullOrWhiteSpace(sentence)) return "Задание";
-            sentence = Regex.Replace(sentence, "^(реализуйте|напишите программу|требуется|постройте задачу на)\s+", string.Empty, RegexOptions.IgnoreCase).Trim();
+            sentence = Regex.Replace(sentence, @"^(реализуйте|напишите программу|требуется|постройте задачу на)\s+", string.Empty, RegexOptions.IgnoreCase).Trim();
             if (sentence.Length > 64) sentence = sentence[..64].TrimEnd() + "...";
             return string.IsNullOrWhiteSpace(sentence) ? "Задание" : sentence;
         }
