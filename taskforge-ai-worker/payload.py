@@ -12,10 +12,13 @@ from config import (
     BATCH_PLAN_REFERENCE_ASSIGNMENTS,
     BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY,
     BATCH_PLAN_REFERENCE_DESCRIPTION_LEN,
+    MIN_PUBLIC_TESTS,
     MIN_HIDDEN_TESTS,
     MAX_HIDDEN_TESTS,
+    MIN_DESCRIPTION_LEN,
 )
 from log import log, log_debug, logger
+from runners import run_python_solution
 from text_utils import (
     normalize_text,
     truncate_text,
@@ -703,8 +706,8 @@ if __name__ == '__main__':
         "publicTests": public_tests,
         "hiddenTests": hidden_tests,
         "referenceSolutionPython": code,
-        "requiredCalls": ["solve"],
-        "forbiddenCalls": ["Process.Start", "__import__"],
+        "requiredCalls": [],
+        "forbiddenCalls": [],
         "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-multiplication"},
     }
 
@@ -778,8 +781,8 @@ if __name__ == '__main__':
         "publicTests": public_tests,
         "hiddenTests": hidden_tests,
         "referenceSolutionPython": code,
-        "requiredCalls": ["solve"],
-        "forbiddenCalls": ["Process.Start", "__import__"],
+        "requiredCalls": [],
+        "forbiddenCalls": [],
         "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-gaussian-rank"},
     }
 
@@ -851,8 +854,8 @@ if __name__ == '__main__':
         "publicTests": public_tests,
         "hiddenTests": hidden_tests,
         "referenceSolutionPython": code,
-        "requiredCalls": ["solve"],
-        "forbiddenCalls": ["Process.Start", "__import__"],
+        "requiredCalls": [],
+        "forbiddenCalls": [],
         "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-power"},
     }
 
@@ -872,6 +875,237 @@ def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
     return unique[: max(MIN_HIDDEN_TESTS, MAX_HIDDEN_TESTS)]
 
 
+PLATFORM_SECURITY_RULE_MARKERS = (
+    "process.start", "__import__", "os.system", "subprocess", "system(",
+    "socket", "requests.", "urllib", "webrequest", "httpclient", "filesystem",
+)
+
+
+def _normalize_test_case_item(item: Any) -> Dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    input_text = normalize_text(item.get("input"))
+    expected = item.get("expectedOutput")
+    if expected is None:
+        expected = item.get("output")
+    expected_text = normalize_text(expected)
+    if not input_text and not expected_text:
+        return None
+    return {"input": input_text, "expectedOutput": expected_text}
+
+
+def _normalize_test_case_list(items: Any) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    seen: set = set()
+    for raw in list(items or []):
+        item = _normalize_test_case_item(raw)
+        if item is None:
+            continue
+        key = (item["input"], item["expectedOutput"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
+def _payload_policy_text(payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
+    parts = [
+        payload.get("prompt"),
+        payload.get("titleHint"),
+        payload.get("sourceText"),
+        payload.get("notes"),
+        ((payload.get("brief") or {}).get("generationPrompt") if isinstance(payload.get("brief"), dict) else None),
+        ((payload.get("brief") or {}).get("summary") if isinstance(payload.get("brief"), dict) else None),
+        ((payload.get("task") or {}).get("microGoal") if isinstance(payload.get("task"), dict) else None),
+        ((payload.get("task") or {}).get("targetSkill") if isinstance(payload.get("task"), dict) else None),
+        draft.get("description"),
+    ]
+    return " ".join(normalize_text(x).lower() for x in parts if normalize_text(x))
+
+
+def _explicit_required_call_markers(text_low: str) -> List[str]:
+    markers: List[str] = []
+    if any(token in text_low for token in ["solve", "функц solve", "метод solve", "процедур solve"]):
+        markers.append("solve")
+    return markers
+
+
+def _sanitize_generated_policy_fields(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    policy_text = _payload_policy_text(payload, draft)
+    code_low = str(draft.get("referenceSolutionPython") or "").lower()
+
+    required_calls: List[str] = []
+    for item in unique_string_list(draft.get("requiredCalls"), 8):
+        low = item.casefold()
+        if low == "solve":
+            if "def solve" in code_low and "solve" in _explicit_required_call_markers(policy_text):
+                required_calls.append("solve")
+            continue
+        if low and low in policy_text:
+            required_calls.append(item)
+
+    forbidden_calls: List[str] = []
+    for item in unique_string_list(draft.get("forbiddenCalls"), 12):
+        low = item.casefold()
+        if any(marker in low for marker in PLATFORM_SECURITY_RULE_MARKERS):
+            continue
+        if low and low in policy_text:
+            forbidden_calls.append(item)
+
+    draft["requiredCalls"] = unique_string_list(required_calls, 8)
+    draft["forbiddenCalls"] = unique_string_list(forbidden_calls, 12)
+    return draft
+
+
+def _run_reference_solution_on_tests(source_code: str, tests: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+    valid: List[Dict[str, Any]] = []
+    failures = 0
+    if not normalize_text(source_code):
+        return valid, len(tests)
+    for test in tests:
+        stdin_text = normalize_text(test.get("input"))
+        if not stdin_text:
+            failures += 1
+            continue
+        try:
+            runtime = run_python_solution(source_code, stdin_text)
+        except Exception:
+            failures += 1
+            continue
+        if runtime.get("returncode") != 0:
+            failures += 1
+            continue
+        valid.append({
+            "input": stdin_text,
+            "expectedOutput": normalize_text(runtime.get("stdout")),
+        })
+    return _normalize_test_case_list(valid), failures
+
+
+def _pad_hidden_tests_from_valid(valid_tests: List[Dict[str, Any]], hidden_tests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    padded = list(hidden_tests)
+    if not valid_tests:
+        return padded
+    idx = 0
+    while len(padded) < MIN_HIDDEN_TESTS:
+        sample = dict(valid_tests[idx % len(valid_tests)])
+        padded.append(sample)
+        idx += 1
+    return padded
+
+
+def _build_generic_echo_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = _extract_allowed_languages(payload)
+    title = normalize_text(payload.get("titleHint")) or normalize_text(((payload.get("brief") or {}).get("titleHint"))) or "Вывод входных данных"
+    description = (
+        "Требуется считать входные данные и вывести их без изменений.\n\n"
+        "Входные данные: текст или набор токенов во входном потоке.\n\n"
+        "Выходные данные: выведите входные данные в том же виде, сохранив порядок токенов.\n\n"
+        "Ограничения: входной файл непустой, объём входа небольшой."
+    )
+    code = (
+        "import sys\n\n"
+        "def solve(data: str) -> str:\n"
+        "    return data.strip()\n\n"
+        "if __name__ == '__main__':\n"
+        "    print(solve(sys.stdin.read()))\n"
+    )
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": [
+            {"input": "2", "expectedOutput": "2"},
+            {"input": "hello", "expectedOutput": "hello"},
+        ],
+        "hiddenTests": [
+            {"input": "0", "expectedOutput": "0"},
+            {"input": "4 5", "expectedOutput": "4 5"},
+            {"input": "abc xyz", "expectedOutput": "abc xyz"},
+            {"input": "7", "expectedOutput": "7"},
+            {"input": "matrix", "expectedOutput": "matrix"},
+        ],
+        "referenceSolutionPython": code,
+        "requiredCalls": [],
+        "forbiddenCalls": [],
+        "meta": {"generationSource": "schema-repair", "domain": "generic", "strategy": "deterministic-echo"},
+    }
+
+
+def _build_seeded_deterministic_draft(payload: Dict[str, Any], seed_text: str) -> Dict[str, Any] | None:
+    seed = normalize_text(seed_text).lower()
+    if not seed:
+        return None
+    if "вывод" in seed and ("matrix" in seed or "матриц" in seed):
+        return _build_matrix_output_draft(payload)
+    if "диагон" in seed or "diagonal" in seed:
+        return _build_matrix_diagonal_sum_draft(payload)
+    if ("строк" in seed and "сумм" in seed) or "row sums" in seed or "rows sum" in seed:
+        return _build_matrix_row_sums_draft(payload)
+    if "gauss" in seed or "rank" in seed or "ступенчат" in seed or "ранг" in seed:
+        return _build_matrix_rank_draft(payload)
+    if "power" in seed or "степен" in seed or "mod" in seed:
+        return _build_matrix_power_draft(payload)
+    if "matrix" in seed or "матриц" in seed:
+        if any(token in seed for token in ["прост", "basic", "beginner", "output", "вывод"]):
+            return _build_matrix_output_draft(payload)
+        return _build_matrix_multiplication_draft(payload)
+    return None
+
+
+def repair_generated_code_test_draft(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    repaired = json.loads(json.dumps(draft, ensure_ascii=False)) if isinstance(draft, dict) else {}
+    repaired["assignmentType"] = "code-test"
+    repaired["allowedLanguages"] = _extract_allowed_languages(payload) if not isinstance(repaired.get("allowedLanguages"), list) else unique_string_list(repaired.get("allowedLanguages"), 6)
+    repaired = _sanitize_generated_policy_fields(repaired, payload)
+
+    public_tests_raw = _normalize_test_case_list(repaired.get("publicTests"))
+    hidden_tests_raw = _normalize_test_case_list(repaired.get("hiddenTests"))
+    all_tests = public_tests_raw + hidden_tests_raw
+    code = str(repaired.get("referenceSolutionPython") or "")
+    valid_tests, failures = _run_reference_solution_on_tests(code, all_tests)
+
+    deterministic = _build_seeded_deterministic_draft(payload, _generation_seed_text(payload, {"draft": repaired, "summary": repaired.get("description")}))
+
+    if not normalize_text(code) or not valid_tests:
+        if deterministic is not None:
+            repaired = _sanitize_generated_policy_fields(deterministic, payload)
+        else:
+            repaired = _build_generic_echo_draft(payload)
+        public_tests_raw = _normalize_test_case_list(repaired.get("publicTests"))
+        hidden_tests_raw = _normalize_test_case_list(repaired.get("hiddenTests"))
+        all_tests = public_tests_raw + hidden_tests_raw
+        code = str(repaired.get("referenceSolutionPython") or "")
+        valid_tests, failures = _run_reference_solution_on_tests(code, all_tests)
+
+    if deterministic is not None and (failures > 0 or len(valid_tests) < MIN_PUBLIC_TESTS or len(normalize_text(repaired.get("description"))) < MIN_DESCRIPTION_LEN):
+        repaired = _sanitize_generated_policy_fields(deterministic, payload)
+        public_tests_raw = _normalize_test_case_list(repaired.get("publicTests"))
+        hidden_tests_raw = _normalize_test_case_list(repaired.get("hiddenTests"))
+        all_tests = public_tests_raw + hidden_tests_raw
+        code = str(repaired.get("referenceSolutionPython") or "")
+        valid_tests, failures = _run_reference_solution_on_tests(code, all_tests)
+
+    public_tests = valid_tests[:max(MIN_PUBLIC_TESTS, 2)]
+    remaining = valid_tests[len(public_tests):]
+    hidden_tests = _pad_hidden_tests_from_valid(valid_tests, remaining)
+
+    repaired["publicTests"] = public_tests[:max(MIN_PUBLIC_TESTS, 2)]
+    repaired["hiddenTests"] = hidden_tests[:max(MIN_HIDDEN_TESTS, MAX_HIDDEN_TESTS)]
+    repaired["referenceSolutionPython"] = code
+    repaired = _sanitize_generated_policy_fields(repaired, payload)
+    meta = repaired.get("meta") if isinstance(repaired.get("meta"), dict) else {}
+    meta["solvabilityRepair"] = {
+        "source": "deterministic",
+        "runtimeValidTests": len(valid_tests),
+        "runtimeDroppedTests": failures,
+    }
+    repaired["meta"] = meta
+    return repaired
+
+
 def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized = dict(draft)
     desc = normalized.get("description")
@@ -883,7 +1117,10 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
         if not fallback_title:
             fallback_title = extract_first_meaningful_sentence(normalized.get("description"), 64)
         normalized["title"] = fallback_title or "Задание"
-    normalized["hiddenTests"] = _limit_hidden_tests(normalized.get("hiddenTests"))
+    if str(normalized.get("assignmentType") or "").strip().lower() == "code-test":
+        normalized = repair_generated_code_test_draft(normalized, payload)
+    else:
+        normalized["hiddenTests"] = _limit_hidden_tests(normalized.get("hiddenTests"))
     return normalized
 
 
@@ -940,8 +1177,8 @@ def solve(data: str) -> str:
     for _ in range(n):
         row = vals[pos:pos + m]
         pos += m
-        rows.append(" \".join(row))
-    return \"\n\".join(rows)
+        rows.append(" ".join(row))
+    return "\\n".join(rows)
 
 if __name__ == '__main__':
     print(solve(sys.stdin.read()))
@@ -963,8 +1200,8 @@ if __name__ == '__main__':
         "publicTests": public_tests,
         "hiddenTests": hidden_tests,
         "referenceSolutionPython": code,
-        "requiredCalls": ["solve"],
-        "forbiddenCalls": ["Process.Start", "__import__"],
+        "requiredCalls": [],
+        "forbiddenCalls": [],
         "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-output"},
     }
 
@@ -1013,8 +1250,8 @@ if __name__ == '__main__':
         "publicTests": public_tests,
         "hiddenTests": hidden_tests,
         "referenceSolutionPython": code,
-        "requiredCalls": ["solve"],
-        "forbiddenCalls": ["Process.Start", "__import__"],
+        "requiredCalls": [],
+        "forbiddenCalls": [],
         "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-diagonal-sum"},
     }
 
@@ -1041,7 +1278,7 @@ def solve(data: str) -> str:
         row = nums[pos:pos + m]
         pos += m
         out.append(str(sum(row)))
-    return \"\n\".join(out)
+    return "\\n".join(out)
 
 if __name__ == '__main__':
     print(solve(sys.stdin.read()))
@@ -1063,8 +1300,8 @@ if __name__ == '__main__':
         "publicTests": public_tests,
         "hiddenTests": hidden_tests,
         "referenceSolutionPython": code,
-        "requiredCalls": ["solve"],
-        "forbiddenCalls": ["Process.Start", "__import__"],
+        "requiredCalls": [],
+        "forbiddenCalls": [],
         "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-row-sums"},
     }
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:

@@ -118,7 +118,7 @@ def build_generation_requirements(payload: Dict[str, Any]) -> str:
             "В description обязательно раскрой: суть задачи, формат входных данных, формат выходных данных, ограничения, хотя бы одну заметку или пояснение.",
             "referenceSolutionPython должен быть полностью рабочим, детерминированным, читать stdin и печатать только ответ.",
             "Сгенерируй edge cases: минимальные значения, типичные значения, пограничные случаи.",
-            "Если задача требует ограничений по коду, добавь forbiddenCalls и/или requiredCalls как массивы строк.",
+            "Не придумывай security-ограничения вроде Process.Start, __import__, os.system и т.п.: платформенная защита добавляется отдельно. requiredCalls/forbiddenCalls заполняй только если это явно требуется учебной постановкой.",
             "Не делай все тесты однотипными.",
         ])
     elif assignment_type == "test":
@@ -734,7 +734,7 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
         "Сначала изучи course style analysis, generation spec, content plan, referenceAssignments и exemplarPack. Только после этого пиши draft.\n"
         "Подражай стилю условий и тестов курса, но не копируй текст, title и тесты дословно.\n"
         "Верни JSON формата:\n"
-        '{"draft":{"assignmentType":"code-test","title":"__PENDING_TITLE__","description":"Полное условие без HTML","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"...","requiredCalls":["solve"],"forbiddenCalls":["Process.Start","__import__"],"meta":{"generationSource":"llm-body"}},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-body"}}\n\n'
+        '{"draft":{"assignmentType":"code-test","title":"__PENDING_TITLE__","description":"Полное условие без HTML","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"...","requiredCalls":[],"forbiddenCalls":[],"meta":{"generationSource":"llm-body"}},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-body"}}\n\n'
         "Правила:\n"
         "- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.\n"
         "- description должен выглядеть как условие из этого курса: суть задачи, входные данные, выходные данные, ограничения, примечание.\n"

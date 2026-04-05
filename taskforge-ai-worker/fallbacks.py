@@ -312,8 +312,8 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                     "if __name__ == '__main__':\n"
                     "    print(solve(sys.stdin.read()))"
                 ),
-                "requiredCalls": ["solve"],
-                "forbiddenCalls": ["Process.Start", "__import__"],
+                "requiredCalls": [],
+                "forbiddenCalls": [],
             }
             return attach_self_check({"draft": draft}, draft, run_self_check(draft))
         if assignment_type == "test":

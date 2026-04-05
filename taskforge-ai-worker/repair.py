@@ -13,6 +13,7 @@ from log import log
 from text_utils import normalize_text, truncate_text, has_html_markup, safe_int
 from validators import run_self_check, attach_self_check
 from prompt_builder import build_repair_prompt
+from payload import repair_generated_code_test_draft
 from ollama import call_ollama
 
 
@@ -50,44 +51,10 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
         )
 
     if repaired.get("assignmentType") == "code-test":
-        public_tests = list(repaired.get("publicTests") or [])
-        hidden_tests = list(repaired.get("hiddenTests") or [])
-        while len(public_tests) < MIN_PUBLIC_TESTS and hidden_tests:
-            public_tests.append(hidden_tests.pop(0))
-        while len(public_tests) < MIN_PUBLIC_TESTS:
-            public_tests.append({"input": "1\n", "expectedOutput": "1"})
-        if "tests" in routes or len(hidden_tests) < MIN_HIDDEN_TESTS:
-            candidate_hidden = [
-                {"input": "0\n", "expectedOutput": "0"},
-                {"input": "1\n", "expectedOutput": normalize_text(public_tests[0].get("expectedOutput")) or "1"},
-                {"input": "2\n", "expectedOutput": "2"},
-                {"input": "10\n", "expectedOutput": "10"},
-                {"input": "100\n", "expectedOutput": "100"},
-            ]
-            for test in candidate_hidden:
-                if len(hidden_tests) >= MIN_HIDDEN_TESTS:
-                    break
-                hidden_tests.append(test)
-        repaired["publicTests"] = public_tests
-        repaired["hiddenTests"] = hidden_tests
-        code = str(repaired.get("referenceSolutionPython") or "")
-        if code and "if __name__ == '__main__':" not in code:
-            code = code.rstrip() + "\n\nif __name__ == '__main__':\n    import sys\n    print(solve(sys.stdin.read()))\n"
-        if code and "def solve" not in code:
-            code = "def solve(data: str) -> str:\n    return str(data.strip())\n\n" + code
-        repaired["referenceSolutionPython"] = code or (
-            "import sys\n\n"
-            "def solve(data: str) -> str:\n"
-            "    return data.strip()\n\n"
-            "if __name__ == '__main__':\n"
-            "    print(solve(sys.stdin.read()))"
-        )
-        if "policy" in routes:
-            repaired["requiredCalls"] = list(repaired.get("requiredCalls") or ["solve"])
-            repaired["forbiddenCalls"] = list(repaired.get("forbiddenCalls") or ["Process.Start", "__import__"])
+        repaired = repair_generated_code_test_draft(repaired, payload)
 
-    if "brief" in routes:
-        repaired["title"] = normalize_text(repaired.get("title") or "Новая вариация задачи") + " — revised"
+    if "brief" in routes and repaired.get("assignmentType") != "code-test":
+        repaired["title"] = normalize_text(repaired.get("title") or "Новая вариация задачи")
 
     findings_digest: List[str] = []
     for review in reviews[:6]:
