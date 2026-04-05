@@ -192,6 +192,9 @@ def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     base_difficulty = max(1, min(5, safe_int(payload.get("difficulty"), 2)))
 
     if "матриц" in prompt_low or "matrix" in prompt_low:
+        simple_markers = ["прост", "самые прост", "beginner", "basic", "вводн", "с нуля", "базов"]
+        if any(marker in prompt_low for marker in simple_markers) or base_difficulty <= 2:
+            return _build_simple_matrix_plan_tasks(count, base_difficulty)
         return _build_matrix_plan_tasks(count, base_difficulty, use_oop=("ооп" in prompt_low or "oop" in prompt_low))
 
     unique_words = _extract_prompt_seeds(prompt)

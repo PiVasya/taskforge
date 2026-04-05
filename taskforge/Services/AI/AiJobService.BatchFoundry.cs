@@ -752,6 +752,21 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         var difficulty = root.TryGetProperty("difficultyTarget", out var dn) && dn.TryGetInt32(out var di) ? di : item.DifficultyTarget;
         var titleHint = root.TryGetProperty("titleHint", out var th) && th.ValueKind == JsonValueKind.String ? th.GetString() : item.TargetSkill;
 
+        var peerItems = await _db.AiBatchItems
+            .Where(x => x.BatchId == item.BatchId && x.Id != item.Id)
+            .OrderBy(x => x.Index)
+            .Select(x => new
+            {
+                x.Id,
+                x.Index,
+                x.TargetSkill,
+                x.DifficultyTarget,
+                x.MicroGoal,
+                x.Status,
+                x.DraftId
+            })
+            .ToListAsync(ct);
+
         var generationInput = await BuildGenerationInputAsync(
             requestType: "assignment_draft_generate",
             assignmentType: item.Batch.AssignmentType,
@@ -770,8 +785,19 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
             {
                 brief = briefObj,
                 referencePack = packObj,
+                task = new
+                {
+                    item.Id,
+                    item.Index,
+                    item.TargetSkill,
+                    item.DifficultyTarget,
+                    item.MicroGoal,
+                    item.Status,
+                    item.RepairCount,
+                },
                 batchId = item.BatchId,
                 batchItemId = item.Id,
+                batchPeerItems = peerItems,
                 positiveMemory = TryDeserializeJsonObject(item.Batch.PositiveMemoryJson),
                 batchMemory = TryDeserializeJsonObject(item.Batch.BatchMemoryJson),
                 historicalPlannerPriors = TryDeserializeJsonObject(item.Batch.HistoricalPlannerPriorsJson),

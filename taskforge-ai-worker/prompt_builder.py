@@ -480,11 +480,118 @@ def _compact_title_examples(payload: Dict[str, Any], limit: int = 12) -> List[Di
     return examples[:limit]
 
 
+def _compact_course_style_examples(payload: Dict[str, Any], limit: int = 8) -> List[Dict[str, Any]]:
+    refs = compact_reference_assignments(payload, limit=limit, description_len=160, include_cases=True)
+    examples: List[Dict[str, Any]] = []
+    for ref in refs:
+        title = normalize_text(ref.get("title") or ref.get("Title"))
+        desc = summarize_description(ref.get("descriptionSummary") or ref.get("description") or ref.get("Description"), 160)
+        if not title and not desc:
+            continue
+        examples.append({
+            "title": title,
+            "description": desc,
+            "difficulty": ref.get("difficulty"),
+            "tags": normalize_text(ref.get("tags")),
+            "publicCases": ref.get("publicCases")[:2] if isinstance(ref.get("publicCases"), list) else [],
+        })
+    return examples[:limit]
+
+
+def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    compact_payload = {
+        "courseId": payload.get("courseId"),
+        "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
+        "prompt": truncate_text(payload.get("prompt"), 220),
+        "brief": {
+            "summary": truncate_text(brief.get("summary"), 240),
+            "targetSkill": truncate_text(brief.get("targetSkill"), 160),
+            "titleHint": truncate_text(brief.get("titleHint"), 120),
+        },
+        "task": {
+            "targetSkill": truncate_text(task.get("targetSkill") or task.get("TargetSkill"), 160),
+            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 240),
+            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
+        },
+        "courseExamples": _compact_course_style_examples(payload, limit=8),
+        "titleExamples": _compact_title_examples(payload, limit=14),
+    }
+    return (
+        "Ты — TaskForge AI course style analyst. Верни только JSON без markdown.\n\n"
+        "Сейчас не нужно писать задачу. Нужно проанализировать существующие задания курса и вывести style digest для следующей генерации.\n"
+        "Определи: как обычно формулируется условие, какие секции обязательны, насколько подробны ограничения, как выглядят тесты и как обычно называются задания.\n"
+        "Не придумывай новую задачу и не копируй готовые title/description дословно.\n"
+        "Верни JSON формата: {\"courseStyle\":{...},\"titleStyle\":{...},\"antiPatterns\":[...],\"positivePatterns\":[...],\"summary\":\"...\"}.\n\n"
+        "Требования к полям:\n"
+        "- courseStyle.descriptionSections: массив строк.\n"
+        "- courseStyle.descriptionTone: коротко опиши стиль формулировок курса.\n"
+        "- courseStyle.testStyle: коротко опиши типичный набор тестов.\n"
+        "- titleStyle.pattern: коротко опиши стиль названий курса.\n"
+        "- titleStyle.examples: 3-6 коротких примеров названий из курса.\n"
+        "- antiPatterns: чего нельзя делать при генерации, чтобы не выбиться из курса.\n"
+        "- positivePatterns: что наоборот обязательно сохранить.\n\n"
+        f"Course style payload:\n{_prompt_json(compact_payload)}"
+    )
+
+
+def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> str:
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    peers = payload.get("batchPeerItems") if isinstance(payload.get("batchPeerItems"), list) else []
+    compact_peers = []
+    for peer in peers[:6]:
+        if not isinstance(peer, dict):
+            continue
+        compact_peers.append({
+            "index": peer.get("index") or peer.get("Index"),
+            "targetSkill": truncate_text(peer.get("targetSkill") or peer.get("TargetSkill"), 140),
+            "microGoal": truncate_text(peer.get("microGoal") or peer.get("MicroGoal"), 180),
+            "status": normalize_text(peer.get("status") or peer.get("Status")),
+        })
+    compact_payload = {
+        "prompt": truncate_text(payload.get("prompt"), 220),
+        "brief": {
+            "summary": truncate_text(brief.get("summary"), 260),
+            "generationPrompt": truncate_text(brief.get("generationPrompt"), 360),
+            "targetSkill": truncate_text(brief.get("targetSkill"), 160),
+            "titleHint": truncate_text(brief.get("titleHint"), 140),
+        },
+        "task": {
+            "index": task.get("index") or task.get("Index"),
+            "targetSkill": truncate_text(task.get("targetSkill") or task.get("TargetSkill"), 160),
+            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 220),
+            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
+            "antiDuplicateHints": task.get("antiDuplicateHints") or task.get("AntiDuplicateHints") or [],
+        },
+        "styleAnalysis": style_analysis,
+        "peerItems": compact_peers,
+    }
+    return (
+        "Ты — TaskForge AI generation planner. Верни только JSON без markdown.\n\n"
+        "Сейчас не нужно писать готовое задание. Нужно решить, что именно должно быть создано для этого slot.\n"
+        "Учитывай style digest курса, brief, microGoal и соседние slot-ы пакета, чтобы новая задача не дублировала их и оставалась в стиле курса.\n"
+        "Верни JSON формата: {\"generationSpec\":{...},\"summary\":\"...\"}.\n"
+        "В generationSpec должны быть поля:\n"
+        "- exactTask: одна короткая фраза, что именно надо сделать в задаче.\n"
+        "- ioContract: короткое описание формата ввода/вывода.\n"
+        "- constraintsFocus: какие ограничения надо подчеркнуть.\n"
+        "- titleDirection: каким по смыслу должно быть название.\n"
+        "- distinctFromPeers: почему эта задача не совпадает с соседними.\n"
+        "- keepStyle: 3-6 коротких правил курса, которые обязательно сохранить.\n"
+        "- avoid: 3-6 коротких ошибок, которые нельзя допустить.\n\n"
+        f"Generation spec payload:\n{_prompt_json(compact_payload)}"
+    )
+
+
 def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     reference_pack = payload.get("referencePack") if isinstance(payload.get("referencePack"), dict) else {}
     task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
     quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
+    style_analysis = payload.get("styleAnalysis") if isinstance(payload.get("styleAnalysis"), dict) else {}
+    generation_spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
     compact_payload = {
         "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
         "courseId": payload.get("courseId"),
@@ -516,19 +623,24 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
             "generationHints": reference_pack.get("generationHints") if isinstance(reference_pack.get("generationHints"), dict) else {},
             "exemplarPack": reference_pack.get("exemplarPack") if isinstance(reference_pack.get("exemplarPack"), (dict, list)) else reference_pack.get("exemplarPack"),
         },
-        "referenceAssignments": compact_reference_assignments(payload, limit=5, description_len=140, include_cases=True),
+        "styleAnalysis": style_analysis,
+        "generationSpec": generation_spec,
+        "referenceAssignments": compact_reference_assignments(payload, limit=6, description_len=150, include_cases=True),
     }
     min_hidden = quality_gates.get("minHiddenTests", MIN_HIDDEN_TESTS)
     max_hidden = max(min_hidden, min(MAX_HIDDEN_TESTS, max(min_hidden, 4)))
     return (
         "Ты — TaskForge AI draft body generator. Верни только один валидный JSON без markdown.\n\n"
         "Нужно сгенерировать только тело задания и тесты в стиле курса. Название пока НЕ придумывай: поставь в draft.title точную строку __PENDING_TITLE__.\n"
-        "Сначала изучи referenceAssignments и exemplarPack, чтобы подражать стилю условий и тестов курса, но не копируй текст и тесты дословно.\n"
+        "Сначала изучи course style analysis, generation spec, referenceAssignments и exemplarPack. Только после этого пиши draft.\n"
+        "Подражай стилю условий и тестов курса, но не копируй текст, title и тесты дословно.\n"
         "Верни JSON формата:\n"
         '{"draft":{"assignmentType":"code-test","title":"__PENDING_TITLE__","description":"Полное условие без HTML","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"...","requiredCalls":["solve"],"forbiddenCalls":["Process.Start","__import__"],"meta":{"generationSource":"llm-body"}},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-body"}}\n\n'
         "Правила:\n"
         "- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.\n"
         "- description должен выглядеть как условие из этого курса: суть задачи, входные данные, выходные данные, ограничения, примечание.\n"
+        "- Строго следуй generationSpec.exactTask и generationSpec.ioContract.\n"
+        "- Сначала выполни generationSpec.distinctFromPeers: новая задача должна заметно отличаться от соседних slot-ов.\n"
         f"- Сгенерируй минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests и от {min_hidden} до {max_hidden} hiddenTests, не больше {max_hidden}.\n"
         "- Скрытые тесты делай компактными, но покрывающими крайние случаи.\n"
         "- Не уходи в другую микроцель: строго соблюдай targetSkill и microGoal.\n"
@@ -539,6 +651,8 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
 
 def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
     examples = _compact_title_examples(payload, limit=14)
+    style_analysis = payload.get("styleAnalysis") if isinstance(payload.get("styleAnalysis"), dict) else {}
+    generation_spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
     body_preview = {
         "titleHint": truncate_text(payload.get("titleHint") or (payload.get("brief") or {}).get("titleHint"), 160),
         "targetSkill": truncate_text(((payload.get("task") or {}).get("targetSkill") or (payload.get("brief") or {}).get("targetSkill")), 180),
@@ -548,10 +662,12 @@ def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, An
     return (
         "Ты — TaskForge AI title generator. Верни только JSON без markdown.\n\n"
         "Нужно придумать ТОЛЬКО название задания по уже готовому условию.\n"
-        "Смотри на примеры названий из курса и подражай стилю, но не копируй существующее название дословно.\n"
+        "Смотри на примеры названий из курса, style analysis и generation spec. Подражай стилю, но не копируй существующее название дословно.\n"
         "Не используй HTML. Не придумывай номер задания, если ты не уверен. Не используй служебные заглушки.\n"
         "Верни JSON: {\"title\":\"...\",\"summary\":\"...\",\"decisionSummary\":{\"source\":\"llm-title\",\"confidence\":\"low|medium|high\"}}\n\n"
         f"Course title examples:\n{json.dumps(examples, ensure_ascii=False)}\n\n"
+        f"Style analysis:\n{json.dumps(style_analysis, ensure_ascii=False)}\n\n"
+        f"Generation spec:\n{json.dumps(generation_spec, ensure_ascii=False)}\n\n"
         f"Draft body:\n{json.dumps(body_preview, ensure_ascii=False)}"
     )
 

@@ -56,6 +56,8 @@ from prompt_builder import (
     build_draft_generate_prompt,
     build_draft_body_generate_prompt,
     build_draft_title_generate_prompt,
+    build_draft_course_style_analysis_prompt,
+    build_draft_generation_spec_prompt,
 )
 from reviews import (
     run_structural_review,
@@ -237,15 +239,116 @@ def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None =
 
 
 
+def _fallback_course_style_analysis(payload: Dict[str, Any]) -> Dict[str, Any]:
+    refs = payload.get("referenceAssignments") if isinstance(payload.get("referenceAssignments"), list) else []
+    titles = []
+    seen = set()
+    for ref in refs[:12]:
+        if not isinstance(ref, dict):
+            continue
+        title = str(ref.get("title") or ref.get("Title") or "").strip()
+        if title and title.casefold() not in seen:
+            seen.add(title.casefold())
+            titles.append(title)
+    return {
+        "courseStyle": {
+            "descriptionSections": ["Суть", "Входные данные", "Выходные данные", "Ограничения", "Примечания"],
+            "descriptionTone": "Короткое учебное условие в стиле существующих заданий курса.",
+            "testStyle": "Небольшие конкретные примеры с простым проверяемым выводом.",
+        },
+        "titleStyle": {
+            "pattern": "Короткое русскоязычное название в стиле текущего курса.",
+            "examples": titles[:6],
+        },
+        "antiPatterns": [
+            "Не копировать существующее название дословно",
+            "Не смешивать несколько учебных целей",
+            "Не уходить в продвинутую матричную тему, если slot простой",
+        ],
+        "positivePatterns": [
+            "Соблюдать стиль названий курса",
+            "Давать короткое и конкретное условие",
+            "Сохранять явный формат ввода и вывода",
+        ],
+        "summary": "Fallback course style analysis built from existing reference assignments.",
+    }
+
+
+def _coerce_course_style_analysis(payload: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return _fallback_course_style_analysis(payload)
+    course_style = result.get("courseStyle") if isinstance(result.get("courseStyle"), dict) else {}
+    title_style = result.get("titleStyle") if isinstance(result.get("titleStyle"), dict) else {}
+    anti = result.get("antiPatterns") if isinstance(result.get("antiPatterns"), list) else []
+    positive = result.get("positivePatterns") if isinstance(result.get("positivePatterns"), list) else []
+    if not course_style:
+        return _fallback_course_style_analysis(payload)
+    if not title_style:
+        title_style = _fallback_course_style_analysis(payload).get("titleStyle") or {}
+    if not anti:
+        anti = _fallback_course_style_analysis(payload).get("antiPatterns") or []
+    if not positive:
+        positive = _fallback_course_style_analysis(payload).get("positivePatterns") or []
+    return {
+        "courseStyle": course_style,
+        "titleStyle": title_style,
+        "antiPatterns": anti[:8],
+        "positivePatterns": positive[:8],
+        "summary": result.get("summary") or "Course style analysis completed.",
+    }
+
+
+def _fallback_generation_spec(payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> Dict[str, Any]:
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    target_skill = str(task.get("targetSkill") or task.get("TargetSkill") or brief.get("targetSkill") or "").strip()
+    micro_goal = str(task.get("microGoal") or task.get("MicroGoal") or brief.get("summary") or "").strip()
+    return {
+        "generationSpec": {
+            "exactTask": micro_goal or target_skill or "Сделать отдельную задачу в стиле курса",
+            "ioContract": "Явно описать входные и выходные данные простыми секциями.",
+            "constraintsFocus": "Указать только нужные ограничения без перегруза деталями.",
+            "titleDirection": brief.get("titleHint") or target_skill or "Короткое название в стиле курса",
+            "distinctFromPeers": "Сфокусироваться на своей микроцели и не повторять соседние slot-ы.",
+            "keepStyle": (style_analysis.get("positivePatterns") if isinstance(style_analysis, dict) else [])[:5],
+            "avoid": (style_analysis.get("antiPatterns") if isinstance(style_analysis, dict) else [])[:5],
+        },
+        "summary": "Fallback generation spec built from brief and task context.",
+    }
+
+
+def _coerce_generation_spec(payload: Dict[str, Any], style_analysis: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return _fallback_generation_spec(payload, style_analysis)
+    spec = result.get("generationSpec") if isinstance(result.get("generationSpec"), dict) else {}
+    if not spec:
+        return _fallback_generation_spec(payload, style_analysis)
+    required = ["exactTask", "ioContract", "constraintsFocus", "titleDirection", "distinctFromPeers"]
+    if any(not str(spec.get(k) or "").strip() for k in required):
+        return _fallback_generation_spec(payload, style_analysis)
+    spec.setdefault("keepStyle", (style_analysis.get("positivePatterns") if isinstance(style_analysis, dict) else [])[:5])
+    spec.setdefault("avoid", (style_analysis.get("antiPatterns") if isinstance(style_analysis, dict) else [])[:5])
+    return {"generationSpec": spec, "summary": result.get("summary") or "Generation spec completed."}
+
+
 def _merge_generated_title(result: Dict[str, Any], title_result: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     draft = result.get("draft") if isinstance(result.get("draft"), dict) else {}
     title = ""
     if isinstance(title_result, dict):
         title = str(title_result.get("title") or "").strip()
+    direction = ""
+    spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
+    if isinstance(spec, dict):
+        direction = str(spec.get("titleDirection") or "").strip()
     looks_placeholder = not title or title == "__PENDING_TITLE__"
     looks_ascii_slot = bool(title) and all((ord(ch) < 128) for ch in title) and len(title.split()) <= 8
     if looks_placeholder or looks_ascii_slot:
-        title = _derive_course_style_title(payload, draft)
+        if direction:
+            draft_with_direction = dict(draft)
+            draft_with_direction["description"] = f"{direction}. {draft.get('description') or ''}".strip()
+            title = _derive_course_style_title(payload, draft_with_direction)
+        else:
+            title = _derive_course_style_title(payload, draft)
     draft["title"] = title
     result["draft"] = draft
     meta = draft.get("meta") if isinstance(draft.get("meta"), dict) else {}
@@ -258,32 +361,58 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     job_type = "assignment_generate_from_text"
     llm_cfg = _stage_llm_config(job_type, payload, retry_count)
 
-    body_prompt = build_draft_body_generate_prompt(job, payload)
+    style_prompt = build_draft_course_style_analysis_prompt(job, payload)
+    style_cfg = OllamaCallConfig(stage="draft_course_style_analysis", timeout=min(50, llm_cfg.timeout), num_predict=320, temperature=0.08, required_keys=["courseStyle", "titleStyle"], preferred_keys=["summary", "antiPatterns", "positivePatterns"])
+    _log_stage("substage-prepare", job, payload, substage="draft_course_style_analysis", prompt_len=len(style_prompt), timeout=style_cfg.timeout, num_predict=style_cfg.num_predict)
+    try:
+        style_raw = call_ollama(style_prompt, style_cfg)
+    except Exception as ex:
+        logger.warning(f"draft course style analysis failed: {ex} [{_job_context(job, payload)}]")
+        style_raw = {}
+    style_result = _coerce_course_style_analysis(payload, style_raw)
+    _log_stage("substage-done", job, payload, substage="draft_course_style_analysis", result=_result_summary(style_result))
+
+    spec_prompt = build_draft_generation_spec_prompt(job, payload, style_result)
+    spec_cfg = OllamaCallConfig(stage="draft_generation_spec", timeout=min(50, llm_cfg.timeout), num_predict=320, temperature=0.08, required_keys=["generationSpec"], preferred_keys=["summary"])
+    _log_stage("substage-prepare", job, payload, substage="draft_generation_spec", prompt_len=len(spec_prompt), timeout=spec_cfg.timeout, num_predict=spec_cfg.num_predict)
+    try:
+        spec_raw = call_ollama(spec_prompt, spec_cfg)
+    except Exception as ex:
+        logger.warning(f"draft generation spec failed: {ex} [{_job_context(job, payload)}]")
+        spec_raw = {}
+    spec_result = _coerce_generation_spec(payload, style_result, spec_raw)
+    _log_stage("substage-done", job, payload, substage="draft_generation_spec", result=_result_summary(spec_result))
+
+    enriched_payload = dict(payload)
+    enriched_payload["styleAnalysis"] = style_result
+    enriched_payload["generationSpec"] = spec_result.get("generationSpec") if isinstance(spec_result, dict) else {}
+
+    body_prompt = build_draft_body_generate_prompt(job, enriched_payload)
     body_cfg = OllamaCallConfig(stage="draft_body_generate", timeout=min(llm_cfg.timeout, max(60, llm_cfg.timeout)), num_predict=min(llm_cfg.num_predict or 1200, 1400), temperature=0.10, required_keys=["draft"], preferred_keys=["summary", "decisionSummary"])
-    _log_stage("substage-prepare", job, payload, substage="draft_body_generate", prompt_len=len(body_prompt), timeout=body_cfg.timeout, num_predict=body_cfg.num_predict)
+    _log_stage("substage-prepare", job, enriched_payload, substage="draft_body_generate", prompt_len=len(body_prompt), timeout=body_cfg.timeout, num_predict=body_cfg.num_predict)
     try:
         body_result = call_ollama(body_prompt, body_cfg)
     except Exception as ex:
-        logger.warning(f"draft body ollama failed: {ex} [{_job_context(job, payload)}]")
+        logger.warning(f"draft body ollama failed: {ex} [{_job_context(job, enriched_payload)}]")
         fallback_job = dict(job)
         import json as _json
-        fallback_job["inputJson"] = _json.dumps(payload, ensure_ascii=False)
-        return sanitize_result_payload(job_type, payload, fallback_result(fallback_job))
-    body_result = sanitize_result_payload(job_type, payload, body_result)
-    _log_stage("substage-done", job, payload, substage="draft_body_generate", result=_result_summary(body_result))
+        fallback_job["inputJson"] = _json.dumps(enriched_payload, ensure_ascii=False)
+        return sanitize_result_payload(job_type, enriched_payload, fallback_result(fallback_job))
+    body_result = sanitize_result_payload(job_type, enriched_payload, body_result)
+    _log_stage("substage-done", job, enriched_payload, substage="draft_body_generate", result=_result_summary(body_result))
 
-    title_prompt = build_draft_title_generate_prompt(job, payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})
+    title_prompt = build_draft_title_generate_prompt(job, enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})
     title_cfg = OllamaCallConfig(stage="draft_title_generate", timeout=min(40, llm_cfg.timeout), num_predict=120, temperature=0.08, required_keys=["title"], preferred_keys=["summary"])
-    _log_stage("substage-prepare", job, payload, substage="draft_title_generate", prompt_len=len(title_prompt), timeout=title_cfg.timeout, num_predict=title_cfg.num_predict)
+    _log_stage("substage-prepare", job, enriched_payload, substage="draft_title_generate", prompt_len=len(title_prompt), timeout=title_cfg.timeout, num_predict=title_cfg.num_predict)
     try:
         title_result = call_ollama(title_prompt, title_cfg)
     except Exception as ex:
-        logger.warning(f"draft title ollama failed: {ex} [{_job_context(job, payload)}]")
-        title_result = {"title": _derive_course_style_title(payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})}
-    _log_stage("substage-done", job, payload, substage="draft_title_generate", result=_result_summary(title_result if isinstance(title_result, dict) else {"title": title_result}))
+        logger.warning(f"draft title ollama failed: {ex} [{_job_context(job, enriched_payload)}]")
+        title_result = {"title": _derive_course_style_title(enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})}
+    _log_stage("substage-done", job, enriched_payload, substage="draft_title_generate", result=_result_summary(title_result if isinstance(title_result, dict) else {"title": title_result}))
 
-    result = _merge_generated_title(body_result, title_result if isinstance(title_result, dict) else {}, payload)
-    return sanitize_result_payload(job_type, payload, result)
+    result = _merge_generated_title(body_result, title_result if isinstance(title_result, dict) else {}, enriched_payload)
+    return sanitize_result_payload(job_type, enriched_payload, result)
 
 def _set_compact_mode(payload: Dict[str, Any], job_type: str, retry_count: int) -> None:
     if job_type == "assignment_course_profile_build":
