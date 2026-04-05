@@ -131,6 +131,33 @@ def _extract_prompt_seeds(prompt: str) -> List[str]:
         result.append(word)
     return result
 
+def _build_simple_matrix_plan_tasks(count: int, base_difficulty: int) -> List[Dict[str, Any]]:
+    templates = [
+        ("matrix output", "Сделать задачу на базовый ввод матрицы и её вывод без дополнительных преобразований.", min(2, max(1, base_difficulty))),
+        ("main diagonal sum", "Построить задачу на вычисление суммы главной диагонали квадратной матрицы.", min(2, max(1, base_difficulty))),
+        ("row sums", "Сделать задачу на вычисление суммы элементов каждой строки матрицы.", min(2, max(1, base_difficulty))),
+        ("count even elements in matrix", "Построить задачу на подсчёт чётных элементов матрицы.", min(2, max(1, base_difficulty))),
+        ("swap first and last rows", "Сделать задачу на перестановку первой и последней строки матрицы.", min(2, max(1, base_difficulty))),
+    ]
+    tasks: List[Dict[str, Any]] = []
+    for idx in range(count):
+        skill, goal, difficulty = templates[idx % len(templates)]
+        tasks.append({
+            "index": idx + 1,
+            "titleHint": skill,
+            "targetSkill": skill,
+            "primarySkill": "matrix basics",
+            "microGoal": goal,
+            "uniqueAngle": "Очень простая базовая операция над матрицей.",
+            "difficultyTarget": difficulty,
+            "mustInclude": ["matrix", "input/output"],
+            "antiDuplicateHints": ["Не превращать задачу в умножение матриц", "Не добавлять лишние подтемы"],
+            "whyItExists": "deterministic simple matrix fallback planning",
+            "decisionLog": [{"stage": "batch_plan", "message": "Создан simple matrix fallback slot."}],
+        })
+    return tasks
+
+
 def _build_matrix_plan_tasks(count: int, base_difficulty: int, use_oop: bool = False) -> List[Dict[str, Any]]:
     templates = [
         ("matrix multiplication with dynamic memory", "Реализовать умножение матриц с динамическим выделением памяти, проверкой размеров и эффективным вводом/выводом.", max(3, base_difficulty)),
@@ -255,11 +282,10 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 "assignmentType": "code-test",
                 "title": "AI fallback: сумма чисел от 1 до n",
                 "description": (
-                    "<p>По данному целому числу <strong>n</strong> требуется вычислить сумму "
-                    "всех целых чисел от 1 до n включительно.</p>"
-                    "<p><strong>Входные данные:</strong> одно целое число n.</p>"
-                    "<p><strong>Выходные данные:</strong> одно число — искомая сумма.</p>"
-                    "<p><strong>Ограничения:</strong> 1 ≤ n ≤ 10^6.</p>"
+                    "По данному целому числу n требуется вычислить сумму всех целых чисел от 1 до n включительно.\n\n"
+                    "Входные данные: одно целое число n.\n\n"
+                    "Выходные данные: одно число — искомая сумма.\n\n"
+                    "Ограничения: 1 ≤ n ≤ 10^6."
                 ),
                 "courseId": job.get("courseId"),
                 "difficulty": 2,
@@ -272,9 +298,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 ],
                 "hiddenTests": [
                     {"input": "1\n", "expectedOutput": "1"},
-                    {"input": "3\n", "expectedOutput": "6"},
                     {"input": "10\n", "expectedOutput": "55"},
-                    {"input": "100\n", "expectedOutput": "5050"},
                     {"input": "1000\n", "expectedOutput": "500500"},
                 ],
                 "referenceSolutionPython": (

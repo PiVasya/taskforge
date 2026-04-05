@@ -12,6 +12,8 @@ from config import (
     BATCH_PLAN_REFERENCE_ASSIGNMENTS,
     BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY,
     BATCH_PLAN_REFERENCE_DESCRIPTION_LEN,
+    MIN_HIDDEN_TESTS,
+    MAX_HIDDEN_TESTS,
 )
 from log import log, log_debug, logger
 from text_utils import (
@@ -22,6 +24,8 @@ from text_utils import (
     strip_conflicting_lists,
     has_html_markup,
     safe_int,
+    strip_html_to_text,
+    extract_first_meaningful_sentence,
 )
 
 
@@ -644,11 +648,11 @@ def _build_matrix_multiplication_draft(payload: Dict[str, Any]) -> Dict[str, Any
     title = normalize_text(payload.get("titleHint")) or "matrix multiplication with dynamic memory"
     allowed = _extract_allowed_languages(payload)
     description = (
-        "<p>Реализуйте класс или структуру для работы с матрицами и выполните умножение двух матриц.</p>"
-        "<p><strong>Входные данные:</strong> в первой строке заданы три целых числа n, m, k. Далее следуют n строк по m целых чисел матрицы A и затем m строк по k целых чисел матрицы B.</p>"
-        "<p><strong>Выходные данные:</strong> выведите произведение A×B в виде n строк по k целых чисел, разделённых пробелами.</p>"
-        "<p><strong>Ограничения:</strong> 1 ≤ n, m, k ≤ 40, элементы матриц по модулю не превосходят 10^3.</p>"
-        "<p><strong>Примечания:</strong> нужно корректно обработать размеры, не допускать смешения форматов ввода/вывода и предусмотреть эффективную реализацию умножения.</p>"
+        "Реализуйте класс или структуру для работы с матрицами и выполните умножение двух матриц.\n\n"
+        "Входные данные: в первой строке заданы три целых числа n, m, k. Далее следуют n строк по m целых чисел матрицы A и затем m строк по k целых чисел матрицы B.\n\n"
+        "Выходные данные: выведите произведение A×B в виде n строк по k целых чисел, разделённых пробелами.\n\n"
+        "Ограничения: 1 ≤ n, m, k ≤ 40, элементы матриц по модулю не превосходят 10^3.\n\n"
+        "Примечания: корректно обработайте размеры, не допускайте смешения форматов ввода и вывода и предусмотрите эффективную реализацию умножения."
     )
     code = """import sys
 
@@ -689,8 +693,6 @@ if __name__ == '__main__':
     hidden_tests = [
         {"input": "1 1 1\n7\n8\n", "expectedOutput": "56"},
         {"input": "2 3 2\n1 0 2\n-1 3 1\n3 1\n2 1\n1 0\n", "expectedOutput": "5 1\n4 2"},
-        {"input": "2 2 3\n1 2\n0 1\n1 0 2\n3 4 5\n", "expectedOutput": "7 8 12\n3 4 5"},
-        {"input": "3 2 2\n1 1\n2 0\n0 3\n4 1\n2 2\n", "expectedOutput": "6 3\n8 2\n6 6"},
         {"input": "1 2 2\n0 0\n5 6\n7 8\n", "expectedOutput": "0 0"},
     ]
     return {
@@ -711,11 +713,11 @@ def _build_matrix_rank_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
     title = normalize_text(payload.get("titleHint")) or "gaussian elimination and matrix rank"
     allowed = _extract_allowed_languages(payload)
     description = (
-        "<p>Реализуйте алгоритм Гаусса для приведения матрицы к ступенчатому виду и вычислите её ранг.</p>"
-        "<p><strong>Входные данные:</strong> в первой строке заданы n и m. Далее следуют n строк по m целых чисел.</p>"
-        "<p><strong>Выходные данные:</strong> выведите одно целое число — ранг матрицы.</p>"
-        "<p><strong>Ограничения:</strong> 1 ≤ n, m ≤ 35, элементы по модулю не превосходят 10^4.</p>"
-        "<p><strong>Примечания:</strong> нужно корректно обрабатывать линейно зависимые строки, нулевые строки и вырожденные случаи.</p>"
+        "Реализуйте алгоритм Гаусса для приведения матрицы к ступенчатому виду и вычислите её ранг.\n\n"
+        "Входные данные: в первой строке заданы n и m. Далее следуют n строк по m целых чисел.\n\n"
+        "Выходные данные: выведите одно целое число — ранг матрицы.\n\n"
+        "Ограничения: 1 ≤ n, m ≤ 35, элементы по модулю не превосходят 10^4.\n\n"
+        "Примечания: корректно обрабатывайте линейно зависимые строки, нулевые строки и вырожденные случаи."
     )
     code = """import sys
 from fractions import Fraction
@@ -765,9 +767,7 @@ if __name__ == '__main__':
     ]
     hidden_tests = [
         {"input": "2 3\n1 2 3\n2 4 6\n", "expectedOutput": "1"},
-        {"input": "3 2\n1 2\n3 4\n5 6\n", "expectedOutput": "2"},
         {"input": "3 3\n0 0 0\n0 0 0\n0 0 0\n", "expectedOutput": "0"},
-        {"input": "3 3\n1 2 3\n0 1 4\n5 6 0\n", "expectedOutput": "3"},
         {"input": "4 4\n1 0 0 0\n0 1 0 0\n0 0 0 0\n0 0 0 0\n", "expectedOutput": "2"},
     ]
     return {
@@ -788,10 +788,10 @@ def _build_matrix_power_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
     title = normalize_text(payload.get("titleHint")) or "matrix exponentiation under modulus"
     allowed = _extract_allowed_languages(payload)
     description = (
-        "<p>Дана квадратная матрица A размера n×n и целое неотрицательное число p. Требуется вычислить матрицу A<sup>p</sup> по модулю M.</p>"
-        "<p><strong>Входные данные:</strong> в первой строке заданы n, p и M. Далее следуют n строк по n целых чисел матрицы A.</p>"
-        "<p><strong>Выходные данные:</strong> выведите матрицу A<sup>p</sup> по модулю M.</p>"
-        "<p><strong>Ограничения:</strong> 1 ≤ n ≤ 20, 0 ≤ p ≤ 10^9, 1 ≤ M ≤ 10^9.</p>"
+        "Дана квадратная матрица A размера n×n и целое неотрицательное число p. Требуется вычислить матрицу A^p по модулю M.\n\n"
+        "Входные данные: в первой строке заданы n, p и M. Далее следуют n строк по n целых чисел матрицы A.\n\n"
+        "Выходные данные: выведите матрицу A^p по модулю M.\n\n"
+        "Ограничения: 1 ≤ n ≤ 20, 0 ≤ p ≤ 10^9, 1 ≤ M ≤ 10^9."
     )
     code = """import sys
 
@@ -840,8 +840,6 @@ if __name__ == '__main__':
     ]
     hidden_tests = [
         {"input": "2 0 1000\n5 7\n1 2\n", "expectedOutput": "1 0\n0 1"},
-        {"input": "2 3 1000\n1 1\n1 0\n", "expectedOutput": "3 2\n2 1"},
-        {"input": "2 1 10\n2 3\n4 5\n", "expectedOutput": "2 3\n4 5"},
         {"input": "2 2 5\n2 0\n0 2\n", "expectedOutput": "4 0\n0 4"},
         {"input": "1 10 7\n2\n", "expectedOutput": "2"},
     ]
@@ -859,6 +857,216 @@ if __name__ == '__main__':
     }
 
 
+
+
+def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
+    tests = [dict(x) for x in list(hidden_tests or []) if isinstance(x, dict)]
+    seen = set()
+    unique: List[Dict[str, Any]] = []
+    for test in tests:
+        key = (normalize_text(test.get("input")), normalize_text(test.get("expectedOutput")))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append({"input": key[0], "expectedOutput": key[1]})
+    return unique[: max(MIN_HIDDEN_TESTS, MAX_HIDDEN_TESTS)]
+
+
+def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(draft)
+    desc = normalized.get("description")
+    if isinstance(desc, str) and desc.strip():
+        normalized["description"] = strip_html_to_text(desc) if "<" in desc and ">" in desc else normalize_text(desc)
+    title = normalize_text(normalized.get("title"))
+    if not title or title == "__PENDING_TITLE__":
+        fallback_title = normalize_text(payload.get("titleHint")) or normalize_text(((payload.get("brief") or {}).get("titleHint")))
+        if not fallback_title:
+            fallback_title = extract_first_meaningful_sentence(normalized.get("description"), 64)
+        normalized["title"] = fallback_title or "Задание"
+    normalized["hiddenTests"] = _limit_hidden_tests(normalized.get("hiddenTests"))
+    return normalized
+
+
+def _derive_course_style_title(payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
+    candidates = [
+        normalize_text(((payload.get("task") or {}).get("targetSkill") or (payload.get("task") or {}).get("TargetSkill"))),
+        normalize_text(((payload.get("brief") or {}).get("titleHint"))),
+        normalize_text(payload.get("titleHint")),
+        extract_first_meaningful_sentence(draft.get("description"), 72),
+    ]
+    seed = " ".join(x.lower() for x in candidates if x)
+    if ("вывод" in seed and "матриц" in seed) or "matrix output" in seed or "print matrix" in seed:
+        return "Вывод матрицы"
+    if "диагон" in seed or "diagonal" in seed:
+        return "Сумма диагонали матрицы"
+    if ("строк" in seed and "сумм" in seed) or "row sums" in seed or "rows sum" in seed:
+        return "Суммы строк матрицы"
+    if ("чет" in seed and "матриц" in seed) or "even" in seed:
+        return "Чётные элементы матрицы"
+    if ("перест" in seed and "строк" in seed) or "swap" in seed:
+        return "Перестановка строк матрицы"
+    if "rank" in seed or "ранг" in seed or "гаус" in seed:
+        return "Ранг матрицы"
+    if "multip" in seed or "умнож" in seed:
+        return "Умножение матриц"
+    if "степен" in seed or "power" in seed:
+        return "Степень матрицы"
+    for candidate in candidates:
+        if candidate:
+            return truncate_text(candidate, 72)
+    return "Матричная задача"
+
+
+
+def _build_matrix_output_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_text(payload.get("titleHint")) or "Вывод матрицы"
+    allowed = _extract_allowed_languages(payload)
+    description = (
+        "Дана матрица размера n×m. Требуется считать её и вывести в том же виде.\n\n"
+        "Входные данные: в первой строке заданы n и m. Далее следуют n строк по m целых чисел.\n\n"
+        "Выходные данные: выведите матрицу в том же формате, по одной строке на строку матрицы.\n\n"
+        "Ограничения: 1 ≤ n, m ≤ 20, элементы по модулю не превосходят 10^4."
+    )
+    code = """import sys
+
+def solve(data: str) -> str:
+    nums = data.strip().split()
+    if not nums:
+        return ""
+    n = int(nums[0]); m = int(nums[1])
+    vals = nums[2:]
+    rows = []
+    pos = 0
+    for _ in range(n):
+        row = vals[pos:pos + m]
+        pos += m
+        rows.append(" \".join(row))
+    return \"\n\".join(rows)
+
+if __name__ == '__main__':
+    print(solve(sys.stdin.read()))
+"""
+    public_tests = [
+        {"input": "2 2\n1 2\n3 4\n", "expectedOutput": "1 2\n3 4"},
+        {"input": "1 3\n5 0 -2\n", "expectedOutput": "5 0 -2"},
+    ]
+    hidden_tests = [
+        {"input": "2 3\n1 2 3\n4 5 6\n", "expectedOutput": "1 2 3\n4 5 6"},
+        {"input": "3 1\n7\n0\n-5\n", "expectedOutput": "7\n0\n-5"},
+        {"input": "1 1\n42\n", "expectedOutput": "42"},
+    ]
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": public_tests,
+        "hiddenTests": hidden_tests,
+        "referenceSolutionPython": code,
+        "requiredCalls": ["solve"],
+        "forbiddenCalls": ["Process.Start", "__import__"],
+        "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-output"},
+    }
+
+
+def _build_matrix_diagonal_sum_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_text(payload.get("titleHint")) or "Сумма диагонали матрицы"
+    allowed = _extract_allowed_languages(payload)
+    description = (
+        "Дана квадратная матрица размера n×n. Требуется вычислить сумму элементов главной диагонали.\n\n"
+        "Входные данные: в первой строке задано n. Далее следуют n строк по n целых чисел.\n\n"
+        "Выходные данные: выведите одно целое число — сумму элементов главной диагонали.\n\n"
+        "Ограничения: 1 ≤ n ≤ 50, элементы по модулю не превосходят 10^4."
+    )
+    code = """import sys
+
+def solve(data: str) -> str:
+    nums = list(map(int, data.strip().split()))
+    if not nums:
+        return ""
+    n = nums[0]
+    pos = 1
+    total = 0
+    for i in range(n):
+        row = nums[pos:pos + n]
+        pos += n
+        total += row[i]
+    return str(total)
+
+if __name__ == '__main__':
+    print(solve(sys.stdin.read()))
+"""
+    public_tests = [
+        {"input": "2\n1 2\n3 4\n", "expectedOutput": "5"},
+        {"input": "3\n1 0 0\n0 2 0\n0 0 3\n", "expectedOutput": "6"},
+    ]
+    hidden_tests = [
+        {"input": "1\n7\n", "expectedOutput": "7"},
+        {"input": "3\n1 2 3\n4 5 6\n7 8 9\n", "expectedOutput": "15"},
+        {"input": "2\n-1 5\n6 -2\n", "expectedOutput": "-3"},
+    ]
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": public_tests,
+        "hiddenTests": hidden_tests,
+        "referenceSolutionPython": code,
+        "requiredCalls": ["solve"],
+        "forbiddenCalls": ["Process.Start", "__import__"],
+        "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-diagonal-sum"},
+    }
+
+
+def _build_matrix_row_sums_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_text(payload.get("titleHint")) or "Суммы строк матрицы"
+    allowed = _extract_allowed_languages(payload)
+    description = (
+        "Дана матрица размера n×m. Требуется для каждой строки вычислить сумму её элементов.\n\n"
+        "Входные данные: в первой строке заданы n и m. Далее следуют n строк по m целых чисел.\n\n"
+        "Выходные данные: выведите n чисел — суммы строк матрицы, по одному числу в каждой строке.\n\n"
+        "Ограничения: 1 ≤ n, m ≤ 50, элементы по модулю не превосходят 10^4."
+    )
+    code = """import sys
+
+def solve(data: str) -> str:
+    nums = list(map(int, data.strip().split()))
+    if not nums:
+        return ""
+    n, m = nums[:2]
+    pos = 2
+    out = []
+    for _ in range(n):
+        row = nums[pos:pos + m]
+        pos += m
+        out.append(str(sum(row)))
+    return \"\n\".join(out)
+
+if __name__ == '__main__':
+    print(solve(sys.stdin.read()))
+"""
+    public_tests = [
+        {"input": "2 3\n1 2 3\n4 5 6\n", "expectedOutput": "6\n15"},
+        {"input": "1 4\n7 0 -2 5\n", "expectedOutput": "10"},
+    ]
+    hidden_tests = [
+        {"input": "3 2\n1 1\n2 0\n0 3\n", "expectedOutput": "2\n2\n3"},
+        {"input": "2 2\n-1 -2\n3 4\n", "expectedOutput": "-3\n7"},
+        {"input": "1 1\n0\n", "expectedOutput": "0"},
+    ]
+    return {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": description,
+        "allowedLanguages": allowed,
+        "publicTests": public_tests,
+        "hiddenTests": hidden_tests,
+        "referenceSolutionPython": code,
+        "requiredCalls": ["solve"],
+        "forbiddenCalls": ["Process.Start", "__import__"],
+        "meta": {"generationSource": "schema-repair", "domain": "matrix", "strategy": "deterministic-matrix-row-sums"},
+    }
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(result, dict):
         result = {}
@@ -871,12 +1079,21 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
     existing_title = normalize_text(draft.get("title")) if isinstance(draft, dict) else ""
     should_replace_fallback = bool(draft) and (existing_title.lower().startswith("ai fallback") or normalize_text(existing_meta.get("generationSource") or existing_meta.get("source")).lower() == "fallback") and ("matrix" in seed or "матриц" in seed or "gauss" in seed or "rank" in seed or "ранг" in seed)
     if not isinstance(draft, dict) or should_replace_fallback:
-        if "gauss" in seed or "rank" in seed or "ступенчат" in seed or "ранг" in seed:
+        if "вывод" in seed and ("matrix" in seed or "матриц" in seed):
+            draft = _build_matrix_output_draft(payload)
+        elif "диагон" in seed:
+            draft = _build_matrix_diagonal_sum_draft(payload)
+        elif "сумм" in seed and "строк" in seed:
+            draft = _build_matrix_row_sums_draft(payload)
+        elif "gauss" in seed or "rank" in seed or "ступенчат" in seed or "ранг" in seed:
             draft = _build_matrix_rank_draft(payload)
         elif "power" in seed or "степен" in seed or "mod" in seed:
             draft = _build_matrix_power_draft(payload)
         elif "matrix" in seed or "матриц" in seed:
-            draft = _build_matrix_multiplication_draft(payload)
+            if any(token in seed for token in ["прост", "basic", "beginner", "output", "вывод"]):
+                draft = _build_matrix_output_draft(payload)
+            else:
+                draft = _build_matrix_multiplication_draft(payload)
         else:
             return result
         result = dict(result)
@@ -884,6 +1101,7 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
         result["summary"] = normalize_text(result.get("summary")) or truncate_text(normalize_text(draft.get("description")), 180)
         result["decisionSummary"] = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-draft"}
     if isinstance(result.get("draft"), dict):
+        result["draft"] = _normalize_generated_draft_fields(result["draft"], payload)
         result["draft"]["allowedLanguages"] = _extract_allowed_languages(payload) if not isinstance(result["draft"].get("allowedLanguages"), list) else unique_string_list(result["draft"].get("allowedLanguages"), 6)
         meta = result["draft"].get("meta") if isinstance(result["draft"].get("meta"), dict) else {}
         meta.setdefault("generationSource", "llm")

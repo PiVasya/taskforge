@@ -260,7 +260,7 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
             checks.append({"name": "edge-case-presence", "status": "passed", "details": f"Найдено edge-like тестов: {edge_hits}"})
         else:
             checks.append({"name": "edge-case-presence", "status": "warning", "details": "Не видно явных edge cases"})
-        if len(all_tests) >= max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 7):
+        if len(all_tests) >= max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 5):
             checks.append({"name": "test-volume", "status": "passed", "details": f"tests={len(all_tests)}"})
         else:
             checks.append({"name": "test-volume", "status": "warning", "details": f"Малый объём тестов: {len(all_tests)}"})

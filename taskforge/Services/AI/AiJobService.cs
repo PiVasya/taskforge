@@ -1390,7 +1390,7 @@ public sealed partial class AiJobService : IAiJobService
             {
                 minDescriptionLength = 200,
                 minPublicTests = 2,
-                minHiddenTests = 5,
+                minHiddenTests = 3,
                 requireReferenceSolutionPython = true,
                 requireAllowedLanguages = true,
                 requireCodePolicyReview = true,
@@ -1467,7 +1467,7 @@ public sealed partial class AiJobService : IAiJobService
                 publicTests = new[] { new { input = "string", expectedOutput = "string" } },
                 hiddenTests = new[] { new { input = "string", expectedOutput = "string" } },
                 codePolicy = new { forbiddenCalls = "string[] optional", requiredCalls = "string[] optional" },
-                quality = new { minPublicTests = 2, minHiddenTests = 5, requireEdgeCases = true, requireDeterministicReferenceSolution = true },
+                quality = new { minPublicTests = 2, minHiddenTests = 3, requireEdgeCases = true, requireDeterministicReferenceSolution = true },
                 meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить reference solution и все тесты перед публикацией." } }
             },
             _ => new

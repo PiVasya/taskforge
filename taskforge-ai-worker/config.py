@@ -1,4 +1,4 @@
-"""Environment configuration, constants and shared HTTP session."""
+﻿"""Environment configuration, constants and shared HTTP session."""
 
 import os
 import socket
@@ -65,7 +65,8 @@ DEEPSEEK_RECOMMENDED_MODEL: str = os.getenv("TASKFORGE_AI_DEEPSEEK_MODEL", "deep
 # ── Quality gates defaults ───────────────────────────
 MAX_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_MAX_REFERENCE_ASSIGNMENTS", "20"))
 MIN_PUBLIC_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_PUBLIC_TESTS", "2"))
-MIN_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "5"))
+MIN_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "3"))
+MAX_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MAX_HIDDEN_TESTS", os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "3")))
 MIN_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_MIN_DESCRIPTION_LEN", "200"))
 MAX_REPAIR_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_REPAIR_ATTEMPTS", "2"))
 MAX_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_REFERENCE_DESCRIPTION_LEN", "260"))

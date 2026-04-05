@@ -141,3 +141,33 @@ def compute_text_similarity(a: Any, b: Any) -> float:
     b_tokens = set(tokenize_similarity_text(b_text))
     j = jaccard(a_tokens, b_tokens)
     return max(seq, j)
+
+
+# ── HTML / sentence helpers ─────────────────────────
+
+def strip_html_to_text(value: Any) -> str:
+    raw = normalize_text(value)
+    if not raw:
+        return ""
+    text = re.sub(r"<\s*br\s*/?>", "\n", raw, flags=re.IGNORECASE)
+    text = re.sub(r"</\s*(p|div|section|article|h1|h2|h3|h4|h5|h6|li)\s*>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<\s*li[^>]*>", "• ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text, flags=re.IGNORECASE)
+    text = text.replace("&nbsp;", " ")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return normalize_text(text)
+
+
+def extract_first_meaningful_sentence(value: Any, limit: int = 80) -> str:
+    text = strip_html_to_text(value) or normalize_text(value)
+    if not text:
+        return ""
+    pieces = re.split(r"(?<=[.!?])\s+|\n\n+", text)
+    for piece in pieces:
+        candidate = normalize_text(piece)
+        if not candidate:
+            continue
+        candidate = re.sub(r"^(Условие|Входные данные|Выходные данные|Ограничения|Примечания)\s*:?\s*", "", candidate, flags=re.IGNORECASE)
+        if candidate:
+            return truncate_text(candidate, limit)
+    return truncate_text(text.replace("\n", " "), limit)

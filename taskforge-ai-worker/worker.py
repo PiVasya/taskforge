@@ -40,7 +40,7 @@ from config import (
 )
 from log import log, logger
 from api_client import pull_job, heartbeat, complete, fail
-from payload import parse_payload, sanitize_result_payload
+from payload import parse_payload, sanitize_result_payload, _derive_course_style_title
 from validators import run_self_check
 from ollama import call_ollama, OllamaCallConfig
 from prompt_builder import (
@@ -54,6 +54,8 @@ from prompt_builder import (
     build_batch_review_prompt,
     build_stage_schema_repair_prompt,
     build_draft_generate_prompt,
+    build_draft_body_generate_prompt,
+    build_draft_title_generate_prompt,
 )
 from reviews import (
     run_structural_review,
@@ -233,6 +235,56 @@ def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None =
     log(*parts)
 
 
+
+
+def _merge_generated_title(result: Dict[str, Any], title_result: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    draft = result.get("draft") if isinstance(result.get("draft"), dict) else {}
+    title = ""
+    if isinstance(title_result, dict):
+        title = str(title_result.get("title") or "").strip()
+    looks_placeholder = not title or title == "__PENDING_TITLE__"
+    looks_ascii_slot = bool(title) and all((ord(ch) < 128) for ch in title) and len(title.split()) <= 8
+    if looks_placeholder or looks_ascii_slot:
+        title = _derive_course_style_title(payload, draft)
+    draft["title"] = title
+    result["draft"] = draft
+    meta = draft.get("meta") if isinstance(draft.get("meta"), dict) else {}
+    meta["titleGeneration"] = {"source": (title_result.get("decisionSummary") if isinstance(title_result, dict) else None) or {"source": "fallback-title"}}
+    draft["meta"] = meta
+    return result
+
+
+def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], retry_count: int) -> Dict[str, Any]:
+    job_type = "assignment_generate_from_text"
+    llm_cfg = _stage_llm_config(job_type, payload, retry_count)
+
+    body_prompt = build_draft_body_generate_prompt(job, payload)
+    body_cfg = OllamaCallConfig(stage="draft_body_generate", timeout=min(llm_cfg.timeout, max(60, llm_cfg.timeout)), num_predict=min(llm_cfg.num_predict or 1200, 1400), temperature=0.10, required_keys=["draft"], preferred_keys=["summary", "decisionSummary"])
+    _log_stage("substage-prepare", job, payload, substage="draft_body_generate", prompt_len=len(body_prompt), timeout=body_cfg.timeout, num_predict=body_cfg.num_predict)
+    try:
+        body_result = call_ollama(body_prompt, body_cfg)
+    except Exception as ex:
+        logger.warning(f"draft body ollama failed: {ex} [{_job_context(job, payload)}]")
+        fallback_job = dict(job)
+        import json as _json
+        fallback_job["inputJson"] = _json.dumps(payload, ensure_ascii=False)
+        return sanitize_result_payload(job_type, payload, fallback_result(fallback_job))
+    body_result = sanitize_result_payload(job_type, payload, body_result)
+    _log_stage("substage-done", job, payload, substage="draft_body_generate", result=_result_summary(body_result))
+
+    title_prompt = build_draft_title_generate_prompt(job, payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})
+    title_cfg = OllamaCallConfig(stage="draft_title_generate", timeout=min(40, llm_cfg.timeout), num_predict=120, temperature=0.08, required_keys=["title"], preferred_keys=["summary"])
+    _log_stage("substage-prepare", job, payload, substage="draft_title_generate", prompt_len=len(title_prompt), timeout=title_cfg.timeout, num_predict=title_cfg.num_predict)
+    try:
+        title_result = call_ollama(title_prompt, title_cfg)
+    except Exception as ex:
+        logger.warning(f"draft title ollama failed: {ex} [{_job_context(job, payload)}]")
+        title_result = {"title": _derive_course_style_title(payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})}
+    _log_stage("substage-done", job, payload, substage="draft_title_generate", result=_result_summary(title_result if isinstance(title_result, dict) else {"title": title_result}))
+
+    result = _merge_generated_title(body_result, title_result if isinstance(title_result, dict) else {}, payload)
+    return sanitize_result_payload(job_type, payload, result)
+
 def _set_compact_mode(payload: Dict[str, Any], job_type: str, retry_count: int) -> None:
     if job_type == "assignment_course_profile_build":
         if retry_count >= 2:
@@ -369,7 +421,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Draft generate ────────────────────────────────
     if job_type == "assignment_generate_from_text":
-        result = _ollama_stage(build_draft_generate_prompt, allow_fallback=True, stage_name="draft_generate")
+        result = _generate_draft_via_substages(job, payload, retry_count)
         if payload.get("enableSelfCheck", True):
             before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
             result = try_improve_generation(job, payload, result)

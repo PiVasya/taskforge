@@ -331,27 +331,38 @@ public sealed partial class AiJobService
     private static string NormalizePublishedDraftTitle(string? rawTitle, string? rawDescription)
     {
         var title = (rawTitle ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(title)) return string.Empty;
-
         var description = System.Net.WebUtility.HtmlDecode(rawDescription ?? string.Empty);
-        var looksGeneric = Regex.IsMatch(title, @"^(task|assignment|задание)\s*#?\s*\d+$", RegexOptions.IgnoreCase);
-        var looksEnglishSlotTitle = Regex.IsMatch(title, @"^[A-Za-z0-9\-\s]+$")
-                                    && (title.Contains("matrix", StringComparison.OrdinalIgnoreCase)
-                                        || title.Contains("gaussian", StringComparison.OrdinalIgnoreCase)
-                                        || title.Contains("rank", StringComparison.OrdinalIgnoreCase)
-                                        || title.Contains("memory", StringComparison.OrdinalIgnoreCase));
 
-        if (looksGeneric || looksEnglishSlotTitle)
+        static string ExtractFallbackTitle(string descriptionText)
         {
-            if (description.IndexOf("гаус", StringComparison.OrdinalIgnoreCase) >= 0 || description.IndexOf("rank", StringComparison.OrdinalIgnoreCase) >= 0 || description.IndexOf("ранг", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "Алгоритм Гаусса и ранг матрицы";
-            if (description.IndexOf("умнож", StringComparison.OrdinalIgnoreCase) >= 0 || description.IndexOf("multiplic", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "Умножение матриц с динамической памятью";
-            if (title.Contains("matrix", StringComparison.OrdinalIgnoreCase) && title.Contains("memory", StringComparison.OrdinalIgnoreCase))
-                return "Умножение матриц с динамической памятью";
-            if (title.Contains("gaussian", StringComparison.OrdinalIgnoreCase) || title.Contains("rank", StringComparison.OrdinalIgnoreCase))
-                return "Алгоритм Гаусса и ранг матрицы";
+            var plain = Regex.Replace(descriptionText ?? string.Empty, "<[^>]+>", " ");
+            plain = plain.Replace("\r", " ").Replace("\n", " ");
+            plain = Regex.Replace(plain, @"\s+", " ").Trim();
+            if (string.IsNullOrWhiteSpace(plain)) return "Задание";
+
+            var lowered = plain.ToLowerInvariant();
+            if (lowered.Contains("умнож") && lowered.Contains("матриц")) return "Умножение матриц";
+            if ((lowered.Contains("гаус") || lowered.Contains("ранг")) && lowered.Contains("матриц")) return "Ранг матрицы";
+            if (lowered.Contains("диагон") && lowered.Contains("матриц")) return "Сумма диагонали матрицы";
+            if (lowered.Contains("вывед") && lowered.Contains("матриц")) return "Вывод матрицы";
+            if (lowered.Contains("сумм") && lowered.Contains("строк") && lowered.Contains("матриц")) return "Суммы строк матрицы";
+
+            var sentence = plain.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+            if (string.IsNullOrWhiteSpace(sentence)) return "Задание";
+            sentence = Regex.Replace(sentence, "^(реализуйте|напишите программу|требуется|постройте задачу на)\s+", string.Empty, RegexOptions.IgnoreCase).Trim();
+            if (sentence.Length > 64) sentence = sentence[..64].TrimEnd() + "...";
+            return string.IsNullOrWhiteSpace(sentence) ? "Задание" : sentence;
         }
+
+        var looksGeneric = Regex.IsMatch(title, @"^(task|assignment|задание)\s*#?\s*\d+(\.\d+)?$", RegexOptions.IgnoreCase)
+            || title == "__PENDING_TITLE__";
+        var looksEnglishSlotTitle = Regex.IsMatch(title, @"^[A-Za-z0-9\-\s]+$")
+            && title.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 8;
+
+        if (string.IsNullOrWhiteSpace(title) || looksGeneric || looksEnglishSlotTitle)
+            return ExtractFallbackTitle(description);
 
         return title;
     }
