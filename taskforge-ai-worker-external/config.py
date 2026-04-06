@@ -26,6 +26,17 @@ EXTERNAL_AI_MODEL: str = os.getenv("TASKFORGE_EXTERNAL_AI_MODEL", "gpt-4.1-mini"
 EXTERNAL_AI_ANTHROPIC_VERSION: str = os.getenv("TASKFORGE_EXTERNAL_AI_ANTHROPIC_VERSION", "2023-06-01")
 EXTERNAL_AI_EXTRA_HEADERS_RAW: str = os.getenv("TASKFORGE_EXTERNAL_AI_EXTRA_HEADERS", "")
 
+EXTERNAL_AI_SYSTEM_PROMPT: str = os.getenv("TASKFORGE_EXTERNAL_AI_SYSTEM_PROMPT", "").strip()
+EXTERNAL_AI_SEED_RAW: str = os.getenv("TASKFORGE_EXTERNAL_AI_SEED", "").strip()
+EXTERNAL_AI_TOP_P_RAW: str = os.getenv("TASKFORGE_EXTERNAL_AI_TOP_P", "").strip()
+EXTERNAL_AI_TOP_K_RAW: str = os.getenv("TASKFORGE_EXTERNAL_AI_TOP_K", "").strip()
+
+# Qwen / DashScope specific knobs. Qwen3.6 Plus enables thinking by default,
+# which is great for chat, but often hurts latency and JSON discipline in this worker.
+EXTERNAL_AI_QWEN_DISABLE_THINKING: bool = _env_bool("TASKFORGE_EXTERNAL_AI_QWEN_DISABLE_THINKING", True)
+EXTERNAL_AI_QWEN_ENABLE_SEARCH: bool = _env_bool("TASKFORGE_EXTERNAL_AI_QWEN_ENABLE_SEARCH", False)
+EXTERNAL_AI_QWEN_THINKING_BUDGET_RAW: str = os.getenv("TASKFORGE_EXTERNAL_AI_QWEN_THINKING_BUDGET", "").strip()
+
 # Backward-compatible aliases so the copied pipeline can stay unchanged.
 OLLAMA_BASE: str = EXTERNAL_AI_BASE_URL
 OLLAMA_MODEL: str = EXTERNAL_AI_MODEL

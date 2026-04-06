@@ -35,7 +35,7 @@ docker compose -f docker-compose.external-ai-worker.yaml up -d --build
 - `TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible`
 - `TASKFORGE_EXTERNAL_AI_BASE_URL=https://api.openai.com/v1`
 - `TASKFORGE_EXTERNAL_AI_API_KEY=<secret>`
-- `TASKFORGE_EXTERNAL_AI_MODEL=gpt-4.1-mini`
+- `TASKFORGE_EXTERNAL_AI_MODEL=qwen3.6-plus`
 
 Дополнительно:
 
@@ -77,8 +77,16 @@ TASKFORGE_EXTERNAL_AI_EXTRA_HEADERS={"HTTP-Referer":"https://your-site.example",
 ```env
 TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible
 TASKFORGE_EXTERNAL_AI_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-TASKFORGE_EXTERNAL_AI_MODEL=qwen-plus
+TASKFORGE_EXTERNAL_AI_MODEL=qwen3.6-plus
+TASKFORGE_EXTERNAL_AI_JSON_MODE=true
+TASKFORGE_EXTERNAL_AI_TEMPERATURE=0.05
+TASKFORGE_EXTERNAL_AI_QWEN_DISABLE_THINKING=true
+TASKFORGE_EXTERNAL_AI_QWEN_ENABLE_SEARCH=false
 ```
+
+Для TaskForge это важные настройки: `qwen3.6-plus` по умолчанию включает thinking-mode,
+а для stage-based JSON pipeline это обычно только увеличивает задержку и чаще ломает формат.
+Воркер теперь сам передаёт `enable_thinking=false` для Qwen по умолчанию, если вы это не отключили env-переменной.
 
 ### Anthropic
 
@@ -93,3 +101,13 @@ TASKFORGE_EXTERNAL_AI_MODEL=claude-sonnet-4-20250514
 - worker по-прежнему возвращает в backend `modelName`, `resultJson` и т.д.;
 - старый pipeline сохранён почти полностью, чтобы можно было сравнивать локальный и внешний AI;
 - этот вариант нужен именно для следующего шага: тестировать внешний AI без удаления старого локального worker-а.
+
+## Оптимизация под Qwen3.6 Plus
+
+В этой версии worker дополнительно оптимизирован под Qwen / DashScope:
+
+- добавляет `system`-message с жёсткой инструкцией возвращать только JSON в JSON-стадиях;
+- автоматически отключает `enable_thinking` для Qwen, чтобы уменьшить latency и повысить JSON discipline;
+- автоматически отключает `enable_search`, чтобы ответы не тащили внешний веб-поиск в генерационный pipeline;
+- поддерживает `TASKFORGE_EXTERNAL_AI_QWEN_THINKING_BUDGET`, если всё же нужен controlled thinking;
+- поддерживает `TASKFORGE_EXTERNAL_AI_SEED`, `TASKFORGE_EXTERNAL_AI_TOP_P`, `TASKFORGE_EXTERNAL_AI_TOP_K` для более стабильной генерации.

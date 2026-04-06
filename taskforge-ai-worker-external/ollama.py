@@ -19,6 +19,13 @@ from config import (
     EXTERNAL_AI_API_KEY,
     EXTERNAL_AI_ANTHROPIC_VERSION,
     EXTERNAL_AI_EXTRA_HEADERS_RAW,
+    EXTERNAL_AI_QWEN_DISABLE_THINKING,
+    EXTERNAL_AI_QWEN_ENABLE_SEARCH,
+    EXTERNAL_AI_QWEN_THINKING_BUDGET_RAW,
+    EXTERNAL_AI_SEED_RAW,
+    EXTERNAL_AI_SYSTEM_PROMPT,
+    EXTERNAL_AI_TOP_K_RAW,
+    EXTERNAL_AI_TOP_P_RAW,
     OLLAMA_MODEL,
     OLLAMA_TEMPERATURE,
     TIMEOUT,
@@ -28,6 +35,80 @@ from config import (
 )
 from log import log
 
+
+
+
+def _parse_optional_int(raw: str) -> int | None:
+    raw = str(raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except Exception:
+        return None
+
+
+def _parse_optional_float(raw: str) -> float | None:
+    raw = str(raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except Exception:
+        return None
+
+
+def _is_qwen_target() -> bool:
+    provider = str(EXTERNAL_AI_PROVIDER or "").strip().lower()
+    model = str(OLLAMA_MODEL or "").strip().lower()
+    base = str(EXTERNAL_AI_BASE_URL or "").strip().lower()
+    if provider in {"qwen", "dashscope"}:
+        return True
+    return "qwen" in model or "dashscope" in base or "aliyuncs.com" in base
+
+
+def _default_system_prompt(cfg: OllamaCallConfig) -> str:
+    if EXTERNAL_AI_SYSTEM_PROMPT:
+        return EXTERNAL_AI_SYSTEM_PROMPT
+    if cfg.json_mode:
+        return (
+            "You are TaskForge external AI worker. Follow the task exactly. "
+            "Return exactly one valid JSON object and nothing else. "
+            "Do not wrap JSON in markdown fences. Do not add explanations before or after the JSON. "
+            "Respect the requested schema and keep field names unchanged."
+        )
+    return "You are TaskForge external AI worker. Follow the task exactly and be concise."
+
+
+def _openai_messages(prompt: str, cfg: OllamaCallConfig) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    system_prompt = _default_system_prompt(cfg)
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
+def _provider_specific_openai_body(cfg: OllamaCallConfig) -> Dict[str, Any]:
+    body: Dict[str, Any] = {}
+    seed = _parse_optional_int(EXTERNAL_AI_SEED_RAW)
+    if seed is not None:
+        body["seed"] = seed
+    top_p = _parse_optional_float(EXTERNAL_AI_TOP_P_RAW)
+    if top_p is not None:
+        body["top_p"] = top_p
+    top_k = _parse_optional_int(EXTERNAL_AI_TOP_K_RAW)
+    if top_k is not None:
+        body["top_k"] = top_k
+    if _is_qwen_target():
+        if EXTERNAL_AI_QWEN_DISABLE_THINKING:
+            body["enable_thinking"] = False
+        if not EXTERNAL_AI_QWEN_ENABLE_SEARCH:
+            body["enable_search"] = False
+        thinking_budget = _parse_optional_int(EXTERNAL_AI_QWEN_THINKING_BUDGET_RAW)
+        if thinking_budget is not None:
+            body["thinking_budget"] = thinking_budget
+    return body
 
 class OllamaCallConfig:
     def __init__(
@@ -225,9 +306,10 @@ def _request_openai_compatible(prompt: str, cfg: OllamaCallConfig, timeout: int,
     headers.update(_extra_headers())
     body: Dict[str, Any] = {
         "model": OLLAMA_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": _openai_messages(prompt, cfg),
         "temperature": cfg.temperature,
     }
+    body.update(_provider_specific_openai_body(cfg))
     if cfg.num_predict is not None:
         body["max_tokens"] = cfg.num_predict
     if use_json_hint and cfg.json_mode:
@@ -254,7 +336,7 @@ def _request_anthropic(prompt: str, cfg: OllamaCallConfig, timeout: int) -> Dict
         "model": OLLAMA_MODEL,
         "max_tokens": cfg.num_predict or 1024,
         "temperature": cfg.temperature,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": _openai_messages(prompt, cfg),
     }
     resp = requests.post(
         f"{EXTERNAL_AI_BASE_URL}/messages",
@@ -270,10 +352,11 @@ def _request_anthropic(prompt: str, cfg: OllamaCallConfig, timeout: int) -> Dict
 def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str, Any]:
     cfg = config or OllamaCallConfig()
     provider = EXTERNAL_AI_PROVIDER or "openai_compatible"
+    extras = _provider_specific_openai_body(cfg) if provider != 'anthropic' else {}
     log(
         f"external-llm >>> provider={provider} model={OLLAMA_MODEL} stage={cfg.stage} prompt_len={len(prompt)} "
         f"attempts={cfg.attempts} timeout={cfg.timeout}s format={'json' if cfg.json_mode else 'text'} "
-        f"num_predict={cfg.num_predict or '-'}"
+        f"num_predict={cfg.num_predict or '-'} extras={json.dumps(extras, ensure_ascii=False) if extras else '-'}"
     )
     last_error: Exception | None = None
     for attempt in range(1, max(1, cfg.attempts) + 1):
