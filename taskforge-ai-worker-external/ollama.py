@@ -5,6 +5,8 @@ It intentionally keeps the `call_ollama` / `OllamaCallConfig` interface so the c
 worker pipeline can remain almost identical to the legacy local-Ollama worker.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -34,8 +36,6 @@ from config import (
     OLLAMA_JSON_MODE,
 )
 from log import log
-
-
 
 
 def _parse_optional_int(raw: str) -> int | None:
