@@ -328,6 +328,11 @@ export default function AdminAiPage() {
   var [courseCreateForm, setCourseCreateForm] = useState(courseCreateEmpty);
   var [batchForm, setBatchForm] = useState(batchEmpty);
   var [expandedDrafts, setExpandedDrafts] = useState({});
+  var [chatMessages, setChatMessages] = useState([chatWelcome]);
+  var [chatPlan, setChatPlan] = useState(null);
+  var [chatInput, setChatInput] = useState('');
+  var [chatBusy, setChatBusy] = useState(false);
+  var [chatError, setChatError] = useState('');
 
   var load = useCallback(
     async function () {
