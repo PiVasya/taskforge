@@ -847,8 +847,7 @@ def sanitize_result_payload(
         for idx, task in enumerate(sanitized["plan"]["tasks"], start=1):
             if not isinstance(task, dict):
                 continue
-            skill = _normalize_skill_phrase(task.get("targetSkill"), payload.get("prompt") or "")
-            task["targetSkill"] = skill
+            skill = normalize_text(task.get("targetSkill"))
             micro = normalize_text(task.get("microGoal"))
             if beginner_track and any(
                 x in (skill + " " + micro).lower()

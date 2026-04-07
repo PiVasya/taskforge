@@ -17,7 +17,6 @@ import {
   clearAiJobs,
   retryAiJob,
   cancelAiJob,
-  resolveAiFoundryChat,
 } from '../../api/aiAdmin';
 import { createCourse, getCourses } from '../../api/courses';
 import { handleApiError } from '../../utils/handleApiError';
@@ -44,7 +43,6 @@ import {
 /* ── Tabs ───────────────────────────────────────── */
 const AI_TABS = [
   { key: 'overview', label: 'Обзор', icon: LayoutDashboard },
-  { key: 'chat', label: 'Чат с ИИ', icon: Brain },
   { key: 'create', label: 'Новый пакет', icon: Wand2 },
   { key: 'queue', label: 'Очередь', icon: ListTodo },
   { key: 'batches', label: 'Пакеты', icon: Sparkles },
@@ -69,30 +67,6 @@ const courseCreateEmpty = {
   description: '',
   isPublic: false,
 };
-
-
-const CHAT_STORAGE_KEY = 'taskforge.aiFoundry.chat.v2';
-const chatWelcome = {
-  id: 'welcome',
-  role: 'assistant',
-  content:
-    'Опиши, какие задания нужны: тему, уровень, ограничения, желаемое количество и стиль. Я соберу осмысленный Foundry-план и подготовлю пакет без мусорных skill-слов.',
-  createdAtUtc: new Date().toISOString(),
-};
-
-function makeChatMessage(role, content) {
-  return {
-    id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    createdAtUtc: new Date().toISOString(),
-  };
-}
-
-function getChatStorageKey(courseId) {
-  return `${CHAT_STORAGE_KEY}:${courseId || 'global'}`;
-}
-
 
 /* ── Helpers ─────────────────────────────────────── */
 function statusTone(status) {
@@ -328,11 +302,6 @@ export default function AdminAiPage() {
   var [courseCreateForm, setCourseCreateForm] = useState(courseCreateEmpty);
   var [batchForm, setBatchForm] = useState(batchEmpty);
   var [expandedDrafts, setExpandedDrafts] = useState({});
-  var [chatMessages, setChatMessages] = useState([chatWelcome]);
-  var [chatPlan, setChatPlan] = useState(null);
-  var [chatInput, setChatInput] = useState('');
-  var [chatBusy, setChatBusy] = useState(false);
-  var [chatError, setChatError] = useState('');
 
   var load = useCallback(
     async function () {
@@ -724,205 +693,6 @@ export default function AdminAiPage() {
   };
 
   /* ── Course scope selector ──────────────────────── */
-
-  useEffect(
-    function () {
-      var key = getChatStorageKey(courseScopeId || batchForm.courseId || 'global');
-      try {
-        var raw = localStorage.getItem(key);
-        if (!raw) {
-          setChatMessages([chatWelcome]);
-          setChatPlan(null);
-          return;
-        }
-        var parsed = JSON.parse(raw);
-        setChatMessages(Array.isArray(parsed.messages) && parsed.messages.length ? parsed.messages : [chatWelcome]);
-        setChatPlan(parsed.plan || null);
-      } catch (e) {
-        setChatMessages([chatWelcome]);
-        setChatPlan(null);
-      }
-    },
-    [courseScopeId, batchForm.courseId]
-  );
-
-  useEffect(
-    function () {
-      var key = getChatStorageKey(courseScopeId || batchForm.courseId || 'global');
-      try {
-        localStorage.setItem(key, JSON.stringify({ messages: chatMessages, plan: chatPlan }));
-      } catch (e) {
-        // noop
-      }
-    },
-    [chatMessages, chatPlan, courseScopeId, batchForm.courseId]
-  );
-
-  var sendChatMessage = async function () {
-    var content = String(chatInput || '').trim();
-    if (!content || chatBusy) return;
-    var userMessage = makeChatMessage('user', content);
-    var nextMessages = chatMessages.concat(userMessage);
-    setChatMessages(nextMessages);
-    setChatInput('');
-    setChatBusy(true);
-    setChatError('');
-    try {
-      var data = await resolveAiFoundryChat({
-        courseId: courseScopeId || batchForm.courseId || null,
-        assignmentType: batchForm.assignmentType,
-        difficulty: Number(batchForm.difficulty) || undefined,
-        count: Number(batchForm.count) || undefined,
-        mode: batchForm.mode,
-        messages: nextMessages.map(function (msg) {
-          return { role: msg.role, content: msg.content, createdAtUtc: msg.createdAtUtc };
-        }),
-      });
-      var assistantMessage = makeChatMessage('assistant', data && data.assistantMessage ? data.assistantMessage : 'Понял. Подготовил план Foundry-пакета.');
-      setChatMessages(function (prev) {
-        return prev.concat(assistantMessage);
-      });
-      setChatPlan(data && data.plan ? data.plan : null);
-    } catch (e) {
-      setChatError(handleApiError(e, 'Не удалось обработать сообщение для AI Foundry-чата.'));
-    } finally {
-      setChatBusy(false);
-    }
-  };
-
-  var applyChatPlanToForm = function () {
-    if (!chatPlan) return;
-    setBatchForm(function (p) {
-      return Object.assign({}, p, {
-        courseId: p.courseId || courseScopeId || '',
-        assignmentType: chatPlan.assignmentType || p.assignmentType,
-        prompt: chatPlan.prompt || p.prompt,
-        count: chatPlan.count || p.count,
-        difficulty: chatPlan.difficulty || p.difficulty,
-        mode: chatPlan.mode || p.mode,
-        notes: chatPlan.notes || p.notes,
-      });
-    });
-    setActiveTab('create');
-  };
-
-  var submitChatPlan = async function () {
-    if (!chatPlan) return;
-    setBatchForm(function (p) {
-      return Object.assign({}, p, {
-        courseId: p.courseId || courseScopeId || '',
-        assignmentType: chatPlan.assignmentType || p.assignmentType,
-        prompt: chatPlan.prompt || p.prompt,
-        count: chatPlan.count || p.count,
-        difficulty: chatPlan.difficulty || p.difficulty,
-        mode: chatPlan.mode || p.mode,
-        notes: chatPlan.notes || p.notes,
-      });
-    });
-    setTimeout(function () {
-      submitBatch();
-    }, 0);
-  };
-
-  var clearChatSession = function () {
-    setChatMessages([chatWelcome]);
-    setChatPlan(null);
-    setChatInput('');
-    setChatError('');
-    try {
-      localStorage.removeItem(getChatStorageKey(courseScopeId || batchForm.courseId || 'global'));
-    } catch (e) {
-      // noop
-    }
-  };
-
-  var renderChat = function () {
-    return (
-      <div className="space-y-6">
-        {renderCourseScopeCard()}
-        <Card>
-          <SectionTitle icon={Brain} title="Чат с ИИ" subtitle="Опиши задачу человеческим языком. Чат собирает историю, нормализует intent и готовит Foundry-план без мусорных слотов." />
-          <div className="grid xl:grid-cols-[1.15fr,0.85fr] gap-6 mt-4">
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3 bg-neutral-50/40 dark:bg-neutral-900/20 max-h-[60vh] overflow-auto space-y-3">
-                {chatMessages.map(function (msg) {
-                  return (
-                    <div key={msg.id} className={msg.role === 'assistant' ? 'mr-10' : 'ml-10'}>
-                      <div className={[
-                        'rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap',
-                        msg.role === 'assistant'
-                          ? 'border border-neutral-200/70 dark:border-neutral-800 bg-white dark:bg-neutral-900'
-                          : 'bg-[rgba(var(--accent)/0.12)] border border-[rgba(var(--accent)/0.28)]',
-                      ].join(' ')}>
-                        <div className="text-[11px] uppercase opacity-55 mb-1">{msg.role === 'assistant' ? 'AI Foundry' : 'Ты'}</div>
-                        {msg.content}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <Field label="Сообщение для AI Foundry">
-                <Textarea
-                  rows={5}
-                  value={chatInput}
-                  onChange={function (e) { setChatInput(e.target.value); }}
-                  placeholder="Например: хочу 6 базовых code-test задач по вводу/выводу на C++, без строк и без массивов, по одной учебной цели на задачу, с простыми, но не скучными сюжетами."
-                />
-              </Field>
-              {chatError ? <div className="text-sm text-red-600 dark:text-red-400">{chatError}</div> : null}
-              <div className="flex gap-2 flex-wrap">
-                <Button disabled={chatBusy || !(courseScopeId || batchForm.courseId)} onClick={sendChatMessage}>Отправить</Button>
-                <Button variant="outline" disabled={chatBusy} onClick={applyChatPlanToForm}>Применить план к форме</Button>
-                <Button variant="outline" disabled={chatBusy || !(courseScopeId || batchForm.courseId) || !chatPlan} onClick={submitChatPlan}>Сразу создать пакет</Button>
-                <Button variant="outline" disabled={chatBusy} onClick={clearChatSession}>Очистить чат</Button>
-                {!(courseScopeId || batchForm.courseId) ? <span className="text-sm text-amber-600 flex items-center gap-1"><AlertTriangle size={14} /> Выбери курс, чтобы сохранить чат и запускать пакет</span> : null}
-              </div>
-            </div>
-            <div className="space-y-4">
-              <Card className="border-dashed">
-                <div className="font-medium">Что AI понял из диалога</div>
-                {chatPlan ? (
-                  <div className="space-y-3 mt-3 text-sm">
-                    <div><span className="opacity-60">Тип:</span> {chatPlan.assignmentType || '—'}</div>
-                    <div><span className="opacity-60">Сложность:</span> {chatPlan.difficulty || '—'} / 5</div>
-                    <div><span className="opacity-60">Количество:</span> {chatPlan.count || '—'}</div>
-                    <div><span className="opacity-60">Режим:</span> {chatPlan.mode || '—'}</div>
-                    <div>
-                      <div className="opacity-60 mb-1">Цели</div>
-                      <div className="flex flex-wrap gap-2">{(chatPlan.goals || []).map(function (goal) { return <Badge key={goal} intent="secondary">{goal}</Badge>; })}</div>
-                    </div>
-                    <div>
-                      <div className="opacity-60 mb-1">Ограничения</div>
-                      <div className="flex flex-wrap gap-2">{(chatPlan.constraints || []).length ? (chatPlan.constraints || []).map(function (item) { return <Badge key={item} intent="outline">{item}</Badge>; }) : <span className="opacity-60">не заданы</span>}</div>
-                    </div>
-                    <div>
-                      <div className="opacity-60 mb-1">Prompt для pipeline</div>
-                      <div className="rounded-xl border border-neutral-200/70 dark:border-neutral-800 p-3 whitespace-pre-wrap text-[13px] bg-neutral-50/50 dark:bg-neutral-900/20">{chatPlan.prompt}</div>
-                    </div>
-                    {(chatPlan.warnings || []).length ? (
-                      <div>
-                        <div className="opacity-60 mb-1">Предупреждения</div>
-                        <div className="space-y-1">{chatPlan.warnings.map(function (item, idx) { return <div key={idx} className="text-amber-600">• {item}</div>; })}</div>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : <div className="opacity-60 text-sm mt-2">Пока нет плана. Напиши, что именно хочешь получить от AI Foundry.</div>}
-              </Card>
-              <Card className="border-dashed">
-                <div className="font-medium">Как писать, чтобы чат был полезным</div>
-                <ul className="text-sm opacity-75 mt-3 space-y-2 list-disc pl-5">
-                  <li>Пиши учебные цели целыми фразами: «ввод и вывод данных», «циклы и суммы», «строки без regex».</li>
-                  <li>Укажи ограничения: «без массивов», «по одной учебной цели на задачу», «не смешивать C и C++ IO».</li>
-                  <li>Скажи про стиль: «базовые, но интересные сюжеты», «строго для новичков», «чуть сложнее к концу».</li>
-                </ul>
-              </Card>
-            </div>
-          </div>
-        </Card>
-      </div>
-    );
-  };
-
   var renderCourseScopeCard = function () {
     return (
       <Card>
@@ -2070,7 +1840,6 @@ export default function AdminAiPage() {
         ) : null}
 
         {activeTab === 'overview' ? renderOverview() : null}
-        {activeTab === 'chat' ? renderChat() : null}
         {activeTab === 'create' ? renderCreate() : null}
         {activeTab === 'queue' ? renderJobsQueue() : null}
         {activeTab === 'batches' ? renderBatches() : null}

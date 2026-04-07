@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using taskforge.Data.Models.DTO.AI;
 using taskforge.Services.Interfaces;
-using taskforge.Services.AI;
 
 namespace taskforge.Controllers.Admin;
 

@@ -71,6 +71,7 @@ namespace taskforge.Data
         public DbSet<AiSubmissionReview> AiSubmissionReviews { get; set; } = null!;
         public DbSet<AiUserRiskReport> AiUserRiskReports { get; set; } = null!;
         public DbSet<AiAssignmentInsight> AiAssignmentInsights { get; set; } = null!;
+        public DbSet<AiFoundryChatSession> AiFoundryChatSessions { get; set; } = null!;
 
         // Наборы данных для бейджей и связей между пользователями и бейджами.
         public DbSet<Badge> Badges { get; set; } = null!;
@@ -197,6 +198,17 @@ namespace taskforge.Data
                 entity.HasOne(x => x.Batch).WithMany(x => x.Items).HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Cascade);
             });
 
+
+            modelBuilder.Entity<AiFoundryChatSession>(entity =>
+            {
+                entity.Property(x => x.MessagesJson).HasColumnType("jsonb");
+                entity.Property(x => x.PlanJson).HasColumnType("jsonb");
+                entity.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+                entity.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasIndex(x => new { x.CourseId, x.UpdatedAtUtc });
+            });
 
             modelBuilder.Entity<AiArtifact>(entity =>
             {

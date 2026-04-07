@@ -213,16 +213,15 @@ def _schema_missing_reason(job_type: str, payload: Dict[str, Any], result: Dict[
 
 
 def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], job_type: str, bad_result: Dict[str, Any]) -> Dict[str, Any]:
-    if job_type not in {"assignment_course_profile_build", "assignment_gap_analysis", "assignment_batch_plan", "assignment_batch_replan", "assignment_generate_from_text", "assignment_repair"}:
+    if job_type not in {"assignment_course_profile_build", "assignment_gap_analysis", "assignment_batch_plan", "assignment_batch_replan", "assignment_generate_from_text"}:
         return bad_result
-    stage = "batch_plan" if job_type in {"assignment_batch_plan", "assignment_batch_replan"} else ("gap_analysis" if job_type == "assignment_gap_analysis" else ("repair" if job_type == "assignment_repair" else ("draft_generate" if job_type == "assignment_generate_from_text" else "course_profile_build")))
+    stage = "batch_plan" if job_type in {"assignment_batch_plan", "assignment_batch_replan"} else ("gap_analysis" if job_type == "assignment_gap_analysis" else ("draft_generate" if job_type == "assignment_generate_from_text" else "course_profile_build"))
     prompt = build_stage_schema_repair_prompt(stage, payload, bad_result)
     required, preferred = _stage_required_keys(job_type)
     repair_cfg = _stage_llm_config(job_type, payload, _job_retry_count(job))
     repair_cfg.stage = f"{stage}_schema_repair"
     repair_cfg.timeout = min(repair_cfg.timeout, 45)
     repair_cfg.num_predict = min(repair_cfg.num_predict or 320, 320)
-    repair_cfg.temperature = min(float(repair_cfg.temperature or 0.1), 0.05)
     repair_cfg.required_keys = required
     repair_cfg.preferred_keys = preferred
     _log_stage("stage-schema-repair-prompt", job, payload, prompt_len=len(prompt), required=required, preferred=preferred)
