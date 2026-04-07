@@ -177,6 +177,56 @@ public sealed class AiGenerateAssignmentBatchRequestDto
     public int Priority { get; set; } = 20;
 }
 
+
+
+public sealed class AiFoundryChatMessageDto
+{
+    [Required, MaxLength(32)]
+    public string Role { get; set; } = "user";
+
+    [Required]
+    public string Content { get; set; } = string.Empty;
+
+    public DateTime? CreatedAtUtc { get; set; }
+}
+
+public sealed class AiFoundryChatResolveRequestDto
+{
+    public Guid? CourseId { get; set; }
+
+    [MaxLength(50)]
+    public string? AssignmentType { get; set; }
+
+    public int? Difficulty { get; set; }
+
+    public int? Count { get; set; }
+
+    [MaxLength(80)]
+    public string? Mode { get; set; }
+
+    public List<AiFoundryChatMessageDto> Messages { get; set; } = new();
+}
+
+public sealed class AiFoundryChatPlanDto
+{
+    public string Prompt { get; set; } = string.Empty;
+    public string AssignmentType { get; set; } = "code-test";
+    public int Difficulty { get; set; } = 2;
+    public int Count { get; set; } = 5;
+    public string Mode { get; set; } = "topic-pack";
+    public string Notes { get; set; } = string.Empty;
+    public List<string> Goals { get; set; } = new();
+    public List<string> Constraints { get; set; } = new();
+    public List<string> Warnings { get; set; } = new();
+}
+
+public sealed class AiFoundryChatResolveResponseDto
+{
+    public string SessionTitle { get; set; } = "Новый AI Foundry чат";
+    public string AssistantMessage { get; set; } = string.Empty;
+    public AiFoundryChatPlanDto Plan { get; set; } = new();
+}
+
 public class AiBatchListItemDto
 {
     public Guid Id { get; set; }

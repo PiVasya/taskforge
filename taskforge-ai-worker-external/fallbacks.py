@@ -110,12 +110,50 @@ def fallback_gap_analysis(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[
 # ── Fallback: plan tasks ─────────────────────────────
 
 GENERIC_PROMPT_STOPWORDS = {
+
     "придумай", "придумать", "задание", "задания", "задачу", "задачи",
     "чтобы", "были", "будут", "самые", "сложные", "сложная", "сложный",
     "данном", "этом", "курсе", "сделать", "отдельную", "теме", "тема",
     "учебная", "цель", "реализовать", "создать", "создайте", "нужно",
     "одно", "качественное", "without", "task", "tasks", "assignment",
 }
+
+
+TRASH_SKILLS = {
+    "базовые", "данного", "курса", "мега", "интересными", "сгенерируй", "ввод", "вывод"
+}
+
+MEANINGFUL_FALLBACK_PHRASES = [
+    ("ввод и вывод", "ввод и вывод данных"),
+    ("ввод данных", "ввод данных"),
+    ("вывод данных", "вывод данных"),
+    ("форматированный вывод", "форматированный вывод"),
+    ("циклы", "циклы"),
+    ("условные операторы", "условные операторы"),
+    ("ветвления", "ветвления"),
+    ("массивы", "массивы"),
+    ("строки", "строки"),
+    ("функции", "функции"),
+]
+
+
+def _meaningful_prompt_phrases(prompt: str) -> List[str]:
+    low = normalize_text(prompt).lower()
+    result: List[str] = []
+    for needle, value in MEANINGFUL_FALLBACK_PHRASES:
+        if needle in low and value not in result:
+            result.append(value)
+    return result
+
+
+def _clean_skill_seed(value: str) -> str:
+    norm = normalize_text(value)
+    low = norm.casefold()
+    if low in TRASH_SKILLS:
+        return ""
+    if len(norm.split()) == 1 and (len(norm) < 5 or low in GENERIC_PROMPT_STOPWORDS):
+        return ""
+    return norm
 
 def _extract_prompt_seeds(prompt: str) -> List[str]:
     words = [x for x in re.split(r"[^\wа-яА-Я]+", normalize_text(prompt)) if len(x) >= 4]
@@ -145,16 +183,19 @@ def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     base_difficulty = max(1, min(5, safe_int(payload.get("difficulty"), 2)))
 
     unique_words = _extract_prompt_seeds(prompt)
+    phrase_seeds = _meaningful_prompt_phrases(prompt)
     biases = extract_historical_skill_biases(payload)
     strong = biases["strong"]
     weak = {x.lower() for x in biases["weak"]}
-    seeds = [s for s in strong if s.lower() not in weak]
-    seeds.extend([w for w in unique_words if w.lower() not in weak])
+    seeds = [_clean_skill_seed(s) for s in phrase_seeds if s.lower() not in weak]
+    seeds.extend([_clean_skill_seed(s) for s in strong if s.lower() not in weak])
+    seeds.extend([_clean_skill_seed(w) for w in unique_words if w.lower() not in weak])
+    seeds = [s for s in seeds if s]
     if not seeds:
         seeds = [f"skill-{i+1}" for i in range(count)]
     tasks: List[Dict[str, Any]] = []
     for i in range(count):
-        seed = seeds[i % len(seeds)]
+        seed = _clean_skill_seed(seeds[i % len(seeds)]) or f"осмысленная учебная цель {i+1}"
         difficulty = max(1, min(5, base_difficulty + (1 if i >= max(2, count // 2) else 0) + (1 if i >= max(4, count - 2) else 0)))
         anti = ["Избегай дословного дублирования referenceAssignments"]
         if biases["weak"]:

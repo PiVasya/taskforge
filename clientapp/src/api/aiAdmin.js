@@ -98,3 +98,9 @@ export async function retryAiJob(id) {
 export async function cancelAiJob(id) {
   await api.post(`/api/admin/ai/jobs/${id}/cancel`);
 }
+
+
+export async function resolveAiFoundryChat(payload) {
+  const { data } = await api.post('/api/admin/ai/chat/resolve', payload);
+  return data;
+}
