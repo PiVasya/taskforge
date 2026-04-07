@@ -5,6 +5,7 @@ BUG-FIX: ``int()`` calls replaced with ``safe_int()`` throughout.
 """
 
 import json
+import re
 import time
 from typing import Any, Dict, List
 
