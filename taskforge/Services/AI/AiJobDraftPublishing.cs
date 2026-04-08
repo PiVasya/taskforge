@@ -128,6 +128,15 @@ public sealed partial class AiJobService
         return assignmentId;
     }
 
+    private async Task<int> GetNextSortAsync(Guid courseId, CancellationToken ct)
+    {
+        var maxSort = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == courseId)
+            .Select(x => (int?)x.Sort)
+            .MaxAsync(ct);
+        return (maxSort ?? -1) + 1;
+    }
+
     private async Task<Guid> ResolvePublishingActorUserIdAsync(Guid courseId, Guid reviewedByUserId, CancellationToken ct)
     {
         var course = await _db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == courseId, ct)
