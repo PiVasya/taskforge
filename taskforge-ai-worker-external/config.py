@@ -33,9 +33,14 @@ EXTERNAL_AI_ANTHROPIC_VERSION: str = os.getenv("TASKFORGE_EXTERNAL_AI_ANTHROPIC_
 EXTERNAL_AI_TOP_P: float = float(os.getenv("TASKFORGE_EXTERNAL_AI_TOP_P", "0.85"))
 EXTERNAL_AI_TOP_K: int = int(os.getenv("TASKFORGE_EXTERNAL_AI_TOP_K", "40"))
 
-# ── Legacy Ollama compatibility knobs ───────────────
+# ── Provider selection / legacy Ollama compatibility ───────────────
+_active_provider = EXTERNAL_AI_PROVIDER or "openai_compatible"
+if _active_provider in {"", "auto"}:
+    _active_provider = "openai_compatible" if EXTERNAL_AI_API_KEY else "ollama"
+ACTIVE_PROVIDER: str = _active_provider
 OLLAMA_BASE: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-OLLAMA_MODEL: str = EXTERNAL_AI_MODEL if EXTERNAL_AI_PROVIDER != "ollama" else os.getenv("OLLAMA_MODEL", "qwen3:14b")
+OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3:14b")
+ACTIVE_MODEL: str = EXTERNAL_AI_MODEL if ACTIVE_PROVIDER != "ollama" else OLLAMA_MODEL
 OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", os.getenv("OLLAMA_CONTEXT_LENGTH", "16384")))
 OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", str(EXTERNAL_AI_TEMPERATURE)))
 OLLAMA_JSON_MODE: bool = _env_bool("TASKFORGE_AI_OLLAMA_JSON_MODE", EXTERNAL_AI_JSON_MODE)

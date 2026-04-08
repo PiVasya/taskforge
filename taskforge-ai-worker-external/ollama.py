@@ -15,6 +15,8 @@ import requests
 
 from config import (
     EXTERNAL_AI_PROVIDER,
+    ACTIVE_PROVIDER,
+    ACTIVE_MODEL,
     EXTERNAL_AI_BASE_URL,
     EXTERNAL_AI_API_KEY,
     EXTERNAL_AI_MODEL,
@@ -52,11 +54,11 @@ class OllamaCallConfig:
     ) -> None:
         self.stage = stage
         self.timeout = timeout or TIMEOUT
-        default_attempts = EXTERNAL_AI_REQUEST_ATTEMPTS if EXTERNAL_AI_PROVIDER != "ollama" else OLLAMA_REQUEST_ATTEMPTS
+        default_attempts = EXTERNAL_AI_REQUEST_ATTEMPTS if ACTIVE_PROVIDER != "ollama" else OLLAMA_REQUEST_ATTEMPTS
         self.attempts = attempts or default_attempts
         self.num_predict = num_predict
-        default_temp = EXTERNAL_AI_TEMPERATURE if EXTERNAL_AI_PROVIDER != "ollama" else OLLAMA_TEMPERATURE
-        default_json = EXTERNAL_AI_JSON_MODE if EXTERNAL_AI_PROVIDER != "ollama" else OLLAMA_JSON_MODE
+        default_temp = EXTERNAL_AI_TEMPERATURE if ACTIVE_PROVIDER != "ollama" else OLLAMA_TEMPERATURE
+        default_json = EXTERNAL_AI_JSON_MODE if ACTIVE_PROVIDER != "ollama" else OLLAMA_JSON_MODE
         self.temperature = default_temp if temperature is None else temperature
         self.json_mode = default_json if json_mode is None else json_mode
         self.required_keys = [str(x) for x in (required_keys or []) if str(x).strip()]
@@ -174,7 +176,7 @@ def _parse_json_response(raw: str, *, required_keys: Iterable[str] | None = None
     parsed_candidates.sort(key=lambda item: item[0], reverse=True)
     best_score, best_label, best_parsed, best_variant = parsed_candidates[0]
     if best_label != "raw":
-        prefix = "ollama" if EXTERNAL_AI_PROVIDER == "ollama" else "external-llm"
+        prefix = "ollama" if ACTIVE_PROVIDER == "ollama" else "external-llm"
         log(f"{prefix} json repaired via {best_label} response_len={len(raw)} candidate_len={len(best_variant)} score={best_score}")
     return best_parsed
 
@@ -294,14 +296,14 @@ def _call_ollama(prompt: str, cfg: OllamaCallConfig) -> Dict[str, Any]:
 
 def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str, Any]:
     cfg = config or OllamaCallConfig()
-    provider = EXTERNAL_AI_PROVIDER or "openai_compatible"
+    provider = ACTIVE_PROVIDER or "openai_compatible"
     if provider == "ollama":
         model = OLLAMA_MODEL
         prefix = "ollama"
         attempts = cfg.attempts or OLLAMA_REQUEST_ATTEMPTS
         backoff = OLLAMA_RETRY_BACKOFF_SECONDS
     else:
-        model = EXTERNAL_AI_MODEL
+        model = ACTIVE_MODEL
         prefix = "external-llm"
         attempts = cfg.attempts or EXTERNAL_AI_REQUEST_ATTEMPTS
         backoff = EXTERNAL_AI_RETRY_BACKOFF_SECONDS

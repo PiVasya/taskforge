@@ -80,18 +80,18 @@ def heartbeat(job_id: str):
 
 
 def complete(job_id: str, result: Dict[str, Any]):
-    from config import OLLAMA_MODEL
+    from config import ACTIVE_MODEL
 
     result_json = json.dumps(result, ensure_ascii=False)
     status = result.get("status") if isinstance(result, dict) else None
     score = result.get("score") if isinstance(result, dict) else None
     keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
-    log(f"✓ complete job={job_id} model={OLLAMA_MODEL} result_len={len(result_json)} status={status} score={score} keys={keys}")
+    log(f"✓ complete job={job_id} model={ACTIVE_MODEL} result_len={len(result_json)} status={status} score={score} keys={keys}")
     post(
         f"/api/internal/ai/jobs/{job_id}/complete",
         {
             "workerId": WORKER_ID,
-            "modelName": OLLAMA_MODEL,
+            "modelName": ACTIVE_MODEL,
             "resultJson": result_json,
         },
         expected=[200, 404],

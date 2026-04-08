@@ -16,7 +16,8 @@ from config import (
     API_BASE,
     API_KEY,
     WORKER_ID,
-    OLLAMA_MODEL,
+    ACTIVE_MODEL,
+    ACTIVE_PROVIDER,
     POLL_INTERVAL,
     MAX_JOB_RETRIES,
     RETRYABLE_STAGE_DELAY_SECONDS,
@@ -923,7 +924,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 def main():
     if not API_KEY:
         raise RuntimeError("TASKFORGE_INTERNAL_KEY is not configured")
-    log(f"started api={API_BASE} worker={WORKER_ID} model={OLLAMA_MODEL} poll={POLL_INTERVAL}s")
+    log(f"started api={API_BASE} worker={WORKER_ID} provider={ACTIVE_PROVIDER} model={ACTIVE_MODEL} poll={POLL_INTERVAL}s")
     while True:
         loop_started = time.time()
         job = None

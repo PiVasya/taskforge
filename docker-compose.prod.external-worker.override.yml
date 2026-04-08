@@ -1,0 +1,14 @@
+services:
+  taskforge-ai-worker-external:
+    build:
+      context: ./taskforge-ai-worker-external
+      dockerfile: Dockerfile
+    image: taskforge-ai-worker-external:local
+    environment:
+      TASKFORGE_EXTERNAL_AI_PROVIDER: ${TASKFORGE_EXTERNAL_AI_PROVIDER:-openai_compatible}
+      TASKFORGE_EXTERNAL_AI_BASE_URL: ${TASKFORGE_EXTERNAL_AI_BASE_URL:-https://openrouter.ai/api/v1}
+      TASKFORGE_EXTERNAL_AI_MODEL: ${TASKFORGE_EXTERNAL_AI_MODEL:-qwen/qwen3.6-plus}
+      TASKFORGE_EXTERNAL_AI_API_KEY: ${TASKFORGE_EXTERNAL_AI_API_KEY}
+    depends_on:
+      api:
+        condition: service_healthy

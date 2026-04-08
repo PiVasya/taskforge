@@ -23,4 +23,6 @@ COPY --from=build /app/out .
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
+HEALTHCHECK --interval=10s --timeout=5s --retries=18 --start-period=35s CMD curl -fsS http://localhost:8080/health >/dev/null || exit 1
+
 ENTRYPOINT ["dotnet", "taskforge.dll"]
