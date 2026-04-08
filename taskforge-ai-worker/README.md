@@ -48,3 +48,25 @@ docker compose -f docker-compose.ai-worker.yaml up -d
 ```bash
 docker compose -f docker-compose.ai-worker.yaml --profile with-ollama up -d
 ```
+
+
+## Логи worker
+
+Worker пишет логи одновременно:
+- в stdout/stderr контейнера
+- в текстовый файл `TASKFORGE_AI_LOG_FILE` (по умолчанию `/app/logs/worker.log`)
+- в JSONL-файл `TASKFORGE_AI_JSON_LOG_FILE` (по умолчанию `/app/logs/worker.jsonl`)
+
+Рекомендуемый mount:
+
+```yaml
+volumes:
+  - ./logs/taskforge-ai-worker-external:/app/logs
+```
+
+Тогда после запуска можно забирать:
+
+```bash
+cat ./logs/taskforge-ai-worker-external/worker.log
+cat ./logs/taskforge-ai-worker-external/worker.jsonl
+```

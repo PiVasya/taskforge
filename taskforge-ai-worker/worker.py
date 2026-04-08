@@ -1,4 +1,4 @@
-﻿"""TaskForge AI Worker — thin orchestrator.
+"""TaskForge AI Worker — thin orchestrator.
 
 All business logic lives in dedicated modules:
   config, log, text_utils, api_client, runners, payload,
@@ -39,7 +39,7 @@ from config import (
     REFERENCE_PACK_MAX_RETRIES,
     BRIEF_MAX_RETRIES,
 )
-from log import log, logger
+from log import log, logger, log_event, preview_text, INCLUDE_PROMPTS, INCLUDE_RESPONSES, PROMPT_PREVIEW_CHARS, RESPONSE_PREVIEW_CHARS
 from api_client import pull_job, heartbeat, complete, fail
 from payload import parse_payload, sanitize_result_payload, _derive_course_style_title
 from validators import run_self_check
@@ -419,13 +419,57 @@ def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], j
     return sanitize_result_payload(job_type, payload, repaired)
 
 
+def _payload_overview(payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    info: Dict[str, Any] = {
+        'payload_keys': list(payload.keys())[:20],
+    }
+    if isinstance(payload.get('conversation'), list):
+        info['conversation_items'] = len(payload.get('conversation') or [])
+    if isinstance(payload.get('recentAttachments'), list):
+        info['recent_attachments'] = len(payload.get('recentAttachments') or [])
+    if isinstance(payload.get('referenceAssignments'), list):
+        info['reference_assignments'] = len(payload.get('referenceAssignments') or [])
+    if isinstance(payload.get('batchItems'), list):
+        info['batch_items'] = len(payload.get('batchItems') or [])
+    prompt = payload.get('prompt')
+    if INCLUDE_PROMPTS and isinstance(prompt, str) and prompt.strip():
+        info['prompt_preview'] = preview_text(prompt, PROMPT_PREVIEW_CHARS)
+    return info
+
+
+def _result_overview(result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {'result_type': type(result).__name__}
+    info: Dict[str, Any] = {
+        'result_keys': sorted(result.keys())[:20],
+        'result_status': result.get('status'),
+        'result_score': result.get('score'),
+    }
+    summary = result.get('summary') or result.get('assistantMessage') or result.get('message') or result.get('title')
+    if summary is not None:
+        info['result_summary'] = preview_text(summary, RESPONSE_PREVIEW_CHARS)
+    if INCLUDE_RESPONSES:
+        info['result_preview'] = preview_text(result, RESPONSE_PREVIEW_CHARS)
+    return info
+
+
 def _log_stage(event: str, job: Dict[str, Any], payload: Dict[str, Any] | None = None, **extra: Any) -> None:
-    parts = [event, _job_context(job, payload)]
+    fields: Dict[str, Any] = {
+        'job_context': _job_context(job, payload),
+    }
+    fields.update(_payload_overview(payload))
+    normalized_extra: Dict[str, Any] = {}
     for key, value in extra.items():
         if value is None:
             continue
-        parts.append(f"{key}={_preview(value, 160)}")
-    log(*parts)
+        if key == 'result' and isinstance(value, dict):
+            normalized_extra.update(_result_overview(value))
+        else:
+            normalized_extra[key] = value
+    fields.update(normalized_extra)
+    log_event(event, **fields)
 
 
 
@@ -645,7 +689,7 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
         fallback_job["inputJson"] = _json.dumps(enriched_payload, ensure_ascii=False)
         return sanitize_result_payload(job_type, enriched_payload, fallback_result(fallback_job))
     body_result = sanitize_result_payload(job_type, enriched_payload, body_result)
-    _log_stage("substage-done", job, enriched_payload, substage="draft_body_generate", result=_result_summary(body_result))
+    _log_stage("substage-done", job, enriched_payload, substage="draft_body_generate", result=body_result)
 
     title_prompt = build_draft_title_generate_prompt(job, enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})
     title_cfg = OllamaCallConfig(stage="draft_title_generate", timeout=min(40, llm_cfg.timeout), num_predict=120, temperature=0.08, required_keys=["title"], preferred_keys=["summary"])
@@ -663,10 +707,10 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
             repaired_title = call_ollama(repair_prompt, repair_cfg)
             if isinstance(repaired_title, dict) and str(repaired_title.get("title") or "").strip():
                 title_result = repaired_title
-            _log_stage("substage-done", job, enriched_payload, substage="draft_title_repair", result=_result_summary(repaired_title if isinstance(repaired_title, dict) else {"title": repaired_title}))
+            _log_stage("substage-done", job, enriched_payload, substage="draft_title_repair", result=(repaired_title if isinstance(repaired_title, dict) else {"title": repaired_title}))
         except Exception as ex:
             logger.warning(f"draft title repair failed: {ex} [{_job_context(job, enriched_payload)}]")
-    _log_stage("substage-done", job, enriched_payload, substage="draft_title_generate", result=_result_summary(title_result if isinstance(title_result, dict) else {"title": title_result}))
+    _log_stage("substage-done", job, enriched_payload, substage="draft_title_generate", result=(title_result if isinstance(title_result, dict) else {"title": title_result}))
 
     result = _merge_generated_title(body_result, title_result if isinstance(title_result, dict) else {}, enriched_payload)
     return sanitize_result_payload(job_type, enriched_payload, result)
@@ -747,7 +791,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             result = _normalize_chat_turn_result(payload, result)
         missing_reason = _schema_missing_reason(job_type, payload, result)
         if missing_reason:
-            _log_stage("stage-schema-invalid", job, payload, reason=missing_reason, result=_result_summary(result))
+            _log_stage("stage-schema-invalid", job, payload, reason=missing_reason, result=result)
             try:
                 result = _repair_invalid_stage_result(job, payload, job_type, result)
             except Exception as ex:
@@ -764,7 +808,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
                     result = sanitize_result_payload(job_type, payload, fallback_gap_analysis(payload, job))
                 else:
                     result = sanitize_result_payload(job_type, payload, fallback_result(fallback_job))
-        _log_stage("stage-done", job, payload, result=_result_summary(result))
+        _log_stage("stage-done", job, payload, result=result)
         return result
 
     def _ollama_stage(prompt_builder, fallback_fn=None, sanitize=True, allow_fallback=True, stage_name: str | None = None):
@@ -774,7 +818,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         llm_cfg = _stage_llm_config(job_type, payload, retry_count)
         if stage_name:
             llm_cfg.stage = stage_name
-        _log_stage("stage-prompt-ready", job, payload, builder=builder_name, prompt_len=len(prompt), timeout=llm_cfg.timeout, num_predict=llm_cfg.num_predict)
+        _log_stage("stage-prompt-ready", job, payload, builder=builder_name, prompt_len=len(prompt), prompt_preview=(preview_text(prompt, PROMPT_PREVIEW_CHARS) if INCLUDE_PROMPTS else None), timeout=llm_cfg.timeout, num_predict=llm_cfg.num_predict)
         try:
             result = call_ollama(prompt, llm_cfg)
         except Exception as ex:
@@ -794,7 +838,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             _log_stage("stage-fallback-result", job, payload, builder=builder_name, fallback_type=type(result).__name__, planner_fallback=planner_fallback_allowed)
         if sanitize:
             result = sanitize_result_payload(job_type, payload, result)
-            _log_stage("stage-sanitized", job, payload, result=_result_summary(result))
+            _log_stage("stage-sanitized", job, payload, result=result)
         return result
 
 
@@ -899,7 +943,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(repaired_draft, dict):
             result["draftValidation"] = run_self_check(repaired_draft)
             validation = result.get("draftValidation") if isinstance(result.get("draftValidation"), dict) else {}
-            _log_stage("stage-repair-validation", job, payload, validation=_result_summary(validation))
+            _log_stage("stage-repair-validation", job, payload, validation=validation)
         return _finish(result)
 
     # ── Default: generic generation ───────────────────
@@ -935,16 +979,16 @@ def main():
                 continue
             job_id = job["id"]
             heartbeat(job_id)
-            log(f"processing {_job_context(job)}")
+            log_event('job-processing', job_context=_job_context(job), retry_count=_job_retry_count(job))
             result = process_job(job)
-            log(f"completing {_job_context(job)} result={_result_summary(result)}")
+            log_event('job-completing', job_context=_job_context(job), **_result_overview(result))
             complete(job_id, result)
             elapsed = int((time.time() - loop_started) * 1000)
-            log(f"done {_job_context(job)} elapsed_ms={elapsed}")
+            log_event('job-done', job_context=_job_context(job), elapsed_ms=elapsed)
         except KeyboardInterrupt:
             raise
         except RetryableStageError as ex:
-            logger.warning(f"retryable stage error: {ex}")
+            log_event('job-retryable-error', level='warning', error=str(ex), job_context=_job_context(job or {}, (parse_payload(job.get('inputJson')) if isinstance(job, dict) and job.get('inputJson') else None) if job else None))
             if job_id:
                 retry_count = int(job.get("retryCount") or job.get("RetryCount") or 0) if isinstance(job, dict) else 0
                 retryable = retry_count < max(1, _stage_retry_limit((job.get("type") or "").lower().strip()) - 1)
@@ -956,6 +1000,7 @@ def main():
             time.sleep(POLL_INTERVAL)
         except Exception as ex:
             logger.error(f"loop error: {type(ex).__name__}: {ex}", exc_info=True)
+            log_event('worker-loop-error', level='error', error_type=type(ex).__name__, error=str(ex), job_context=_job_context(job or {}, (parse_payload(job.get('inputJson')) if isinstance(job, dict) and job.get('inputJson') else None) if job else None))
             if job_id:
                 try:
                     fail(job_id, f"{type(ex).__name__}: {ex}")

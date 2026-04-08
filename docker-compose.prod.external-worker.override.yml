@@ -9,6 +9,14 @@ services:
       TASKFORGE_EXTERNAL_AI_BASE_URL: ${TASKFORGE_EXTERNAL_AI_BASE_URL:-https://openrouter.ai/api/v1}
       TASKFORGE_EXTERNAL_AI_MODEL: ${TASKFORGE_EXTERNAL_AI_MODEL:-qwen/qwen3.6-plus}
       TASKFORGE_EXTERNAL_AI_API_KEY: ${TASKFORGE_EXTERNAL_AI_API_KEY}
+      TASKFORGE_AI_LOG_DIR: ${TASKFORGE_AI_LOG_DIR:-/app/logs}
+      TASKFORGE_AI_LOG_FILE: ${TASKFORGE_AI_LOG_FILE:-/app/logs/worker.log}
+      TASKFORGE_AI_JSON_LOG_FILE: ${TASKFORGE_AI_JSON_LOG_FILE:-/app/logs/worker.jsonl}
+      TASKFORGE_AI_LOG_LEVEL: ${TASKFORGE_AI_LOG_LEVEL:-INFO}
+      TASKFORGE_AI_LOG_INCLUDE_PROMPTS: ${TASKFORGE_AI_LOG_INCLUDE_PROMPTS:-true}
+      TASKFORGE_AI_LOG_INCLUDE_RESPONSES: ${TASKFORGE_AI_LOG_INCLUDE_RESPONSES:-true}
+    volumes:
+      - ./logs/taskforge-ai-worker-external:/app/logs
     depends_on:
       api:
         condition: service_healthy

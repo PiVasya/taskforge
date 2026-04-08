@@ -17,7 +17,7 @@ from config import (
     OLLAMA_RETRY_BACKOFF_SECONDS,
     OLLAMA_JSON_MODE,
 )
-from log import log
+from log import log, log_event, preview_text, INCLUDE_PROMPTS, INCLUDE_RESPONSES, PROMPT_PREVIEW_CHARS, RESPONSE_PREVIEW_CHARS
 
 
 class OllamaCallConfig:

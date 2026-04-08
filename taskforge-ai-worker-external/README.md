@@ -93,3 +93,25 @@ TASKFORGE_EXTERNAL_AI_MODEL=claude-sonnet-4-20250514
 - worker по-прежнему возвращает в backend `modelName`, `resultJson` и т.д.;
 - старый pipeline сохранён почти полностью, чтобы можно было сравнивать локальный и внешний AI;
 - этот вариант нужен именно для следующего шага: тестировать внешний AI без удаления старого локального worker-а.
+
+
+## Логи worker
+
+Worker пишет логи одновременно:
+- в stdout/stderr контейнера
+- в текстовый файл `TASKFORGE_AI_LOG_FILE` (по умолчанию `/app/logs/worker.log`)
+- в JSONL-файл `TASKFORGE_AI_JSON_LOG_FILE` (по умолчанию `/app/logs/worker.jsonl`)
+
+Рекомендуемый mount:
+
+```yaml
+volumes:
+  - ./logs/taskforge-ai-worker-external:/app/logs
+```
+
+Тогда после запуска можно забирать:
+
+```bash
+cat ./logs/taskforge-ai-worker-external/worker.log
+cat ./logs/taskforge-ai-worker-external/worker.jsonl
+```

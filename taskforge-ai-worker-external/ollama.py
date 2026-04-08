@@ -36,7 +36,7 @@ from config import (
     OLLAMA_REQUEST_ATTEMPTS,
     OLLAMA_RETRY_BACKOFF_SECONDS,
 )
-from log import log
+from log import log, log_event, preview_text, INCLUDE_PROMPTS, INCLUDE_RESPONSES, PROMPT_PREVIEW_CHARS, RESPONSE_PREVIEW_CHARS
 
 
 class OllamaCallConfig:
@@ -177,7 +177,7 @@ def _parse_json_response(raw: str, *, required_keys: Iterable[str] | None = None
     best_score, best_label, best_parsed, best_variant = parsed_candidates[0]
     if best_label != "raw":
         prefix = "ollama" if ACTIVE_PROVIDER == "ollama" else "external-llm"
-        log(f"{prefix} json repaired via {best_label} response_len={len(raw)} candidate_len={len(best_variant)} score={best_score}")
+        log_event('llm-json-repaired', provider=ACTIVE_PROVIDER, strategy=best_label, raw_len=len(raw), candidate_len=len(best_variant), score=best_score, candidate_preview=(preview_text(best_variant, RESPONSE_PREVIEW_CHARS) if INCLUDE_RESPONSES else None))
     return best_parsed
 
 
@@ -228,7 +228,7 @@ def _call_openai_compatible(prompt: str, cfg: OllamaCallConfig) -> Dict[str, Any
         used_json_hint = True
     resp = requests.post(f"{EXTERNAL_AI_BASE_URL}/chat/completions", json=body, headers=headers, timeout=cfg.timeout)
     if resp.status_code >= 400 and used_json_hint:
-        log(f"external-llm json_hint rejected for stage={cfg.stage}; retrying without response_format: {resp.text[:300]}")
+        log_event('llm-json-hint-rejected', level='warning', provider='openai_compatible', stage=cfg.stage, response_preview=preview_text(resp.text, RESPONSE_PREVIEW_CHARS))
         body.pop("response_format", None)
         resp = requests.post(f"{EXTERNAL_AI_BASE_URL}/chat/completions", json=body, headers=headers, timeout=cfg.timeout)
     if resp.status_code >= 400:
@@ -307,11 +307,7 @@ def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str
         prefix = "external-llm"
         attempts = cfg.attempts or EXTERNAL_AI_REQUEST_ATTEMPTS
         backoff = EXTERNAL_AI_RETRY_BACKOFF_SECONDS
-    log(
-        f"{prefix} >>> provider={provider} model={model} stage={cfg.stage} prompt_len={len(prompt)} "
-        f"attempts={attempts} timeout={cfg.timeout}s format={'json' if cfg.json_mode else 'text'} "
-        f"num_predict={cfg.num_predict or '-'}"
-    )
+    log_event('llm-request-start', provider=provider, model=model, stage=cfg.stage, prompt_len=len(prompt), attempts=attempts, timeout_seconds=cfg.timeout, format=('json' if cfg.json_mode else 'text'), num_predict=(cfg.num_predict or '-'), prompt_preview=(preview_text(prompt, PROMPT_PREVIEW_CHARS) if INCLUDE_PROMPTS else None))
     last_error: Exception | None = None
     for attempt in range(1, max(1, attempts) + 1):
         started = time.time()
@@ -323,12 +319,12 @@ def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str
             else:
                 parsed = _call_openai_compatible(prompt, cfg)
             elapsed_ms = int((time.time() - started) * 1000)
-            log(f"{prefix} <<< provider={provider} stage={cfg.stage} attempt={attempt}/{attempts} {elapsed_ms}ms response_len={len(json.dumps(parsed, ensure_ascii=False))}")
+            log_event('llm-request-success', provider=provider, model=model, stage=cfg.stage, attempt=f'{attempt}/{attempts}', elapsed_ms=elapsed_ms, response_len=len(json.dumps(parsed, ensure_ascii=False)), response_preview=(preview_text(parsed, RESPONSE_PREVIEW_CHARS) if INCLUDE_RESPONSES else None))
             return parsed
         except Exception as ex:
             elapsed_ms = int((time.time() - started) * 1000)
             last_error = ex
-            log(f"{prefix} !!! provider={provider} stage={cfg.stage} attempt={attempt}/{attempts} failed after {elapsed_ms}ms error={ex}")
+            log_event('llm-request-failed', level='warning', provider=provider, model=model, stage=cfg.stage, attempt=f'{attempt}/{attempts}', elapsed_ms=elapsed_ms, error=str(ex))
             if attempt >= max(1, attempts):
                 break
             time.sleep(max(1, backoff) * attempt)

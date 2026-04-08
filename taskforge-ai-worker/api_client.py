@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from config import API_BASE, WORKER_ID, CAPABILITIES, session
-from log import log, log_debug, logger
+from log import log, log_debug, logger, log_event, preview_text
 
 
 def _preview(value: Any, limit: int = 160) -> str:
@@ -64,7 +64,7 @@ def pull_job() -> Optional[Dict[str, Any]]:
         log_debug(f"pull idle worker={WORKER_ID} caps={CAPABILITIES}")
         return None
     job = resp.json()
-    log(f"→ picked {_job_summary(job)}")
+    log_event('job-picked', job=_job_summary(job))
     return job
 
 
@@ -99,7 +99,7 @@ def complete(job_id: str, result: Dict[str, Any]):
 
 
 def fail(job_id: str, error_text: str, retryable: bool = True, retry_delay_seconds: int = 120):
-    logger.warning(f"✗ fail job={job_id} retryable={retryable} delay={retry_delay_seconds}s error={error_text[:200]}")
+    log_event('job-fail-api', level='warning', job_id=job_id, retryable=retryable, retry_delay_seconds=retry_delay_seconds, error=error_text[:500])
     post(
         f"/api/internal/ai/jobs/{job_id}/fail",
         {
