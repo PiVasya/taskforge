@@ -202,7 +202,7 @@ public sealed class AdminAiChatController : ControllerBase
         var value = string.IsNullOrWhiteSpace(raw) ? "taskforge-ai-chat-history" : raw.Trim();
         foreach (var c in Path.GetInvalidFileNameChars())
             value = value.Replace(c, '-');
-        value = Regex.Replace(value, "\s+", "-").Trim('-');
+        value = Regex.Replace(value, @"\s+", "-").Trim('-');
         return string.IsNullOrWhiteSpace(value) ? "taskforge-ai-chat-history" : value;
     }
 
@@ -297,9 +297,7 @@ public sealed class AdminAiChatController : ControllerBase
             }
         }
 
-        return parts.Count == 0 ? null : string.Join("
-
-", parts);
+        return parts.Count == 0 ? null : string.Join("\n\n", parts);
     }
 
     private static string? ExtractDocxText(ZipArchive archive)

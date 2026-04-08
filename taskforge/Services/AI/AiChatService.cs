@@ -1321,7 +1321,7 @@ public sealed class AiChatService
 
     private static string ShortenSingleLine(string value, int maxLen)
     {
-        var normalized = Regex.Replace(value ?? string.Empty, "\s+", " ").Trim();
+        var normalized = Regex.Replace(value ?? string.Empty, @"\s+", " ").Trim();
         if (string.IsNullOrWhiteSpace(normalized))
             return string.Empty;
         return normalized.Length <= maxLen ? normalized : normalized[..Math.Max(1, maxLen - 1)] + "…";
