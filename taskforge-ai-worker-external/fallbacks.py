@@ -1,4 +1,4 @@
-"""Fallback result builders — invoked when Ollama is unavailable or when
+﻿"""Fallback result builders — invoked when Ollama is unavailable or when
 a quick deterministic answer is acceptable.
 
 BUG-FIX: ``fallback_result`` for ``assignment_brief_generate`` had the key
@@ -34,6 +34,15 @@ from reviews import (
     run_runtime_review,
     run_brief_review,
 )
+
+
+
+def _supported_code_languages(payload: Dict[str, Any]) -> List[str]:
+    langs = payload.get("supportedLanguages") if isinstance(payload.get("supportedLanguages"), list) else []
+    langs = unique_string_list(langs, 10)
+    if langs:
+        return langs
+    return ["cpp", "csharp", "python", "javascript", "java", "pascal"]
 
 
 # ── Fallback: course profile ─────────────────────────
@@ -142,7 +151,7 @@ def _build_matrix_plan_tasks(count: int, base_difficulty: int, use_oop: bool = F
 def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     count = max(1, safe_int(payload.get("count"), 1))
     prompt = normalize_text(payload.get("prompt"))
-    base_difficulty = max(1, min(5, safe_int(payload.get("difficulty"), 2)))
+    base_difficulty = max(1, min(3, safe_int(payload.get("difficulty"), 2)))
 
     unique_words = _extract_prompt_seeds(prompt)
     biases = extract_historical_skill_biases(payload)
@@ -155,7 +164,7 @@ def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     tasks: List[Dict[str, Any]] = []
     for i in range(count):
         seed = seeds[i % len(seeds)]
-        difficulty = max(1, min(5, base_difficulty + (1 if i >= max(2, count // 2) else 0) + (1 if i >= max(4, count - 2) else 0)))
+        difficulty = max(1, min(3, base_difficulty + (1 if i >= max(2, count // 2) else 0)))
         anti = ["Избегай дословного дублирования referenceAssignments"]
         if biases["weak"]:
             anti.append("Не повторяй исторически слабые patterns из historicalPlannerPriors")
@@ -241,7 +250,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 "difficulty": 2,
                 "rating": 1,
                 "tags": "ai,fallback,code",
-                "allowedLanguages": ["python", "cpp", "csharp"],
+                "allowedLanguages": _supported_code_languages(payload),
                 "publicTests": [
                     {"input": "2\n", "expectedOutput": "3"},
                     {"input": "5\n", "expectedOutput": "15"},
@@ -250,6 +259,8 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                     {"input": "1\n", "expectedOutput": "1"},
                     {"input": "10\n", "expectedOutput": "55"},
                     {"input": "1000\n", "expectedOutput": "500500"},
+                    {"input": "99999\n", "expectedOutput": "4999950000"},
+                    {"input": "123456\n", "expectedOutput": "7620753696"},
                 ],
                 "referenceSolutionPython": (
                     "import sys\n\n"
@@ -262,7 +273,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 "requiredCalls": [],
                 "forbiddenCalls": [],
             }
-            return attach_self_check({"draft": draft}, draft, run_self_check(draft))
+            return attach_self_check({"schemaVersion": "draft-v2", "draft": draft}, draft, run_self_check(draft))
         if assignment_type == "test":
             draft = {
                 "meta": {"generationSource": "fallback", "publishBlockedReason": "model-unavailable"},
@@ -280,7 +291,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                     {"type": "text", "prompt": "Введите слово test", "acceptedAnswers": ["test"]},
                 ],
             }
-            return attach_self_check({"draft": draft}, draft, run_self_check(draft))
+            return attach_self_check({"schemaVersion": "draft-v2", "draft": draft}, draft, run_self_check(draft))
         # math (default)
         draft = {
             "assignmentType": "math",
@@ -291,11 +302,11 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
             "difficulty": 2, "rating": 1, "tags": "ai,fallback,math",
             "settings": {"maxAttempts": 3, "passPercent": 60, "shuffleBlocks": False, "allowReview": True},
             "blocks": [
-                {"blockType": "info", "title": "Условие", "prompt": "Найдите значение выражения 2 + 2.", "points": 0},
-                {"blockType": "number", "title": "Ответ", "prompt": "Введите ответ", "acceptedAnswers": ["4"], "points": 1},
+                {"kind": "info", "prompt": "Найдите значение выражения 2 + 2.", "score": 0, "isRequired": True},
+                {"kind": "number", "prompt": "Введите ответ", "acceptedAnswers": ["4"], "score": 1, "isRequired": True, "caseSensitive": False, "trim": True, "numericTolerance": 0},
             ],
         }
-        return attach_self_check({"draft": draft}, draft, run_self_check(draft))
+        return attach_self_check({"schemaVersion": "draft-v2", "draft": draft}, draft, run_self_check(draft))
 
     # ── profiling/gap ─────────────────────────────────
     if t == "assignment_course_profile_build":
@@ -346,7 +357,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 "testFingerprint": {"publicTests": "простые и читаемые", "hiddenTests": "маленькие edge cases"},
                 "phraseBank": {"intro": ["Составьте программу...", "Требуется..."], "constraints": ["Ограничения:"]},
             },
-            "policyPack": {"allowedLanguages": payload.get("assignmentType"), "requiredCalls": [], "forbiddenCalls": []},
+            "policyPack": {"allowedLanguages": _supported_code_languages(payload) if (payload.get("assignmentType") or "").strip().lower() == "code-test" else [], "requiredCalls": [], "forbiddenCalls": []},
             "negativePack": {"avoid": avoid, "historicalAntiPatterns": priors.get("antiPatterns") or [], "negativeAnchors": negative_anchors},
             "exemplarPack": {"selectedReferences": refs, "styleAnchors": style_anchors, "difficultyAnchors": difficulty_anchors, "topicAnchors": topic_anchors, "negativeAnchors": negative_anchors},
             "signals": {"targetSkill": brief.get("targetSkill") or brief.get("titleHint"), "difficultyTarget": brief.get("difficultyTarget") or payload.get("difficulty") or 2, "historicalSlotPriors": slot_priors},

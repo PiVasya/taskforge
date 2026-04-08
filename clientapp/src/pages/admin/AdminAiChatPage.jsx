@@ -82,6 +82,22 @@ function normalizeToolResults(message) {
   return message?.toolResult ? [message.toolResult] : [];
 }
 
+function getAssistantQuickReplies(message) {
+  const text = String(message?.content || '').toLowerCase();
+  if (!text) return [];
+  if (text.includes('сколько задач') || text.includes('сколько заданий') || text.includes('не указал количество')) {
+    return [3, 5, 7, 10, 12].map((count) => ({
+      key: `count-${count}`,
+      label: `${count} задач`,
+      message: `Запускай ${count} задач по этому плану.`,
+    }));
+  }
+  if (text.includes('курс') && text.includes('не выбран')) {
+    return [{ key: 'pick-course', label: 'Сначала выберу курс', message: '' }];
+  }
+  return [];
+}
+
 function triggerDownload(blob, fileName) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -217,11 +233,12 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
   );
 }
 
-function MessageBubble({ sessionId, message, onConfirm, actionBusy }) {
+function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy }) {
   const isAssistant = String(message?.role || '').toLowerCase() === 'assistant';
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
   const toolCalls = normalizeToolCalls(message);
   const toolResults = normalizeToolResults(message);
+  const quickReplies = isAssistant && toolCalls.length === 0 && toolResults.length === 0 ? getAssistantQuickReplies(message) : [];
 
   return (
     <div className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
@@ -271,6 +288,22 @@ function MessageBubble({ sessionId, message, onConfirm, actionBusy }) {
             actionBusy={actionBusy}
           />
         ))}
+
+        {quickReplies.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {quickReplies.map((item) => (
+              <Button
+                key={item.key}
+                type="button"
+                variant="outline"
+                onClick={() => onQuickReply?.(item.message)}
+                disabled={actionBusy || !item.message}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -292,26 +325,34 @@ export default function AdminAiChatPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
+  const previousPendingRef = useRef(false);
 
+  const currentMessages = useMemo(() => (Array.isArray(session?.messages) ? session.messages : []), [session?.messages]);
   const pending = useMemo(
-    () => Array.isArray(session?.messages) && session.messages.some((x) => x.role === 'assistant' && x.status === 'processing'),
-    [session],
+    () => currentMessages.some((x) => x.role === 'assistant' && x.status === 'processing'),
+    [currentMessages],
   );
+  const lastAssistantMessage = useMemo(() => ([...currentMessages].reverse().find((x) => x.role === 'assistant' && x.status !== 'processing') || null), [currentMessages]);
 
-  const upsertSessionListItem = useCallback((full) => ({
-    id: full.id,
-    courseId: full.courseId,
-    courseTitle: full.courseTitle,
-    title: full.title,
-    lastMessagePreview: full.messages?.[full.messages.length - 1]?.content || null,
-    memorySummary: full.memory?.summary || null,
-    messageCount: full.memory?.messageCount || full.messages?.length || 0,
-    isPending: full.messages?.some((x) => x.role === 'assistant' && x.status === 'processing') || false,
-    createdAtUtc: full.createdAtUtc,
-    updatedAtUtc: full.updatedAtUtc,
-  }), []);
+  const upsertSessionListItem = useCallback((full) => {
+    const messages = Array.isArray(full?.messages) ? full.messages : [];
+    const lastStable = [...messages].reverse().find((x) => x?.status !== 'processing') || messages[messages.length - 1];
+    return {
+      id: full.id,
+      courseId: full.courseId,
+      courseTitle: full.courseTitle,
+      title: full.title,
+      lastMessagePreview: lastStable?.content || null,
+      memorySummary: full.memory?.summary || null,
+      messageCount: full.memory?.messageCount || messages.length || 0,
+      isPending: messages.some((x) => x.role === 'assistant' && x.status === 'processing'),
+      createdAtUtc: full.createdAtUtc,
+      updatedAtUtc: full.updatedAtUtc,
+    };
+  }, []);
 
   const loadSessions = useCallback(async (preferredId) => {
     const list = await getAiChatSessions();
@@ -359,6 +400,13 @@ export default function AdminAiChatPage() {
     }, 3000);
     return () => clearInterval(timer);
   }, [pending, sessionId, upsertSessionListItem]);
+
+  useEffect(() => {
+    if (previousPendingRef.current && !pending && lastAssistantMessage?.status === 'done') {
+      notify.success('AI ответила в текущем чате');
+    }
+    previousPendingRef.current = pending;
+  }, [lastAssistantMessage, notify, pending]);
 
   useEffect(() => {
     const node = listRef.current;
@@ -475,6 +523,12 @@ export default function AdminAiChatPage() {
     }
   }, [notify, sessionId, upsertSessionListItem]);
 
+  const onQuickReply = useCallback((nextMessage) => {
+    if (!nextMessage) return;
+    setMessage(nextMessage);
+    onSend(nextMessage);
+  }, [onSend]);
+
   const renameCurrent = async () => {
     if (!sessionId) return;
     const nextTitle = window.prompt('Новое название чата', session?.title || '');
@@ -532,7 +586,6 @@ export default function AdminAiChatPage() {
       .some((value) => String(value).toLowerCase().includes(q)));
   }, [sessionSearch, sessions]);
 
-  const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
 
   return (
     <Layout fullWidth>
@@ -629,12 +682,22 @@ export default function AdminAiChatPage() {
             </div>
           </div>
 
-          <div className="px-5 py-4 border-b border-neutral-200/50 dark:border-neutral-800/80 bg-[rgba(var(--accent)/0.03)] space-y-3">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
-              <div>
-                <div className="text-xs uppercase tracking-[0.18em] opacity-60">Быстрые идеи</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {SUGGESTIONS.map((item) => (
+          <div className="px-5 py-3 border-b border-neutral-200/50 dark:border-neutral-800/80 bg-[rgba(var(--accent)/0.03)] space-y-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">Память сессии</Badge>
+                  {session?.memory?.messageCount ? <Badge variant="success">{session.memory.messageCount} сообщений</Badge> : null}
+                  {pending ? <Badge variant="outline">AI думает…</Badge> : null}
+                  <Button type="button" variant="outline" onClick={() => setShowMemory((v) => !v)}>
+                    {showMemory ? 'Скрыть детали' : 'Показать память'}
+                  </Button>
+                </div>
+                <div className="mt-2 text-sm leading-6 opacity-75 whitespace-pre-wrap">
+                  {lastAssistantMessage?.content || session?.memory?.summary || 'Это полноценный чат: AI помнит прошлые сообщения, файлы и действия в рамках этой сессии.'}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {SUGGESTIONS.slice(0, 3).map((item) => (
                     <button
                       key={item}
                       type="button"
@@ -646,17 +709,21 @@ export default function AdminAiChatPage() {
                   ))}
                 </div>
               </div>
-              <Field label="Курс текущего чата" hint="Можно менять на лету — AI начнёт использовать новый контекст курса в следующих ходах.">
-                <Select value={session?.courseId || ''} onChange={(e) => syncCurrentCourse(e.target.value)} disabled={!sessionId || pending || actionBusy}>
-                  <option value="">Без привязки к курсу</option>
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>{course.title}</option>
-                  ))}
-                </Select>
-              </Field>
+              <div className="w-full lg:w-[280px]">
+                <Field label="Курс текущего чата" hint="Можно менять на лету — следующий ответ уже будет с новым контекстом курса.">
+                  <Select value={session?.courseId || ''} onChange={(e) => syncCurrentCourse(e.target.value)} disabled={!sessionId || pending || actionBusy}>
+                    <option value="">Без привязки к курсу</option>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>{course.title}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
             </div>
 
-            <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
+            {showMemory ? (
+              <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
+            ) : null}
           </div>
 
           <div ref={listRef} className="flex-1 px-5 py-5 space-y-4 overflow-y-auto bg-[rgba(var(--accent)/0.02)]">
@@ -673,15 +740,25 @@ export default function AdminAiChatPage() {
                   </div>
                 </div>
               </div>
-            ) : currentMessages.map((item) => (
-              <MessageBubble
-                key={item.id || `${item.role}-${item.createdAtUtc}`}
-                sessionId={sessionId}
-                message={item}
-                onConfirm={onConfirmTool}
-                actionBusy={actionBusy}
-              />
-            ))}
+            ) : (
+              <>
+                {pending ? (
+                  <div className="rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-4 py-3 text-sm">
+                    <div className="inline-flex items-center gap-2"><LoaderCircle size={16} className="animate-spin" /> AI обрабатывает последний запрос. Ответ появится здесь автоматически.</div>
+                  </div>
+                ) : null}
+                {currentMessages.map((item) => (
+                  <MessageBubble
+                    key={item.id || `${item.role}-${item.createdAtUtc}`}
+                    sessionId={sessionId}
+                    message={item}
+                    onConfirm={onConfirmTool}
+                    onQuickReply={onQuickReply}
+                    actionBusy={actionBusy || sending}
+                  />
+                ))}
+              </>
+            )}
           </div>
 
           <div className="border-t border-neutral-200/70 dark:border-neutral-800 p-4 space-y-3">

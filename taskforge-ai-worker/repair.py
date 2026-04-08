@@ -5,6 +5,7 @@ BUG-FIX: ``int()`` calls replaced with ``safe_int()`` throughout.
 """
 
 import json
+import re
 import time
 from typing import Any, Dict, List
 
@@ -43,14 +44,8 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
         repaired["description"] = normalize_text(description)
 
     if repaired.get("assignmentType") == "code-test":
-        public_tests = [dict(x) for x in list(repaired.get("publicTests") or []) if isinstance(x, dict)]
-        hidden_tests = [dict(x) for x in list(repaired.get("hiddenTests") or []) if isinstance(x, dict)]
-        while len(public_tests) < MIN_PUBLIC_TESTS and hidden_tests:
-            public_tests.append(hidden_tests.pop(0))
-        while len(hidden_tests) < MIN_HIDDEN_TESTS and public_tests:
-            hidden_tests.append(dict(public_tests[len(hidden_tests) % len(public_tests)]))
-        repaired["publicTests"] = public_tests
-        repaired["hiddenTests"] = hidden_tests
+        repaired["publicTests"] = [dict(x) for x in list(repaired.get("publicTests") or []) if isinstance(x, dict)]
+        repaired["hiddenTests"] = [dict(x) for x in list(repaired.get("hiddenTests") or []) if isinstance(x, dict)]
         repaired["requiredCalls"] = list(repaired.get("requiredCalls") or [])
         repaired["forbiddenCalls"] = list(repaired.get("forbiddenCalls") or [])
 
@@ -79,6 +74,7 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
     repaired_wrapped = wrapped.get("draft") if isinstance(wrapped.get("draft"), dict) else repaired
     validation = run_self_check(repaired_wrapped)
     return {
+        "schemaVersion": normalize_text(payload.get("schemaVersion")) or "draft-v2",
         "draft": repaired_wrapped,
         "repairSummary": f"Fallback repair applied via route {primary_route} without deterministic subject templates.",
         "draftValidation": validation,

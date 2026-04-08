@@ -1,12 +1,6 @@
-"""External LLM client with provider-aware transport and JSON repair.
-
-Despite the module name and API shape, this file is used by the external AI worker.
-It intentionally keeps the `call_ollama` / `OllamaCallConfig` interface so the copied
-worker pipeline can remain almost identical to the legacy local-Ollama worker.
-"""
+"""Ollama LLM client with stage-aware budgets and JSON repair."""
 
 import json
-import os
 import re
 import time
 from typing import Any, Dict, Iterable
@@ -14,13 +8,10 @@ from typing import Any, Dict, Iterable
 import requests
 
 from config import (
-    EXTERNAL_AI_PROVIDER,
-    EXTERNAL_AI_BASE_URL,
-    EXTERNAL_AI_API_KEY,
-    EXTERNAL_AI_ANTHROPIC_VERSION,
-    EXTERNAL_AI_EXTRA_HEADERS_RAW,
+    OLLAMA_BASE,
     OLLAMA_MODEL,
     OLLAMA_TEMPERATURE,
+    OLLAMA_NUM_CTX,
     TIMEOUT,
     OLLAMA_REQUEST_ATTEMPTS,
     OLLAMA_RETRY_BACKOFF_SECONDS,
@@ -159,119 +150,18 @@ def _parse_json_response(raw: str, *, required_keys: Iterable[str] | None = None
             except Exception as ex:
                 last_error = ex
     if not parsed_candidates:
-        raise RuntimeError(f"Could not parse external LLM JSON response: {last_error}")
+        raise RuntimeError(f"Could not parse Ollama JSON response: {last_error}")
     parsed_candidates.sort(key=lambda item: item[0], reverse=True)
     best_score, best_label, best_parsed, best_variant = parsed_candidates[0]
     if best_label != "raw":
-        log(f"external-llm json repaired via {best_label} response_len={len(raw)} candidate_len={len(best_variant)} score={best_score}")
+        log(f"ollama json repaired via {best_label} response_len={len(raw)} candidate_len={len(best_variant)} score={best_score}")
     return best_parsed
-
-
-def _extra_headers() -> Dict[str, str]:
-    raw = (EXTERNAL_AI_EXTRA_HEADERS_RAW or "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return {str(k): str(v) for k, v in parsed.items()}
-    except Exception:
-        pass
-    headers: Dict[str, str] = {}
-    for line in raw.splitlines():
-        if ":" not in line:
-            continue
-        name, value = line.split(":", 1)
-        headers[name.strip()] = value.strip()
-    return headers
-
-
-def _extract_message_text(data: Dict[str, Any]) -> str:
-    if EXTERNAL_AI_PROVIDER == "anthropic":
-        content = data.get("content") or []
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    parts.append(str(item.get("text") or ""))
-            elif isinstance(item, str):
-                parts.append(item)
-        return "\n".join(x for x in parts if x).strip()
-
-    choices = data.get("choices") or []
-    if not choices:
-        return ""
-    message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-    content = message.get("content") if isinstance(message, dict) else ""
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                if item.get("type") in {"text", "output_text"}:
-                    parts.append(str(item.get("text") or item.get("content") or ""))
-                elif "text" in item:
-                    parts.append(str(item.get("text") or ""))
-            elif isinstance(item, str):
-                parts.append(item)
-        return "\n".join(x for x in parts if x).strip()
-    return str(content or "").strip()
-
-
-def _request_openai_compatible(prompt: str, cfg: OllamaCallConfig, timeout: int, use_json_hint: bool) -> Dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {EXTERNAL_AI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    headers.update(_extra_headers())
-    body: Dict[str, Any] = {
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": cfg.temperature,
-    }
-    if cfg.num_predict is not None:
-        body["max_tokens"] = cfg.num_predict
-    if use_json_hint and cfg.json_mode:
-        body["response_format"] = {"type": "json_object"}
-    resp = requests.post(
-        f"{EXTERNAL_AI_BASE_URL}/chat/completions",
-        json=body,
-        headers=headers,
-        timeout=timeout,
-    )
-    if resp.status_code >= 400:
-        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-    return resp.json()
-
-
-def _request_anthropic(prompt: str, cfg: OllamaCallConfig, timeout: int) -> Dict[str, Any]:
-    headers = {
-        "x-api-key": EXTERNAL_AI_API_KEY,
-        "anthropic-version": EXTERNAL_AI_ANTHROPIC_VERSION,
-        "content-type": "application/json",
-    }
-    headers.update(_extra_headers())
-    body: Dict[str, Any] = {
-        "model": OLLAMA_MODEL,
-        "max_tokens": cfg.num_predict or 1024,
-        "temperature": cfg.temperature,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    resp = requests.post(
-        f"{EXTERNAL_AI_BASE_URL}/messages",
-        json=body,
-        headers=headers,
-        timeout=timeout,
-    )
-    if resp.status_code >= 400:
-        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-    return resp.json()
 
 
 def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str, Any]:
     cfg = config or OllamaCallConfig()
-    provider = EXTERNAL_AI_PROVIDER or "openai_compatible"
     log(
-        f"external-llm >>> provider={provider} model={OLLAMA_MODEL} stage={cfg.stage} prompt_len={len(prompt)} "
+        f"ollama >>> stage={cfg.stage} model={OLLAMA_MODEL} prompt_len={len(prompt)} "
         f"attempts={cfg.attempts} timeout={cfg.timeout}s format={'json' if cfg.json_mode else 'text'} "
         f"num_predict={cfg.num_predict or '-'}"
     )
@@ -279,34 +169,38 @@ def call_ollama(prompt: str, config: OllamaCallConfig | None = None) -> Dict[str
     for attempt in range(1, max(1, cfg.attempts) + 1):
         started = time.time()
         try:
-            if not EXTERNAL_AI_API_KEY:
-                raise RuntimeError("TASKFORGE_EXTERNAL_AI_API_KEY is empty")
-            if provider == "anthropic":
-                data = _request_anthropic(prompt, cfg, cfg.timeout)
-            elif provider in {"openai", "openai_compatible", "deepseek", "openrouter", "dashscope", "qwen"}:
-                try:
-                    data = _request_openai_compatible(prompt, cfg, cfg.timeout, True)
-                except Exception as ex:
-                    # Some providers reject response_format=json_object. Retry once without it.
-                    if cfg.json_mode and attempt <= cfg.attempts:
-                        log(f"external-llm json_hint rejected for stage={cfg.stage}; retrying without response_format: {ex}")
-                        data = _request_openai_compatible(prompt, cfg, cfg.timeout, False)
-                    else:
-                        raise
-            else:
-                raise RuntimeError(f"Unsupported external provider: {provider}")
+            body: Dict[str, Any] = {
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": cfg.temperature,
+                    "num_ctx": OLLAMA_NUM_CTX,
+                },
+            }
+            if cfg.num_predict is not None:
+                body["options"]["num_predict"] = cfg.num_predict
+            if cfg.json_mode:
+                body["format"] = "json"
+            resp = requests.post(
+                f"{OLLAMA_BASE}/api/generate",
+                json=body,
+                timeout=cfg.timeout,
+            )
             elapsed_ms = int((time.time() - started) * 1000)
-            raw = _extract_message_text(data)
+            resp.raise_for_status()
+            data = resp.json()
+            raw = (data.get("response") or "").strip()
             if not raw:
-                raise RuntimeError("External LLM returned empty response")
+                raise RuntimeError("Ollama returned empty response")
             parsed = _parse_json_response(raw, required_keys=cfg.required_keys, preferred_keys=cfg.preferred_keys) if cfg.json_mode else {"text": raw}
-            log(f"external-llm <<< provider={provider} stage={cfg.stage} attempt={attempt}/{cfg.attempts} {elapsed_ms}ms response_len={len(raw)}")
+            log(f"ollama <<< stage={cfg.stage} attempt={attempt}/{cfg.attempts} {elapsed_ms}ms response_len={len(raw)}")
             return parsed
         except Exception as ex:
             elapsed_ms = int((time.time() - started) * 1000)
             last_error = ex
-            log(f"external-llm !!! provider={provider} stage={cfg.stage} attempt={attempt}/{cfg.attempts} failed after {elapsed_ms}ms error={ex}")
+            log(f"ollama !!! stage={cfg.stage} attempt={attempt}/{cfg.attempts} failed after {elapsed_ms}ms error={ex}")
             if attempt >= max(1, cfg.attempts):
                 break
             time.sleep(max(1, OLLAMA_RETRY_BACKOFF_SECONDS) * attempt)
-    raise RuntimeError(f"External LLM failed after {cfg.attempts} attempt(s): {last_error}")
+    raise RuntimeError(f"Ollama failed after {cfg.attempts} attempt(s): {last_error}")

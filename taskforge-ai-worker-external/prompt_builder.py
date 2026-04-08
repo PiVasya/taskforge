@@ -277,6 +277,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "memory — это долговременная память всей сессии: прошлые цели пользователя, вложения, уже выполненные действия и найденные сущности. "
         "Если пользователь пишет 'продолжай', 'сделай ещё', 'начинай' или подобный короткий follow-up, сперва опирайся на memory и последние toolResults, а не проси заново весь контекст.\\n\\n"
         "Когда пользователь просит создать пакет заданий на несколько элементов, обычно подходит queue_generate_batch. "
+        "Если пользователь хочет несколько заданий, но не указал количество явно, не подставляй count молча из defaults: сначала задай короткий уточняющий вопрос про количество и не запускай action. "
         "Когда пользователь просит сгенерировать задание(я) из текста — queue_generate_from_text. "
         "Когда пользователь явно просит использовать прикреплённый файл — queue_generate_from_file. "
         "Когда пользователь просит проверить/провалидировать draft — queue_validate_draft. "
@@ -498,9 +499,8 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
             '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
         )
     elif stage == "draft_generate":
-        expected = (
-            '{"draft":{"assignmentType":"code-test","title":"...","description":"Постановка задачи...\n\nВходные данные...\n\nВыходные данные...","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-generate-repair"}}'
-        )
+        assignment_type = normalize_text(payload.get("assignmentType") or "code-test") or "code-test"
+        expected = _draft_response_format(assignment_type, include_pending_title=False, min_public=MIN_PUBLIC_TESTS, min_hidden=MIN_HIDDEN_TESTS)
     else:
         expected = (
             '{"canonicalRequest":{"domain":"...","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
@@ -743,186 +743,227 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
     )
 
 
-def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
-    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
-    reference_pack = payload.get("referencePack") if isinstance(payload.get("referencePack"), dict) else {}
-    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
-    quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
-    style_analysis = payload.get("styleAnalysis") if isinstance(payload.get("styleAnalysis"), dict) else {}
-    generation_spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
-    content_plan = payload.get("contentPlan") if isinstance(payload.get("contentPlan"), dict) else {}
-    compact_payload = {
-        "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
-        "courseId": payload.get("courseId"),
-        "batchId": payload.get("batchId"),
-        "batchItemId": payload.get("batchItemId"),
-        "difficulty": safe_int(payload.get("difficulty"), safe_int(brief.get("difficultyTarget"), 2)),
-        "titleHint": truncate_text(payload.get("titleHint") or brief.get("titleHint") or task.get("targetSkill"), 160),
-        "prompt": truncate_text(payload.get("prompt") or brief.get("generationPrompt"), 500),
-        "sourceText": truncate_text(payload.get("sourceText") or brief.get("sourceText") or brief.get("summary"), 500),
-        "notes": truncate_text(payload.get("notes") or brief.get("notes"), 320),
-        "brief": {
-            "summary": truncate_text(brief.get("summary"), 260),
-            "generationPrompt": truncate_text(brief.get("generationPrompt"), 700),
-            "sourceText": truncate_text(brief.get("sourceText"), 400),
-            "difficultyTarget": brief.get("difficultyTarget"),
-            "targetSkill": truncate_text(brief.get("targetSkill"), 160),
-            "titleHint": truncate_text(brief.get("titleHint"), 160),
-        },
-        "task": {
-            "targetSkill": truncate_text(task.get("targetSkill") or task.get("TargetSkill"), 160),
-            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 260),
-            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
-        },
-        "qualityGates": quality_gates,
-        "referencePack": {
-            "stylePack": reference_pack.get("stylePack") if isinstance(reference_pack.get("stylePack"), dict) else {},
-            "negativePack": reference_pack.get("negativePack") if isinstance(reference_pack.get("negativePack"), dict) else reference_pack.get("negativePack"),
-            "signals": reference_pack.get("signals") if isinstance(reference_pack.get("signals"), dict) else {},
-            "generationHints": reference_pack.get("generationHints") if isinstance(reference_pack.get("generationHints"), dict) else {},
-            "exemplarPack": reference_pack.get("exemplarPack") if isinstance(reference_pack.get("exemplarPack"), (dict, list)) else reference_pack.get("exemplarPack"),
-        },
-        "styleAnalysis": style_analysis,
-        "generationSpec": generation_spec,
-        "contentPlan": content_plan,
-        "anchorBuckets": _collect_reference_buckets(payload),
-        "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
-        "referenceAssignments": compact_reference_assignments(payload, limit=6, description_len=150, include_cases=True),
+def _supported_code_languages(payload: Dict[str, Any]) -> List[str]:
+    langs = payload.get("supportedLanguages") if isinstance(payload.get("supportedLanguages"), list) else []
+    langs = unique_string_list(langs, 10)
+    if langs:
+        return langs
+    schema = payload.get("targetSchema") if isinstance(payload.get("targetSchema"), dict) else {}
+    schema_langs = schema.get("allowedLanguages") if isinstance(schema.get("allowedLanguages"), list) else []
+    schema_langs = unique_string_list(schema_langs, 10)
+    if schema_langs:
+        return schema_langs
+    return ["cpp", "csharp", "python", "javascript", "java", "pascal"]
+
+
+def _schema_version(payload: Dict[str, Any]) -> str:
+    raw = normalize_text(payload.get("schemaVersion"))
+    return raw or "draft-v2"
+
+
+def _draft_response_format(payload: Dict[str, Any], assignment_type: str, include_pending_title: bool = False, min_public: int = MIN_PUBLIC_TESTS, min_hidden: int = MIN_HIDDEN_TESTS) -> str:
+    title = "__PENDING_TITLE__" if include_pending_title else "..."
+    top = {
+        "schemaVersion": _schema_version(payload),
+        "summary": "...",
+        "decisionSummary": {"confidence": "low|medium|high", "source": "llm-draft-body" if include_pending_title else "llm-draft-generate"},
     }
-    min_hidden = quality_gates.get("minHiddenTests", MIN_HIDDEN_TESTS)
-    max_hidden = max(min_hidden, min(MAX_HIDDEN_TESTS, max(min_hidden, 4)))
-    return (
-        "Ты — TaskForge AI draft body generator. Верни только один валидный JSON без markdown.\n\n"
-        "Нужно сгенерировать только тело задания и тесты в стиле курса. Название пока НЕ придумывай: поставь в draft.title точную строку __PENDING_TITLE__.\n"
-        "Сначала изучи course style analysis, generation spec, content plan, referenceAssignments и exemplarPack. Только после этого пиши draft.\n"
-        "Подражай стилю условий и тестов курса, но не копируй текст, title и тесты дословно.\n"
-        "Верни JSON формата:\n"
-        '{"draft":{"assignmentType":"code-test","title":"__PENDING_TITLE__","description":"Полное условие без HTML","allowedLanguages":["python","cpp","csharp"],"publicTests":[{"input":"...","expectedOutput":"..."}],"hiddenTests":[{"input":"...","expectedOutput":"..."}],"referenceSolutionPython":"...","requiredCalls":[],"forbiddenCalls":[],"meta":{"generationSource":"llm-body"}},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-draft-body"}}\n\n'
-        "Правила:\n"
-        "- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.\n"
-        "- description должен выглядеть как условие из этого курса: суть задачи, входные данные, выходные данные, ограничения, примечание.\n"
-        "- Строго следуй generationSpec.exactTask и generationSpec.ioContract.\n"
-        "- Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.\n"
-        f"- Сгенерируй минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests и от {min_hidden} до {max_hidden} hiddenTests, не больше {max_hidden}.\n"
-        "- Скрытые тесты делай компактными, но покрывающими крайние случаи.\n"
-        "- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.\n"
-        "- Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.\n"
-        "- Не используй чужие title из referenceAssignments.\n\n"
-        f"Draft body payload:\n{_prompt_json(compact_payload)}"
-    )
-
-
-def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
-    examples = _compact_title_examples(payload, limit=14)
-    style_analysis = payload.get("styleAnalysis") if isinstance(payload.get("styleAnalysis"), dict) else {}
-    generation_spec = payload.get("generationSpec") if isinstance(payload.get("generationSpec"), dict) else {}
-    body_preview = {
-        "titleHint": truncate_text(payload.get("titleHint") or (payload.get("brief") or {}).get("titleHint"), 160),
-        "targetSkill": truncate_text(((payload.get("task") or {}).get("targetSkill") or (payload.get("brief") or {}).get("targetSkill")), 180),
-        "microGoal": truncate_text(((payload.get("task") or {}).get("microGoal") or (payload.get("brief") or {}).get("summary")), 220),
-        "description": truncate_text(strip_html_to_text(draft.get("description") or ""), 700),
+    if assignment_type == "test":
+        top["draft"] = {
+            "assignmentType": "test",
+            "title": title,
+            "description": "Полное условие без HTML",
+            "settings": {
+                "maxAttempts": 1,
+                "passPercent": 60,
+                "shuffleQuestions": True,
+                "shuffleAnswers": True,
+                "allowReview": True,
+                "attemptTimeLimitsSeconds": [],
+            },
+            "questions": [
+                {"type": "single-choice", "prompt": "...", "options": [{"key": "a", "text": "..."}, {"key": "b", "text": "..."}], "correctOptionKeys": ["a"]},
+                {"type": "text", "prompt": "...", "acceptedAnswers": ["..."], "caseSensitive": False, "trim": True},
+            ],
+            "meta": {"generationSource": "llm-body" if include_pending_title else "llm"},
+        }
+        return json.dumps(top, ensure_ascii=False)
+    if assignment_type == "math":
+        top["draft"] = {
+            "assignmentType": "math",
+            "title": title,
+            "description": "Полное условие без HTML",
+            "settings": {
+                "maxAttempts": 1,
+                "passPercent": 60,
+                "shuffleBlocks": False,
+                "allowReview": True,
+                "attemptTimeLimitsSeconds": [],
+            },
+            "blocks": [
+                {"kind": "info", "prompt": "...", "promptContentJson": None, "score": 0, "isRequired": True},
+                {"kind": "number", "prompt": "...", "promptContentJson": None, "score": 1, "isRequired": True, "acceptedAnswers": ["4"], "caseSensitive": False, "trim": True, "numericTolerance": 0},
+            ],
+            "meta": {"generationSource": "llm-body" if include_pending_title else "llm"},
+        }
+        return json.dumps(top, ensure_ascii=False)
+    top["draft"] = {
+        "assignmentType": "code-test",
+        "title": title,
+        "description": "Полное условие без HTML",
+        "allowedLanguages": _supported_code_languages(payload),
+        "publicTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(1, min_public))],
+        "hiddenTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(1, min_hidden))],
+        "referenceSolutionPython": "...",
+        "requiredCalls": [],
+        "forbiddenCalls": [],
+        "meta": {"generationSource": "llm-body" if include_pending_title else "llm"},
     }
+    return json.dumps(top, ensure_ascii=False)
+
+
+def _draft_type_rules(payload: Dict[str, Any], assignment_type: str, quality_gates: Dict[str, Any], body_mode: bool = False) -> str:
+    if assignment_type == "test":
+        return (
+            "- Для test обязательны: title, description, settings, questions.\n"
+            f"- Нужно минимум {quality_gates.get('minQuestions', 5)} вопросов.\n"
+            "- Разрешены только канонические поля editor-контракта: type, prompt, options, correctOptionKeys, acceptedAnswers, caseSensitive, trim.\n"
+            "- Запрещены legacy-алиасы questionType, title, correctKeys, correct, answers, correctAnswers.\n"
+            "- Для single-choice/multi-choice нужны минимум 2 options и валидные correctOptionKeys.\n"
+            "- Для fill/text обязательны acceptedAnswers, caseSensitive и trim.\n"
+            "- Не добавляй allowedLanguages, publicTests, hiddenTests и referenceSolutionPython в test draft.\n"
+        )
+    if assignment_type == "math":
+        return (
+            "- Для math обязательны: title, description, settings, blocks.\n"
+            f"- Нужно минимум {quality_gates.get('minBlocks', 2)} блока и хотя бы один answer block.\n"
+            "- Используй только канонические поля: kind, prompt, promptContentJson, score, isRequired, acceptedAnswers, numericTolerance, orderItems, matchLeftItems, matchRightItems, matchPairs.\n"
+            "- Запрещены legacy-алиасы blockType, title, points, promptContent, answers, correctAnswers, items, steps, leftItems, rightItems, pairs.\n"
+            "- Не добавляй allowedLanguages, publicTests, hiddenTests и referenceSolutionPython в math draft.\n"
+        )
     return (
-        "Ты — TaskForge AI title generator. Верни только JSON без markdown.\n\n"
-        "Нужно придумать ТОЛЬКО название задания по уже готовому условию.\n"
-        "Смотри на примеры названий из курса, style analysis и generation spec. Подражай стилю, но не копируй существующее название дословно.\n"
-        "Не используй HTML. Не придумывай номер задания, если ты не уверен. Не используй служебные заглушки.\n"
-        "Верни JSON: {\"title\":\"...\",\"summary\":\"...\",\"decisionSummary\":{\"source\":\"llm-title\",\"confidence\":\"low|medium|high\"}}\n\n"
-        f"Course title examples:\n{json.dumps(examples, ensure_ascii=False)}\n\n"
-        f"Style analysis:\n{json.dumps(style_analysis, ensure_ascii=False)}\n\n"
-        f"Generation spec:\n{json.dumps(generation_spec, ensure_ascii=False)}\n\n"
-        f"Course phrase bank:\n{json.dumps(_extract_course_phrase_bank(payload, limit=6), ensure_ascii=False)}\n\n"
-        f"Draft body:\n{json.dumps(body_preview, ensure_ascii=False)}"
+        "- Для code-test обязательны: title, description, publicTests, hiddenTests, referenceSolutionPython.\n"
+        "- allowedLanguages опционален: если его нет или массив пустой, это означает без ограничений.\n"
+        f"- Разрешённые языки платформы: {', '.join(_supported_code_languages(payload))}.\n"
+        f"- Нужно минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests и минимум {quality_gates.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests.\n"
+        "- Используй только root-level requiredCalls и forbiddenCalls. Не вкладывай их в codePolicy.\n"
     )
 
 
-def build_draft_title_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any], bad_title: str) -> str:
-    return (
-        "Ты — TaskForge AI title repair agent. Верни только JSON без markdown.\n\n"
-        "Нужно починить только название задания. Не меняй условие, тесты и решение.\n"
-        "Запрещено возвращать служебные слова вроде revised, draft, pending, final, version, task.\n"
-        "Верни JSON: {\"title\":\"...\",\"summary\":\"...\",\"decisionSummary\":{\"source\":\"llm-title-repair\",\"confidence\":\"low|medium|high\"}}\n\n"
-        f"Bad title: {json.dumps(bad_title, ensure_ascii=False)}\n\n"
-        f"Course title examples:\n{json.dumps(_compact_title_examples(payload, limit=12), ensure_ascii=False)}\n\n"
-        f"Style analysis:\n{json.dumps(payload.get('styleAnalysis') if isinstance(payload.get('styleAnalysis'), dict) else {}, ensure_ascii=False)}\n\n"
-        f"Draft body:\n{json.dumps({'description': truncate_text(strip_html_to_text(draft.get('description') or ''), 600), 'targetSkill': ((payload.get('task') or {}).get('targetSkill') or (payload.get('brief') or {}).get('targetSkill'))}, ensure_ascii=False)}"
-    )
+def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_format: str, rules: str) -> str:
+    return f"""Ты — TaskForge AI code-test draft body generator. Верни только один валидный JSON без markdown.
+
+Нужно сгенерировать только тело code-test задачи в стиле курса. Название пока НЕ придумывай: поставь в draft.title точную строку __PENDING_TITLE__.
+Сначала изучи course style analysis, generation spec, content plan, referenceAssignments и exemplarPack. Только после этого пиши draft.
+Подражай стилю курса, но не копируй текст, title и данные дословно.
+Верни JSON формата:
+{response_format}
+
+Правила:
+- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.
+- description должен выглядеть как условие из этого курса и сохранять course-native стиль.
+- Строго следуй generationSpec.exactTask и generationSpec.ioContract, если они заданы.
+- Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.
+{rules}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
+- Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
+- Не используй чужие title из referenceAssignments.
+- referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
+
+Draft body payload:
+{_prompt_json(compact_payload)}"""
 
 
-def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
-    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
-    reference_pack = payload.get("referencePack") if isinstance(payload.get("referencePack"), dict) else {}
-    target_schema = payload.get("targetSchema") if isinstance(payload.get("targetSchema"), dict) else {}
-    quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
-    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+def _build_test_body_prompt(compact_payload: Dict[str, Any], response_format: str, rules: str) -> str:
+    return f"""Ты — TaskForge AI test draft body generator. Верни только один валидный JSON без markdown.
 
-    compact_payload = {
-        "requestType": normalize_text(payload.get("requestType") or "assignment_generate_from_text"),
-        "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
-        "courseId": payload.get("courseId"),
-        "batchId": payload.get("batchId"),
-        "batchItemId": payload.get("batchItemId"),
-        "difficulty": safe_int(payload.get("difficulty"), safe_int(brief.get("difficultyTarget"), 3)),
-        "titleHint": truncate_text(payload.get("titleHint") or brief.get("titleHint") or task.get("targetSkill"), 160),
-        "prompt": truncate_text(payload.get("prompt") or brief.get("generationPrompt"), 500),
-        "sourceText": truncate_text(payload.get("sourceText") or brief.get("sourceText") or brief.get("summary"), 500),
-        "notes": truncate_text(payload.get("notes") or brief.get("notes"), 320),
-        "brief": {
-            "titleHint": truncate_text(brief.get("titleHint"), 160),
-            "summary": truncate_text(brief.get("summary"), 260),
-            "generationPrompt": truncate_text(brief.get("generationPrompt"), 700),
-            "sourceText": truncate_text(brief.get("sourceText"), 400),
-            "difficultyTarget": brief.get("difficultyTarget"),
-            "targetSkill": truncate_text(brief.get("targetSkill"), 160),
-        },
-        "task": {
-            "targetSkill": truncate_text(task.get("targetSkill") or task.get("TargetSkill"), 160),
-            "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 220),
-            "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
-        },
-        "qualityGates": quality_gates,
-        "targetSchema": target_schema,
-        "referencePack": {
-            "stylePack": reference_pack.get("stylePack") if isinstance(reference_pack.get("stylePack"), dict) else {},
-            "policyPack": reference_pack.get("policyPack") if isinstance(reference_pack.get("policyPack"), dict) else {},
-            "negativePack": reference_pack.get("negativePack") if isinstance(reference_pack.get("negativePack"), dict) else reference_pack.get("negativePack"),
-            "signals": reference_pack.get("signals") if isinstance(reference_pack.get("signals"), dict) else {},
-            "generationHints": reference_pack.get("generationHints") if isinstance(reference_pack.get("generationHints"), dict) else {},
-            "exemplarPack": reference_pack.get("exemplarPack") if isinstance(reference_pack.get("exemplarPack"), (dict, list)) else reference_pack.get("exemplarPack"),
-        },
-        "referenceAssignments": compact_reference_assignments(payload, limit=3, description_len=100, include_cases=True),
-    }
+Нужно сгенерировать test-задание в editor-native контракте. Название пока НЕ придумывай: поставь в draft.title точную строку __PENDING_TITLE__.
+Сначала изучи style analysis, generation spec, content plan, referenceAssignments и exemplarPack.
+Верни JSON формата:
+{response_format}
 
-    return (
-        "Ты — TaskForge AI draft generator. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
-        "Нужно создать полноценный publishable draft для одной задачи. Ответ обязан иметь top-level ключ draft.\n"
-        "Не возвращай пустой объект {}, не возвращай только sourceText, не возвращай заготовки без tests или description.\n"
-        "Если referencePack частично пустой, всё равно собери полноценный draft по brief, qualityGates и targetSchema.\n\n"
-        "Формат ответа строго такой:\n"
-        "{\n"
-        "  \"draft\": {\n"
-        "    \"assignmentType\": \"code-test|test|math\",\n"
-        "    \"title\": \"...\",\n"
-        "    \"description\": \"Постановка задачи...\n\nВходные данные...\n\nВыходные данные...\",\n"
-        "    \"allowedLanguages\": [\"python\",\"cpp\",\"csharp\"],\n"
-        "    \"publicTests\": [{\"input\":\"...\",\"expectedOutput\":\"...\"}],\n"
-        "    \"hiddenTests\": [{\"input\":\"...\",\"expectedOutput\":\"...\"}],\n"
-        "    \"referenceSolutionPython\": \"...\",\n"
-        "    \"requiredCalls\": [\"...\"],\n"
-        "    \"forbiddenCalls\": [\"...\"],\n"
-        "    \"meta\": {\"generationSource\": \"llm\"}\n"
-        "  },\n"
-        "  \"summary\": \"1-2 коротких предложения\",\n"
-        "  \"decisionSummary\": {\"confidence\": \"low|medium|high\", \"source\": \"llm-draft-generate\"}\n"
-        "}\n\n"
-        "Правила:\n"
-        "- description обязан быть полноценным текстовым условием с блоками problem/input/output/constraints/notes, но без HTML-тегов.\n"
-        "- Для code-test обязательно: title, description, allowedLanguages, publicTests, hiddenTests, referenceSolutionPython.\n"
-        "- referenceSolutionPython должен проходить все сгенерированные tests.\n"
-        "- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.\n"
-        "- Не копируй referenceAssignments дословно.\n\n"
-        f"Draft payload:\n{_prompt_json(compact_payload)}"
-    )
+Правила:
+- Это не code-test. Не добавляй поля из программирования, языки или тест-кейсы.
+- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.
+- Каждый вопрос должен быть педагогически осмысленным, без дублей и без пустых заглушек.
+{rules}- Сохраняй course-native терминологию и уровень сложности.
+- Настройки settings должны быть полными и каноническими.
+
+Draft body payload:
+{_prompt_json(compact_payload)}"""
+
+
+def _build_math_body_prompt(compact_payload: Dict[str, Any], response_format: str, rules: str) -> str:
+    return f"""Ты — TaskForge AI math draft body generator. Верни только один валидный JSON без markdown.
+
+Нужно сгенерировать math-задание в editor-native контракте. Название пока НЕ придумывай: поставь в draft.title точную строку __PENDING_TITLE__.
+Сначала изучи style analysis, generation spec, content plan, referenceAssignments и exemplarPack.
+Верни JSON формата:
+{response_format}
+
+Правила:
+- Это не code-test. Не добавляй allowedLanguages, publicTests, hiddenTests и referenceSolutionPython.
+- description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.
+- Блоки должны образовывать педагогическую последовательность и не быть случайным набором.
+{rules}- Настройки settings и блоки должны быть полными и каноническими.
+
+Draft body payload:
+{_prompt_json(compact_payload)}"""
+
+
+def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_format: str, rules: str) -> str:
+    return f"""Ты — TaskForge AI code-test draft generator. Верни только один валидный JSON-объект без markdown и без пояснений.
+
+Нужно создать полноценный publishable draft для одной code-test задачи. Ответ обязан иметь top-level ключи schemaVersion и draft.
+Не возвращай пустой объект {{}}, не возвращай только sourceText, не возвращай заготовки без обязательных полей.
+Если referencePack частично пустой, всё равно собери полноценный draft по brief, qualityGates и targetSchema.
+
+Формат ответа строго такой:
+{response_format}
+
+Правила:
+- description обязан быть полноценным текстовым условием без HTML-тегов.
+{rules}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+- Не копируй referenceAssignments дословно.
+- referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
+
+Draft payload:
+{_prompt_json(compact_payload)}"""
+
+
+def _build_test_generate_prompt(compact_payload: Dict[str, Any], response_format: str, rules: str) -> str:
+    return f"""Ты — TaskForge AI test draft generator. Верни только один валидный JSON-объект без markdown и без пояснений.
+
+Нужно создать полноценный publishable draft для одной test-задачи. Ответ обязан иметь top-level ключи schemaVersion и draft.
+Это не code-test: не добавляй языки, referenceSolutionPython, publicTests и hiddenTests.
+
+Формат ответа строго такой:
+{response_format}
+
+Правила:
+- description обязан быть полноценным текстовым условием без HTML-тегов.
+{rules}- Не копируй referenceAssignments дословно.
+- Вопросы должны быть разнообразными и валидными для editor-контракта.
+
+Draft payload:
+{_prompt_json(compact_payload)}"""
+
+
+def _build_math_generate_prompt(compact_payload: Dict[str, Any], response_format: str, rules: str) -> str:
+    return f"""Ты — TaskForge AI math draft generator. Верни только один валидный JSON-объект без markdown и без пояснений.
+
+Нужно создать полноценный publishable draft для одной math-задачи. Ответ обязан иметь top-level ключи schemaVersion и draft.
+Это не code-test: не добавляй языки, referenceSolutionPython, publicTests и hiddenTests.
+
+Формат ответа строго такой:
+{response_format}
+
+Правила:
+- description обязан быть полноценным текстовым условием без HTML-тегов.
+{rules}- Не копируй referenceAssignments дословно.
+- Блоки должны быть каноническими и пригодными для прямой публикации.
+
+Draft payload:
+{_prompt_json(compact_payload)}"""
 
 
 def build_batch_review_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:

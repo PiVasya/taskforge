@@ -2,7 +2,10 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.DTO.AI;
+using taskforge.Data.Models.DTO.TaskMaths;
+using taskforge.Data.Models.DTO.TaskTests;
 using taskforge.Data.Models.Entities;
 using taskforge.Data.Models.Entities.AI;
 
@@ -17,13 +20,13 @@ public sealed partial class AiJobService
 
         using var doc = JsonDocument.Parse(draft.DraftJson);
         var root = doc.RootElement;
-        var courseId = request.CourseId ?? draft.CourseId ?? ExtractGuid(root, "courseId");
-        var selfCheckStatus = ExtractSelfCheckStatus(root);
+        var draftRoot = ExtractPublishableDraftRoot(root);
+        var courseId = request.CourseId ?? draft.CourseId ?? ExtractGuid(draftRoot, "courseId");
+        var selfCheckStatus = ExtractSelfCheckStatus(draftRoot);
         var isApproved = string.Equals(draft.Status, "approved", StringComparison.OrdinalIgnoreCase);
         var requiresPassedSelfCheck = _aiOptions.RequirePassedSelfCheckForPublish;
-        // If draft was manually approved by admin, treat as force-publish
         var effectiveForce = request.ForceWithoutPassedSelfCheck || isApproved;
-        var isFallbackDraft = IsFallbackDraft(root);
+        var isFallbackDraft = IsFallbackDraft(draftRoot);
         if (isFallbackDraft && !effectiveForce)
             throw new ValidationException("Этот черновик создан fallback-веткой после сбоя/таймаута AI. Сначала перегенерируй или одобри вручную, если публиковать всё-таки нужно.");
         if (requiresPassedSelfCheck && !effectiveForce)
@@ -35,47 +38,40 @@ public sealed partial class AiJobService
         }
         if (courseId == null) throw new ValidationException("Курс не указан. Выбери курс перед публикацией.");
 
-        var courseExists = await _db.Courses.AsNoTracking().AnyAsync(x => x.Id == courseId.Value, ct);
-        if (!courseExists) throw new ValidationException("Курс не найден. Проверь, что курс существует.");
+        var course = await _db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == courseId.Value, ct);
+        if (course == null) throw new ValidationException("Курс не найден. Проверь, что курс существует.");
 
-        var assignmentType = NormalizeDraftAssignmentType(draft.AssignmentType, root);
+        var assignmentType = NormalizeDraftAssignmentType(draft.AssignmentType, draftRoot);
         if (assignmentType != "math" && assignmentType != "test" && assignmentType != "code-test")
             throw new ValidationException($"Публикация поддерживается только для math, test, code-test. Текущий тип: {assignmentType}");
 
-        var title = NormalizePublishedDraftTitle(request.TitleOverride ?? ReadString(root, "title") ?? draft.Title ?? string.Empty, ReadString(root, "description"));
+        var title = NormalizePublishedDraftTitle(request.TitleOverride ?? ReadString(draftRoot, "title") ?? draft.Title ?? string.Empty, ReadString(draftRoot, "description"));
         if (string.IsNullOrWhiteSpace(title)) throw new ValidationException("У черновика нет названия (title).");
 
-        var description = NormalizeDraftDescription(root);
+        var description = NormalizeDraftDescription(draftRoot);
         if (string.IsNullOrWhiteSpace(description)) throw new ValidationException("У черновика нет условия (description). AI не сгенерировал описание.");
 
-        var difficulty = Clamp(ReadInt(root, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
-        var rating = Math.Max(0, request.Rating ?? ReadInt(root, "rating") ?? 1);
-        var tags = request.Tags ?? ReadString(root, "tags");
-        var sort = request.Sort ?? await GetNextSortAsync(courseId.Value, ct);
+        var difficulty = Clamp(ReadInt(draftRoot, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
+        var rating = Math.Max(0, request.Rating ?? ReadInt(draftRoot, "rating") ?? 1);
+        var tags = request.Tags ?? ReadString(draftRoot, "tags");
+        var desiredSort = request.Sort ?? await GetNextSortAsync(courseId.Value, ct);
+        var publishingActorUserId = await ResolvePublishingActorUserIdAsync(courseId.Value, reviewedByUserId, ct);
 
-        var assignment = new TaskAssignment
-        {
-            Id = Guid.NewGuid(),
-            CourseId = courseId.Value,
-            Title = title,
-            Description = description,
-            Type = assignmentType,
-            Difficulty = difficulty,
-            Rating = rating,
-            Tags = string.IsNullOrWhiteSpace(tags) ? null : tags.Trim(),
-            Sort = sort,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        };
+        var canonicalOnly = string.Equals(ReadString(root, "schemaVersion") ?? ReadString(draftRoot, "schemaVersion") ?? string.Empty, "draft-v2", StringComparison.OrdinalIgnoreCase);
 
-        _db.TaskAssignments.Add(assignment);
-
-        if (assignmentType == "math")
-            await PublishMathDraftAsync(assignment.Id, root, ct);
-        else if (assignmentType == "test")
-            await PublishTestDraftAsync(assignment.Id, root, ct);
-        else if (assignmentType == "code-test")
-            await PublishCodeDraftAsync(assignment, root, ct);
+        var assignmentId = await PublishDraftThroughApplicationServicesAsync(
+            draftRoot,
+            assignmentType,
+            courseId.Value,
+            publishingActorUserId,
+            title,
+            description,
+            difficulty,
+            rating,
+            tags,
+            desiredSort,
+            canonicalOnly,
+            ct);
 
         draft.Status = "published";
         draft.ReviewedByUserId = reviewedByUserId;
@@ -87,142 +83,351 @@ public sealed partial class AiJobService
         return new PublishAiDraftResultDto
         {
             DraftId = draft.Id,
-            AssignmentId = assignment.Id,
-            CourseId = assignment.CourseId,
-            AssignmentType = assignment.Type,
-            Title = assignment.Title,
+            AssignmentId = assignmentId,
+            CourseId = courseId.Value,
+            AssignmentType = assignmentType,
+            Title = title,
         };
     }
 
-    private async Task<int> GetNextSortAsync(Guid courseId, CancellationToken ct)
+    private async Task<Guid> PublishDraftThroughApplicationServicesAsync(
+        JsonElement draftRoot,
+        string assignmentType,
+        Guid courseId,
+        Guid actorUserId,
+        string title,
+        string description,
+        int difficulty,
+        int rating,
+        string? tags,
+        int desiredSort,
+        bool canonicalOnly,
+        CancellationToken ct)
     {
-        var maxSort = await _db.TaskAssignments.AsNoTracking()
-            .Where(x => x.CourseId == courseId)
+        var createRequest = BuildCreateAssignmentRequest(draftRoot, assignmentType, title, description, difficulty, rating, tags, canonicalOnly);
+        var assignmentId = await _assignmentService.CreateAsync(courseId, createRequest, actorUserId);
+
+        if (assignmentType == "test")
+        {
+            var dto = BuildTaskTestEditDto(draftRoot, canonicalOnly);
+            await _taskTestService.SaveEditAsync(assignmentId, actorUserId, dto, ct);
+        }
+        else if (assignmentType == "math")
+        {
+            var dto = BuildTaskMathEditDto(draftRoot, canonicalOnly);
+            await _taskMathService.SaveEditAsync(assignmentId, actorUserId, dto, ct);
+        }
+
+        var current = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.Id == assignmentId)
             .Select(x => (int?)x.Sort)
-            .MaxAsync(ct);
-        return (maxSort ?? -1) + 1;
+            .FirstOrDefaultAsync(ct);
+        if ((current ?? -1) != desiredSort)
+            await _assignmentService.UpdateSortAsync(assignmentId, actorUserId, desiredSort);
+
+        return assignmentId;
     }
 
-    private async Task PublishMathDraftAsync(Guid assignmentId, JsonElement root, CancellationToken ct)
+    private async Task<Guid> ResolvePublishingActorUserIdAsync(Guid courseId, Guid reviewedByUserId, CancellationToken ct)
     {
-        var settingsNode = GetPropertyOrNull(root, "settings");
-        var settings = new TaskMathSettings
+        var course = await _db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == courseId, ct)
+            ?? throw new ValidationException("Курс не найден. Проверь, что курс существует.");
+
+        var reviewerIsOwner = course.OwnerId == reviewedByUserId
+            || await _db.CourseOwners.AsNoTracking().AnyAsync(x => x.CourseId == courseId && x.UserId == reviewedByUserId, ct);
+
+        return reviewerIsOwner ? reviewedByUserId : course.OwnerId;
+    }
+
+    private static JsonElement ExtractPublishableDraftRoot(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("draft", out var draftNode) && draftNode.ValueKind == JsonValueKind.Object)
+            return draftNode;
+        return root;
+    }
+
+    private static CreateAssignmentRequest BuildCreateAssignmentRequest(
+        JsonElement draftRoot,
+        string assignmentType,
+        string title,
+        string description,
+        int difficulty,
+        int rating,
+        string? tags,
+        bool canonicalOnly)
+    {
+        var request = new CreateAssignmentRequest
         {
-            Id = Guid.NewGuid(),
-            TaskAssignmentId = assignmentId,
-            MaxAttempts = Math.Max(1, ReadInt(settingsNode, "maxAttempts") ?? 3),
-            PassPercent = Clamp(ReadInt(settingsNode, "passPercent") ?? 60, 1, 100),
-            ShuffleBlocks = ReadBool(settingsNode, "shuffleBlocks") ?? false,
-            AllowReview = ReadBool(settingsNode, "allowReview") ?? true,
-            AttemptTimeLimitsJson = JsonSerializer.Serialize(ReadNullableIntArray(settingsNode, "attemptTimeLimitsSeconds"), JsonOptions),
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            Title = title,
+            Description = description,
+            Type = assignmentType,
+            Difficulty = difficulty,
+            Rating = rating,
+            Tags = string.IsNullOrWhiteSpace(tags) ? null : tags.Trim(),
         };
-        _db.TaskMathSettings.Add(settings);
 
-        var blocksNode = GetPropertyOrNull(root, "blocks");
-        var blocks = blocksNode.ValueKind == JsonValueKind.Array ? blocksNode.EnumerateArray().ToList() : new List<JsonElement>();
-        if (blocks.Count == 0)
+        if (assignmentType == "code-test")
         {
-            blocks.Add(JsonDocument.Parse("{\"blockType\":\"info\",\"title\":\"Условие\",\"promptContent\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Заполни блоки вручную: AI не вернул ни одного math-блока.\"}]}]}} ").RootElement.Clone());
+            var langs = NormalizeCodeLanguages(ReadStringArray(draftRoot, "allowedLanguages"));
+            request.AllowedLanguages = langs.Count > 0 ? langs : null;
+
+            if (canonicalOnly && HasAnyProperty(draftRoot, "codePolicy"))
+                throw new ValidationException("draft-v2 code-test должен использовать root-level requiredCalls/forbiddenCalls, а не nested codePolicy.");
+
+            var codePolicyNode = canonicalOnly ? default : GetPropertyOrNull(draftRoot, "codePolicy");
+            request.CodeForbiddenCalls = ReadStringArray(codePolicyNode, "forbiddenCalls");
+            if (request.CodeForbiddenCalls.Count == 0)
+                request.CodeForbiddenCalls = ReadStringArray(draftRoot, "forbiddenCalls");
+
+            request.CodeRequiredCalls = ReadStringArray(codePolicyNode, "requiredCalls");
+            if (request.CodeRequiredCalls.Count == 0)
+                request.CodeRequiredCalls = ReadStringArray(draftRoot, "requiredCalls");
+
+            var publicTests = canonicalOnly
+                ? ReadCreateTestCases(draftRoot, false, "publicTests")
+                : ReadCreateTestCases(draftRoot, false, "publicTests", "tests");
+            var hiddenTests = ReadCreateTestCases(draftRoot, true, "hiddenTests");
+            if (publicTests.Count < 2) throw new ValidationException($"Нужно минимум 2 открытых теста (publicTests), сейчас: {publicTests.Count}.");
+            if (hiddenTests.Count < 5) throw new ValidationException($"Нужно минимум 5 скрытых тестов (hiddenTests), сейчас: {hiddenTests.Count}.");
+            request.TestCases = publicTests.Concat(hiddenTests).ToList();
         }
 
-        for (var i = 0; i < blocks.Count; i++)
-        {
-            var node = blocks[i];
-            var kind = NormalizeMathKind(ReadString(node, "blockType") ?? ReadString(node, "kind") ?? "info");
-            var prompt = (ReadString(node, "title") ?? ReadString(node, "prompt") ?? $"Блок {i + 1}").Trim();
-            var promptContentJson = ExtractRichPromptContent(node);
-            var score = Math.Max(0, ReadInt(node, "points") ?? ReadInt(node, "score") ?? (kind == "info" ? 0 : 1));
-            var isRequired = ReadBool(node, "isRequired") ?? true;
-
-            var entity = new TaskMathBlock
-            {
-                Id = Guid.NewGuid(),
-                TaskAssignmentId = assignmentId,
-                Order = i,
-                Kind = kind,
-                Prompt = string.IsNullOrWhiteSpace(prompt) ? $"Блок {i + 1}" : prompt,
-                PromptContentJson = promptContentJson,
-                Score = score,
-                IsRequired = isRequired,
-                DataJson = BuildMathBlockDataJson(kind, node),
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            };
-            _db.TaskMathBlocks.Add(entity);
-        }
-
-        await Task.CompletedTask;
+        return request;
     }
 
-    private async Task PublishCodeDraftAsync(TaskAssignment assignment, JsonElement root, CancellationToken ct)
+    private static TaskTestEditDto BuildTaskTestEditDto(JsonElement draftRoot, bool canonicalOnly)
     {
-        var langs = ReadStringArray(root, "allowedLanguages");
-        assignment.AllowedLanguagesCsv = string.Join(",", langs.Count > 0 ? langs : new List<string> { "python", "cpp", "csharp" });
-        assignment.CodeForbiddenCallsJson = BuildStringListDocument(root, "forbiddenCalls");
-        assignment.CodeRequiredCallsJson = BuildStringListDocument(root, "requiredCalls");
+        if (canonicalOnly)
+            ThrowIfDraftV2HasLegacyProperties(draftRoot, "allowedLanguages", "publicTests", "hiddenTests", "referenceSolutionPython", "codePolicy");
 
-        var publicTests = ReadTestCases(root, false, "publicTests", "tests").ToList();
-        var hiddenTests = ReadTestCases(root, true, "hiddenTests").ToList();
-        if (publicTests.Count < 2) throw new ValidationException($"Нужно минимум 2 открытых теста (publicTests), сейчас: {publicTests.Count}.");
-        if (hiddenTests.Count < 5) throw new ValidationException($"Нужно минимум 5 скрытых тестов (hiddenTests), сейчас: {hiddenTests.Count}.");
-        var allTests = publicTests.Concat(hiddenTests).ToList();
-
-        foreach (var test in allTests)
-        {
-            test.TaskAssignmentId = assignment.Id;
-            _db.TaskTestCases.Add(test);
-        }
-
-        await Task.CompletedTask;
-    }
-
-    private async Task PublishTestDraftAsync(Guid assignmentId, JsonElement root, CancellationToken ct)
-    {
-        var settingsNode = GetPropertyOrNull(root, "settings");
-        var settings = new TaskTestSettings
-        {
-            Id = Guid.NewGuid(),
-            TaskAssignmentId = assignmentId,
-            MaxAttempts = Math.Max(1, ReadInt(settingsNode, "maxAttempts") ?? 3),
-            PassPercent = Clamp(ReadInt(settingsNode, "passPercent") ?? 60, 1, 100),
-            ShuffleQuestions = ReadBool(settingsNode, "shuffleQuestions") ?? true,
-            ShuffleAnswers = ReadBool(settingsNode, "shuffleAnswers") ?? true,
-            AllowReview = ReadBool(settingsNode, "allowReview") ?? true,
-            AttemptTimeLimitsJson = JsonSerializer.Serialize(ReadNullableIntArray(settingsNode, "attemptTimeLimitsSeconds"), JsonOptions),
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        };
-        _db.TaskTestSettings.Add(settings);
-
-        var questionsNode = GetPropertyOrNull(root, "questions");
+        var questionsNode = GetPropertyOrNull(draftRoot, "questions");
         var questions = questionsNode.ValueKind == JsonValueKind.Array ? questionsNode.EnumerateArray().ToList() : new List<JsonElement>();
         if (questions.Count == 0)
-        {
-            questions.Add(JsonDocument.Parse("{\"type\":\"text\",\"prompt\":\"AI не вернул ни одного вопроса. Отредактируй тест вручную.\",\"acceptedAnswers\":[\"ok\"],\"trim\":true}").RootElement.Clone());
-        }
+            throw new ValidationException("Test draft не содержит ни одного вопроса. Публикация остановлена.");
 
-        for (var i = 0; i < questions.Count; i++)
+        var settingsNode = GetPropertyOrNull(draftRoot, "settings");
+        return new TaskTestEditDto
         {
-            var node = questions[i];
-            var type = NormalizeTestQuestionType(ReadString(node, "questionType") ?? ReadString(node, "type") ?? "single-choice");
-            var prompt = (ReadString(node, "prompt") ?? ReadString(node, "title") ?? $"Вопрос {i + 1}").Trim();
-            var entity = new TaskTestQuestion
+            Settings = new TaskTestSettingsDto
             {
-                Id = Guid.NewGuid(),
-                TaskAssignmentId = assignmentId,
-                Order = i,
-                Type = type,
-                Prompt = string.IsNullOrWhiteSpace(prompt) ? $"Вопрос {i + 1}" : prompt,
-                DataJson = BuildTestQuestionDataJson(type, node),
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            };
-            _db.TaskTestQuestions.Add(entity);
+                MaxAttempts = Math.Max(1, ReadInt(settingsNode, "maxAttempts") ?? 1),
+                PassPercent = Clamp(ReadInt(settingsNode, "passPercent") ?? 60, 1, 100),
+                ShuffleQuestions = ReadBool(settingsNode, "shuffleQuestions") ?? true,
+                ShuffleAnswers = ReadBool(settingsNode, "shuffleAnswers") ?? true,
+                AllowReview = ReadBool(settingsNode, "allowReview") ?? true,
+                AttemptTimeLimitsSeconds = ReadNullableIntArray(settingsNode, "attemptTimeLimitsSeconds"),
+            },
+            Questions = questions.Select((node, index) => BuildTaskTestQuestionEditDto(node, index, canonicalOnly)).ToList(),
+        };
+    }
+
+    private static TaskMathEditDto BuildTaskMathEditDto(JsonElement draftRoot, bool canonicalOnly)
+    {
+        if (canonicalOnly)
+            ThrowIfDraftV2HasLegacyProperties(draftRoot, "allowedLanguages", "publicTests", "hiddenTests", "referenceSolutionPython", "codePolicy");
+
+        var blocksNode = GetPropertyOrNull(draftRoot, "blocks");
+        var blocks = blocksNode.ValueKind == JsonValueKind.Array ? blocksNode.EnumerateArray().ToList() : new List<JsonElement>();
+        if (blocks.Count == 0)
+            throw new ValidationException("Math draft не содержит ни одного блока. Публикация остановлена.");
+
+        var settingsNode = GetPropertyOrNull(draftRoot, "settings");
+        return new TaskMathEditDto
+        {
+            Settings = new TaskMathSettingsDto
+            {
+                MaxAttempts = Math.Max(1, ReadInt(settingsNode, "maxAttempts") ?? 1),
+                PassPercent = Clamp(ReadInt(settingsNode, "passPercent") ?? 60, 1, 100),
+                ShuffleBlocks = ReadBool(settingsNode, "shuffleBlocks") ?? false,
+                AllowReview = ReadBool(settingsNode, "allowReview") ?? true,
+                AttemptTimeLimitsSeconds = ReadNullableIntArray(settingsNode, "attemptTimeLimitsSeconds"),
+            },
+            Blocks = blocks.Select((node, index) => BuildTaskMathBlockEditDto(node, index, canonicalOnly)).ToList(),
+        };
+    }
+
+    private static TaskTestQuestionEditDto BuildTaskTestQuestionEditDto(JsonElement node, int index, bool canonicalOnly)
+    {
+        if (canonicalOnly)
+            ThrowIfDraftV2HasLegacyProperties(node, "questionType", "title", "correctKeys", "correct", "answers", "correctAnswers");
+
+        var type = NormalizeTestQuestionType(canonicalOnly
+            ? (ReadString(node, "type") ?? "single-choice")
+            : (ReadString(node, "type") ?? ReadString(node, "questionType") ?? "single-choice"));
+        var dto = new TaskTestQuestionEditDto
+        {
+            Id = Guid.Empty,
+            Order = index,
+            Type = type,
+            Prompt = (canonicalOnly
+                ? (ReadString(node, "prompt") ?? $"Вопрос {index + 1}")
+                : (ReadString(node, "prompt") ?? ReadString(node, "title") ?? $"Вопрос {index + 1}")).Trim(),
+        };
+
+        if (type == "single-choice" || type == "multi-choice")
+        {
+            dto.Options = ReadTestOptions(node, "options");
+            dto.CorrectOptionKeys = canonicalOnly
+                ? ReadStringArray(node, "correctOptionKeys")
+                : ReadStringArray(node, "correctOptionKeys", "correctKeys", "correct");
+        }
+        else
+        {
+            dto.AcceptedAnswers = canonicalOnly
+                ? ReadStringArray(node, "acceptedAnswers")
+                : ReadStringArray(node, "acceptedAnswers", "answers", "correctAnswers");
+            dto.CaseSensitive = ReadBool(node, "caseSensitive") ?? false;
+            dto.Trim = ReadBool(node, "trim") ?? true;
         }
 
-        await Task.CompletedTask;
+        return dto;
+    }
+
+    private static TaskMathBlockEditDto BuildTaskMathBlockEditDto(JsonElement node, int index, bool canonicalOnly)
+    {
+        if (canonicalOnly)
+            ThrowIfDraftV2HasLegacyProperties(node, "blockType", "title", "points", "promptContent", "answers", "correctAnswers", "items", "steps", "leftItems", "rightItems", "pairs");
+
+        var kind = NormalizeMathKind(canonicalOnly
+            ? (ReadString(node, "kind") ?? "info")
+            : (ReadString(node, "kind") ?? ReadString(node, "blockType") ?? "info"));
+        var dto = new TaskMathBlockEditDto
+        {
+            Id = Guid.Empty,
+            Order = index,
+            Kind = kind,
+            Prompt = (canonicalOnly
+                ? (ReadString(node, "prompt") ?? $"Блок {index + 1}")
+                : (ReadString(node, "prompt") ?? ReadString(node, "title") ?? $"Блок {index + 1}")).Trim(),
+            PromptContentJson = ExtractRichPromptContent(node, canonicalOnly),
+            Score = Math.Max(0, canonicalOnly
+                ? (ReadInt(node, "score") ?? (kind == "info" ? 0 : 1))
+                : (ReadInt(node, "score") ?? ReadInt(node, "points") ?? (kind == "info" ? 0 : 1))),
+            IsRequired = ReadBool(node, "isRequired") ?? true,
+        };
+
+        if (kind == "single-choice" || kind == "multi-choice")
+        {
+            dto.Options = ReadMathOptions(node, "options");
+            dto.CorrectOptionKeys = canonicalOnly
+                ? ReadStringArray(node, "correctOptionKeys")
+                : ReadStringArray(node, "correctOptionKeys", "correctKeys", "correct");
+        }
+        else if (kind == "number" || kind == "expression" || kind == "set")
+        {
+            dto.AcceptedAnswers = canonicalOnly
+                ? ReadStringArray(node, "acceptedAnswers")
+                : ReadStringArray(node, "acceptedAnswers", "answers", "correctAnswers");
+            dto.CaseSensitive = ReadBool(node, "caseSensitive") ?? false;
+            dto.Trim = ReadBool(node, "trim") ?? true;
+            dto.NumericTolerance = kind == "number"
+                ? (canonicalOnly ? (ReadDouble(node, "numericTolerance") ?? 0d) : (ReadDouble(node, "numericTolerance") ?? ReadDouble(node, "tolerance") ?? 0d))
+                : null;
+        }
+        else if (kind == "order")
+        {
+            dto.OrderItems = canonicalOnly
+                ? ReadStringArray(node, "orderItems")
+                : ReadStringArray(node, "orderItems", "items", "steps");
+        }
+        else if (kind == "match")
+        {
+            dto.MatchLeftItems = canonicalOnly
+                ? ReadMathOptions(node, "matchLeftItems")
+                : ReadMathOptions(node, "matchLeftItems", "leftItems");
+            dto.MatchRightItems = canonicalOnly
+                ? ReadMathOptions(node, "matchRightItems")
+                : ReadMathOptions(node, "matchRightItems", "rightItems");
+            dto.MatchPairs = canonicalOnly
+                ? ReadMathMatchPairs(node, "matchPairs")
+                : ReadMathMatchPairs(node, "matchPairs", "pairs");
+        }
+
+        return dto;
+    }
+
+    private static List<CreateTestCaseDto> ReadCreateTestCases(JsonElement node, bool isHidden, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var arr = GetPropertyOrNull(node, name);
+            if (arr.ValueKind != JsonValueKind.Array) continue;
+            var list = new List<CreateTestCaseDto>();
+            foreach (var item in arr.EnumerateArray())
+            {
+                var input = ReadString(item, "input") ?? string.Empty;
+                var output = ReadString(item, "expectedOutput") ?? ReadString(item, "output") ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(input) && string.IsNullOrWhiteSpace(output)) continue;
+                list.Add(new CreateTestCaseDto
+                {
+                    Input = input,
+                    ExpectedOutput = output,
+                    IsHidden = isHidden,
+                });
+            }
+            return list;
+        }
+        return new List<CreateTestCaseDto>();
+    }
+
+    private static List<TaskTestOptionDto> ReadTestOptions(JsonElement node, params string[] names)
+        => ReadOptionItems(node, names).Select(x => new TaskTestOptionDto { Key = x.Key, Text = x.Text }).ToList();
+
+    private static List<TaskMathOptionDto> ReadMathOptions(JsonElement node, params string[] names)
+        => ReadOptionItems(node, names).Select(x => new TaskMathOptionDto { Key = x.Key, Text = x.Text }).ToList();
+
+    private static List<TaskMathMatchPairDto> ReadMathMatchPairs(JsonElement node, params string[] names)
+        => ReadPairItems(node, names).Select(x => new TaskMathMatchPairDto { LeftKey = x.LeftKey, RightKey = x.RightKey }).ToList();
+
+    private static List<(string Key, string Text)> ReadOptionItems(JsonElement node, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var arr = GetPropertyOrNull(node, name);
+            if (arr.ValueKind != JsonValueKind.Array) continue;
+            var list = new List<(string Key, string Text)>();
+            var idx = 0;
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    var optionText = item.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(optionText))
+                        list.Add((idx.ToString(), optionText));
+                    idx++;
+                    continue;
+                }
+
+                var key = ReadString(item, "key") ?? idx.ToString();
+                var text = ReadString(item, "text") ?? ReadString(item, "label") ?? ReadString(item, "title") ?? key;
+                if (!string.IsNullOrWhiteSpace(text))
+                    list.Add((key.Trim(), text.Trim()));
+                idx++;
+            }
+            return list;
+        }
+
+        return new List<(string Key, string Text)>();
+    }
+
+    private static List<(string LeftKey, string RightKey)> ReadPairItems(JsonElement node, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var arr = GetPropertyOrNull(node, name);
+            if (arr.ValueKind != JsonValueKind.Array) continue;
+            var list = new List<(string LeftKey, string RightKey)>();
+            foreach (var item in arr.EnumerateArray())
+            {
+                var leftKey = ReadString(item, "leftKey") ?? ReadString(item, "left") ?? string.Empty;
+                var rightKey = ReadString(item, "rightKey") ?? ReadString(item, "right") ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(leftKey) && !string.IsNullOrWhiteSpace(rightKey))
+                    list.Add((leftKey.Trim(), rightKey.Trim()));
+            }
+            return list;
+        }
+
+        return new List<(string LeftKey, string RightKey)>();
     }
 
     private static string NormalizeDraftDescription(JsonElement root)
@@ -327,6 +532,45 @@ public sealed partial class AiJobService
         if (items.Count == 0) return null;
         return JsonDocument.Parse(JsonSerializer.Serialize(items, JsonOptions));
     }
+    private static readonly HashSet<string> SupportedCodeLanguages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cpp",
+        "csharp",
+        "python",
+        "javascript",
+        "java",
+        "pascal"
+    };
+
+    private static List<string> NormalizeCodeLanguages(IEnumerable<string> values)
+    {
+        var result = new List<string>();
+        foreach (var raw in values ?? Array.Empty<string>())
+        {
+            var normalized = NormalizeCodeLanguage(raw);
+            if (normalized == null || !SupportedCodeLanguages.Contains(normalized) || result.Exists(x => string.Equals(x, normalized, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            result.Add(normalized);
+        }
+        return result;
+    }
+
+    private static string? NormalizeCodeLanguage(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "py" or "python" => "python",
+            "c++" or "cpp" => "cpp",
+            "cs" or "c#" or "csharp" => "csharp",
+            "js" or "javascript" => "javascript",
+            "java" => "java",
+            "pas" or "pascal" or "pascalabc" or "pascalabcnet" or "pascalabc.net" => "pascal",
+            _ => null,
+        };
+    }
+
 
     private static string NormalizePublishedDraftTitle(string? rawTitle, string? rawDescription)
     {
@@ -401,12 +645,12 @@ public sealed partial class AiJobService
         };
     }
 
-    private static string? ExtractRichPromptContent(JsonElement node)
+    private static string? ExtractRichPromptContent(JsonElement node, bool canonicalOnly)
     {
         if (node.TryGetProperty("promptContentJson", out var existingJson) && existingJson.ValueKind == JsonValueKind.String)
             return string.IsNullOrWhiteSpace(existingJson.GetString()) ? null : existingJson.GetString();
 
-        if (node.TryGetProperty("promptContent", out var richNode) && richNode.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+        if (!canonicalOnly && node.TryGetProperty("promptContent", out var richNode) && richNode.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
             return JsonSerializer.Serialize(richNode, JsonOptions);
 
         return null;
@@ -561,6 +805,16 @@ public sealed partial class AiJobService
         }
         return new List<string>();
     }
+
+    private static void ThrowIfDraftV2HasLegacyProperties(JsonElement node, params string[] names)
+    {
+        var found = names.Where(name => HasAnyProperty(node, name)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (found.Count > 0)
+            throw new ValidationException($"draft-v2 содержит legacy-поля: {string.Join(", ", found)}. Исправь черновик на канонический контракт.");
+    }
+
+    private static bool HasAnyProperty(JsonElement node, string name)
+        => node.ValueKind == JsonValueKind.Object && node.TryGetProperty(name, out _);
 
     private static List<int?> ReadNullableIntArray(JsonElement node, string name)
     {

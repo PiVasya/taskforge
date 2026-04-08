@@ -41,7 +41,7 @@ export default function LeaderboardPage() {
         handleApiError(e, notify, 'Не удалось загрузить группы');
       }
     })();
-  }, []);
+  }, [notify]);
 
   const loadEntries = async () => {
     try {
@@ -81,7 +81,7 @@ export default function LeaderboardPage() {
   useEffect(() => {
     loadEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [notify]);
 
   return (
     <Layout>

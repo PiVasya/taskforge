@@ -78,12 +78,21 @@ def build_findings_from_checks(checks: List[Dict[str, Any]]) -> List[Dict[str, A
 
 # ── Type-specific validators ─────────────────────────
 
+def _contains_any_keys(item: Dict[str, Any], keys: List[str]) -> List[str]:
+    return [key for key in keys if key in item]
+
+
 def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     public_tests = list(draft.get("publicTests") or [])
     hidden_tests = list(draft.get("hiddenTests") or [])
     tests = public_tests + hidden_tests
     code = draft.get("referenceSolutionPython")
     checks: List[Dict[str, Any]] = collect_quality_checks_common(draft)
+
+    if "codePolicy" in draft:
+        checks.append({"name": "code-policy-shape", "status": "failed", "details": "Используй root-level requiredCalls/forbiddenCalls, а не nested codePolicy"})
+    else:
+        checks.append({"name": "code-policy-shape", "status": "passed", "details": "Используются канонические root-level policy fields"})
 
     if len(public_tests) >= MIN_PUBLIC_TESTS:
         checks.append({"name": "public-tests-count", "status": "passed", "details": f"publicTests={len(public_tests)}"})
@@ -101,16 +110,31 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
             f"{normalize_text(t.get('input'))}|{normalize_text(t.get('expectedOutput'))}"
             for t in tests if isinstance(t, dict)
         }
-        if len(unique_pairs) == len(tests):
-            checks.append({"name": "tests-unique", "status": "passed", "details": f"unique={len(unique_pairs)}"})
-        else:
-            checks.append({"name": "tests-unique", "status": "warning", "details": f"Есть дубли тестов: unique={len(unique_pairs)} total={len(tests)}"})
+        checks.append({
+            "name": "tests-unique",
+            "status": "passed" if len(unique_pairs) == len(tests) else "failed",
+            "details": f"unique={len(unique_pairs)} total={len(tests)}"
+        })
+        public_pairs = {
+            f"{normalize_text(t.get('input'))}|{normalize_text(t.get('expectedOutput'))}"
+            for t in public_tests if isinstance(t, dict)
+        }
+        hidden_pairs = {
+            f"{normalize_text(t.get('input'))}|{normalize_text(t.get('expectedOutput'))}"
+            for t in hidden_tests if isinstance(t, dict)
+        }
+        overlap = public_pairs & hidden_pairs
+        checks.append({
+            "name": "hidden-vs-public-overlap",
+            "status": "passed" if not overlap else "failed",
+            "details": "hiddenTests не дублируют publicTests" if not overlap else f"Есть пересечения hidden/public: {len(overlap)}"
+        })
 
     if isinstance(code, str) and normalize_text(code):
         if "solve" in code or "main" in code.lower():
             checks.append({"name": "reference-solution-shape", "status": "passed", "details": "Есть solve/main"})
         else:
-            checks.append({"name": "reference-solution-shape", "status": "warning", "details": "Нет явного solve/main"})
+            checks.append({"name": "reference-solution-shape", "status": "failed", "details": "Нет явного solve/main"})
     else:
         checks.append({"name": "reference-solution", "status": "failed", "details": "missing"})
         return {"status": summarize_status(checks), "summary": "У code-test нет referenceSolutionPython.", "score": 0.0, "checks": checks}
@@ -131,8 +155,7 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
                 "status": "passed" if ok else "failed",
                 "details": (
                     f"expected={expected!r}; actual={actual!r}; "
-                    f"rc={res.get('returncode')} "
-                    f"stderr={truncate_text(res.get('stderr') or '', 200)!r}"
+                    f"rc={res.get('returncode')} stderr={truncate_text(res.get('stderr') or '', 200)!r}"
                 ),
             })
             if ok:
@@ -152,44 +175,72 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
 def validate_math_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     blocks = list(draft.get("blocks") or [])
     checks: List[Dict[str, Any]] = collect_quality_checks_common(draft)
+    if "allowedLanguages" in draft:
+        checks.append({"name": "allowedLanguages", "status": "failed", "details": "Math draft не должен содержать allowedLanguages"})
+    if not isinstance(draft.get("settings"), dict):
+        checks.append({"name": "settings", "status": "failed", "details": "settings отсутствует или не объект"})
+    else:
+        settings = draft.get("settings") or {}
+        missing = [key for key in ["maxAttempts", "passPercent", "shuffleBlocks", "allowReview", "attemptTimeLimitsSeconds"] if key not in settings]
+        checks.append({"name": "settings-shape", "status": "passed" if not missing else "failed", "details": "settings canonical" if not missing else f"missing settings fields: {missing}"})
     if not blocks:
         checks.append({"name": "blocks", "status": "failed", "details": "no blocks"})
         return {"status": summarize_status(checks), "summary": "Math draft пустой.", "score": 0.0, "checks": checks}
+    checks.append({"name": "blocks-count", "status": "passed" if len(blocks) >= 2 else "failed", "details": f"blocks={len(blocks)}"})
     answer_blocks = 0
+    legacy_keys = ["blockType", "title", "points", "promptContent", "answers", "correctAnswers", "items", "steps", "leftItems", "rightItems", "pairs"]
     for idx, block in enumerate(blocks, start=1):
-        kind = str(block.get("blockType") or block.get("kind") or "info").strip().lower()
-        title = str(block.get("title") or block.get("prompt") or f"Блок {idx}")
+        kind = str(block.get("kind") or "").strip().lower()
+        title = str(block.get("prompt") or f"Блок {idx}")
         ok = True
         details = "структура выглядит валидно"
-        if not normalize_text(block.get("title") or block.get("prompt") or ""):
+        found_legacy = _contains_any_keys(block, legacy_keys)
+        if found_legacy:
             ok = False
-            details = "нет title/prompt"
-        if kind in {"number", "expression", "set"}:
+            details = f"legacy alias keys not allowed: {found_legacy}"
+        elif not normalize_text(block.get("prompt") or ""):
+            ok = False
+            details = "нет prompt"
+        elif kind not in {"info", "number", "expression", "set", "single-choice", "multi-choice", "order", "match"}:
+            ok = False
+            details = f"unsupported kind={kind!r}"
+        elif block.get("score") is None or block.get("isRequired") is None:
+            ok = False
+            details = "score и isRequired обязательны"
+        elif kind in {"number", "expression", "set"}:
             answer_blocks += 1
-            answers = block.get("acceptedAnswers") or block.get("answers") or block.get("correctAnswers") or []
+            answers = block.get("acceptedAnswers") or []
             if not answers:
                 ok = False
                 details = "нет acceptedAnswers"
+            elif block.get("caseSensitive") is None or block.get("trim") is None:
+                ok = False
+                details = "для answer blocks нужны caseSensitive и trim"
             elif kind == "number" and any(safe_eval_number(str(x)) is None for x in answers):
                 ok = False
                 details = "acceptedAnswers не парсятся как числа/выражения"
         elif kind in {"single-choice", "multi-choice"}:
             answer_blocks += 1
-            if not (block.get("options") and (block.get("correctOptionKeys") or block.get("correctKeys") or block.get("correct"))):
+            options = list(block.get("options") or [])
+            correct = list(block.get("correctOptionKeys") or [])
+            option_keys = {str(x.get("key")) for x in options if isinstance(x, dict)}
+            if len(options) < 2 or not correct or any(str(x) not in option_keys for x in correct):
                 ok = False
-                details = "нет options или correctOptionKeys"
-        elif kind == "order" and len(block.get("items") or block.get("steps") or []) < 2:
+                details = "для choice нужны минимум 2 options и корректные correctOptionKeys"
+        elif kind == "order":
             answer_blocks += 1
-            ok = False
-            details = "для order нужно минимум 2 элемента"
-        elif kind == "match" and not (
-            (block.get("leftItems") or [])
-            and (block.get("rightItems") or [])
-            and (block.get("pairs") or block.get("matchPairs") or [])
-        ):
+            items = block.get("orderItems") or []
+            if len(items) < 2:
+                ok = False
+                details = "для order нужно минимум 2 элемента"
+        elif kind == "match":
             answer_blocks += 1
-            ok = False
-            details = "для match нужны leftItems/rightItems/pairs"
+            left_items = block.get("matchLeftItems") or []
+            right_items = block.get("matchRightItems") or []
+            pairs = block.get("matchPairs") or []
+            if not (left_items and right_items and pairs):
+                ok = False
+                details = "для match нужны matchLeftItems/matchRightItems/matchPairs"
         checks.append({"name": title, "status": "passed" if ok else "failed", "details": details})
     checks.append({"name": "answer-blocks", "status": "passed" if answer_blocks > 0 else "failed", "details": f"answerBlocks={answer_blocks}"})
     status = summarize_status(checks)
@@ -200,6 +251,14 @@ def validate_math_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
 def validate_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     questions = list(draft.get("questions") or [])
     checks: List[Dict[str, Any]] = collect_quality_checks_common(draft)
+    if "allowedLanguages" in draft:
+        checks.append({"name": "allowedLanguages", "status": "failed", "details": "Test draft не должен содержать allowedLanguages"})
+    if not isinstance(draft.get("settings"), dict):
+        checks.append({"name": "settings", "status": "failed", "details": "settings отсутствует или не объект"})
+    else:
+        settings = draft.get("settings") or {}
+        missing = [key for key in ["maxAttempts", "passPercent", "shuffleQuestions", "shuffleAnswers", "allowReview", "attemptTimeLimitsSeconds"] if key not in settings]
+        checks.append({"name": "settings-shape", "status": "passed" if not missing else "failed", "details": "settings canonical" if not missing else f"missing settings fields: {missing}"})
     if len(questions) >= 5:
         checks.append({"name": "questions-count", "status": "passed", "details": f"questions={len(questions)}"})
     elif questions:
@@ -209,28 +268,44 @@ def validate_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": summarize_status(checks), "summary": "Test draft пустой.", "score": 0.0, "checks": checks}
     seen_prompts: set = set()
     duplicate_prompts = 0
+    legacy_keys = ["questionType", "title", "correctKeys", "correct", "answers", "correctAnswers"]
     for idx, q in enumerate(questions, start=1):
-        qtype = str(q.get("type") or q.get("questionType") or "single-choice").strip().lower()
-        title = str(q.get("prompt") or q.get("title") or f"Вопрос {idx}")
+        qtype = str(q.get("type") or "").strip().lower()
+        title = str(q.get("prompt") or f"Вопрос {idx}")
         ok = True
         details = "структура выглядит валидно"
-        normalized_prompt = normalize_text(q.get("prompt") or q.get("title") or "")
-        if not normalized_prompt:
+        found_legacy = _contains_any_keys(q, legacy_keys)
+        normalized_prompt = normalize_text(q.get("prompt") or "")
+        if found_legacy:
             ok = False
-            details = "нет title/prompt"
+            details = f"legacy alias keys not allowed: {found_legacy}"
+        elif not normalized_prompt:
+            ok = False
+            details = "нет prompt"
         elif normalized_prompt in seen_prompts:
             duplicate_prompts += 1
         else:
             seen_prompts.add(normalized_prompt)
         if qtype in {"single-choice", "multi-choice"}:
-            if not (q.get("options") and (q.get("correctOptionKeys") or q.get("correctKeys") or q.get("correct"))):
+            options = list(q.get("options") or [])
+            correct = list(q.get("correctOptionKeys") or [])
+            option_keys = {str(x.get("key")) for x in options if isinstance(x, dict)}
+            if len(options) < 2 or not correct or any(str(x) not in option_keys for x in correct):
                 ok = False
-                details = "нет options или correctOptionKeys"
-        else:
-            answers = q.get("acceptedAnswers") or q.get("answers") or q.get("correctAnswers") or []
+                details = "для choice нужны минимум 2 options и корректные correctOptionKeys"
+        elif qtype in {"fill", "text"}:
+            answers = q.get("acceptedAnswers") or []
+            has_case_sensitive = q.get("caseSensitive") is not None
+            has_trim = q.get("trim") is not None
             if not answers:
                 ok = False
                 details = "нет acceptedAnswers"
+            elif not has_case_sensitive or not has_trim:
+                ok = False
+                details = "для fill/text нужны caseSensitive и trim"
+        else:
+            ok = False
+            details = f"unsupported type={qtype!r}"
         checks.append({"name": title, "status": "passed" if ok else "failed", "details": details})
     if duplicate_prompts == 0:
         checks.append({"name": "duplicate-prompts", "status": "passed", "details": "Дубликатов вопросов нет"})

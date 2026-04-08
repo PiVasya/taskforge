@@ -174,7 +174,9 @@ public sealed class AiChatService
         {
             Id = Guid.NewGuid(),
             Role = "assistant",
-            Content = "Думаю над запросом…",
+            Content = normalizedAttachments.Count > 0
+                ? "Приняла сообщение и вложения. Анализирую контекст и готовлю ответ…"
+                : "Приняла сообщение. Анализирую контекст и готовлю ответ…",
             CreatedAtUtc = DateTime.UtcNow,
             Status = "processing",
             PendingJobId = job.Id,
@@ -185,16 +187,12 @@ public sealed class AiChatService
         session.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
 
-        await WaitForJobCompletionAsync(job.Id, TimeSpan.FromSeconds(24), ct);
-        await TryFinalizePendingAsync(session, ct);
-
-        var resultMessages = DeserializeMessages(session.MessagesJson);
         var resultCourseMap = await LoadCourseTitleMapAsync(session.CourseId.HasValue ? new[] { session.CourseId.Value } : Array.Empty<Guid>(), ct);
         return new AiFoundryChatSendMessageResponseDto
         {
-            Pending = resultMessages.Any(IsPendingAssistant),
-            PendingJobId = resultMessages.LastOrDefault(IsPendingAssistant)?.PendingJobId,
-            Session = MapSession(session, resultCourseMap, resultMessages, BuildMemory(resultMessages, session.PlanJson)),
+            Pending = true,
+            PendingJobId = job.Id,
+            Session = MapSession(session, resultCourseMap, messages, BuildMemory(messages, session.PlanJson)),
         };
     }
 
@@ -331,8 +329,7 @@ public sealed class AiChatService
         }
 
         var root = ParseJson(job.ResultJson);
-        var assistantText = root?["assistantMessage"]?.ToString()?.Trim();
-        var toolCalls = ParseToolCalls(root);
+        var (assistantText, toolCalls) = InterpretChatTurn(root, session, messages);
         var toolResults = await ExecuteToolCallsAsync(session, messages, toolCalls, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
 
         assistantMessage.Status = "done";
@@ -1104,10 +1101,187 @@ public sealed class AiChatService
         return args.ToJsonString();
     }
 
+    private static (string? AssistantText, IReadOnlyList<AiFoundryChatToolCallDto> ToolCalls) InterpretChatTurn(
+        JsonNode? root,
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages)
+    {
+        var assistantText = root?["assistantMessage"]?.ToString()?.Trim();
+        var toolCalls = ParseToolCalls(root).ToList();
+        if (!string.IsNullOrWhiteSpace(assistantText) || toolCalls.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(assistantText) && toolCalls.Count > 0)
+                assistantText = BuildActionIntro(toolCalls);
+            return (assistantText, toolCalls);
+        }
+
+        if (root is JsonObject obj)
+        {
+            var synthesized = TrySynthesizeLegacyAction(obj, session, messages);
+            if (synthesized.ToolCall != null)
+                return (synthesized.AssistantText, new List<AiFoundryChatToolCallDto> { synthesized.ToolCall });
+
+            var fallbackText = BuildLegacyPlanMessage(obj, session, messages);
+            if (!string.IsNullOrWhiteSpace(fallbackText))
+                return (fallbackText, Array.Empty<AiFoundryChatToolCallDto>());
+        }
+
+        return (assistantText, toolCalls);
+    }
+
+    private static (AiFoundryChatToolCallDto? ToolCall, string? AssistantText) TrySynthesizeLegacyAction(
+        JsonObject root,
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages)
+    {
+        var prompt = ReadString(root, "prompt");
+        if (string.IsNullOrWhiteSpace(prompt))
+            return (null, null);
+
+        var requestedCount = TryExtractRequestedCount(messages);
+        var modelCount = Math.Clamp(ReadInt(root, "count") ?? 5, 1, 12);
+        var finalCount = requestedCount ?? modelCount;
+        var courseId = ReadGuid(root, "courseId") ?? session.CourseId;
+        var assignmentType = ReadString(root, "assignmentType") ?? "code-test";
+        var difficulty = Math.Clamp(ReadInt(root, "difficulty") ?? 2, 1, 5);
+        var mode = ReadString(root, "mode") ?? "topic-pack";
+
+        var lastUser = messages.LastOrDefault(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase))?.Content?.Trim() ?? string.Empty;
+        var asksForSeveral = modelCount > 1
+            || Regex.IsMatch(lastUser, @"(batch|пакет|нескольк|много|ещ[её]|задач)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (!courseId.HasValue)
+        {
+            return (null, "Я собрала черновик генерации, но курс для этого чата не выбран. Сначала выбери курс, и затем я продолжу без повторного объяснения контекста.");
+        }
+
+        if (asksForSeveral && requestedCount == null)
+        {
+            return (null, BuildClarifyCountMessage(root, session));
+        }
+
+        var args = new JsonObject
+        {
+            ["courseId"] = courseId.Value,
+            ["prompt"] = prompt,
+            ["assignmentType"] = assignmentType,
+            ["count"] = finalCount,
+            ["difficulty"] = difficulty,
+            ["mode"] = mode,
+        };
+
+        var notes = ReadString(root, "notes");
+        if (!string.IsNullOrWhiteSpace(notes))
+            args["notes"] = notes;
+
+        return (
+            new AiFoundryChatToolCallDto
+            {
+                Name = "queue_generate_batch",
+                Reason = "Синтезировано на backend: worker вернул batch-план без actions, поэтому чат восстановил ожидаемое действие.",
+                ArgumentsJson = args.ToJsonString(),
+            },
+            $"Поняла. Запускаю batch на {finalCount} задач по текущему контексту курса.");
+    }
+
+    private static string? BuildLegacyPlanMessage(JsonObject root, AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages)
+    {
+        var prompt = ReadString(root, "prompt");
+        if (string.IsNullOrWhiteSpace(prompt))
+            return ReadString(root, "summary");
+
+        var assignmentType = ReadString(root, "assignmentType") ?? "code-test";
+        var difficulty = Math.Clamp(ReadInt(root, "difficulty") ?? 2, 1, 5);
+        var mode = ReadString(root, "mode") ?? "topic-pack";
+        var count = ReadInt(root, "count") ?? 5;
+        var requestedCount = TryExtractRequestedCount(messages);
+        var countLabel = requestedCount.HasValue ? requestedCount.Value.ToString() : "не указано";
+
+        return string.Join("\n", new[]
+        {
+            "Я подготовила черновик генерации по твоему запросу.",
+            $"• тип: {assignmentType}",
+            $"• сложность: {difficulty}/5",
+            $"• режим: {mode}",
+            $"• количество из запроса: {countLabel}",
+            requestedCount.HasValue ? $"• рабочий count: {requestedCount.Value}" : $"• модель предложила count={count}, но я не запускаю batch без явного количества",
+            string.Empty,
+            "Черновик prompt:",
+            ShortenMultiline(prompt, 700),
+        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    private static string BuildClarifyCountMessage(JsonObject root, AiFoundryChatSession session)
+    {
+        var assignmentType = ReadString(root, "assignmentType") ?? "code-test";
+        var difficulty = Math.Clamp(ReadInt(root, "difficulty") ?? 2, 1, 5);
+        var mode = ReadString(root, "mode") ?? "topic-pack";
+        return string.Join("\n", new[]
+        {
+            "Я поняла направление и уже собрала черновик batch-плана.",
+            "Но количество заданий ты явно не указал, поэтому я не запускаю генерацию молча.",
+            "Напиши одним сообщением, сколько задач нужно: 3, 5, 7, 10 или другое число.",
+            string.Empty,
+            $"Пока вижу так: тип={assignmentType}, сложность={difficulty}/5, режим={mode}."
+        });
+    }
+
+    private static int? TryExtractRequestedCount(List<AiFoundryChatMessageDto> messages)
+    {
+        foreach (var content in messages
+                     .Where(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase))
+                     .Select(x => x.Content)
+                     .Reverse())
+        {
+            var parsed = TryExtractRequestedCount(content);
+            if (parsed.HasValue)
+                return parsed;
+        }
+
+        return null;
+    }
+
+    private static int? TryExtractRequestedCount(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return null;
+
+        var match = Regex.Match(content, @"(?<!\d)(\d{1,2})\s*(?:задач[а-я]*|шт\.?|штук|items?)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+            match = Regex.Match(content, @"\bна\s+(\d{1,2})\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+            return null;
+
+        return int.TryParse(match.Groups[1].Value, out var value) ? Math.Clamp(value, 1, 12) : null;
+    }
+
+    private static string BuildActionIntro(IReadOnlyList<AiFoundryChatToolCallDto> toolCalls)
+    {
+        var names = toolCalls.Select(x => x.Name?.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        if (names.Count == 0)
+            return "Запрос обработан. Показываю, что удалось сделать.";
+        if (names.Count == 1)
+        {
+            return (names[0] ?? string.Empty).ToLowerInvariant() switch
+            {
+                "queue_generate_batch" => "Запускаю batch по текущему контексту.",
+                "queue_generate_from_text" => "Запускаю генерацию из текста.",
+                "queue_generate_from_file" => "Запускаю генерацию из файла.",
+                "queue_validate_draft" => "Запускаю self-check черновика.",
+                "queue_analyze_assignment" => "Запускаю анализ задания.",
+                "queue_review_submission" => "Запускаю AI-review попытки.",
+                "queue_review_user" => "Запускаю AI-review пользователя.",
+                _ => "Выполняю действие по твоему запросу.",
+            };
+        }
+
+        return $"Поняла. За этот ход выполняю {names.Count} действия.";
+    }
+
     private static string BuildAssistantContent(string? assistantText, IReadOnlyList<AiFoundryChatToolResultDto>? toolResults)
     {
         var text = string.IsNullOrWhiteSpace(assistantText)
-            ? "Готово. Я обработал запрос."
+            ? "AI завершила обработку, но не вернула текстовый комментарий. Покажу только выполненные действия и результаты."
             : assistantText.Trim();
 
         var summaries = (toolResults ?? Array.Empty<AiFoundryChatToolResultDto>())
@@ -1322,6 +1496,14 @@ public sealed class AiChatService
     private static string ShortenSingleLine(string value, int maxLen)
     {
         var normalized = Regex.Replace(value ?? string.Empty, @"\s+", " ").Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return string.Empty;
+        return normalized.Length <= maxLen ? normalized : normalized[..Math.Max(1, maxLen - 1)] + "…";
+    }
+
+    private static string ShortenMultiline(string value, int maxLen)
+    {
+        var normalized = (value ?? string.Empty).Replace("\r\n", "\n").Trim();
         if (string.IsNullOrWhiteSpace(normalized))
             return string.Empty;
         return normalized.Length <= maxLen ? normalized : normalized[..Math.Max(1, maxLen - 1)] + "…";

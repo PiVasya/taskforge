@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, RefreshCw, Search } from 'lucide-react';
 import Layout from '../../components/Layout';
 import AppErrorPanel from '../../components/AppErrorPanel';
@@ -27,7 +27,7 @@ export default function AdminUserActionsPage() {
   const [source, setSource] = useState('');
   const [page, setPage] = useState(1);
 
-  async function load(nextPage = page) {
+  const load = useCallback(async (nextPage = page) => {
     setLoading(true);
     setError(null);
     try {
@@ -39,13 +39,13 @@ export default function AdminUserActionsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, days, query, category, source]);
 
   useEffect(() => {
     load(1);
-  }, [days, category, source]);
+  }, [days, category, source, load]);
 
-  const items = payload?.items || [];
+  const items = useMemo(() => payload?.items || [], [payload]);
   const categories = useMemo(() => (payload?.topCategories || []).map((x) => x.label), [payload]);
   const sources = useMemo(() => {
     const set = new Set((items || []).map((x) => x.source).filter(Boolean));

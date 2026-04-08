@@ -6,7 +6,7 @@ import { reviewAiUser } from '../../api/aiAdmin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { AlertTriangle, Save, Search, Trash2, UserCog } from 'lucide-react';
+import { Save, Search, Trash2, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 

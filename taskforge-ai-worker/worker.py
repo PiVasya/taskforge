@@ -1,4 +1,4 @@
-"""TaskForge AI Worker — thin orchestrator.
+﻿"""TaskForge AI Worker — thin orchestrator.
 
 All business logic lives in dedicated modules:
   config, log, text_utils, api_client, runners, payload,
@@ -8,6 +8,7 @@ All business logic lives in dedicated modules:
 This file contains only the job-routing dispatcher and the main poll loop.
 """
 
+import re
 import time
 from typing import Any, Dict
 
@@ -168,6 +169,8 @@ def _stage_required_keys(job_type: str) -> tuple[list[str], list[str]]:
         return (["draft"], ["summary", "decisionSummary", "draftValidation"])
     if job_type == "assignment_repair":
         return (["draft"], ["repairSummary", "draftValidation"])
+    if job_type == "assistant_chat_turn":
+        return (["assistantMessage", "actions"], ["sessionTitle", "action"])
     return ([], [])
 
 
@@ -211,6 +214,191 @@ def _schema_missing_reason(job_type: str, payload: Dict[str, Any], result: Dict[
         if value is None or (isinstance(value, str) and not value.strip()):
             return f"missing {key}"
     return None
+
+
+def _chat_last_user_text(payload: Dict[str, Any]) -> str:
+    conversation = payload.get("conversation") if isinstance(payload.get("conversation"), list) else []
+    for item in reversed(conversation):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").strip().lower() != "user":
+            continue
+        text = str(item.get("content") or item.get("text") or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _chat_recent_attachments(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
+    items = payload.get("recentAttachments") if isinstance(payload.get("recentAttachments"), list) else []
+    return [x for x in items if isinstance(x, dict)]
+
+
+def _chat_extract_requested_count(text: str) -> int | None:
+    if not text:
+        return None
+    for pattern in (
+        r"(?<!\d)(\d{1,2})\s*(?:задач[а-я]*|шт\.?|штук|items?)",
+        r"\bна\s+(\d{1,2})\b",
+        r"\b(\d{1,2})\s*(?:pieces|tasks?)\b",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            try:
+                value = int(match.group(1))
+                return max(1, min(12, value))
+            except Exception:
+                return None
+    return None
+
+
+def _chat_wants_multiple(text: str, model_count: int) -> bool:
+    low = (text or "").lower()
+    return model_count > 1 or any(token in low for token in ["batch", "пакет", "нескольк", "много", "ещё", "еще", "задач"])
+
+
+def _chat_pick_assignment_type(payload: Dict[str, Any], result: Dict[str, Any]) -> str:
+    defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    return str(result.get("assignmentType") or defaults.get("assignmentType") or "code-test").strip() or "code-test"
+
+
+def _chat_safe_count(value: Any, default: int = 1) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = default
+    return max(1, min(12, parsed))
+
+
+def _chat_pick_difficulty(payload: Dict[str, Any], result: Dict[str, Any]) -> int:
+    defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    try:
+        value = int(result.get("difficulty") or defaults.get("difficulty") or 2)
+    except Exception:
+        value = 2
+    return max(1, min(3, value))
+
+
+def _chat_pick_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> str:
+    defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    return str(result.get("mode") or defaults.get("mode") or "topic-pack").strip() or "topic-pack"
+
+
+def _chat_pick_course_id(payload: Dict[str, Any], result: Dict[str, Any]) -> Any:
+    return result.get("courseId") or payload.get("courseId")
+
+
+def _chat_build_session_title(payload: Dict[str, Any]) -> str | None:
+    selected = payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else {}
+    title = str(selected.get("title") or payload.get("sessionTitle") or "").strip()
+    if not title:
+        return None
+    if title.lower().startswith("ai чат") or title.lower().startswith("ai chat"):
+        return title[:64]
+    return f"AI чат · {title}"[:64]
+
+
+def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"assistantMessage": "Я не смогла корректно разобрать ответ модели. Повтори запрос короче или уточни действие.", "actions": []}
+
+    if isinstance(result.get("actions"), list) and str(result.get("assistantMessage") or "").strip():
+        return result
+
+    prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or "").strip()
+    if not prompt:
+        return {
+            "assistantMessage": "Я не смогла собрать внятный ответ по этому сообщению. Сформулируй запрос чуть конкретнее: что именно сделать и для какого курса.",
+            "actions": [],
+            "sessionTitle": _chat_build_session_title(payload),
+        }
+
+    last_user = _chat_last_user_text(payload)
+    course_id = _chat_pick_course_id(payload, result)
+    raw_count = result.get("count")
+    model_count = (_chat_extract_requested_count(str(raw_count or "")) or _chat_safe_count(raw_count, 1)) if str(raw_count or "").strip() else 1
+    explicit_count = _chat_extract_requested_count(last_user)
+    wants_multiple = _chat_wants_multiple(last_user, model_count)
+    final_count = explicit_count or max(1, model_count)
+    assignment_type = _chat_pick_assignment_type(payload, result)
+    difficulty = _chat_pick_difficulty(payload, result)
+    mode = _chat_pick_mode(payload, result)
+    attachments = _chat_recent_attachments(payload)
+    mentioned_file = any(token in (last_user or "").lower() for token in ["файл", "влож", "прикреп", "pdf", "docx", "xlsx", "pptx", "zip"])
+    last_attachment = attachments[-1] if attachments else None
+
+    if not course_id:
+        return {
+            "assistantMessage": "Я поняла, что нужно генерировать задания, но у этого чата не выбран курс. Сначала выбери курс справа, и я продолжу без повторного объяснения контекста.",
+            "actions": [],
+            "sessionTitle": _chat_build_session_title(payload),
+        }
+
+    if wants_multiple and explicit_count is None:
+        return {
+            "assistantMessage": f"Поняла направление. Я уже собрала черновик плана: тип={assignment_type}, сложность={difficulty}/5, режим={mode}. Сколько задач нужно сгенерировать: 3, 5, 7, 10 или другое число?",
+            "actions": [],
+            "sessionTitle": _chat_build_session_title(payload),
+        }
+
+    if last_attachment and mentioned_file:
+        return {
+            "assistantMessage": f"Поняла. Запускаю генерацию по прикреплённому файлу '{last_attachment.get('originalName') or last_attachment.get('fileKey') or 'файл'}'.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "queue_generate_from_file",
+                "reason": "Пользователь попросил использовать прикреплённый файл как источник для генерации.",
+                "arguments": {
+                    "courseId": course_id,
+                    "prompt": prompt,
+                    "fileKey": last_attachment.get("fileKey"),
+                    "assignmentType": assignment_type,
+                    "count": final_count,
+                    "difficulty": difficulty,
+                    "titleHint": result.get("titleHint") or result.get("title") or None,
+                    "enableSelfCheck": True,
+                },
+            }],
+        }
+
+    if wants_multiple or final_count > 1:
+        return {
+            "assistantMessage": f"Поняла. Запускаю batch на {final_count} задач по текущему контексту курса.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "queue_generate_batch",
+                "reason": "Пользователь просит несколько заданий, поэтому подходит batch-generation через Foundry pipeline.",
+                "arguments": {
+                    "courseId": course_id,
+                    "prompt": prompt,
+                    "assignmentType": assignment_type,
+                    "count": final_count,
+                    "difficulty": difficulty,
+                    "mode": mode,
+                },
+            }],
+        }
+
+    source_text = prompt
+    if last_attachment and str(last_attachment.get("textExcerpt") or "").strip():
+        source_text = str(last_attachment.get("textExcerpt"))[:4000]
+    return {
+        "assistantMessage": "Поняла. Запускаю генерацию по текущему текстовому контексту чата.",
+        "sessionTitle": _chat_build_session_title(payload),
+        "actions": [{
+            "name": "queue_generate_from_text",
+            "reason": "По запросу лучше подходит точечная генерация из текста текущего диалога.",
+            "arguments": {
+                "courseId": course_id,
+                "prompt": prompt,
+                "sourceText": source_text,
+                "assignmentType": assignment_type,
+                "count": final_count,
+                "difficulty": difficulty,
+                "enableSelfCheck": True,
+            },
+        }],
+    }
 
 
 def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], job_type: str, bad_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -533,6 +721,15 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
         return OllamaCallConfig(stage="draft_generate", timeout=GENERATION_TIMEOUT, num_predict=1200 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["summary", "decisionSummary", "draftValidation"])
     if job_type == "assignment_repair":
         return OllamaCallConfig(stage="repair", timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"])
+    if job_type == "assistant_chat_turn":
+        return OllamaCallConfig(
+            stage="assistant_chat_turn",
+            timeout=GENERATION_TIMEOUT,
+            num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200),
+            temperature=0.05,
+            required_keys=["assistantMessage", "actions"],
+            preferred_keys=["sessionTitle", "action"],
+        )
     return OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15)
 
 
@@ -546,6 +743,8 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20], compact_mode=payload.get("__compactMode"), retry_count=retry_count)
 
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
+        if job_type == "assistant_chat_turn":
+            result = _normalize_chat_turn_result(payload, result)
         missing_reason = _schema_missing_reason(job_type, payload, result)
         if missing_reason:
             _log_stage("stage-schema-invalid", job, payload, reason=missing_reason, result=_result_summary(result))

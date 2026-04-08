@@ -4,7 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using taskforge.Constants;
 using taskforge.Data;
+using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.DTO.AI;
+using taskforge.Data.Models.DTO.TaskMaths;
+using taskforge.Data.Models.DTO.TaskTests;
 using taskforge.Data.Models.Entities.AI;
 using taskforge.Services.Interfaces;
 
@@ -20,12 +23,24 @@ public sealed partial class AiJobService : IAiJobService
     private readonly ApplicationDbContext _db;
     private readonly ILogger<AiJobService> _log;
     private readonly AiOptions _aiOptions;
+    private readonly IAssignmentService _assignmentService;
+    private readonly ITaskTestService _taskTestService;
+    private readonly ITaskMathService _taskMathService;
 
-    public AiJobService(ApplicationDbContext db, ILogger<AiJobService> log, IOptions<AiOptions> aiOptions)
+    public AiJobService(
+        ApplicationDbContext db,
+        ILogger<AiJobService> log,
+        IOptions<AiOptions> aiOptions,
+        IAssignmentService assignmentService,
+        ITaskTestService taskTestService,
+        ITaskMathService taskMathService)
     {
         _db = db;
         _log = log;
         _aiOptions = aiOptions.Value;
+        _assignmentService = assignmentService;
+        _taskTestService = taskTestService;
+        _taskMathService = taskMathService;
     }
 
     public async Task<AiJobListResponseDto> GetAdminJobsAsync(string? status, string? type, int page, int pageSize, CancellationToken ct = default)
@@ -1277,6 +1292,8 @@ public sealed partial class AiJobService : IAiJobService
             ["file"] = file == null ? null : JsonSerializer.SerializeToNode(file, JsonOptions),
             ["targetSchema"] = JsonSerializer.SerializeToNode(BuildTargetSchema(normalizedAssignmentType), JsonOptions),
             ["qualityGates"] = JsonSerializer.SerializeToNode(BuildQualityGates(normalizedAssignmentType), JsonOptions),
+            ["supportedLanguages"] = JsonSerializer.SerializeToNode(BuildSupportedLanguages(normalizedAssignmentType), JsonOptions),
+            ["schemaVersion"] = "draft-v2",
             ["referenceAssignments"] = JsonSerializer.SerializeToNode(referenceAssignments, JsonOptions),
         };
         if (additional != null && JsonSerializer.SerializeToNode(additional, JsonOptions) is JsonNode additionalNode && additionalNode is JsonObject additionalObj)
@@ -1386,6 +1403,17 @@ public sealed partial class AiJobService : IAiJobService
         };
     }
 
+    private static IReadOnlyList<string> BuildSupportedLanguages(string? assignmentType)
+    {
+        var normalized = NormalizeDraftAssignmentType(assignmentType, default);
+        return normalized switch
+        {
+            "image-test" => new[] { "python", "pascal", "cpp" },
+            "code-test" => new[] { "cpp", "csharp", "python", "javascript", "java", "pascal" },
+            _ => Array.Empty<string>(),
+        };
+    }
+
     private static object BuildQualityGates(string? assignmentType)
     {
         var normalized = NormalizeDraftAssignmentType(assignmentType, default);
@@ -1395,23 +1423,25 @@ public sealed partial class AiJobService : IAiJobService
             {
                 minDescriptionLength = 200,
                 minPublicTests = 2,
-                minHiddenTests = 3,
+                minHiddenTests = 5,
                 requireReferenceSolutionPython = true,
-                requireAllowedLanguages = true,
                 requireCodePolicyReview = true,
                 requireEdgeCases = true,
+                allowedLanguagesOptionalMeansNoRestriction = true,
             },
             "test" => new
             {
                 minDescriptionLength = 120,
                 minQuestions = 5,
                 requireDiverseQuestionTypes = true,
+                requireCanonicalQuestions = true,
             },
             "math" => new
             {
                 minDescriptionLength = 120,
                 minBlocks = 2,
                 requireAtLeastOneAnswerBlock = true,
+                requireCanonicalBlocks = true,
             },
             _ => new
             {
@@ -1440,39 +1470,114 @@ public sealed partial class AiJobService : IAiJobService
         {
             "math" => new
             {
+                schemaVersion = "draft-v2",
                 assignmentType = "math",
+                canonicalOnly = true,
+                outputEnvelope = new { schemaVersion = "draft-v2", draft = "object" },
                 requiredFields = new[] { "assignmentType", "title", "description", "settings", "blocks" },
+                forbiddenLegacyAliases = new[] { "blockType", "title", "points", "promptContent", "answers", "correctAnswers", "items", "steps", "leftItems", "rightItems", "pairs" },
                 descriptionFormat = new { allowed = new[] { "plain-text", "tiptap-json" }, minLength = 120, sections = new[] { "problem", "hints" } },
-                settings = new { maxAttempts = "int >= 1", passPercent = "int 1..100", shuffleBlocks = "bool", allowReview = "bool", attemptTimeLimitsSeconds = "int?[]" },
+                settings = new
+                {
+                    maxAttempts = "int >= 1",
+                    passPercent = "int 1..100",
+                    shuffleBlocks = "bool",
+                    allowReview = "bool",
+                    attemptTimeLimitsSeconds = "int?[]"
+                },
                 blocks = new object[]
                 {
-                    new { blockType = "info|number|expression|set|single-choice|multi-choice|order|match", title = "string", prompt = "string optional", promptContent = "rich-text optional", points = "int >= 0", isRequired = "bool" }
+                    new
+                    {
+                        kind = "info|number|expression|set|single-choice|multi-choice|order|match",
+                        prompt = "string",
+                        promptContentJson = "string|null",
+                        score = "int >= 0",
+                        isRequired = "bool",
+                        options = "TaskMathOptionDto[] required for single-choice|multi-choice|match",
+                        correctOptionKeys = "string[] required for single-choice|multi-choice",
+                        acceptedAnswers = "string[] required for number|expression|set",
+                        caseSensitive = "bool required for number|expression|set",
+                        trim = "bool required for number|expression|set",
+                        numericTolerance = "number optional for number",
+                        orderItems = "string[] required for order",
+                        matchLeftItems = "TaskMathOptionDto[] required for match",
+                        matchRightItems = "TaskMathOptionDto[] required for match",
+                        matchPairs = "TaskMathMatchPairDto[] required for match"
+                    }
+                },
+                quality = new
+                {
+                    minBlocks = 2,
+                    requireAtLeastOneAnswerBlock = true,
+                    requireCanonicalBlocks = true,
+                    rejectLegacyAliases = true
                 },
                 meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить структуру блоков перед публикацией." } }
             },
             "test" => new
             {
+                schemaVersion = "draft-v2",
                 assignmentType = "test",
+                canonicalOnly = true,
+                outputEnvelope = new { schemaVersion = "draft-v2", draft = "object" },
                 requiredFields = new[] { "assignmentType", "title", "description", "settings", "questions" },
+                forbiddenLegacyAliases = new[] { "questionType", "title", "correctKeys", "correct", "answers", "correctAnswers" },
                 descriptionFormat = new { allowed = new[] { "plain-text", "tiptap-json" }, minLength = 120, sections = new[] { "problem", "instructions" } },
-                settings = new { maxAttempts = "int >= 1", passPercent = "int 1..100", shuffleQuestions = "bool", shuffleAnswers = "bool", allowReview = "bool", attemptTimeLimitsSeconds = "int?[]" },
+                settings = new
+                {
+                    maxAttempts = "int >= 1",
+                    passPercent = "int 1..100",
+                    shuffleQuestions = "bool",
+                    shuffleAnswers = "bool",
+                    allowReview = "bool",
+                    attemptTimeLimitsSeconds = "int?[]"
+                },
                 questions = new object[]
                 {
-                    new { type = "single-choice|multi-choice|fill|text", prompt = "string", options = "required for choice", correctOptionKeys = "required for choice", acceptedAnswers = "required for fill/text" }
+                    new
+                    {
+                        type = "single-choice|multi-choice|fill|text",
+                        prompt = "string",
+                        options = "TaskTestOptionDto[] required for single-choice|multi-choice",
+                        correctOptionKeys = "string[] required for single-choice|multi-choice",
+                        acceptedAnswers = "string[] required for fill|text",
+                        caseSensitive = "bool required for fill|text",
+                        trim = "bool required for fill|text"
+                    }
                 },
-                quality = new { minQuestions = 5, mustAvoidDuplicates = true },
+                quality = new
+                {
+                    minQuestions = 5,
+                    mustAvoidDuplicates = true,
+                    requireCanonicalQuestions = true,
+                    rejectLegacyAliases = true
+                },
                 meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить вопросы и ответы перед публикацией." } }
             },
             "code-test" => new
             {
+                schemaVersion = "draft-v2",
                 assignmentType = "code-test",
-                requiredFields = new[] { "assignmentType", "title", "description", "allowedLanguages", "publicTests", "hiddenTests", "referenceSolutionPython" },
+                canonicalOnly = true,
+                outputEnvelope = new { schemaVersion = "draft-v2", draft = "object" },
+                requiredFields = new[] { "assignmentType", "title", "description", "publicTests", "hiddenTests", "referenceSolutionPython" },
                 descriptionFormat = new { allowed = new[] { "plain-text", "tiptap-json" }, minLength = 200, sections = new[] { "problem", "input", "output", "constraints", "notes" } },
-                allowedLanguages = new[] { "python", "cpp", "csharp" },
+                allowedLanguages = BuildSupportedLanguages("code-test"),
+                allowedLanguagesSemantics = "missing-or-empty-means-no-restriction",
                 publicTests = new[] { new { input = "string", expectedOutput = "string" } },
                 hiddenTests = new[] { new { input = "string", expectedOutput = "string" } },
-                codePolicy = new { forbiddenCalls = "string[] optional", requiredCalls = "string[] optional" },
-                quality = new { minPublicTests = 2, minHiddenTests = 3, requireEdgeCases = true, requireDeterministicReferenceSolution = true },
+                referenceSolutionPython = "string",
+                requiredCalls = "string[] optional",
+                forbiddenCalls = "string[] optional",
+                quality = new
+                {
+                    minPublicTests = 2,
+                    minHiddenTests = 5,
+                    requireEdgeCases = true,
+                    requireDeterministicReferenceSolution = true,
+                    rejectNestedCodePolicy = true
+                },
                 meta = new { selfCheck = new { status = "pending", mode = "python", summary = "Проверить reference solution и все тесты перед публикацией." } }
             },
             _ => new

@@ -1,4 +1,4 @@
-"""Payload parsing, compacting, sanitisation and beginner-track detection."""
+﻿"""Payload parsing, compacting, sanitisation and beginner-track detection."""
 
 import json
 import re
@@ -302,7 +302,7 @@ def build_request_signals(payload: Dict[str, Any]) -> Dict[str, Any]:
         "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
         "mode": normalize_text(payload.get("mode") or "topic-pack") or "topic-pack",
         "count": max(1, safe_int(payload.get("count"), 1)),
-        "difficulty": max(1, min(5, safe_int(payload.get("difficulty"), 2))),
+        "difficulty": max(1, min(3, safe_int(payload.get("difficulty"), 2))),
         "domainHints": [
             hint for hint in [
                 "matrix" if ("матриц" in prompt_low or "matrix" in prompt_low) else "",
@@ -607,22 +607,7 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
 
 def _extract_allowed_languages(payload: Dict[str, Any]) -> List[str]:
     langs = payload.get("allowedLanguages") if isinstance(payload.get("allowedLanguages"), list) else []
-    langs = unique_string_list(langs, 6)
-    if langs:
-        return langs
-    schema = payload.get("targetSchema") if isinstance(payload.get("targetSchema"), dict) else {}
-    schema_langs = unique_string_list(schema.get("allowedLanguages"), 6)
-    if schema_langs:
-        return schema_langs
-    refs = compact_reference_assignments(payload, limit=8, description_len=60, include_cases=False)
-    collected: List[str] = []
-    for ref in refs:
-        for lang in str(ref.get("allowedLanguagesCsv") or "").split(','):
-            lang = normalize_text(lang).lower()
-            if lang:
-                collected.append(lang)
-    langs = unique_string_list(collected, 6)
-    return langs or ["python", "cpp", "csharp"]
+    return unique_string_list(langs, 6)
 
 
 def _generation_seed_text(payload: Dict[str, Any], result: Dict[str, Any] | None = None) -> str:
@@ -677,7 +662,8 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
         if not fallback_title:
             fallback_title = extract_first_meaningful_sentence(normalized.get("description"), 64)
         normalized["title"] = fallback_title or "Задание"
-    normalized["hiddenTests"] = _limit_hidden_tests(normalized.get("hiddenTests"))
+    if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
+        normalized["hiddenTests"] = _limit_hidden_tests(normalized.get("hiddenTests"))
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         normalized = _ensure_solvable_code_test_draft(normalized, payload)
     return normalized
@@ -702,62 +688,22 @@ def _derive_course_style_title(payload: Dict[str, Any], draft: Dict[str, Any]) -
 
 
 
-def _normalize_policy_lists_for_solvability(draft: Dict[str, Any]) -> None:
-    required = unique_string_list(draft.get("requiredCalls"), 6)
-    forbidden = unique_string_list(draft.get("forbiddenCalls"), 10)
-    if {x.casefold() for x in required} <= {"solve"}:
-        required = []
-    forbidden = [x for x in forbidden if x.casefold() not in {"process.start", "__import__"}]
-    draft["requiredCalls"] = required
-    draft["forbiddenCalls"] = forbidden
-
-
-def _repair_test_suite_with_reference_solution(draft: Dict[str, Any]) -> Dict[str, Any]:
-    code = str(draft.get("referenceSolutionPython") or "").strip()
-    if not code:
-        return draft
-    if "if __name__ == '__main__':" not in code:
-        code = code.rstrip() + "\n\nif __name__ == '__main__':\n    import sys\n    print(solve(sys.stdin.read()))\n"
-    if "def solve" not in code:
-        code = "def solve(data: str) -> str:\n    return str(data.strip())\n\n" + code
-    draft["referenceSolutionPython"] = code
-
-    def fix_tests(values: Any) -> List[Dict[str, Any]]:
-        fixed: List[Dict[str, Any]] = []
-        for raw in list(values or []):
-            if not isinstance(raw, dict):
-                continue
-            stdin_text = str(raw.get("input") or "")
-            try:
-                runtime = run_python_solution(code, stdin_text)
-            except Exception:
-                continue
-            if runtime.get("returncode") != 0:
-                continue
-            fixed.append({
-                "input": stdin_text,
-                "expectedOutput": normalize_text(runtime.get("stdout") or ""),
-            })
-        return fixed
-
-    public_tests = fix_tests(draft.get("publicTests"))
-    hidden_tests = fix_tests(draft.get("hiddenTests"))
-    while len(public_tests) < MIN_PUBLIC_TESTS and hidden_tests:
-        public_tests.append(hidden_tests.pop(0))
-    draft["publicTests"] = public_tests
-    draft["hiddenTests"] = _limit_hidden_tests(hidden_tests)
-    return draft
+def _normalize_code_policy_lists(draft: Dict[str, Any]) -> None:
+    draft["requiredCalls"] = unique_string_list(draft.get("requiredCalls"), 6)
+    draft["forbiddenCalls"] = unique_string_list(draft.get("forbiddenCalls"), 10)
 
 
 def _ensure_solvable_code_test_draft(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     repaired = dict(draft)
-    _normalize_policy_lists_for_solvability(repaired)
-    repaired = _repair_test_suite_with_reference_solution(repaired)
+    _normalize_code_policy_lists(repaired)
     return repaired
 
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(result, dict):
         result = {}
+
+    schema_version = normalize_text(payload.get("schemaVersion")) or "draft-v2"
+    canonical_only = schema_version == "draft-v2"
 
     def _map_test_list(value: Any) -> List[Dict[str, Any]]:
         mapped: List[Dict[str, Any]] = []
@@ -765,8 +711,8 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
             if not isinstance(item, dict):
                 continue
             mapped.append({
-                "input": normalize_text(item.get("input") or item.get("stdin") or item.get("in")),
-                "expectedOutput": normalize_text(item.get("expectedOutput") or item.get("expected_output") or item.get("output") or item.get("stdout") or item.get("out")),
+                "input": normalize_text(item.get("input") if canonical_only else (item.get("input") or item.get("stdin") or item.get("in"))),
+                "expectedOutput": normalize_text(item.get("expectedOutput") if canonical_only else (item.get("expectedOutput") or item.get("expected_output") or item.get("output") or item.get("stdout") or item.get("out"))),
             })
         return [x for x in mapped if x.get("input") is not None and x.get("expectedOutput") is not None]
 
@@ -775,15 +721,15 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
         draft_like = None
         if result.get("title") and result.get("description"):
             draft_like = {
-                "assignmentType": normalize_text(result.get("assignmentType") or result.get("assignment_type") or payload.get("assignmentType") or "code-test"),
+                "assignmentType": normalize_text((result.get("assignmentType") if canonical_only else (result.get("assignmentType") or result.get("assignment_type"))) or payload.get("assignmentType") or "code-test"),
                 "title": normalize_text(result.get("title")),
                 "description": normalize_text(result.get("description")),
-                "publicTests": _map_test_list(result.get("publicTests") or result.get("public_tests")),
-                "hiddenTests": _map_test_list(result.get("hiddenTests") or result.get("hidden_tests")),
-                "referenceSolutionPython": result.get("referenceSolutionPython") or result.get("reference_solution_python") or result.get("solution") or result.get("python_solution"),
-                "allowedLanguages": result.get("allowedLanguages") or result.get("allowed_languages"),
-                "forbiddenCalls": result.get("forbiddenCalls") or result.get("forbidden_calls"),
-                "requiredCalls": result.get("requiredCalls") or result.get("required_calls"),
+                "publicTests": _map_test_list(result.get("publicTests") if canonical_only else (result.get("publicTests") or result.get("public_tests"))),
+                "hiddenTests": _map_test_list(result.get("hiddenTests") if canonical_only else (result.get("hiddenTests") or result.get("hidden_tests"))),
+                "referenceSolutionPython": result.get("referenceSolutionPython") if canonical_only else (result.get("referenceSolutionPython") or result.get("reference_solution_python") or result.get("solution") or result.get("python_solution")),
+                "allowedLanguages": result.get("allowedLanguages") if canonical_only else (result.get("allowedLanguages") or result.get("allowed_languages")),
+                "forbiddenCalls": result.get("forbiddenCalls") if canonical_only else (result.get("forbiddenCalls") or result.get("forbidden_calls")),
+                "requiredCalls": result.get("requiredCalls") if canonical_only else (result.get("requiredCalls") or result.get("required_calls")),
                 "attachments": result.get("attachments"),
                 "meta": result.get("meta"),
             }
@@ -799,10 +745,30 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
 
     if isinstance(result.get("draft"), dict):
         result["draft"] = _normalize_generated_draft_fields(result["draft"], payload)
-        result["draft"]["allowedLanguages"] = _extract_allowed_languages(payload) if not isinstance(result["draft"].get("allowedLanguages"), list) else unique_string_list(result["draft"].get("allowedLanguages"), 6)
+        assignment_type = normalize_text(result["draft"].get("assignmentType")).lower()
+        if assignment_type == "code-test" and schema_version != "draft-v2" and isinstance(result["draft"].get("codePolicy"), dict):
+            policy = result["draft"].get("codePolicy") or {}
+            if not isinstance(result["draft"].get("requiredCalls"), list) and isinstance(policy.get("requiredCalls"), list):
+                result["draft"]["requiredCalls"] = unique_string_list(policy.get("requiredCalls"), 6)
+            if not isinstance(result["draft"].get("forbiddenCalls"), list) and isinstance(policy.get("forbiddenCalls"), list):
+                result["draft"]["forbiddenCalls"] = unique_string_list(policy.get("forbiddenCalls"), 10)
+        if assignment_type == "code-test":
+            if isinstance(result["draft"].get("allowedLanguages"), list):
+                result["draft"]["allowedLanguages"] = unique_string_list(result["draft"].get("allowedLanguages"), 6)
+                if not result["draft"]["allowedLanguages"]:
+                    result["draft"].pop("allowedLanguages", None)
+            else:
+                explicit_languages = _extract_allowed_languages(payload)
+                if explicit_languages:
+                    result["draft"]["allowedLanguages"] = explicit_languages
+                else:
+                    result["draft"].pop("allowedLanguages", None)
+        else:
+            result["draft"].pop("allowedLanguages", None)
         meta = result["draft"].get("meta") if isinstance(result["draft"].get("meta"), dict) else {}
         meta.setdefault("generationSource", "llm")
         result["draft"]["meta"] = meta
+    result.setdefault("schemaVersion", normalize_text(payload.get("schemaVersion")) or "draft-v2")
     return result
 
 

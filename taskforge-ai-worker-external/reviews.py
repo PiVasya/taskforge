@@ -288,12 +288,45 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
                     "confidence": round(min(0.98, 0.45 + mutation_analysis.get("survived", 0) * 0.1), 3),
                 })
     elif assignment_type == "test":
-        questions = list(draft.get("questions") or [])
+        questions = [q for q in list(draft.get("questions") or []) if isinstance(q, dict)]
         checks.append({"name": "questions-count", "status": "passed" if len(questions) >= 5 else "failed", "details": f"questions={len(questions)}"})
+        choice_like = 0
+        text_like = 0
+        broken = 0
+        for q in questions:
+            qtype = normalize_text(q.get("type")).lower()
+            if qtype in ["single-choice", "multi-choice"]:
+                choice_like += 1
+                options = [x for x in list(q.get("options") or []) if isinstance(x, dict)]
+                correct = [normalize_text(x) for x in list(q.get("correctOptionKeys") or []) if normalize_text(x)]
+                option_keys = {normalize_text(x.get("key")) for x in options if isinstance(x, dict)}
+                if len(options) < 2 or not correct or any(x not in option_keys for x in correct):
+                    broken += 1
+            elif qtype in ["fill", "text"]:
+                text_like += 1
+                answers = [normalize_text(x) for x in list(q.get("acceptedAnswers") or []) if normalize_text(x)]
+                if not answers or q.get("caseSensitive") is None or q.get("trim") is None:
+                    broken += 1
+            else:
+                broken += 1
+        checks.append({"name": "question-shape", "status": "passed" if broken == 0 else "failed", "details": f"broken={broken}, choice={choice_like}, text={text_like}"})
     elif assignment_type == "math":
-        blocks = list(draft.get("blocks") or [])
-        answer_blocks = sum(1 for b in blocks if isinstance(b, dict) and str(b.get("blockType") or "").lower() not in ["info", "text"])
+        blocks = [b for b in list(draft.get("blocks") or []) if isinstance(b, dict)]
+        answer_kinds = {"single-choice", "multi-choice", "number", "expression", "set", "order", "match"}
+        answer_blocks = sum(1 for b in blocks if normalize_text(b.get("kind")).lower() in answer_kinds)
+        broken = 0
+        for b in blocks:
+            kind = normalize_text(b.get("kind")).lower()
+            if kind == "number" and not list(b.get("acceptedAnswers") or []):
+                broken += 1
+            elif kind == "order" and not list(b.get("orderItems") or []):
+                broken += 1
+            elif kind == "match":
+                if not list(b.get("matchLeftItems") or []) or not list(b.get("matchRightItems") or []) or not list(b.get("matchPairs") or []):
+                    broken += 1
+        checks.append({"name": "blocks-count", "status": "passed" if len(blocks) >= 2 else "failed", "details": f"blocks={len(blocks)}"})
         checks.append({"name": "answer-blocks", "status": "passed" if answer_blocks > 0 else "failed", "details": f"answerBlocks={answer_blocks}"})
+        checks.append({"name": "block-shape", "status": "passed" if broken == 0 else "failed", "details": f"broken={broken}"})
     else:
         checks.append({"name": "unsupported-type", "status": "warning", "details": assignment_type or "unknown"})
 
@@ -302,7 +335,7 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
     return {
         "draftId": payload.get("draftId") or job.get("targetEntityId"),
         "status": status,
-        "summary": "Test strength review completed.",
+        "summary": "Assignment strength review completed.",
         "score": sum(1 for x in checks if x.get("status") == "passed") / max(1, len(checks)),
         "checks": checks,
         "findings": findings,
