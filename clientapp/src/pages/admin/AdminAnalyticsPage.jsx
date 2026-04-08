@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   Clock3,
@@ -472,7 +472,7 @@ export default function AdminAnalyticsPage() {
   const [globalUserResults, setGlobalUserResults] = useState([]);
   const [globalUserLoading, setGlobalUserLoading] = useState(false);
 
-  const load = useCallback(async (silent = false, nextDays = days) => {
+  const load = async (silent = false, nextDays = days) => {
     try {
       if (silent) setRefreshing(true); else setLoading(true);
       const res = await getAdminAnalyticsOverview(nextDays);
@@ -484,9 +484,9 @@ export default function AdminAnalyticsPage() {
     } finally {
       if (silent) setRefreshing(false); else setLoading(false);
     }
-  }, [days, notify]);
+  };
 
-  const loadUser = useCallback(async (userId) => {
+  const loadUser = async (userId) => {
     if (!userId) return;
     try {
       setUserLoading(true);
@@ -499,11 +499,11 @@ export default function AdminAnalyticsPage() {
     } finally {
       setUserLoading(false);
     }
-  }, [days, notify]);
+  };
 
   useEffect(() => {
     load(false, days);
-  }, [days, load]);
+  }, [days]);
 
   useEffect(() => {
     if (selectedUser?.userId) loadUser(selectedUser.userId);
@@ -511,7 +511,7 @@ export default function AdminAnalyticsPage() {
       setUserData(null);
       setUserError(null);
     }
-  }, [selectedUser?.userId, days, loadUser]);
+  }, [selectedUser?.userId, days]);
 
   useEffect(() => {
     const q = globalUserSearch.trim();
@@ -534,11 +534,11 @@ export default function AdminAnalyticsPage() {
     return () => clearTimeout(handle);
   }, [globalUserSearch]);
 
-  const apiTotals = useMemo(() => data?.api?.totals || {}, [data?.api?.totals]);
-  const usersTotals = useMemo(() => data?.users?.totals || {}, [data?.users?.totals]);
-  const assignmentTotals = useMemo(() => data?.assignments?.totals || {}, [data?.assignments?.totals]);
-  const supportTotals = useMemo(() => data?.support?.totals || {}, [data?.support?.totals]);
-  const executive = useMemo(() => data?.executive || {}, [data?.executive]);
+  const apiTotals = data?.api?.totals || {};
+  const usersTotals = data?.users?.totals || {};
+  const assignmentTotals = data?.assignments?.totals || {};
+  const supportTotals = data?.support?.totals || {};
+  const executive = data?.executive || {};
 
   const heroCards = useMemo(() => [
     {

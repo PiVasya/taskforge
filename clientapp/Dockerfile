@@ -11,7 +11,6 @@ COPY . .
 # База для API в рантайме остаётся /api (за прокси отвечает nginx или Caddy)
 ARG REACT_APP_API_BASE=/api
 ENV REACT_APP_API_BASE=$REACT_APP_API_BASE
-ENV DISABLE_ESLINT_PLUGIN=true
 RUN npm run build
 
 # ---------- runtime ----------

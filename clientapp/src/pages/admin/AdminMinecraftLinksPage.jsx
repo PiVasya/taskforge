@@ -5,7 +5,7 @@ import { getAdminMinecraftLinks } from '../../api/adminMinecraftLinks';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { Link2, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, Link2, RefreshCcw } from 'lucide-react';
 
 export default function AdminMinecraftLinksPage() {
   const notify = useNotify();

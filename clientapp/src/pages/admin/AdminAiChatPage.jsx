@@ -330,7 +330,7 @@ export default function AdminAiChatPage() {
   const listRef = useRef(null);
   const previousPendingRef = useRef(false);
 
-  const currentMessages = useMemo(() => (Array.isArray(session?.messages) ? session.messages : []), [session?.messages]);
+  const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
   const pending = useMemo(
     () => currentMessages.some((x) => x.role === 'assistant' && x.status === 'processing'),
     [currentMessages],

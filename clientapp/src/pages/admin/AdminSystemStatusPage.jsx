@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, RefreshCw, ServerCrash, ShieldCheck } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { Button, Card } from '../../components/ui';
@@ -21,7 +21,7 @@ export default function AdminSystemStatusPage() {
   const [pageError, setPageError] = useState('');
   const [data, setData] = useState(null);
 
-  const load = useCallback(async (silent = false) => {
+  const load = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
       const res = await getSystemStatus();
@@ -33,9 +33,9 @@ export default function AdminSystemStatusPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [notify]);
+  };
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, []);
 
   const stats = useMemo(() => {
     const items = Array.isArray(data?.components) ? data.components : [];
