@@ -1,7 +1,8 @@
-﻿"""Environment configuration, constants and shared HTTP session."""
+"""Environment configuration, constants and shared HTTP session."""
 
 import os
 import socket
+import json
 
 import requests
 
@@ -18,12 +19,26 @@ API_BASE: str = os.getenv("TASKFORGE_API_BASE", "http://api:8080").rstrip("/")
 API_KEY: str = os.getenv("TASKFORGE_INTERNAL_KEY", "")
 WORKER_ID: str = os.getenv("TASKFORGE_AI_WORKER_ID", f"ai-worker-{socket.gethostname()}")
 
-# ── Ollama ───────────────────────────────────────────
+# ── External / local LLM provider ───────────────────
+EXTERNAL_AI_PROVIDER: str = (os.getenv("TASKFORGE_EXTERNAL_AI_PROVIDER", "openai_compatible") or "openai_compatible").strip().lower()
+EXTERNAL_AI_BASE_URL: str = os.getenv("TASKFORGE_EXTERNAL_AI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+EXTERNAL_AI_API_KEY: str = os.getenv("TASKFORGE_EXTERNAL_AI_API_KEY", "")
+EXTERNAL_AI_MODEL: str = os.getenv("TASKFORGE_EXTERNAL_AI_MODEL", "qwen/qwen3.6-plus")
+EXTERNAL_AI_TEMPERATURE: float = float(os.getenv("TASKFORGE_EXTERNAL_AI_TEMPERATURE", os.getenv("OLLAMA_TEMPERATURE", "0.15")))
+EXTERNAL_AI_JSON_MODE: bool = _env_bool("TASKFORGE_EXTERNAL_AI_JSON_MODE", _env_bool("TASKFORGE_AI_OLLAMA_JSON_MODE", True))
+EXTERNAL_AI_REQUEST_ATTEMPTS: int = int(os.getenv("TASKFORGE_EXTERNAL_AI_REQUEST_ATTEMPTS", os.getenv("TASKFORGE_AI_OLLAMA_REQUEST_ATTEMPTS", "2")))
+EXTERNAL_AI_RETRY_BACKOFF_SECONDS: int = int(os.getenv("TASKFORGE_EXTERNAL_AI_RETRY_BACKOFF_SECONDS", os.getenv("TASKFORGE_AI_OLLAMA_RETRY_BACKOFF_SECONDS", "8")))
+EXTERNAL_AI_EXTRA_HEADERS_RAW: str = os.getenv("TASKFORGE_EXTERNAL_AI_EXTRA_HEADERS", "")
+EXTERNAL_AI_ANTHROPIC_VERSION: str = os.getenv("TASKFORGE_EXTERNAL_AI_ANTHROPIC_VERSION", "2023-06-01")
+EXTERNAL_AI_TOP_P: float = float(os.getenv("TASKFORGE_EXTERNAL_AI_TOP_P", "0.85"))
+EXTERNAL_AI_TOP_K: int = int(os.getenv("TASKFORGE_EXTERNAL_AI_TOP_K", "40"))
+
+# ── Legacy Ollama compatibility knobs ───────────────
 OLLAMA_BASE: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3:14b")
+OLLAMA_MODEL: str = EXTERNAL_AI_MODEL if EXTERNAL_AI_PROVIDER != "ollama" else os.getenv("OLLAMA_MODEL", "qwen3:14b")
 OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", os.getenv("OLLAMA_CONTEXT_LENGTH", "16384")))
-OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.15"))
-OLLAMA_JSON_MODE: bool = _env_bool("TASKFORGE_AI_OLLAMA_JSON_MODE", True)
+OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", str(EXTERNAL_AI_TEMPERATURE)))
+OLLAMA_JSON_MODE: bool = _env_bool("TASKFORGE_AI_OLLAMA_JSON_MODE", EXTERNAL_AI_JSON_MODE)
 
 # ── Worker behaviour ─────────────────────────────────
 POLL_INTERVAL: int = int(os.getenv("POLL_INTERVAL_SECONDS", "8"))
@@ -33,8 +48,8 @@ CAPABILITIES: list = [
     if x.strip()
 ]
 TIMEOUT: int = int(os.getenv("TASKFORGE_AI_TIMEOUT_SECONDS", "240"))
-OLLAMA_REQUEST_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_OLLAMA_REQUEST_ATTEMPTS", "2"))
-OLLAMA_RETRY_BACKOFF_SECONDS: int = int(os.getenv("TASKFORGE_AI_OLLAMA_RETRY_BACKOFF_SECONDS", "8"))
+OLLAMA_REQUEST_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_OLLAMA_REQUEST_ATTEMPTS", str(EXTERNAL_AI_REQUEST_ATTEMPTS)))
+OLLAMA_RETRY_BACKOFF_SECONDS: int = int(os.getenv("TASKFORGE_AI_OLLAMA_RETRY_BACKOFF_SECONDS", str(EXTERNAL_AI_RETRY_BACKOFF_SECONDS)))
 MAX_JOB_RETRIES: int = int(os.getenv("TASKFORGE_AI_MAX_JOB_RETRIES", "3"))
 RETRYABLE_STAGE_DELAY_SECONDS: int = int(os.getenv("TASKFORGE_AI_RETRYABLE_STAGE_DELAY_SECONDS", "45"))
 PLANNER_FALLBACK_AFTER_RETRY_COUNT: int = int(os.getenv("TASKFORGE_AI_PLANNER_FALLBACK_AFTER_RETRY_COUNT", "2"))
@@ -75,6 +90,31 @@ BATCH_PLAN_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_R
 BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_REFERENCE_ASSIGNMENTS_RETRY", "3"))
 BATCH_PLAN_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_REFERENCE_DESCRIPTION_LEN", "140"))
 GAP_ANALYSIS_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_GAP_REFERENCE_DESCRIPTION_LEN", "160"))
+
+
+def parse_extra_headers(raw: str) -> dict[str, str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return {str(k): str(v) for k, v in parsed.items() if str(k).strip()}
+    except Exception:
+        pass
+    headers: dict[str, str] = {}
+    for line in raw.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if key:
+            headers[key] = value
+    return headers
+
+
+EXTERNAL_AI_EXTRA_HEADERS = parse_extra_headers(EXTERNAL_AI_EXTRA_HEADERS_RAW)
 
 # ── Shared HTTP session ──────────────────────────────
 session: requests.Session = requests.Session()
