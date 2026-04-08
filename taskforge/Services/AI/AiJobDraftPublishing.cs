@@ -54,7 +54,7 @@ public sealed partial class AiJobService
         var difficulty = Clamp(ReadInt(draftRoot, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
         var rating = Math.Max(0, request.Rating ?? ReadInt(draftRoot, "rating") ?? 1);
         var tags = request.Tags ?? ReadString(draftRoot, "tags");
-        var desiredSort = request.Sort ?? await GetNextSortAsync(courseId.Value, ct);
+        var desiredSort = request.Sort;
         var publishingActorUserId = await ResolvePublishingActorUserIdAsync(courseId.Value, reviewedByUserId, ct);
 
         var canonicalOnly = string.Equals(ReadString(root, "schemaVersion") ?? ReadString(draftRoot, "schemaVersion") ?? string.Empty, "draft-v2", StringComparison.OrdinalIgnoreCase);
@@ -100,7 +100,7 @@ public sealed partial class AiJobService
         int difficulty,
         int rating,
         string? tags,
-        int desiredSort,
+        int? desiredSort,
         bool canonicalOnly,
         CancellationToken ct)
     {
@@ -122,8 +122,8 @@ public sealed partial class AiJobService
             .Where(x => x.Id == assignmentId)
             .Select(x => (int?)x.Sort)
             .FirstOrDefaultAsync(ct);
-        if ((current ?? -1) != desiredSort)
-            await _assignmentService.UpdateSortAsync(assignmentId, actorUserId, desiredSort);
+        if (desiredSort.HasValue && (current ?? -1) != desiredSort.Value)
+            await _assignmentService.UpdateSortAsync(assignmentId, actorUserId, desiredSort.Value);
 
         return assignmentId;
     }
