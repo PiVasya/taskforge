@@ -22,4 +22,5 @@ public static class AiFoundryJobTypes
     public const string BatchReplan = "assignment_batch_replan";
     public const string PlannerFeedback = "assignment_batch_planner_feedback";
     public const string Repair = "assignment_repair";
+    public const string ChatTurn = "assistant_chat_turn";
 }

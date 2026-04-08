@@ -204,7 +204,7 @@ services:
       TASKFORGE_API_BASE: "http://api:8080"
       TASKFORGE_INTERNAL_KEY: ${API_INTERNAL_KEY}
       TASKFORGE_AI_WORKER_ID: "taskforge-ai-worker-main"
-      TASKFORGE_AI_CAPABILITIES: "assignment_generate_from_text,assignment_generate_from_file,assignment_improve_existing,assignment_analyze_existing,submission_review,user_risk_review,support_message_review,minecraft_chat_review"
+      TASKFORGE_AI_CAPABILITIES: "assignment_generate_from_text,assignment_generate_from_file,assignment_improve_existing,assignment_analyze_existing,submission_review,user_risk_review,support_message_review,minecraft_chat_review,assistant_chat_turn,chat"
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:14b}
       POLL_INTERVAL_SECONDS: "10"

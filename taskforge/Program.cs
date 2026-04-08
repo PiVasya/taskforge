@@ -52,6 +52,7 @@ builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ITaskTestService, TaskTestService>();
 builder.Services.AddScoped<ITaskMathService, TaskMathService>();
 builder.Services.AddScoped<IAiJobService, AiJobService>();
+builder.Services.AddScoped<AiChatService>();
 builder.Services.AddScoped<AiBootstrapService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();

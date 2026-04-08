@@ -458,13 +458,171 @@ public sealed class AiWorkerFailRequestDto
 }
 
 
+public sealed class AiFoundryChatAttachmentDto
+{
+    [Required, MaxLength(1024)]
+    public string FileKey { get; set; } = string.Empty;
+
+    [MaxLength(512)]
+    public string? OriginalName { get; set; }
+
+    [MaxLength(256)]
+    public string? MimeType { get; set; }
+
+    [MaxLength(2048)]
+    public string? PublicUrl { get; set; }
+
+    public long? SizeBytes { get; set; }
+
+    public string? TextExcerpt { get; set; }
+}
+
+public sealed class AiFoundryChatToolCallDto
+{
+    [MaxLength(80)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(1000)]
+    public string? Reason { get; set; }
+
+    public string? ArgumentsJson { get; set; }
+}
+
+public sealed class AiFoundryChatToolResultDto
+{
+    [MaxLength(32)]
+    public string Status { get; set; } = "done";
+
+    [MaxLength(2000)]
+    public string? Summary { get; set; }
+
+    [MaxLength(512)]
+    public string? NavigateTo { get; set; }
+
+    public Guid? JobId { get; set; }
+
+    public Guid? BatchId { get; set; }
+
+    public Guid? DraftId { get; set; }
+
+    public Guid? AssignmentId { get; set; }
+
+    public Guid? CourseId { get; set; }
+
+    public bool RequiresConfirmation { get; set; }
+
+    public AiFoundryChatToolCallDto? ConfirmationToolCall { get; set; }
+
+    [MaxLength(1000)]
+    public string? SuggestedConfirmationMessage { get; set; }
+}
+
 public sealed class AiFoundryChatMessageDto
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
+
     [Required, MaxLength(32)]
     public string Role { get; set; } = "user";
 
     [Required]
     public string Content { get; set; } = string.Empty;
+
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    [MaxLength(32)]
+    public string? Status { get; set; }
+
+    public Guid? PendingJobId { get; set; }
+
+    public List<AiFoundryChatAttachmentDto> Attachments { get; set; } = new();
+
+    public AiFoundryChatToolCallDto? ToolCall { get; set; }
+
+    public List<AiFoundryChatToolCallDto> ToolCalls { get; set; } = new();
+
+    public AiFoundryChatToolResultDto? ToolResult { get; set; }
+
+    public List<AiFoundryChatToolResultDto> ToolResults { get; set; } = new();
+}
+
+public sealed class AiFoundryChatCreateSessionRequestDto
+{
+    public Guid? CourseId { get; set; }
+
+    [MaxLength(200)]
+    public string? Title { get; set; }
+}
+
+public sealed class AiFoundryChatUpdateSessionRequestDto
+{
+    [MaxLength(200)]
+    public string? Title { get; set; }
+
+    public Guid? CourseId { get; set; }
+}
+
+public sealed class AiFoundryChatSendMessageRequestDto
+{
+    [Required]
+    public string Content { get; set; } = string.Empty;
+
+    public List<AiFoundryChatAttachmentDto> Attachments { get; set; } = new();
+}
+
+public sealed class AiFoundryChatMemoryDto
+{
+    public string Summary { get; set; } = string.Empty;
+    public List<string> Facts { get; set; } = new();
+    public List<string> RecentGoals { get; set; } = new();
+    public List<string> RecentFiles { get; set; } = new();
+    public List<string> RecentActions { get; set; } = new();
+    public int MessageCount { get; set; }
+    public DateTime? LastUserMessageAtUtc { get; set; }
+    public DateTime? LastAssistantMessageAtUtc { get; set; }
+}
+
+public sealed class AiFoundryChatSessionListItemDto
+{
+    public Guid Id { get; set; }
+    public Guid? CourseId { get; set; }
+    public string? CourseTitle { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? LastMessagePreview { get; set; }
+    public string? MemorySummary { get; set; }
+    public int MessageCount { get; set; }
+    public bool IsPending { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+public sealed class AiFoundryChatSessionDto
+{
+    public Guid Id { get; set; }
+    public Guid? CourseId { get; set; }
+    public string? CourseTitle { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+    public AiFoundryChatMemoryDto Memory { get; set; } = new();
+    public List<AiFoundryChatMessageDto> Messages { get; set; } = new();
+}
+
+public sealed class AiFoundryChatSendMessageResponseDto
+{
+    public bool Pending { get; set; }
+    public Guid? PendingJobId { get; set; }
+    public AiFoundryChatSessionDto Session { get; set; } = new();
+}
+
+public sealed class AiFoundryChatConfirmToolRequestDto
+{
+    [Required, MaxLength(80)]
+    public string ToolName { get; set; } = string.Empty;
+
+    public string? ArgumentsJson { get; set; }
+
+    [MaxLength(1000)]
+    public string? Note { get; set; }
 }
 
 public sealed class AiFoundryChatResolveRequestDto

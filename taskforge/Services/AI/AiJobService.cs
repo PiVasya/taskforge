@@ -417,6 +417,11 @@ public sealed partial class AiJobService : IAiJobService
             return true;
         }
 
+        if (caps.Contains("chat") && jobType == AiFoundryJobTypes.ChatTurn)
+        {
+            return true;
+        }
+
         return false;
     }
 

@@ -47,6 +47,7 @@ from prompt_builder import (
     build_prompt,
     build_course_profile_prompt,
     build_gap_analysis_prompt,
+    build_chat_turn_prompt,
     build_batch_plan_prompt,
     build_brief_prompt,
     build_brief_repair_prompt,
@@ -673,6 +674,17 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f"batch review ollama failed: {ex} [{_job_context(job, payload)}]")
             result = run_batch_review(payload, job)
             _log_stage("stage-fallback-result", job, payload, builder="build_batch_review_prompt", fallback="run_batch_review")
+        return _finish(result)
+
+    # ── AI chat orchestrator ───────────────────────────
+    if job_type == "assistant_chat_turn":
+        prompt = build_chat_turn_prompt(job, payload)
+        _log_stage("stage-prompt-ready", job, payload, builder="build_chat_turn_prompt", prompt_len=len(prompt))
+        try:
+            result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
+        except Exception as ex:
+            logger.warning(f"chat orchestrator failed: {ex} [{_job_context(job, payload)}]")
+            raise RetryableStageError(f"{job_type} failed: {ex}") from ex
         return _finish(result)
 
     # ── Draft repair ──────────────────────────────────

@@ -251,6 +251,69 @@ def build_job_specific_instructions(job_type: str, payload: Dict[str, Any]) -> s
     return "Верни только валидный JSON по задаче."
 
 
+def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    compact_payload = {
+        "sessionId": payload.get("sessionId"),
+        "sessionTitle": payload.get("sessionTitle"),
+        "courseId": payload.get("courseId"),
+        "selectedCourse": payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else None,
+        "memory": payload.get("memory") if isinstance(payload.get("memory"), dict) else {},
+        "conversation": payload.get("conversation")[-16:] if isinstance(payload.get("conversation"), list) else [],
+        "recentAttachments": payload.get("recentAttachments")[-10:] if isinstance(payload.get("recentAttachments"), list) else [],
+        "recentAssignments": payload.get("recentAssignments")[:12] if isinstance(payload.get("recentAssignments"), list) else [],
+        "recentDrafts": payload.get("recentDrafts")[:12] if isinstance(payload.get("recentDrafts"), list) else [],
+        "recentBatches": payload.get("recentBatches")[:8] if isinstance(payload.get("recentBatches"), list) else [],
+        "recentJobs": payload.get("recentJobs")[:12] if isinstance(payload.get("recentJobs"), list) else [],
+        "recentUsers": payload.get("recentUsers")[:16] if isinstance(payload.get("recentUsers"), list) else [],
+        "recentAttempts": payload.get("recentAttempts")[:16] if isinstance(payload.get("recentAttempts"), list) else [],
+        "availableCourses": payload.get("availableCourses")[:40] if isinstance(payload.get("availableCourses"), list) else [],
+        "availableActions": payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [],
+        "defaults": payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {},
+    }
+    return (
+        "Ты — TaskForge AI chat orchestrator. Верни только один валидный JSON-объект без markdown и без пояснений вокруг JSON.\\n\\n"
+        "Твоя задача: ответить пользователю по-русски и, если данных уже достаточно, выбрать одно или несколько доступных действий TaskForge. "
+        "Если данных не хватает — actions должен быть пустым массивом, а assistantMessage должен кратко запросить недостающие параметры.\\n\\n"
+        "memory — это долговременная память всей сессии: прошлые цели пользователя, вложения, уже выполненные действия и найденные сущности. "
+        "Если пользователь пишет 'продолжай', 'сделай ещё', 'начинай' или подобный короткий follow-up, сперва опирайся на memory и последние toolResults, а не проси заново весь контекст.\\n\\n"
+        "Когда пользователь просит создать пакет заданий на несколько элементов, обычно подходит queue_generate_batch. "
+        "Когда пользователь просит сгенерировать задание(я) из текста — queue_generate_from_text. "
+        "Когда пользователь явно просит использовать прикреплённый файл — queue_generate_from_file. "
+        "Когда пользователь просит проверить/провалидировать draft — queue_validate_draft. "
+        "Когда пользователь просит анализ уже существующего задания — queue_analyze_assignment. "
+        "Когда пользователь просит review попытки — queue_review_submission. "
+        "Когда пользователь просит review пользователя — queue_review_user.\\n\\n"
+        "Опасные действия approve_draft, reject_draft, publish_draft разрешены только если пользователь явно и недвусмысленно попросил это сделать. "
+        "Для них обязательно передавай confirmed=true. Если явного подтверждения нет — не выполняй действие.\\n\\n"
+        "Не выдумывай id. Используй только те courseId, draftId, assignmentId, batchId, userId и sourceAttemptId, которые уже есть в payload. "
+        "Если курс не ясен — не угадывай, а попроси пользователя выбрать. Обычно достаточно максимум 1-2 actions за ход. "
+        "Если memory уже содержит ясный контекст и параметров хватает, можно сразу переходить к генерации или следующему действию.\\n\\n"
+        "Если можешь улучшить UX, можешь дополнительно вернуть sessionTitle — короткое новое название чата.\\n\\n"
+        "Верни JSON строго вида:\\n"
+        "{\\n"
+        "  \\\"assistantMessage\\\": \\\"...\\\",\\n"
+        "  \\\"sessionTitle\\\": \\\"...\\\",\\n"
+        "  \\\"actions\\\": []\\n"
+        "}\\n"
+        "или\\n"
+        "{\\n"
+        "  \\\"assistantMessage\\\": \\\"...\\\",\\n"
+        "  \\\"sessionTitle\\\": \\\"...\\\",\\n"
+        "  \\\"actions\\\": [\\n"
+        "    {\\n"
+        "      \\\"name\\\": \\\"queue_generate_batch|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
+        "      \\\"reason\\\": \\\"...\\\",\\n"
+        "      \\\"arguments\\\": { ... }\\n"
+        "    }\\n"
+        "  ]\\n"
+        "}\\n\\n"
+        "Для совместимости можно дополнительно вернуть action как первый элемент actions, но основной формат — именно actions.\\n\\n"
+        f"Payload:\\n{_prompt_json(compact_payload)}\\n\\n"
+        f"Files:\\n{files_text(job)}"
+    )
+
+
+
 # ── Generic / repair prompts ─────────────────────────────────
 
 def build_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:

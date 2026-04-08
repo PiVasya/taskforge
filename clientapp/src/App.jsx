@@ -48,6 +48,7 @@ import AdminAssignmentInsightsPage from './pages/admin/AdminAssignmentInsightsPa
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage';
 import AdminUserActionsPage from './pages/admin/AdminUserActionsPage';
 import AdminAiPage from './pages/admin/AdminAiPage';
+import AdminAiChatPage from './pages/admin/AdminAiChatPage';
 import MinecraftChatPage from './pages/minecraft/MinecraftChatPage';
 
 function Home() {
@@ -123,6 +124,7 @@ export default function App() {
             <Route path="/admin/activity" element={<AdminUserActionsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/ai" element={<AdminAiPage />} />
+            <Route path="/admin/ai/chat" element={<AdminAiChatPage />} />
             <Route path="/admin/minecraft-links" element={<AdminMinecraftLinksPage />} />
             <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />
           </Route>
