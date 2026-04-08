@@ -196,6 +196,12 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 35s
 
   taskforge-ai-worker:
     image: ghcr.io/pivasya/taskforge-ai-worker:latest
@@ -210,7 +216,7 @@ services:
       POLL_INTERVAL_SECONDS: "10"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     networks: [appnet]
     restart: unless-stopped
     labels:
@@ -243,7 +249,7 @@ services:
       db:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
     networks: [appnet]
     restart: unless-stopped
     labels:

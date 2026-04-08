@@ -465,6 +465,7 @@ app.UseAuthorization();
 // отдаём статические файлы из wwwroot (например, изображения бейджей)
 app.UseStaticFiles();
 
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "taskforge-api" })).AllowAnonymous();
 app.MapControllers();
 
 // SignalR хаб поддержки
