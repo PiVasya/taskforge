@@ -966,6 +966,67 @@ Draft payload:
 {_prompt_json(compact_payload)}"""
 
 
+
+
+def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    assignment_type = str(payload.get("assignmentType") or "code-test").strip().lower()
+    compact_payload = compact_payload_for_stage(payload, "draft_body_generate")
+    response_format = _draft_response_format(payload, include_pending_title=True)
+    quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
+    rules = _draft_type_rules(payload, assignment_type, quality_gates, body_mode=True)
+    if assignment_type == "test":
+        return _build_test_body_prompt(compact_payload, response_format, rules)
+    if assignment_type == "math":
+        return _build_math_body_prompt(compact_payload, response_format, rules)
+    return _build_code_test_body_prompt(compact_payload, response_format, rules)
+
+
+def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    assignment_type = str(payload.get("assignmentType") or "code-test").strip().lower()
+    compact_payload = compact_payload_for_stage(payload, "draft_generate")
+    response_format = _draft_response_format(payload, include_pending_title=False)
+    quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
+    rules = _draft_type_rules(payload, assignment_type, quality_gates, body_mode=False)
+    if assignment_type == "test":
+        return _build_test_generate_prompt(compact_payload, response_format, rules)
+    if assignment_type == "math":
+        return _build_math_generate_prompt(compact_payload, response_format, rules)
+    return _build_code_test_generate_prompt(compact_payload, response_format, rules)
+
+
+def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
+    compact_payload = compact_payload_for_stage(payload, "draft_title_generate")
+    draft_brief = {
+        "assignmentType": draft.get("assignmentType") or payload.get("assignmentType"),
+        "description": truncate_text(draft.get("description") or "", 2400),
+        "targetSkill": payload.get("targetSkill") or (payload.get("brief") or {}).get("targetSkill") if isinstance(payload.get("brief"), dict) else payload.get("targetSkill"),
+        "microGoal": payload.get("microGoal") or (payload.get("brief") or {}).get("summary") if isinstance(payload.get("brief"), dict) else payload.get("microGoal"),
+    }
+    return (
+        "Ты — TaskForge AI title generator. Верни только JSON без markdown вида {\"title\":\"...\"}.\n\n"
+        "Придумай короткий, человеческий, course-native title для задания. "
+        "Не используй служебные заглушки, не копируй дословно titles из referenceAssignments, "
+        "не пиши слишком общие названия вроде 'Новая задача' или 'Задание по теме'.\n\n"
+        f"Payload:\n{_prompt_json(compact_payload)}\n\n"
+        f"Draft summary:\n{_prompt_json(draft_brief)}"
+    )
+
+
+def build_draft_title_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any], bad_title: str) -> str:
+    compact_payload = compact_payload_for_stage(payload, "draft_title_repair")
+    draft_brief = {
+        "assignmentType": draft.get("assignmentType") or payload.get("assignmentType"),
+        "description": truncate_text(draft.get("description") or "", 2400),
+        "currentBadTitle": bad_title,
+    }
+    return (
+        "Ты — TaskForge AI title repair generator. Верни только JSON без markdown вида {\"title\":\"...\"}.\n\n"
+        "Текущий title плохой: слишком общий, служебный, пустой или не в стиле курса. "
+        "Исправь title так, чтобы он был коротким, естественным и отражал суть задания.\n\n"
+        f"Payload:\n{_prompt_json(compact_payload)}\n\n"
+        f"Draft summary:\n{_prompt_json(draft_brief)}"
+    )
+
 def build_batch_review_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     return (
         "Ты — TaskForge AI batch coherence reviewer. Верни только JSON без markdown.\n\n"
