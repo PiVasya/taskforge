@@ -500,7 +500,7 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
         )
     elif stage == "draft_generate":
         assignment_type = normalize_text(payload.get("assignmentType") or "code-test") or "code-test"
-        expected = _draft_response_format(assignment_type, include_pending_title=False, min_public=MIN_PUBLIC_TESTS, min_hidden=MIN_HIDDEN_TESTS)
+        expected = _draft_response_format(payload, assignment_type, include_pending_title=False, min_public=MIN_PUBLIC_TESTS, min_hidden=MIN_HIDDEN_TESTS)
     else:
         expected = (
             '{"canonicalRequest":{"domain":"...","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
@@ -970,8 +970,8 @@ Draft payload:
 
 def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     assignment_type = str(payload.get("assignmentType") or "code-test").strip().lower()
-    compact_payload = compact_payload_for_stage(payload, "draft_body_generate")
-    response_format = _draft_response_format(payload, include_pending_title=True)
+    compact_payload = compact_payload_for_stage("draft_body_generate", payload)
+    response_format = _draft_response_format(payload, assignment_type, include_pending_title=True)
     quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
     rules = _draft_type_rules(payload, assignment_type, quality_gates, body_mode=True)
     if assignment_type == "test":
@@ -983,8 +983,8 @@ def build_draft_body_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any
 
 def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     assignment_type = str(payload.get("assignmentType") or "code-test").strip().lower()
-    compact_payload = compact_payload_for_stage(payload, "draft_generate")
-    response_format = _draft_response_format(payload, include_pending_title=False)
+    compact_payload = compact_payload_for_stage("draft_generate", payload)
+    response_format = _draft_response_format(payload, assignment_type, include_pending_title=False)
     quality_gates = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
     rules = _draft_type_rules(payload, assignment_type, quality_gates, body_mode=False)
     if assignment_type == "test":
@@ -995,7 +995,7 @@ def build_draft_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any]) ->
 
 
 def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
-    compact_payload = compact_payload_for_stage(payload, "draft_title_generate")
+    compact_payload = compact_payload_for_stage("draft_title_generate", payload)
     draft_brief = {
         "assignmentType": draft.get("assignmentType") or payload.get("assignmentType"),
         "description": truncate_text(draft.get("description") or "", 2400),
@@ -1013,7 +1013,7 @@ def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, An
 
 
 def build_draft_title_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any], draft: Dict[str, Any], bad_title: str) -> str:
-    compact_payload = compact_payload_for_stage(payload, "draft_title_repair")
+    compact_payload = compact_payload_for_stage("draft_title_repair", payload)
     draft_brief = {
         "assignmentType": draft.get("assignmentType") or payload.get("assignmentType"),
         "description": truncate_text(draft.get("description") or "", 2400),

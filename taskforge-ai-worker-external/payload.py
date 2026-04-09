@@ -365,7 +365,20 @@ def build_gap_digest(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def compact_payload_for_stage(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
+    """Build a compact payload snapshot for prompt construction.
+
+    Some prompt builders historically called this helper as
+    ``compact_payload_for_stage(payload, stage_name)`` instead of the intended
+    ``compact_payload_for_stage(stage_name, payload)``. Be permissive here so a
+    single call-site regression does not take down the whole worker loop.
+    """
+    if isinstance(job_type, dict) and isinstance(payload, str):
+        job_type, payload = payload, job_type
+    if not isinstance(payload, dict):
+        logger.warning(f"compact_payload_for_stage expected dict payload, got {type(payload).__name__}")
+        return {}
+
     compact: Dict[str, Any] = {}
     job_type = normalize_text(job_type).lower()
     compact_mode = normalize_text(payload.get("__compactMode")).lower()
