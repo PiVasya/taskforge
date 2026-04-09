@@ -33,6 +33,7 @@ public sealed partial class AiJobService
         ConsoleFoundryBatch("batch-created", batch);
 
         var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
+        var supportedLanguages = BuildSupportedLanguages(batch.AssignmentType, referenceAssignments, batch.Prompt);
         var input = new
         {
             requestType = "assignment_batch_generate",
@@ -45,13 +46,13 @@ public sealed partial class AiJobService
             mode = batch.Mode,
             notes = request.Notes,
             referenceAssignments,
+            supportedLanguages,
+            allowedLanguages = supportedLanguages,
             targetSchema = BuildTargetSchema(batch.AssignmentType),
             qualityGates = BuildQualityGates(batch.AssignmentType),
         };
 
         ConsoleFoundryBatch("batch-enqueue-batch-plan", batch, $"priority={request.Priority} stageCode='{AiFoundryStages.BatchPlan}'");
-        var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
-        var supportedLanguages = BuildSupportedLanguages(batch.AssignmentType, referenceAssignments, batch.Prompt);
 
         await EnqueueAsync(new CreateAiJobRequestDto
         {
@@ -185,6 +186,8 @@ public sealed partial class AiJobService
         await CreateBatchDecisionLogAsync(batch.Id, null, completedJob.Id, AiFoundryStages.CourseProfileBuild, "course-profile-ready", "Профиль курса построен и сохранён в batch.", completedJob.ResultJson, ct);
         await PersistReferenceSnapshotsAsync(batch.Id, null, completedJob.Id, "course-profile-input", completedJob.InputJson, ct);
 
+        var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
+
         await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = AiFoundryJobTypes.GapAnalysis,
@@ -246,6 +249,8 @@ public sealed partial class AiJobService
         batch.HistoricalPlannerPriorsJson = historicalPlannerPriors;
         batch.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+
+        var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
 
         await EnqueueAsync(new CreateAiJobRequestDto
         {
