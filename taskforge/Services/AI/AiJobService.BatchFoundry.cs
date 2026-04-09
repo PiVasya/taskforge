@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.Json;
@@ -22,9 +22,9 @@ public sealed partial class AiJobService
             Prompt = request.Prompt,
             AssignmentType = NormalizeDraftAssignmentType(request.AssignmentType, default),
             Mode = string.IsNullOrWhiteSpace(request.Mode) ? "topic-pack" : request.Mode.Trim(),
-            RequestedCount = Math.Clamp(request.Count, 1, 20),
-            Status = "pending",
-            CurrentStage = AiFoundryStages.CourseProfileBuild,
+            RequestedCount = Math.Clamp(request.Count, 1, 50),
+            Status = "planning",
+            CurrentStage = AiFoundryStages.BatchPlan,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
         };
@@ -49,17 +49,17 @@ public sealed partial class AiJobService
             qualityGates = BuildQualityGates(batch.AssignmentType),
         };
 
-        ConsoleFoundryBatch("batch-enqueue-course-profile", batch, $"priority={request.Priority} stageCode='{AiFoundryStages.CourseProfileBuild}'");
+        ConsoleFoundryBatch("batch-enqueue-batch-plan", batch, $"priority={request.Priority} stageCode='{AiFoundryStages.BatchPlan}'");
         await EnqueueAsync(new CreateAiJobRequestDto
         {
-            Type = AiFoundryJobTypes.CourseProfileBuild,
+            Type = AiFoundryJobTypes.BatchPlan,
             TargetEntityType = "ai-batch",
             TargetEntityId = batch.Id,
             CourseId = batch.CourseId,
             Priority = request.Priority,
-            StageCode = AiFoundryStages.CourseProfileBuild,
-            StageLabel = "AI course profile build",
-            StageOrder = 5,
+            StageCode = AiFoundryStages.BatchPlan,
+            StageLabel = "AI batch planning",
+            StageOrder = 10,
             InputJson = JsonSerializer.Serialize(input, JsonOptions),
         }, createdByUserId, createdByDisplayName, ct);
 
@@ -314,7 +314,6 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     using var doc = JsonDocument.Parse(completedJob.ResultJson);
     var root = doc.RootElement;
-    var planNode = root.TryGetProperty("plan", out var p) ? p : root;
     var tasks = ExtractPlannerTasks(root);
     if (tasks.Count == 0)
     {
@@ -332,7 +331,49 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         return;
     }
 
-    batch.PlanJson = JsonSerializer.Serialize(new { tasks = tasks.Select(x => JsonSerializer.Deserialize<object>(x.GetRawText(), JsonOptions)).ToList() }, JsonOptions);
+    var taskBlueprints = new List<object>();
+    var taskBlueprintsByIndex = new Dictionary<int, dynamic>();
+    var blueprintRows = new List<dynamic>();
+    int fallbackIndex = 1;
+    foreach (var taskNode in tasks)
+    {
+        var slotIndex = taskNode.TryGetProperty("index", out var iNode) && iNode.TryGetInt32(out var idx) ? idx : fallbackIndex;
+        var titleHint = taskNode.TryGetProperty("titleHint", out var titleNode) && titleNode.ValueKind == JsonValueKind.String ? titleNode.GetString() : null;
+        var targetSkill = taskNode.TryGetProperty("targetSkill", out var ts) && ts.ValueKind == JsonValueKind.String ? ts.GetString() : null;
+        var difficultyTarget = taskNode.TryGetProperty("difficultyTarget", out var dt) && dt.TryGetInt32(out var d) ? d : 2;
+        var microGoal = taskNode.TryGetProperty("microGoal", out var mg) && mg.ValueKind == JsonValueKind.String ? mg.GetString() : null;
+        var whyItExists = taskNode.TryGetProperty("whyItExists", out var whyNode) && whyNode.ValueKind == JsonValueKind.String ? whyNode.GetString() : null;
+        var antiDuplicateHints = taskNode.TryGetProperty("antiDuplicateHints", out var antiNode) && antiNode.ValueKind == JsonValueKind.Array
+            ? antiNode.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).Take(6).ToList()
+            : new List<string>();
+
+        var blueprint = new
+        {
+            Index = slotIndex,
+            TitleHint = string.IsNullOrWhiteSpace(titleHint) ? targetSkill : titleHint,
+            TargetSkill = targetSkill,
+            DifficultyTarget = difficultyTarget,
+            MicroGoal = microGoal,
+            WhyItExists = whyItExists,
+            AntiDuplicateHints = antiDuplicateHints,
+            Raw = taskNode.GetRawText(),
+        };
+        blueprintRows.Add(blueprint);
+        taskBlueprints.Add(new
+        {
+            blueprint.Index,
+            blueprint.TitleHint,
+            blueprint.TargetSkill,
+            blueprint.DifficultyTarget,
+            blueprint.MicroGoal,
+            blueprint.WhyItExists,
+            blueprint.AntiDuplicateHints,
+        });
+        taskBlueprintsByIndex[slotIndex] = blueprint;
+        fallbackIndex++;
+    }
+
+    batch.PlanJson = JsonSerializer.Serialize(new { tasks = taskBlueprints }, JsonOptions);
     batch.CanonicalRequestJson = root.TryGetProperty("canonicalRequest", out var c) ? c.GetRawText() : batch.CanonicalRequestJson;
     batch.CourseProfileJson = root.TryGetProperty("courseProfile", out var cp) ? cp.GetRawText() : batch.CourseProfileJson;
     batch.GapAnalysisJson = root.TryGetProperty("gapAnalysis", out var ga) ? ga.GetRawText() : batch.GapAnalysisJson;
@@ -341,25 +382,24 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         ? JsonSerializer.Serialize(new { summary = s.ValueKind == JsonValueKind.String ? s.GetString() : s.GetRawText() }, JsonOptions)
         : batch.SummaryJson;
     batch.Status = isReplan ? "replanned" : "planned";
-    batch.CurrentStage = isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BriefGenerate;
+    batch.CurrentStage = AiFoundryStages.DraftGenerate;
     batch.UpdatedAtUtc = DateTime.UtcNow;
 
     var existingByIndex = batch.Items.ToDictionary(x => x.Index);
     var touchedIndexes = new HashSet<int>();
-    var itemsForBriefs = new List<AiBatchItem>();
+    var itemsForDrafts = new List<AiBatchItem>();
     var replanChanges = new List<object>();
     var createdCount = 0;
     var reusedCount = 0;
     var retiredCount = 0;
 
-    int fallbackIndex = 1;
-    foreach (var taskNode in tasks)
+    foreach (dynamic blueprint in blueprintRows)
     {
-        var slotIndex = taskNode.TryGetProperty("index", out var iNode) && iNode.TryGetInt32(out var idx) ? idx : fallbackIndex;
+        int slotIndex = blueprint.Index;
         touchedIndexes.Add(slotIndex);
-        var targetSkill = taskNode.TryGetProperty("targetSkill", out var ts) ? ts.GetString() : null;
-        var difficultyTarget = taskNode.TryGetProperty("difficultyTarget", out var dt) && dt.TryGetInt32(out var d) ? d : 2;
-        var microGoal = taskNode.TryGetProperty("microGoal", out var mg) ? mg.GetString() : null;
+        string? targetSkill = blueprint.TargetSkill;
+        int difficultyTarget = blueprint.DifficultyTarget;
+        string? microGoal = blueprint.MicroGoal;
 
         if (!existingByIndex.TryGetValue(slotIndex, out var item))
         {
@@ -377,7 +417,7 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
                 PlannerSignalsJson = isReplan ? JsonSerializer.Serialize(new { source = "batch-replan", appliedAtUtc = DateTime.UtcNow, slotIndex }, JsonOptions) : null,
             };
             _db.AiBatchItems.Add(item);
-            itemsForBriefs.Add(item);
+            itemsForDrafts.Add(item);
             createdCount++;
             replanChanges.Add(new { index = slotIndex, action = "created", targetSkill, difficultyTarget, microGoal });
         }
@@ -400,11 +440,11 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
             item.UpdatedAtUtc = DateTime.UtcNow;
             item.ReplanHistoryJson = AppendJsonHistory(item.ReplanHistoryJson, new { type = isReplan ? "batch-replan" : "batch-plan-refresh", appliedAtUtc = DateTime.UtcNow, previous = previousSnapshot, next = new { targetSkill, difficultyTarget, microGoal } });
             item.PlannerSignalsJson = MergeJsonSignals(item.PlannerSignalsJson, new { lastPlanAction = isReplan ? "replanned-slot" : "planned-slot", appliedAtUtc = DateTime.UtcNow, slotIndex });
-            itemsForBriefs.Add(item);
+            itemsForDrafts.Add(item);
             reusedCount++;
             replanChanges.Add(new { index = slotIndex, action = "reused", previous = previousSnapshot, next = new { targetSkill, difficultyTarget, microGoal } });
         }
-        fallbackIndex++;
+        item.DecisionLogJson = MergeJsonSignals(item.DecisionLogJson, new { plannerSlot = JsonSerializer.Deserialize<object>(blueprint.Raw, JsonOptions) });
     }
 
     foreach (var item in batch.Items.Where(x => !touchedIndexes.Contains(x.Index)).ToList())
@@ -428,40 +468,63 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         changes = replanChanges,
     }, JsonOptions);
 
-    foreach (var item in itemsForBriefs)
+    foreach (var item in itemsForDrafts)
     {
         item.HistoricalSlotPriorsJson = await BuildHistoricalSlotPriorsAsync(batch.CourseId, batch.AssignmentType, batch.Id, item.TargetSkill, item.DifficultyTarget, ct);
         item.UpdatedAtUtc = DateTime.UtcNow;
     }
 
     await _db.SaveChangesAsync(ct);
-    await CreateBatchDecisionLogAsync(batch.Id, null, completedJob.Id, isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BatchPlan, isReplan ? "batch-replanned" : "batch-planned", isReplan ? "Batch replan применён и слоты обновлены без сноса всей истории." : "Batch plan применён и слоты подготовлены.", batch.ReplanLedgerJson, ct);
+    await CreateBatchDecisionLogAsync(batch.Id, null, completedJob.Id, isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BatchPlan, isReplan ? "batch-replanned" : "batch-planned", isReplan ? "Batch replan применён и слоты обновлены без сноса всей истории." : "Batch plan применён и слоты подготовлены к прямой draft generation.", batch.ReplanLedgerJson, ct);
 
-    foreach (var item in itemsForBriefs.OrderBy(x => x.Index))
+    var peerBlueprints = itemsForDrafts
+        .OrderBy(x => x.Index)
+        .Select(x => new { x.Index, x.TargetSkill, x.DifficultyTarget, x.MicroGoal, x.Status })
+        .ToList();
+
+    foreach (var item in itemsForDrafts.OrderBy(x => x.Index))
     {
+        dynamic blueprint = taskBlueprintsByIndex[item.Index];
         await EnqueueAsync(new CreateAiJobRequestDto
         {
-            Type = AiFoundryJobTypes.BriefGenerate,
+            Type = "assignment_generate_from_text",
             ParentJobId = completedJob.Id,
             TargetEntityType = "ai-batch-item",
             TargetEntityId = item.Id,
             CourseId = batch.CourseId,
             Priority = Math.Max(completedJob.Priority - 1, 1),
-            StageCode = AiFoundryStages.BriefGenerate,
-            StageLabel = isReplan ? "AI task brief regeneration" : "AI task brief generation",
-            StageOrder = 20,
+            StageCode = AiFoundryStages.DraftGenerate,
+            StageLabel = isReplan ? "AI task regeneration" : "AI task generation",
+            StageOrder = 30,
             InputJson = JsonSerializer.Serialize(new
             {
-                requestType = isReplan ? "assignment_brief_regenerate" : "assignment_brief_generate",
+                requestType = "assignment_draft_generate",
                 batchId = batch.Id,
                 batchItemId = item.Id,
                 courseId = batch.CourseId,
                 assignmentType = batch.AssignmentType,
                 prompt = batch.Prompt,
                 mode = batch.Mode,
-                task = new { item.Index, item.TargetSkill, item.DifficultyTarget, item.MicroGoal },
+                difficulty = item.DifficultyTarget,
+                titleHint = blueprint.TitleHint ?? item.TargetSkill,
+                sourceText = blueprint.WhyItExists ?? item.MicroGoal ?? batch.Prompt,
+                targetSkill = item.TargetSkill,
+                microGoal = item.MicroGoal,
+                notes = blueprint.WhyItExists,
+                task = new
+                {
+                    item.Index,
+                    item.TargetSkill,
+                    item.DifficultyTarget,
+                    item.MicroGoal,
+                    blueprint.TitleHint,
+                    blueprint.WhyItExists,
+                    blueprint.AntiDuplicateHints,
+                },
                 plan = JsonSerializer.Deserialize<object>(batch.PlanJson ?? "{}"),
-                replanLedger = TryDeserializeJsonObject(batch.ReplanLedgerJson),
+                courseProfile = JsonSerializer.Deserialize<object>(batch.CourseProfileJson ?? "{}"),
+                gapAnalysis = JsonSerializer.Deserialize<object>(batch.GapAnalysisJson ?? "{}"),
+                coverage = JsonSerializer.Deserialize<object>(batch.CoverageJson ?? "{}"),
                 positiveMemory = JsonSerializer.Deserialize<object>(batch.PositiveMemoryJson ?? "{}"),
                 batchMemory = JsonSerializer.Deserialize<object>(batch.BatchMemoryJson ?? "{}"),
                 institutionalMemory = JsonSerializer.Deserialize<object>(batch.InstitutionalMemoryJson ?? "{}"),
@@ -470,12 +533,22 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
                 plannerFeedback = JsonSerializer.Deserialize<object>(batch.PlannerFeedbackJson ?? "{}"),
                 antiPatternMemory = JsonSerializer.Deserialize<object>(batch.AntiPatternMemoryJson ?? "{}"),
                 decisionLogDigest = JsonSerializer.Deserialize<object>(batch.DecisionLogDigestJson ?? "{}"),
+                batchPeerItems = peerBlueprints.Where(x => x.Index != item.Index).ToList(),
                 referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct),
                 targetSchema = BuildTargetSchema(batch.AssignmentType),
                 qualityGates = BuildQualityGates(batch.AssignmentType),
+                supportedLanguages = BuildSupportedLanguages(batch.AssignmentType),
+                enableSelfCheck = true,
             }, JsonOptions),
         }, completedJob.CreatedByUserId, completedJob.CreatedByDisplayName, ct);
+        item.Status = "draft-queued";
+        item.UpdatedAtUtc = DateTime.UtcNow;
     }
+
+    batch.Status = "drafting";
+    batch.CurrentStage = AiFoundryStages.DraftGenerate;
+    batch.UpdatedAtUtc = DateTime.UtcNow;
+    await _db.SaveChangesAsync(ct);
 }
 
     private async Task PersistTaskBriefAndEnqueueBriefReviewAsync(AiJob completedJob, CancellationToken ct)

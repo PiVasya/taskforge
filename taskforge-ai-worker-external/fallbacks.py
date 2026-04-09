@@ -124,6 +124,7 @@ GENERIC_PROMPT_STOPWORDS = {
     "данном", "этом", "курсе", "сделать", "отдельную", "теме", "тема",
     "учебная", "цель", "реализовать", "создать", "создайте", "нужно",
     "одно", "качественное", "without", "task", "tasks", "assignment",
+    "сгенерировать", "генерировать", "основам", "дополнить", "покрыть", "пробелы",
 }
 
 def _extract_prompt_seeds(prompt: str) -> List[str]:
@@ -151,31 +152,85 @@ def _build_matrix_plan_tasks(count: int, base_difficulty: int, use_oop: bool = F
 def build_fallback_plan_tasks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     count = max(1, safe_int(payload.get("count"), 1))
     prompt = normalize_text(payload.get("prompt"))
+    prompt_low = prompt.lower()
     base_difficulty = max(1, min(3, safe_int(payload.get("difficulty"), 2)))
+    req = build_request_signals(payload)
+    gap_raw = payload.get("gapAnalysis") if isinstance(payload.get("gapAnalysis"), dict) else {}
+    gap = gap_raw.get("gapAnalysis") if isinstance(gap_raw.get("gapAnalysis"), dict) else gap_raw if isinstance(gap_raw, dict) else {}
 
-    unique_words = _extract_prompt_seeds(prompt)
-    biases = extract_historical_skill_biases(payload)
-    strong = biases["strong"]
-    weak = {x.lower() for x in biases["weak"]}
-    seeds = [s for s in strong if s.lower() not in weak]
-    seeds.extend([w for w in unique_words if w.lower() not in weak])
-    if not seeds:
-        seeds = [f"skill-{i+1}" for i in range(count)]
+    focus_candidates: List[str] = []
+    for source in [gap.get("recommendedFocus"), gap.get("missingTopics"), req.get("mustInclude")]:
+        if isinstance(source, list):
+            for item in source:
+                value = normalize_text(item)
+                if value and value.lower() not in GENERIC_PROMPT_STOPWORDS and len(value) >= 4:
+                    focus_candidates.append(value)
+    for item in _extract_prompt_seeds(prompt):
+        if item and len(item) >= 4:
+            focus_candidates.append(item)
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for item in focus_candidates:
+        low = item.lower()
+        if low in seen:
+            continue
+        if low in GENERIC_PROMPT_STOPWORDS:
+            continue
+        seen.add(low)
+        deduped.append(item)
+
+    io_track = any(token in prompt_low for token in ["ввод", "вывод", "cin", "cout", "scanf", "printf", "stdin", "stdout"])
+    cpp_track = "c++" in prompt_low or "cpp" in prompt_low
+    if io_track:
+        ladder = [
+            ("Одно значение и печать", "Считать одно значение и вывести ответ в требуемом формате."),
+            ("Два значения и простое вычисление", "Считать несколько значений и выполнить одну базовую операцию без лишних тем."),
+            ("Форматированный вывод", "Отработать точный формат вывода и разделители."),
+            ("Строка или ввод с пробелами", "Аккуратно обработать ввод, где важны пробелы или целая строка."),
+            ("Смешанный ввод и простые правила", "Считать данные из нескольких полей и собрать ответ по одному понятному правилу."),
+            ("Пограничные случаи ввода", "Сделать задачу, где важно не ошибиться на нуле, минимуме или пустом значении."),
+        ]
+        topic = "Базовый ввод и вывод"
+        if cpp_track:
+            topic = "C++: базовый ввод и вывод"
+        tasks: List[Dict[str, Any]] = []
+        for i in range(count):
+            name, goal = ladder[i % len(ladder)]
+            difficulty = max(1, min(3, base_difficulty + (1 if i >= max(3, count // 2) else 0)))
+            tasks.append({
+                "index": i + 1,
+                "titleHint": name,
+                "targetSkill": f"{topic} — {name}",
+                "primarySkill": topic,
+                "microGoal": goal,
+                "uniqueAngle": name,
+                "difficultyTarget": difficulty,
+                "mustInclude": deduped[:3],
+                "antiDuplicateHints": ["Не повторяй задачу про простую сумму без нового угла", "Не копируй названия и тесты referenceAssignments"],
+                "whyItExists": "Заполнить лестницу сложности без мусорных generic slots.",
+                "decisionLog": [{"stage": "batch_plan", "message": "Создан fallback slot для IO-track без разбиения prompt на мусорные токены"}],
+            })
+        return tasks
+
+    topic = deduped[0] if deduped else (prompt[:60] if prompt else "Целевая тема курса")
+    anti = ["Не копируй referenceAssignments дословно", "Не создавай generic title/skill из сырых слов prompt"]
     tasks: List[Dict[str, Any]] = []
     for i in range(count):
-        seed = seeds[i % len(seeds)]
         difficulty = max(1, min(3, base_difficulty + (1 if i >= max(2, count // 2) else 0)))
-        anti = ["Избегай дословного дублирования referenceAssignments"]
-        if biases["weak"]:
-            anti.append("Не повторяй исторически слабые patterns из historicalPlannerPriors")
+        unique_angle = deduped[(i + 1) % len(deduped)] if len(deduped) > 1 else f"вариация {i + 1}"
         tasks.append({
             "index": i + 1,
-            "targetSkill": seed if i < len(seeds) else f"{seed} #{i + 1}",
-            "microGoal": f"Сделать отдельную задачу по поднавыку '{seed}' без смешивания нескольких учебных целей.",
+            "titleHint": f"{topic}: шаг {i + 1}",
+            "targetSkill": topic,
+            "primarySkill": topic,
+            "microGoal": f"Сделать отдельную задачу по теме '{topic}' с уникальным углом '{unique_angle}' без смешивания нескольких учебных целей.",
+            "uniqueAngle": unique_angle,
             "difficultyTarget": difficulty,
-            "whyItExists": "fallback planning with historical priors",
+            "mustInclude": deduped[:4],
             "antiDuplicateHints": anti,
-            "decisionLog": [{"stage": "batch_plan", "message": "Создан fallback slot с учётом historical planner priors"}],
+            "whyItExists": "fallback planning from prompt + gapAnalysis without raw token garbage",
+            "decisionLog": [{"stage": "batch_plan", "message": "Создан fallback slot без использования сырых одиночных слов prompt как targetSkill"}],
         })
     return tasks
 

@@ -1,4 +1,4 @@
-"""Environment configuration, constants and shared HTTP session."""
+﻿"""Environment configuration, constants and shared HTTP session."""
 
 import os
 import socket
@@ -88,7 +88,7 @@ MIN_PUBLIC_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_PUBLIC_TESTS", "2"))
 MIN_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "5"))
 MAX_HIDDEN_TESTS: int = int(os.getenv("TASKFORGE_AI_MAX_HIDDEN_TESTS", os.getenv("TASKFORGE_AI_MIN_HIDDEN_TESTS", "5")))
 MIN_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_MIN_DESCRIPTION_LEN", "200"))
-MAX_REPAIR_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_REPAIR_ATTEMPTS", "2"))
+MAX_REPAIR_ATTEMPTS: int = int(os.getenv("TASKFORGE_AI_REPAIR_ATTEMPTS", "1"))
 MAX_REFERENCE_DESCRIPTION_LEN: int = int(os.getenv("TASKFORGE_AI_REFERENCE_DESCRIPTION_LEN", "260"))
 GAP_ANALYSIS_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_GAP_REFERENCE_ASSIGNMENTS", "8"))
 BATCH_PLAN_REFERENCE_ASSIGNMENTS: int = int(os.getenv("TASKFORGE_AI_BATCH_PLAN_REFERENCE_ASSIGNMENTS", "6"))

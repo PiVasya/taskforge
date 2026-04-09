@@ -1,4 +1,4 @@
-"""TaskForge AI Worker — thin orchestrator.
+﻿"""TaskForge AI Worker — thin orchestrator.
 
 All business logic lives in dedicated modules:
   config, log, text_utils, api_client, runners, payload,
@@ -247,7 +247,7 @@ def _chat_extract_requested_count(text: str) -> int | None:
         if match:
             try:
                 value = int(match.group(1))
-                return max(1, min(12, value))
+                return max(1, min(50, value))
             except Exception:
                 return None
     return None
@@ -863,7 +863,7 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Draft generate ────────────────────────────────
     if job_type == "assignment_generate_from_text":
-        result = _generate_draft_via_substages(job, payload, retry_count)
+        result = _ollama_stage(build_draft_generate_prompt, sanitize=True, allow_fallback=True, stage_name="draft_generate")
         if payload.get("enableSelfCheck", True):
             before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
             result = try_improve_generation(job, payload, result)

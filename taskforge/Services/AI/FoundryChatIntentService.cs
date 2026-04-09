@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using taskforge.Data.Models.DTO.AI;
 
@@ -89,8 +89,8 @@ public static class FoundryChatIntentService
     private static int ResolveCount(string text, int? fallback)
     {
         var m = Regex.Match(text, @"(\d{1,2})\s*(?:задач|задани|items|item)", RegexOptions.IgnoreCase);
-        if (m.Success && int.TryParse(m.Groups[1].Value, out var explicitValue)) return Math.Clamp(explicitValue, 1, 12);
-        return Math.Clamp(fallback ?? 5, 1, 12);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var explicitValue)) return Math.Clamp(explicitValue, 1, 50);
+        return Math.Clamp(fallback ?? 5, 1, 50);
     }
 
     private static List<string> ExtractGoals(string text)

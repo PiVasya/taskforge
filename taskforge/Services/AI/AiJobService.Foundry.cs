@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Constants;
@@ -419,7 +419,7 @@ public sealed partial class AiJobService
             return;
 
         var repairCount = await _db.AiJobs.CountAsync(x => x.Type == AiFoundryJobTypes.Repair && x.TargetEntityId == draftId, ct);
-        if (repairCount >= 2)
+        if (repairCount >= 1)
             return;
 
         var existingRepairPending = await _db.AiJobs.AnyAsync(x => x.Type == AiFoundryJobTypes.Repair && x.TargetEntityId == draftId && (x.Status == "pending" || x.Status == "processing" || x.Status == "retry"), ct);

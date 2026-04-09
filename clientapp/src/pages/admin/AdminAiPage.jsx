@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '../../components/ui';
 import {
@@ -898,7 +898,7 @@ export default function AdminAiPage() {
               <Input
                 type="number"
                 min="1"
-                max="20"
+                max="50"
                 value={batchForm.count}
                 onChange={function (e) {
                   setBatchForm(function (p) {

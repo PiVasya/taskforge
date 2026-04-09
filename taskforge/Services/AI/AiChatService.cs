@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -412,7 +412,7 @@ public sealed class AiChatService
                         CourseId = courseId.Value,
                         AssignmentType = ReadString(args, "assignmentType") ?? "code-test",
                         Prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages),
-                        Count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 12),
+                        Count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50),
                         Mode = ReadString(args, "mode") ?? "topic-pack",
                         Difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5),
                         Notes = ReadString(args, "notes"),
@@ -442,7 +442,7 @@ public sealed class AiChatService
                         SourceText = ReadString(args, "sourceText") ?? BuildSourceTextFromRecentAttachments(messages),
                         TitleHint = ReadString(args, "titleHint"),
                         Difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5),
-                        Count = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 12),
+                        Count = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 50),
                         Notes = ReadString(args, "notes"),
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                         EnableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true,
@@ -478,7 +478,7 @@ public sealed class AiChatService
                         PublicUrl = attachment.PublicUrl,
                         TitleHint = ReadString(args, "titleHint"),
                         Difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5),
-                        Count = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 12),
+                        Count = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 50),
                         Notes = ReadString(args, "notes"),
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                         EnableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true,
@@ -1139,7 +1139,7 @@ public sealed class AiChatService
             return (null, null);
 
         var requestedCount = TryExtractRequestedCount(messages);
-        var modelCount = Math.Clamp(ReadInt(root, "count") ?? 5, 1, 12);
+        var modelCount = Math.Clamp(ReadInt(root, "count") ?? 5, 1, 50);
         var finalCount = requestedCount ?? modelCount;
         var courseId = ReadGuid(root, "courseId") ?? session.CourseId;
         var assignmentType = ReadString(root, "assignmentType") ?? "code-test";
@@ -1252,7 +1252,7 @@ public sealed class AiChatService
         if (!match.Success)
             return null;
 
-        return int.TryParse(match.Groups[1].Value, out var value) ? Math.Clamp(value, 1, 12) : null;
+        return int.TryParse(match.Groups[1].Value, out var value) ? Math.Clamp(value, 1, 50) : null;
     }
 
     private static string BuildActionIntro(IReadOnlyList<AiFoundryChatToolCallDto> toolCalls)
