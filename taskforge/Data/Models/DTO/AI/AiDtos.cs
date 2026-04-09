@@ -574,6 +574,84 @@ public sealed class AiFoundryChatSendMessageRequestDto
     public List<AiFoundryChatAttachmentDto> Attachments { get; set; } = new();
 }
 
+public sealed class AiFoundryCourseAuditFindingDto
+{
+    public string Concept { get; set; } = string.Empty;
+    public Guid? AfterAssignmentId { get; set; }
+    public string? AfterAssignmentTitle { get; set; }
+    public Guid? BeforeAssignmentId { get; set; }
+    public string? BeforeAssignmentTitle { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public int SuggestedTaskCount { get; set; } = 1;
+    public int? SuggestedDifficulty { get; set; }
+}
+
+public sealed class AiFoundryCourseAuditDto
+{
+    public Guid CourseId { get; set; }
+    public string CourseTitle { get; set; } = string.Empty;
+    public string? Focus { get; set; }
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public string Summary { get; set; } = string.Empty;
+    public List<string> StyleHints { get; set; } = new();
+    public List<string> TitleExamples { get; set; } = new();
+    public List<AiFoundryCourseAuditFindingDto> Findings { get; set; } = new();
+}
+
+public sealed class AiFoundryCourseInspectionAssignmentDto
+{
+    public Guid Id { get; set; }
+    public int Sort { get; set; }
+    public int Difficulty { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string DescriptionExcerpt { get; set; } = string.Empty;
+}
+
+public sealed class AiFoundryCourseInspectionDto
+{
+    public Guid CourseId { get; set; }
+    public string CourseTitle { get; set; } = string.Empty;
+    public string? Query { get; set; }
+    public Guid? AroundAssignmentId { get; set; }
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public string Summary { get; set; } = string.Empty;
+    public List<AiFoundryCourseInspectionAssignmentDto> Assignments { get; set; } = new();
+}
+
+public sealed class AiFoundryBridgePlanItemDto
+{
+    public int Index { get; set; }
+    public string Concept { get; set; } = string.Empty;
+    public Guid? AfterAssignmentId { get; set; }
+    public string? AfterAssignmentTitle { get; set; }
+    public Guid? BeforeAssignmentId { get; set; }
+    public string? BeforeAssignmentTitle { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public int TaskCount { get; set; } = 1;
+    public int Difficulty { get; set; } = 1;
+    public string TitleHint { get; set; } = string.Empty;
+    public List<string> TitleExamples { get; set; } = new();
+    public bool Confirmed { get; set; }
+    public bool Rejected { get; set; }
+    public string? RevisionNote { get; set; }
+    public DateTime? UpdatedAtUtc { get; set; }
+}
+
+public sealed class AiFoundryBridgePlanDto
+{
+    public Guid CourseId { get; set; }
+    public string CourseTitle { get; set; } = string.Empty;
+    public string? Focus { get; set; }
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAtUtc { get; set; }
+    public DateTime? ConfirmedAtUtc { get; set; }
+    public string Status { get; set; } = "draft";
+    public string Summary { get; set; } = string.Empty;
+    public List<string> StyleHints { get; set; } = new();
+    public List<string> RevisionNotes { get; set; } = new();
+    public List<AiFoundryBridgePlanItemDto> Items { get; set; } = new();
+}
+
 public sealed class AiFoundryChatMemoryDto
 {
     public string Summary { get; set; } = string.Empty;
@@ -584,6 +662,9 @@ public sealed class AiFoundryChatMemoryDto
     public int MessageCount { get; set; }
     public DateTime? LastUserMessageAtUtc { get; set; }
     public DateTime? LastAssistantMessageAtUtc { get; set; }
+    public AiFoundryCourseAuditDto? LastCourseAudit { get; set; }
+    public AiFoundryCourseInspectionDto? LastCourseInspection { get; set; }
+    public AiFoundryBridgePlanDto? LastBridgePlan { get; set; }
 }
 
 public sealed class AiFoundryChatSessionListItemDto

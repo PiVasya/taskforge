@@ -335,6 +335,136 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             "sessionTitle": _chat_build_session_title(payload),
         }
 
+    memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+    has_audit = isinstance(memory.get("lastCourseAudit"), dict)
+    has_bridge_plan = isinstance(memory.get("lastBridgePlan"), dict)
+
+    show_plan_markers = ["покажи план", "что в плане", "какой план", "план мостиков", "покажи текущий план"]
+    if has_bridge_plan and any(marker in (last_user or "").lower() for marker in show_plan_markers):
+        return {
+            "assistantMessage": "Поняла. Покажу текущий план мостиков без пересборки, чтобы ты мог быстро поправить нужные точки.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "show_bridge_plan",
+                "reason": "Пользователь хочет увидеть уже собранный план мостиков, а не пересобирать его с нуля.",
+                "arguments": {
+                    "courseId": course_id,
+                },
+            }],
+        }
+
+    revise_markers = ["поправь план", "измени план", "поменяй план", "убери", "оставь только", "подтверди", "отклони", "сдвинь", "после этого задания", "сделай по 2 задачи", "исправь план"]
+    if has_bridge_plan and any(marker in (last_user or "").lower() for marker in revise_markers):
+        args = {
+            "courseId": course_id,
+            "note": prompt,
+        }
+        low = (last_user or "").lower()
+        if "подтвер" in low:
+            args["confirm"] = True
+        if "отклони" in low or "убери" in low:
+            args["reject"] = True
+        return {
+            "assistantMessage": "Поняла. Не буду пересобирать план целиком — точечно поправлю уже собранные пункты по твоим замечаниям.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "revise_bridge_plan",
+                "reason": "Пользователь правит уже готовый план мостиков и ожидает точечное изменение без полной пересборки.",
+                "arguments": args,
+            }],
+        }
+
+    bridge_markers = ["по этому плану", "по последнему аудиту", "сгенерируй мостики", "создай мостики", "добавь мостики", "подводящие задания"]
+    if any(marker in (last_user or "").lower() for marker in bridge_markers):
+        if has_bridge_plan:
+            return {
+                "assistantMessage": "Поняла. Перехожу от согласованного плана к генерации мостиковых задач.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "queue_generate_bridge_batch",
+                    "reason": "Пользователь подтверждает, что нужно генерировать мостиковые задачи по уже собранному плану курса.",
+                    "arguments": {
+                        "courseId": course_id,
+                        "focus": prompt,
+                    },
+                }],
+            }
+        if has_audit:
+            return {
+                "assistantMessage": "Поняла. Перед генерацией соберу явный план мостиков с afterAssignmentId, количеством задач и title hints.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "prepare_bridge_plan",
+                    "reason": "Перед bridge-generation лучше сначала зафиксировать явный план вставок по аудиту курса.",
+                    "arguments": {
+                        "courseId": course_id,
+                        "focus": prompt,
+                    },
+                }],
+            }
+
+    plan_markers = ["собери план", "сделай план", "предложи план", "список что надо сделать", "в каких местах", "что ты поняла", "план вставок"]
+    short_followup = (last_user or "").strip().lower() in {"продолжай", "давай дальше", "дальше", "начинай", "ок", "го", "погнали", "делай дальше"}
+    if short_followup and (course_id and (has_audit or has_bridge_plan)):
+        return {
+            "assistantMessage": "Поняла. Продолжу по текущему состоянию агента: выберу следующий шаг на основе памяти, последнего аудита и плана мостиков.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "advance_agent_stage",
+                "reason": "Пользователь дал короткий follow-up без нового контекста и ожидает, что агент сам продолжит со следующего логичного шага.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": prompt,
+                },
+            }],
+        }
+
+    if has_audit and any(marker in (last_user or "").lower() for marker in plan_markers):
+        return {
+            "assistantMessage": "Поняла. Соберу подробный план мостиков: что именно вставлять, после какого assignmentId и в каком стиле названий.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "prepare_bridge_plan",
+                "reason": "После аудита курса следующий шаг — зафиксировать план вставок и только потом переходить к генерации.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": prompt,
+                },
+            }],
+        }
+
+    inspect_markers = ["открой задания", "посмотри задания", "какие задания", "какие там названия", "покажи названия", "покажи соседние", "покажи что уже есть", "детальнее", "подробнее"]
+    if has_audit and any(marker in (last_user or "").lower() for marker in inspect_markers):
+        return {
+            "assistantMessage": "Поняла. Открою конкретные задания курса вокруг найденных мест, чтобы сверить стиль названий и последовательность перед следующим шагом.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "inspect_course_assignments",
+                "reason": "После аудита курса нужно открыть конкретные задания и показать соседние элементы/названия до генерации мостиков.",
+                "arguments": {
+                    "courseId": course_id,
+                    "query": prompt,
+                    "window": 1,
+                    "limitAssignments": 8,
+                },
+            }],
+        }
+
+    audit_markers = ["изучи курс", "посмотри что уже есть", "допил", "пробел", "мостик", "подводящ", "новая функция", "перед этим набор заданий"]
+    if any(marker in (last_user or "").lower() for marker in audit_markers):
+        return {
+            "assistantMessage": "Поняла. Сначала открою курс, посмотрю текущую последовательность заданий и соберу план пробелов и мостиков перед генерацией.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "analyze_course_progression",
+                "reason": "Пользователь просит сначала изучить курс, найти пробелы и только потом переходить к генерации.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": prompt,
+                },
+            }],
+        }
+
     if wants_multiple and explicit_count is None:
         return {
             "assistantMessage": f"Поняла направление. Я уже собрала черновик плана: тип={assignment_type}, сложность={difficulty}/5, режим={mode}. Сколько задач нужно сгенерировать: 3, 5, 7, 10 или другое число?",

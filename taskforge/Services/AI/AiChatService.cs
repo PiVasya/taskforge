@@ -428,6 +428,185 @@ public sealed class AiChatService
                         CourseId = batch.CourseId,
                     };
                 }
+                case "analyze_course_progression":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем анализировать курс.");
+
+                    var report = await AnalyzeCourseProgressionAsync(courseId.Value, ReadString(args, "focus"), ReadInt(args, "limitAssignments"), ct);
+                    if (report == null)
+                        return FailTool("Курс для анализа не найден или в нём пока нет заданий.");
+
+                    session.PlanJson = SerializeMemory(WithLastCourseAudit(BuildMemory(messages, session.PlanJson), report));
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = report.Findings.Count == 0 ? "done" : "done",
+                        Summary = BuildCourseAuditSummary(report),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai",
+                    };
+                }
+                case "inspect_course_assignments":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем открывать задания курса.");
+
+                    var inspection = await InspectCourseAssignmentsAsync(
+                        courseId.Value,
+                        ReadString(args, "query"),
+                        ReadGuid(args, "aroundAssignmentId"),
+                        ReadInt(args, "window"),
+                        ReadInt(args, "limitAssignments"),
+                        ct);
+                    if (inspection == null || inspection.Assignments.Count == 0)
+                        return FailTool("Не нашла подходящие задания курса для просмотра. Попробуй сузить query или выбрать другой courseId.");
+
+                    session.PlanJson = SerializeMemory(WithLastCourseInspection(BuildMemory(messages, session.PlanJson), inspection));
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildCourseInspectionSummary(inspection),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai",
+                    };
+                }
+                case "prepare_bridge_plan":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем собирать план мостиков.");
+
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var audit = memory.LastCourseAudit;
+                    if (audit == null || audit.CourseId != courseId.Value || audit.Findings.Count == 0)
+                        return FailTool("Сначала запусти analyze_course_progression, чтобы я увидела пробелы курса и точки вставки.");
+
+                    var selectedFindings = SelectAuditFindings(audit, args);
+                    if (selectedFindings.Count == 0)
+                        return FailTool("Не удалось выбрать findings для плана мостиков. Проверь findingIndexes или сначала обнови аудит курса.");
+
+                    var bridgePlan = BuildBridgePlan(audit, memory.LastCourseInspection, selectedFindings, ReadString(args, "focus"));
+                    session.PlanJson = SerializeMemory(WithLastBridgePlan(BuildMemory(messages, session.PlanJson), bridgePlan));
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildBridgePlanSummary(bridgePlan),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai",
+                    };
+                }
+                case "show_bridge_plan":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем показывать план мостиков.");
+
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var bridgePlan = memory.LastBridgePlan;
+                    if (bridgePlan == null || bridgePlan.CourseId != courseId.Value || bridgePlan.Items.Count == 0)
+                        return FailTool("Плана мостиков для этого курса пока нет. Сначала запусти prepare_bridge_plan.");
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildBridgePlanSummary(bridgePlan),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai",
+                    };
+                }
+                case "revise_bridge_plan":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем править план мостиков.");
+
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var bridgePlan = memory.LastBridgePlan;
+                    if (bridgePlan == null || bridgePlan.CourseId != courseId.Value || bridgePlan.Items.Count == 0)
+                        return FailTool("Плана мостиков для этого курса пока нет. Сначала запусти prepare_bridge_plan.");
+
+                    var revisedPlan = await ReviseBridgePlanAsync(bridgePlan, memory.LastCourseInspection, args, ct);
+                    session.PlanJson = SerializeMemory(WithLastBridgePlan(BuildMemory(messages, session.PlanJson), revisedPlan));
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildBridgePlanSummary(revisedPlan),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai",
+                    };
+                }
+                case "advance_agent_stage":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем продолжать агента.");
+
+                    var nextToolCall = BuildNextAgentToolCall(courseId.Value, session, messages, args);
+                    if (nextToolCall == null)
+                        return FailTool("Не нашла следующий шаг для агента. Попробуй явно попросить аудит курса, показать план или сгенерировать мостики.");
+
+                    var nestedResult = await ExecuteToolCallAsync(session, messages, nextToolCall, createdByUserId, createdByDisplayName, ct);
+                    if (nestedResult == null)
+                        return FailTool("Не удалось выполнить следующий шаг агента.");
+
+                    nestedResult.Summary = $"Автопродолжение агента: {nestedResult.Summary}";
+                    return nestedResult;
+                }
+                case "queue_generate_bridge_batch":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем создавать bridge-batch.");
+
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var audit = memory.LastCourseAudit;
+                    if (audit == null || audit.CourseId != courseId.Value || audit.Findings.Count == 0)
+                        return FailTool("Сначала запусти analyze_course_progression, чтобы я увидела пробелы курса и точки вставки.");
+
+                    var bridgePlan = memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId.Value
+                        ? memory.LastBridgePlan
+                        : BuildBridgePlan(audit, memory.LastCourseInspection, SelectAuditFindings(audit, args), ReadString(args, "focus"));
+                    if (bridgePlan == null || bridgePlan.Items.Count == 0)
+                        return FailTool("Не удалось собрать plan items для bridge-batch. Сначала собери план мостиков или обнови аудит курса.");
+
+                    var selectedItems = SelectBridgePlanItems(bridgePlan, args);
+                    if (selectedItems.Count == 0)
+                        return FailTool("Не удалось выбрать plan items для bridge-batch. Проверь itemIndexes или сначала обнови план мостиков.");
+
+                    session.PlanJson = SerializeMemory(WithLastBridgePlan(BuildMemory(messages, session.PlanJson), bridgePlan));
+
+                    var requestedCount = Math.Clamp(ReadInt(args, "count") ?? selectedItems.Sum(x => Math.Max(1, x.TaskCount)), 1, 50);
+                    var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? Math.Max(1, Math.Min(3, selectedItems.Max(x => x.Difficulty))), 1, 3);
+                    var prompt = BuildBridgeBatchPrompt(audit, bridgePlan, selectedItems, ReadString(args, "prompt"), ReadString(args, "focus"));
+                    var notes = BuildBridgeBatchNotes(audit, bridgePlan, selectedItems);
+
+                    var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
+                    {
+                        CourseId = courseId.Value,
+                        AssignmentType = "code-test",
+                        Prompt = prompt,
+                        Count = requestedCount,
+                        Mode = "bridge-pack",
+                        Difficulty = difficulty,
+                        Notes = notes,
+                        Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                    }, createdByUserId, createdByDisplayName, ct);
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = $"Создала bridge-batch на {batch.RequestedCount} задач по плану мостиков. AI будет опираться на afterAssignmentId и title hints из согласованного плана.",
+                        NavigateTo = "/admin/ai",
+                        BatchId = batch.Id,
+                        CourseId = batch.CourseId,
+                    };
+                }
                 case "queue_generate_from_text":
                 {
                     var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
@@ -935,6 +1114,55 @@ public sealed class AiChatService
                 },
                 new
                 {
+                    name = "analyze_course_progression",
+                    description = "Изучить текущий курс, найти резкие вводы новых функций/конструкций и предложить мостики с afterAssignmentId.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "focus", "limitAssignments", "priority" },
+                },
+                new
+                {
+                    name = "inspect_course_assignments",
+                    description = "Открыть часть курса и показать конкретные задания по порядку, чтобы AI могла сверить стиль, соседние темы и место вставки.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "query", "aroundAssignmentId", "window", "limitAssignments" },
+                },
+                new
+                {
+                    name = "prepare_bridge_plan",
+                    description = "Собрать и сохранить подробный план мостиков: что вставлять, после какого assignmentId и в каком стиле названий.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "focus", "findingIndexes" },
+                },
+                new
+                {
+                    name = "show_bridge_plan",
+                    description = "Показать текущий сохранённый план мостиков без пересборки, чтобы обсудить его с админом.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
+                    name = "revise_bridge_plan",
+                    description = "Точечно поправить уже собранный план мостиков: подтвердить/отклонить пункты, поменять taskCount, difficulty, titleHint или afterAssignmentId.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "itemIndexes", "itemIndex", "taskCount", "difficulty", "titleHint", "afterAssignmentId", "reason", "note", "confirm", "reject" },
+                },
+                new
+                {
+                    name = "advance_agent_stage",
+                    description = "Продолжить агента по памяти и текущему состоянию: выбрать следующий логичный шаг между аудитом, просмотром заданий, планом мостиков и bridge-batch.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "focus", "priority" },
+                },
+                new
+                {
+                    name = "queue_generate_bridge_batch",
+                    description = "На основе последнего плана мостиков создать batch мостиковых задач перед резким вводом новых функций/тем.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "count", "difficulty", "prompt", "focus", "findingIndexes", "itemIndexes", "priority" },
+                },
+                new
+                {
                     name = "queue_generate_from_text",
                     description = "Запустить генерацию одного или нескольких заданий из текста.",
                     requiredArguments = new[] { "courseId", "prompt" },
@@ -1266,6 +1494,13 @@ public sealed class AiChatService
             return (names[0] ?? string.Empty).ToLowerInvariant() switch
             {
                 "queue_generate_batch" => "Запускаю batch по текущему контексту.",
+                "analyze_course_progression" => "Открываю курс и собираю аудит по пробелам и резким вводам новых тем.",
+                "inspect_course_assignments" => "Открываю конкретные задания курса, чтобы сверить стиль и последовательность.",
+                "prepare_bridge_plan" => "Собираю подробный план вставок и точек afterAssignmentId по курсу.",
+                "show_bridge_plan" => "Показываю текущий план мостиков без пересборки.",
+                "revise_bridge_plan" => "Точечно правлю уже собранный план мостиков по твоим замечаниям.",
+                "advance_agent_stage" => "Продолжаю агента по памяти и выбираю следующий логичный шаг без повторного объяснения контекста.",
+                "queue_generate_bridge_batch" => "Запускаю bridge-batch по последнему плану мостиков.",
                 "queue_generate_from_text" => "Запускаю генерацию из текста.",
                 "queue_generate_from_file" => "Запускаю генерацию из файла.",
                 "queue_validate_draft" => "Запускаю self-check черновика.",
@@ -1421,6 +1656,24 @@ public sealed class AiChatService
         if (string.IsNullOrWhiteSpace(summary))
             summary = !string.IsNullOrWhiteSpace(previous.Summary) ? previous.Summary : "Пока это пустая сессия без накопленной памяти.";
 
+        if (previous.LastCourseAudit != null && facts.Count < 6)
+            facts.Add($"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 140)}");
+        if (previous.LastCourseAudit != null)
+            summary = string.Join(" ", new[] { summary, $"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (previous.LastCourseInspection != null && facts.Count < 6)
+            facts.Add($"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 140)}");
+        if (previous.LastCourseInspection != null)
+            summary = string.Join(" ", new[] { summary, $"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (previous.LastBridgePlan != null && facts.Count < 6)
+            facts.Add($"Последний план мостиков: {ShortenSingleLine(previous.LastBridgePlan.Summary, 140)}");
+        if (previous.LastBridgePlan != null)
+            summary = string.Join(" ", new[] { summary, $"Последний план мостиков: {ShortenSingleLine(previous.LastBridgePlan.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        var nextAgentStep = SuggestNextAgentStep(previous);
+        if (!string.IsNullOrWhiteSpace(nextAgentStep) && facts.Count < 6)
+            facts.Add($"Следующий логичный шаг агента: {nextAgentStep}");
+        if (!string.IsNullOrWhiteSpace(nextAgentStep))
+            summary = string.Join(" ", new[] { summary, $"Следующий логичный шаг агента: {nextAgentStep}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+
         return new AiFoundryChatMemoryDto
         {
             Summary = summary,
@@ -1431,6 +1684,9 @@ public sealed class AiChatService
             MessageCount = messages.Count,
             LastUserMessageAtUtc = userMessages.LastOrDefault()?.CreatedAtUtc,
             LastAssistantMessageAtUtc = assistantMessages.LastOrDefault()?.CreatedAtUtc,
+            LastCourseAudit = previous.LastCourseAudit,
+            LastCourseInspection = previous.LastCourseInspection,
+            LastBridgePlan = previous.LastBridgePlan,
         };
     }
 
@@ -1467,6 +1723,13 @@ public sealed class AiChatService
         => (rawName ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "queue_generate_batch" => "создание batch",
+            "analyze_course_progression" => "аудит курса",
+            "inspect_course_assignments" => "просмотр заданий курса",
+            "prepare_bridge_plan" => "план мостиков по курсу",
+            "show_bridge_plan" => "показ плана мостиков",
+            "revise_bridge_plan" => "точечная правка плана мостиков",
+            "advance_agent_stage" => "автопродолжение агента",
+            "queue_generate_bridge_batch" => "bridge-batch по плану мостиков",
             "queue_generate_from_text" => "генерация из текста",
             "queue_generate_from_file" => "генерация из файла",
             "queue_validate_draft" => "валидация draft",
@@ -1600,6 +1863,839 @@ public sealed class AiChatService
         };
     }
 
+    private sealed class CourseAuditAssignmentSnapshot
+    {
+        public Guid Id { get; set; }
+        public int Sort { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public int Difficulty { get; set; }
+        public string? Type { get; set; }
+        public string? AllowedLanguagesCsv { get; set; }
+    }
+
+    private async Task<AiFoundryCourseAuditDto?> AnalyzeCourseProgressionAsync(Guid courseId, string? focus, int? limitAssignments, CancellationToken ct)
+    {
+        var course = await _db.Courses.AsNoTracking()
+            .Where(x => x.Id == courseId)
+            .Select(x => new { x.Id, x.Title })
+            .FirstOrDefaultAsync(ct);
+        if (course == null)
+            return null;
+
+        var ordered = await LoadCourseAuditAssignmentsAsync(courseId, limitAssignments, ct);
+        if (ordered.Count == 0)
+            return null;
+
+        var findings = new List<AiFoundryCourseAuditFindingDto>();
+        var seenConcepts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var titleExamples = ordered
+            .Select(x => (x.Title ?? string.Empty).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+        var styleHints = DetectTitleStyleHints(ordered, titleExamples);
+        var focusText = (focus ?? string.Empty).Trim();
+
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var current = ordered[i];
+            var concepts = ExtractCourseConcepts(current.Title + "\n" + current.Description);
+            foreach (var concept in concepts)
+            {
+                if (!seenConcepts.Add(concept))
+                    continue;
+                if (!ShouldFlagConcept(concept, focusText))
+                    continue;
+
+                var after = i > 0 ? ordered[i - 1] : null;
+                findings.Add(new AiFoundryCourseAuditFindingDto
+                {
+                    Concept = concept,
+                    AfterAssignmentId = after?.Id,
+                    AfterAssignmentTitle = after?.Title,
+                    BeforeAssignmentId = current.Id,
+                    BeforeAssignmentTitle = current.Title,
+                    Reason = BuildFindingReason(concept, current.Title),
+                    SuggestedTaskCount = SuggestTaskCountForConcept(concept),
+                    SuggestedDifficulty = SuggestDifficultyForConcept(concept, current.Difficulty),
+                });
+            }
+        }
+
+        findings = findings
+            .Where(x => MatchesFocus(x, focusText))
+            .Take(6)
+            .ToList();
+
+        return new AiFoundryCourseAuditDto
+        {
+            CourseId = course.Id,
+            CourseTitle = course.Title,
+            Focus = string.IsNullOrWhiteSpace(focusText) ? null : focusText,
+            GeneratedAtUtc = DateTime.UtcNow,
+            Summary = findings.Count == 0
+                ? "Явных резких вводов новых функций/конструкций по быстрым эвристикам не найдено."
+                : $"Нашла {findings.Count} точек, где стоит вставить bridge-задачи до резкого ввода новой функции или конструкции.",
+            StyleHints = styleHints,
+            TitleExamples = titleExamples,
+            Findings = findings,
+        };
+    }
+
+    private async Task<AiFoundryCourseInspectionDto?> InspectCourseAssignmentsAsync(Guid courseId, string? query, Guid? aroundAssignmentId, int? window, int? limitAssignments, CancellationToken ct)
+    {
+        var course = await _db.Courses.AsNoTracking()
+            .Where(x => x.Id == courseId)
+            .Select(x => new { x.Id, x.Title })
+            .FirstOrDefaultAsync(ct);
+        if (course == null)
+            return null;
+
+        var ordered = await LoadCourseAuditAssignmentsAsync(courseId, null, ct);
+        if (ordered.Count == 0)
+            return null;
+
+        var selected = new List<CourseAuditAssignmentSnapshot>();
+        var normalizedQuery = (query ?? string.Empty).Trim();
+        var radius = Math.Clamp(window ?? 1, 0, 3);
+        var maxItems = Math.Clamp(limitAssignments ?? 8, 1, 12);
+
+        if (aroundAssignmentId.HasValue)
+        {
+            var index = ordered.FindIndex(x => x.Id == aroundAssignmentId.Value);
+            if (index >= 0)
+            {
+                var from = Math.Max(0, index - radius);
+                var take = Math.Min(ordered.Count - from, radius * 2 + 1);
+                selected.AddRange(ordered.Skip(from).Take(take));
+            }
+        }
+
+        if (selected.Count == 0 && !string.IsNullOrWhiteSpace(normalizedQuery))
+        {
+            var matches = ordered
+                .Select((item, idx) => new { item, idx })
+                .Where(x => MatchesInspectionQuery(x.item, normalizedQuery))
+                .ToList();
+            var indexes = new SortedSet<int>();
+            foreach (var match in matches)
+            {
+                var from = Math.Max(0, match.idx - radius);
+                var to = Math.Min(ordered.Count - 1, match.idx + radius);
+                for (var i = from; i <= to; i++)
+                    indexes.Add(i);
+            }
+            selected.AddRange(indexes.Take(maxItems).Select(i => ordered[i]));
+        }
+
+        if (selected.Count == 0)
+            selected.AddRange(ordered.Take(maxItems));
+
+        var assignments = selected
+            .DistinctBy(x => x.Id)
+            .OrderBy(x => x.Sort)
+            .Take(maxItems)
+            .Select(x => new AiFoundryCourseInspectionAssignmentDto
+            {
+                Id = x.Id,
+                Sort = x.Sort,
+                Difficulty = x.Difficulty,
+                Title = x.Title,
+                DescriptionExcerpt = BuildDescriptionExcerpt(x.Description),
+            })
+            .ToList();
+
+        return new AiFoundryCourseInspectionDto
+        {
+            CourseId = course.Id,
+            CourseTitle = course.Title,
+            Query = string.IsNullOrWhiteSpace(normalizedQuery) ? null : normalizedQuery,
+            AroundAssignmentId = aroundAssignmentId,
+            GeneratedAtUtc = DateTime.UtcNow,
+            Summary = assignments.Count == 0
+                ? "Подходящих заданий для просмотра не найдено."
+                : $"Открыла {assignments.Count} заданий курса, чтобы сверить стиль, соседние темы и место вставки новых bridge-задач.",
+            Assignments = assignments,
+        };
+    }
+
+    private async Task<List<CourseAuditAssignmentSnapshot>> LoadCourseAuditAssignmentsAsync(Guid courseId, int? limitAssignments, CancellationToken ct)
+    {
+        var ordered = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == courseId)
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.CreatedAt)
+            .Select(x => new CourseAuditAssignmentSnapshot
+            {
+                Id = x.Id,
+                Sort = x.Sort,
+                Title = x.Title,
+                Description = x.Description,
+                Difficulty = x.Difficulty,
+                Type = x.Type,
+                AllowedLanguagesCsv = x.AllowedLanguagesCsv,
+            })
+            .ToListAsync(ct);
+
+        if (limitAssignments.HasValue && limitAssignments.Value > 0 && ordered.Count > limitAssignments.Value)
+            ordered = ordered.Take(limitAssignments.Value).ToList();
+
+        return ordered;
+    }
+
+    private AiFoundryChatToolCallDto? BuildNextAgentToolCall(Guid courseId, AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, JsonObject args)
+    {
+        var memory = DeserializeMemory(session.PlanJson);
+        var focus = ReadString(args, "focus") ?? _chatFallbackFocus(messages);
+        if (memory.LastCourseAudit == null || memory.LastCourseAudit.CourseId != courseId || memory.LastCourseAudit.Findings.Count == 0)
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "analyze_course_progression",
+                Reason = "В памяти ещё нет актуального аудита курса, поэтому следующий логичный шаг — сначала изучить курс и найти пробелы.",
+                ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus }, JsonOptions),
+            };
+        }
+
+        if (memory.LastCourseInspection == null || memory.LastCourseInspection.CourseId != courseId || memory.LastCourseInspection.Assignments.Count == 0)
+        {
+            var firstFinding = memory.LastCourseAudit.Findings.FirstOrDefault();
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "inspect_course_assignments",
+                Reason = "После аудита полезно открыть реальные задания курса вокруг первой точки вставки, чтобы сверить стиль и последовательность.",
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    courseId,
+                    query = focus,
+                    aroundAssignmentId = firstFinding?.AfterAssignmentId,
+                    window = 1,
+                    limitAssignments = 8,
+                }, JsonOptions),
+            };
+        }
+
+        if (memory.LastBridgePlan == null || memory.LastBridgePlan.CourseId != courseId || memory.LastBridgePlan.Items.Count == 0)
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "prepare_bridge_plan",
+                Reason = "Аудит и просмотр заданий уже есть, значит следующий шаг — зафиксировать подробный план мостиков.",
+                ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus }, JsonOptions),
+            };
+        }
+
+        var confirmedItems = memory.LastBridgePlan.Items.Where(x => x.Confirmed && !x.Rejected).Select(x => x.Index).ToList();
+        if (string.Equals(memory.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || confirmedItems.Count > 0)
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "queue_generate_bridge_batch",
+                Reason = "В плане уже есть подтверждённые точки вставки, поэтому можно переходить к bridge-generation.",
+                ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus, itemIndexes = confirmedItems }, JsonOptions),
+            };
+        }
+
+        return new AiFoundryChatToolCallDto
+        {
+            Name = "show_bridge_plan",
+            Reason = "План мостиков уже собран, но ещё не подтверждён. Следующий логичный шаг — показать его и обсудить точечные правки.",
+            ArgumentsJson = JsonSerializer.Serialize(new { courseId }, JsonOptions),
+        };
+    }
+
+    private static string? SuggestNextAgentStep(AiFoundryChatMemoryDto memory)
+    {
+        if (memory.LastCourseAudit == null || memory.LastCourseAudit.Findings.Count == 0)
+            return "сначала сделать analyze_course_progression";
+        if (memory.LastCourseInspection == null || memory.LastCourseInspection.Assignments.Count == 0)
+            return "открыть соседние задания через inspect_course_assignments";
+        if (memory.LastBridgePlan == null || memory.LastBridgePlan.Items.Count == 0)
+            return "собрать план мостиков через prepare_bridge_plan";
+        var confirmed = memory.LastBridgePlan.Items.Count(x => x.Confirmed && !x.Rejected);
+        if (string.Equals(memory.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || confirmed > 0)
+            return "сгенерировать мостики через queue_generate_bridge_batch";
+        return "показать и уточнить план мостиков через show_bridge_plan / revise_bridge_plan";
+    }
+
+    private static string? _chatFallbackFocus(List<AiFoundryChatMessageDto> messages)
+    {
+        var lastUser = messages.LastOrDefault(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Content))?.Content;
+        return string.IsNullOrWhiteSpace(lastUser) ? null : ShortenSingleLine(lastUser, 240);
+    }
+
+    private static AiFoundryChatMemoryDto WithLastCourseAudit(AiFoundryChatMemoryDto memory, AiFoundryCourseAuditDto report)
+    {
+        memory ??= new AiFoundryChatMemoryDto();
+        memory.LastCourseAudit = report;
+        return memory;
+    }
+
+    private static AiFoundryChatMemoryDto WithLastCourseInspection(AiFoundryChatMemoryDto memory, AiFoundryCourseInspectionDto report)
+    {
+        memory ??= new AiFoundryChatMemoryDto();
+        memory.LastCourseInspection = report;
+        return memory;
+    }
+
+    private static AiFoundryChatMemoryDto WithLastBridgePlan(AiFoundryChatMemoryDto memory, AiFoundryBridgePlanDto plan)
+    {
+        memory ??= new AiFoundryChatMemoryDto();
+        memory.LastBridgePlan = plan;
+        return memory;
+    }
+
+    private static List<AiFoundryCourseAuditFindingDto> SelectAuditFindings(AiFoundryCourseAuditDto audit, JsonObject args)
+    {
+        var indexes = new List<int>();
+        if (args["findingIndexes"] is JsonArray arr)
+        {
+            foreach (var node in arr)
+            {
+                if (node == null)
+                    continue;
+                if (int.TryParse(node.ToString(), out var idx))
+                    indexes.Add(idx);
+            }
+        }
+
+        var focus = ReadString(args, "focus");
+        var selected = audit.Findings
+            .Where((x, idx) => indexes.Count == 0 || indexes.Contains(idx + 1) || indexes.Contains(idx))
+            .Where(x => MatchesFocus(x, focus))
+            .ToList();
+        return selected.Count > 0 ? selected : audit.Findings.Take(4).ToList();
+    }
+
+    private static string BuildCourseAuditSummary(AiFoundryCourseAuditDto report)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"Изучила курс «{report.CourseTitle}». ");
+        if (report.StyleHints.Count > 0)
+            sb.Append($"По названиям вижу такой стиль: {string.Join(", ", report.StyleHints.Take(3))}. ");
+        if (report.TitleExamples.Count > 0)
+            sb.Append($"Хорошие ориентиры по названиям: {string.Join("; ", report.TitleExamples.Take(4))}. ");
+        sb.Append(report.Summary);
+
+        if (report.Findings.Count > 0)
+        {
+            sb.Append("\n\nЧто стоит вставить:");
+            for (var i = 0; i < report.Findings.Count; i++)
+            {
+                var f = report.Findings[i];
+                var anchor = !string.IsNullOrWhiteSpace(f.AfterAssignmentTitle)
+                    ? $"после «{f.AfterAssignmentTitle}»"
+                    : "в самом начале курса";
+                var before = !string.IsNullOrWhiteSpace(f.BeforeAssignmentTitle)
+                    ? $", перед «{f.BeforeAssignmentTitle}»"
+                    : string.Empty;
+                var idText = f.AfterAssignmentId.HasValue ? $" [afterAssignmentId={f.AfterAssignmentId}]" : string.Empty;
+                sb.Append($"\n{i + 1}. {anchor}{before}{idText} — {f.Reason} Предлагаю {Math.Max(1, f.SuggestedTaskCount)} мостик(а).");
+            }
+            sb.Append("\n\nЕсли нужно, я могу ещё отдельно открыть соседние задания и показать конкретные названия/формулировки вокруг точек вставки.");
+            sb.Append("\nПосле этого я могу собрать подробный план вставок с afterAssignmentId, количеством задач и title hints.");
+            sb.Append("\nЕсли план ок, можно следующим сообщением попросить: «собери план мостиков» или «сгенерируй мостики по этому плану».");
+        }
+
+        var resultText = sb.ToString().Trim();
+        return resultText.Length <= 1900 ? resultText : resultText[..1900];
+    }
+
+    private static string BuildCourseInspectionSummary(AiFoundryCourseInspectionDto report)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"Открыла курс «{report.CourseTitle}». ");
+        if (!string.IsNullOrWhiteSpace(report.Query))
+            sb.Append($"Фокус просмотра: {report.Query}. ");
+        sb.Append(report.Summary);
+        if (report.Assignments.Count > 0)
+        {
+            sb.Append("
+
+Что просмотрела:");
+            foreach (var item in report.Assignments)
+                sb.Append($"
+- sort={item.Sort}, assignmentId={item.Id}, difficulty={item.Difficulty}: {item.Title} — {item.DescriptionExcerpt}");
+        }
+        var result = sb.ToString().Trim();
+        return result.Length <= 1900 ? result : result[..1900];
+    }
+
+    private static AiFoundryBridgePlanDto BuildBridgePlan(
+        AiFoundryCourseAuditDto audit,
+        AiFoundryCourseInspectionDto? inspection,
+        List<AiFoundryCourseAuditFindingDto> findings,
+        string? focus)
+    {
+        var normalizedFocus = string.IsNullOrWhiteSpace(focus) ? audit.Focus : focus?.Trim();
+        var items = findings
+            .Where(x => MatchesFocus(x, normalizedFocus))
+            .Select((finding, idx) =>
+            {
+                var nearbyExamples = GetNearbyInspectionTitles(inspection, finding.AfterAssignmentId, finding.BeforeAssignmentId);
+                var titleExamples = nearbyExamples
+                    .Concat(audit.TitleExamples ?? new List<string>())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(6)
+                    .ToList();
+                return new AiFoundryBridgePlanItemDto
+                {
+                    Index = idx + 1,
+                    Concept = finding.Concept,
+                    AfterAssignmentId = finding.AfterAssignmentId,
+                    AfterAssignmentTitle = finding.AfterAssignmentTitle,
+                    BeforeAssignmentId = finding.BeforeAssignmentId,
+                    BeforeAssignmentTitle = finding.BeforeAssignmentTitle,
+                    Reason = finding.Reason,
+                    TaskCount = Math.Max(1, finding.SuggestedTaskCount),
+                    Difficulty = Math.Clamp(finding.SuggestedDifficulty ?? 2, 1, 3),
+                    TitleHint = BuildBridgeTitleHint(finding, titleExamples),
+                    TitleExamples = titleExamples,
+                    Confirmed = false,
+                    Rejected = false,
+                    UpdatedAtUtc = DateTime.UtcNow,
+                };
+            })
+            .ToList();
+
+        var summary = items.Count == 0
+            ? "Не удалось собрать план мостиков по текущему аудиту."
+            : $"Собрала план мостиков на {items.Sum(x => x.TaskCount)} задач(и) в {items.Count} точках вставки. Для каждой точки есть afterAssignmentId, причина и title hint в стиле курса.";
+
+        return new AiFoundryBridgePlanDto
+        {
+            CourseId = audit.CourseId,
+            CourseTitle = audit.CourseTitle,
+            Focus = normalizedFocus,
+            GeneratedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+            Status = "draft",
+            Summary = summary,
+            StyleHints = audit.StyleHints?.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList() ?? new List<string>(),
+            RevisionNotes = new List<string>(),
+            Items = items,
+        };
+    }
+
+    private async Task<AiFoundryBridgePlanDto> ReviseBridgePlanAsync(
+        AiFoundryBridgePlanDto plan,
+        AiFoundryCourseInspectionDto? inspection,
+        JsonObject args,
+        CancellationToken ct)
+    {
+        var revised = CloneBridgePlan(plan);
+        var indexes = ReadIndexes(args, "itemIndexes", "itemIndex", "findingIndexes");
+        var selected = revised.Items
+            .Where(x => indexes.Count == 0 || indexes.Contains(x.Index) || indexes.Contains(x.Index - 1))
+            .ToList();
+        if (selected.Count == 0)
+            selected = revised.Items.Take(1).ToList();
+
+        var note = ReadString(args, "note");
+        var reason = ReadString(args, "reason");
+        var titleHint = ReadString(args, "titleHint");
+        var taskCount = ReadInt(args, "taskCount") ?? ReadInt(args, "count");
+        var difficulty = ReadInt(args, "difficulty");
+        var afterAssignmentId = ReadGuid(args, "afterAssignmentId");
+        var confirm = ReadBool(args, "confirm") == true;
+        var reject = ReadBool(args, "reject") == true;
+        string? afterTitle = null;
+
+        if (afterAssignmentId.HasValue)
+        {
+            afterTitle = inspection?.Assignments.FirstOrDefault(x => x.Id == afterAssignmentId.Value)?.Title;
+            if (string.IsNullOrWhiteSpace(afterTitle))
+            {
+                afterTitle = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == afterAssignmentId.Value)
+                    .Select(x => x.Title)
+                    .FirstOrDefaultAsync(ct);
+            }
+        }
+
+        foreach (var item in selected)
+        {
+            if (taskCount.HasValue)
+                item.TaskCount = Math.Clamp(taskCount.Value, 1, 8);
+            if (difficulty.HasValue)
+                item.Difficulty = Math.Clamp(difficulty.Value, 1, 5);
+            if (!string.IsNullOrWhiteSpace(titleHint))
+                item.TitleHint = ShortenSingleLine(titleHint, 100);
+            if (!string.IsNullOrWhiteSpace(reason))
+                item.Reason = ShortenSingleLine(reason, 240);
+            if (afterAssignmentId.HasValue)
+            {
+                item.AfterAssignmentId = afterAssignmentId;
+                if (!string.IsNullOrWhiteSpace(afterTitle))
+                    item.AfterAssignmentTitle = afterTitle;
+            }
+            if (confirm)
+            {
+                item.Confirmed = true;
+                item.Rejected = false;
+            }
+            if (reject)
+            {
+                item.Rejected = true;
+                item.Confirmed = false;
+            }
+            if (!string.IsNullOrWhiteSpace(note))
+                item.RevisionNote = ShortenSingleLine(note, 280);
+            item.UpdatedAtUtc = DateTime.UtcNow;
+        }
+
+        if (!string.IsNullOrWhiteSpace(note))
+            revised.RevisionNotes.Add(ShortenSingleLine(note, 280));
+        if (!string.IsNullOrWhiteSpace(reason) && string.IsNullOrWhiteSpace(note))
+            revised.RevisionNotes.Add($"Причина правки: {ShortenSingleLine(reason, 220)}");
+
+        revised.UpdatedAtUtc = DateTime.UtcNow;
+        var activeCount = revised.Items.Count(x => !x.Rejected);
+        var confirmedCount = revised.Items.Count(x => x.Confirmed && !x.Rejected);
+        if (activeCount > 0 && confirmedCount == activeCount)
+        {
+            revised.Status = "confirmed";
+            revised.ConfirmedAtUtc = DateTime.UtcNow;
+        }
+        else if (confirmedCount > 0)
+        {
+            revised.Status = "partially-confirmed";
+            revised.ConfirmedAtUtc ??= DateTime.UtcNow;
+        }
+        else
+        {
+            revised.Status = revised.Items.Any(x => x.Rejected) ? "revised" : "draft";
+        }
+
+        var taskTotal = revised.Items.Where(x => !x.Rejected).Sum(x => Math.Max(1, x.TaskCount));
+        var activeItems = revised.Items.Count(x => !x.Rejected);
+        var rejectedCount = revised.Items.Count(x => x.Rejected);
+        revised.Summary = activeItems == 0
+            ? "План мостиков очищен: активных точек вставки не осталось."
+            : $"План мостиков обновлён: активных точек {activeItems}, задач суммарно {taskTotal}, подтверждено {confirmedCount}, отклонено {rejectedCount}.";
+
+        return revised;
+    }
+
+    private static AiFoundryBridgePlanDto CloneBridgePlan(AiFoundryBridgePlanDto plan)
+        => new()
+        {
+            CourseId = plan.CourseId,
+            CourseTitle = plan.CourseTitle,
+            Focus = plan.Focus,
+            GeneratedAtUtc = plan.GeneratedAtUtc,
+            UpdatedAtUtc = plan.UpdatedAtUtc,
+            ConfirmedAtUtc = plan.ConfirmedAtUtc,
+            Status = plan.Status,
+            Summary = plan.Summary,
+            StyleHints = plan.StyleHints.ToList(),
+            RevisionNotes = plan.RevisionNotes.ToList(),
+            Items = plan.Items.Select(x => new AiFoundryBridgePlanItemDto
+            {
+                Index = x.Index,
+                Concept = x.Concept,
+                AfterAssignmentId = x.AfterAssignmentId,
+                AfterAssignmentTitle = x.AfterAssignmentTitle,
+                BeforeAssignmentId = x.BeforeAssignmentId,
+                BeforeAssignmentTitle = x.BeforeAssignmentTitle,
+                Reason = x.Reason,
+                TaskCount = x.TaskCount,
+                Difficulty = x.Difficulty,
+                TitleHint = x.TitleHint,
+                TitleExamples = x.TitleExamples.ToList(),
+                Confirmed = x.Confirmed,
+                Rejected = x.Rejected,
+                RevisionNote = x.RevisionNote,
+                UpdatedAtUtc = x.UpdatedAtUtc,
+            }).ToList(),
+        };
+
+    private static List<AiFoundryBridgePlanItemDto> SelectBridgePlanItems(AiFoundryBridgePlanDto plan, JsonObject args)
+    {
+        var indexes = ReadIndexes(args, "itemIndexes", "itemIndex", "findingIndexes");
+        var focus = ReadString(args, "focus") ?? plan.Focus;
+        var candidateItems = plan.Items.Where(x => !x.Rejected).ToList();
+        if (indexes.Count == 0)
+        {
+            var confirmed = candidateItems.Where(x => x.Confirmed).ToList();
+            if (confirmed.Count > 0)
+                candidateItems = confirmed;
+        }
+        var selected = candidateItems
+            .Where(x => indexes.Count == 0 || indexes.Contains(x.Index) || indexes.Contains(x.Index - 1))
+            .Where(x => string.IsNullOrWhiteSpace(focus) || MatchesPlanItemFocus(x, focus))
+            .ToList();
+        return selected.Count > 0 ? selected : candidateItems.Take(4).ToList();
+    }
+
+    private static string BuildBridgePlanSummary(AiFoundryBridgePlanDto plan)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"План мостиков для курса «{plan.CourseTitle}». ");
+        if (!string.IsNullOrWhiteSpace(plan.Focus))
+            sb.Append($"Фокус: {plan.Focus}. ");
+        if (plan.StyleHints.Count > 0)
+            sb.Append($"Стиль курса: {string.Join(", ", plan.StyleHints.Take(3))}. ");
+        if (!string.IsNullOrWhiteSpace(plan.Status))
+            sb.Append($"Статус плана: {plan.Status}. ");
+        sb.Append(plan.Summary);
+
+        if (plan.Items.Count > 0)
+        {
+            sb.Append("
+
+План вставок:");
+            foreach (var item in plan.Items)
+            {
+                var marker = item.Rejected ? "[отклонено] " : item.Confirmed ? "[подтверждено] " : string.Empty;
+                var anchor = !string.IsNullOrWhiteSpace(item.AfterAssignmentTitle)
+                    ? $"после «{item.AfterAssignmentTitle}»"
+                    : "в начало курса";
+                var before = !string.IsNullOrWhiteSpace(item.BeforeAssignmentTitle)
+                    ? $", перед «{item.BeforeAssignmentTitle}»"
+                    : string.Empty;
+                var idText = item.AfterAssignmentId.HasValue ? $" [afterAssignmentId={item.AfterAssignmentId}]" : string.Empty;
+                var note = !string.IsNullOrWhiteSpace(item.RevisionNote) ? $" Примечание: {item.RevisionNote}." : string.Empty;
+                sb.Append($"
+{item.Index}. {marker}{anchor}{before}{idText} — {item.Reason} Набор: {item.TaskCount} задач(и), сложность {item.Difficulty}, title hint: «{item.TitleHint}».{note}");
+            }
+            if (plan.RevisionNotes.Count > 0)
+                sb.Append($"
+
+Последние правки: {string.Join(" | ", plan.RevisionNotes.TakeLast(3))}.");
+            sb.Append("
+
+Если хочешь, я могу точечно поправить этот план по замечаниям, подтвердить нужные пункты или сразу сгенерировать bridge-batch только по подтверждённым точкам.");
+        }
+
+        var result = sb.ToString().Trim();
+        return result.Length <= 2600 ? result : result[..2600];
+    }
+
+    private static string BuildBridgeBatchPrompt(
+        AiFoundryCourseAuditDto audit,
+        AiFoundryBridgePlanDto plan,
+        List<AiFoundryBridgePlanItemDto> items,
+        string? userPrompt,
+        string? focus)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(userPrompt))
+            sb.AppendLine(userPrompt.Trim());
+        else
+            sb.AppendLine($"Нужно допилить курс «{audit.CourseTitle}» bridge-задачами, которые мягко вводят новые функции и конструкции до их резкого появления.");
+        if (!string.IsNullOrWhiteSpace(focus ?? plan.Focus))
+            sb.AppendLine($"Фокус: {(focus ?? plan.Focus)!.Trim()}.");
+        sb.AppendLine("Работай по согласованному плану вставок, а не придумывай точки размещения с нуля.");
+        sb.AppendLine("Используй стиль названий и формулировок текущего курса, избегай абстрактных и слишком общих названий.");
+        if (plan.StyleHints.Count > 0)
+            sb.AppendLine($"Стиль названий курса: {string.Join("; ", plan.StyleHints.Take(4))}.");
+        if (audit.TitleExamples.Count > 0)
+            sb.AppendLine($"Примеры живых названий из курса: {string.Join("; ", audit.TitleExamples.Take(6))}.");
+        sb.AppendLine("Не используй расплывчатые названия вроде «Форматированный вывод», «Работа со строкой», «Базовый ввод» и подобные. Название должно быть таким же конкретным, как у существующих заданий курса.");
+        sb.AppendLine("Для каждого нового задания обязательно выбери placementAfterAssignmentId из plan items ниже.");
+        sb.AppendLine("Plan items:");
+        foreach (var item in items)
+        {
+            var examples = item.TitleExamples.Count == 0 ? "-" : string.Join(" | ", item.TitleExamples.Take(4));
+            sb.AppendLine($"- item #{item.Index}: afterAssignmentId={item.AfterAssignmentId}; afterTitle={item.AfterAssignmentTitle}; beforeTitle={item.BeforeAssignmentTitle}; concept={item.Concept}; reason={item.Reason}; taskCount={item.TaskCount}; difficulty={item.Difficulty}; titleHint={item.TitleHint}; nearbyTitleExamples={examples}.");
+        }
+        sb.AppendLine("Не копируй существующие задания дословно. Сгенерируй именно вводящие мостики, а не ещё один общий topic-pack.");
+        return sb.ToString().Trim();
+    }
+
+    private static string BuildBridgeBatchNotes(AiFoundryCourseAuditDto audit, AiFoundryBridgePlanDto plan, List<AiFoundryBridgePlanItemDto> items)
+    {
+        var joined = string.Join(" | ", items.Select(x => $"idx={x.Index}; after={x.AfterAssignmentId}; titleHint={x.TitleHint}; concept={x.Concept}"));
+        var value = $"agent-bridge-pack; auditAt={audit.GeneratedAtUtc:O}; planAt={plan.GeneratedAtUtc:O}; items={joined}";
+        return value.Length <= 1800 ? value : value[..1800];
+    }
+
+    private static List<string> GetNearbyInspectionTitles(AiFoundryCourseInspectionDto? inspection, Guid? afterAssignmentId, Guid? beforeAssignmentId)
+    {
+        if (inspection == null || inspection.Assignments.Count == 0)
+            return new List<string>();
+
+        var ordered = inspection.Assignments
+            .OrderByDescending(x => afterAssignmentId.HasValue && x.Id == afterAssignmentId.Value)
+            .ThenByDescending(x => beforeAssignmentId.HasValue && x.Id == beforeAssignmentId.Value)
+            .ThenBy(x => x.Sort)
+            .Select(x => (x.Title ?? string.Empty).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
+        return ordered;
+    }
+
+    private static bool MatchesPlanItemFocus(AiFoundryBridgePlanItemDto item, string? focus)
+    {
+        var text = string.Join(" ", new[] { item.Concept, item.Reason, item.TitleHint, item.AfterAssignmentTitle, item.BeforeAssignmentTitle });
+        return MatchesFocus(text, focus);
+    }
+
+    private static string BuildBridgeTitleHint(AiFoundryCourseAuditFindingDto finding, List<string> titleExamples)
+    {
+        var concept = (finding.Concept ?? string.Empty).Trim().ToLowerInvariant();
+        string hint = concept switch
+        {
+            "getline" => "Строка с пробелами",
+            "printf/scanf" => "scanf и printf",
+            "fixed/setprecision" => "Вывод числа с точностью",
+            "cout" => "Одно значение и вывод",
+            "cin" => "Два значения и действие",
+            "string" => "Строка и длина",
+            "if" => "Проверка условия",
+            _ => !string.IsNullOrWhiteSpace(finding.BeforeAssignmentTitle) ? finding.BeforeAssignmentTitle! : "Подводящее задание",
+        };
+
+        var normalizedExamples = titleExamples
+            .Select(x => Regex.Replace(x, @"^Задание\s+\d+[\.:]?\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+        if (normalizedExamples.Any(x => x.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 5))
+        {
+            var example = normalizedExamples.FirstOrDefault(x => x.Contains("вывод", StringComparison.OrdinalIgnoreCase) || x.Contains("строк", StringComparison.OrdinalIgnoreCase) || x.Contains("числ", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(example) && hint.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 5)
+                hint = example!;
+        }
+        hint = hint.Replace("Форматированный вывод", "Вывод числа").Replace("Работа со строкой", "Строка целиком").Trim();
+        return ShortenSingleLine(hint, 80);
+    }
+
+    private static List<string> DetectTitleStyleHints(List<CourseAuditAssignmentSnapshot> ordered, List<string> titleExamples)
+    {
+        var hints = new List<string>();
+        if (ordered.Count == 0)
+            return hints;
+        if (ordered.Count(x => Regex.IsMatch(x.Title ?? string.Empty, @"^Задание\s+\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) >= Math.Max(2, ordered.Count / 3))
+            hints.Add("часто используются нумерованные названия вида «Задание N. ...»");
+        if (ordered.Count(x => (x.Title ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 4) >= Math.Max(2, ordered.Count / 3))
+            hints.Add("заголовки короткие и конкретные");
+        if (ordered.Count(x => Regex.IsMatch(x.Title ?? string.Empty, @"cout|cin|printf|scanf|строк|числ|вывод|ввод", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) >= Math.Max(2, ordered.Count / 4))
+            hints.Add("в названии часто явно упоминается действие или объект ввода/вывода");
+        if (titleExamples.Any(x => x.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length <= 5))
+            hints.Add("нужно избегать слишком общих книжных названий и держать заголовок на уровне конкретного действия");
+        return hints.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static HashSet<string> ExtractCourseConcepts(string? raw)
+    {
+        var text = (raw ?? string.Empty).ToLowerInvariant();
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void add(string key, params string[] needles)
+        {
+            if (needles.Any(n => text.Contains(n)))
+                set.Add(key);
+        }
+        add("cout", "cout");
+        add("cin", "cin");
+        add("printf/scanf", "printf", "scanf");
+        add("getline", "getline", "строк с пробел", "строки с пробел", "строку с пробел");
+        add("string", " string", "строк");
+        add("fixed/setprecision", "setprecision", "fixed", "форматированн");
+        add("if", " if ", "услов", "ветв");
+        add("for", " for ", "цикл for");
+        add("while", " while ", "цикл while");
+        add("sqrt/pow", "sqrt", "pow");
+        add("abs", "abs(", "std::abs", "модул");
+        foreach (Match m in Regex.Matches(text, @"\b([a-z_][a-z0-9_]*)\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            var name = m.Groups[1].Value;
+            if (name.Length < 3)
+                continue;
+            if (name is "main" or "solve" or "print" or "input")
+                continue;
+            set.Add(name);
+        }
+        return set;
+    }
+
+    private static bool ShouldFlagConcept(string concept, string? focus)
+    {
+        if (!string.IsNullOrWhiteSpace(focus) && !MatchesFocus(concept, focus))
+            return false;
+        if (concept.Equals("cout", StringComparison.OrdinalIgnoreCase) || concept.Equals("cin", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (concept.Equals("if", StringComparison.OrdinalIgnoreCase) || concept.Equals("for", StringComparison.OrdinalIgnoreCase) || concept.Equals("while", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
+    }
+
+    private static bool MatchesFocus(AiFoundryCourseAuditFindingDto finding, string? focus)
+        => MatchesFocus($"{finding.Concept} {finding.Reason} {finding.AfterAssignmentTitle} {finding.BeforeAssignmentTitle}", focus);
+
+    private static bool MatchesFocus(string? text, string? focus)
+    {
+        if (string.IsNullOrWhiteSpace(focus))
+            return true;
+
+        var tokens = focus.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => x.ToLowerInvariant())
+            .Where(x => x.Length >= 4)
+            .ToList();
+        if (tokens.Count == 0)
+            return true;
+
+        var generic = new[] { "курс", "курса", "допил", "пробел", "задан", "мостик", "подвод", "новая", "функц", "посмотри", "изучи", "план" };
+        if (tokens.All(token => generic.Any(g => token.Contains(g))))
+            return true;
+
+        var hay = (text ?? string.Empty).ToLowerInvariant();
+        return tokens.Any(token => hay.Contains(token));
+    }
+
+    private static int SuggestTaskCountForConcept(string concept)
+        => concept.ToLowerInvariant() switch
+        {
+            "getline" => 2,
+            "string" => 2,
+            "printf/scanf" => 2,
+            "fixed/setprecision" => 2,
+            "sqrt/pow" => 2,
+            _ => 1,
+        };
+
+    private static int SuggestDifficultyForConcept(string concept, int currentDifficulty)
+        => Math.Max(1, Math.Min(3, concept.Equals("getline", StringComparison.OrdinalIgnoreCase) || concept.Equals("fixed/setprecision", StringComparison.OrdinalIgnoreCase) ? Math.Max(1, currentDifficulty - 1) : currentDifficulty));
+
+    private static string BuildFindingReason(string concept, string? beforeTitle)
+        => concept switch
+        {
+            "printf/scanf" => $"в курсе появляется printf/scanf без отдельной подводки{FormatBeforeTitle(beforeTitle)}",
+            "getline" => $"в курсе появляется чтение строки с пробелами / getline без мостика{FormatBeforeTitle(beforeTitle)}",
+            "fixed/setprecision" => $"в курсе появляется точный форматированный вывод без вводящих упражнений{FormatBeforeTitle(beforeTitle)}",
+            "string" => $"в курсе появляется работа со строками без постепенного введения{FormatBeforeTitle(beforeTitle)}",
+            _ => $"в курсе резко появляется новая функция или конструкция «{concept}»{FormatBeforeTitle(beforeTitle)}",
+        };
+
+    private static bool MatchesInspectionQuery(CourseAuditAssignmentSnapshot item, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return true;
+
+        var hay = ($"{item.Title} {item.Description}").ToLowerInvariant();
+        var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => x.ToLowerInvariant())
+            .Where(x => x.Length >= 3)
+            .ToList();
+        if (tokens.Count == 0)
+            return hay.Contains(query.Trim().ToLowerInvariant());
+        return tokens.Any(hay.Contains);
+    }
+
+    private static string BuildDescriptionExcerpt(string? raw)
+    {
+        var normalized = ShortenSingleLine((raw ?? string.Empty).Replace("\r", " ").Replace("\n", " "), 140);
+        return string.IsNullOrWhiteSpace(normalized) ? "без описания" : normalized;
+    }
+
+    private static string FormatBeforeTitle(string? beforeTitle)
+        => string.IsNullOrWhiteSpace(beforeTitle) ? string.Empty : $", перед заданием «{beforeTitle}»";
+
     private static string? ReadString(JsonObject args, string propertyName)
         => args[propertyName]?.ToString()?.Trim();
 
@@ -1633,6 +2729,31 @@ public sealed class AiChatService
                 return value;
             return null;
         }
+    }
+
+    private static List<int> ReadIndexes(JsonObject args, params string[] keys)
+    {
+        var indexes = new List<int>();
+        foreach (var key in keys)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                continue;
+            if (args[key] is JsonArray arr)
+            {
+                foreach (var node in arr)
+                {
+                    if (node == null)
+                        continue;
+                    if (int.TryParse(node.ToString(), out var idx))
+                        indexes.Add(idx);
+                }
+                continue;
+            }
+            var single = ReadInt(args, key);
+            if (single.HasValue)
+                indexes.Add(single.Value);
+        }
+        return indexes.Distinct().ToList();
     }
 
     private static Guid? ReadGuid(JsonObject args, string propertyName)

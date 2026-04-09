@@ -49,5 +49,29 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("Одно значение и печать", prompt)
 
 
+    def test_build_chat_turn_prompt_mentions_prepare_bridge_plan(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "memory": {"lastCourseAudit": {"summary": "Есть пробелы"}},
+            "conversation": [{"role": "user", "content": "собери план мостиков"}],
+            "availableActions": [
+                {"name": "analyze_course_progression"},
+                {"name": "inspect_course_assignments"},
+                {"name": "prepare_bridge_plan"},
+                {"name": "show_bridge_plan"},
+                {"name": "revise_bridge_plan"},
+                {"name": "advance_agent_stage"},
+                {"name": "queue_generate_bridge_batch"},
+            ],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("prepare_bridge_plan", prompt)
+        self.assertIn("inspect_course_assignments", prompt)
+        self.assertIn("show_bridge_plan", prompt)
+        self.assertIn("revise_bridge_plan", prompt)
+        self.assertIn("advance_agent_stage", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
