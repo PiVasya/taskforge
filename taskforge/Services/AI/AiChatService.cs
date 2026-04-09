@@ -2212,12 +2212,9 @@ public sealed class AiChatService
         sb.Append(report.Summary);
         if (report.Assignments.Count > 0)
         {
-            sb.Append("
-
-Что просмотрела:");
+            sb.Append("\n\nЧто просмотрела:");
             foreach (var item in report.Assignments)
-                sb.Append($"
-- sort={item.Sort}, assignmentId={item.Id}, difficulty={item.Difficulty}: {item.Title} — {item.DescriptionExcerpt}");
+                sb.Append($"\n- sort={item.Sort}, assignmentId={item.Id}, difficulty={item.Difficulty}: {item.Title} — {item.DescriptionExcerpt}");
         }
         var result = sb.ToString().Trim();
         return result.Length <= 1900 ? result : result[..1900];
@@ -2445,9 +2442,7 @@ public sealed class AiChatService
 
         if (plan.Items.Count > 0)
         {
-            sb.Append("
-
-План вставок:");
+            sb.Append("\n\nПлан вставок:");
             foreach (var item in plan.Items)
             {
                 var marker = item.Rejected ? "[отклонено] " : item.Confirmed ? "[подтверждено] " : string.Empty;
@@ -2459,16 +2454,11 @@ public sealed class AiChatService
                     : string.Empty;
                 var idText = item.AfterAssignmentId.HasValue ? $" [afterAssignmentId={item.AfterAssignmentId}]" : string.Empty;
                 var note = !string.IsNullOrWhiteSpace(item.RevisionNote) ? $" Примечание: {item.RevisionNote}." : string.Empty;
-                sb.Append($"
-{item.Index}. {marker}{anchor}{before}{idText} — {item.Reason} Набор: {item.TaskCount} задач(и), сложность {item.Difficulty}, title hint: «{item.TitleHint}».{note}");
+                sb.Append($"\n{item.Index}. {marker}{anchor}{before}{idText} — {item.Reason} Набор: {item.TaskCount} задач(и), сложность {item.Difficulty}, title hint: «{item.TitleHint}».{note}");
             }
             if (plan.RevisionNotes.Count > 0)
-                sb.Append($"
-
-Последние правки: {string.Join(" | ", plan.RevisionNotes.TakeLast(3))}.");
-            sb.Append("
-
-Если хочешь, я могу точечно поправить этот план по замечаниям, подтвердить нужные пункты или сразу сгенерировать bridge-batch только по подтверждённым точкам.");
+                sb.Append($"\n\nПоследние правки: {string.Join(" | ", plan.RevisionNotes.TakeLast(3))}.");
+            sb.Append("\n\nЕсли хочешь, я могу точечно поправить этот план по замечаниям, подтвердить нужные пункты или сразу сгенерировать bridge-batch только по подтверждённым точкам.");
         }
 
         var result = sb.ToString().Trim();
