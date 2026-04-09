@@ -16,6 +16,7 @@ import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
 import { submitSolution } from '../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
+import { extractApiErrorMessages } from '../utils/handleApiError';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { useRoleFlags } from '../contexts/EditorModeContext';
@@ -71,6 +72,21 @@ function parseAllowedLanguages(raw) {
   const filtered = Array.from(allowedSet).filter(x => knownSet.has(x));
 
   return filtered;
+}
+
+function buildImageTaskErrorText(err, fallbackMessage) {
+  const parsed = extractApiErrorMessages(err, fallbackMessage);
+  const lines = [parsed.primaryMessage];
+
+  if (parsed.userHint && parsed.userHint !== parsed.primaryMessage) {
+    lines.push(parsed.userHint);
+  }
+
+  for (const step of parsed.howToFix || []) {
+    lines.push(`• ${step}`);
+  }
+
+  return Array.from(new Set(lines.filter(Boolean))).join('\n');
 }
 
 export default function AssignmentSolvePage() {
@@ -440,11 +456,7 @@ export default function AssignmentSolvePage() {
       ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
       : null;
 
-    const imageLangs = [
-      { value: 'python', label: 'Python' },
-      { value: 'pascal', label: 'Pascal' },
-      { value: 'cpp', label: 'C++' },
-    ];
+    const imageLangs = langsForSelect.filter((l) => ['python', 'pascal', 'cpp'].includes(l.value));
 
     const openImageResultsUrl = (url) => {
       try { 
@@ -476,7 +488,7 @@ export default function AssignmentSolvePage() {
           setImgError(errMsg);
         }
       } catch (e) {
-        const errMsg = e?.response?.data?.message || e?.response?.data?.runnerError || e?.message || 'Ошибка выполнения';
+        const errMsg = buildImageTaskErrorText(e, 'Не удалось выполнить пробный запуск');
         setImgError(errMsg);
       } finally {
         setImgBusy(false);
@@ -511,14 +523,14 @@ export default function AssignmentSolvePage() {
           if (resp.passed) {
             notify.success(`Задание выполнено! Схожесть: ${Math.round(resp.similarityPercent)}%`);
           } else {
-            notify.warning(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
+            notify.warn(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
           }
         } else {
           const errMsg = resp?.runnerError || 'Не удалось проверить решение';
           setImgError(errMsg);
         }
       } catch (e) {
-        const errMsg = e?.response?.data?.message || e?.response?.data?.runnerError || e?.message || 'Ошибка отправки';
+        const errMsg = buildImageTaskErrorText(e, 'Не удалось отправить решение');
         setImgError(errMsg);
       } finally {
         setImgBusy(false);
@@ -601,7 +613,7 @@ export default function AssignmentSolvePage() {
                 <div>
                   <label className="label">Язык</label>
                   <Select
-                    value={['python', 'pascal', 'cpp'].includes(language) ? language : 'python'}
+                    value={imageLangs.some((l) => l.value === language) ? language : (imageLangs[0]?.value || 'python')}
                     onChange={(e) => setLanguage(e.target.value)}
                   >
                     {imageLangs.map((l) => (

@@ -11,9 +11,7 @@ export async function uploadImageTestReference(assignmentId, file, threshold = 9
   fd.append('file', file);
   fd.append('threshold', String(threshold));
 
-  const res = await api.post(`/api/assignments/${assignmentId}/image-test/reference`, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  const res = await api.post(`/api/assignments/${assignmentId}/image-test/reference`, fd);
   return res.data;
 }
 
@@ -21,9 +19,7 @@ export async function uploadImageTestReference(assignmentId, file, threshold = 9
 export async function compareImageTest(assignmentId, file) {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare`, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare`, fd);
   emitQuotaChanged();
   return res.data;
 }
