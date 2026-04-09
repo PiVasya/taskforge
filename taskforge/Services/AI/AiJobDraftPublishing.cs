@@ -188,7 +188,8 @@ public sealed partial class AiJobService
                 : ReadCreateTestCases(draftRoot, false, "publicTests", "tests");
             var hiddenTests = ReadCreateTestCases(draftRoot, true, "hiddenTests");
             if (publicTests.Count < 2) throw new ValidationException($"Нужно минимум 2 открытых теста (publicTests), сейчас: {publicTests.Count}.");
-            if (hiddenTests.Count < 5) throw new ValidationException($"Нужно минимум 5 скрытых тестов (hiddenTests), сейчас: {hiddenTests.Count}.");
+            if (hiddenTests.Count < 1) throw new ValidationException($"Нужен минимум 1 скрытый тест (hiddenTests), сейчас: {hiddenTests.Count}.");
+            if (publicTests.Count + hiddenTests.Count < 5) throw new ValidationException($"Нужно минимум 5 тестов суммарно (publicTests + hiddenTests), сейчас: {publicTests.Count + hiddenTests.Count}.");
             request.TestCases = publicTests.Concat(hiddenTests).ToList();
         }
 

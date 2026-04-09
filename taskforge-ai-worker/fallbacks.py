@@ -24,6 +24,7 @@ from payload import (
     extract_historical_skill_biases,
     build_request_signals,
     build_course_digest,
+    infer_allowed_languages,
 )
 from validators import run_self_check, attach_self_check
 from reviews import (
@@ -38,7 +39,7 @@ from reviews import (
 
 
 def _supported_code_languages(payload: Dict[str, Any]) -> List[str]:
-    langs = payload.get("supportedLanguages") if isinstance(payload.get("supportedLanguages"), list) else []
+    langs = infer_allowed_languages(payload)
     langs = unique_string_list(langs, 10)
     if langs:
         return langs

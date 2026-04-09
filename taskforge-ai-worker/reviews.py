@@ -13,7 +13,7 @@ import json
 import re
 from typing import Any, Dict, List
 
-from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_DESCRIPTION_LEN
+from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESCRIPTION_LEN
 from log import log
 from text_utils import (
     normalize_text,
@@ -256,11 +256,12 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
             checks.append({"name": "hidden-tests-count", "status": "passed", "details": f"hidden={len(hidden_tests)}"})
         else:
             checks.append({"name": "hidden-tests-count", "status": "failed", "details": f"hidden={len(hidden_tests)}"})
+        checks.append({"name": "public-vs-hidden-balance", "status": "passed" if len(public_tests) > len(hidden_tests) else "warning", "details": f"public={len(public_tests)} hidden={len(hidden_tests)}"})
         if edge_hits > 0:
             checks.append({"name": "edge-case-presence", "status": "passed", "details": f"Найдено edge-like тестов: {edge_hits}"})
         else:
             checks.append({"name": "edge-case-presence", "status": "warning", "details": "Не видно явных edge cases"})
-        if len(all_tests) >= max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 5):
+        if len(all_tests) >= max(MIN_TOTAL_TESTS, MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS):
             checks.append({"name": "test-volume", "status": "passed", "details": f"tests={len(all_tests)}"})
         else:
             checks.append({"name": "test-volume", "status": "warning", "details": f"Малый объём тестов: {len(all_tests)}"})

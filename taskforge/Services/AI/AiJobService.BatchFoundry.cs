@@ -50,6 +50,9 @@ public sealed partial class AiJobService
         };
 
         ConsoleFoundryBatch("batch-enqueue-batch-plan", batch, $"priority={request.Priority} stageCode='{AiFoundryStages.BatchPlan}'");
+        var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
+        var supportedLanguages = BuildSupportedLanguages(batch.AssignmentType, referenceAssignments, batch.Prompt);
+
         await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = AiFoundryJobTypes.BatchPlan,
@@ -203,7 +206,7 @@ public sealed partial class AiJobService
                 mode = batch.Mode,
                 count = batch.RequestedCount,
                 courseProfile = JsonSerializer.Deserialize<object>(batch.CourseProfileJson ?? "{}"),
-                referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct),
+                referenceAssignments = referenceAssignments,
             }, JsonOptions),
         }, completedJob.CreatedByUserId, completedJob.CreatedByDisplayName, ct);
     }
@@ -267,7 +270,7 @@ public sealed partial class AiJobService
                 courseProfile = JsonSerializer.Deserialize<object>(batch.CourseProfileJson ?? "{}"),
                 gapAnalysis = JsonSerializer.Deserialize<object>(batch.GapAnalysisJson ?? "{}"),
                 historicalPlannerPriors = JsonSerializer.Deserialize<object>(batch.HistoricalPlannerPriorsJson ?? "{}"),
-                referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct),
+                referenceAssignments = referenceAssignments,
                 targetSchema = BuildTargetSchema(batch.AssignmentType),
                 qualityGates = BuildQualityGates(batch.AssignmentType),
             }, JsonOptions),
@@ -482,6 +485,9 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         .Select(x => new { x.Index, x.TargetSkill, x.DifficultyTarget, x.MicroGoal, x.Status })
         .ToList();
 
+    var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
+    var supportedLanguages = BuildSupportedLanguages(batch.AssignmentType, referenceAssignments, batch.Prompt);
+
     foreach (var item in itemsForDrafts.OrderBy(x => x.Index))
     {
         dynamic blueprint = taskBlueprintsByIndex[item.Index];
@@ -534,10 +540,11 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
                 antiPatternMemory = JsonSerializer.Deserialize<object>(batch.AntiPatternMemoryJson ?? "{}"),
                 decisionLogDigest = JsonSerializer.Deserialize<object>(batch.DecisionLogDigestJson ?? "{}"),
                 batchPeerItems = peerBlueprints.Where(x => x.Index != item.Index).ToList(),
-                referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct),
+                referenceAssignments = referenceAssignments,
                 targetSchema = BuildTargetSchema(batch.AssignmentType),
                 qualityGates = BuildQualityGates(batch.AssignmentType),
-                supportedLanguages = BuildSupportedLanguages(batch.AssignmentType),
+                supportedLanguages = supportedLanguages,
+                allowedLanguages = supportedLanguages,
                 enableSelfCheck = true,
             }, JsonOptions),
         }, completedJob.CreatedByUserId, completedJob.CreatedByDisplayName, ct);

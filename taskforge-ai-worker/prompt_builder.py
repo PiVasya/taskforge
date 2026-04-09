@@ -26,6 +26,7 @@ from payload import (
     detect_beginner_char_array_track,
     extract_historical_skill_biases,
     files_text,
+    infer_allowed_languages,
 )
 
 
@@ -114,10 +115,13 @@ def build_generation_requirements(payload: Dict[str, Any]) -> str:
         lines.extend([
             f"Нужно минимум {quality.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests.",
             f"Нужно минимум {quality.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests.",
+            f"Всего тестов должно быть не меньше {quality.get('minTotalTests', max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 5))}.",
             f"description должен быть не короче {quality.get('minDescriptionLength', MIN_DESCRIPTION_LEN)} символов.",
             "В description обязательно раскрой: суть задачи, формат входных данных, формат выходных данных, ограничения, хотя бы одну заметку или пояснение.",
             "referenceSolutionPython должен быть полностью рабочим, детерминированным, читать stdin и печатать только ответ.",
             "Сгенерируй edge cases: минимальные значения, типичные значения, пограничные случаи.",
+            "Количество publicTests и hiddenTests выбирай осознанно под задачу, а не по шаблону.",
+            "Предпочтительно publicTests делать больше, чем hiddenTests, чтобы студент видел больше примеров.",
             "Если задача требует ограничений по коду, добавь forbiddenCalls и/или requiredCalls как массивы строк.",
             "Не делай все тесты однотипными.",
         ])
@@ -744,7 +748,7 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
 
 
 def _supported_code_languages(payload: Dict[str, Any]) -> List[str]:
-    langs = payload.get("supportedLanguages") if isinstance(payload.get("supportedLanguages"), list) else []
+    langs = infer_allowed_languages(payload)
     langs = unique_string_list(langs, 10)
     if langs:
         return langs
@@ -843,9 +847,10 @@ def _draft_type_rules(payload: Dict[str, Any], assignment_type: str, quality_gat
         )
     return (
         "- Для code-test обязательны: title, description, publicTests, hiddenTests, referenceSolutionPython.\n"
-        "- allowedLanguages опционален: если его нет или массив пустой, это означает без ограничений.\n"
-        f"- Разрешённые языки платформы: {', '.join(_supported_code_languages(payload))}.\n"
-        f"- Нужно минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests и минимум {quality_gates.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests.\n"
+        "- allowedLanguages обязателен, если курс/контекст уже ограничивает языки.\n"
+        f"- Разрешённые языки для этой генерации: {', '.join(_supported_code_languages(payload))}. Если контекст курса сужает список, не добавляй другие языки.\n"
+        f"- Нужно минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests, минимум {quality_gates.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests и всего не меньше {quality_gates.get('minTotalTests', max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 5))} тестов.\n"
+        "- Предпочтительно делать publicTests больше, чем hiddenTests, если это не вредит качеству покрытия.\n"
         "- Используй только root-level requiredCalls и forbiddenCalls. Не вкладывай их в codePolicy.\n"
     )
 

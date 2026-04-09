@@ -1277,6 +1277,11 @@ public sealed partial class AiJobService : IAiJobService
     {
         var normalizedAssignmentType = (assignmentType ?? string.Empty).Trim();
         var referenceAssignments = referenceAssignmentsOverride ?? await BuildReferenceAssignmentsAsync(courseId, normalizedAssignmentType, ct);
+        var inferredLanguages = BuildSupportedLanguages(normalizedAssignmentType, referenceAssignments as IEnumerable<object>, prompt);
+        var targetSchemaNode = JsonSerializer.SerializeToNode(BuildTargetSchema(normalizedAssignmentType), JsonOptions);
+        if (normalizedAssignmentType == "code-test" && targetSchemaNode is JsonObject targetSchemaObj && inferredLanguages.Count > 0)
+            targetSchemaObj["allowedLanguages"] = JsonSerializer.SerializeToNode(inferredLanguages, JsonOptions);
+
         JsonObject root = new JsonObject
         {
             ["requestType"] = requestType,
@@ -1290,9 +1295,10 @@ public sealed partial class AiJobService : IAiJobService
             ["notes"] = notes,
             ["enableSelfCheck"] = enableSelfCheck,
             ["file"] = file == null ? null : JsonSerializer.SerializeToNode(file, JsonOptions),
-            ["targetSchema"] = JsonSerializer.SerializeToNode(BuildTargetSchema(normalizedAssignmentType), JsonOptions),
+            ["targetSchema"] = targetSchemaNode,
             ["qualityGates"] = JsonSerializer.SerializeToNode(BuildQualityGates(normalizedAssignmentType), JsonOptions),
-            ["supportedLanguages"] = JsonSerializer.SerializeToNode(BuildSupportedLanguages(normalizedAssignmentType), JsonOptions),
+            ["supportedLanguages"] = JsonSerializer.SerializeToNode(inferredLanguages, JsonOptions),
+            ["allowedLanguages"] = JsonSerializer.SerializeToNode(inferredLanguages, JsonOptions),
             ["schemaVersion"] = "draft-v2",
             ["referenceAssignments"] = JsonSerializer.SerializeToNode(referenceAssignments, JsonOptions),
         };
@@ -1403,15 +1409,82 @@ public sealed partial class AiJobService : IAiJobService
         };
     }
 
-    private static IReadOnlyList<string> BuildSupportedLanguages(string? assignmentType)
+    private static IReadOnlyList<string> BuildSupportedLanguages(string? assignmentType, IEnumerable<object>? referenceAssignments = null, string? prompt = null)
     {
         var normalized = NormalizeDraftAssignmentType(assignmentType, default);
-        return normalized switch
+        if (normalized == "image-test") return new[] { "python", "pascal", "cpp" };
+        if (normalized != "code-test") return Array.Empty<string>();
+
+        var promptHint = InferLanguageHintsFromText(prompt).ToList();
+        var referenceLanguages = InferLanguagesFromReferenceAssignments(referenceAssignments).ToList();
+
+        if (promptHint.Count == 1)
+            return promptHint;
+        if (referenceLanguages.Count == 1)
+            return referenceLanguages;
+        if (promptHint.Count > 0 && referenceLanguages.Count > 0)
         {
-            "image-test" => new[] { "python", "pascal", "cpp" },
-            "code-test" => new[] { "cpp", "csharp", "python", "javascript", "java", "pascal" },
-            _ => Array.Empty<string>(),
-        };
+            var overlap = promptHint.Where(referenceLanguages.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (overlap.Count > 0)
+                return overlap;
+        }
+        if (referenceLanguages.Count > 0)
+            return referenceLanguages;
+
+        return new[] { "cpp", "csharp", "python", "javascript", "java", "pascal" };
+    }
+
+    private static IReadOnlyList<string> InferLanguageHintsFromText(string? text)
+    {
+        var source = (text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(source)) return Array.Empty<string>();
+        var low = source.ToLowerInvariant();
+        var langs = new List<string>();
+        void Add(string value)
+        {
+            if (!langs.Contains(value, StringComparer.OrdinalIgnoreCase)) langs.Add(value);
+        }
+        if (low.Contains("c++") || low.Contains(" c plus plus") || low.Contains("cpp")) Add("cpp");
+        if (low.Contains("c#") || low.Contains("csharp")) Add("csharp");
+        if (low.Contains("python")) Add("python");
+        if (low.Contains("javascript") || low.Contains(" js ") || low.EndsWith(" js")) Add("javascript");
+        if (low.Contains(" java")) Add("java");
+        if (low.Contains("pascal")) Add("pascal");
+        return langs;
+    }
+
+    private static IReadOnlyList<string> InferLanguagesFromReferenceAssignments(IEnumerable<object>? referenceAssignments)
+    {
+        if (referenceAssignments == null) return Array.Empty<string>();
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var refsWithLangs = 0;
+
+        foreach (var item in referenceAssignments)
+        {
+            if (item == null) continue;
+            var csv = item.GetType().GetProperty("AllowedLanguagesCsv")?.GetValue(item)?.ToString();
+            var langsForRef = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var raw in (csv ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var lang = raw.Trim().ToLowerInvariant();
+                if (lang is not ("cpp" or "csharp" or "python" or "javascript" or "java" or "pascal"))
+                    continue;
+                langsForRef.Add(lang);
+            }
+            if (langsForRef.Count == 0) continue;
+            refsWithLangs++;
+            foreach (var lang in langsForRef)
+                counts[lang] = counts.TryGetValue(lang, out var current) ? current + 1 : 1;
+        }
+
+        if (counts.Count == 0) return Array.Empty<string>();
+        if (counts.Count == 1) return counts.Keys.ToArray();
+
+        var dominant = counts.OrderByDescending(x => x.Value).ThenBy(x => x.Key).First();
+        if (dominant.Value >= Math.Max(2, (int)Math.Ceiling(refsWithLangs * 0.6)))
+            return new[] { dominant.Key };
+
+        return counts.OrderByDescending(x => x.Value).ThenBy(x => x.Key).Take(3).Select(x => x.Key).ToArray();
     }
 
     private static object BuildQualityGates(string? assignmentType)
@@ -1423,11 +1496,13 @@ public sealed partial class AiJobService : IAiJobService
             {
                 minDescriptionLength = 200,
                 minPublicTests = 2,
-                minHiddenTests = 5,
+                minHiddenTests = 1,
+                minTotalTests = 5,
+                preferPublicTestsMoreThanHidden = true,
                 requireReferenceSolutionPython = true,
                 requireCodePolicyReview = true,
                 requireEdgeCases = true,
-                allowedLanguagesOptionalMeansNoRestriction = true,
+                allowedLanguagesOptionalMeansNoRestriction = false,
             },
             "test" => new
             {
@@ -1573,7 +1648,9 @@ public sealed partial class AiJobService : IAiJobService
                 quality = new
                 {
                     minPublicTests = 2,
-                    minHiddenTests = 5,
+                    minHiddenTests = 1,
+                    minTotalTests = 5,
+                    preferPublicTestsMoreThanHidden = true,
                     requireEdgeCases = true,
                     requireDeterministicReferenceSolution = true,
                     rejectNestedCodePolicy = true

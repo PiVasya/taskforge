@@ -6,7 +6,7 @@ original monolith but never *defined*.  They are implemented here.
 
 from typing import Any, Dict, List
 
-from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_DESCRIPTION_LEN
+from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESCRIPTION_LEN
 from text_utils import (
     normalize_text,
     truncate_text,
@@ -87,6 +87,13 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     hidden_tests = list(draft.get("hiddenTests") or [])
     tests = public_tests + hidden_tests
     code = draft.get("referenceSolutionPython")
+    meta = draft.get("meta") if isinstance(draft.get("meta"), dict) else {}
+    qg = meta.get("qualityGates") if isinstance(meta.get("qualityGates"), dict) else {}
+    min_public = safe_int(qg.get("minPublicTests"), MIN_PUBLIC_TESTS)
+    min_hidden = safe_int(qg.get("minHiddenTests"), MIN_HIDDEN_TESTS)
+    min_total = safe_int(qg.get("minTotalTests"), max(MIN_TOTAL_TESTS, min_public + min_hidden))
+    prefer_public_more = bool(qg.get("preferPublicTestsMoreThanHidden", True))
+    expected_langs = [normalize_text(x).lower() for x in list(meta.get("expectedAllowedLanguages") or []) if normalize_text(x)]
     checks: List[Dict[str, Any]] = collect_quality_checks_common(draft)
 
     if "codePolicy" in draft:
@@ -94,14 +101,24 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     else:
         checks.append({"name": "code-policy-shape", "status": "passed", "details": "Используются канонические root-level policy fields"})
 
-    if len(public_tests) >= MIN_PUBLIC_TESTS:
+    if len(public_tests) >= min_public:
         checks.append({"name": "public-tests-count", "status": "passed", "details": f"publicTests={len(public_tests)}"})
     else:
-        checks.append({"name": "public-tests-count", "status": "failed", "details": f"Нужно минимум {MIN_PUBLIC_TESTS}, сейчас {len(public_tests)}"})
-    if len(hidden_tests) >= MIN_HIDDEN_TESTS:
+        checks.append({"name": "public-tests-count", "status": "failed", "details": f"Нужно минимум {min_public}, сейчас {len(public_tests)}"})
+    if len(hidden_tests) >= min_hidden:
         checks.append({"name": "hidden-tests-count", "status": "passed", "details": f"hiddenTests={len(hidden_tests)}"})
     else:
-        checks.append({"name": "hidden-tests-count", "status": "failed", "details": f"Нужно минимум {MIN_HIDDEN_TESTS}, сейчас {len(hidden_tests)}"})
+        checks.append({"name": "hidden-tests-count", "status": "failed", "details": f"Нужно минимум {min_hidden}, сейчас {len(hidden_tests)}"})
+    if len(tests) >= min_total:
+        checks.append({"name": "tests-total-count", "status": "passed", "details": f"tests={len(tests)}"})
+    else:
+        checks.append({"name": "tests-total-count", "status": "failed", "details": f"Нужно минимум {min_total} тестов суммарно, сейчас {len(tests)}"})
+    if prefer_public_more:
+        checks.append({
+            "name": "public-vs-hidden-balance",
+            "status": "passed" if len(public_tests) > len(hidden_tests) else "warning",
+            "details": "publicTests > hiddenTests" if len(public_tests) > len(hidden_tests) else f"Предпочтительно publicTests > hiddenTests, сейчас {len(public_tests)} <= {len(hidden_tests)}"
+        })
 
     if not tests:
         checks.append({"name": "tests", "status": "failed", "details": "publicTests/hiddenTests empty"})
@@ -129,6 +146,13 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
             "status": "passed" if not overlap else "failed",
             "details": "hiddenTests не дублируют publicTests" if not overlap else f"Есть пересечения hidden/public: {len(overlap)}"
         })
+        actual_langs = [normalize_text(x).lower() for x in list(draft.get("allowedLanguages") or []) if normalize_text(x)]
+        if expected_langs:
+            checks.append({
+                "name": "allowedLanguages-match",
+                "status": "passed" if actual_langs == expected_langs else "failed",
+                "details": f"expected={expected_langs} actual={actual_langs}"
+            })
 
     if isinstance(code, str) and normalize_text(code):
         if "solve" in code or "main" in code.lower():

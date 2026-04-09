@@ -15,6 +15,7 @@ from config import (
     MIN_PUBLIC_TESTS,
     MIN_HIDDEN_TESTS,
     MAX_HIDDEN_TESTS,
+    MIN_TOTAL_TESTS,
 )
 from log import log, log_debug, logger
 from text_utils import (
@@ -618,9 +619,95 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
 
 
 
+def _normalize_language_token(value: Any) -> str:
+    raw = normalize_text(value).lower()
+    if raw in {"c++", "cpp", "g++"}:
+        return "cpp"
+    if raw in {"c#", "csharp", "cs"}:
+        return "csharp"
+    if raw in {"py", "python"}:
+        return "python"
+    if raw in {"js", "javascript", "node"}:
+        return "javascript"
+    if raw == "java":
+        return "java"
+    if raw == "pascal":
+        return "pascal"
+    return raw
+
+
+def _prompt_language_hints(payload: Dict[str, Any]) -> List[str]:
+    haystack = " ".join([
+        normalize_text(payload.get("prompt")),
+        normalize_text(payload.get("sourceText")),
+        normalize_text(payload.get("titleHint")),
+    ]).lower()
+    hints: List[str] = []
+    if any(token in haystack for token in ["c++", "cpp", " c plus plus"]):
+        hints.append("cpp")
+    if any(token in haystack for token in ["c#", "csharp"]):
+        hints.append("csharp")
+    if "python" in haystack:
+        hints.append("python")
+    if "javascript" in haystack or " js " in f" {haystack} ":
+        hints.append("javascript")
+    if " java" in f" {haystack} ":
+        hints.append("java")
+    if "pascal" in haystack:
+        hints.append("pascal")
+    return unique_string_list(hints, 6)
+
+
+def _reference_allowed_languages(payload: Dict[str, Any]) -> List[str]:
+    counts: Dict[str, int] = {}
+    refs_with_langs = 0
+    for ref in list(payload.get("referenceAssignments") or []):
+        if not isinstance(ref, dict):
+            continue
+        langs_for_ref: List[str] = []
+        csv = normalize_text(ref.get("allowedLanguagesCsv") or ref.get("AllowedLanguagesCsv"))
+        if csv:
+            langs_for_ref.extend(_normalize_language_token(x) for x in csv.split(','))
+        if isinstance(ref.get("allowedLanguages"), list):
+            langs_for_ref.extend(_normalize_language_token(x) for x in ref.get("allowedLanguages"))
+        langs_for_ref = [x for x in unique_string_list(langs_for_ref, 6) if x in {"cpp", "csharp", "python", "javascript", "java", "pascal"}]
+        if not langs_for_ref:
+            continue
+        refs_with_langs += 1
+        for lang in langs_for_ref:
+            counts[lang] = counts.get(lang, 0) + 1
+    if not counts:
+        return []
+    if len(counts) == 1:
+        return list(counts.keys())
+    dominant = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+    if dominant[1] >= max(2, int(refs_with_langs * 0.6 + 0.999)):
+        return [dominant[0]]
+    return [lang for lang, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]]
+
+
+def infer_allowed_languages(payload: Dict[str, Any]) -> List[str]:
+    explicit = unique_string_list(payload.get("allowedLanguages") if isinstance(payload.get("allowedLanguages"), list) else [], 6)
+    supported = unique_string_list(payload.get("supportedLanguages") if isinstance(payload.get("supportedLanguages"), list) else [], 6)
+    prompt_hints = _prompt_language_hints(payload)
+    ref_langs = _reference_allowed_languages(payload)
+
+    if prompt_hints:
+        filtered = [lang for lang in prompt_hints if not supported or lang in supported]
+        if filtered:
+            return filtered
+    if explicit:
+        return explicit
+    if ref_langs:
+        narrowed = [lang for lang in ref_langs if not supported or lang in supported]
+        return narrowed or ref_langs
+    if supported:
+        return supported
+    return []
+
+
 def _extract_allowed_languages(payload: Dict[str, Any]) -> List[str]:
-    langs = payload.get("allowedLanguages") if isinstance(payload.get("allowedLanguages"), list) else []
-    return unique_string_list(langs, 6)
+    return infer_allowed_languages(payload)
 
 
 def _generation_seed_text(payload: Dict[str, Any], result: Dict[str, Any] | None = None) -> str:
@@ -661,7 +748,7 @@ def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
             continue
         seen.add(key)
         unique.append({"input": key[0], "expectedOutput": key[1]})
-    return unique[: max(MIN_HIDDEN_TESTS, MAX_HIDDEN_TESTS)]
+    return unique[: max(1, MAX_HIDDEN_TESTS)]
 
 
 def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -765,20 +852,26 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
                 result["draft"]["requiredCalls"] = unique_string_list(policy.get("requiredCalls"), 6)
             if not isinstance(result["draft"].get("forbiddenCalls"), list) and isinstance(policy.get("forbiddenCalls"), list):
                 result["draft"]["forbiddenCalls"] = unique_string_list(policy.get("forbiddenCalls"), 10)
+        meta = result["draft"].get("meta") if isinstance(result["draft"].get("meta"), dict) else {}
         if assignment_type == "code-test":
-            if isinstance(result["draft"].get("allowedLanguages"), list):
-                result["draft"]["allowedLanguages"] = unique_string_list(result["draft"].get("allowedLanguages"), 6)
-                if not result["draft"]["allowedLanguages"]:
-                    result["draft"].pop("allowedLanguages", None)
+            explicit_languages = _extract_allowed_languages(payload)
+            draft_langs = unique_string_list(result["draft"].get("allowedLanguages") if isinstance(result["draft"].get("allowedLanguages"), list) else [], 6)
+            if explicit_languages:
+                draft_langs = [lang for lang in draft_langs if lang in explicit_languages]
+                result["draft"]["allowedLanguages"] = draft_langs or explicit_languages
+                meta["expectedAllowedLanguages"] = explicit_languages
+            elif draft_langs:
+                result["draft"]["allowedLanguages"] = draft_langs
             else:
-                explicit_languages = _extract_allowed_languages(payload)
-                if explicit_languages:
-                    result["draft"]["allowedLanguages"] = explicit_languages
-                else:
-                    result["draft"].pop("allowedLanguages", None)
+                result["draft"].pop("allowedLanguages", None)
+            if isinstance(payload.get("qualityGates"), dict):
+                meta["qualityGates"] = {
+                    key: payload["qualityGates"].get(key)
+                    for key in ["minPublicTests", "minHiddenTests", "minTotalTests", "preferPublicTestsMoreThanHidden"]
+                    if payload["qualityGates"].get(key) is not None
+                }
         else:
             result["draft"].pop("allowedLanguages", None)
-        meta = result["draft"].get("meta") if isinstance(result["draft"].get("meta"), dict) else {}
         meta.setdefault("generationSource", "llm")
         result["draft"]["meta"] = meta
     result.setdefault("schemaVersion", normalize_text(payload.get("schemaVersion")) or "draft-v2")
