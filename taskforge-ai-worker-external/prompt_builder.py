@@ -95,6 +95,37 @@ def _compact_peer_context(payload: Dict[str, Any], limit: int = 6) -> List[Dict[
     return compact_peers
 
 
+def _pedagogy_appendix(compact_payload: Dict[str, Any]) -> str:
+    batch_memory = compact_payload.get("batchMemory") if isinstance(compact_payload.get("batchMemory"), dict) else {}
+    learner = batch_memory.get("learnerProfile") if isinstance(batch_memory.get("learnerProfile"), dict) else {}
+    pedagogy = batch_memory.get("pedagogy") if isinstance(batch_memory.get("pedagogy"), dict) else {}
+    task = compact_payload.get("task") if isinstance(compact_payload.get("task"), dict) else {}
+    constraints = batch_memory.get("constraints") if isinstance(batch_memory.get("constraints"), dict) else {}
+    task_format = normalize_text(task.get("taskFormat") or task.get("learningMode")).lower()
+    lines: List[str] = []
+    if batch_memory.get("placementPlan"):
+        lines.append("- В batchMemory уже есть placementPlan из чата/аудита курса: не игнорируй его и не придумывай тему с нуля.")
+    if bool(pedagogy.get("preferGuidedWalkthroughs")) or task_format == "guided-walkthrough":
+        lines.extend([
+            "- Для этого slot предпочитай guided walkthrough: описание должно вести ученика по маленьким шагам, а не бросать сразу в сухую формулировку.",
+            "- Разрешён формат-путеводитель: «Шаг 1 ... Шаг 2 ... Шаг 3 ...», при этом задача всё равно должна оставаться полноценным заданием с входом, выходом и тестами.",
+            "- Сначала скажи, что нужно написать, затем что ввести, затем какой результат должен получиться.",
+        ])
+    if bool(learner.get("explainLikeChild")) or normalize_text(learner.get("audience")).lower() in {"young-beginners", "kids"}:
+        lines.extend([
+            "- Пиши как для очень маленьких новичков: только очень простой русский, короткие предложения и один новый смысл за раз.",
+            "- Запрещён академический тон, абстрактные формулировки и слова, которые ученик не поймёт без объяснения.",
+            "- Каждую новую функцию или конструкцию объясняй через конкретное действие и маленький пример результата.",
+        ])
+    must_stay_before = unique_string_list(constraints.get("mustStayBeforeConcepts"), 6)
+    avoid = unique_string_list(constraints.get("avoidConcepts"), 6)
+    if must_stay_before:
+        lines.append(f"- Не уезжай дальше по курсу: эта генерация должна оставаться до тем {', '.join(must_stay_before)}.")
+    if avoid:
+        lines.append(f"- Не используй и не вводи темы {', '.join(avoid)}, если это не требуется напрямую.")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 # ── Generation requirements (code-test / test / math) ────────
 
 def build_generation_requirements(payload: Dict[str, Any]) -> str:
@@ -280,7 +311,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если данных не хватает — actions должен быть пустым массивом, а assistantMessage должен кратко запросить недостающие параметры.\\n\\n"
         "memory — это долговременная память всей сессии: прошлые цели пользователя, вложения, уже выполненные действия и найденные сущности. "
         "Если пользователь пишет 'продолжай', 'сделай ещё', 'начинай' или подобный короткий follow-up, сперва опирайся на memory и последние toolResults, а не проси заново весь контекст.\\n\\n"
-        "Когда пользователь просит создать пакет заданий на несколько элементов, обычно подходит queue_generate_batch. "
+        "Когда пользователь просит создать пакет заданий на несколько элементов, обычно подходит queue_generate_batch. Если он уточняет педагогический режим вроде «первоклассники», «очень простым языком», «нужны пошаговые путеводители» — сохрани это в reason/arguments как важную часть генерации, не теряй эти требования. "
         "Если пользователь просит сначала изучить курс, найти пробелы, резкие вводы новых функций или придумать мостики до новой темы, сначала используй analyze_course_progression. "
         "Если после аудита нужно посмотреть конкретные существующие задания, названия, соседние элементы курса или место вставки вокруг anchor — используй inspect_course_assignments. "
         "Если после аудита нужно собрать явный список вставок, количества задач, title hints и afterAssignmentId — используй prepare_bridge_plan. Если пользователь пишет короткое «продолжай/делай дальше» и нужно выбрать следующий шаг по памяти агента автоматически — используй advance_agent_stage. "
@@ -310,7 +341,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "  \\\"sessionTitle\\\": \\\"...\\\",\\n"
         "  \\\"actions\\\": [\\n"
         "    {\\n"
-        "      \\\"name\\\": \\\"queue_generate_batch|analyze_course_progression|inspect_course_assignments|prepare_bridge_plan|queue_generate_bridge_batch|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
+        "      \\\"name\\\": \\\"queue_generate_batch|analyze_course_progression|inspect_course_assignments|prepare_bridge_plan|show_bridge_plan|revise_bridge_plan|advance_agent_stage|queue_generate_bridge_batch|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
         "      \\\"reason\\\": \\\"...\\\",\\n"
         "      \\\"arguments\\\": { ... }\\n"
         "    }\\n"
@@ -478,6 +509,8 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         "        \"placementAfterAssignmentId\": \"guid или null\",\n"
         "        \"placementAfterTitle\": \"... или null\",\n"
         "        \"placementReason\": \"...\",\n"
+        "        \"taskFormat\": \"guided-walkthrough|exercise\",\n"
+        "        \"learningMode\": \"guided-walkthrough|exercise\",\n"
         "        \"decisionLog\": [{\"stage\": \"batch_plan\", \"message\": \"...\"}]\n"
         "      }\n"
         "    ]\n"
@@ -491,6 +524,9 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         "- placementAfterAssignmentId — это GUID существующего задания из referenceAssignments/current course order, после которого лучше вставить новый slot; не используй sort index.\n"
         "- Если подходящего anchor нет, верни placementAfterAssignmentId = null и коротко объясни это в placementReason.\n"
         "- placementAfterTitle должен совпадать с названием выбранного anchor или быть null.\n"
+        "- Если в batchMemory есть placementPlan, строй слоты вокруг него: после каких заданий вставлять, чему они учат и почему именно там.\n"
+        "- Если learnerProfile/pedagogy указывает на guided walkthrough или very simple audience, часть slot-ов в начале новой темы делай taskFormat=guided-walkthrough.\n"
+        "- guided-walkthrough — это не конспект и не лекция, а очень простая пошаговая учебная задача перед обычными упражнениями.\n"
         "- Не пиши длинные описания.\n"
         + (easy_note + "\n" if easy_note else "")
         + (retry_note + "\n" if retry_note else "")
@@ -511,7 +547,7 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
         expected = (
             '{"canonicalRequest":{"domain":"matrix","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
             '"coverage":{"coverageBand":"low|medium|high","noveltyGoal":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-batch-plan-repair"},'
-            '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","placementAfterAssignmentId":"guid или null","placementAfterTitle":"...","placementReason":"...","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
+            '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","placementAfterAssignmentId":"guid или null","placementAfterTitle":"...","placementReason":"...","taskFormat":"guided-walkthrough|exercise","learningMode":"guided-walkthrough|exercise","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
         )
     elif stage == "draft_generate":
         assignment_type = normalize_text(payload.get("assignmentType") or "code-test") or "code-test"
@@ -889,7 +925,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - description должен выглядеть как условие из этого курса и сохранять course-native стиль.
 - Строго следуй generationSpec.exactTask и generationSpec.ioContract, если они заданы.
 - Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.
-{rules}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
+{rules}{_pedagogy_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
@@ -948,7 +984,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
-{rules}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+{rules}{_pedagogy_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
 - Не копируй referenceAssignments дословно.
 - referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: выбери существующий anchor из referenceAssignments или верни null.

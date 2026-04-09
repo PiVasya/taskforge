@@ -68,6 +68,8 @@ public sealed class AiGenerateAssignmentFromTextRequestDto
 
     public string? Notes { get; set; }
 
+    public string? StructuredContextJson { get; set; }
+
     public int Priority { get; set; } = 20;
 
     public bool EnableSelfCheck { get; set; } = true;

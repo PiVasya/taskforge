@@ -407,15 +407,22 @@ public sealed class AiChatService
                     if (!courseId.HasValue)
                         return FailTool("Нужно выбрать courseId, прежде чем создавать batch.");
 
+                    var prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages);
+                    var count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50);
+                    var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5);
+                    var memory = BuildMemory(messages, session.PlanJson);
+                    var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, "topic-pack", count, difficulty);
+
                     var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
                     {
                         CourseId = courseId.Value,
                         AssignmentType = ReadString(args, "assignmentType") ?? "code-test",
-                        Prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages),
-                        Count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50),
+                        Prompt = prompt,
+                        Count = count,
                         Mode = ReadString(args, "mode") ?? "topic-pack",
-                        Difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5),
+                        Difficulty = difficulty,
                         Notes = ReadString(args, "notes"),
+                        StructuredContextJson = structuredContextJson,
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                     }, createdByUserId, createdByDisplayName, ct);
 
@@ -586,6 +593,9 @@ public sealed class AiChatService
                     var prompt = BuildBridgeBatchPrompt(audit, bridgePlan, selectedItems, ReadString(args, "prompt"), ReadString(args, "focus"));
                     var notes = BuildBridgeBatchNotes(audit, bridgePlan, selectedItems);
 
+                    var memoryForBatch = BuildMemory(messages, session.PlanJson);
+                    var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memoryForBatch, courseId.Value, prompt, args, "bridge-pack", requestedCount, difficulty);
+
                     var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
                     {
                         CourseId = courseId.Value,
@@ -595,6 +605,7 @@ public sealed class AiChatService
                         Mode = "bridge-pack",
                         Difficulty = difficulty,
                         Notes = notes,
+                        StructuredContextJson = structuredContextJson,
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                     }, createdByUserId, createdByDisplayName, ct);
 
@@ -1108,7 +1119,7 @@ public sealed class AiChatService
                 new
                 {
                     name = "queue_generate_batch",
-                    description = "Создать batch из нескольких заданий через существующий Foundry pipeline.",
+                    description = "Создать batch из нескольких заданий через Foundry pipeline с опорой на память чата, аудит курса, стиль названий и педагогические подсказки вроде «первоклассники» или «нужны пошаговые путеводители».",
                     requiredArguments = new[] { "courseId", "prompt" },
                     optionalArguments = new[] { "assignmentType", "count", "difficulty", "mode", "notes", "priority" },
                 },
@@ -1157,7 +1168,7 @@ public sealed class AiChatService
                 new
                 {
                     name = "queue_generate_bridge_batch",
-                    description = "На основе последнего плана мостиков создать batch мостиковых задач перед резким вводом новых функций/тем.",
+                    description = "На основе последнего плана мостиков создать batch мостиковых задач перед резким вводом новых функций/тем, сохранив afterAssignmentId, стиль курса и при необходимости guided walkthrough-формат.",
                     requiredArguments = new[] { "courseId" },
                     optionalArguments = new[] { "count", "difficulty", "prompt", "focus", "findingIndexes", "itemIndexes", "priority" },
                 },
@@ -1588,6 +1599,259 @@ public sealed class AiChatService
         if (raw.Length > 64)
             raw = raw[..61] + "...";
         return raw;
+    }
+
+    private static string? BuildStructuredBatchContextJson(
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        AiFoundryChatMemoryDto memory,
+        Guid courseId,
+        string prompt,
+        JsonObject args,
+        string batchKind,
+        int requestedCount,
+        int difficulty)
+    {
+        var audit = memory.LastCourseAudit != null && memory.LastCourseAudit.CourseId == courseId ? memory.LastCourseAudit : null;
+        var inspection = memory.LastCourseInspection != null && memory.LastCourseInspection.CourseId == courseId ? memory.LastCourseInspection : null;
+        var bridgePlan = memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId ? memory.LastBridgePlan : null;
+        var chatText = string.Join("\n", messages
+            .Where(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase))
+            .TakeLast(8)
+            .Select(x => x.Content));
+        var notes = ReadString(args, "notes");
+        var learnerProfile = BuildLearnerProfileSnapshot(chatText, prompt, notes);
+        var constraints = BuildGenerationConstraintsSnapshot(chatText, prompt, notes);
+        var placementPlan = BuildPlacementPlanSnapshot(audit, bridgePlan, requestedCount);
+        var titleExamples = new List<string>();
+        if (bridgePlan != null)
+            titleExamples.AddRange(bridgePlan.Items.SelectMany(x => x.TitleExamples ?? new List<string>()));
+        if (audit != null)
+            titleExamples.AddRange(audit.TitleExamples ?? new List<string>());
+        if (inspection != null)
+            titleExamples.AddRange(inspection.Assignments.Select(x => x.Title));
+        titleExamples = titleExamples
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => ShortenSingleLine(x, 90))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(12)
+            .ToList();
+
+        var styleHints = new List<string>();
+        if (audit != null)
+            styleHints.AddRange(audit.StyleHints ?? new List<string>());
+        if (bridgePlan != null)
+            styleHints.AddRange(bridgePlan.StyleHints ?? new List<string>());
+        styleHints = styleHints
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => ShortenSingleLine(x, 120))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .ToList();
+
+        var payload = new
+        {
+            source = "chat-session",
+            sessionId = session.Id,
+            batchKind,
+            requestedCount,
+            difficulty,
+            requireCourseAwarePlanning = placementPlan.Count > 0 || audit != null,
+            userIntentSummary = ShortenSingleLine(prompt, 260),
+            learnerProfile,
+            pedagogy = new
+            {
+                preferGuidedWalkthroughs = learnerProfile["preferGuidedWalkthroughs"],
+                requireSectionIntroGuides = learnerProfile["requireSectionIntroGuides"],
+                explainLikeChild = learnerProfile["explainLikeChild"],
+                tone = learnerProfile["tone"],
+                vocabularyLevel = learnerProfile["vocabularyLevel"],
+                maxNewConceptsPerTask = learnerProfile["maxNewConceptsPerTask"],
+                requireConcreteExamples = true,
+                preferTinySteps = true,
+                preferActionVerbs = true,
+            },
+            titleStyle = new
+            {
+                pattern = titleExamples.Count > 0 ? "Следуй pattern существующих названий курса и избегай общих labels." : "Короткое course-native название.",
+                examples = titleExamples,
+                styleHints,
+                avoidGenericTitles = true,
+            },
+            chatMemory = new
+            {
+                summary = ShortenSingleLine(memory.Summary, 220),
+                facts = (memory.Facts ?? new List<string>()).Take(6).ToList(),
+                recentGoals = (memory.RecentGoals ?? new List<string>()).Take(4).ToList(),
+            },
+            courseAudit = audit == null ? null : new
+            {
+                audit.Summary,
+                audit.Focus,
+                styleHints = styleHints,
+                titleExamples = titleExamples.Take(8).ToList(),
+                findings = audit.Findings.Take(8).Select(x => new
+                {
+                    concept = x.Concept,
+                    afterAssignmentId = x.AfterAssignmentId,
+                    afterAssignmentTitle = x.AfterAssignmentTitle,
+                    beforeAssignmentId = x.BeforeAssignmentId,
+                    beforeAssignmentTitle = x.BeforeAssignmentTitle,
+                    x.Reason,
+                    suggestedTaskCount = x.SuggestedTaskCount,
+                    suggestedDifficulty = x.SuggestedDifficulty,
+                }).ToList(),
+            },
+            courseInspection = inspection == null ? null : new
+            {
+                inspection.Summary,
+                assignments = inspection.Assignments.Take(12).Select(x => new
+                {
+                    x.Id,
+                    x.Sort,
+                    x.Difficulty,
+                    x.Title,
+                    x.DescriptionExcerpt,
+                }).ToList(),
+            },
+            bridgePlan = bridgePlan == null ? null : new
+            {
+                bridgePlan.Summary,
+                bridgePlan.Status,
+                items = bridgePlan.Items.Where(x => !x.Rejected).Take(12).Select(x => new
+                {
+                    x.Index,
+                    x.Concept,
+                    x.AfterAssignmentId,
+                    x.AfterAssignmentTitle,
+                    x.BeforeAssignmentId,
+                    x.BeforeAssignmentTitle,
+                    x.Reason,
+                    x.TaskCount,
+                    x.Difficulty,
+                    x.TitleHint,
+                    titleExamples = (x.TitleExamples ?? new List<string>()).Take(6).ToList(),
+                    x.Confirmed,
+                }).ToList(),
+            },
+            placementPlan,
+            constraints,
+        };
+
+        return JsonSerializer.Serialize(payload, JsonOptions);
+    }
+
+    private static Dictionary<string, object?> BuildLearnerProfileSnapshot(string chatText, string prompt, string? notes)
+    {
+        var hay = string.Join(" ", new[] { chatText, prompt, notes ?? string.Empty }).ToLowerInvariant();
+        var isYoungBeginners = hay.Contains("первокласс") || hay.Contains("дошколь") || hay.Contains("маленьк") || hay.Contains("дети");
+        var isBeginners = isYoungBeginners || hay.Contains("нович") || hay.Contains("с нуля") || hay.Contains("должны всё понять") || hay.Contains("очень просто") || hay.Contains("простым языком");
+        var preferGuides = hay.Contains("пошаг") || hay.Contains("путевод") || hay.Contains("пошагово") || hay.Contains("по шагам");
+        var sectionIntroGuides = preferGuides || hay.Contains("перед началом раздел") || hay.Contains("в начале раздел") || hay.Contains("перед началом темы") || hay.Contains("в начале темы");
+        return new Dictionary<string, object?>
+        {
+            ["audience"] = isYoungBeginners ? "young-beginners" : (isBeginners ? "beginners" : "general"),
+            ["explainLikeChild"] = isYoungBeginners,
+            ["preferGuidedWalkthroughs"] = preferGuides || isYoungBeginners,
+            ["requireSectionIntroGuides"] = sectionIntroGuides,
+            ["tone"] = isYoungBeginners ? "very-simple" : (isBeginners ? "simple" : "standard"),
+            ["vocabularyLevel"] = isYoungBeginners ? "kids" : (isBeginners ? "basic" : "standard"),
+            ["maxNewConceptsPerTask"] = isYoungBeginners ? 1 : (isBeginners ? 1 : 2),
+        };
+    }
+
+    private static Dictionary<string, object?> BuildGenerationConstraintsSnapshot(string chatText, string prompt, string? notes)
+    {
+        var hay = string.Join(" ", new[] { chatText, prompt, notes ?? string.Empty }).ToLowerInvariant();
+        var mustStayBefore = new List<string>();
+        var avoid = new List<string>();
+        void AddIfMentioned(string marker, string value)
+        {
+            if (hay.Contains(marker) && !mustStayBefore.Contains(value, StringComparer.OrdinalIgnoreCase))
+                mustStayBefore.Add(value);
+        }
+        AddIfMentioned("до цикл", "циклы");
+        AddIfMentioned("перед цикл", "циклы");
+        AddIfMentioned("до массив", "массивы");
+        AddIfMentioned("до функц", "функции");
+        AddIfMentioned("перед строк", "строки с пробелами");
+        if (hay.Contains("без цикл")) avoid.Add("циклы");
+        if (hay.Contains("без массив")) avoid.Add("массивы");
+        if (hay.Contains("без функц")) avoid.Add("функции");
+        return new Dictionary<string, object?>
+        {
+            ["mustStayBeforeConcepts"] = mustStayBefore,
+            ["avoidConcepts"] = avoid.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            ["styleGoal"] = "course-native",
+            ["titleGoal"] = "короткие конкретные названия как в курсе",
+        };
+    }
+
+    private static List<Dictionary<string, object?>> BuildPlacementPlanSnapshot(
+        AiFoundryCourseAuditDto? audit,
+        AiFoundryBridgePlanDto? bridgePlan,
+        int requestedCount)
+    {
+        var items = new List<Dictionary<string, object?>>();
+        if (bridgePlan != null)
+        {
+            var preferred = bridgePlan.Items.Where(x => x.Confirmed && !x.Rejected).ToList();
+            if (preferred.Count == 0)
+                preferred = bridgePlan.Items.Where(x => !x.Rejected).ToList();
+            foreach (var item in preferred.Take(12))
+            {
+                items.Add(new Dictionary<string, object?>
+                {
+                    ["source"] = "bridge-plan",
+                    ["index"] = item.Index,
+                    ["concept"] = item.Concept,
+                    ["afterAssignmentId"] = item.AfterAssignmentId,
+                    ["afterAssignmentTitle"] = item.AfterAssignmentTitle,
+                    ["beforeAssignmentId"] = item.BeforeAssignmentId,
+                    ["beforeAssignmentTitle"] = item.BeforeAssignmentTitle,
+                    ["reason"] = item.Reason,
+                    ["taskCount"] = item.TaskCount,
+                    ["difficulty"] = item.Difficulty,
+                    ["titleHint"] = item.TitleHint,
+                    ["taskFormat"] = item.Index <= 2 ? "guided-walkthrough" : "exercise",
+                    ["titleExamples"] = (item.TitleExamples ?? new List<string>()).Take(6).ToList(),
+                });
+            }
+            if (items.Count > 0)
+                return items;
+        }
+
+        if (audit != null)
+        {
+            foreach (var finding in audit.Findings.Take(12))
+            {
+                items.Add(new Dictionary<string, object?>
+                {
+                    ["source"] = "course-audit",
+                    ["concept"] = finding.Concept,
+                    ["afterAssignmentId"] = finding.AfterAssignmentId,
+                    ["afterAssignmentTitle"] = finding.AfterAssignmentTitle,
+                    ["beforeAssignmentId"] = finding.BeforeAssignmentId,
+                    ["beforeAssignmentTitle"] = finding.BeforeAssignmentTitle,
+                    ["reason"] = finding.Reason,
+                    ["taskCount"] = Math.Max(1, finding.SuggestedTaskCount),
+                    ["difficulty"] = Math.Max(1, Math.Min(3, finding.SuggestedDifficulty ?? 1)),
+                    ["titleHint"] = finding.Concept,
+                    ["taskFormat"] = items.Count == 0 ? "guided-walkthrough" : "exercise",
+                    ["titleExamples"] = (audit.TitleExamples ?? new List<string>()).Take(6).ToList(),
+                });
+            }
+        }
+
+        if (requestedCount > 10 && items.Count > 0)
+        {
+            foreach (var item in items)
+            {
+                if (item.TryGetValue("taskCount", out var countObj) && countObj is int count && count == 1)
+                    item["taskCount"] = 2;
+            }
+        }
+        return items;
     }
 
     private static bool IsPendingAssistant(AiFoundryChatMessageDto message)

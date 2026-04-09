@@ -121,6 +121,72 @@ def compact_reference_assignments(
 
 
 
+def _compact_batch_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
+    memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+    if not memory:
+        return {}
+    learner = memory.get("learnerProfile") if isinstance(memory.get("learnerProfile"), dict) else {}
+    pedagogy = memory.get("pedagogy") if isinstance(memory.get("pedagogy"), dict) else {}
+    title_style = memory.get("titleStyle") if isinstance(memory.get("titleStyle"), dict) else {}
+    constraints = memory.get("constraints") if isinstance(memory.get("constraints"), dict) else {}
+    placement_plan: List[Dict[str, Any]] = []
+    for item in (memory.get("placementPlan") if isinstance(memory.get("placementPlan"), list) else [])[:10]:
+        if not isinstance(item, dict):
+            continue
+        placement_plan.append({
+            "source": normalize_text(item.get("source")),
+            "concept": truncate_text(item.get("concept"), 120),
+            "afterAssignmentId": normalize_text(item.get("afterAssignmentId")),
+            "afterAssignmentTitle": truncate_text(item.get("afterAssignmentTitle"), 120),
+            "beforeAssignmentTitle": truncate_text(item.get("beforeAssignmentTitle"), 120),
+            "reason": truncate_text(item.get("reason"), 180),
+            "taskCount": safe_int(item.get("taskCount"), 1),
+            "difficulty": safe_int(item.get("difficulty"), 1),
+            "titleHint": truncate_text(item.get("titleHint"), 120),
+            "taskFormat": normalize_text(item.get("taskFormat") or item.get("learningMode")),
+            "titleExamples": unique_string_list(item.get("titleExamples"), 6),
+        })
+    return {
+        "source": normalize_text(memory.get("source")),
+        "batchKind": normalize_text(memory.get("batchKind")),
+        "userIntentSummary": truncate_text(memory.get("userIntentSummary"), 220),
+        "requireCourseAwarePlanning": bool(memory.get("requireCourseAwarePlanning")),
+        "learnerProfile": {
+            "audience": normalize_text(learner.get("audience")),
+            "explainLikeChild": bool(learner.get("explainLikeChild")),
+            "preferGuidedWalkthroughs": bool(learner.get("preferGuidedWalkthroughs")),
+            "requireSectionIntroGuides": bool(learner.get("requireSectionIntroGuides")),
+            "tone": normalize_text(learner.get("tone")),
+            "vocabularyLevel": normalize_text(learner.get("vocabularyLevel")),
+            "maxNewConceptsPerTask": safe_int(learner.get("maxNewConceptsPerTask"), 2),
+        },
+        "pedagogy": {
+            "preferGuidedWalkthroughs": bool(pedagogy.get("preferGuidedWalkthroughs")),
+            "requireSectionIntroGuides": bool(pedagogy.get("requireSectionIntroGuides")),
+            "explainLikeChild": bool(pedagogy.get("explainLikeChild")),
+            "tone": normalize_text(pedagogy.get("tone")),
+            "vocabularyLevel": normalize_text(pedagogy.get("vocabularyLevel")),
+            "maxNewConceptsPerTask": safe_int(pedagogy.get("maxNewConceptsPerTask"), 2),
+            "preferTinySteps": bool(pedagogy.get("preferTinySteps")),
+        },
+        "titleStyle": {
+            "pattern": truncate_text(title_style.get("pattern"), 160),
+            "examples": unique_string_list(title_style.get("examples"), 8),
+            "styleHints": unique_string_list(title_style.get("styleHints"), 8),
+            "avoidGenericTitles": bool(title_style.get("avoidGenericTitles")),
+        },
+        "constraints": {
+            "mustStayBeforeConcepts": unique_string_list(constraints.get("mustStayBeforeConcepts"), 6),
+            "avoidConcepts": unique_string_list(constraints.get("avoidConcepts"), 6),
+            "styleGoal": truncate_text(constraints.get("styleGoal"), 120),
+            "titleGoal": truncate_text(constraints.get("titleGoal"), 120),
+        },
+        "placementPlan": placement_plan,
+        "courseAuditSummary": truncate_text(((memory.get("courseAudit") or {}) if isinstance(memory.get("courseAudit"), dict) else {}).get("Summary") or ((memory.get("courseAudit") or {}) if isinstance(memory.get("courseAudit"), dict) else {}).get("summary"), 220),
+    }
+
+
+
 
 PLACEMENT_STOPWORDS = {
     "базовый", "простая", "простое", "простые", "форматированный", "форматированным", "формат", "вывод", "ввод",
@@ -333,10 +399,14 @@ def compact_plan_object(value: Any) -> Dict[str, Any]:
             continue
         tasks.append({
             "index": item.get("index"),
+            "titleHint": truncate_text(item.get("titleHint"), 140),
             "targetSkill": normalize_text(item.get("targetSkill")),
             "microGoal": truncate_text(item.get("microGoal"), 220),
             "difficultyTarget": item.get("difficultyTarget"),
             "whyItExists": truncate_text(item.get("whyItExists"), 220),
+            "taskFormat": normalize_text(item.get("taskFormat") or item.get("learningMode")),
+            "placementAfterAssignmentId": normalize_text(item.get("placementAfterAssignmentId")),
+            "placementAfterTitle": truncate_text(item.get("placementAfterTitle"), 120),
             "antiDuplicateHints": unique_string_list(item.get("antiDuplicateHints"), 5),
             "decisionLog": (item.get("decisionLog")[:3] if isinstance(item.get("decisionLog"), list) else []),
         })
@@ -398,6 +468,7 @@ def build_request_signals(payload: Dict[str, Any]) -> Dict[str, Any]:
             continue
         seen.add(low)
         unique_tokens.append(token)
+    batch_memory = _compact_batch_memory(payload)
     return {
         "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
         "mode": normalize_text(payload.get("mode") or "topic-pack") or "topic-pack",
@@ -411,8 +482,11 @@ def build_request_signals(payload: Dict[str, Any]) -> Dict[str, Any]:
             ] if hint
         ],
         "mustInclude": unique_tokens[:8],
-        "referenceTitleHints": ref_titles[:5],
+        "referenceTitleHints": unique_string_list([*ref_titles[:5], *(((batch_memory.get("titleStyle") or {}) if isinstance(batch_memory.get("titleStyle"), dict) else {}).get("examples") or [])], 8),
         "sourcePrompt": truncate_text(prompt, 220),
+        "courseAwarePlanning": bool(batch_memory.get("requireCourseAwarePlanning")),
+        "mustStayBeforeConcepts": (((batch_memory.get("constraints") or {}) if isinstance(batch_memory.get("constraints"), dict) else {}).get("mustStayBeforeConcepts") or []),
+        "preferGuidedWalkthroughs": bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs"))),
     }
 
 
@@ -438,16 +512,24 @@ def build_course_digest(payload: Dict[str, Any]) -> Dict[str, Any]:
         if typ and typ not in seen_types:
             seen_types.add(typ)
             types.append(typ)
+    batch_memory = _compact_batch_memory(payload)
+    title_style = batch_memory.get("titleStyle") if isinstance(batch_memory.get("titleStyle"), dict) else {}
+    recent_titles = unique_string_list([*title_hints[:5], *(title_style.get("examples") or [])], 8)
+    teaching_style = [
+        "tiptap-or-legacy-text",
+        "public-and-hidden-tests",
+        "structured-i/o",
+    ]
+    if bool(((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")):
+        teaching_style.append("guided-walkthrough-friendly")
+    if bool(((batch_memory.get("learnerProfile") or {}) if isinstance(batch_memory.get("learnerProfile"), dict) else {}).get("explainLikeChild")):
+        teaching_style.append("very-simple-language")
     return {
         "referenceCount": len(refs),
         "assignmentTypes": types[:4],
         "languages": langs[:6],
-        "recentReferenceTitles": title_hints[:5],
-        "teachingStyle": [
-            "tiptap-or-legacy-text",
-            "public-and-hidden-tests",
-            "structured-i/o",
-        ],
+        "recentReferenceTitles": recent_titles[:8],
+        "teachingStyle": teaching_style,
     }
 
 
@@ -561,10 +643,13 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
         task = payload["task"]
         compact["task"] = {
             "index": task.get("index") or task.get("Index"),
+            "titleHint": truncate_text(task.get("titleHint") or task.get("TitleHint"), 140),
             "targetSkill": task.get("targetSkill") or task.get("TargetSkill"),
             "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 180),
             "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
             "whyItExists": truncate_text(task.get("whyItExists") or task.get("WhyItExists"), 180),
+            "taskFormat": normalize_text(task.get("taskFormat") or task.get("TaskFormat") or task.get("learningMode") or task.get("LearningMode")),
+            "learningMode": normalize_text(task.get("learningMode") or task.get("LearningMode") or task.get("taskFormat") or task.get("TaskFormat")),
             "placementAfterAssignmentId": normalize_text(task.get("placementAfterAssignmentId") or task.get("PlacementAfterAssignmentId")),
             "placementAfterTitle": truncate_text(task.get("placementAfterTitle") or task.get("PlacementAfterTitle"), 140),
             "placementReason": truncate_text(task.get("placementReason") or task.get("PlacementReason"), 180),
@@ -575,10 +660,12 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
     if isinstance(payload.get("briefReview"), dict):
         compact["briefReview"] = compact_brief_review_object(payload["briefReview"])
 
-    optional_memory_keys = ["plannerFeedback", "decisionLogDigest"] if (is_course_stage or is_gap_stage or is_planner_stage) else ["plannerFeedback", "decisionLogDigest", "antiPatternMemory", "institutionalMemory"]
+    optional_memory_keys = ["plannerFeedback", "decisionLogDigest", "batchMemory"] if (is_course_stage or is_gap_stage or is_planner_stage) else ["plannerFeedback", "decisionLogDigest", "antiPatternMemory", "institutionalMemory", "batchMemory"]
     for key in optional_memory_keys:
         value = payload.get(key)
-        if isinstance(value, dict):
+        if key == "batchMemory" and isinstance(value, dict):
+            compact[key] = _compact_batch_memory(payload)
+        elif isinstance(value, dict):
             compact[key] = value
         elif isinstance(value, list):
             compact[key] = value[: (3 if ultra_compact else 6)]
@@ -680,10 +767,60 @@ def _normalize_plan_tasks(tasks_value: Any) -> List[Dict[str, Any]]:
             "placementAfterAssignmentId": placement.get("placementAfterAssignmentId"),
             "placementAfterTitle": placement.get("placementAfterTitle"),
             "placementReason": placement.get("placementReason"),
+            "taskFormat": normalize_text(item.get("taskFormat") or item.get("learningMode") or "exercise"),
+            "learningMode": normalize_text(item.get("learningMode") or item.get("taskFormat") or "exercise"),
             "decisionLog": item.get("decisionLog")[:3] if isinstance(item.get("decisionLog"), list) else [{"stage": "batch_plan", "message": "Normalized planner task."}],
         })
     return tasks
 
+
+def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int, difficulty: int, canonical: Dict[str, Any]) -> List[Dict[str, Any]]:
+    batch_memory = _compact_batch_memory(payload)
+    placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
+    if not placement_plan:
+        return []
+    prefer_guides = bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")))
+    tasks: List[Dict[str, Any]] = []
+    idx = 1
+    for point in placement_plan:
+        if not isinstance(point, dict):
+            continue
+        concept = normalize_text(point.get("concept") or point.get("titleHint") or f"slot-{idx}") or f"slot-{idx}"
+        task_count = max(1, safe_int(point.get("taskCount"), 1))
+        point_diff = max(1, min(3, safe_int(point.get("difficulty"), difficulty)))
+        for local in range(task_count):
+            if idx > count:
+                break
+            task_format = normalize_text(point.get("taskFormat") or ("guided-walkthrough" if prefer_guides and local == 0 else "exercise")) or "exercise"
+            title_hint = normalize_text(point.get("titleHint")) or concept
+            if task_format == "guided-walkthrough":
+                micro_goal = f"Пошагово ввести навык «{concept}» очень простым языком и на одном маленьком действии."
+                why = f"Сделать понятный путеводитель перед темой «{concept}», чтобы ученик смог пройти шаги и сразу получить правильный результат."
+            else:
+                micro_goal = f"Отдельно отработать навык «{concept}» без смешивания нескольких новых идей."
+                why = normalize_text(point.get("reason")) or f"Добавить недостающую ступень перед темой «{concept}»."
+            tasks.append({
+                "index": idx,
+                "titleHint": title_hint,
+                "targetSkill": concept,
+                "primarySkill": concept,
+                "microGoal": micro_goal,
+                "uniqueAngle": f"{concept} / point {idx}",
+                "difficultyTarget": point_diff,
+                "mustInclude": unique_string_list([concept, *(canonical.get("mustInclude") or [])], 4),
+                "antiDuplicateHints": unique_string_list([*(canonical.get("avoid") or []), concept], 4),
+                "whyItExists": why,
+                "placementAfterAssignmentId": point.get("afterAssignmentId"),
+                "placementAfterTitle": point.get("afterAssignmentTitle"),
+                "placementReason": normalize_text(point.get("reason")) or why,
+                "taskFormat": task_format,
+                "learningMode": task_format,
+                "decisionLog": [{"stage": "batch_plan", "message": f"Synthesized from chat batchMemory placementPlan ({normalize_text(point.get('source')) or 'memory'})."}],
+            })
+            idx += 1
+        if idx > count:
+            break
+    return tasks
 
 def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     from fallbacks import build_fallback_plan_tasks
@@ -695,6 +832,8 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
         tasks = _normalize_plan_tasks(candidate)
         if tasks:
             break
+    if not tasks:
+        tasks = _normalize_plan_tasks(_synthesize_plan_tasks_from_batch_memory(payload, max(1, safe_int(canonical.get("count"), 1)), safe_int(canonical.get("difficulty"), 2), canonical))
     if not tasks:
         tasks = _normalize_plan_tasks(build_fallback_plan_tasks({**payload, "count": canonical.get("count"), "difficulty": canonical.get("difficulty")}))
     count = max(1, safe_int(canonical.get("count"), len(tasks) or 1))
@@ -717,6 +856,8 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
         task["placementAfterAssignmentId"] = placement.get("placementAfterAssignmentId")
         task["placementAfterTitle"] = placement.get("placementAfterTitle")
         task["placementReason"] = placement.get("placementReason")
+        task["taskFormat"] = normalize_text(task.get("taskFormat") or task.get("learningMode") or ("exercise" if idx > 1 else "guided-walkthrough" if bool(((_compact_batch_memory(payload).get("pedagogy") or {}) if isinstance(_compact_batch_memory(payload).get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")) else "exercise")) or "exercise"
+        task["learningMode"] = normalize_text(task.get("learningMode") or task.get("taskFormat") or task["taskFormat"]) or task["taskFormat"]
     coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
     decision_summary = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-plan"}
     return {

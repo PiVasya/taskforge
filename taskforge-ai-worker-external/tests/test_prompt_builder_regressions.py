@@ -73,5 +73,30 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("advance_agent_stage", prompt)
 
 
+    def test_build_batch_plan_prompt_uses_batch_memory_for_guided_walkthroughs(self):
+        payload = {
+            "assignmentType": "code-test",
+            "prompt": "Нужно укрепить базу перед циклами",
+            "count": 4,
+            "difficulty": 1,
+            "mode": "topic-pack",
+            "referenceAssignments": [
+                {"id": "a1", "title": "Задание 1. Вывод через cout", "description": LONG_DESC, "difficulty": 1, "sort": 1, "type": "code-test", "allowedLanguagesCsv": "cpp"},
+                {"id": "a2", "title": "Задание 2. Вывод через printf", "description": LONG_DESC, "difficulty": 1, "sort": 2, "type": "code-test", "allowedLanguagesCsv": "cpp"},
+            ],
+            "batchMemory": {
+                "learnerProfile": {"audience": "young-beginners", "explainLikeChild": True, "preferGuidedWalkthroughs": True, "requireSectionIntroGuides": True},
+                "pedagogy": {"preferGuidedWalkthroughs": True, "requireSectionIntroGuides": True, "explainLikeChild": True},
+                "titleStyle": {"examples": ["Задание 1. Вывод через cout", "Задание 2. Вывод через printf"], "styleHints": ["короткие конкретные названия"]},
+                "placementPlan": [{"afterAssignmentId": "a1", "afterAssignmentTitle": "Задание 1. Вывод через cout", "concept": "printf", "reason": "мягко подвести к printf", "taskCount": 2, "difficulty": 1, "taskFormat": "guided-walkthrough"}],
+                "constraints": {"mustStayBeforeConcepts": ["циклы"], "avoidConcepts": ["циклы"]},
+            },
+        }
+        prompt = prompt_builder.build_batch_plan_prompt({"type": "assignment_batch_plan"}, payload)
+        self.assertIn("batchMemory", prompt)
+        self.assertIn("guided-walkthrough", prompt)
+        self.assertIn("циклы", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -27,6 +27,7 @@ public sealed partial class AiJobService
             CurrentStage = AiFoundryStages.BatchPlan,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
+            BatchMemoryJson = request.StructuredContextJson,
         };
         _db.AiBatches.Add(batch);
         await _db.SaveChangesAsync(ct);
@@ -34,6 +35,7 @@ public sealed partial class AiJobService
 
         var referenceAssignments = await BuildReferenceAssignmentsAsync(batch.CourseId, batch.AssignmentType, ct);
         var supportedLanguages = BuildSupportedLanguages(batch.AssignmentType, referenceAssignments, batch.Prompt);
+        var structuredContext = TryDeserializeJsonObject(request.StructuredContextJson);
         var input = new
         {
             requestType = "assignment_batch_generate",
@@ -45,6 +47,8 @@ public sealed partial class AiJobService
             count = batch.RequestedCount,
             mode = batch.Mode,
             notes = request.Notes,
+            batchMemory = structuredContext,
+            structuredContext,
             referenceAssignments,
             supportedLanguages,
             allowedLanguages = supportedLanguages,
@@ -357,6 +361,8 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         var antiDuplicateHints = taskNode.TryGetProperty("antiDuplicateHints", out var antiNode) && antiNode.ValueKind == JsonValueKind.Array
             ? antiNode.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).Take(6).ToList()
             : new List<string>();
+        var taskFormat = taskNode.TryGetProperty("taskFormat", out var taskFormatNode) && taskFormatNode.ValueKind == JsonValueKind.String ? taskFormatNode.GetString() : null;
+        var learningMode = taskNode.TryGetProperty("learningMode", out var learningModeNode) && learningModeNode.ValueKind == JsonValueKind.String ? learningModeNode.GetString() : null;
 
         var blueprint = new
         {
@@ -370,6 +376,8 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
             PlacementAfterTitle = placementAfterTitle,
             PlacementReason = placementReason,
             AntiDuplicateHints = antiDuplicateHints,
+            TaskFormat = taskFormat,
+            LearningMode = learningMode,
             Raw = taskNode.GetRawText(),
         };
         blueprintRows.Add(blueprint);
@@ -385,6 +393,8 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
             blueprint.PlacementAfterTitle,
             blueprint.PlacementReason,
             blueprint.AntiDuplicateHints,
+            blueprint.TaskFormat,
+            blueprint.LearningMode,
         });
         taskBlueprintsByIndex[slotIndex] = blueprint;
         fallbackIndex++;
@@ -546,6 +556,8 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
                     blueprint.PlacementAfterTitle,
                     blueprint.PlacementReason,
                     blueprint.AntiDuplicateHints,
+                    blueprint.TaskFormat,
+                    blueprint.LearningMode,
                 },
                 plan = JsonSerializer.Deserialize<object>(batch.PlanJson ?? "{}"),
                 courseProfile = JsonSerializer.Deserialize<object>(batch.CourseProfileJson ?? "{}"),
