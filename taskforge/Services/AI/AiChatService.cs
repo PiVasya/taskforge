@@ -557,6 +557,7 @@ public sealed class AiChatService
                         Rating = ReadInt(args, "rating"),
                         Tags = ReadString(args, "tags"),
                         Sort = ReadInt(args, "sort"),
+                        AfterAssignmentId = ReadGuid(args, "afterAssignmentId"),
                         ForceWithoutPassedSelfCheck = ReadBool(args, "forceWithoutPassedSelfCheck") ?? false,
                     }, ct);
 
@@ -972,7 +973,7 @@ public sealed class AiChatService
                     name = "publish_draft",
                     description = "Опубликовать AI-черновик как реальное задание. Использовать только если пользователь явно подтвердил публикацию.",
                     requiredArguments = new[] { "draftId", "confirmed" },
-                    optionalArguments = new[] { "courseId", "titleOverride", "difficulty", "rating", "tags", "sort", "forceWithoutPassedSelfCheck" },
+                    optionalArguments = new[] { "courseId", "titleOverride", "difficulty", "rating", "tags", "sort", "afterAssignmentId", "forceWithoutPassedSelfCheck" },
                 },
                 new
                 {

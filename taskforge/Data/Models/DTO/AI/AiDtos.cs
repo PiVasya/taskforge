@@ -371,6 +371,8 @@ public sealed class PublishAiDraftRequestDto
 
     public int? Sort { get; set; }
 
+    public Guid? AfterAssignmentId { get; set; }
+
     public bool ForceWithoutPassedSelfCheck { get; set; } = false;
 }
 
@@ -395,6 +397,9 @@ public sealed class PublishAiDraftResultDto
     public Guid CourseId { get; set; }
     public string AssignmentType { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
+    public Guid? PlacementAfterAssignmentId { get; set; }
+    public string? PlacementAfterTitle { get; set; }
+    public bool PlacementApplied { get; set; }
 }
 
 public sealed class AiJobListResponseDto

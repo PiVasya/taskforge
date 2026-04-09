@@ -83,6 +83,30 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
 
 # ── LLM-driven repair loop ───────────────────────────
 
+def _coerce_repair_result(job: Dict[str, Any], payload: Dict[str, Any], repaired: Any) -> Dict[str, Any] | None:
+    if not isinstance(repaired, dict):
+        return None
+    job_type = job.get("type") or "assignment_repair"
+    sanitized = sanitize_result_payload(job_type, payload, repaired)
+    if isinstance(sanitized.get("draft"), dict):
+        return sanitized
+    for key in ("result", "assignment", "candidate", "payload"):
+        nested = repaired.get(key)
+        if not isinstance(nested, dict):
+            continue
+        wrapped = sanitize_result_payload(job_type, payload, nested)
+        if isinstance(wrapped.get("draft"), dict):
+            return wrapped
+        wrapped = sanitize_result_payload(job_type, payload, {"draft": nested})
+        if isinstance(wrapped.get("draft"), dict):
+            return wrapped
+    if repaired.get("title") and repaired.get("description"):
+        wrapped = sanitize_result_payload(job_type, payload, repaired)
+        if isinstance(wrapped.get("draft"), dict):
+            return wrapped
+    return None
+
+
 def try_improve_generation(
     job: Dict[str, Any],
     payload: Dict[str, Any],
@@ -109,7 +133,8 @@ def try_improve_generation(
                 "promptLen": len(repair_prompt), "promptPreview": repair_prompt[:1500],
             })
             repaired = call_ollama(repair_prompt)
-            repaired_draft = repaired.get("draft") if isinstance(repaired.get("draft"), dict) else None
+            repaired = _coerce_repair_result(job, payload, repaired)
+            repaired_draft = repaired.get("draft") if isinstance(repaired, dict) and isinstance(repaired.get("draft"), dict) else None
             if not isinstance(repaired_draft, dict):
                 log("repair returned no draft", {"jobId": job.get("id"), "attempt": attempt_no})
                 continue

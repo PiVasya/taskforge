@@ -450,7 +450,8 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
     return (
         "Ты — TaskForge AI planner. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
         f"Режим: {request_kind}. Нужно спланировать batch slot-ы, а не писать сами задания.\n"
-        "Каждый slot должен быть одной чёткой учебной целью. План должен быть разнообразным, без generic тем и без дублей.\n\n"
+        "Каждый slot должен быть одной чёткой учебной целью. План должен быть разнообразным, без generic тем и без дублей.\n"
+        "Для каждого slot выбери anchor в курсе: после какого существующего задания его лучше вставить.\n\n"
         "Верни JSON строго этой формы:\n"
         "{\n"
         "  \"canonicalRequest\": {\"domain\": \"...\", \"count\": 2, \"difficulty\": 3, \"mustInclude\": [\"...\"], \"avoid\": [\"...\"]},\n"
@@ -470,6 +471,9 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         "        \"mustInclude\": [\"...\"],\n"
         "        \"antiDuplicateHints\": [\"...\"],\n"
         "        \"whyItExists\": \"...\",\n"
+        "        \"placementAfterAssignmentId\": \"guid или null\",\n"
+        "        \"placementAfterTitle\": \"... или null\",\n"
+        "        \"placementReason\": \"...\",\n"
         "        \"decisionLog\": [{\"stage\": \"batch_plan\", \"message\": \"...\"}]\n"
         "      }\n"
         "    ]\n"
@@ -480,6 +484,9 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         "- targetSkill не может быть generic: запрещены 'Придумай', 'задания', 'task', 'advanced task'.\n"
         "- Каждый task должен отличаться по primarySkill или uniqueAngle.\n"
         "- Для matrix запроса все tasks должны быть действительно про матрицы.\n"
+        "- placementAfterAssignmentId — это GUID существующего задания из referenceAssignments/current course order, после которого лучше вставить новый slot; не используй sort index.\n"
+        "- Если подходящего anchor нет, верни placementAfterAssignmentId = null и коротко объясни это в placementReason.\n"
+        "- placementAfterTitle должен совпадать с названием выбранного anchor или быть null.\n"
         "- Не пиши длинные описания.\n"
         + (easy_note + "\n" if easy_note else "")
         + (retry_note + "\n" if retry_note else "")
@@ -500,7 +507,7 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
         expected = (
             '{"canonicalRequest":{"domain":"matrix","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
             '"coverage":{"coverageBand":"low|medium|high","noveltyGoal":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-batch-plan-repair"},'
-            '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
+            '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","placementAfterAssignmentId":"guid или null","placementAfterTitle":"...","placementReason":"...","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
         )
     elif stage == "draft_generate":
         assignment_type = normalize_text(payload.get("assignmentType") or "code-test") or "code-test"
@@ -789,6 +796,9 @@ def _draft_response_format(payload: Dict[str, Any], assignment_type: str, includ
                 {"type": "single-choice", "prompt": "...", "options": [{"key": "a", "text": "..."}, {"key": "b", "text": "..."}], "correctOptionKeys": ["a"]},
                 {"type": "text", "prompt": "...", "acceptedAnswers": ["..."], "caseSensitive": False, "trim": True},
             ],
+            "placementAfterAssignmentId": "guid или null",
+            "placementAfterTitle": "...",
+            "placementReason": "...",
             "meta": {"generationSource": "llm-body" if include_pending_title else "llm"},
         }
         return json.dumps(top, ensure_ascii=False)
@@ -808,6 +818,9 @@ def _draft_response_format(payload: Dict[str, Any], assignment_type: str, includ
                 {"kind": "info", "prompt": "...", "promptContentJson": None, "score": 0, "isRequired": True},
                 {"kind": "number", "prompt": "...", "promptContentJson": None, "score": 1, "isRequired": True, "acceptedAnswers": ["4"], "caseSensitive": False, "trim": True, "numericTolerance": 0},
             ],
+            "placementAfterAssignmentId": "guid или null",
+            "placementAfterTitle": "...",
+            "placementReason": "...",
             "meta": {"generationSource": "llm-body" if include_pending_title else "llm"},
         }
         return json.dumps(top, ensure_ascii=False)
@@ -821,6 +834,9 @@ def _draft_response_format(payload: Dict[str, Any], assignment_type: str, includ
         "referenceSolutionPython": "...",
         "requiredCalls": [],
         "forbiddenCalls": [],
+        "placementAfterAssignmentId": "guid или null",
+        "placementAfterTitle": "...",
+        "placementReason": "...",
         "meta": {"generationSource": "llm-body" if include_pending_title else "llm"},
     }
     return json.dumps(top, ensure_ascii=False)
@@ -873,6 +889,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
+- Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: новая задача должна помнить, после какого существующего задания её лучше вставить в курсе.
 
 Draft body payload:
 {_prompt_json(compact_payload)}"""
@@ -930,6 +947,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 {rules}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
 - Не копируй referenceAssignments дословно.
 - referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
+- Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: выбери существующий anchor из referenceAssignments или верни null.
 
 Draft payload:
 {_prompt_json(compact_payload)}"""
@@ -1007,11 +1025,19 @@ def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, An
         "targetSkill": payload.get("targetSkill") or (payload.get("brief") or {}).get("targetSkill") if isinstance(payload.get("brief"), dict) else payload.get("targetSkill"),
         "microGoal": payload.get("microGoal") or (payload.get("brief") or {}).get("summary") if isinstance(payload.get("brief"), dict) else payload.get("microGoal"),
     }
+    title_style = compact_payload.get("titleStyle") if isinstance(compact_payload.get("titleStyle"), dict) else {}
+    pattern = truncate_text(title_style.get("pattern") or "Короткое course-native название", 160)
+    examples = [truncate_text(x, 64) for x in list(title_style.get("examples") or []) if truncate_text(x, 64)][:6]
+    examples_block = "; ".join(examples) if examples else "нет явных примеров"
     return (
-        "Ты — TaskForge AI title generator. Верни только JSON без markdown вида {\"title\":\"...\"}.\n\n"
-        "Придумай короткий, человеческий, course-native title для задания. "
-        "Не используй служебные заглушки, не копируй дословно titles из referenceAssignments, "
-        "не пиши слишком общие названия вроде 'Новая задача' или 'Задание по теме'.\n\n"
+        'Ты — TaskForge AI title generator. Верни только JSON без markdown вида {"title":"..."}.\n\n'
+        'Придумай короткий, человеческий, course-native title для задания. '
+        'Ориентируйся на стиль курса: обычно это 2-4 слова, без служебных слов и без учебникового пафоса. '
+        'Не используй заглушки, не копируй дословно titles из referenceAssignments, '
+        "не пиши слишком общие названия вроде 'Новая задача' или 'Задание по теме', "
+        "избегай хвостов вроде 'с префиксом', 'с фиксированным форматом', 'статистика', 'версия', 'draft'.\n\n"
+        f"Style pattern: {pattern}\n"
+        f"Style examples: {examples_block}\n\n"
         f"Payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Draft summary:\n{_prompt_json(draft_brief)}"
     )
@@ -1024,13 +1050,19 @@ def build_draft_title_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         "description": truncate_text(draft.get("description") or "", 2400),
         "currentBadTitle": bad_title,
     }
+    title_style = compact_payload.get("titleStyle") if isinstance(compact_payload.get("titleStyle"), dict) else {}
+    examples = [truncate_text(x, 64) for x in list(title_style.get("examples") or []) if truncate_text(x, 64)][:6]
+    examples_block = "; ".join(examples) if examples else "нет явных примеров"
     return (
-        "Ты — TaskForge AI title repair generator. Верни только JSON без markdown вида {\"title\":\"...\"}.\n\n"
-        "Текущий title плохой: слишком общий, служебный, пустой или не в стиле курса. "
-        "Исправь title так, чтобы он был коротким, естественным и отражал суть задания.\n\n"
+        'Ты — TaskForge AI title repair generator. Верни только JSON без markdown вида {"title":"..."}.\n\n'
+        'Текущий title плохой: слишком общий, служебный, пустой или не в стиле курса. '
+        'Исправь title так, чтобы он был коротким, естественным и отражал суть задания. '
+        "Цель: 2-4 слова, нейтрально, без 'задача на', 'с префиксом', 'фиксированный формат', 'статистика', 'draft'.\n\n"
+        f"Style examples: {examples_block}\n\n"
         f"Payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Draft summary:\n{_prompt_json(draft_brief)}"
     )
+
 
 def build_batch_review_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     return (

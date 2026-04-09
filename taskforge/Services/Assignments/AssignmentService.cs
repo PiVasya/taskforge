@@ -304,6 +304,54 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             await _db.SaveChangesAsync();
         }
 
+        public async Task<bool> PlaceAfterAssignmentAsync(Guid assignmentId, Guid? afterAssignmentId, Guid currentUserId)
+        {
+            var task = await _db.Set<TaskAssignment>()
+                .Include(a => a.Course)
+                .FirstOrDefaultAsync(a => a.Id == assignmentId)
+                ?? throw new KeyNotFoundException("Assignment not found");
+
+            var isOwner = task.Course?.OwnerId == currentUserId
+                          || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
+            if (!isOwner)
+                throw new UnauthorizedAccessException("Only course owner can reorder assignment.");
+
+            if (afterAssignmentId.HasValue && afterAssignmentId.Value == assignmentId)
+                return false;
+
+            var ordered = await _db.TaskAssignments
+                .Where(x => x.CourseId == task.CourseId)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync();
+
+            var moving = ordered.FirstOrDefault(x => x.Id == assignmentId);
+            if (moving == null)
+                throw new KeyNotFoundException("Assignment not found in course");
+
+            ordered.RemoveAll(x => x.Id == assignmentId);
+
+            var insertIndex = 0;
+            if (afterAssignmentId.HasValue)
+            {
+                var anchorIndex = ordered.FindIndex(x => x.Id == afterAssignmentId.Value);
+                if (anchorIndex < 0)
+                    return false;
+                insertIndex = anchorIndex + 1;
+            }
+
+            ordered.Insert(insertIndex, moving);
+            var now = DateTime.UtcNow;
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].Sort = i;
+                ordered[i].UpdatedAt = now;
+            }
+
+            await _db.SaveChangesAsync();
+            return true;
+        }
+
         private static void ValidateAssignmentPayload(
             string? title,
             string? description,

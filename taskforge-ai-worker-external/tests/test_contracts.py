@@ -145,5 +145,29 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(repaired["draft"]["hiddenTests"]), 1)
 
 
+    def test_repair_coerces_top_level_draft_shape(self):
+        repaired = repair._coerce_repair_result(  # noqa: SLF001
+            {"type": "assignment_generate_from_text"},
+            {"assignmentType": "code-test"},
+            valid_code_test_draft(title="Квадрат числа с префиксом"),
+        )
+        self.assertIsNotNone(repaired)
+        self.assertIn("draft", repaired)
+        self.assertEqual(repaired["draft"]["title"], "Квадрат числа")
+
+    def test_batch_context_review_does_not_fail_on_implicit_skill_anchor(self):
+        draft = valid_code_test_draft(title="Квадрат числа", description=LONG_DESC + " В задаче нужно считать одно число и вывести его квадрат.")
+        review = reviews.run_batch_context_review(
+            {
+                "draft": draft,
+                "batchItemContext": {"targetSkill": "C++: базовый ввод и вывод — Одно значение и печать", "difficultyTarget": 1},
+                "batchPeerDrafts": [],
+            },
+            {"targetEntityId": "draft-3"},
+        )
+        self.assertEqual(review["status"], "passed")
+
+
+
 if __name__ == "__main__":
     unittest.main()

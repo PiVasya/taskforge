@@ -105,6 +105,7 @@ def compact_reference_assignments(
             ),
             "difficulty": item.get("difficulty"),
             "rating": item.get("rating"),
+            "sort": item.get("sort"),
             "tags": truncate_text(item.get("tags"), 120),
             "allowedLanguagesCsv": truncate_text(item.get("allowedLanguagesCsv"), 80),
             "hiddenTestsCount": item.get("hiddenTestsCount"),
@@ -118,6 +119,104 @@ def compact_reference_assignments(
         compact.append(compact_item)
     return compact
 
+
+
+
+PLACEMENT_STOPWORDS = {
+    "базовый", "простая", "простое", "простые", "форматированный", "форматированным", "формат", "вывод", "ввод",
+    "c", "cpp", "c++", "задача", "число", "числа", "строка", "данные", "данных", "работа", "консолью",
+}
+
+
+def _placement_keywords(*values: Any) -> List[str]:
+    tokens: List[str] = []
+    seen = set()
+    for value in values:
+        for token in re.split(r"[^\wа-яА-Я]+", normalize_text(value).lower()):
+            if len(token) < 3 or token in PLACEMENT_STOPWORDS:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+    return tokens[:10]
+
+
+def _ordered_reference_assignments_for_placement(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    refs = compact_reference_assignments(payload, limit=MAX_REFERENCE_ASSIGNMENTS, description_len=140, include_cases=False)
+    usable = [ref for ref in refs if isinstance(ref, dict) and normalize_text(ref.get("id"))]
+    usable.sort(key=lambda ref: (safe_int(ref.get("sort"), safe_int(ref.get("index"), 10**9)), safe_int(ref.get("index"), 10**9)))
+    return usable
+
+
+def _read_placement_fields(source: Any) -> Dict[str, Any]:
+    if not isinstance(source, dict):
+        return {}
+    placement = source.get("placement") if isinstance(source.get("placement"), dict) else {}
+    after_id = normalize_text(
+        source.get("placementAfterAssignmentId")
+        or source.get("afterAssignmentId")
+        or placement.get("afterAssignmentId")
+        or placement.get("placementAfterAssignmentId")
+    )
+    after_title = normalize_text(
+        source.get("placementAfterTitle")
+        or source.get("afterAssignmentTitle")
+        or placement.get("afterAssignmentTitle")
+        or placement.get("placementAfterTitle")
+        or placement.get("anchorTitle")
+        or placement.get("title")
+    )
+    reason = normalize_text(
+        source.get("placementReason")
+        or placement.get("reason")
+        or placement.get("placementReason")
+    )
+    return {
+        "placementAfterAssignmentId": after_id or None,
+        "placementAfterTitle": after_title or None,
+        "placementReason": reason or None,
+    }
+
+
+def _infer_placement_fields(payload: Dict[str, Any], task_like: Dict[str, Any]) -> Dict[str, Any]:
+    existing = _read_placement_fields(task_like)
+    if existing.get("placementAfterAssignmentId"):
+        return existing
+    refs = _ordered_reference_assignments_for_placement(payload)
+    if not refs:
+        return {"placementAfterAssignmentId": None, "placementAfterTitle": None, "placementReason": None}
+
+    target_diff = safe_int(task_like.get("difficultyTarget"), safe_int(task_like.get("difficulty"), safe_int(payload.get("difficulty"), 2)))
+    keywords = _placement_keywords(task_like.get("targetSkill"), task_like.get("microGoal"), task_like.get("titleHint"), payload.get("prompt"))
+    prompt_low = normalize_text(payload.get("prompt")).lower()
+
+    def score(ref: Dict[str, Any]) -> tuple:
+        title = normalize_text(ref.get("title")).lower()
+        desc = normalize_text(ref.get("descriptionSummary")).lower()
+        shared = sum(1 for kw in keywords if kw and (kw in title or kw in desc))
+        ref_diff = safe_int(ref.get("difficulty"), target_diff)
+        before_bonus = 2 if ref_diff <= target_diff else 0
+        type_bonus = 1 if normalize_text(ref.get("type")).lower() == normalize_text(payload.get("assignmentType")).lower() else 0
+        io_bonus = 1 if any(tok in prompt_low for tok in ["ввод", "вывод", "getline", "scanf", "printf", "cin", "cout"]) and any(tok in title for tok in ["ввод", "вывод", "строк", "формат", "числ"]) else 0
+        sort_value = safe_int(ref.get("sort"), safe_int(ref.get("index"), 0))
+        diff_penalty = abs(ref_diff - target_diff)
+        return (shared * 5 + before_bonus + type_bonus + io_bonus - diff_penalty, sort_value)
+
+    best = max(refs, key=score)
+    best_score, _ = score(best)
+    if best_score <= 0:
+        eligible = [ref for ref in refs if safe_int(ref.get("difficulty"), target_diff) <= target_diff]
+        best = eligible[-1] if eligible else refs[-1]
+    reason = existing.get("placementReason") or (
+        f"Поставить после «{normalize_text(best.get('title'))}», чтобы новая задача логично продолжала текущую лестницу курса."
+        if normalize_text(best.get("title")) else "Поставить после ближайшего подходящего задания курса."
+    )
+    return {
+        "placementAfterAssignmentId": normalize_text(best.get("id")) or None,
+        "placementAfterTitle": normalize_text(best.get("title")) or None,
+        "placementReason": reason,
+    }
 
 def compact_historical_planner_priors(payload: Dict[str, Any]) -> Dict[str, Any]:
     priors = payload.get("historicalPlannerPriors")
@@ -466,6 +565,9 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
             "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 180),
             "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
             "whyItExists": truncate_text(task.get("whyItExists") or task.get("WhyItExists"), 180),
+            "placementAfterAssignmentId": normalize_text(task.get("placementAfterAssignmentId") or task.get("PlacementAfterAssignmentId")),
+            "placementAfterTitle": truncate_text(task.get("placementAfterTitle") or task.get("PlacementAfterTitle"), 140),
+            "placementReason": truncate_text(task.get("placementReason") or task.get("PlacementReason"), 180),
             "antiDuplicateHints": unique_string_list(task.get("antiDuplicateHints") or task.get("AntiDuplicateHints"), 4),
         }
     if isinstance(payload.get("brief"), dict):
@@ -563,6 +665,7 @@ def _normalize_plan_tasks(tasks_value: Any) -> List[Dict[str, Any]]:
     for idx, item in enumerate(source, start=1):
         if not isinstance(item, dict):
             continue
+        placement = _read_placement_fields(item)
         tasks.append({
             "index": safe_int(item.get("index"), idx),
             "titleHint": normalize_text(item.get("titleHint") or item.get("title") or item.get("targetSkill") or item.get("skill") or f"Task {idx}"),
@@ -574,6 +677,9 @@ def _normalize_plan_tasks(tasks_value: Any) -> List[Dict[str, Any]]:
             "mustInclude": unique_string_list(item.get("mustInclude"), 6),
             "antiDuplicateHints": unique_string_list(item.get("antiDuplicateHints"), 6),
             "whyItExists": normalize_text(item.get("whyItExists") or item.get("microGoal") or item.get("summary") or "planned slot"),
+            "placementAfterAssignmentId": placement.get("placementAfterAssignmentId"),
+            "placementAfterTitle": placement.get("placementAfterTitle"),
+            "placementReason": placement.get("placementReason"),
             "decisionLog": item.get("decisionLog")[:3] if isinstance(item.get("decisionLog"), list) else [{"stage": "batch_plan", "message": "Normalized planner task."}],
         })
     return tasks
@@ -607,6 +713,10 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
             task["mustInclude"] = canonical.get("mustInclude", [])[:4]
         if not task.get("antiDuplicateHints"):
             task["antiDuplicateHints"] = canonical.get("avoid", [])[:4]
+        placement = _infer_placement_fields(payload, task)
+        task["placementAfterAssignmentId"] = placement.get("placementAfterAssignmentId")
+        task["placementAfterTitle"] = placement.get("placementAfterTitle")
+        task["placementReason"] = placement.get("placementReason")
     coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
     decision_summary = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-plan"}
     return {
@@ -751,6 +861,94 @@ def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
     return unique[: max(1, MAX_HIDDEN_TESTS)]
 
 
+_TITLE_LEADING_FILLERS = [
+    "Корректное ", "Точное ", "Точный ", "Базовый ", "Базовая ",
+    "Простое ", "Простой ", "Смешанный ", "Учебное ", "Новый ", "Новая ",
+    "Задача на ", "Упражнение на ",
+]
+_TITLE_BANNED_EXACT = {"задание", "новая задача", "code-test", "task", "draft"}
+
+
+def _reference_title_examples(payload: Dict[str, Any]) -> List[str]:
+    refs = payload.get("referenceAssignments") if isinstance(payload.get("referenceAssignments"), list) else []
+    seen: set[str] = set()
+    result: List[str] = []
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        title = normalize_text(ref.get("title"))
+        low = title.casefold()
+        if not title or low in seen:
+            continue
+        seen.add(low)
+        result.append(title)
+    return result
+
+
+def _avg_reference_title_words(payload: Dict[str, Any]) -> int:
+    refs = _reference_title_examples(payload)
+    if not refs:
+        return 3
+    counts = [len(title.split()) for title in refs if title]
+    return max(2, min(4, round(sum(counts) / max(1, len(counts)))))
+
+
+def _clean_title_candidate(title: Any, payload: Dict[str, Any]) -> str:
+    clean = normalize_text(title)
+    if not clean:
+        return ""
+    clean = re.sub(r"\s+[—-]\s*(revised|draft|final|version)\b.*$", "", clean, flags=re.I).strip()
+    clean = re.sub(r"\s*\((?:draft|final|revised|version|черновик|новый).*$", "", clean, flags=re.I).strip()
+    clean = clean.strip(" .:-")
+    words = clean.split()
+    for filler in _TITLE_LEADING_FILLERS:
+        if clean.lower().startswith(filler.lower()) and len(words) >= 3:
+            clean = clean[len(filler):].strip()
+            words = clean.split()
+            break
+    avg_words = _avg_reference_title_words(payload)
+    if " — " in clean and len(words) > avg_words + 1:
+        head = clean.split(" — ", 1)[0].strip()
+        if len(head.split()) >= 2:
+            clean = head
+            words = clean.split()
+    if " с " in clean and len(words) >= max(4, avg_words + 1):
+        head, tail = clean.split(" с ", 1)
+        tail_low = tail.lower()
+        if len(head.split()) >= 2 and any(token in tail_low for token in ["префикс", "формат", "разделител", "суффикс", "пояснен"]):
+            clean = head.strip()
+            words = clean.split()
+    if len(words) > max(4, avg_words + 1):
+        clean = " ".join(words[: max(2, avg_words + 1)])
+    return truncate_text(clean.strip(), 72)
+
+
+def _looks_generic_title(title: str) -> bool:
+    low = normalize_text(title).lower()
+    if not low or low in _TITLE_BANNED_EXACT:
+        return True
+    if low.startswith("задание ") or low.startswith("задача "):
+        return True
+    if len(low.split()) == 1 and low in {"ввод", "вывод", "строка", "число", "формат"}:
+        return True
+    return False
+
+
+def _rebalance_code_tests(draft: Dict[str, Any], payload: Dict[str, Any]) -> None:
+    public_tests = [dict(x) for x in list(draft.get("publicTests") or []) if isinstance(x, dict)]
+    hidden_tests = [dict(x) for x in list(draft.get("hiddenTests") or []) if isinstance(x, dict)]
+    quality = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
+    prefer_public_more = bool(quality.get("preferPublicTestsMoreThanHidden", True))
+    if not prefer_public_more:
+        draft["publicTests"] = public_tests
+        draft["hiddenTests"] = _limit_hidden_tests(hidden_tests)
+        return
+    while public_tests and hidden_tests and len(public_tests) <= len(hidden_tests):
+        public_tests.append(hidden_tests.pop(0))
+    draft["publicTests"] = public_tests
+    draft["hiddenTests"] = _limit_hidden_tests(hidden_tests)
+
+
 def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized = dict(draft)
     desc = normalized.get("description")
@@ -762,30 +960,42 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
         if not fallback_title:
             fallback_title = extract_first_meaningful_sentence(normalized.get("description"), 64)
         normalized["title"] = fallback_title or "Задание"
+    normalized["title"] = _derive_course_style_title(payload, normalized)
+    placement = _infer_placement_fields(payload, {**payload.get("task", {}), **normalized})
+    normalized["placementAfterAssignmentId"] = placement.get("placementAfterAssignmentId")
+    normalized["placementAfterTitle"] = placement.get("placementAfterTitle")
+    normalized["placementReason"] = placement.get("placementReason")
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
-        normalized["hiddenTests"] = _limit_hidden_tests(normalized.get("hiddenTests"))
+        _rebalance_code_tests(normalized, payload)
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         normalized = _ensure_solvable_code_test_draft(normalized, payload)
     return normalized
 
 
 def _derive_course_style_title(payload: Dict[str, Any], draft: Dict[str, Any]) -> str:
+    refs = _reference_title_examples(payload)
+    ref_lows = {title.casefold() for title in refs}
+    avg_words = _avg_reference_title_words(payload)
     candidates = [
-        normalize_text(draft.get("title")),
-        normalize_text(((payload.get("task") or {}).get("titleHint") or (payload.get("task") or {}).get("targetSkill") or (payload.get("task") or {}).get("TargetSkill"))),
-        normalize_text(((payload.get("brief") or {}).get("titleHint"))),
-        normalize_text(payload.get("titleHint")),
+        draft.get("title"),
+        ((payload.get("task") or {}).get("titleHint") or (payload.get("task") or {}).get("targetSkill") or (payload.get("task") or {}).get("TargetSkill")),
+        ((payload.get("brief") or {}).get("titleHint")),
+        payload.get("titleHint"),
         extract_first_meaningful_sentence(draft.get("description"), 72),
     ]
+    fallback = ""
     for candidate in candidates:
-        clean = normalize_text(candidate)
+        clean = _clean_title_candidate(candidate, payload)
         if not clean:
             continue
-        clean = re.sub(r"\s+[—-]\s*(revised|draft|final|version)\b.*$", "", clean, flags=re.I).strip()
-        if clean:
-            return truncate_text(clean, 72)
-    return "Задание"
-
+        if not fallback:
+            fallback = clean
+        if _looks_generic_title(clean):
+            continue
+        if clean.casefold() in ref_lows and len(clean.split()) > avg_words:
+            continue
+        return clean
+    return fallback or "Задание"
 
 
 def _normalize_code_policy_lists(draft: Dict[str, Any]) -> None:
@@ -830,6 +1040,9 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
                 "allowedLanguages": result.get("allowedLanguages") if canonical_only else (result.get("allowedLanguages") or result.get("allowed_languages")),
                 "forbiddenCalls": result.get("forbiddenCalls") if canonical_only else (result.get("forbiddenCalls") or result.get("forbidden_calls")),
                 "requiredCalls": result.get("requiredCalls") if canonical_only else (result.get("requiredCalls") or result.get("required_calls")),
+                "placementAfterAssignmentId": result.get("placementAfterAssignmentId") or result.get("afterAssignmentId"),
+                "placementAfterTitle": result.get("placementAfterTitle") or result.get("afterAssignmentTitle"),
+                "placementReason": result.get("placementReason"),
                 "attachments": result.get("attachments"),
                 "meta": result.get("meta"),
             }

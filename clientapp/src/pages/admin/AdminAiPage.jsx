@@ -203,6 +203,12 @@ function extractDraftPreview(draftJson) {
     info.languages = Array.isArray(parsed.allowedLanguages) ? parsed.allowedLanguages.join(', ') : parsed.allowedLanguages;
   if (parsed.forbiddenCalls)
     info.forbiddenCalls = Array.isArray(parsed.forbiddenCalls) ? parsed.forbiddenCalls.length : 0;
+  var placement = extractPlacementSuggestion(draftJson);
+  if (placement) {
+    info.placementAfterAssignmentId = placement.afterAssignmentId;
+    info.placementAfterTitle = placement.afterAssignmentTitle;
+    info.placementReason = placement.placementReason;
+  }
 
   // math specifics
   if (parsed.blocks) info.blocks = Array.isArray(parsed.blocks) ? parsed.blocks.length : 0;
@@ -211,6 +217,33 @@ function extractDraftPreview(draftJson) {
   if (parsed.questions) info.questions = Array.isArray(parsed.questions) ? parsed.questions.length : 0;
 
   return info;
+}
+
+
+function extractPlacementSuggestion(draftJson) {
+  var parsed = tryParse(draftJson);
+  if (!parsed) return null;
+  var placement = parsed.placement || (parsed.meta && parsed.meta.recommendedPlacement) || null;
+  var afterAssignmentId =
+    parsed.placementAfterAssignmentId ||
+    parsed.afterAssignmentId ||
+    (placement && (placement.afterAssignmentId || placement.placementAfterAssignmentId)) ||
+    null;
+  var afterAssignmentTitle =
+    parsed.placementAfterTitle ||
+    parsed.afterAssignmentTitle ||
+    (placement && (placement.afterAssignmentTitle || placement.placementAfterTitle || placement.anchorTitle || placement.title)) ||
+    null;
+  var placementReason =
+    parsed.placementReason ||
+    (placement && (placement.reason || placement.placementReason)) ||
+    null;
+  if (!afterAssignmentId && !afterAssignmentTitle && !placementReason) return null;
+  return {
+    afterAssignmentId: afterAssignmentId || null,
+    afterAssignmentTitle: afterAssignmentTitle || null,
+    placementReason: placementReason || null,
+  };
 }
 
 /* ── Small UI components ─────────────────────────── */
@@ -275,7 +308,9 @@ function DraftPreviewCard({ draft }) {
           <span>Запрещённых вызовов: {preview.forbiddenCalls}</span>
         ) : null}
         {preview.tags ? <span>Теги: {preview.tags}</span> : null}
+        {preview.placementAfterTitle ? <span>После: {preview.placementAfterTitle}</span> : null}
       </div>
+      {preview.placementReason ? <div className="text-xs opacity-70">Позиция: {preview.placementReason}</div> : null}
     </div>
   );
 }
@@ -512,7 +547,8 @@ export default function AdminAiPage() {
         courseId: courseId,
         forceWithoutPassedSelfCheck: !!forcePublish,
       });
-      notify.success('Черновик опубликован как задание: ' + ((data && data.assignmentId) || ''));
+      var placementSuffix = data && data.placementApplied && data.placementAfterTitle ? ' · после «' + data.placementAfterTitle + '»' : '';
+      notify.success('Черновик опубликован как задание: ' + ((data && data.assignmentId) || '') + placementSuffix);
       await load();
     } catch (e) {
       handleApiError(e, notify, 'Не удалось опубликовать черновик');
@@ -672,12 +708,28 @@ export default function AdminAiPage() {
       setBusy(true);
       var published = 0;
       var errors = 0;
+      var batchDetails = selectedBatch && selectedBatch.id === batch.id ? selectedBatch : null;
+      var draftOrder = {};
+      ((batchDetails && batchDetails.items) || []).forEach(function (item) {
+        if (item && item.draftId) draftOrder[item.draftId] = typeof item.index === 'number' ? item.index : 0;
+      });
+      batchDrafts.sort(function (a, b) {
+        return (draftOrder[a.id] ?? 0) - (draftOrder[b.id] ?? 0);
+      });
+      var chainedAfterAssignments = {};
       for (var i = 0; i < batchDrafts.length; i++) {
         try {
-          await publishAiDraft(batchDrafts[i].id, {
+          var placement = extractPlacementSuggestion(batchDrafts[i].draftJson);
+          var baseAfterId = placement && placement.afterAssignmentId ? placement.afterAssignmentId : null;
+          var effectiveAfterId = baseAfterId ? (chainedAfterAssignments[baseAfterId] || baseAfterId) : null;
+          var publishedDraft = await publishAiDraft(batchDrafts[i].id, {
             courseId: courseId,
+            afterAssignmentId: effectiveAfterId,
             forceWithoutPassedSelfCheck: true,
           });
+          if (baseAfterId && publishedDraft && publishedDraft.assignmentId && publishedDraft.placementApplied) {
+            chainedAfterAssignments[baseAfterId] = publishedDraft.assignmentId;
+          }
           published++;
         } catch (e) {
           errors++;
@@ -1261,7 +1313,9 @@ export default function AdminAiPage() {
               {preview.blocks != null ? <span>Блоков: {preview.blocks}</span> : null}
               {preview.questions != null ? <span>Вопросов: {preview.questions}</span> : null}
               {preview.tags ? <span>Теги: {preview.tags}</span> : null}
+              {preview.placementAfterTitle ? <span>После: {preview.placementAfterTitle}</span> : null}
             </div>
+            {preview.placementReason ? <div className="text-xs opacity-70">Позиция в курсе: {preview.placementReason}</div> : null}
 
             {/* Show public tests for code-test */}
             {parsed && Array.isArray(parsed.publicTests) && parsed.publicTests.length > 0 ? (

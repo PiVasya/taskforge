@@ -55,11 +55,13 @@ public sealed partial class AiJobService
         var rating = Math.Max(0, request.Rating ?? ReadInt(draftRoot, "rating") ?? 1);
         var tags = request.Tags ?? ReadString(draftRoot, "tags");
         var desiredSort = request.Sort;
+        var suggestedAfterAssignmentId = request.AfterAssignmentId ?? ExtractPlacementAfterAssignmentId(draftRoot);
+        var suggestedAfterTitle = ExtractPlacementAfterTitle(draftRoot);
         var publishingActorUserId = await ResolvePublishingActorUserIdAsync(courseId.Value, reviewedByUserId, ct);
 
         var canonicalOnly = string.Equals(ReadString(root, "schemaVersion") ?? ReadString(draftRoot, "schemaVersion") ?? string.Empty, "draft-v2", StringComparison.OrdinalIgnoreCase);
 
-        var assignmentId = await PublishDraftThroughApplicationServicesAsync(
+        var publishResult = await PublishDraftThroughApplicationServicesAsync(
             draftRoot,
             assignmentType,
             courseId.Value,
@@ -70,6 +72,7 @@ public sealed partial class AiJobService
             rating,
             tags,
             desiredSort,
+            suggestedAfterAssignmentId,
             canonicalOnly,
             ct);
 
@@ -83,14 +86,17 @@ public sealed partial class AiJobService
         return new PublishAiDraftResultDto
         {
             DraftId = draft.Id,
-            AssignmentId = assignmentId,
+            AssignmentId = publishResult.AssignmentId,
             CourseId = courseId.Value,
             AssignmentType = assignmentType,
             Title = title,
+            PlacementAfterAssignmentId = suggestedAfterAssignmentId,
+            PlacementAfterTitle = suggestedAfterTitle,
+            PlacementApplied = publishResult.PlacementApplied,
         };
     }
 
-    private async Task<Guid> PublishDraftThroughApplicationServicesAsync(
+    private async Task<(Guid AssignmentId, bool PlacementApplied)> PublishDraftThroughApplicationServicesAsync(
         JsonElement draftRoot,
         string assignmentType,
         Guid courseId,
@@ -101,6 +107,7 @@ public sealed partial class AiJobService
         int rating,
         string? tags,
         int? desiredSort,
+        Guid? afterAssignmentId,
         bool canonicalOnly,
         CancellationToken ct)
     {
@@ -122,10 +129,16 @@ public sealed partial class AiJobService
             .Where(x => x.Id == assignmentId)
             .Select(x => (int?)x.Sort)
             .FirstOrDefaultAsync(ct);
-        if (desiredSort.HasValue && (current ?? -1) != desiredSort.Value)
+        var placementApplied = false;
+        if (afterAssignmentId.HasValue)
+        {
+            placementApplied = await _assignmentService.PlaceAfterAssignmentAsync(assignmentId, afterAssignmentId, actorUserId);
+        }
+
+        if (!placementApplied && desiredSort.HasValue && (current ?? -1) != desiredSort.Value)
             await _assignmentService.UpdateSortAsync(assignmentId, actorUserId, desiredSort.Value);
 
-        return assignmentId;
+        return (assignmentId, placementApplied);
     }
 
     private async Task<Guid> ResolvePublishingActorUserIdAsync(Guid courseId, Guid reviewedByUserId, CancellationToken ct)
@@ -144,6 +157,44 @@ public sealed partial class AiJobService
         if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("draft", out var draftNode) && draftNode.ValueKind == JsonValueKind.Object)
             return draftNode;
         return root;
+    }
+
+
+    private static Guid? ExtractPlacementAfterAssignmentId(JsonElement draftRoot)
+    {
+        var direct = ExtractGuid(draftRoot, "placementAfterAssignmentId");
+        if (direct != null)
+            return direct;
+
+        var placement = GetPropertyOrNull(draftRoot, "placement");
+        var nested = ExtractGuid(placement, "afterAssignmentId") ?? ExtractGuid(placement, "placementAfterAssignmentId");
+        if (nested != null)
+            return nested;
+
+        var meta = GetPropertyOrNull(draftRoot, "meta");
+        var recommended = GetPropertyOrNull(meta, "recommendedPlacement");
+        return ExtractGuid(recommended, "afterAssignmentId")
+            ?? ExtractGuid(recommended, "placementAfterAssignmentId")
+            ?? ExtractGuid(meta, "placementAfterAssignmentId");
+    }
+
+    private static string? ExtractPlacementAfterTitle(JsonElement draftRoot)
+    {
+        var direct = ReadString(draftRoot, "placementAfterTitle") ?? ReadString(draftRoot, "afterAssignmentTitle");
+        if (!string.IsNullOrWhiteSpace(direct))
+            return direct;
+
+        var placement = GetPropertyOrNull(draftRoot, "placement");
+        var nested = ReadString(placement, "afterAssignmentTitle") ?? ReadString(placement, "placementAfterTitle") ?? ReadString(placement, "anchorTitle") ?? ReadString(placement, "title");
+        if (!string.IsNullOrWhiteSpace(nested))
+            return nested;
+
+        var meta = GetPropertyOrNull(draftRoot, "meta");
+        var recommended = GetPropertyOrNull(meta, "recommendedPlacement");
+        return ReadString(recommended, "afterAssignmentTitle")
+            ?? ReadString(recommended, "placementAfterTitle")
+            ?? ReadString(recommended, "anchorTitle")
+            ?? ReadString(meta, "placementAfterTitle");
     }
 
     private static CreateAssignmentRequest BuildCreateAssignmentRequest(

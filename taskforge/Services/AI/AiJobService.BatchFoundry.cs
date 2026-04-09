@@ -351,6 +351,9 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
         var difficultyTarget = taskNode.TryGetProperty("difficultyTarget", out var dt) && dt.TryGetInt32(out var d) ? d : 2;
         var microGoal = taskNode.TryGetProperty("microGoal", out var mg) && mg.ValueKind == JsonValueKind.String ? mg.GetString() : null;
         var whyItExists = taskNode.TryGetProperty("whyItExists", out var whyNode) && whyNode.ValueKind == JsonValueKind.String ? whyNode.GetString() : null;
+        var placementAfterAssignmentId = taskNode.TryGetProperty("placementAfterAssignmentId", out var afterNode) && afterNode.ValueKind == JsonValueKind.String && Guid.TryParse(afterNode.GetString(), out var afterAssignmentIdValue) ? afterAssignmentIdValue : (Guid?)null;
+        var placementAfterTitle = taskNode.TryGetProperty("placementAfterTitle", out var afterTitleNode) && afterTitleNode.ValueKind == JsonValueKind.String ? afterTitleNode.GetString() : null;
+        var placementReason = taskNode.TryGetProperty("placementReason", out var placementReasonNode) && placementReasonNode.ValueKind == JsonValueKind.String ? placementReasonNode.GetString() : null;
         var antiDuplicateHints = taskNode.TryGetProperty("antiDuplicateHints", out var antiNode) && antiNode.ValueKind == JsonValueKind.Array
             ? antiNode.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).Take(6).ToList()
             : new List<string>();
@@ -363,6 +366,9 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
             DifficultyTarget = difficultyTarget,
             MicroGoal = microGoal,
             WhyItExists = whyItExists,
+            PlacementAfterAssignmentId = placementAfterAssignmentId,
+            PlacementAfterTitle = placementAfterTitle,
+            PlacementReason = placementReason,
             AntiDuplicateHints = antiDuplicateHints,
             Raw = taskNode.GetRawText(),
         };
@@ -375,6 +381,9 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
             blueprint.DifficultyTarget,
             blueprint.MicroGoal,
             blueprint.WhyItExists,
+            blueprint.PlacementAfterAssignmentId,
+            blueprint.PlacementAfterTitle,
+            blueprint.PlacementReason,
             blueprint.AntiDuplicateHints,
         });
         taskBlueprintsByIndex[slotIndex] = blueprint;
@@ -522,6 +531,9 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
                 targetSkill = item.TargetSkill,
                 microGoal = item.MicroGoal,
                 notes = blueprint.WhyItExists,
+                placementAfterAssignmentId = blueprint.PlacementAfterAssignmentId,
+                placementAfterTitle = blueprint.PlacementAfterTitle,
+                placementReason = blueprint.PlacementReason,
                 task = new
                 {
                     item.Index,
@@ -530,6 +542,9 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
                     item.MicroGoal,
                     blueprint.TitleHint,
                     blueprint.WhyItExists,
+                    blueprint.PlacementAfterAssignmentId,
+                    blueprint.PlacementAfterTitle,
+                    blueprint.PlacementReason,
                     blueprint.AntiDuplicateHints,
                 },
                 plan = JsonSerializer.Deserialize<object>(batch.PlanJson ?? "{}"),

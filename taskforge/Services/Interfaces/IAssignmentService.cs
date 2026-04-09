@@ -40,5 +40,7 @@ namespace taskforge.Services.Interfaces
         Task DeleteAsync(Guid assignmentId, Guid currentUserId);
 
         Task UpdateSortAsync(Guid assignmentId, Guid currentUserId, int sort);
+
+        Task<bool> PlaceAfterAssignmentAsync(Guid assignmentId, Guid? afterAssignmentId, Guid currentUserId);
     }
 }

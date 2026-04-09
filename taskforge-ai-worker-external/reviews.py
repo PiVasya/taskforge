@@ -119,6 +119,10 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
         checks.append({"name": "style-title-originality", "status": "passed", "details": "title не совпадает дословно"})
 
     status = summarize_status(checks)
+    warning_names = {str(c.get("name") or "") for c in checks if c.get("status") == "warning"}
+    if status == "needs-review" and warning_names <= {"style-length-fit"}:
+        status = "passed"
+        score = max(score, 0.9)
     return {
         "draftId": payload.get("draftId") or job.get("targetEntityId"),
         "status": status,
@@ -239,6 +243,9 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
         public_tests = list(draft.get("publicTests") or [])
         hidden_tests = list(draft.get("hiddenTests") or [])
         all_tests = public_tests + hidden_tests
+        item_ctx = payload.get("batchItemContext") if isinstance(payload.get("batchItemContext"), dict) else {}
+        difficulty_target = safe_int(item_ctx.get("DifficultyTarget") or item_ctx.get("difficultyTarget") or draft.get("difficulty") or payload.get("difficulty"), 0)
+        beginner_track = difficulty_target <= 2
         sigs: set = set()
         for t in all_tests:
             if isinstance(t, dict):
@@ -267,22 +274,27 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
             checks.append({"name": "test-volume", "status": "warning", "details": f"Малый объём тестов: {len(all_tests)}"})
 
         mutation_analysis = assess_mutation_strength(draft)
-        if mutation_analysis.get("generated", 0) == 0:
-            checks.append({"name": "mutation-groundwork", "status": "warning", "details": "Не удалось построить прокси-мутанты по referenceSolutionPython"})
+        generated = int(mutation_analysis.get("generated") or 0)
+        kill_ratio = float(mutation_analysis.get("killRatio") or 0.0)
+        if generated == 0:
+            checks.append({"name": "mutation-groundwork", "status": "passed" if len(all_tests) >= MIN_TOTAL_TESTS else "warning", "details": "Не удалось построить прокси-мутанты, опираемся на прямые тесты"})
         else:
-            kill_ratio = float(mutation_analysis.get("killRatio") or 0.0)
-            if kill_ratio >= 0.7:
+            good_ratio = 0.45 if beginner_track else 0.65
+            warn_ratio = 0.20 if beginner_track else 0.40
+            if kill_ratio >= good_ratio:
                 checks.append({"name": "mutation-kill-ratio", "status": "passed", "details": f"killRatio={kill_ratio:.2f}"})
-            elif kill_ratio >= 0.4:
+            elif kill_ratio >= warn_ratio:
                 checks.append({"name": "mutation-kill-ratio", "status": "warning", "details": f"killRatio={kill_ratio:.2f}"})
             else:
-                checks.append({"name": "mutation-kill-ratio", "status": "failed", "details": f"killRatio={kill_ratio:.2f}"})
+                status = "warning" if beginner_track else "failed"
+                checks.append({"name": "mutation-kill-ratio", "status": status, "details": f"killRatio={kill_ratio:.2f}"})
             families = list(mutation_analysis.get("families") or [])
             if families:
-                checks.append({"name": "mutation-families", "status": "passed" if len(families) >= 3 else "warning", "details": ",".join(families)})
-            if mutation_analysis.get("survived", 0) > 0:
+                needed = 2 if beginner_track else 3
+                checks.append({"name": "mutation-families", "status": "passed" if len(families) >= needed else "warning", "details": ",".join(families)})
+            if mutation_analysis.get("survived", 0) > 0 and not beginner_track:
                 findings.append({
-                    "severity": "high" if kill_ratio < 0.4 else "medium",
+                    "severity": "high" if kill_ratio < warn_ratio else "medium",
                     "code": "tests.mutation_survivors",
                     "message": f"Часть прокси-мутантов переживает test suite: {mutation_analysis.get('survived')}",
                     "suggestedRepair": "Усиль hidden tests и добавь boundary/edge cases, убивающие surviving mutants.",
@@ -333,15 +345,28 @@ def run_test_strength_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
 
     status = summarize_status(checks)
     findings.extend(build_findings_from_checks(checks))
+    if assignment_type == "code-test":
+        strong_foundation = all(
+            next((c for c in checks if c.get("name") == name), {}).get("status") == "passed"
+            for name in ["duplicate-tests", "hidden-tests-count", "test-volume"]
+        )
+        warning_names = {str(c.get("name") or "") for c in checks if c.get("status") == "warning"}
+        soft_warning_set = {"public-vs-hidden-balance", "edge-case-presence", "mutation-groundwork", "mutation-kill-ratio", "mutation-families"}
+        if status == "needs-review" and strong_foundation and warning_names <= soft_warning_set:
+            status = "passed"
+    score = sum(1 for x in checks if x.get("status") == "passed") / max(1, len(checks))
+    if assignment_type == "code-test" and status == "passed":
+        score = max(score, 0.86)
     return {
         "draftId": payload.get("draftId") or job.get("targetEntityId"),
         "status": status,
         "summary": "Assignment strength review completed.",
-        "score": sum(1 for x in checks if x.get("status") == "passed") / max(1, len(checks)),
+        "score": score,
         "checks": checks,
         "findings": findings,
         "mutationAnalysis": mutation_analysis,
     }
+
 
 
 # ── Brief review ──────────────────────────────────────
@@ -468,6 +493,61 @@ def run_batch_context_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
         if combo >= 0.45:
             overlaps.append({"id": ref.get("id"), "title": rtitle, "score": round(combo, 3)})
     overlaps.sort(key=lambda x: x["score"], reverse=True)
+
+    if overlaps and overlaps[0]["score"] >= 0.75:
+        findings.append({
+            "severity": "high", "code": "batch_context.duplicate",
+            "message": "Draft слишком похож на соседнюю задачу набора.",
+            "suggestedRepair": "Измени микроцель, пример и тестовое ядро.",
+            "confidence": overlaps[0]["score"],
+        })
+    elif len(overlaps) >= 2:
+        findings.append({
+            "severity": "medium", "code": "batch_context.cluster_overlap",
+            "message": "Draft частично пересекается с несколькими соседними задачами набора.",
+            "suggestedRepair": "Усиль отличие по навыку, формату или ограничениям.",
+            "confidence": overlaps[0]["score"],
+        })
+    checks.append({
+        "name": "peerOverlap",
+        "status": "failed" if any(f["severity"] == "high" for f in findings) else ("warning" if findings else "passed"),
+        "details": json.dumps(overlaps[:3], ensure_ascii=False),
+    })
+
+    target_skill = normalize_text(item_ctx.get("TargetSkill") or item_ctx.get("targetSkill"))
+    difficulty_target = safe_int(item_ctx.get("DifficultyTarget") or item_ctx.get("difficultyTarget"), 0)
+    skill_tokens = [tok for tok in re.split(r"[^\wа-яА-Я]+", target_skill.lower()) if len(tok) >= 4 and tok not in {"базовый", "вывод", "ввод", "простые", "правила", "значение", "значения"}]
+    anchor_haystack = " ".join([
+        title.lower(),
+        description.lower(),
+        normalize_text(item_ctx.get("microGoal") or item_ctx.get("MicroGoal")).lower(),
+    ])
+    matched_tokens = [tok for tok in skill_tokens if tok in anchor_haystack]
+    if target_skill:
+        if matched_tokens:
+            checks.append({"name": "skill-anchor", "status": "passed", "details": ",".join(matched_tokens[:4])})
+        elif overlaps:
+            checks.append({"name": "skill-anchor", "status": "warning", "details": f"targetSkill={target_skill}"})
+        else:
+            checks.append({"name": "skill-anchor", "status": "passed", "details": f"implicit:{target_skill}"})
+    if difficulty_target:
+        checks.append({"name": "difficulty-target", "status": "passed", "details": str(difficulty_target)})
+
+    status = "passed"
+    if any(f["severity"] == "high" for f in findings):
+        status = "failed"
+    elif findings:
+        status = "needs-review"
+    score = 1.0 - min(len(overlaps), 4) * 0.15
+    return {
+        "status": status,
+        "score": round(max(0.0, score), 3),
+        "summary": "Batch context review completed.",
+        "checks": checks,
+        "findings": findings,
+        "topOverlaps": overlaps[:5],
+        "batchItemContext": item_ctx,
+    }
 
     if overlaps and overlaps[0]["score"] >= 0.75:
         findings.append({

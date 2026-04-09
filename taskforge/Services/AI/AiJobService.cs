@@ -1322,13 +1322,13 @@ public sealed partial class AiJobService : IAiJobService
         var assignments = new List<taskforge.Data.Models.Entities.TaskAssignment>();
         var seen = new HashSet<Guid>();
 
-        async Task LoadChunkAsync(IQueryable<taskforge.Data.Models.Entities.TaskAssignment> query, int take)
+        async Task LoadChunkAsync(IQueryable<taskforge.Data.Models.Entities.TaskAssignment> query, int take, bool preferCourseOrder = false)
         {
             if (take <= 0) return;
-            var chunk = await query
-                .AsNoTracking()
-                .OrderByDescending(x => x.UpdatedAt)
-                .ThenByDescending(x => x.CreatedAt)
+            var orderedQuery = preferCourseOrder
+                ? query.AsNoTracking().OrderBy(x => x.Sort).ThenBy(x => x.CreatedAt)
+                : query.AsNoTracking().OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.CreatedAt);
+            var chunk = await orderedQuery
                 .Take(take)
                 .ToListAsync(ct);
             foreach (var item in chunk)
@@ -1339,9 +1339,9 @@ public sealed partial class AiJobService : IAiJobService
 
         if (courseId != null)
         {
-            await LoadChunkAsync(_db.TaskAssignments.Where(x => x.CourseId == courseId.Value && x.Type == normalizedType), maxDesired);
+            await LoadChunkAsync(_db.TaskAssignments.Where(x => x.CourseId == courseId.Value && x.Type == normalizedType), maxDesired, preferCourseOrder: true);
             if (assignments.Count < minDesired)
-                await LoadChunkAsync(_db.TaskAssignments.Where(x => x.CourseId == courseId.Value && x.Type != normalizedType), minDesired - assignments.Count);
+                await LoadChunkAsync(_db.TaskAssignments.Where(x => x.CourseId == courseId.Value && x.Type != normalizedType), minDesired - assignments.Count, preferCourseOrder: true);
         }
 
         if (assignments.Count < maxDesired)
@@ -1399,6 +1399,7 @@ public sealed partial class AiJobService : IAiJobService
             assignment.Tags,
             assignment.Difficulty,
             assignment.Rating,
+            assignment.Sort,
             assignment.AllowedLanguagesCsv,
             publicCases,
             hiddenTestsCount,
