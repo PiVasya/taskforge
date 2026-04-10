@@ -1190,11 +1190,23 @@ def _default_code_test_draft_for_seed(payload: Dict[str, Any]) -> Dict[str, Any]
     return None
 
 
+def _is_site_incompatible_test_case(test: Dict[str, Any]) -> bool:
+    raw_input = test.get("input")
+    if raw_input is None:
+        return True
+    raw_input = str(raw_input)
+    if raw_input != "" and raw_input.strip() == "":
+        return True
+    return False
+
+
 def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
     tests = [dict(x) for x in list(hidden_tests or []) if isinstance(x, dict)]
     seen = set()
     unique: List[Dict[str, Any]] = []
     for test in tests:
+        if _is_site_incompatible_test_case(test):
+            continue
         key = (normalize_text(test.get("input")), normalize_text(test.get("expectedOutput")))
         if key in seen:
             continue
@@ -1277,8 +1289,8 @@ def _looks_generic_title(title: str) -> bool:
 
 
 def _rebalance_code_tests(draft: Dict[str, Any], payload: Dict[str, Any]) -> None:
-    public_tests = [dict(x) for x in list(draft.get("publicTests") or []) if isinstance(x, dict)]
-    hidden_tests = [dict(x) for x in list(draft.get("hiddenTests") or []) if isinstance(x, dict)]
+    public_tests = [dict(x) for x in list(draft.get("publicTests") or []) if isinstance(x, dict) and not _is_site_incompatible_test_case(dict(x))]
+    hidden_tests = [dict(x) for x in list(draft.get("hiddenTests") or []) if isinstance(x, dict) and not _is_site_incompatible_test_case(dict(x))]
     quality = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
     prefer_public_more = bool(quality.get("preferPublicTestsMoreThanHidden", True))
     if not prefer_public_more:
@@ -1362,10 +1374,13 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
         for item in list(value or []):
             if not isinstance(item, dict):
                 continue
-            mapped.append({
+            mapped_item = {
                 "input": normalize_text(item.get("input") if canonical_only else (item.get("input") or item.get("stdin") or item.get("in"))),
                 "expectedOutput": normalize_text(item.get("expectedOutput") if canonical_only else (item.get("expectedOutput") or item.get("expected_output") or item.get("output") or item.get("stdout") or item.get("out"))),
-            })
+            }
+            if _is_site_incompatible_test_case(mapped_item):
+                continue
+            mapped.append(mapped_item)
         return [x for x in mapped if x.get("input") is not None and x.get("expectedOutput") is not None]
 
     draft = result.get("draft") if isinstance(result.get("draft"), dict) else None

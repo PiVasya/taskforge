@@ -485,14 +485,53 @@ public sealed partial class AiJobService : IAiJobService
         job.ErrorText = null;
 
         ConsoleFoundry("complete-before-artifacts", job, $"normalizedResultLen={job.ResultJson?.Length ?? 0} resultPreview='{PreviewForConsole(job.ResultJson, 220)}'");
-        await PersistDerivedArtifactsAsync(job, ct);
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await PersistDerivedArtifactsAsync(job, ct);
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsDraftSaveConflict(ex))
+        {
+            Console.WriteLine($"[AiJobService] complete draft-conflict detected jobId={jobId}: {ex.Message}");
+            await ResolveDraftSaveConflictAndRetryAsync(jobId, request, ct);
+            job = await _db.AiJobs.Include(x => x.Files).FirstOrDefaultAsync(x => x.Id == jobId, ct) ?? job;
+        }
         ConsoleFoundry("complete-after-artifacts", job);
         await SyncFoundryProgressAfterCompletionAsync(job, ct);
         await _db.SaveChangesAsync(ct);
         ConsoleFoundry("complete-after-sync", job);
         Console.WriteLine($"[AiJobService] complete <<< saved jobId={jobId} status='{job.Status}' completedAt='{job.CompletedAtUtc:O}' model='{job.ModelName}'");
         return true;
+    }
+
+    private static bool IsDraftSaveConflict(DbUpdateException ex)
+    {
+        var text = ex.ToString();
+        return text.Contains("AiGeneratedAssignmentDrafts", StringComparison.OrdinalIgnoreCase)
+            && (text.Contains("BatchItemId", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("JobId", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("unique constraint", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task ResolveDraftSaveConflictAndRetryAsync(Guid jobId, AiWorkerCompleteRequestDto request, CancellationToken ct)
+    {
+        _db.ChangeTracker.Clear();
+        var job = await _db.AiJobs.Include(x => x.Files).FirstOrDefaultAsync(x => x.Id == jobId, ct);
+        if (job == null)
+        {
+            return;
+        }
+
+        job.Status = "done";
+        job.CompletedAtUtc = DateTime.UtcNow;
+        job.HeartbeatAtUtc = job.CompletedAtUtc;
+        job.ModelName = string.IsNullOrWhiteSpace(request.ModelName) ? job.ModelName : request.ModelName.Trim();
+        job.ResultJson = NormalizeJsonOrNull(request.ResultJson) ?? request.ResultJson;
+        job.ErrorText = null;
+
+        await PersistDerivedArtifactsAsync(job, ct);
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<bool> FailAsync(Guid jobId, AiWorkerFailRequestDto request, CancellationToken ct = default)

@@ -19,6 +19,13 @@ from runners import run_python_solution
 
 # ── Shared helpers ───────────────────────────────────
 
+def _is_site_incompatible_test_input(value: Any) -> bool:
+    if value is None:
+        return True
+    text = str(value)
+    return text != "" and text.strip() == ""
+
+
 def has_html(text: str) -> bool:
     return has_html_markup(text)
 
@@ -109,6 +116,15 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
         checks.append({"name": "hidden-tests-count", "status": "passed", "details": f"hiddenTests={len(hidden_tests)}"})
     else:
         checks.append({"name": "hidden-tests-count", "status": "failed", "details": f"Нужно минимум {min_hidden}, сейчас {len(hidden_tests)}"})
+
+    incompatible = []
+    for idx, test in enumerate((t for t in public_tests + hidden_tests if isinstance(t, dict)), start=1):
+        if _is_site_incompatible_test_input(test.get("input")):
+            incompatible.append(idx)
+    if incompatible:
+        checks.append({"name": "site-compatible-inputs", "status": "failed", "details": f"Недопустимые тесты с вводом только из пробелов: {incompatible[:5]}"})
+    else:
+        checks.append({"name": "site-compatible-inputs", "status": "passed", "details": "Тесты совместимы с ограничениями ввода сайта"})
     if len(tests) >= min_total:
         checks.append({"name": "tests-total-count", "status": "passed", "details": f"tests={len(tests)}"})
     else:

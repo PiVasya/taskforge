@@ -176,6 +176,8 @@ public sealed class AiGenerateAssignmentBatchRequestDto
 
     public string? Notes { get; set; }
 
+    public string? StructuredContextJson { get; set; }
+
     public int Priority { get; set; } = 20;
 }
 

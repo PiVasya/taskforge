@@ -937,6 +937,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
+- Не создавай тесты, где input состоит только из пробелов или пустых строк с пробелами: такие кейсы несовместимы с сайтом.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: новая задача должна помнить, после какого существующего задания её лучше вставить в курсе.
 
 Draft body payload:

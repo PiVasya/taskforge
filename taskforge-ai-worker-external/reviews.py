@@ -150,21 +150,28 @@ def run_similarity_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[
         ref_desc = normalize_text(ref.get("descriptionSummary") or ref.get("description"))
         title_sim = compute_text_similarity(title, ref_title)
         desc_sim = compute_text_similarity(description, ref_desc)
-        combined = max(title_sim, desc_sim)
+        exact_title = 1.0 if title and ref_title and title.casefold() == ref_title.casefold() else 0.0
+        ref_words = {w for w in ref_desc.casefold().split() if len(w) >= 4}
+        draft_words = {w for w in description.casefold().split() if len(w) >= 4}
+        lexical_overlap = (len(ref_words & draft_words) / max(1, len(ref_words | draft_words))) if (ref_words or draft_words) else 0.0
+        combined = max(title_sim, desc_sim, exact_title, lexical_overlap)
         scored.append({
             "referenceId": ref.get("id"),
             "title": ref_title,
             "titleSimilarity": round(title_sim, 4),
             "descriptionSimilarity": round(desc_sim, 4),
             "combinedSimilarity": round(combined, 4),
+            "lexicalOverlap": round(lexical_overlap, 4),
+            "exactTitle": bool(exact_title),
         })
     scored.sort(key=lambda x: x["combinedSimilarity"], reverse=True)
     top = scored[:3]
     max_sim = top[0]["combinedSimilarity"] if top else 0.0
 
-    if max_sim >= 0.9:
+    top0 = top[0] if top else {}
+    if top0.get("exactTitle") or max_sim >= 0.86:
         checks.append({"name": "similarity-max", "status": "failed", "details": f"Слишком высокая похожесть на существующее задание: {max_sim:.2f}"})
-    elif max_sim >= 0.75:
+    elif max_sim >= 0.68:
         checks.append({"name": "similarity-max", "status": "warning", "details": f"Похожесть на существующее задание выглядит высокой: {max_sim:.2f}"})
     else:
         checks.append({"name": "similarity-max", "status": "passed", "details": f"Максимальная похожесть приемлемая: {max_sim:.2f}"})

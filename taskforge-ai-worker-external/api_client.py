@@ -87,15 +87,21 @@ def complete(job_id: str, result: Dict[str, Any]):
     score = result.get("score") if isinstance(result, dict) else None
     keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
     log_event('job-complete-api', job_id=job_id, model=ACTIVE_MODEL, result_len=len(result_json), status=status, score=score, keys=keys, result_preview=preview_text(result_json, 500))
-    post(
+    resp = post(
         f"/api/internal/ai/jobs/{job_id}/complete",
         {
             "workerId": WORKER_ID,
             "modelName": ACTIVE_MODEL,
             "resultJson": result_json,
         },
-        expected=[200, 404],
+        expected=[200, 404, 409],
     )
+    if resp.status_code == 409:
+        body = (resp.text or "")[:2000]
+        if "SAVE_CONFLICT" in body or "AiGeneratedAssignmentDrafts" in body or "BatchItemId" in body or "JobId" in body:
+            log_event('job-complete-conflict-ignored', level='warning', job_id=job_id, status=resp.status_code, body=_preview(body, 240))
+            return
+        raise RuntimeError(f"POST /api/internal/ai/jobs/{job_id}/complete -> 409: {body[:500]}")
 
 
 def fail(job_id: str, error_text: str, retryable: bool = True, retry_delay_seconds: int = 120):
