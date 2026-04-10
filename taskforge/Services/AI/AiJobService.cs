@@ -967,6 +967,10 @@ public sealed partial class AiJobService : IAiJobService
                             draft.BatchId = batchItem.BatchId;
                         }
                     }
+                    if (existing == null && draft.BatchItemId.HasValue)
+                    {
+                        existing = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.BatchItemId == draft.BatchItemId.Value, ct);
+                    }
                     if (existing == null)
                     {
                         _db.AiGeneratedAssignmentDrafts.Add(draft);
@@ -979,6 +983,8 @@ public sealed partial class AiJobService : IAiJobService
                         existing.DraftJson = draft.DraftJson;
                         existing.Status = draft.Status;
                         existing.CourseId = draft.CourseId;
+                        existing.BatchId = draft.BatchId;
+                        existing.BatchItemId = draft.BatchItemId;
                         existing.UpdatedAtUtc = DateTime.UtcNow;
                         Console.WriteLine($"[AiJobService] persist-artifacts draft updated jobId={job.Id} existingDraftId={existing.Id} status='{existing.Status}'");
                     }

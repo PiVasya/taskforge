@@ -121,6 +121,192 @@ def compact_reference_assignments(
 
 
 
+def _desired_anchor_id(payload: Dict[str, Any]) -> str:
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+    placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
+    candidates = [
+        task.get("placementAfterAssignmentId") or task.get("PlacementAfterAssignmentId") or task.get("afterAssignmentId"),
+        brief.get("placementAfterAssignmentId") or brief.get("afterAssignmentId"),
+        payload.get("placementAfterAssignmentId") or payload.get("afterAssignmentId"),
+    ]
+    for item in placement_plan:
+        if isinstance(item, dict) and normalize_text(item.get("afterAssignmentId")):
+            candidates.append(item.get("afterAssignmentId"))
+            break
+    for value in candidates:
+        norm = normalize_text(value)
+        if norm:
+            return norm
+    return ""
+
+
+def _reference_seed_tokens(payload: Dict[str, Any]) -> List[str]:
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    values = [
+        payload.get("prompt"),
+        payload.get("titleHint"),
+        payload.get("targetSkill"),
+        payload.get("microGoal"),
+        payload.get("sourceText"),
+        task.get("titleHint"),
+        task.get("targetSkill") or task.get("TargetSkill"),
+        task.get("microGoal") or task.get("MicroGoal"),
+        brief.get("titleHint"),
+        brief.get("targetSkill"),
+        brief.get("summary"),
+    ]
+    return _placement_keywords(*values)
+
+
+def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int, description_len: int, include_cases: bool) -> List[Dict[str, Any]]:
+    base = compact_reference_assignments(payload, limit=MAX_REFERENCE_ASSIGNMENTS, description_len=description_len, include_cases=include_cases)
+    if not base:
+        return []
+    anchor_id = _desired_anchor_id(payload)
+    refs_sorted = sorted(base, key=lambda ref: (safe_int(ref.get("sort"), safe_int(ref.get("index"), 10**9)), safe_int(ref.get("index"), 10**9)))
+    selected: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _add(ref: Dict[str, Any]) -> None:
+        ref_id = normalize_text(ref.get("id")) or normalize_text(ref.get("title"))
+        if not ref_id or ref_id in seen:
+            return
+        seen.add(ref_id)
+        selected.append(ref)
+
+    if anchor_id:
+        anchor_idx = next((idx for idx, ref in enumerate(refs_sorted) if normalize_text(ref.get("id")) == anchor_id), None)
+        if anchor_idx is not None:
+            start = max(0, anchor_idx - 3)
+            end = min(len(refs_sorted), anchor_idx + 4)
+            for ref in refs_sorted[start:end]:
+                _add(ref)
+
+    seed_tokens = _reference_seed_tokens(payload)
+    if seed_tokens:
+        ranked: List[tuple[int, int, Dict[str, Any]]] = []
+        target_diff = max(1, safe_int((payload.get("task") or {}).get("difficultyTarget") if isinstance(payload.get("task"), dict) else payload.get("difficulty"), safe_int(payload.get("difficulty"), 2)))
+        for order, ref in enumerate(base):
+            title = normalize_text(ref.get("title")).lower()
+            desc = normalize_text(ref.get("descriptionSummary")).lower()
+            tags = normalize_text(ref.get("tags")).lower()
+            shared = sum(1 for token in seed_tokens if token and (token in title or token in desc or token in tags))
+            diff_penalty = abs(safe_int(ref.get("difficulty"), target_diff) - target_diff)
+            score = shared * 5 - diff_penalty
+            if normalize_text(ref.get("id")) == anchor_id:
+                score += 6
+            ranked.append((score, -order, ref))
+        ranked.sort(reverse=True)
+        for score, _order, ref in ranked:
+            if len(selected) >= limit:
+                break
+            if score <= 0 and len(selected) >= max(4, limit // 2):
+                break
+            _add(ref)
+
+    for ref in base:
+        if len(selected) >= limit:
+            break
+        _add(ref)
+    return selected[:limit]
+
+
+def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not refs:
+        return {}
+    anchor_id = _desired_anchor_id(payload)
+    refs_sorted = sorted(refs, key=lambda ref: (safe_int(ref.get("sort"), safe_int(ref.get("index"), 10**9)), safe_int(ref.get("index"), 10**9)))
+    anchor = None
+    if anchor_id:
+        for ref in refs_sorted:
+            if normalize_text(ref.get("id")) == anchor_id:
+                anchor = ref
+                break
+    if anchor is None:
+        inferred = _infer_placement_fields(payload, payload.get("task") if isinstance(payload.get("task"), dict) else {})
+        inferred_id = normalize_text(inferred.get("placementAfterAssignmentId"))
+        if inferred_id:
+            for ref in refs_sorted:
+                if normalize_text(ref.get("id")) == inferred_id:
+                    anchor = ref
+                    anchor_id = inferred_id
+                    break
+    seed_tokens = _reference_seed_tokens(payload)
+    possible_duplicates: List[Dict[str, Any]] = []
+    if seed_tokens:
+        scored: List[tuple[int, Dict[str, Any]]] = []
+        for ref in refs_sorted:
+            title = normalize_text(ref.get("title")).lower()
+            desc = normalize_text(ref.get("descriptionSummary")).lower()
+            shared = sum(1 for token in seed_tokens if token and (token in title or token in desc))
+            if shared <= 0:
+                continue
+            scored.append((shared, ref))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        for score, ref in scored[:5]:
+            possible_duplicates.append({
+                "id": ref.get("id"),
+                "title": truncate_text(ref.get("title"), 120),
+                "descriptionSummary": truncate_text(ref.get("descriptionSummary"), 160),
+                "difficulty": ref.get("difficulty"),
+                "score": score,
+            })
+    nearby: List[Dict[str, Any]] = []
+    if anchor is not None:
+        anchor_idx = next((idx for idx, ref in enumerate(refs_sorted) if normalize_text(ref.get("id")) == normalize_text(anchor.get("id"))), 0)
+        for ref in refs_sorted[max(0, anchor_idx - 2): min(len(refs_sorted), anchor_idx + 3)]:
+            nearby.append({
+                "id": ref.get("id"),
+                "title": truncate_text(ref.get("title"), 120),
+                "difficulty": ref.get("difficulty"),
+                "sort": ref.get("sort"),
+                "descriptionSummary": truncate_text(ref.get("descriptionSummary"), 160),
+            })
+    return {
+        "anchorAssignmentId": normalize_text(anchor.get("id")) if isinstance(anchor, dict) else None,
+        "anchorTitle": truncate_text(anchor.get("title"), 120) if isinstance(anchor, dict) else None,
+        "nearbyAssignments": nearby,
+        "possibleDuplicates": possible_duplicates,
+    }
+
+
+def _infer_requested_domain(payload: Dict[str, Any]) -> str:
+    prompt = " ".join([
+        normalize_text(payload.get("prompt")),
+        normalize_text(payload.get("sourceText")),
+        normalize_text(payload.get("titleHint")),
+        normalize_text(((payload.get("task") or {}).get("targetSkill") if isinstance(payload.get("task"), dict) else "")),
+        normalize_text(((payload.get("task") or {}).get("microGoal") if isinstance(payload.get("task"), dict) else "")),
+        normalize_text((((payload.get("batchMemory") or {}).get("userIntentSummary")) if isinstance(payload.get("batchMemory"), dict) else "")),
+    ]).lower()
+    if any(tok in prompt for tok in ["матриц", "matrix", "2d array"]):
+        return "matrix"
+    if any(tok in prompt for tok in ["ввод", "вывод", "cin", "cout", "scanf", "printf", "getline", "строк", "тип данн", "if", "условн"]):
+        return "cpp-basic-io"
+    if any(tok in prompt for tok in ["мостик", "bridge", "подводящ", "guided"]):
+        return "bridge-pack"
+    return "general"
+
+
+def _domain_conflicts(domain: str, payload: Dict[str, Any]) -> bool:
+    low = normalize_text(domain).lower()
+    inferred = _infer_requested_domain(payload)
+    if not low:
+        return False
+    if inferred == "general":
+        return False
+    if low == inferred:
+        return False
+    if low == "matrix" and inferred != "matrix":
+        return True
+    if inferred == "cpp-basic-io" and any(tok in low for tok in ["matrix", "oop", "graph", "tree", "dp"]):
+        return True
+    return False
+
+
 def _compact_batch_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
     memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
     if not memory:
@@ -568,6 +754,7 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
     is_gap_stage = job_type == "assignment_gap_analysis"
     is_planner_stage = job_type in {"assignment_batch_plan", "assignment_batch_replan"}
     is_brief_stage = job_type in {"assignment_brief_generate", "assignment_brief_repair"}
+    is_draft_stage = job_type in {"draft_generate", "draft_body_generate", "draft_title_generate", "draft_title_repair", "assignment_generate_from_text", "assignment_repair"}
     ultra_compact = compact_mode == "ultra"
 
     keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType", "batchItemId"]
@@ -614,14 +801,21 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
         ref_limit = 4 if ultra_compact else 5
         ref_desc_len = 90
     elif is_planner_stage:
-        ref_limit = 3 if ultra_compact else 4
-        ref_desc_len = 80
+        ref_limit = 8 if ultra_compact else 12
+        ref_desc_len = 120
     elif is_brief_stage:
-        ref_limit = 4
-        ref_desc_len = 100
+        ref_limit = 6
+        ref_desc_len = 110
+        include_cases = True
+    elif is_draft_stage:
+        ref_limit = 10 if ultra_compact else 16
+        ref_desc_len = 130
         include_cases = True
 
-    compact["referenceAssignments"] = compact_reference_assignments(payload, limit=ref_limit, description_len=ref_desc_len, include_cases=include_cases)
+    compact["referenceAssignments"] = _select_reference_assignments_for_stage(payload, limit=ref_limit, description_len=ref_desc_len, include_cases=include_cases)
+    anchor_context = _build_anchor_context(payload, compact["referenceAssignments"])
+    if anchor_context:
+        compact["anchorContext"] = anchor_context
 
     priors = compact_historical_planner_priors(payload)
     if priors and (is_planner_stage or is_brief_stage):
@@ -699,17 +893,24 @@ def extract_historical_skill_biases(payload: Dict[str, Any]) -> Dict[str, List[s
 def _ensure_canonical_request(payload: Dict[str, Any], result: Dict[str, Any] | None = None) -> Dict[str, Any]:
     result = result or {}
     existing = result.get("canonicalRequest") if isinstance(result.get("canonicalRequest"), dict) else {}
-    prompt = normalize_text(payload.get("prompt"))
-    prompt_low = prompt.lower()
-    domain = normalize_text(existing.get("domain")) or ("matrix" if ("matrix" in prompt_low or "матриц" in prompt_low) else "general")
+    existing_domain = normalize_text(existing.get("domain"))
+    inferred_domain = _infer_requested_domain(payload)
+    domain = inferred_domain if inferred_domain != "general" and (not existing_domain or _domain_conflicts(existing_domain, payload)) else (existing_domain or inferred_domain or "general")
     difficulty = safe_int(existing.get("difficulty"), safe_int(payload.get("difficulty"), 3))
     count = max(1, safe_int(existing.get("count"), safe_int(payload.get("count"), 1)))
     must_include = unique_string_list(existing.get("mustInclude"), 8)
-    if not must_include:
-        must_include = ["matrices", "complex"] if domain == "matrix" else unique_string_list([payload.get("assignmentType") or "task"], 4)
+    if not must_include or _domain_conflicts(existing_domain, payload):
+        seed = _reference_seed_tokens(payload)
+        if domain == "matrix":
+            must_include = ["matrix", "cin", "cout"]
+        elif domain == "cpp-basic-io":
+            must_include = unique_string_list(seed + ["cin", "cout", "basic types"], 8)
+        else:
+            must_include = unique_string_list(seed + [payload.get("assignmentType") or "task"], 6)
     avoid = unique_string_list(existing.get("avoid"), 8)
-    if not avoid:
-        avoid = ["generic titles", "duplicate tasks"]
+    if not avoid or _domain_conflicts(existing_domain, payload):
+        ref_titles = [normalize_text(ref.get("title")) for ref in compact_reference_assignments(payload, limit=8, description_len=80, include_cases=False) if normalize_text(ref.get("title"))]
+        avoid = unique_string_list(["generic titles", "duplicate tasks", *ref_titles[:5]], 10)
     return {
         "domain": domain,
         "count": count,

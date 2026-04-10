@@ -101,10 +101,18 @@ def _pedagogy_appendix(compact_payload: Dict[str, Any]) -> str:
     pedagogy = batch_memory.get("pedagogy") if isinstance(batch_memory.get("pedagogy"), dict) else {}
     task = compact_payload.get("task") if isinstance(compact_payload.get("task"), dict) else {}
     constraints = batch_memory.get("constraints") if isinstance(batch_memory.get("constraints"), dict) else {}
+    anchor_context = compact_payload.get("anchorContext") if isinstance(compact_payload.get("anchorContext"), dict) else {}
     task_format = normalize_text(task.get("taskFormat") or task.get("learningMode")).lower()
     lines: List[str] = []
     if batch_memory.get("placementPlan"):
         lines.append("- В batchMemory уже есть placementPlan из чата/аудита курса: не игнорируй его и не придумывай тему с нуля.")
+    if anchor_context.get("anchorTitle"):
+        lines.append(f"- У тебя есть anchorContext: новая задача должна логично идти после «{anchor_context.get('anchorTitle')}» и учитывать соседние задания вокруг этого места курса.")
+    possible_duplicates = anchor_context.get("possibleDuplicates") if isinstance(anchor_context.get("possibleDuplicates"), list) else []
+    if possible_duplicates:
+        dup_titles = [truncate_text((item or {}).get("title"), 72) for item in possible_duplicates if isinstance(item, dict) and truncate_text((item or {}).get("title"), 72)]
+        if dup_titles:
+            lines.append(f"- Особенно не дублируй существующие задания: {'; '.join(dup_titles[:4])}.")
     if bool(pedagogy.get("preferGuidedWalkthroughs")) or task_format == "guided-walkthrough":
         lines.extend([
             "- Для этого slot предпочитай guided walkthrough: описание должно вести ученика по маленьким шагам, а не бросать сразу в сухую формулировку.",
@@ -985,7 +993,9 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
 {rules}{_pedagogy_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
-- Не копируй referenceAssignments дословно.
+- Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
+- Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.
+- Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.
 - referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: выбери существующий anchor из referenceAssignments или верни null.
 

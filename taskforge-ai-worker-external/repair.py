@@ -13,6 +13,7 @@ from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_DESCRIPTION_LEN, MAX_
 from log import log
 from text_utils import normalize_text, truncate_text, has_html_markup, safe_int
 from validators import run_self_check, attach_self_check
+from reviews import run_similarity_review
 from prompt_builder import build_repair_prompt
 from payload import sanitize_result_payload
 from ollama import call_ollama
@@ -81,6 +82,55 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
     }
 
 
+def _with_reference_similarity_validation(payload: Dict[str, Any], draft: Dict[str, Any], validation: Dict[str, Any]) -> Dict[str, Any]:
+    refs = payload.get("referenceAssignments") if isinstance(payload.get("referenceAssignments"), list) else []
+    if not refs:
+        return validation
+    similarity = run_similarity_review({"draft": draft, "referenceAssignments": refs}, {})
+    top = similarity.get("topReferences") if isinstance(similarity.get("topReferences"), list) else []
+    checks = list(validation.get("checks") or [])
+    findings = list(validation.get("findings") or [])
+    status = normalize_text(validation.get("status")).lower() or "passed"
+    top_ref = top[0] if top and isinstance(top[0], dict) else {}
+    max_sim = float(top_ref.get("combinedSimilarity") or 0.0)
+    title_sim = float(top_ref.get("titleSimilarity") or 0.0)
+    desc_sim = float(top_ref.get("descriptionSimilarity") or 0.0)
+    ref_title = normalize_text(top_ref.get("title"))
+    exact_title = bool(ref_title and normalize_text(draft.get("title")).casefold() == ref_title.casefold())
+    duplicate_status = "passed"
+    duplicate_details = f"maxSimilarity={max_sim:.2f}"
+    if exact_title or max_sim >= 0.86 or desc_sim >= 0.78:
+        duplicate_status = "failed"
+        status = "needs-review"
+        duplicate_details = f"Слишком близко к существующему заданию: {ref_title or 'reference'} ({max_sim:.2f})"
+    elif max_sim >= 0.72 or title_sim >= 0.72:
+        duplicate_status = "warning"
+        if status == "passed":
+            status = "needs-review"
+        duplicate_details = f"Похоже на существующее задание: {ref_title or 'reference'} ({max_sim:.2f})"
+    checks.append({"name": "reference-similarity", "status": duplicate_status, "details": duplicate_details})
+    if duplicate_status != "passed":
+        findings.append({
+            "severity": "high" if duplicate_status == "failed" else "medium",
+            "code": "reference-similarity",
+            "message": duplicate_details,
+            "repairHint": "Измени учебную цель и shape задачи: другой ввод, другая операция, другой формат вывода или другой ожидаемый результат.",
+        })
+    passed = sum(1 for item in checks if normalize_text((item or {}).get("status")).lower() == "passed")
+    total = max(1, len(checks))
+    summary = normalize_text(validation.get("summary")) or "Code-test self-check completed."
+    if duplicate_status != "passed":
+        summary = f"{summary} Reference similarity requires changes."
+    return {
+        **validation,
+        "status": status,
+        "score": passed / total,
+        "checks": checks,
+        "findings": findings,
+        "summary": summary,
+    }
+
+
 # ── LLM-driven repair loop ───────────────────────────
 
 def _coerce_repair_result(job: Dict[str, Any], payload: Dict[str, Any], repaired: Any) -> Dict[str, Any] | None:
@@ -115,7 +165,7 @@ def try_improve_generation(
     draft = result.get("draft") if isinstance(result.get("draft"), dict) else None
     if not isinstance(draft, dict):
         return result
-    validation = run_self_check(draft)
+    validation = _with_reference_similarity_validation(payload, draft, run_self_check(draft))
     log("self-check generated draft", {
         "jobId": job.get("id"), "status": validation.get("status"),
         "score": validation.get("score"), "summary": validation.get("summary"),
@@ -138,7 +188,7 @@ def try_improve_generation(
             if not isinstance(repaired_draft, dict):
                 log("repair returned no draft", {"jobId": job.get("id"), "attempt": attempt_no})
                 continue
-            current_validation = run_self_check(repaired_draft)
+            current_validation = _with_reference_similarity_validation(payload, repaired_draft, run_self_check(repaired_draft))
             log("repair self-check", {
                 "jobId": job.get("id"), "attempt": attempt_no,
                 "status": current_validation.get("status"),
