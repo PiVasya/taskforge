@@ -1701,7 +1701,7 @@ public sealed class AiChatService
                     beforeAssignmentTitle = x.BeforeAssignmentTitle,
                     x.Reason,
                     suggestedTaskCount = x.SuggestedTaskCount,
-                    suggestedDifficulty = x.SuggestedDifficulty,
+                    suggestedDifficulty = Math.Clamp(x.SuggestedDifficulty ?? 1, 1, 3),
                 }).ToList(),
             },
             courseInspection = inspection == null ? null : new
@@ -1797,7 +1797,7 @@ public sealed class AiChatService
     {
         var intentSummary = recentGoals.Count > 0
             ? ShortenSingleLine(recentGoals[^1], 220)
-            : ShortenSingleLine(previous.AgentState?.UserIntentSummary, 220);
+            : ShortenSingleLine(previous.AgentState?.UserIntentSummary ?? string.Empty, 220);
         var learnerProfile = BuildLearnerProfileSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, null);
         var constraints = BuildGenerationConstraintsSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, null);
         var styleHints = new List<string>();
@@ -1843,7 +1843,7 @@ public sealed class AiChatService
                 BeforeAssignmentTitle = x.BeforeAssignmentTitle,
                 Reason = ShortenSingleLine(x.Reason, 160),
                 TaskCount = x.SuggestedTaskCount,
-                Difficulty = x.SuggestedDifficulty,
+                Difficulty = Math.Clamp(x.SuggestedDifficulty ?? 1, 1, 3),
                 TitleHint = BuildBridgeTitleHint(x, previous.LastCourseAudit?.TitleExamples ?? new List<string>()),
             }));
         }
@@ -1882,7 +1882,7 @@ public sealed class AiChatService
             UserIntentSummary = intentSummary ?? string.Empty,
             LearnerAudience = Convert.ToString(learnerProfile["audience"]) ?? "general",
             PedagogyMode = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || Convert.ToBoolean(learnerProfile["explainLikeChild"]) ? "guided-simple" : "standard",
-            NextSuggestedAction = ShortenSingleLine(nextAgentStep, 120),
+            NextSuggestedAction = string.IsNullOrWhiteSpace(nextAgentStep) ? null : ShortenSingleLine(nextAgentStep, 120),
             PlacementAfterAssignmentId = firstPlacement?.AfterAssignmentId,
             PlacementAfterAssignmentTitle = firstPlacement?.AfterAssignmentTitle,
             HasCourseAudit = previous.LastCourseAudit != null,
