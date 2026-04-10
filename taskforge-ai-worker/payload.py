@@ -449,10 +449,16 @@ def compact_payload_for_stage(job_type: str, payload: Dict[str, Any]) -> Dict[st
         task = payload["task"]
         compact["task"] = {
             "index": task.get("index") or task.get("Index"),
+            "titleHint": truncate_text(task.get("titleHint") or task.get("TitleHint"), 140),
             "targetSkill": task.get("targetSkill") or task.get("TargetSkill"),
             "microGoal": truncate_text(task.get("microGoal") or task.get("MicroGoal"), 180),
             "difficultyTarget": task.get("difficultyTarget") or task.get("DifficultyTarget"),
             "whyItExists": truncate_text(task.get("whyItExists") or task.get("WhyItExists"), 180),
+            "taskFormat": normalize_text(task.get("taskFormat") or task.get("TaskFormat") or task.get("learningMode") or task.get("LearningMode")),
+            "learningMode": normalize_text(task.get("learningMode") or task.get("LearningMode") or task.get("taskFormat") or task.get("TaskFormat")),
+            "placementAfterAssignmentId": normalize_text(task.get("placementAfterAssignmentId") or task.get("PlacementAfterAssignmentId")),
+            "placementAfterTitle": truncate_text(task.get("placementAfterTitle") or task.get("PlacementAfterTitle"), 140),
+            "placementReason": truncate_text(task.get("placementReason") or task.get("PlacementReason"), 180),
             "antiDuplicateHints": unique_string_list(task.get("antiDuplicateHints") or task.get("AntiDuplicateHints"), 4),
         }
     if isinstance(payload.get("brief"), dict):
@@ -460,7 +466,7 @@ def compact_payload_for_stage(job_type: str, payload: Dict[str, Any]) -> Dict[st
     if isinstance(payload.get("briefReview"), dict):
         compact["briefReview"] = compact_brief_review_object(payload["briefReview"])
 
-    optional_memory_keys = ["plannerFeedback", "decisionLogDigest"] if (is_course_stage or is_gap_stage or is_planner_stage) else ["plannerFeedback", "decisionLogDigest", "antiPatternMemory", "institutionalMemory"]
+    optional_memory_keys = ["plannerFeedback", "decisionLogDigest", "batchMemory"] if (is_course_stage or is_gap_stage or is_planner_stage) else ["plannerFeedback", "decisionLogDigest", "antiPatternMemory", "institutionalMemory", "batchMemory"]
     for key in optional_memory_keys:
         value = payload.get(key)
         if isinstance(value, dict):
@@ -497,17 +503,42 @@ def extract_historical_skill_biases(payload: Dict[str, Any]) -> Dict[str, List[s
 def _ensure_canonical_request(payload: Dict[str, Any], result: Dict[str, Any] | None = None) -> Dict[str, Any]:
     result = result or {}
     existing = result.get("canonicalRequest") if isinstance(result.get("canonicalRequest"), dict) else {}
-    prompt = normalize_text(payload.get("prompt"))
+    batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+    prompt = " ".join([
+        normalize_text(payload.get("prompt")),
+        normalize_text(payload.get("sourceText")),
+        normalize_text(payload.get("titleHint")),
+        normalize_text(batch_memory.get("userIntentSummary")),
+        normalize_text(str((batch_memory.get("constraints") if isinstance(batch_memory.get("constraints"), dict) else {}))),
+        normalize_text(str((batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []))),
+        normalize_text(str((((batch_memory.get("agentState") or {}) if isinstance(batch_memory.get("agentState"), dict) else {}).get("placementCandidates") or []))),
+    ])
     prompt_low = prompt.lower()
-    domain = normalize_text(existing.get("domain")) or ("matrix" if ("matrix" in prompt_low or "матриц" in prompt_low) else "general")
+    domain = normalize_text(existing.get("domain"))
+    if not domain:
+        if any(token in prompt_low for token in ["matrix", "матриц"]):
+            domain = "matrix"
+        elif any(token in prompt_low for token in ["bridge", "мостик", "guided", "walkthrough", "пошаг"]):
+            domain = "bridge-pack"
+        elif any(token in prompt_low for token in ["ввод", "вывод", "cin", "cout", "scanf", "printf", "getline", "if", "услов", "тип данн", "нович", "прост", "базов"]):
+            domain = "cpp-basic-io"
+        else:
+            domain = "general"
     difficulty = safe_int(existing.get("difficulty"), safe_int(payload.get("difficulty"), 3))
     count = max(1, safe_int(existing.get("count"), safe_int(payload.get("count"), 1)))
     must_include = unique_string_list(existing.get("mustInclude"), 8)
     if not must_include:
-        must_include = ["matrices", "complex"] if domain == "matrix" else unique_string_list([payload.get("assignmentType") or "task"], 4)
+        if domain == "matrix":
+            must_include = ["matrices", "complex"]
+        elif domain == "cpp-basic-io":
+            must_include = unique_string_list(["cin", "cout", "basic types", payload.get("assignmentType") or "task"], 4)
+        else:
+            must_include = unique_string_list([payload.get("assignmentType") or "task"], 4)
     avoid = unique_string_list(existing.get("avoid"), 8)
     if not avoid:
         avoid = ["generic titles", "duplicate tasks"]
+        if domain in {"bridge-pack", "cpp-basic-io"} and any(token in prompt_low for token in ["цикл", "loop"]):
+            avoid.append("cycles too early")
     return {
         "domain": domain,
         "count": count,
@@ -561,8 +592,60 @@ def _normalize_plan_tasks(tasks_value: Any) -> List[Dict[str, Any]]:
             "mustInclude": unique_string_list(item.get("mustInclude"), 6),
             "antiDuplicateHints": unique_string_list(item.get("antiDuplicateHints"), 6),
             "whyItExists": normalize_text(item.get("whyItExists") or item.get("microGoal") or item.get("summary") or "planned slot"),
+            "placementAfterAssignmentId": normalize_text(item.get("placementAfterAssignmentId")),
+            "placementAfterTitle": normalize_text(item.get("placementAfterTitle") or item.get("afterAssignmentTitle")),
+            "placementReason": normalize_text(item.get("placementReason") or item.get("reason")),
+            "taskFormat": normalize_text(item.get("taskFormat") or item.get("learningMode") or "exercise"),
+            "learningMode": normalize_text(item.get("learningMode") or item.get("taskFormat") or "exercise"),
             "decisionLog": item.get("decisionLog")[:3] if isinstance(item.get("decisionLog"), list) else [{"stage": "batch_plan", "message": "Normalized planner task."}],
         })
+    return tasks
+
+
+def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int, difficulty: int, canonical: Dict[str, Any]) -> List[Dict[str, Any]]:
+    batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+    placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
+    if not placement_plan:
+        agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
+        placement_plan = agent_state.get("placementCandidates") if isinstance(agent_state.get("placementCandidates"), list) else []
+    if not placement_plan:
+        return []
+    pedagogy = batch_memory.get("pedagogy") if isinstance(batch_memory.get("pedagogy"), dict) else {}
+    prefer_guides = bool(pedagogy.get("preferGuidedWalkthroughs"))
+    tasks: List[Dict[str, Any]] = []
+    next_index = 1
+    for point in placement_plan:
+        if not isinstance(point, dict):
+            continue
+        concept = normalize_text(point.get("concept") or point.get("titleHint") or f"slot-{next_index}") or f"slot-{next_index}"
+        task_count = max(1, safe_int(point.get("taskCount"), 1))
+        point_diff = max(1, min(3, safe_int(point.get("difficulty"), difficulty)))
+        for local_index in range(task_count):
+            if next_index > count:
+                break
+            task_format = normalize_text(point.get("taskFormat") or ("guided-walkthrough" if prefer_guides and local_index == 0 else "exercise")) or "exercise"
+            why = normalize_text(point.get("reason")) or f"Добавить недостающую ступень перед темой «{concept}»."
+            tasks.append({
+                "index": next_index,
+                "titleHint": normalize_text(point.get("titleHint")) or concept,
+                "targetSkill": concept,
+                "primarySkill": concept,
+                "microGoal": f"Отдельно отработать навык «{concept}» без смешивания нескольких новых идей.",
+                "uniqueAngle": f"{concept} / point {next_index}",
+                "difficultyTarget": point_diff,
+                "mustInclude": unique_string_list([concept, *(canonical.get("mustInclude") or [])], 4),
+                "antiDuplicateHints": unique_string_list([*(canonical.get("avoid") or []), concept], 4),
+                "whyItExists": why,
+                "placementAfterAssignmentId": normalize_text(point.get("afterAssignmentId")),
+                "placementAfterTitle": normalize_text(point.get("afterAssignmentTitle")),
+                "placementReason": why,
+                "taskFormat": task_format,
+                "learningMode": task_format,
+                "decisionLog": [{"stage": "batch_plan", "message": f"Synthesized from batchMemory placement data ({normalize_text(point.get('source')) or 'memory'})."}],
+            })
+            next_index += 1
+        if next_index > count:
+            break
     return tasks
 
 
@@ -576,6 +659,8 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
         tasks = _normalize_plan_tasks(candidate)
         if tasks:
             break
+    if not tasks:
+        tasks = _normalize_plan_tasks(_synthesize_plan_tasks_from_batch_memory(payload, max(1, safe_int(canonical.get("count"), 1)), safe_int(canonical.get("difficulty"), 2), canonical))
     if not tasks:
         tasks = _normalize_plan_tasks(build_fallback_plan_tasks({**payload, "count": canonical.get("count"), "difficulty": canonical.get("difficulty")}))
     count = max(1, safe_int(canonical.get("count"), len(tasks) or 1))
@@ -594,6 +679,10 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
             task["mustInclude"] = canonical.get("mustInclude", [])[:4]
         if not task.get("antiDuplicateHints"):
             task["antiDuplicateHints"] = canonical.get("avoid", [])[:4]
+        if not task.get("taskFormat"):
+            task["taskFormat"] = "exercise"
+        if not task.get("learningMode"):
+            task["learningMode"] = task.get("taskFormat") or "exercise"
     coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
     decision_summary = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-plan"}
     return {

@@ -53,7 +53,7 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         payload = {
             "sessionId": "s1",
             "courseId": "c1",
-            "memory": {"lastCourseAudit": {"summary": "Есть пробелы"}},
+            "memory": {"lastCourseAudit": {"summary": "Есть пробелы"}, "agentState": {"currentStage": "audit-ready", "userIntentSummary": "Сначала изучить курс, потом собрать мостики", "nextSuggestedAction": "prepare_bridge_plan"}},
             "conversation": [{"role": "user", "content": "собери план мостиков"}],
             "availableActions": [
                 {"name": "analyze_course_progression"},
@@ -71,6 +71,8 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("show_bridge_plan", prompt)
         self.assertIn("revise_bridge_plan", prompt)
         self.assertIn("advance_agent_stage", prompt)
+        self.assertIn("agentState", prompt)
+        self.assertIn("prepare_bridge_plan", prompt)
 
 
     def test_build_batch_plan_prompt_uses_batch_memory_for_guided_walkthroughs(self):
@@ -90,12 +92,14 @@ class PromptBuilderRegressionTests(unittest.TestCase):
                 "titleStyle": {"examples": ["Задание 1. Вывод через cout", "Задание 2. Вывод через printf"], "styleHints": ["короткие конкретные названия"]},
                 "placementPlan": [{"afterAssignmentId": "a1", "afterAssignmentTitle": "Задание 1. Вывод через cout", "concept": "printf", "reason": "мягко подвести к printf", "taskCount": 2, "difficulty": 1, "taskFormat": "guided-walkthrough"}],
                 "constraints": {"mustStayBeforeConcepts": ["циклы"], "avoidConcepts": ["циклы"]},
+                "agentState": {"userIntentSummary": "Сделать мягкие мостики перед циклами", "currentStage": "bridge-ready", "placementCandidates": [{"afterAssignmentId": "a1", "afterAssignmentTitle": "Задание 1. Вывод через cout", "concept": "printf", "reason": "мягко подвести к printf"}]},
             },
         }
         prompt = prompt_builder.build_batch_plan_prompt({"type": "assignment_batch_plan"}, payload)
         self.assertIn("batchMemory", prompt)
         self.assertIn("guided-walkthrough", prompt)
         self.assertIn("циклы", prompt)
+        self.assertIn("agentState", prompt)
 
 
 if __name__ == "__main__":

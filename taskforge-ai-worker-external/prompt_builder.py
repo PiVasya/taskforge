@@ -101,11 +101,18 @@ def _pedagogy_appendix(compact_payload: Dict[str, Any]) -> str:
     pedagogy = batch_memory.get("pedagogy") if isinstance(batch_memory.get("pedagogy"), dict) else {}
     task = compact_payload.get("task") if isinstance(compact_payload.get("task"), dict) else {}
     constraints = batch_memory.get("constraints") if isinstance(batch_memory.get("constraints"), dict) else {}
+    agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
     anchor_context = compact_payload.get("anchorContext") if isinstance(compact_payload.get("anchorContext"), dict) else {}
     task_format = normalize_text(task.get("taskFormat") or task.get("learningMode")).lower()
     lines: List[str] = []
     if batch_memory.get("placementPlan"):
         lines.append("- В batchMemory уже есть placementPlan из чата/аудита курса: не игнорируй его и не придумывай тему с нуля.")
+    if agent_state.get("userIntentSummary"):
+        lines.append(f"- Каноническая цель агента: {truncate_text(agent_state.get('userIntentSummary'), 180)}. Сохраняй именно этот учебный замысел до конца генерации.")
+    if agent_state.get("nextSuggestedAction"):
+        lines.append(f"- Следующий шаг агента по state: {truncate_text(agent_state.get('nextSuggestedAction'), 140)}.")
+    if agent_state.get("placementCandidates"):
+        lines.append("- В agentState уже есть placementCandidates: сначала проверь их, и только потом изобретай новую точку вставки.")
     if anchor_context.get("anchorTitle"):
         lines.append(f"- У тебя есть anchorContext: новая задача должна логично идти после «{anchor_context.get('anchorTitle')}» и учитывать соседние задания вокруг этого места курса.")
     possible_duplicates = anchor_context.get("possibleDuplicates") if isinstance(anchor_context.get("possibleDuplicates"), list) else []
@@ -301,6 +308,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "courseId": payload.get("courseId"),
         "selectedCourse": payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else None,
         "memory": payload.get("memory") if isinstance(payload.get("memory"), dict) else {},
+        "agentState": ((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("agentState") if isinstance((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("agentState"), dict) else {}),
         "conversation": payload.get("conversation")[-16:] if isinstance(payload.get("conversation"), list) else [],
         "recentAttachments": payload.get("recentAttachments")[-10:] if isinstance(payload.get("recentAttachments"), list) else [],
         "recentAssignments": payload.get("recentAssignments")[:12] if isinstance(payload.get("recentAssignments"), list) else [],
@@ -319,6 +327,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если данных не хватает — actions должен быть пустым массивом, а assistantMessage должен кратко запросить недостающие параметры.\\n\\n"
         "memory — это долговременная память всей сессии: прошлые цели пользователя, вложения, уже выполненные действия и найденные сущности. "
         "Если пользователь пишет 'продолжай', 'сделай ещё', 'начинай' или подобный короткий follow-up, сперва опирайся на memory и последние toolResults, а не проси заново весь контекст.\\n\\n"
+        "agentState — это каноническое состояние агента между чатом и pipeline: userIntentSummary, currentStage, pedagogyMode, nextSuggestedAction и placementCandidates. "
+        "Если agentState заполнен, используй его как главный source of truth и не переинтерпретируй запрос пользователя с нуля.\n\n"
         "Когда пользователь просит создать пакет заданий на несколько элементов, обычно подходит queue_generate_batch. Если он уточняет педагогический режим вроде «первоклассники», «очень простым языком», «нужны пошаговые путеводители» — сохрани это в reason/arguments как важную часть генерации, не теряй эти требования. "
         "Если пользователь просит сначала изучить курс, найти пробелы, резкие вводы новых функций или придумать мостики до новой темы, сначала используй analyze_course_progression. "
         "Если после аудита нужно посмотреть конкретные существующие задания, названия, соседние элементы курса или место вставки вокруг anchor — используй inspect_course_assignments. "
@@ -489,7 +499,25 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
     compact_mode = normalize_text(payload.get("__compactMode")).lower()
     retry_note = "Работай в ultra-compact mode." if compact_mode == "ultra" else ("Работай в compact mode." if compact_mode else "")
     prompt_low = normalize_text(payload.get("prompt")).lower()
-    easy_note = "Для этого запроса нужны именно простые базовые matrix-задачи, а не advanced operations." if any(token in prompt_low for token in ["прост", "easy", "beginner", "базов", "вводн"]) else ""
+    batch_memory = compact_payload.get("batchMemory") if isinstance(compact_payload.get("batchMemory"), dict) else {}
+    agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
+    learner = batch_memory.get("learnerProfile") if isinstance(batch_memory.get("learnerProfile"), dict) else {}
+    placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
+    easy_note = "Для этого запроса нужны очень простые базовые задания для новичков: без скачка в advanced topics и без потери педагогического замысла." if any(token in prompt_low for token in ["прост", "easy", "beginner", "базов", "вводн", "нович"]) else ""
+    domain_lock_note = ""
+    active_constraints = agent_state.get("activeConstraints") if isinstance(agent_state.get("activeConstraints"), list) else []
+    if any("цикл" in normalize_text(item).lower() for item in active_constraints):
+        domain_lock_note = "Ограничение state: новые slot-ы должны оставаться до темы циклов и не перепрыгивать в продвинутые конструкции."
+    elif any("массив" in normalize_text(item).lower() for item in active_constraints):
+        domain_lock_note = "Ограничение state: новые slot-ы не должны раньше времени уходить в массивы или другую следующую тему курса."
+    placement_note = ""
+    if placement_plan:
+        placement_note = "Используй placementPlan как главный контур плана: сначала раскрой уже найденные точки вставки, а не придумывай новые абстрактные темы."
+    elif agent_state.get("placementCandidates"):
+        placement_note = "В agentState уже есть placementCandidates: планируй slot-ы вокруг них и выбирай anchor из этого списка в первую очередь."
+    walkthrough_note = ""
+    if bool(learner.get("preferGuidedWalkthroughs")) or bool(learner.get("explainLikeChild")):
+        walkthrough_note = "Для первых slot-ов предпочитай guided-walkthrough: это должны быть маленькие ступеньки, которые объясняют ровно одно действие за раз."
     return (
         "Ты — TaskForge AI planner. Верни только один валидный JSON-объект без markdown и без пояснений.\n\n"
         f"Режим: {request_kind}. Нужно спланировать batch slot-ы, а не писать сами задания.\n"
@@ -533,10 +561,17 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         "- Если подходящего anchor нет, верни placementAfterAssignmentId = null и коротко объясни это в placementReason.\n"
         "- placementAfterTitle должен совпадать с названием выбранного anchor или быть null.\n"
         "- Если в batchMemory есть placementPlan, строй слоты вокруг него: после каких заданий вставлять, чему они учат и почему именно там.\n"
+        "- Если в batchMemory.agentState уже есть userIntentSummary/currentStage/placementCandidates, используй это как канонический state агента и не теряй исходный педагогический замысел пользователя.\n"
+        "- canonicalRequest.domain и каждый task.targetSkill должны быть согласованы между собой: не дрейфуй в другой домен ради красивой формулировки.\n"
+        "- Если пользователь просит мостики/обучалки/подводящие шаги, не превращай slot в обычную олимпиадную задачу.\n"
+        "- Для первых slot-ов можно делать guided-walkthrough, но это всё ещё задача с чёткой учебной целью, а не лекция и не конспект.\n"
         "- Если learnerProfile/pedagogy указывает на guided walkthrough или very simple audience, часть slot-ов в начале новой темы делай taskFormat=guided-walkthrough.\n"
         "- guided-walkthrough — это не конспект и не лекция, а очень простая пошаговая учебная задача перед обычными упражнениями.\n"
         "- Не пиши длинные описания.\n"
         + (easy_note + "\n" if easy_note else "")
+        + (domain_lock_note + "\n" if domain_lock_note else "")
+        + (placement_note + "\n" if placement_note else "")
+        + (walkthrough_note + "\n" if walkthrough_note else "")
         + (retry_note + "\n" if retry_note else "")
         + "\n"
         + f"Batch payload:\n{_prompt_json(compact_payload)}"

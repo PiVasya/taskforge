@@ -656,6 +656,40 @@ public sealed class AiFoundryBridgePlanDto
     public List<AiFoundryBridgePlanItemDto> Items { get; set; } = new();
 }
 
+public sealed class AiFoundryAgentPlacementCandidateDto
+{
+    public string Source { get; set; } = string.Empty;
+    public string Concept { get; set; } = string.Empty;
+    public Guid? AfterAssignmentId { get; set; }
+    public string? AfterAssignmentTitle { get; set; }
+    public string? BeforeAssignmentTitle { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public int TaskCount { get; set; } = 1;
+    public int Difficulty { get; set; } = 1;
+    public string? TaskFormat { get; set; }
+    public string? TitleHint { get; set; }
+}
+
+public sealed class AiFoundryAgentStateDto
+{
+    public string WorkflowKind { get; set; } = "conversation";
+    public string CurrentStage { get; set; } = "idle";
+    public string UserIntentSummary { get; set; } = string.Empty;
+    public string LearnerAudience { get; set; } = "general";
+    public string PedagogyMode { get; set; } = "standard";
+    public string? NextSuggestedAction { get; set; }
+    public Guid? PlacementAfterAssignmentId { get; set; }
+    public string? PlacementAfterAssignmentTitle { get; set; }
+    public bool HasCourseAudit { get; set; }
+    public bool HasCourseInspection { get; set; }
+    public bool HasBridgePlan { get; set; }
+    public bool ReadyForGeneration { get; set; }
+    public List<string> ActiveGoals { get; set; } = new();
+    public List<string> ActiveConstraints { get; set; } = new();
+    public List<string> StyleHints { get; set; } = new();
+    public List<AiFoundryAgentPlacementCandidateDto> PlacementCandidates { get; set; } = new();
+}
+
 public sealed class AiFoundryChatMemoryDto
 {
     public string Summary { get; set; } = string.Empty;
@@ -669,6 +703,7 @@ public sealed class AiFoundryChatMemoryDto
     public AiFoundryCourseAuditDto? LastCourseAudit { get; set; }
     public AiFoundryCourseInspectionDto? LastCourseInspection { get; set; }
     public AiFoundryBridgePlanDto? LastBridgePlan { get; set; }
+    public AiFoundryAgentStateDto AgentState { get; set; } = new();
 }
 
 public sealed class AiFoundryChatSessionListItemDto

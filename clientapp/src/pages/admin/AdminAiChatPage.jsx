@@ -133,7 +133,9 @@ function MemoryPanel({ memory, courseTitle }) {
   const goals = uniqueStrings(memory?.recentGoals);
   const files = uniqueStrings(memory?.recentFiles);
   const actions = uniqueStrings(memory?.recentActions);
-  const hasMemory = Boolean(memory?.messageCount || facts.length || goals.length || files.length || actions.length || memory?.summary);
+  const agentState = memory?.agentState || {};
+  const placementCandidates = Array.isArray(agentState?.placementCandidates) ? agentState.placementCandidates : [];
+  const hasMemory = Boolean(memory?.messageCount || facts.length || goals.length || files.length || actions.length || memory?.summary || agentState?.currentStage || agentState?.userIntentSummary);
 
   return (
     <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))] p-4">
@@ -141,6 +143,9 @@ function MemoryPanel({ memory, courseTitle }) {
         <Badge variant="outline">Память сессии</Badge>
         {memory?.messageCount ? <Badge variant="success">{memory.messageCount} сообщений</Badge> : null}
         {courseTitle ? <Badge variant="outline">курс: {courseTitle}</Badge> : null}
+        {agentState?.workflowKind ? <Badge variant="outline">режим: {agentState.workflowKind}</Badge> : null}
+        {agentState?.currentStage ? <Badge variant="outline">stage: {agentState.currentStage}</Badge> : null}
+        {agentState?.readyForGeneration ? <Badge variant="success">готов к generation</Badge> : null}
       </div>
 
       {!hasMemory ? (
@@ -152,6 +157,28 @@ function MemoryPanel({ memory, courseTitle }) {
           <div className="mt-3 text-sm leading-6 opacity-90 whitespace-pre-wrap">
             {memory?.summary || 'AI уже держит в памяти ход разговора, прошлые действия и контекст файлов.'}
           </div>
+
+          {(agentState?.userIntentSummary || agentState?.nextSuggestedAction || placementCandidates.length > 0) ? (
+            <div className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+              <div className="text-xs uppercase tracking-[0.18em] opacity-50">Каноническое состояние агента</div>
+              {agentState?.userIntentSummary ? <div className="mt-2 text-sm opacity-90">Цель: {agentState.userIntentSummary}</div> : null}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {agentState?.learnerAudience ? <Badge variant="outline">аудитория: {agentState.learnerAudience}</Badge> : null}
+                {agentState?.pedagogyMode ? <Badge variant="outline">педагогика: {agentState.pedagogyMode}</Badge> : null}
+                {(agentState?.activeConstraints || []).map((item) => <Badge key={item} variant="outline">{item}</Badge>)}
+              </div>
+              {agentState?.nextSuggestedAction ? <div className="mt-3 text-sm opacity-80">Следующий шаг: {agentState.nextSuggestedAction}</div> : null}
+              {placementCandidates.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {placementCandidates.slice(0, 4).map((item, index) => (
+                    <Badge key={`${item?.afterAssignmentId || item?.afterAssignmentTitle || item?.concept || 'placement'}-${index}`} variant="outline">
+                      {(item?.afterAssignmentTitle || item?.concept || 'точка вставки')}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">

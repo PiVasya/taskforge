@@ -274,6 +274,23 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
 
 
 def _infer_requested_domain(payload: Dict[str, Any]) -> str:
+    batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+    agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
+    constraints = batch_memory.get("constraints") if isinstance(batch_memory.get("constraints"), dict) else {}
+    placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
+    placement_candidates = agent_state.get("placementCandidates") if isinstance(agent_state.get("placementCandidates"), list) else []
+
+    placement_tokens: List[str] = []
+    for item in [*placement_plan[:8], *placement_candidates[:8]]:
+        if not isinstance(item, dict):
+            continue
+        placement_tokens.extend([
+            normalize_text(item.get("concept")),
+            normalize_text(item.get("titleHint")),
+            normalize_text(item.get("reason")),
+            normalize_text(item.get("afterAssignmentTitle")),
+        ])
+
     prompt = " ".join([
         normalize_text(payload.get("prompt")),
         normalize_text(payload.get("sourceText")),
@@ -281,13 +298,20 @@ def _infer_requested_domain(payload: Dict[str, Any]) -> str:
         normalize_text(((payload.get("task") or {}).get("targetSkill") if isinstance(payload.get("task"), dict) else "")),
         normalize_text(((payload.get("task") or {}).get("microGoal") if isinstance(payload.get("task"), dict) else "")),
         normalize_text((((payload.get("batchMemory") or {}).get("userIntentSummary")) if isinstance(payload.get("batchMemory"), dict) else "")),
+        normalize_text((agent_state.get("userIntentSummary") if isinstance(agent_state, dict) else "")),
+        normalize_text((agent_state.get("pedagogyMode") if isinstance(agent_state, dict) else "")),
+        " ".join(unique_string_list(constraints.get("mustStayBeforeConcepts"), 6)),
+        " ".join(unique_string_list(constraints.get("avoidConcepts"), 6)),
+        " ".join([token for token in placement_tokens if token]),
     ]).lower()
     if any(tok in prompt for tok in ["матриц", "matrix", "2d array"]):
         return "matrix"
+    if any(tok in prompt for tok in ["мостик", "bridge", "подводящ", "guided", "walkthrough", "пошаг"]):
+        return "bridge-pack"
     if any(tok in prompt for tok in ["ввод", "вывод", "cin", "cout", "scanf", "printf", "getline", "строк", "тип данн", "if", "условн"]):
         return "cpp-basic-io"
-    if any(tok in prompt for tok in ["мостик", "bridge", "подводящ", "guided"]):
-        return "bridge-pack"
+    if any(tok in prompt for tok in ["нович", "с нуля", "прост", "базов", "первокласс"]):
+        return "cpp-basic-io"
     return "general"
 
 
@@ -315,6 +339,7 @@ def _compact_batch_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
     pedagogy = memory.get("pedagogy") if isinstance(memory.get("pedagogy"), dict) else {}
     title_style = memory.get("titleStyle") if isinstance(memory.get("titleStyle"), dict) else {}
     constraints = memory.get("constraints") if isinstance(memory.get("constraints"), dict) else {}
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
     placement_plan: List[Dict[str, Any]] = []
     for item in (memory.get("placementPlan") if isinstance(memory.get("placementPlan"), list) else [])[:10]:
         if not isinstance(item, dict):
@@ -366,6 +391,35 @@ def _compact_batch_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
             "avoidConcepts": unique_string_list(constraints.get("avoidConcepts"), 6),
             "styleGoal": truncate_text(constraints.get("styleGoal"), 120),
             "titleGoal": truncate_text(constraints.get("titleGoal"), 120),
+        },
+        "agentState": {
+            "workflowKind": normalize_text(agent_state.get("workflowKind")),
+            "currentStage": normalize_text(agent_state.get("currentStage")),
+            "userIntentSummary": truncate_text(agent_state.get("userIntentSummary"), 220),
+            "learnerAudience": normalize_text(agent_state.get("learnerAudience")),
+            "pedagogyMode": normalize_text(agent_state.get("pedagogyMode")),
+            "nextSuggestedAction": truncate_text(agent_state.get("nextSuggestedAction"), 140),
+            "readyForGeneration": bool(agent_state.get("readyForGeneration")),
+            "activeGoals": unique_string_list(agent_state.get("activeGoals"), 6),
+            "activeConstraints": unique_string_list(agent_state.get("activeConstraints"), 6),
+            "styleHints": unique_string_list(agent_state.get("styleHints"), 8),
+            "selectedPlacementAfterAssignmentId": normalize_text(agent_state.get("selectedPlacementAfterAssignmentId") or agent_state.get("placementAfterAssignmentId")),
+            "selectedPlacementAfterAssignmentTitle": truncate_text(agent_state.get("selectedPlacementAfterAssignmentTitle") or agent_state.get("placementAfterAssignmentTitle"), 120),
+            "placementCandidates": [
+                {
+                    "source": normalize_text(item.get("source")),
+                    "concept": truncate_text(item.get("concept"), 120),
+                    "afterAssignmentId": normalize_text(item.get("afterAssignmentId")),
+                    "afterAssignmentTitle": truncate_text(item.get("afterAssignmentTitle"), 120),
+                    "reason": truncate_text(item.get("reason"), 160),
+                    "taskCount": safe_int(item.get("taskCount"), 1),
+                    "difficulty": safe_int(item.get("difficulty"), 1),
+                    "taskFormat": normalize_text(item.get("taskFormat")),
+                    "titleHint": truncate_text(item.get("titleHint"), 120),
+                }
+                for item in (agent_state.get("placementCandidates") if isinstance(agent_state.get("placementCandidates"), list) else [])[:6]
+                if isinstance(item, dict)
+            ],
         },
         "placementPlan": placement_plan,
         "courseAuditSummary": truncate_text(((memory.get("courseAudit") or {}) if isinstance(memory.get("courseAudit"), dict) else {}).get("Summary") or ((memory.get("courseAudit") or {}) if isinstance(memory.get("courseAudit"), dict) else {}).get("summary"), 220),
@@ -979,6 +1033,9 @@ def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int
     batch_memory = _compact_batch_memory(payload)
     placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
     if not placement_plan:
+        agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
+        placement_plan = agent_state.get("placementCandidates") if isinstance(agent_state.get("placementCandidates"), list) else []
+    if not placement_plan:
         return []
     prefer_guides = bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")))
     tasks: List[Dict[str, Any]] = []
@@ -1016,7 +1073,7 @@ def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int
                 "placementReason": normalize_text(point.get("reason")) or why,
                 "taskFormat": task_format,
                 "learningMode": task_format,
-                "decisionLog": [{"stage": "batch_plan", "message": f"Synthesized from chat batchMemory placementPlan ({normalize_text(point.get('source')) or 'memory'})."}],
+                "decisionLog": [{"stage": "batch_plan", "message": f"Synthesized from chat batchMemory placement data ({normalize_text(point.get('source')) or 'memory'})."}],
             })
             idx += 1
         if idx > count:

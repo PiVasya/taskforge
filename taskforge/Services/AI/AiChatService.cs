@@ -1683,7 +1683,9 @@ public sealed class AiChatService
                 summary = ShortenSingleLine(memory.Summary, 220),
                 facts = (memory.Facts ?? new List<string>()).Take(6).ToList(),
                 recentGoals = (memory.RecentGoals ?? new List<string>()).Take(4).ToList(),
+                agentState = memory.AgentState,
             },
+            agentState = BuildBatchAgentStateSnapshot(memory, courseId, prompt, batchKind, requestedCount, difficulty, learnerProfile, constraints, styleHints, placementPlan),
             courseAudit = audit == null ? null : new
             {
                 audit.Summary,
@@ -1784,6 +1786,155 @@ public sealed class AiChatService
             ["avoidConcepts"] = avoid.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             ["styleGoal"] = "course-native",
             ["titleGoal"] = "короткие конкретные названия как в курсе",
+        };
+    }
+
+    private static AiFoundryAgentStateDto BuildChatAgentState(
+        AiFoundryChatMemoryDto previous,
+        IReadOnlyList<string> recentGoals,
+        IReadOnlyList<string> recentActions,
+        string? nextAgentStep)
+    {
+        var intentSummary = recentGoals.Count > 0
+            ? ShortenSingleLine(recentGoals[^1], 220)
+            : ShortenSingleLine(previous.AgentState?.UserIntentSummary, 220);
+        var learnerProfile = BuildLearnerProfileSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, null);
+        var constraints = BuildGenerationConstraintsSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, null);
+        var styleHints = new List<string>();
+        if (previous.LastCourseAudit != null)
+            styleHints.AddRange(previous.LastCourseAudit.StyleHints ?? new List<string>());
+        if (previous.LastBridgePlan != null)
+            styleHints.AddRange(previous.LastBridgePlan.StyleHints ?? new List<string>());
+        styleHints = styleHints
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => ShortenSingleLine(x, 120))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+
+        var placementCandidates = new List<AiFoundryAgentPlacementCandidateDto>();
+        if (previous.LastBridgePlan != null)
+        {
+            var preferred = previous.LastBridgePlan.Items.Where(x => x.Confirmed && !x.Rejected).ToList();
+            if (preferred.Count == 0)
+                preferred = previous.LastBridgePlan.Items.Where(x => !x.Rejected).ToList();
+            placementCandidates.AddRange(preferred.Take(6).Select(x => new AiFoundryAgentPlacementCandidateDto
+            {
+                Source = "bridge-plan",
+                Concept = x.Concept,
+                AfterAssignmentId = x.AfterAssignmentId,
+                AfterAssignmentTitle = x.AfterAssignmentTitle,
+                BeforeAssignmentTitle = x.BeforeAssignmentTitle,
+                Reason = ShortenSingleLine(x.Reason, 160),
+                TaskCount = x.TaskCount,
+                Difficulty = x.Difficulty,
+                TaskFormat = x.Index <= 2 ? "guided-walkthrough" : "exercise",
+                TitleHint = x.TitleHint,
+            }));
+        }
+        else if (previous.LastCourseAudit != null)
+        {
+            placementCandidates.AddRange(previous.LastCourseAudit.Findings.Take(6).Select(x => new AiFoundryAgentPlacementCandidateDto
+            {
+                Source = "course-audit",
+                Concept = x.Concept,
+                AfterAssignmentId = x.AfterAssignmentId,
+                AfterAssignmentTitle = x.AfterAssignmentTitle,
+                BeforeAssignmentTitle = x.BeforeAssignmentTitle,
+                Reason = ShortenSingleLine(x.Reason, 160),
+                TaskCount = x.SuggestedTaskCount,
+                Difficulty = x.SuggestedDifficulty,
+                TitleHint = BuildBridgeTitleHint(x, previous.LastCourseAudit?.TitleExamples ?? new List<string>()),
+            }));
+        }
+
+        var firstPlacement = placementCandidates.FirstOrDefault(x => x.AfterAssignmentId.HasValue);
+        var workflowKind = "conversation";
+        var currentStage = "idle";
+        if (previous.LastBridgePlan != null)
+        {
+            workflowKind = "bridge-planning";
+            currentStage = string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase)
+                || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected)
+                ? "bridge-ready"
+                : "bridge-draft";
+        }
+        else if (previous.LastCourseInspection != null)
+        {
+            workflowKind = "course-inspection";
+            currentStage = "inspection-ready";
+        }
+        else if (previous.LastCourseAudit != null)
+        {
+            workflowKind = "course-audit";
+            currentStage = "audit-ready";
+        }
+        else if (recentActions.Any(x => x.Contains("batch", StringComparison.OrdinalIgnoreCase)))
+        {
+            workflowKind = "batch-generation";
+            currentStage = "batch-queued";
+        }
+
+        return new AiFoundryAgentStateDto
+        {
+            WorkflowKind = workflowKind,
+            CurrentStage = currentStage,
+            UserIntentSummary = intentSummary ?? string.Empty,
+            LearnerAudience = Convert.ToString(learnerProfile["audience"]) ?? "general",
+            PedagogyMode = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || Convert.ToBoolean(learnerProfile["explainLikeChild"]) ? "guided-simple" : "standard",
+            NextSuggestedAction = ShortenSingleLine(nextAgentStep, 120),
+            PlacementAfterAssignmentId = firstPlacement?.AfterAssignmentId,
+            PlacementAfterAssignmentTitle = firstPlacement?.AfterAssignmentTitle,
+            HasCourseAudit = previous.LastCourseAudit != null,
+            HasCourseInspection = previous.LastCourseInspection != null,
+            HasBridgePlan = previous.LastBridgePlan != null,
+            ReadyForGeneration = previous.LastBridgePlan != null && (string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected)),
+            ActiveGoals = recentGoals.Take(4).ToList(),
+            ActiveConstraints = ((constraints["mustStayBeforeConcepts"] as List<string>) ?? new List<string>())
+                .Concat((constraints["avoidConcepts"] as List<string>) ?? new List<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToList(),
+            StyleHints = styleHints,
+            PlacementCandidates = placementCandidates.Take(6).ToList(),
+        };
+    }
+
+    private static object BuildBatchAgentStateSnapshot(
+        AiFoundryChatMemoryDto memory,
+        Guid courseId,
+        string prompt,
+        string batchKind,
+        int requestedCount,
+        int difficulty,
+        Dictionary<string, object?> learnerProfile,
+        Dictionary<string, object?> constraints,
+        List<string> styleHints,
+        List<Dictionary<string, object?>> placementPlan)
+    {
+        var existing = memory.AgentState ?? new AiFoundryAgentStateDto();
+        return new
+        {
+            workflowKind = batchKind,
+            currentStage = "batch-structured-context",
+            userIntentSummary = ShortenSingleLine(prompt, 220),
+            learnerAudience = Convert.ToString(learnerProfile["audience"]) ?? existing.LearnerAudience,
+            pedagogyMode = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || Convert.ToBoolean(learnerProfile["explainLikeChild"]) ? "guided-simple" : existing.PedagogyMode,
+            nextSuggestedAction = existing.NextSuggestedAction,
+            readyForGeneration = placementPlan.Count > 0,
+            requestedCount,
+            difficulty,
+            activeGoals = (memory.RecentGoals ?? new List<string>()).Take(4).ToList(),
+            activeConstraints = ((constraints["mustStayBeforeConcepts"] as List<string>) ?? new List<string>())
+                .Concat((constraints["avoidConcepts"] as List<string>) ?? new List<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToList(),
+            styleHints = styleHints.Take(8).ToList(),
+            selectedPlacementAfterAssignmentId = placementPlan.FirstOrDefault(x => x.ContainsKey("afterAssignmentId"))?["afterAssignmentId"],
+            selectedPlacementAfterAssignmentTitle = placementPlan.FirstOrDefault(x => x.ContainsKey("afterAssignmentTitle"))?["afterAssignmentTitle"],
+            placementCandidates = placementPlan.Take(8).ToList(),
+            sourceCourseId = courseId,
         };
     }
 
@@ -1938,6 +2089,12 @@ public sealed class AiChatService
         if (!string.IsNullOrWhiteSpace(nextAgentStep))
             summary = string.Join(" ", new[] { summary, $"Следующий логичный шаг агента: {nextAgentStep}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
 
+        var agentState = BuildChatAgentState(previous, recentGoals, recentActions, nextAgentStep);
+        if (!string.IsNullOrWhiteSpace(agentState.CurrentStage) && facts.Count < 6)
+            facts.Add($"Стадия агента: {agentState.CurrentStage}");
+        if (!string.IsNullOrWhiteSpace(agentState.UserIntentSummary))
+            summary = string.Join(" ", new[] { summary, $"Каноническая цель агента: {agentState.UserIntentSummary}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+
         return new AiFoundryChatMemoryDto
         {
             Summary = summary,
@@ -1951,6 +2108,7 @@ public sealed class AiChatService
             LastCourseAudit = previous.LastCourseAudit,
             LastCourseInspection = previous.LastCourseInspection,
             LastBridgePlan = previous.LastBridgePlan,
+            AgentState = agentState,
         };
     }
 

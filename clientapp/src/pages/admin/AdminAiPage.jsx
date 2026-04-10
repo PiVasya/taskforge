@@ -1422,6 +1422,9 @@ export default function AdminAiPage() {
   };
 
   var renderBatches = function () {
+    var batchMemory = selectedBatch ? tryParse(selectedBatch.batchMemoryJson) : null;
+    var batchAgentState = batchMemory && batchMemory.agentState ? batchMemory.agentState : null;
+    var batchPlacementPlan = batchMemory && Array.isArray(batchMemory.placementPlan) ? batchMemory.placementPlan : [];
     return (
       <div className="grid xl:grid-cols-[0.92fr,1.08fr] gap-6">
         <div className="space-y-4">
@@ -1547,6 +1550,43 @@ export default function AdminAiPage() {
                 <span className="opacity-70">Промпт:</span> {selectedBatch.prompt}
               </div>
 
+              {batchAgentState ? (
+                <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-4 space-y-3 bg-[rgb(var(--card))]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-medium">Каноническое состояние batch-агента</div>
+                    {batchAgentState.workflowKind ? <Badge intent="secondary">{batchAgentState.workflowKind}</Badge> : null}
+                    {batchAgentState.currentStage ? <Badge intent="secondary">{batchAgentState.currentStage}</Badge> : null}
+                    {batchAgentState.readyForGeneration ? <Badge intent="success">ready</Badge> : null}
+                  </div>
+                  {batchAgentState.userIntentSummary ? (
+                    <div>
+                      <span className="opacity-70">Цель:</span> {batchAgentState.userIntentSummary}
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {batchAgentState.learnerAudience ? <Badge intent="secondary">аудитория: {batchAgentState.learnerAudience}</Badge> : null}
+                    {batchAgentState.pedagogyMode ? <Badge intent="secondary">режим: {batchAgentState.pedagogyMode}</Badge> : null}
+                    {(batchAgentState.activeConstraints || []).map(function (item) {
+                      return <Badge key={item} intent="secondary">{item}</Badge>;
+                    })}
+                  </div>
+                  {batchAgentState.nextSuggestedAction ? (
+                    <div className="text-xs opacity-70">Следующий шаг: {batchAgentState.nextSuggestedAction}</div>
+                  ) : null}
+                  {batchPlacementPlan.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] opacity-50">Точки вставки</div>
+                      <div className="flex flex-wrap gap-2">
+                        {batchPlacementPlan.slice(0, 6).map(function (item, index) {
+                          var label = item.afterAssignmentTitle || item.concept || ('slot ' + (index + 1));
+                          return <Badge key={String(label) + '-' + index} intent="secondary">{label}</Badge>;
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {selectedBatchActiveJob ? (
                 <div className="rounded-2xl border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-700/40 p-3 space-y-1">
                   <div className="font-medium">Текущий job пайплайна</div>
@@ -1570,6 +1610,11 @@ export default function AdminAiPage() {
               <details>
                 <summary className="cursor-pointer opacity-60 text-xs hover:opacity-100 transition">Pipeline JSON-данные</summary>
                 <div className="mt-2 space-y-2">
+                  {selectedBatch.batchMemoryJson ? (
+                    <Field label="BatchMemoryJson">
+                      <Textarea rows={8} readOnly value={prettyJson(selectedBatch.batchMemoryJson)} className="font-mono text-xs" />
+                    </Field>
+                  ) : null}
                   {selectedBatch.plannerFeedbackJson ? (
                     <Field label="PlannerFeedbackJson">
                       <Textarea rows={6} readOnly value={prettyJson(selectedBatch.plannerFeedbackJson)} className="font-mono text-xs" />
