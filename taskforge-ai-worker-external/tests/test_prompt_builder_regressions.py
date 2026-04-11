@@ -73,6 +73,9 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("advance_agent_stage", prompt)
         self.assertIn("agentState", prompt)
         self.assertIn("prepare_bridge_plan", prompt)
+        self.assertIn("Новый явный запрос пользователя важнее старой подсказки из памяти", prompt)
+        self.assertIn("show_bridge_plan и revise_bridge_plan подходят только когда пользователь прямо просит", prompt)
+        self.assertIn("diagnost", prompt.lower())
 
 
     def test_build_batch_plan_prompt_uses_batch_memory_for_guided_walkthroughs(self):
