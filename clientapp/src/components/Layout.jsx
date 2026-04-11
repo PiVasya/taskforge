@@ -98,7 +98,7 @@ function getInitials(user) {
   return email ? email[0].toUpperCase() : 'TF';
 }
 
-export default function Layout({ children, fullWidth = false, hideFooter = false, focusMode = false }) {
+export default function Layout({ children, fullWidth = false, hideFooter = false }) {
   const applyHtmlThemeClasses = (nextMode, nextColorTheme) => {
     const root = document.documentElement;
     const palettes = ['blue', 'pink', 'apple', 'red', 'honey', 'violet'];
@@ -289,11 +289,9 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   const avatarUrl = user?.profilePictureUrl || user?.avatarUrl || '';
   const avatarFallback = getInitials(user);
 
-  const mainWrapClass = focusMode
-    ? 'w-full max-w-none px-2 sm:px-4 lg:px-6 py-2 sm:py-3 relative z-10'
-    : fullWidth
-      ? 'w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
-      : 'container-app py-4 sm:py-8 relative z-10';
+  const mainWrapClass = fullWidth
+    ? 'w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
+    : 'container-app py-4 sm:py-8 relative z-10';
 
   return (
     <QuotaProvider enabled={!!access}>
@@ -313,7 +311,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         )}
       </div>
 
-      {!focusMode && (
       <header className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-neutral-900/60" style={{ borderBottom: '1px solid rgba(var(--border) / 0.7)' }}>
         <div className="container-app flex min-h-16 items-center justify-between gap-3 py-2">
           <Link to="/news" className="flex min-w-0 items-center gap-3">
@@ -326,7 +323,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
             </div>
           </Link>
 
-          {access && !focusMode && (
+          {access && (
             <div className="header-center-cluster hidden xl:flex min-w-0 flex-1 justify-center px-4">
               <div className="header-quick-row min-w-0">
                 {isAdmin && (
@@ -349,7 +346,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
           )}
 
           <div className="flex items-center gap-2">
-            {access && !focusMode && (
+            {access && (
               <Link
                 to="/profile"
                 className="hidden xl:flex items-center gap-3 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/80 px-3 py-2 shadow-soft max-w-[20rem]"
@@ -456,7 +453,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                       </Link>
                     ))}
 
-                    {access && !focusMode && (
+                    {access && (
                       <>
                         <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
                         <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">Аккаунт</div>
@@ -528,11 +525,10 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         </div>
 
       </header>
-      )}
 
       <main className={mainWrapClass}>
-        <div className={`items-start gap-4 2xl:gap-6 ${access && !focusMode ? 'xl:grid xl:grid-cols-[15rem,minmax(0,1fr)] 2xl:grid-cols-[15.5rem,minmax(0,1fr)]' : ''}`}>
-          {access && !focusMode && (
+        <div className={`items-start gap-4 2xl:gap-6 ${access ? 'xl:grid xl:grid-cols-[15rem,minmax(0,1fr)] 2xl:grid-cols-[15.5rem,minmax(0,1fr)]' : ''}`}>
+          {access && (
             <aside className="dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)]">
               <div className="card p-3">
                 <div className="side-nav-section-title">Основное</div>
@@ -569,11 +565,11 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         </div>
       </main>
 
-      {!focusMode && !hideFooter && !access && (
+      {!hideFooter && !access && (
         <footer className="mt-12 border-t border-neutral-200/70 dark:border-neutral-800/70 relative z-10">
           <div className="container-app py-4 sm:py-6 text-sm text-neutral-500 dark:text-neutral-400 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>© {new Date().getFullYear()} TaskForge</div>
-            {access && !focusMode && (
+            {access && (
               <Link to={supportHref} className="inline-flex items-center gap-2 hover:text-neutral-700 dark:hover:text-neutral-200 transition" title="Техподдержка">
                 <LifeBuoy size={16} className="opacity-70" />
                 <span className="opacity-80">Техподдержка</span>
