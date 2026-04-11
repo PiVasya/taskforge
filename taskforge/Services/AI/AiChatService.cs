@@ -586,10 +586,8 @@ public sealed class AiChatService
                     var inspection = memory.LastCourseInspection != null && memory.LastCourseInspection.CourseId == courseId.Value ? memory.LastCourseInspection : null;
                     var focus = ReadString(args, "focus");
                     var requestedCount = Math.Clamp(ReadInt(args, "count") ?? 6, 1, 12);
-                    var inspectionAnchor = BuildInspectionPlacementCandidate(inspection);
-                    var requestedAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory) ?? inspectionAnchor?.AfterAssignmentId;
+                    var requestedAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory);
                     var requestedAfterAssignmentTitle = ResolveRequestedAfterAssignmentTitle(memory, requestedAfterAssignmentId)
-                        ?? inspectionAnchor?.AfterAssignmentTitle
                         ?? await _db.TaskAssignments.AsNoTracking()
                             .Where(x => requestedAfterAssignmentId.HasValue && x.Id == requestedAfterAssignmentId.Value)
                             .Select(x => x.Title)
@@ -2068,13 +2066,6 @@ public sealed class AiChatService
             }));
         }
 
-        if (!placementCandidates.Any(x => x.AfterAssignmentId.HasValue))
-        {
-            var inspectionFallback = BuildInspectionPlacementCandidate(previous.LastCourseInspection);
-            if (inspectionFallback != null)
-                placementCandidates.Add(inspectionFallback);
-        }
-
         var firstPlacement = placementCandidates.FirstOrDefault(x => x.AfterAssignmentId.HasValue);
         var workflowKind = "conversation";
         var currentStage = "idle";
@@ -2821,67 +2812,17 @@ public sealed class AiChatService
             return requested.Value;
         if (memory.AgentState?.PlacementAfterAssignmentId.HasValue == true)
             return memory.AgentState.PlacementAfterAssignmentId.Value;
-
-        var fromCandidates = memory.AgentState?.PlacementCandidates?.FirstOrDefault(x => x.AfterAssignmentId.HasValue)?.AfterAssignmentId;
-        if (fromCandidates.HasValue)
-            return fromCandidates.Value;
-
-        return BuildInspectionPlacementCandidate(memory.LastCourseInspection)?.AfterAssignmentId;
+        return memory.AgentState?.PlacementCandidates?.FirstOrDefault(x => x.AfterAssignmentId.HasValue)?.AfterAssignmentId;
     }
 
     private static string? ResolveRequestedAfterAssignmentTitle(AiFoundryChatMemoryDto memory, Guid? afterAssignmentId)
     {
         if (!afterAssignmentId.HasValue)
-            return memory.AgentState?.PlacementAfterAssignmentTitle
-                ?? BuildInspectionPlacementCandidate(memory.LastCourseInspection)?.AfterAssignmentTitle;
+            return memory.AgentState?.PlacementAfterAssignmentTitle;
         if (memory.AgentState?.PlacementAfterAssignmentId == afterAssignmentId)
             return memory.AgentState.PlacementAfterAssignmentTitle;
-
-        var fromCandidates = memory.AgentState?.PlacementCandidates?
+        return memory.AgentState?.PlacementCandidates?
             .FirstOrDefault(x => x.AfterAssignmentId == afterAssignmentId)?.AfterAssignmentTitle;
-        if (!string.IsNullOrWhiteSpace(fromCandidates))
-            return fromCandidates;
-
-        var inspectionFallback = BuildInspectionPlacementCandidate(memory.LastCourseInspection);
-        return inspectionFallback?.AfterAssignmentId == afterAssignmentId ? inspectionFallback.AfterAssignmentTitle : null;
-    }
-
-    private static AiFoundryAgentPlacementCandidateDto? BuildInspectionPlacementCandidate(AiFoundryCourseInspectionDto? inspection)
-    {
-        if (inspection == null || inspection.Assignments.Count == 0)
-            return null;
-
-        var ordered = inspection.Assignments
-            .OrderBy(x => x.Sort)
-            .ToList();
-        if (ordered.Count == 0)
-            return null;
-
-        AiFoundryCourseInspectionAssignmentDto? anchor = null;
-        if (inspection.AroundAssignmentId.HasValue)
-            anchor = ordered.FirstOrDefault(x => x.Id == inspection.AroundAssignmentId.Value);
-        anchor ??= ordered[Math.Clamp(ordered.Count / 2, 0, ordered.Count - 1)];
-        if (anchor == null)
-            return null;
-
-        var nextAssignment = ordered.FirstOrDefault(x => x.Sort > anchor.Sort);
-        var reason = inspection.AroundAssignmentId.HasValue && inspection.AroundAssignmentId == anchor.Id
-            ? "Берём anchor прямо из inspection: он уже был выбран как точка просмотра соседних заданий."
-            : "Аудит не дал явной точки вставки, поэтому берём безопасный fallback anchor из inspection и продолжаем без лишнего запроса к пользователю.";
-
-        return new AiFoundryAgentPlacementCandidateDto
-        {
-            Source = "course-inspection",
-            Concept = "inspection-anchor",
-            AfterAssignmentId = anchor.Id,
-            AfterAssignmentTitle = anchor.Title,
-            BeforeAssignmentTitle = nextAssignment?.Title,
-            Reason = reason,
-            TaskCount = 6,
-            Difficulty = Math.Clamp(anchor.Difficulty, 1, 3),
-            TaskFormat = "guided-walkthrough",
-            TitleHint = anchor.Title,
-        };
     }
 
     private static AiFoundryCourseAuditDto EnsureBridgeAudit(

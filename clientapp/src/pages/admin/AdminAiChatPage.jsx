@@ -27,6 +27,7 @@ import {
   RefreshCcw,
   Search,
   Send,
+  ArrowUpRight,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -169,6 +170,7 @@ function MemoryPanel({ memory, courseTitle }) {
               </div>
               {agentState?.nextSuggestedAction ? <div className="mt-3 text-sm opacity-80">Следующий шаг: {agentState.nextSuggestedAction}</div> : null}
               {placementCandidates.length > 0 ? (
+                {!isFocusMode && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {placementCandidates.slice(0, 4).map((item, index) => (
                     <Badge key={`${item?.afterAssignmentId || item?.afterAssignmentTitle || item?.concept || 'placement'}-${index}`} variant="outline">
@@ -338,6 +340,9 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
 
 export default function AdminAiChatPage() {
   const notify = useNotify();
+  const pageSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const isFocusMode = pageSearch.get('focus') === '1';
+  const requestedSessionId = pageSearch.get('session');
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState('');
   const [courses, setCourses] = useState([]);
@@ -364,6 +369,19 @@ export default function AdminAiChatPage() {
   );
   const lastAssistantMessage = useMemo(() => ([...currentMessages].reverse().find((x) => x.role === 'assistant' && x.status !== 'processing') || null), [currentMessages]);
 
+  const focusHref = `/admin/ai/chat?focus=1${sessionId ? `&session=${encodeURIComponent(sessionId)}` : ''}`;
+  const regularHref = `/admin/ai/chat${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`;
+
+  const openFocusMode = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.open(focusHref, '_blank', 'noopener,noreferrer');
+  }, [focusHref]);
+
+  const leaveFocusMode = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.location.assign(regularHref);
+  }, [regularHref]);
+
   const upsertSessionListItem = useCallback((full) => {
     const messages = Array.isArray(full?.messages) ? full.messages : [];
     const lastStable = [...messages].reverse().find((x) => x?.status !== 'processing') || messages[messages.length - 1];
@@ -384,7 +402,7 @@ export default function AdminAiChatPage() {
   const loadSessions = useCallback(async (preferredId) => {
     const list = await getAiChatSessions();
     setSessions(list);
-    const nextId = preferredId || sessionId || list[0]?.id || null;
+    const nextId = preferredId || requestedSessionId || sessionId || list[0]?.id || null;
     if (nextId) {
       setSessionId(nextId);
       const full = await getAiChatSession(nextId);
@@ -393,7 +411,7 @@ export default function AdminAiChatPage() {
       setSessionId(null);
       setSession(null);
     }
-  }, [sessionId]);
+  }, [requestedSessionId, sessionId]);
 
   useEffect(() => {
     let active = true;
@@ -615,8 +633,9 @@ export default function AdminAiChatPage() {
 
 
   return (
-    <Layout fullWidth>
-      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+    <Layout fullWidth focusMode={isFocusMode} hideFooter={isFocusMode}>
+      <div className={isFocusMode ? 'grid gap-4' : 'grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]'}>
+        {!isFocusMode && (
         <Card className="p-4 xl:sticky xl:top-24 h-fit max-h-[82vh] overflow-y-auto">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -680,8 +699,9 @@ export default function AdminAiChatPage() {
             ))}
           </div>
         </Card>
+        )}
 
-        <Card className="p-0 overflow-hidden min-h-[72vh] flex flex-col">
+        <Card className={isFocusMode ? 'p-0 overflow-hidden min-h-[calc(100dvh-1rem)] flex flex-col' : 'p-0 overflow-hidden min-h-[72vh] flex flex-col'}>
           <div className="border-b border-neutral-200/70 dark:border-neutral-800 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-[0.18em] opacity-60">TaskForge AI</div>
@@ -691,6 +711,15 @@ export default function AdminAiChatPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {isFocusMode ? (
+                <Button type="button" variant="outline" onClick={leaveFocusMode}>
+                  Вернуться к обычному виду
+                </Button>
+              ) : (
+                <Button type="button" variant="outline" onClick={openFocusMode} disabled={!sessionId}>
+                  <ArrowUpRight size={16} /> Отдельная вкладка
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={createSession} disabled={pending || actionBusy}>
                 <Plus size={16} /> Новый чат
               </Button>
@@ -723,6 +752,7 @@ export default function AdminAiChatPage() {
                 <div className="mt-2 text-sm leading-6 opacity-75 whitespace-pre-wrap">
                   {lastAssistantMessage?.content || session?.memory?.summary || 'Это полноценный чат: AI помнит прошлые сообщения, файлы и действия в рамках этой сессии.'}
                 </div>
+                {!isFocusMode && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {SUGGESTIONS.slice(0, 3).map((item) => (
                     <button
@@ -735,6 +765,7 @@ export default function AdminAiChatPage() {
                     </button>
                   ))}
                 </div>
+                )}
               </div>
               <div className="w-full lg:w-[280px]">
                 <Field label="Курс текущего чата" hint="Можно менять на лету — следующий ответ уже будет с новым контекстом курса.">
