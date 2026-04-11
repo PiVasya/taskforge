@@ -2502,7 +2502,7 @@ public sealed class AiChatService
         };
     }
 
-    private async Task<List<CourseAuditAssignmentSnapshot>> LoadCourseAuditAssignmentsAsync    private async Task<List<CourseAuditAssignmentSnapshot>> LoadCourseAuditAssignmentsAsync(Guid courseId, int? limitAssignments, CancellationToken ct)
+    private async Task<List<CourseAuditAssignmentSnapshot>> LoadCourseAuditAssignmentsAsync(Guid courseId, int? limitAssignments, CancellationToken ct)
     {
         var ordered = await _db.TaskAssignments.AsNoTracking()
             .Where(x => x.CourseId == courseId)
