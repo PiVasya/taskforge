@@ -20,9 +20,26 @@ public sealed class AiChatService
         PropertyNameCaseInsensitive = true,
     };
 
+    private static readonly HashSet<string> AgentLoopActionNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "analyze_course_progression",
+        "inspect_course_assignments",
+        "prepare_bridge_plan",
+        "show_bridge_plan",
+        "revise_bridge_plan",
+        "advance_agent_stage",
+    };
+
     private readonly ApplicationDbContext _db;
     private readonly IAiJobService _jobs;
     private readonly ILogger<AiChatService> _log;
+
+    private sealed class ChatToolExecutionDto
+    {
+        public List<AiFoundryChatToolCallDto> ToolCalls { get; } = new();
+        public List<AiFoundryChatToolResultDto> ToolResults { get; } = new();
+        public string? AgentTrace { get; set; }
+    }
 
     public AiChatService(ApplicationDbContext db, IAiJobService jobs, ILogger<AiChatService> log)
     {
@@ -241,20 +258,22 @@ public sealed class AiChatService
             Status = "done",
         });
 
-        var result = await ExecuteToolCallAsync(session, messages, toolCall, userId, userDisplayName, ct);
-        var toolResults = result == null ? new List<AiFoundryChatToolResultDto>() : new List<AiFoundryChatToolResultDto> { result };
+        var execution = await ExecuteToolCallsAsync(session, messages, new List<AiFoundryChatToolCallDto> { toolCall }, userId, userDisplayName, ct);
+        var toolResults = execution.ToolResults;
+        var primaryResult = toolResults.FirstOrDefault();
+        var assistantIntro = MergeAssistantTextWithAgentTrace("Подтверждение получено. Выполняю действие.", execution.AgentTrace);
 
         messages.Add(new AiFoundryChatMessageDto
         {
             Id = Guid.NewGuid(),
             Role = "assistant",
-            Content = BuildAssistantContent("Подтверждение получено. Выполняю действие.", toolResults),
+            Content = BuildAssistantContent(assistantIntro, toolResults),
             CreatedAtUtc = DateTime.UtcNow,
-            Status = result?.Status == "failed" ? "failed" : "done",
-            ToolCalls = new List<AiFoundryChatToolCallDto> { toolCall },
-            ToolCall = toolCall,
+            Status = primaryResult?.Status == "failed" ? "failed" : "done",
+            ToolCalls = execution.ToolCalls,
+            ToolCall = execution.ToolCalls.FirstOrDefault(),
             ToolResults = toolResults,
-            ToolResult = result,
+            ToolResult = primaryResult,
         });
 
         session.PlanJson = SerializeMemory(BuildMemory(messages, session.PlanJson));
@@ -330,15 +349,16 @@ public sealed class AiChatService
 
         var root = ParseJson(job.ResultJson);
         var (assistantText, toolCalls) = InterpretChatTurn(root, session, messages);
-        var toolResults = await ExecuteToolCallsAsync(session, messages, toolCalls, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
+        var execution = await ExecuteToolCallsAsync(session, messages, toolCalls, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
+        var assistantIntro = MergeAssistantTextWithAgentTrace(assistantText, execution.AgentTrace);
 
         assistantMessage.Status = "done";
         assistantMessage.PendingJobId = null;
-        assistantMessage.ToolCalls = toolCalls.ToList();
+        assistantMessage.ToolCalls = execution.ToolCalls;
         assistantMessage.ToolCall = assistantMessage.ToolCalls.FirstOrDefault();
-        assistantMessage.ToolResults = toolResults.ToList();
+        assistantMessage.ToolResults = execution.ToolResults;
         assistantMessage.ToolResult = assistantMessage.ToolResults.FirstOrDefault();
-        assistantMessage.Content = BuildAssistantContent(assistantText, toolResults);
+        assistantMessage.Content = BuildAssistantContent(assistantIntro, execution.ToolResults);
 
         var titleSuggestion = root?["sessionTitle"]?.ToString()?.Trim();
         if (!string.IsNullOrWhiteSpace(titleSuggestion))
@@ -353,7 +373,7 @@ public sealed class AiChatService
         return true;
     }
 
-    private async Task<IReadOnlyList<AiFoundryChatToolResultDto>> ExecuteToolCallsAsync(
+    private async Task<ChatToolExecutionDto> ExecuteToolCallsAsync(
         AiFoundryChatSession session,
         List<AiFoundryChatMessageDto> messages,
         IReadOnlyList<AiFoundryChatToolCallDto> toolCalls,
@@ -361,15 +381,89 @@ public sealed class AiChatService
         string? createdByDisplayName,
         CancellationToken ct)
     {
-        var results = new List<AiFoundryChatToolResultDto>();
+        var execution = new ChatToolExecutionDto();
+        JsonObject? lastArgs = null;
+        AiFoundryChatToolResultDto? lastResult = null;
+        var requestedNames = new List<string>();
+
         foreach (var toolCall in toolCalls.Take(3))
         {
-            var result = await ExecuteToolCallAsync(session, messages, toolCall, createdByUserId, createdByDisplayName, ct);
-            if (result != null)
-                results.Add(result);
+            if (toolCall == null || string.IsNullOrWhiteSpace(toolCall.Name))
+                continue;
+
+            execution.ToolCalls.Add(toolCall);
+            requestedNames.Add(toolCall.Name.Trim());
+            lastArgs = ParseArgumentsObject(toolCall.ArgumentsJson);
+            lastResult = await ExecuteToolCallAsync(session, messages, toolCall, createdByUserId, createdByDisplayName, ct);
+            if (lastResult != null)
+                execution.ToolResults.Add(lastResult);
+
+            if (ShouldStopAutoAgentLoop(toolCall.Name, lastResult))
+                return execution;
         }
 
-        return results;
+        if (!ShouldAutoContinueAgent(toolCalls, execution.ToolResults))
+            return execution;
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var executedCall in execution.ToolCalls)
+            visited.Add(BuildToolCallLoopSignature(executedCall));
+
+        var autoNames = new List<string>();
+        for (var step = 0; step < 4; step++)
+        {
+            var courseId = ReadGuid(lastArgs, "courseId") ?? session.CourseId;
+            if (!courseId.HasValue)
+                break;
+
+            var nextArgs = lastArgs ?? new JsonObject();
+            var nextToolCall = BuildNextAgentToolCall(courseId.Value, session, messages, nextArgs);
+            if (nextToolCall == null || string.IsNullOrWhiteSpace(nextToolCall.Name))
+                break;
+
+            var signature = BuildToolCallLoopSignature(nextToolCall);
+            if (!visited.Add(signature))
+                break;
+
+            execution.ToolCalls.Add(nextToolCall);
+            autoNames.Add(nextToolCall.Name.Trim());
+            lastArgs = ParseArgumentsObject(nextToolCall.ArgumentsJson);
+            lastResult = await ExecuteToolCallAsync(session, messages, nextToolCall, createdByUserId, createdByDisplayName, ct);
+            if (lastResult != null)
+                execution.ToolResults.Add(lastResult);
+
+            if (ShouldStopAutoAgentLoop(nextToolCall.Name, lastResult) || string.Equals(nextToolCall.Name, "show_bridge_plan", StringComparison.OrdinalIgnoreCase))
+                break;
+        }
+
+        if (autoNames.Count == 0)
+            return execution;
+
+        var finalResult = execution.ToolResults.LastOrDefault();
+        var traceSummary = BuildAgentLoopSummary(requestedNames, autoNames, finalResult);
+        execution.AgentTrace = traceSummary;
+
+        var displayResults = new List<AiFoundryChatToolResultDto>();
+        if (!string.IsNullOrWhiteSpace(traceSummary))
+        {
+            displayResults.Add(new AiFoundryChatToolResultDto
+            {
+                Status = "done",
+                Summary = traceSummary,
+                NavigateTo = finalResult?.NavigateTo,
+                JobId = finalResult?.JobId,
+                BatchId = finalResult?.BatchId,
+                DraftId = finalResult?.DraftId,
+                AssignmentId = finalResult?.AssignmentId,
+                CourseId = finalResult?.CourseId,
+            });
+        }
+        if (finalResult != null && (displayResults.Count == 0 || !string.Equals(displayResults[0].Summary, finalResult.Summary, StringComparison.OrdinalIgnoreCase)))
+            displayResults.Add(finalResult);
+
+        execution.ToolResults.Clear();
+        execution.ToolResults.AddRange(displayResults);
+        return execution;
     }
 
     private async Task<AiFoundryChatToolResultDto?> ExecuteToolCallAsync(
@@ -1551,6 +1645,82 @@ public sealed class AiChatService
         return $"Поняла. За этот ход выполняю {names.Count} действия.";
     }
 
+    private static bool IsAgentLoopActionName(string? name)
+        => !string.IsNullOrWhiteSpace(name) && AgentLoopActionNames.Contains(name.Trim());
+
+    private static JsonObject ParseArgumentsObject(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new JsonObject();
+        try
+        {
+            return JsonNode.Parse(json) as JsonObject ?? new JsonObject();
+        }
+        catch
+        {
+            return new JsonObject();
+        }
+    }
+
+    private static bool ShouldAutoContinueAgent(IReadOnlyList<AiFoundryChatToolCallDto> toolCalls, IReadOnlyList<AiFoundryChatToolResultDto> toolResults)
+    {
+        if (toolCalls == null || toolCalls.Count == 0)
+            return false;
+        if (!toolCalls.Any(x => IsAgentLoopActionName(x.Name)))
+            return false;
+        return !toolResults.Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ShouldStopAutoAgentLoop(string? actionName, AiFoundryChatToolResultDto? result)
+    {
+        if (result?.RequiresConfirmation == true)
+            return true;
+        if (string.Equals(result?.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return string.Equals(actionName, "show_bridge_plan", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionName, "revise_bridge_plan", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionName, "queue_generate_bridge_batch", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionName, "queue_generate_batch", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionName, "queue_generate_from_text", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionName, "queue_generate_from_file", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildToolCallLoopSignature(AiFoundryChatToolCallDto toolCall)
+        => $"{(toolCall.Name ?? string.Empty).Trim().ToLowerInvariant()}|{NormalizeLoopArguments(toolCall.ArgumentsJson)}";
+
+    private static string NormalizeLoopArguments(string? json)
+        => string.IsNullOrWhiteSpace(json) ? "{}" : Regex.Replace(json.Trim(), @"\s+", string.Empty);
+
+    private static string? BuildAgentLoopSummary(IReadOnlyList<string> requestedNames, IReadOnlyList<string> autoNames, AiFoundryChatToolResultDto? finalResult)
+    {
+        var flow = requestedNames
+            .Concat(autoNames)
+            .Select(DescribeToolName)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
+        if (flow.Count == 0)
+            return null;
+
+        var resultText = !string.IsNullOrWhiteSpace(finalResult?.Summary)
+            ? $" Финальный шаг: {ShortenSingleLine(finalResult!.Summary!, 220)}"
+            : string.Empty;
+        return $"Агент сам продолжил ход и последовательно выполнил: {string.Join(" → ", flow)}.{resultText}";
+    }
+
+    private static string? MergeAssistantTextWithAgentTrace(string? assistantText, string? agentTrace)
+    {
+        var text = string.IsNullOrWhiteSpace(assistantText) ? null : assistantText.Trim();
+        if (string.IsNullOrWhiteSpace(agentTrace))
+            return text;
+        if (string.IsNullOrWhiteSpace(text))
+            return agentTrace.Trim();
+        if (text.Contains(agentTrace, StringComparison.OrdinalIgnoreCase))
+            return text;
+        return $"{text}\n\n{agentTrace.Trim()}";
+    }
+
     private static string BuildAssistantContent(string? assistantText, IReadOnlyList<AiFoundryChatToolResultDto>? toolResults)
     {
         var text = string.IsNullOrWhiteSpace(assistantText)
@@ -2556,8 +2726,8 @@ public sealed class AiChatService
                     courseId,
                     query = focus,
                     aroundAssignmentId = firstFinding?.AfterAssignmentId,
-                    window = 2,
-                    limitAssignments = 18,
+                    window = 4,
+                    limitAssignments = 28,
                 }, JsonOptions),
             };
         }
