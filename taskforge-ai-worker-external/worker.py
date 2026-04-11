@@ -253,6 +253,13 @@ def _chat_extract_requested_count(text: str) -> int | None:
     return None
 
 
+def _chat_extract_assignment_id(text: str) -> str | None:
+    if not text:
+        return None
+    match = re.search(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", text)
+    return match.group(0) if match else None
+
+
 def _chat_wants_multiple(text: str, model_count: int) -> bool:
     low = (text or "").lower()
     return model_count > 1 or any(token in low for token in ["batch", "пакет", "нескольк", "много", "ещё", "еще", "задач"])
@@ -338,6 +345,10 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
     has_audit = isinstance(memory.get("lastCourseAudit"), dict)
     has_bridge_plan = isinstance(memory.get("lastBridgePlan"), dict)
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    explicit_after_assignment_id = _chat_extract_assignment_id(last_user)
+    remembered_after_assignment_id = explicit_after_assignment_id or agent_state.get("placementAfterAssignmentId") or ((agent_state.get("placementCandidates") or [{}])[0].get("afterAssignmentId") if isinstance(agent_state.get("placementCandidates"), list) and agent_state.get("placementCandidates") else None)
+    focus_text = last_user or prompt
 
     show_plan_markers = ["покажи план", "что в плане", "какой план", "план мостиков", "покажи текущий план"]
     if has_bridge_plan and any(marker in (last_user or "").lower() for marker in show_plan_markers):
@@ -385,7 +396,9 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     "reason": "Пользователь подтверждает, что нужно генерировать мостиковые задачи по уже собранному плану курса.",
                     "arguments": {
                         "courseId": course_id,
-                        "focus": prompt,
+                        "focus": focus_text,
+                        **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                        **({"count": explicit_count} if explicit_count else {}),
                     },
                 }],
             }
@@ -398,7 +411,9 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     "reason": "Перед bridge-generation лучше сначала зафиксировать явный план вставок по аудиту курса.",
                     "arguments": {
                         "courseId": course_id,
-                        "focus": prompt,
+                        "focus": focus_text,
+                        **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                        **({"count": explicit_count} if explicit_count else {}),
                     },
                 }],
             }
@@ -414,7 +429,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "reason": "Пользователь дал короткий follow-up без нового контекста и ожидает, что агент сам продолжит со следующего логичного шага.",
                 "arguments": {
                     "courseId": course_id,
-                    "focus": prompt,
+                    "focus": focus_text,
                 },
             }],
         }
@@ -428,7 +443,9 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "reason": "После аудита курса следующий шаг — зафиксировать план вставок и только потом переходить к генерации.",
                 "arguments": {
                     "courseId": course_id,
-                    "focus": prompt,
+                    "focus": focus_text,
+                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                    **({"count": explicit_count} if explicit_count else {}),
                 },
             }],
         }
@@ -436,16 +453,17 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     inspect_markers = ["открой задания", "посмотри задания", "какие задания", "какие там названия", "покажи названия", "покажи соседние", "покажи что уже есть", "детальнее", "подробнее"]
     if has_audit and any(marker in (last_user or "").lower() for marker in inspect_markers):
         return {
-            "assistantMessage": "Поняла. Открою конкретные задания курса вокруг найденных мест, чтобы сверить стиль названий и последовательность перед следующим шагом.",
+            "assistantMessage": "Поняла. Открою конкретные задания курса вокруг найденных мест, чтобы сверить стиль названий, landmarks и последовательность перед следующим шагом.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "inspect_course_assignments",
-                "reason": "После аудита курса нужно открыть конкретные задания и показать соседние элементы/названия до генерации мостиков.",
+                "reason": "После аудита курса нужно открыть не только ближайшие, но и landmark-задания вокруг темы, чтобы не принимать решение по слишком узкому фрагменту курса.",
                 "arguments": {
                     "courseId": course_id,
-                    "query": prompt,
-                    "window": 1,
-                    "limitAssignments": 8,
+                    "query": focus_text,
+                    **({"aroundAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                    "window": 2,
+                    "limitAssignments": 18,
                 },
             }],
         }
@@ -460,7 +478,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "reason": "Пользователь просит сначала изучить курс, найти пробелы и только потом переходить к генерации.",
                 "arguments": {
                     "courseId": course_id,
-                    "focus": prompt,
+                    "focus": focus_text,
                 },
             }],
         }

@@ -252,6 +252,13 @@ def _chat_extract_requested_count(text: str) -> int | None:
     return None
 
 
+def _chat_extract_assignment_id(text: str) -> str | None:
+    if not text:
+        return None
+    match = re.search(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", text)
+    return match.group(0) if match else None
+
+
 def _chat_wants_multiple(text: str, model_count: int) -> bool:
     low = (text or "").lower()
     return model_count > 1 or any(token in low for token in ["batch", "пакет", "нескольк", "много", "ещё", "еще", "задач"])
