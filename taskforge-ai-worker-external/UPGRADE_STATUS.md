@@ -73,3 +73,17 @@
 - Вынести telemetry summary выше по стеку: batch quality ledger / admin DTO / decision summaries.
 - Подобрать реальные course-specific duplicate thresholds на живых данных, а не только через env.
 - Продолжить зачистку legacy env/name хвоста в документации и compose.
+
+
+## Wave7 — финальная полировка перед ручным тестом
+
+### Что добавлено
+- Добавлен `preflight.py` для проверки критичного runtime-конфига внешнего worker перед ручным запуском и как базовый healthcheck контейнера.
+- `Dockerfile` внешнего worker исправлен так, чтобы в image попадали **все** актуальные Python-модули (`COPY *.py ./`), а не старый фиксированный список файлов. Это особенно важно после добавления `llm_client.py`, `schemas.py`, `duplicate_clusters.py`, `similarity_signatures.py` и telemetry-слоя.
+- В compose-файлы внешнего worker добавлен `healthcheck`, завязанный на `python preflight.py --healthcheck`.
+- В корень репозитория добавлен `TESTING_NOW.md` с коротким ручным чек-листом: миграция под `IsAiGenerated`, preflight, запуск worker и smoke-проверки.
+
+### Что это закрывает
+- Убирает риск "image собирается, но runtime падает из-за нескопированных новых модулей".
+- Даёт быстрый способ понять, готово ли окружение к ручному тесту без чтения всех env руками.
+- Делает текущую сборку удобнее для первого живого прогона.

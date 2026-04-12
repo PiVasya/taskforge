@@ -34,6 +34,12 @@ services:
       TASKFORGE_AI_LOG_INCLUDE_RESPONSES: ${TASKFORGE_AI_LOG_INCLUDE_RESPONSES:-false}
     volumes:
       - ./logs/taskforge-ai-worker-external:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "preflight.py", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       api:
         condition: service_healthy

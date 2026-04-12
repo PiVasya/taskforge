@@ -169,3 +169,31 @@ cat ./logs/taskforge-ai-worker-external/worker.jsonl
 - `TASKFORGE_AI_WORKER_TELEMETRY=true` — worker sends `telemetryJson` to backend complete endpoint.
 - `TASKFORGE_AI_DUPLICATE_CLUSTER_WARNING_SIZE=2` — cluster size that triggers warning.
 - `TASKFORGE_AI_DUPLICATE_CLUSTER_FAIL_SIZE=3` — cluster size that triggers fail.
+
+
+## Preflight перед ручным тестом
+
+Перед запуском worker теперь можно быстро проверить конфиг:
+
+```bash
+cd taskforge-ai-worker-external
+python preflight.py
+```
+
+Для контейнерного healthcheck используется тот же скрипт:
+
+```bash
+python preflight.py --healthcheck
+```
+
+Если включён container sandbox, preflight проверит наличие `docker` CLI и базовую пригодность окружения.
+
+## Что важно перед тестом проекта целиком
+
+После добавления `TaskAssignment.IsAiGenerated` не забудь:
+
+1. Сгенерировать миграцию вручную.
+2. Применить её к базе.
+3. Только потом тестировать публикацию AI-draft и чтение заданий.
+
+Краткий чек-лист лежит в корне репозитория: `TESTING_NOW.md`.
