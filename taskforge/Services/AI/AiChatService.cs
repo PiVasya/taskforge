@@ -261,7 +261,7 @@ public sealed class AiChatService
         var execution = await ExecuteToolCallsAsync(session, messages, new List<AiFoundryChatToolCallDto> { toolCall }, userId, userDisplayName, ct);
         var toolResults = execution.ToolResults;
         var primaryResult = toolResults.FirstOrDefault();
-        var assistantIntro = MergeAssistantTextWithAgentTrace("Подтверждение получено. Выполняю действие.", execution.AgentTrace);
+        var assistantIntro = "Подтверждение получено. Выполняю действие.";
 
         messages.Add(new AiFoundryChatMessageDto
         {
@@ -350,7 +350,7 @@ public sealed class AiChatService
         var root = ParseJson(job.ResultJson);
         var (assistantText, toolCalls) = InterpretChatTurn(root, session, messages);
         var execution = await ExecuteToolCallsAsync(session, messages, toolCalls, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
-        var assistantIntro = MergeAssistantTextWithAgentTrace(assistantText, execution.AgentTrace);
+        var assistantIntro = assistantText;
 
         assistantMessage.Status = "done";
         assistantMessage.PendingJobId = null;
@@ -442,27 +442,11 @@ public sealed class AiChatService
         var finalResult = execution.ToolResults.LastOrDefault();
         var traceSummary = BuildAgentLoopSummary(requestedNames, autoNames, finalResult);
         execution.AgentTrace = traceSummary;
-
-        var displayResults = new List<AiFoundryChatToolResultDto>();
-        if (!string.IsNullOrWhiteSpace(traceSummary))
+        if (finalResult != null)
         {
-            displayResults.Add(new AiFoundryChatToolResultDto
-            {
-                Status = "done",
-                Summary = traceSummary,
-                NavigateTo = finalResult?.NavigateTo,
-                JobId = finalResult?.JobId,
-                BatchId = finalResult?.BatchId,
-                DraftId = finalResult?.DraftId,
-                AssignmentId = finalResult?.AssignmentId,
-                CourseId = finalResult?.CourseId,
-            });
+            execution.ToolResults.Clear();
+            execution.ToolResults.Add(finalResult);
         }
-        if (finalResult != null && (displayResults.Count == 0 || !string.Equals(displayResults[0].Summary, finalResult.Summary, StringComparison.OrdinalIgnoreCase)))
-            displayResults.Add(finalResult);
-
-        execution.ToolResults.Clear();
-        execution.ToolResults.AddRange(displayResults);
         return execution;
     }
 
@@ -1710,39 +1694,43 @@ public sealed class AiChatService
             : string.Empty;
         return $"Агент сам продолжил ход и последовательно выполнил: {string.Join(" → ", flow)}.{resultText}";
     }
-
-    private static string? MergeAssistantTextWithAgentTrace(string? assistantText, string? agentTrace)
-    {
-        var text = string.IsNullOrWhiteSpace(assistantText) ? null : assistantText.Trim();
-        if (string.IsNullOrWhiteSpace(agentTrace))
-            return text;
-        if (string.IsNullOrWhiteSpace(text))
-            return agentTrace.Trim();
-        if (text.Contains(agentTrace, StringComparison.OrdinalIgnoreCase))
-            return text;
-        return $"{text}\n\n{agentTrace.Trim()}";
-    }
-
     private static string BuildAssistantContent(string? assistantText, IReadOnlyList<AiFoundryChatToolResultDto>? toolResults)
     {
         var text = string.IsNullOrWhiteSpace(assistantText)
-            ? "AI завершила обработку, но не вернула текстовый комментарий. Покажу только выполненные действия и результаты."
+            ? "AI завершила обработку, но не вернула текстовый комментарий."
             : assistantText.Trim();
 
-        var summaries = (toolResults ?? Array.Empty<AiFoundryChatToolResultDto>())
+        var visibleSummaries = (toolResults ?? Array.Empty<AiFoundryChatToolResultDto>())
+            .Where(ShouldAppendToolResultToAssistantText)
             .Select(x => x.Summary?.Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (summaries.Count > 0)
+        if (visibleSummaries.Count > 0)
         {
-            var appendix = string.Join("\n", summaries.Select(x => $"• {x}"));
+            var appendix = string.Join("\n", visibleSummaries.Select(x => $"• {x}"));
             if (!string.IsNullOrWhiteSpace(appendix) && !text.Contains(appendix, StringComparison.OrdinalIgnoreCase))
                 text = $"{text}\n\n{appendix}";
         }
 
         return text;
+    }
+
+    private static bool ShouldAppendToolResultToAssistantText(AiFoundryChatToolResultDto? result)
+    {
+        if (result == null)
+            return false;
+        if (result.RequiresConfirmation)
+            return true;
+
+        var status = (result.Status ?? string.Empty).Trim();
+        if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "error", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return string.IsNullOrWhiteSpace(result.Summary) && !string.IsNullOrWhiteSpace(result.NavigateTo);
     }
 
     private static AiFoundryChatAttachmentDto? ResolveAttachment(List<AiFoundryChatMessageDto> messages, string? preferredFileKey)

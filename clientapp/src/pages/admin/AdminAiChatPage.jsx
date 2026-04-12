@@ -34,6 +34,7 @@ import {
   User,
   Wrench,
   X,
+  Code2,
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -260,12 +261,16 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
   );
 }
 
-function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy }) {
+function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy, showTechnical }) {
   const isAssistant = String(message?.role || '').toLowerCase() === 'assistant';
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
   const toolCalls = normalizeToolCalls(message);
   const toolResults = normalizeToolResults(message);
-  const quickReplies = isAssistant && toolCalls.length === 0 && toolResults.length === 0 ? getAssistantQuickReplies(message) : [];
+  const visibleToolCalls = showTechnical ? toolCalls : [];
+  const visibleToolResults = showTechnical
+    ? toolResults
+    : toolResults.filter((result) => result?.requiresConfirmation || ['failed', 'error', 'cancelled'].includes(String(result?.status || '').toLowerCase()));
+  const quickReplies = isAssistant && visibleToolCalls.length === 0 && visibleToolResults.length === 0 ? getAssistantQuickReplies(message) : [];
 
   return (
     <div className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
@@ -299,14 +304,14 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
           </div>
         )}
 
-        {toolCalls.map((tool, index) => (
+        {visibleToolCalls.map((tool, index) => (
           <div key={`${tool.name || 'tool'}-${index}`} className="mt-3 rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] px-3 py-2 text-xs opacity-80">
             <div className="flex items-center gap-2 font-medium"><Wrench size={14} /> Действие: {tool.name}</div>
             {tool.reason ? <div className="mt-1">{tool.reason}</div> : null}
           </div>
         ))}
 
-        {toolResults.map((result, index) => (
+        {visibleToolResults.map((result, index) => (
           <ToolResultCard
             key={`${result.status || 'result'}-${index}`}
             sessionId={sessionId}
@@ -353,6 +358,7 @@ export default function AdminAiChatPage() {
   const [exporting, setExporting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
   const previousPendingRef = useRef(false);
@@ -717,7 +723,10 @@ export default function AdminAiChatPage() {
                   {session?.memory?.messageCount ? <Badge variant="success">{session.memory.messageCount} сообщений</Badge> : null}
                   {pending ? <Badge variant="outline">AI думает…</Badge> : null}
                   <Button type="button" variant="outline" onClick={() => setShowMemory((v) => !v)}>
-                    {showMemory ? 'Скрыть детали' : 'Показать память'}
+                    {showMemory ? 'Скрыть память' : 'Показать память'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setShowTechnical((v) => !v)}>
+                    <Code2 size={16} /> {showTechnical ? 'Скрыть тех. детали' : 'Показать тех. детали'}
                   </Button>
                 </div>
                 <div className="mt-2 text-sm leading-6 opacity-75 whitespace-pre-wrap">
@@ -782,6 +791,7 @@ export default function AdminAiChatPage() {
                     onConfirm={onConfirmTool}
                     onQuickReply={onQuickReply}
                     actionBusy={actionBusy || sending}
+                    showTechnical={showTechnical}
                   />
                 ))}
               </>

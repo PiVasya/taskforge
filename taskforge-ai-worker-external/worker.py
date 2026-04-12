@@ -473,7 +473,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     show_plan_markers = ["покажи план", "что в плане", "какой план", "план мостиков", "покажи текущий план"]
     if has_bridge_plan and any(marker in (last_user or "").lower() for marker in show_plan_markers):
         return {
-            "assistantMessage": "Поняла. Покажу текущий план мостиков без пересборки, чтобы ты мог быстро поправить нужные точки.",
+            "assistantMessage": "Покажу текущий план.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "show_bridge_plan",
@@ -496,7 +496,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         if "отклони" in low or "убери" in low:
             args["reject"] = True
         return {
-            "assistantMessage": "Поняла. Не буду пересобирать план целиком — точечно поправлю уже собранные пункты по твоим замечаниям.",
+            "assistantMessage": "Поправлю текущий план.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "revise_bridge_plan",
@@ -509,7 +509,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     if any(marker in (last_user or "").lower() for marker in bridge_markers):
         if has_bridge_plan:
             return {
-                "assistantMessage": "Поняла. Перехожу от согласованного плана к генерации мостиковых задач.",
+                "assistantMessage": "Перехожу к генерации задач по плану.",
                 "sessionTitle": _chat_build_session_title(payload),
                 "actions": [{
                     "name": "queue_generate_bridge_batch",
@@ -524,7 +524,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             }
         if has_audit:
             return {
-                "assistantMessage": "Поняла. Перед генерацией соберу явный план мостиков с afterAssignmentId, количеством задач и title hints.",
+                "assistantMessage": "Сначала соберу план, потом перейду к генерации.",
                 "sessionTitle": _chat_build_session_title(payload),
                 "actions": [{
                     "name": "prepare_bridge_plan",
@@ -542,7 +542,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     short_followup = (last_user or "").strip().lower() in {"продолжай", "давай дальше", "дальше", "начинай", "ок", "го", "погнали", "делай дальше"}
     if short_followup and (course_id and (has_audit or has_bridge_plan)):
         return {
-            "assistantMessage": "Поняла. Продолжу по текущему состоянию агента: выберу следующий шаг на основе памяти, последнего аудита и плана мостиков.",
+            "assistantMessage": "Продолжаю по памяти этой сессии.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "advance_agent_stage",
@@ -556,7 +556,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     if has_audit and any(marker in (last_user or "").lower() for marker in plan_markers):
         return {
-            "assistantMessage": "Поняла. Соберу подробный план мостиков: что именно вставлять, после какого assignmentId и в каком стиле названий.",
+            "assistantMessage": "Соберу план мостиков.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "prepare_bridge_plan",
@@ -573,7 +573,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     inspect_markers = ["открой задания", "посмотри задания", "какие задания", "какие там названия", "покажи названия", "покажи соседние", "покажи что уже есть", "детальнее", "подробнее"]
     if has_audit and any(marker in (last_user or "").lower() for marker in inspect_markers):
         return {
-            "assistantMessage": "Поняла. Открою конкретные задания курса вокруг найденных мест, чтобы сверить стиль названий, landmarks и последовательность перед следующим шагом.",
+            "assistantMessage": "Сначала быстро сверю соседние задания курса.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "inspect_course_assignments",
@@ -591,7 +591,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     audit_markers = ["изучи курс", "посмотри что уже есть", "допил", "пробел", "мостик", "подводящ", "новая функция", "перед этим набор заданий"]
     if any(marker in (last_user or "").lower() for marker in audit_markers):
         return {
-            "assistantMessage": "Поняла. Сначала открою курс, посмотрю текущую последовательность заданий и соберу план пробелов и мостиков перед генерацией.",
+            "assistantMessage": "Сначала быстро проверю курс и найду пробелы перед генерацией.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "analyze_course_progression",
@@ -612,7 +612,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     if last_attachment and mentioned_file:
         return {
-            "assistantMessage": f"Поняла. Запускаю генерацию по прикреплённому файлу '{last_attachment.get('originalName') or last_attachment.get('fileKey') or 'файл'}'.",
+            "assistantMessage": f"Запускаю генерацию по файлу '{last_attachment.get('originalName') or last_attachment.get('fileKey') or 'файл'}'.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "queue_generate_from_file",
@@ -632,7 +632,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     if wants_multiple or final_count > 1:
         return {
-            "assistantMessage": f"Поняла. Запускаю batch на {final_count} задач по текущему контексту курса.",
+            "assistantMessage": f"Запускаю batch на {final_count} задач.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "queue_generate_batch",
@@ -652,7 +652,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     if last_attachment and str(last_attachment.get("textExcerpt") or "").strip():
         source_text = str(last_attachment.get("textExcerpt"))[:4000]
     return {
-        "assistantMessage": "Поняла. Запускаю генерацию по текущему текстовому контексту чата.",
+        "assistantMessage": "Запускаю генерацию по текущему контексту.",
         "sessionTitle": _chat_build_session_title(payload),
         "actions": [{
             "name": "queue_generate_from_text",
