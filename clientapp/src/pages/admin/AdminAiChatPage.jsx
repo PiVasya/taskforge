@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Select, Textarea } from '../../components/ui';
 import {
@@ -13,6 +13,7 @@ import {
   updateAiChatSession,
   uploadAiChatFile,
 } from '../../api/aiChat';
+import { getAiBatch, getAiDrafts, getAiJob } from '../../api/aiAdmin';
 import { getCourses } from '../../api/courses';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -20,6 +21,7 @@ import {
   Bot,
   CheckCircle2,
   Download,
+  Expand,
   LoaderCircle,
   Paperclip,
   Pencil,
@@ -35,6 +37,10 @@ import {
   Wrench,
   X,
   Code2,
+  ExternalLink,
+  Package,
+  FileText,
+  Shrink,
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -218,6 +224,130 @@ function MemoryPanel({ memory, courseTitle }) {
   );
 }
 
+// ── Live entity tracker ────────────────────────────────────
+
+function useLiveEntity(entityType, entityId, active = true) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (!entityId || !active) { setData(null); return undefined; }
+    let cancelled = false;
+    const fetcher = entityType === 'batch' ? getAiBatch
+      : entityType === 'job' ? getAiJob
+        : null;
+    if (!fetcher) return undefined;
+
+    const poll = async () => {
+      try {
+        setLoading(true);
+        const result = await fetcher(entityId);
+        if (!cancelled) setData(result);
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    poll();
+    intervalRef.current = setInterval(poll, 4000);
+    return () => { cancelled = true; clearInterval(intervalRef.current); };
+  }, [entityType, entityId, active]);
+
+  // Stop polling once entity reaches terminal state
+  useEffect(() => {
+    if (!data) return;
+    const status = String(data.status || data.batchStatus || '').toLowerCase();
+    const terminal = ['done', 'completed', 'failed', 'cancelled', 'published'];
+    if (terminal.some((s) => status.includes(s))) {
+      clearInterval(intervalRef.current);
+    }
+  }, [data]);
+
+  return { data, loading };
+}
+
+function LiveBatchCard({ batchId }) {
+  const { data: batch, loading } = useLiveEntity('batch', batchId);
+  if (!batch && !loading) return null;
+
+  const items = Array.isArray(batch?.items) ? batch.items : [];
+  const total = items.length || batch?.totalItems || 0;
+  const completed = items.filter((i) => ['completed', 'done', 'published'].includes(String(i.status || '').toLowerCase())).length;
+  const failed = items.filter((i) => String(i.status || '').toLowerCase() === 'failed').length;
+  const processing = items.filter((i) => String(i.status || '').toLowerCase() === 'processing').length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const batchStatus = String(batch?.status || batch?.batchStatus || 'unknown').toLowerCase();
+  const isDone = ['done', 'completed', 'published'].some((s) => batchStatus.includes(s));
+
+  return (
+    <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 px-3 py-3 text-sm bg-[rgb(var(--card))]">
+      <div className="flex flex-wrap items-center gap-2">
+        <Package size={14} />
+        <span className="font-medium">Batch</span>
+        <Badge variant={isDone ? 'success' : batchStatus === 'failed' ? 'danger' : 'outline'}>{batchStatus}</Badge>
+        <span className="opacity-60">{completed}/{total} готово{failed > 0 ? `, ${failed} ошибок` : ''}{processing > 0 ? `, ${processing} в работе` : ''}</span>
+        {loading && !isDone ? <LoaderCircle size={12} className="animate-spin opacity-50" /> : null}
+      </div>
+      {total > 0 && (
+        <div className="mt-2 h-2 w-full rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+          <div className="h-full rounded-full bg-[rgb(var(--accent))] transition-all duration-500" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {items.length > 0 && (
+        <div className="mt-3 flex flex-col gap-1">
+          {items.map((item, idx) => {
+            const st = String(item.status || '').toLowerCase();
+            const variant = st === 'completed' || st === 'done' || st === 'published' ? 'success' : st === 'failed' ? 'danger' : st === 'processing' ? 'outline' : 'outline';
+            const title = item.title || item.titleHint || item.targetSkill || `Задача ${idx + 1}`;
+            return (
+              <div key={item.id || idx} className="flex items-center gap-2 text-xs">
+                <Badge variant={variant} className="min-w-[80px] justify-center">{st || 'pending'}</Badge>
+                <span className="truncate">{title}</span>
+                {item.draftId ? (
+                  <Link to={`/admin/ai?tab=drafts&id=${item.draftId}`} className="opacity-60 hover:opacity-100">
+                    <ExternalLink size={12} />
+                  </Link>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveJobCard({ jobId }) {
+  const { data: job, loading } = useLiveEntity('job', jobId);
+  if (!job && !loading) return null;
+
+  const status = String(job?.status || 'unknown').toLowerCase();
+  const isDone = ['completed', 'done'].includes(status);
+  const variant = isDone ? 'success' : status === 'failed' ? 'danger' : 'outline';
+  const draftTitle = job?.result?.draft?.title || job?.result?.title;
+  const selfCheckScore = job?.result?.draftValidation?.score ?? job?.result?.selfCheckScore;
+
+  return (
+    <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 px-3 py-3 text-sm bg-[rgb(var(--card))]">
+      <div className="flex flex-wrap items-center gap-2">
+        <FileText size={14} />
+        <span className="font-medium">Job {String(job?.type || '').replace('assignment_', '')}</span>
+        <Badge variant={variant}>{status}</Badge>
+        {loading && !isDone ? <LoaderCircle size={12} className="animate-spin opacity-50" /> : null}
+      </div>
+      {draftTitle ? <div className="mt-2 opacity-90">Задача: {draftTitle}</div> : null}
+      {selfCheckScore != null ? (
+        <div className="mt-1 flex items-center gap-2">
+          <span className="opacity-60">Self-check:</span>
+          <Badge variant={selfCheckScore >= 0.8 ? 'success' : selfCheckScore >= 0.5 ? 'outline' : 'danger'}>
+            {(selfCheckScore * 100).toFixed(0)}%
+          </Badge>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
   const tone = result?.status === 'done'
     ? 'success'
@@ -241,6 +371,11 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
         {result?.draftId ? <Badge variant="outline">draft: {String(result.draftId).slice(0, 8)}</Badge> : null}
         {result?.assignmentId ? <Badge variant="outline">assignment: {String(result.assignmentId).slice(0, 8)}</Badge> : null}
       </div>
+
+      {/* Live tracking panels */}
+      {result?.batchId ? <LiveBatchCard batchId={result.batchId} /> : null}
+      {result?.jobId && !result?.batchId ? <LiveJobCard jobId={result.jobId} /> : null}
+
       <div className="mt-3 flex flex-wrap gap-2">
         {result?.navigateTo ? (
           <Link to={result.navigateTo} className="btn-outline inline-flex">Открыть связанную страницу</Link>
@@ -342,6 +477,8 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
 }
 
 export default function AdminAiChatPage() {
+  const [searchParams] = useSearchParams();
+  const isFullscreen = searchParams.get('fullscreen') === '1';
   const notify = useNotify();
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState('');
@@ -620,6 +757,119 @@ export default function AdminAiChatPage() {
   }, [sessionSearch, sessions]);
 
 
+  const openFullscreen = useCallback(() => {
+    const url = `/admin/ai/chat?fullscreen=1${sessionId ? `&session=${sessionId}` : ''}`;
+    window.open(url, '_blank');
+  }, [sessionId]);
+
+  // In fullscreen mode, auto-select session from URL param
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const urlSessionId = searchParams.get('session');
+    if (urlSessionId && urlSessionId !== sessionId) {
+      setSessionId(urlSessionId);
+      getAiChatSession(urlSessionId).then(setSession).catch(() => {});
+    }
+  }, [isFullscreen, searchParams, sessionId]);
+
+  // Fullscreen: render without Layout, no sidebar, full viewport
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-[9999] flex flex-col bg-[rgb(var(--background))] overflow-hidden">
+        {/* Compact top bar */}
+        <div className="flex-none border-b border-neutral-200/70 dark:border-neutral-800 px-4 py-2 flex items-center justify-between gap-3 bg-[rgb(var(--card))]">
+          <div className="flex items-center gap-3 min-w-0">
+            <Bot size={18} className="opacity-60 flex-none" />
+            <span className="font-semibold truncate">{session?.title || 'Новый AI-чат'}</span>
+            {session?.courseTitle ? <Badge variant="outline">{session.courseTitle}</Badge> : null}
+            {pending ? <Badge variant="outline">AI думает…</Badge> : null}
+          </div>
+          <div className="flex items-center gap-2 flex-none">
+            <Select
+              value={session?.courseId || ''}
+              onChange={(e) => syncCurrentCourse(e.target.value)}
+              disabled={!sessionId || pending || actionBusy}
+              className="w-[200px] text-xs"
+            >
+              <option value="">Курс не выбран</option>
+              {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </Select>
+            <Button type="button" variant="outline" onClick={() => setShowTechnical((v) => !v)} title="Тех. детали">
+              <Code2 size={14} />
+            </Button>
+            <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
+              <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
+            </Button>
+            <Button type="button" variant="outline" onClick={() => window.close()} title="Закрыть">
+              <Shrink size={14} />
+            </Button>
+          </div>
+        </div>
+
+        {/* Messages area */}
+        <div ref={listRef} className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
+          {currentMessages.length === 0 ? (
+            <div className="h-full grid place-items-center opacity-60">Отправь сообщение чтобы начать чат</div>
+          ) : (
+            <>
+              {pending ? (
+                <div className="rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-4 py-3 text-sm">
+                  <div className="inline-flex items-center gap-2"><LoaderCircle size={16} className="animate-spin" /> AI обрабатывает запрос…</div>
+                </div>
+              ) : null}
+              {currentMessages.map((item) => (
+                <MessageBubble
+                  key={item.id || `${item.role}-${item.createdAtUtc}`}
+                  sessionId={sessionId}
+                  message={item}
+                  onConfirm={onConfirmTool}
+                  onQuickReply={onQuickReply}
+                  actionBusy={actionBusy || sending}
+                  showTechnical={showTechnical}
+                />
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Compact input bar */}
+        <div className="flex-none border-t border-neutral-200/70 dark:border-neutral-800 px-4 py-3 bg-[rgb(var(--card))]">
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {files.map((file, idx) => (
+                <FileChip key={`${file.name}-${idx}`} file={file} removable onRemove={() => setFiles((prev) => prev.filter((_, i) => i !== idx))} />
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <button type="button" className="opacity-60 hover:opacity-100 p-2" onClick={() => fileInputRef.current?.click()} disabled={sending || pending}>
+              <Paperclip size={18} />
+            </button>
+            <input ref={fileInputRef} type="file" hidden multiple onChange={(e) => addFiles(e.target.files)} />
+            <Textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={2}
+              placeholder="Сообщение для AI…"
+              disabled={sending || pending || actionBusy}
+              className="flex-1 min-h-[44px] max-h-[120px] resize-none"
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); onSend(); }
+              }}
+            />
+            <Button type="button" onClick={() => onSend()} disabled={sending || pending || actionBusy || (!message.trim() && files.length === 0)} className="flex-none">
+              {sending ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
+            </Button>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(CONTINUE_MESSAGE)} disabled={sending || pending}>Продолжай</button>
+            <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(GENERATE_MESSAGE)} disabled={sending || pending}>Генерация</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Layout fullWidth>
       <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
@@ -711,6 +961,9 @@ export default function AdminAiChatPage() {
               </Button>
               <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
                 <RefreshCcw size={16} className={refreshing ? 'animate-spin' : ''} />
+              </Button>
+              <Button type="button" variant="outline" onClick={openFullscreen} title="Открыть в новой вкладке на весь экран">
+                <Expand size={16} />
               </Button>
             </div>
           </div>
