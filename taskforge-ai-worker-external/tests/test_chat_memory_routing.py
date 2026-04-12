@@ -23,6 +23,23 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         result = worker._normalize_chat_turn_result(payload, {"assistantMessage": "ok", "actions": []})
         self.assertEqual(result["actions"][0]["name"], "queue_generate_bridge_batch")
 
+    def test_generate_followup_prefers_teaching_script_and_suppresses_plan_loop(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Всё, делай"}],
+            "memory": {
+                "latestIntentKind": "generate",
+                "latestTeachingScript": "#include <iostream>\nint main() {\n  cout << \"Hi\";\n}",
+                "suppressBridgePlanLoop": True,
+                "lastBridgePlan": {"summary": "Есть план", "items": [{"index": 1}, {"index": 2}]},
+                "agentState": {"placementAfterAssignmentId": "a1"},
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {"assistantMessage": "ok", "actions": []})
+        self.assertEqual(result["actions"][0]["name"], "queue_generate_bridge_batch")
+        self.assertIn("#include <iostream>", result["actions"][0]["arguments"].get("prompt", ""))
+
     def test_revise_followup_infers_second_item(self):
         payload = {
             "courseId": "c1",

@@ -1453,7 +1453,7 @@ public sealed class AiChatService
         List<AiFoundryChatMessageDto> messages)
     {
         var assistantText = root?["assistantMessage"]?.ToString()?.Trim();
-        var toolCalls = ParseToolCalls(root).ToList();
+        var toolCalls = NormalizeChatToolCallsForCurrentState(session, messages, assistantText, ParseToolCalls(root).ToList()).ToList();
         if (!string.IsNullOrWhiteSpace(assistantText) || toolCalls.Count > 0)
         {
             if (string.IsNullOrWhiteSpace(assistantText) && toolCalls.Count > 0)
@@ -1473,6 +1473,66 @@ public sealed class AiChatService
         }
 
         return (assistantText, toolCalls);
+    }
+
+    private static IReadOnlyList<AiFoundryChatToolCallDto> NormalizeChatToolCallsForCurrentState(
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        string? assistantText,
+        List<AiFoundryChatToolCallDto> toolCalls)
+    {
+        if (toolCalls == null || toolCalls.Count == 0)
+            return Array.Empty<AiFoundryChatToolCallDto>();
+
+        var memory = DeserializeMemory(session.PlanJson);
+        var latestGoal = messages.LastOrDefault(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Content))?.Content;
+        var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
+        var preferDirectGeneration = memory.SuppressBridgePlanLoop || memory.AgentState?.PreferDirectGeneration == true || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase);
+        var planOnlyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan" };
+        var allPlanOnly = toolCalls.All(x => !string.IsNullOrWhiteSpace(x.Name) && planOnlyNames.Contains(x.Name.Trim()));
+        if (!preferDirectGeneration || !allPlanOnly)
+            return toolCalls;
+
+        var courseId = session.CourseId
+            ?? toolCalls.Select(x => ReadGuid(ParseArgumentsObject(x.ArgumentsJson), "courseId")).FirstOrDefault(x => x.HasValue);
+        if (!courseId.HasValue)
+            return toolCalls;
+
+        if (memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId.Value && memory.LastBridgePlan.Items.Count > 0)
+        {
+            var selectedIndexes = memory.LastBridgePlan.Items
+                .Where(x => !x.Rejected)
+                .OrderBy(x => x.Index)
+                .Select(x => x.Index)
+                .ToArray();
+            var args = new JsonObject
+            {
+                ["courseId"] = courseId.Value,
+                ["focus"] = ShortenSingleLine(latestGoal ?? assistantText ?? string.Empty, 240),
+                ["prompt"] = memory.LatestTeachingScript ?? memory.LatestExplicitInstruction ?? latestGoal ?? assistantText ?? string.Empty,
+            };
+            if (selectedIndexes.Length > 0)
+                args["itemIndexes"] = new JsonArray(selectedIndexes.Select(x => (JsonNode?)x).ToArray());
+            return new List<AiFoundryChatToolCallDto>
+            {
+                new()
+                {
+                    Name = "queue_generate_bridge_batch",
+                    Reason = "Новый явный запрос пользователя важнее старого plan-loop: переходим сразу к генерации по уже собранному плану.",
+                    ArgumentsJson = args.ToJsonString(),
+                },
+            };
+        }
+
+        return new List<AiFoundryChatToolCallDto>
+        {
+            new()
+            {
+                Name = "advance_agent_stage",
+                Reason = "Пользователь просит не обсуждать план дальше, а довести текущий pipeline до генерации автоматически.",
+                ArgumentsJson = JsonSerializer.Serialize(new { courseId = courseId.Value, focus = latestGoal ?? assistantText }, JsonOptions),
+            },
+        };
     }
 
     private static (AiFoundryChatToolCallDto? ToolCall, string? AssistantText) TrySynthesizeLegacyAction(
@@ -2033,7 +2093,11 @@ public sealed class AiChatService
             || low.Contains("не show_bridge_plan")
             || low.Contains("не revise_bridge_plan")
             || low.Contains("нужна сама задача")
-            || low.Contains("нужен именно текст задачи");
+            || low.Contains("нужен именно текст задачи")
+            || low.Contains("делай всё сразу")
+            || low.Contains("делай все сразу")
+            || low.Contains("всё, делай")
+            || low.Contains("все, делай");
     }
 
     private static List<int> InferPlanItemIndexesFromText(string? text)
@@ -3367,8 +3431,12 @@ public sealed class AiChatService
         var indexes = ReadIndexes(args, "itemIndexes", "itemIndex", "findingIndexes");
         if (indexes.Count == 0)
             indexes = InferPlanItemIndexesFromText(ReadString(args, "note") ?? ReadString(args, "reason"));
+        var normalizedIndexes = indexes
+            .Select(x => x <= 0 ? 1 : x)
+            .Distinct()
+            .ToHashSet();
         var selected = revised.Items
-            .Where(x => indexes.Count == 0 || indexes.Contains(x.Index) || indexes.Contains(x.Index - 1))
+            .Where(x => normalizedIndexes.Count == 0 || normalizedIndexes.Contains(x.Index))
             .ToList();
         if (selected.Count == 0)
             selected = revised.Items.Take(1).ToList();

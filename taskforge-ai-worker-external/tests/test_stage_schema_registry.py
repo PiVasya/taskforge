@@ -15,10 +15,10 @@ class StageSchemaRegistryTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(errors)
 
-    def test_stage_llm_config_attaches_schema(self):
+    def test_stage_llm_config_uses_json_mode_for_chat(self):
         cfg = worker._stage_llm_config("assistant_chat_turn", {}, 0)
-        self.assertIsNotNone(cfg.json_schema)
-        self.assertEqual(cfg.json_schema["name"], "assistant_chat_turn")
+        self.assertIsNone(cfg.json_schema)
+        self.assertTrue(cfg.json_mode)
 
 
 if __name__ == "__main__":

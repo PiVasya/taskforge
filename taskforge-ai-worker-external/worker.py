@@ -426,6 +426,49 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
     return result, issues
 
 
+
+
+def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+
+
+def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: str) -> str:
+    memory = _chat_memory(payload)
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    for raw in (memory.get("latestIntentKind"), agent_state.get("latestIntentKind")):
+        value = str(raw or "").strip()
+        if value:
+            return value
+    low = (last_user or prompt or "").strip().lower()
+    if any(marker in low for marker in ["поправь план", "измени план", "исправь план", "поставь её второй", "поставь ее второй", "добавь вторым", "сделай задачку"]):
+        return "revise-plan"
+    if any(marker in low for marker in ["покажи план", "какой план", "что в плане"]):
+        return "show-plan"
+    if any(marker in low for marker in ["не план", "саму задачу", "готовую задачу", "готовый текст", "создай черновик", "создай draft", "сразу генерац", "сгенерируй", "создай зада", "всё, делай", "все, делай", "делай всё", "делай все", "делай", "сделай всё сразу", "сделай все сразу"]):
+        return "generate"
+    if "план" in low:
+        return "plan"
+    return "chat"
+
+
+def _chat_latest_teaching_script(payload: Dict[str, Any], last_user: str) -> str:
+    memory = _chat_memory(payload)
+    for raw in (memory.get("latestTeachingScript"), memory.get("latestExplicitInstruction")):
+        value = str(raw or "").strip()
+        if value:
+            return value
+    return str(last_user or "").strip()
+
+
+def _chat_suppress_bridge_plan_loop(payload: Dict[str, Any], latest_intent_kind: str, teaching_script: str, last_user: str) -> bool:
+    memory = _chat_memory(payload)
+    if bool(memory.get("suppressBridgePlanLoop")):
+        return True
+    if latest_intent_kind == "generate" or bool(teaching_script.strip()):
+        return True
+    low = (last_user or "").lower()
+    return any(marker in low for marker in ["не показывай план", "не возвращайся к план", "не делай новый план", "не show_bridge_plan", "не revise_bridge_plan", "нужна сама задача", "нужен именно текст задачи", "сделай всё сразу", "сделай все сразу", "всё, делай", "все, делай"])
+
 def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return {"assistantMessage": "Я не смогла корректно разобрать ответ модели. Повтори запрос короче или уточни действие.", "actions": []}
@@ -463,16 +506,50 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             "sessionTitle": _chat_build_session_title(payload),
         }
 
-    memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+    memory = _chat_memory(payload)
     has_audit = isinstance(memory.get("lastCourseAudit"), dict)
     has_bridge_plan = isinstance(memory.get("lastBridgePlan"), dict)
     agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
+    latest_teaching_script = _chat_latest_teaching_script(payload, last_user)
+    suppress_bridge_plan_loop = _chat_suppress_bridge_plan_loop(payload, latest_intent_kind, latest_teaching_script, last_user)
     explicit_after_assignment_id = _chat_extract_assignment_id(last_user)
     remembered_after_assignment_id = explicit_after_assignment_id or agent_state.get("placementAfterAssignmentId") or ((agent_state.get("placementCandidates") or [{}])[0].get("afterAssignmentId") if isinstance(agent_state.get("placementCandidates"), list) and agent_state.get("placementCandidates") else None)
     focus_text = last_user or prompt
 
+    if suppress_bridge_plan_loop and latest_intent_kind == "generate":
+        if has_bridge_plan:
+            return {
+                "assistantMessage": "Перехожу к генерации по последнему согласованному плану.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "queue_generate_bridge_batch",
+                    "reason": "Последняя явная инструкция пользователя важнее старого plan-loop: нужно перейти к генерации по уже собранному bridge plan и teaching-script.",
+                    "arguments": {
+                        "courseId": course_id,
+                        "focus": focus_text,
+                        "prompt": latest_teaching_script or prompt,
+                        **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                        **({"count": explicit_count} if explicit_count else {}),
+                    },
+                }],
+            }
+        if has_audit or agent_state:
+            return {
+                "assistantMessage": "Продолжаю автоматически от последнего найденного шага и доведу до генерации.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "advance_agent_stage",
+                    "reason": "Пользователь просит не обсуждать план дальше, а сразу довести текущий pipeline до реальной генерации.",
+                    "arguments": {
+                        "courseId": course_id,
+                        "focus": focus_text,
+                    },
+                }],
+            }
+
     show_plan_markers = ["покажи план", "что в плане", "какой план", "план мостиков", "покажи текущий план"]
-    if has_bridge_plan and any(marker in (last_user or "").lower() for marker in show_plan_markers):
+    if has_bridge_plan and not suppress_bridge_plan_loop and any(marker in (last_user or "").lower() for marker in show_plan_markers):
         return {
             "assistantMessage": "Покажу текущий план.",
             "sessionTitle": _chat_build_session_title(payload),
@@ -486,7 +563,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         }
 
     revise_markers = ["поправь план", "измени план", "поменяй план", "убери", "оставь только", "подтверди", "отклони", "сдвинь", "после этого задания", "сделай по 2 задачи", "исправь план", "поставь её второй", "поставь ее второй", "сделай задачку"]
-    if has_bridge_plan and any(marker in (last_user or "").lower() for marker in revise_markers):
+    if has_bridge_plan and latest_intent_kind == "revise-plan" and any(marker in (last_user or "").lower() for marker in revise_markers):
         args = {
             "courseId": course_id,
             "note": prompt,
