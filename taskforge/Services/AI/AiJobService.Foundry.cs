@@ -144,6 +144,9 @@ public sealed partial class AiJobService
             await EnqueuePostRepairReviewsAsync(completedJob, ct);
         }
 
+        // ── Batch → Chat feedback: push status updates into originating chat session ──
+        await TryPushBatchStatusToChatAsync(completedJob, ct);
+
         ConsoleFoundry("sync-finish", completedJob);
     }
 
@@ -933,6 +936,132 @@ public sealed partial class AiJobService
         batch.SummaryJson = JsonSerializer.Serialize(summary, JsonOptions);
         batch.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+    }
+
+    // ── Batch → Chat feedback loop ──────────────────────────────────────────
+    // Pushes a system message into the originating chat session whenever a
+    // significant batch event occurs (plan ready, drafts generated, reviews done,
+    // errors, needs-clarification).
+
+    private async Task TryPushBatchStatusToChatAsync(AiJob completedJob, CancellationToken ct)
+    {
+        // Only handle batch-scoped stages
+        if (!string.Equals(completedJob.TargetEntityType, "ai-batch", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(completedJob.TargetEntityType, "ai-batch-item", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // Resolve batch
+        Guid? batchId = null;
+        if (string.Equals(completedJob.TargetEntityType, "ai-batch", StringComparison.OrdinalIgnoreCase))
+            batchId = completedJob.TargetEntityId;
+        else if (completedJob.TargetEntityId.HasValue)
+        {
+            batchId = await _db.AiBatchItems.AsNoTracking()
+                .Where(x => x.Id == completedJob.TargetEntityId.Value)
+                .Select(x => (Guid?)x.BatchId)
+                .FirstOrDefaultAsync(ct);
+        }
+        if (!batchId.HasValue) return;
+
+        var batch = await _db.AiBatches.AsNoTracking()
+            .Where(x => x.Id == batchId.Value)
+            .Select(x => new { x.ChatSessionId, x.Status, x.CurrentStage, x.RequestedCount,
+                ReadyCount = x.Items.Count(i => i.Status == "ready" || i.Status == "reviewed"),
+                FailedCount = x.Items.Count(i => i.Status == "draft-missing" || i.Status.StartsWith("repair-")),
+                TotalItems = x.Items.Count })
+            .FirstOrDefaultAsync(ct);
+        if (batch?.ChatSessionId == null) return;
+
+        // Determine if this is a significant event worth pushing to chat
+        var notification = BuildBatchChatNotification(completedJob.Type, batch.Status, batch.CurrentStage,
+            batch.RequestedCount, batch.TotalItems, batch.ReadyCount, batch.FailedCount, completedJob.ResultJson);
+        if (notification == null) return;
+
+        // Load session and append system message
+        var session = await _db.Set<Data.Models.Entities.AI.AiFoundryChatSession>()
+            .FirstOrDefaultAsync(x => x.Id == batch.ChatSessionId.Value, ct);
+        if (session == null) return;
+
+        var messages = DeserializeChatMessages(session.MessagesJson);
+        messages.Add(new
+        {
+            id = Guid.NewGuid(),
+            role = "system",
+            content = notification.Value.Message,
+            createdAtUtc = DateTime.UtcNow,
+            status = notification.Value.Status,
+            batchId = batchId.Value,
+        });
+        session.MessagesJson = JsonSerializer.Serialize(messages, JsonOptions);
+        session.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        Console.WriteLine($"[AiJobService][Foundry] batch→chat >>> sessionId={batch.ChatSessionId} batchStatus={batch.Status} stage={completedJob.Type}");
+    }
+
+    private static (string Message, string Status)? BuildBatchChatNotification(string jobType, string? batchStatus, string? currentStage,
+        int requestedCount, int totalItems, int readyCount, int failedCount, string? resultJson)
+    {
+        var type = (jobType ?? "").ToLowerInvariant();
+
+        // Batch plan completed — the plan is ready
+        if (type == AiFoundryJobTypes.BatchPlan.ToLowerInvariant() || type == AiFoundryJobTypes.BatchReplan.ToLowerInvariant())
+        {
+            // Check if planner returned an error
+            if (!string.IsNullOrWhiteSpace(resultJson))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(resultJson);
+                    if (doc.RootElement.TryGetProperty("plan", out var plan) && plan.ValueKind == JsonValueKind.Object
+                        && plan.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
+                    {
+                        return ($"[Batch] ⚠️ Планировщик не смог составить план: {err.GetString()}. Уточни запрос и я попробую снова.", "needs-clarification");
+                    }
+                }
+                catch { /* ignore parse errors */ }
+            }
+            return ($"[Batch] 📋 План готов. Начинаю генерацию {requestedCount} заданий.", "batch-update");
+        }
+
+        // Individual draft generated
+        if (type.StartsWith("assignment_generate"))
+        {
+            if (readyCount + failedCount >= totalItems && totalItems > 0)
+            {
+                if (failedCount > 0)
+                    return ($"[Batch] ⚠️ Генерация завершена: {readyCount}/{totalItems} заданий готово, {failedCount} с проблемами. Проверь результат.", "batch-update");
+                return ($"[Batch] ✅ Все {readyCount} заданий сгенерированы. Начинаю проверку качества.", "batch-update");
+            }
+            return null; // not all items done yet, don't spam
+        }
+
+        // Batch review done — final quality verdict
+        if (type == AiFoundryJobTypes.BatchReview.ToLowerInvariant())
+            return ($"[Batch] 📊 Проверка batch завершена. Готово: {readyCount}/{totalItems}. Текущий статус: {batchStatus}.", "batch-update");
+
+        // Publication audit ready
+        if (type == AiFoundryJobTypes.BatchPublishPrepare.ToLowerInvariant())
+            return ($"[Batch] 📦 Аудит публикации готов. Статус: {batchStatus}.", "batch-update");
+
+        // Planner feedback
+        if (type == AiFoundryJobTypes.PlannerFeedback.ToLowerInvariant())
+            return ($"[Batch] 🎯 Обратная связь от планировщика получена. Batch завершён. Статус: {batchStatus}.", "batch-update");
+
+        return null; // Not a significant event
+    }
+
+    private static List<object> DeserializeChatMessages(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<object>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<object>>(json, JsonOptions) ?? new List<object>();
+        }
+        catch
+        {
+            return new List<object>();
+        }
     }
 
     private static (string? Band, int? OverallScore, Dictionary<string, int> Dimensions, string? PrimaryRoute, string Status) ParseBatchItemSummary(AiBatchItem item)

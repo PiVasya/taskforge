@@ -179,6 +179,9 @@ public sealed class AiGenerateAssignmentBatchRequestDto
     public string? StructuredContextJson { get; set; }
 
     public int Priority { get; set; } = 20;
+
+    /// <summary>Chat session that created this batch (for feedback loop).</summary>
+    public Guid? ChatSessionId { get; set; }
 }
 
 public class AiBatchListItemDto

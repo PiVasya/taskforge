@@ -19,6 +19,7 @@ public sealed partial class AiJobService
             Id = Guid.NewGuid(),
             CourseId = request.CourseId,
             CreatedByUserId = createdByUserId,
+            ChatSessionId = request.ChatSessionId,
             Prompt = request.Prompt,
             AssignmentType = NormalizeDraftAssignmentType(request.AssignmentType, default),
             Mode = string.IsNullOrWhiteSpace(request.Mode) ? "topic-pack" : request.Mode.Trim(),
@@ -328,6 +329,24 @@ private async Task PersistBatchPlanAsync(AiJob completedJob, bool isReplan, Canc
 
     using var doc = JsonDocument.Parse(completedJob.ResultJson);
     var root = doc.RootElement;
+
+    // ── Check for planner error / needs-clarification ──
+    if (root.TryGetProperty("plan", out var planNode) && planNode.ValueKind == JsonValueKind.Object
+        && planNode.TryGetProperty("error", out var planError) && planError.ValueKind == JsonValueKind.String)
+    {
+        var errorMessage = planError.GetString() ?? "Неизвестная ошибка планировщика";
+        batch.Status = "needs-clarification";
+        batch.CurrentStage = isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BatchPlan;
+        batch.PlanJson = completedJob.ResultJson;
+        batch.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        await CreateBatchDecisionLogAsync(batch.Id, null, completedJob.Id,
+            isReplan ? AiFoundryStages.BatchReplan : AiFoundryStages.BatchPlan,
+            "needs-clarification", $"Planner вернул ошибку: {errorMessage}", completedJob.ResultJson, ct);
+        Console.WriteLine($"[AiJobService][Foundry] batch-plan-needs-clarification >>> batchId={batch.Id} error={errorMessage}");
+        return;
+    }
+
     var tasks = ExtractPlannerTasks(root);
     if (tasks.Count == 0)
     {

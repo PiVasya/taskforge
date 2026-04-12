@@ -398,6 +398,9 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
 
 function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy, showTechnical }) {
   const isAssistant = String(message?.role || '').toLowerCase() === 'assistant';
+  const isSystem = String(message?.role || '').toLowerCase() === 'system';
+  const isBatchUpdate = message?.status === 'batch-update' || message?.status === 'needs-clarification';
+  const isNeedsClarification = message?.status === 'needs-clarification';
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
   const toolCalls = normalizeToolCalls(message);
   const toolResults = normalizeToolResults(message);
@@ -406,6 +409,30 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
     ? toolResults
     : toolResults.filter((result) => result?.requiresConfirmation || ['failed', 'error', 'cancelled'].includes(String(result?.status || '').toLowerCase()));
   const quickReplies = isAssistant && visibleToolCalls.length === 0 && visibleToolResults.length === 0 ? getAssistantQuickReplies(message) : [];
+
+  // System/batch-update messages rendered as compact notifications
+  if (isSystem || isBatchUpdate) {
+    const borderColor = isNeedsClarification
+      ? 'border-red-400/60 dark:border-red-500/50'
+      : 'border-amber-400/50 dark:border-amber-500/40';
+    const bgColor = isNeedsClarification
+      ? 'bg-red-50/60 dark:bg-red-900/15'
+      : 'bg-amber-50/60 dark:bg-amber-900/15';
+    const textColor = isNeedsClarification
+      ? 'text-red-800 dark:text-red-300'
+      : 'text-amber-800 dark:text-amber-300';
+    return (
+      <div className="flex justify-center">
+        <div className={`max-w-[85%] rounded-2xl border border-dashed ${borderColor} ${bgColor} px-4 py-2 text-xs ${textColor}`}>
+          <span className="whitespace-pre-wrap">{message?.content || '—'}</span>
+          {isNeedsClarification && (
+            <div className="mt-1 text-[10px] opacity-70 italic">Ответьте в чате, чтобы уточнить запрос</div>
+          )}
+          <span className="ml-2 opacity-50">{formatDate(message?.createdAtUtc)}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
@@ -516,6 +543,16 @@ export default function AdminAiChatPage() {
     () => currentMessages.some((x) => x.role === 'assistant' && x.status === 'processing'),
     [currentMessages],
   );
+  // Track active batches — poll for batch→chat feedback messages
+  const hasActiveBatch = useMemo(() => {
+    const toolResults = currentMessages.flatMap((m) => m.toolResults || []);
+    const batchIds = toolResults.filter((r) => r.batchId).map((r) => r.batchId);
+    if (batchIds.length === 0) return false;
+    // Check if the last system message about batch is a terminal state
+    const lastBatchMsg = [...currentMessages].reverse().find((m) => m.status === 'batch-update' || m.status === 'needs-clarification');
+    if (lastBatchMsg && (lastBatchMsg.status === 'needs-clarification' || /завершён|готов|Все .* сгенерированы|Аудит публикации/i.test(lastBatchMsg.content || ''))) return false;
+    return true;
+  }, [currentMessages]);
   const lastAssistantMessage = useMemo(() => ([...currentMessages].reverse().find((x) => x.role === 'assistant' && x.status !== 'processing') || null), [currentMessages]);
 
   const upsertSessionListItem = useCallback((full) => {
@@ -581,6 +618,21 @@ export default function AdminAiChatPage() {
     }, 3000);
     return () => clearInterval(timer);
   }, [pending, sessionId, upsertSessionListItem]);
+
+  // Batch progress polling — slower interval, runs while batch is active
+  useEffect(() => {
+    if (!sessionId || !hasActiveBatch || pending) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const full = await getAiChatSession(sessionId);
+        setSession(full);
+        setSessions((prev) => prev.map((item) => (item.id === full.id ? upsertSessionListItem(full) : item)));
+      } catch {
+        // ignore transient polling issues
+      }
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [hasActiveBatch, pending, sessionId, upsertSessionListItem]);
 
   useEffect(() => {
     if (previousPendingRef.current && !pending && lastAssistantMessage?.status === 'done') {

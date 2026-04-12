@@ -503,6 +503,7 @@ public sealed class AiChatService
                         Notes = ReadString(args, "notes"),
                         StructuredContextJson = structuredContextJson,
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                        ChatSessionId = session.Id,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     return new AiFoundryChatToolResultDto
@@ -571,38 +572,59 @@ public sealed class AiChatService
                     var inspection = memory.LastCourseInspection != null && memory.LastCourseInspection.CourseId == courseId.Value ? memory.LastCourseInspection : null;
                     var focus = ReadString(args, "focus");
                     var requestedCount = Math.Clamp(ReadInt(args, "count") ?? 6, 1, 12);
-                    var inspectionAnchor = BuildInspectionPlacementCandidate(inspection);
-                    var requestedAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory) ?? inspectionAnchor?.AfterAssignmentId;
-                    var requestedAfterAssignmentTitle = ResolveRequestedAfterAssignmentTitle(memory, requestedAfterAssignmentId)
-                        ?? inspectionAnchor?.AfterAssignmentTitle
-                        ?? await _db.TaskAssignments.AsNoTracking()
-                            .Where(x => requestedAfterAssignmentId.HasValue && x.Id == requestedAfterAssignmentId.Value)
-                            .Select(x => x.Title)
-                            .FirstOrDefaultAsync(ct);
 
+                    // ── Strict checks: no data = stop and ask user ──
+                    if (string.IsNullOrWhiteSpace(focus) && (audit == null || string.IsNullOrWhiteSpace(audit.Focus)))
+                        return FailTool("Нет фокуса. Спроси пользователя: какую тему нужно закрыть мостиками? Например: 'объяснить cout и первый вывод', 'переменные и типы', 'условия if/else'. Без явной темы генерация заблокирована.");
+
+                    if (audit == null)
+                        return FailTool("Нет аудита курса. Сначала вызови analyze_course_progression с фокусом пользователя, чтобы понять где именно пробелы в курсе.");
+
+                    // Build plan from audit findings (if any)
                     AiFoundryBridgePlanDto? bridgePlan = null;
-                    if (audit != null && audit.Findings.Count > 0)
+                    if (audit.Findings.Count > 0)
                     {
                         var selectedFindings = SelectAuditFindings(audit, args);
+                        var inspectionAnchor = BuildInspectionPlacementCandidate(inspection);
+                        var requestedAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory) ?? inspectionAnchor?.AfterAssignmentId;
                         if (selectedFindings.Count > 0)
                             bridgePlan = BuildBridgePlan(audit, inspection, selectedFindings, focus, requestedAfterAssignmentId, requestedCount);
                     }
 
-                    if (bridgePlan == null && requestedAfterAssignmentId.HasValue)
+                    // If audit had no findings or BuildBridgePlan returned empty, try BuildDetailedBridgePlanFromAnchor
+                    // but ONLY if we have a focus (already checked above)
+                    if (bridgePlan == null || bridgePlan.Items.Count == 0)
                     {
-                        var fallbackAudit = EnsureBridgeAudit(courseId.Value, audit, inspection, memory.LastBridgePlan);
-                        bridgePlan = BuildDetailedBridgePlanFromAnchor(
-                            fallbackAudit,
-                            inspection,
-                            requestedAfterAssignmentId.Value,
-                            requestedAfterAssignmentTitle,
-                            focus,
-                            requestedCount,
-                            memory.AgentState);
+                        // Determine anchor: from audit finding, or from inspection, or from args
+                        Guid? anchorId = null;
+                        string? anchorTitle = null;
+                        if (audit.Findings.Count > 0)
+                        {
+                            var bestFinding = audit.Findings.First();
+                            anchorId = bestFinding.AfterAssignmentId ?? bestFinding.BeforeAssignmentId;
+                            anchorTitle = bestFinding.AfterAssignmentTitle ?? bestFinding.BeforeAssignmentTitle;
+                        }
+                        anchorId ??= ResolveRequestedAfterAssignmentId(args, memory) ?? BuildInspectionPlacementCandidate(inspection)?.AfterAssignmentId;
+                        if (anchorId.HasValue)
+                        {
+                            anchorTitle ??= ResolveRequestedAfterAssignmentTitle(memory, anchorId)
+                                ?? await _db.TaskAssignments.AsNoTracking()
+                                    .Where(x => x.Id == anchorId.Value)
+                                    .Select(x => x.Title)
+                                    .FirstOrDefaultAsync(ct);
+                            bridgePlan = BuildDetailedBridgePlanFromAnchor(
+                                audit, inspection, anchorId.Value, anchorTitle,
+                                focus, requestedCount, memory.AgentState);
+                        }
                     }
 
-                    if (bridgePlan == null)
-                        return FailTool("Не удалось собрать план мостиков. Нужен либо полезный аудит курса, либо выбранный afterAssignmentId / просмотр соседних заданий.");
+                    if (bridgePlan == null || bridgePlan.Items.Count == 0)
+                    {
+                        var reason = audit.Findings.Count == 0
+                            ? $"Аудит курса не нашёл педагогических пробелов по фокусу «{focus ?? audit.Focus}». Спроси пользователя: где именно он видит проблему? После какого задания нужны мостики?"
+                            : $"Не удалось построить план. Аудит нашёл {audit.Findings.Count} пробел(ов), но ни один не подошёл для плана. Спроси пользователя: какой именно пробел он имеет в виду? После какого задания вставить мостики?";
+                        return FailTool(reason);
+                    }
 
                     session.PlanJson = SerializeMemory(WithLastBridgePlan(BuildMemory(messages, session.PlanJson), bridgePlan));
 
@@ -681,36 +703,16 @@ public sealed class AiChatService
                     var memory = DeserializeMemory(session.PlanJson);
                     var audit = EnsureBridgeAudit(courseId.Value, memory.LastCourseAudit, memory.LastCourseInspection, memory.LastBridgePlan);
 
+                    // ── Strict: require a pre-existing plan. No on-the-fly plan building. ──
                     var bridgePlan = memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId.Value
                         ? memory.LastBridgePlan
-                        : (audit.Findings.Count > 0
-                            ? BuildBridgePlan(audit, memory.LastCourseInspection, SelectAuditFindings(audit, args), ReadString(args, "focus"), ResolveRequestedAfterAssignmentId(args, memory), Math.Clamp(ReadInt(args, "count") ?? 6, 1, 12))
-                            : null);
+                        : null;
 
-                    // Fallback: build plan from anchor if audit findings are empty (mirrors prepare_bridge_plan logic)
-                    if ((bridgePlan == null || bridgePlan.Items.Count == 0))
-                    {
-                        var inspection = memory.LastCourseInspection != null && memory.LastCourseInspection.CourseId == courseId.Value ? memory.LastCourseInspection : null;
-                        var inspectionAnchor = BuildInspectionPlacementCandidate(inspection);
-                        var anchorId = ResolveRequestedAfterAssignmentId(args, memory) ?? inspectionAnchor?.AfterAssignmentId;
-                        if (anchorId.HasValue)
-                        {
-                            var anchorTitle = ResolveRequestedAfterAssignmentTitle(memory, anchorId)
-                                ?? inspectionAnchor?.AfterAssignmentTitle
-                                ?? await _db.TaskAssignments.AsNoTracking()
-                                    .Where(x => x.Id == anchorId.Value)
-                                    .Select(x => x.Title)
-                                    .FirstOrDefaultAsync(ct);
-                            bridgePlan = BuildDetailedBridgePlanFromAnchor(
-                                audit, inspection, anchorId.Value, anchorTitle,
-                                ReadString(args, "focus"),
-                                Math.Clamp(ReadInt(args, "count") ?? 6, 1, 12),
-                                memory.AgentState);
-                        }
-                    }
+                    if (bridgePlan == null)
+                        return FailTool("Нет готового плана мостиков. Сначала вызови prepare_bridge_plan с явным focus от пользователя. Без плана генерация заблокирована.");
 
-                    if (bridgePlan == null || bridgePlan.Items.Count == 0)
-                        return FailTool("Не удалось собрать plan items для bridge-batch. Сначала собери план мостиков или обнови аудит/инспекцию курса.");
+                    if (bridgePlan.Items.Count == 0)
+                        return FailTool("План мостиков пустой (0 items). Это значит что prepare_bridge_plan не смог построить план. Спроси пользователя какую тему он хочет закрыть и повторно вызови prepare_bridge_plan с focus.");
 
                     var selectedItems = SelectBridgePlanItems(bridgePlan, args);
                     if (selectedItems.Count == 0)
@@ -737,6 +739,7 @@ public sealed class AiChatService
                         Notes = notes,
                         StructuredContextJson = structuredContextJson,
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                        ChatSessionId = session.Id,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     return new AiFoundryChatToolResultDto
@@ -2777,8 +2780,15 @@ public sealed class AiChatService
             }
         }
 
-        findings = findings
-            .Where(x => MatchesFocus(x, focusText))
+        // Only apply MatchesFocus narrowing for non-diagnostic audits with specific focus.
+        // For diagnostic intents ("find gaps", "syntax basics"), known-concept filtering
+        // in ShouldFlagConcept is sufficient — double-filtering causes false negatives
+        // (e.g. focus token "курса" not matching "курсе" in finding text).
+        var isDiagnostic = IsDiagnosticGapAuditIntent(focusText) || FocusWantsSyntaxBasics(focusText)
+            || string.IsNullOrWhiteSpace(focusText);
+        findings = (isDiagnostic
+                ? findings
+                : findings.Where(x => MatchesFocus(x, focusText)))
             .Take(12)
             .ToList();
 
@@ -3238,46 +3248,102 @@ public sealed class AiChatService
             || string.Equals(agentState?.LearnerAudience, "young-beginners", StringComparison.OrdinalIgnoreCase)
             || string.Equals(agentState?.PedagogyMode, "guided-simple", StringComparison.OrdinalIgnoreCase);
 
-        var cycleSteps = new List<(string concept, string hint, string learn, string intro, string whyNotLoops)>
+        // ── Build plan items from user's actual focus/intent, not hardcoded templates ──
+        var userIntent = normalizedFocus ?? string.Empty;
+        var userIntentShort = userIntent.Length > 120 ? userIntent[..120] + "…" : userIntent;
+
+        // Extract recognizable concept keywords from the focus to name plan items.
+        // Each entry: (keyword in focus) → (concept id, short label for titleHint)
+        var conceptMap = new (string[] keywords, string concept, string label)[]
         {
-            ("numbers", "Два числа и одно действие", "считывать два значения и выполнять одно простое арифметическое действие", "ввод двух чисел и один новый вычислительный шаг", "здесь ещё нет повторения, только один линейный проход по данным"),
-            ("format", "Число и короткая подпись", "соединять число с коротким текстом в понятном формате вывода", "аккуратный формат ответа и внимание к шаблону вывода", "задача остаётся линейной: один ввод, один расчёт, один вывод"),
-            ("compare", "Больше или меньше", "сравнивать два числа и делать один простой вывод по результату", "идею выбора между двумя вариантами", "мы вводим одно условие, но ещё не повторяем действия много раз"),
-            ("if", "Проверка одного условия", "писать самый первый if без вложенности и без сложных веток", "минимальную конструкцию ветвления", "это ещё не цикл: условие проверяется один раз"),
-            ("manual-repeat", "Три шага подряд", "вручную выполнять несколько одинаковых шагов подряд и замечать повторяемость", "идею однотипных действий без синтаксиса цикла", "повтор делается руками по шагам, чтобы не вводить новую конструкцию слишком рано"),
-            ("counter-idea", "Сколько раз повторить", "понимать, где появляется счётчик и зачем вообще нужен будущий цикл", "идею количества повторений и счётчика", "мы только готовим смысл цикла, но не используем for/while"),
-        };
-        var genericSteps = new List<(string concept, string hint, string learn, string intro, string whyNotLoops)>
-        {
-            ("step-1", "Первый маленький шаг", "сделать один новый шаг поверх уже знакомого ввода/вывода", "одну новую идею в безопасном объёме", "задача остаётся очень короткой и линейной"),
-            ("step-2", "Два значения и действие", "работать с двумя значениями без перегруза синтаксисом", "связь между вводом, вычислением и выводом", "пока ещё нет многократного повторения"),
-            ("step-3", "Простая проверка", "замечать простое условие и реагировать на него", "самую мягкую форму логики", "условие проверяется один раз"),
-            ("step-4", "Шаги по порядку", "разбивать решение на маленькие последовательные действия", "идею алгоритма как лесенки", "действия выполняются один за другим без циклов"),
-            ("step-5", "Повтор без новой конструкции", "видеть повторяемость действий руками", "мостик к идее повторения", "синтаксис циклов ещё не появляется"),
-            ("step-6", "Подводка к следующей теме", "собрать уже знакомые элементы перед следующей большой темой", "уверенность перед новым блоком курса", "мы подводим к следующей теме, а не переходим в неё"),
+            (new[] { "cout", "вывод", "hello world", "привет мир", "print", "printf" }, "output-intro", "Первый вывод на экран"),
+            (new[] { "cin", "ввод", "scanf", "getline", "readline", "считыва" }, "input-intro", "Первый ввод с клавиатуры"),
+            (new[] { "перемен", "variable", "int ", "double ", "float ", "тип дан", "объяви" }, "variables", "Знакомство с переменными"),
+            (new[] { "строк", "string", "текст", "символ", "char " }, "strings", "Работа с текстом"),
+            (new[] { "if", "услови", "ветвлен", "сравнени" }, "conditions", "Простое условие"),
+            (new[] { "цикл", "for", "while", "повтор" }, "loops", "Первый цикл"),
+            (new[] { "массив", "array", "vector", "вектор" }, "arrays", "Первый массив"),
+            (new[] { "функци", "function", "метод", "void ", "return" }, "functions", "Первая функция"),
+            (new[] { "класс", "class", "объект", "struct" }, "classes", "Первый класс"),
+            (new[] { "указател", "pointer", "ссылк", "reference" }, "pointers", "Указатели и ссылки"),
+            (new[] { "введен", "основ", "начал", "знакомств", "intro" }, "intro", "Введение в тему"),
         };
 
-        var steps = ((focusText.Contains("цикл") || focusText.Contains("for") || focusText.Contains("while") || focusText.Contains("повтор")) ? cycleSteps : genericSteps)
-            .Take(Math.Clamp(requestedCount, 1, 12))
+        var detectedConcepts = conceptMap
+            .Where(cm => cm.keywords.Any(kw => focusText.Contains(kw)))
+            .Select(cm => (cm.concept, cm.label))
             .ToList();
 
-        var items = steps.Select((step, idx) => new AiFoundryBridgePlanItemDto
+        var count = Math.Clamp(requestedCount, 1, 12);
+        List<AiFoundryBridgePlanItemDto> items;
+
+        if (detectedConcepts.Count > 0)
         {
-            Index = idx + 1,
-            Concept = step.concept,
-            AfterAssignmentId = afterAssignmentId,
-            AfterAssignmentTitle = afterAssignmentTitle,
-            BeforeAssignmentId = null,
-            BeforeAssignmentTitle = null,
-            Reason = $"Учит {step.learn}. Нужен именно здесь, потому что после «{afterAssignmentTitle ?? "выбранного задания"}» ученик уже освоил базовый ввод/вывод и готов к одному новому шагу без резкого скачка. Новое: {step.intro}. Это ещё не переход к циклам, потому что {step.whyNotLoops}.",
-            TaskCount = 1,
-            Difficulty = forBeginners && idx < 3 ? 1 : Math.Min(2, idx / 2 + 1),
-            TitleHint = step.hint,
-            TitleExamples = titleExamples,
-            Confirmed = false,
-            Rejected = false,
-            UpdatedAtUtc = DateTime.UtcNow,
-        }).ToList();
+            // Build items from detected concepts — each concept gets at least 1 slot,
+            // remaining slots distributed as progressive practice on those concepts.
+            var slots = new List<(string concept, string label, int phase)>();
+            // Phase 1: one item per detected concept
+            foreach (var (concept, label) in detectedConcepts)
+                slots.Add((concept, label, 1));
+            // Phase 2+: repeat concepts for practice (progressive depth) if there are more slots
+            var phase = 2;
+            while (slots.Count < count)
+            {
+                foreach (var (concept, label) in detectedConcepts)
+                {
+                    if (slots.Count >= count) break;
+                    slots.Add((concept + $"-practice-{phase}", $"{label} — закрепление {phase - 1}", phase));
+                }
+                phase++;
+                if (phase > 6) break; // safety cap
+            }
+            slots = slots.Take(count).ToList();
+
+            items = slots.Select((slot, idx) => new AiFoundryBridgePlanItemDto
+            {
+                Index = idx + 1,
+                Concept = slot.concept,
+                AfterAssignmentId = afterAssignmentId,
+                AfterAssignmentTitle = afterAssignmentTitle,
+                BeforeAssignmentId = null,
+                BeforeAssignmentTitle = null,
+                Reason = $"Пользователь запросил: «{userIntentShort}». Мостик #{idx + 1} ({slot.label}) — {(slot.phase == 1 ? "вводит тему" : "закрепляет и углубляет")}, после «{afterAssignmentTitle ?? "выбранного задания"}». Генерируй задачу именно по этой теме, а не по общим шаблонам ввода-вывода.",
+                TaskCount = 1,
+                Difficulty = forBeginners && idx < 3 ? 1 : Math.Min(2, idx / 2 + 1),
+                TitleHint = slot.label,
+                TitleExamples = titleExamples,
+                Confirmed = false,
+                Rejected = false,
+                UpdatedAtUtc = DateTime.UtcNow,
+            }).ToList();
+        }
+        else if (!string.IsNullOrWhiteSpace(normalizedFocus))
+        {
+            // User provided a focus but we didn't match specific concepts.
+            // Create N items all about the user's focus with progressive complexity.
+            items = Enumerable.Range(0, count).Select(idx => new AiFoundryBridgePlanItemDto
+            {
+                Index = idx + 1,
+                Concept = $"user-focus-step-{idx + 1}",
+                AfterAssignmentId = afterAssignmentId,
+                AfterAssignmentTitle = afterAssignmentTitle,
+                BeforeAssignmentId = null,
+                BeforeAssignmentTitle = null,
+                Reason = $"Пользователь запросил: «{userIntentShort}». Мостик #{idx + 1} — {(idx == 0 ? "самый простой вводный шаг" : $"шаг {idx + 1}, чуть сложнее предыдущего")} по этой теме после «{afterAssignmentTitle ?? "выбранного задания"}». Генерируй задачу строго по фокусу пользователя.",
+                TaskCount = 1,
+                Difficulty = forBeginners && idx < 3 ? 1 : Math.Min(2, idx / 2 + 1),
+                TitleHint = idx == 0 ? $"Введение: {userIntentShort}" : $"Шаг {idx + 1} по теме: {userIntentShort}",
+                TitleExamples = titleExamples,
+                Confirmed = false,
+                Rejected = false,
+                UpdatedAtUtc = DateTime.UtcNow,
+            }).ToList();
+        }
+        else
+        {
+            // No focus at all — refuse to generate garbage. Return null so the caller asks the user.
+            return null!;
+        }
 
         return new AiFoundryBridgePlanDto
         {
@@ -3287,7 +3353,7 @@ public sealed class AiChatService
             GeneratedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
             Status = "draft",
-            Summary = $"Собрала детальный план из {items.Count} пошаговых мостиков после выбранного afterAssignmentId. Каждый пункт — отдельный маленький шаг для новичка, без раннего ввода циклов, массивов и функций.",
+            Summary = $"Собрала план из {items.Count} мостиков по фокусу «{userIntentShort}» после «{afterAssignmentTitle ?? "выбранного задания"}». Каждый пункт привязан к запросу пользователя.",
             StyleHints = audit.StyleHints?.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList() ?? new List<string>(),
             RevisionNotes = new List<string>(),
             Items = items,
@@ -3388,7 +3454,9 @@ public sealed class AiChatService
         var normalizedFocus = string.IsNullOrWhiteSpace(focus) ? audit.Focus : focus?.Trim();
         var filteredFindings = findings
             .Where(x => MatchesFocus(x, normalizedFocus))
-            .Where(x => !requestedAfterAssignmentId.HasValue || x.AfterAssignmentId == requestedAfterAssignmentId)
+            // Accept findings with null AfterAssignmentId (gap before first assignment)
+            // alongside findings matching the requested anchor
+            .Where(x => !requestedAfterAssignmentId.HasValue || x.AfterAssignmentId == requestedAfterAssignmentId || !x.AfterAssignmentId.HasValue)
             .ToList();
         if (filteredFindings.Count == 0 && requestedAfterAssignmentId.HasValue)
         {
@@ -3396,6 +3464,9 @@ public sealed class AiChatService
             if (matched != null)
                 filteredFindings.Add(matched);
         }
+        // Last resort: take first findings as-is — they passed ShouldFlagConcept so they're valid
+        if (filteredFindings.Count == 0 && findings.Count > 0)
+            filteredFindings = findings.Take(Math.Min(findings.Count, requestedCount)).ToList();
 
         var items = filteredFindings
             .Select((finding, idx) =>
@@ -3671,6 +3742,7 @@ public sealed class AiChatService
         if (audit.TitleExamples.Count > 0)
             sb.AppendLine($"Примеры живых названий из курса: {string.Join("; ", audit.TitleExamples.Take(6))}.");
         sb.AppendLine("Не используй расплывчатые названия вроде «Форматированный вывод», «Работа со строкой», «Базовый ввод» и подобные. Название должно быть таким же конкретным, как у существующих заданий курса.");
+        sb.AppendLine("ВАЖНО: Приоритет №1 — фокус и инструкция пользователя выше. Если пользователь просил конкретную тему (например, 'объяснение cout'), генерируй именно это, а НЕ подменяй абстрактными задачами на ввод/вывод или другие темы.");
         sb.AppendLine("Для каждого нового задания обязательно выбери placementAfterAssignmentId из plan items ниже.");
         sb.AppendLine("Plan items:");
         foreach (var item in items)
@@ -3678,7 +3750,35 @@ public sealed class AiChatService
             var examples = item.TitleExamples.Count == 0 ? "-" : string.Join(" | ", item.TitleExamples.Take(4));
             sb.AppendLine($"- item #{item.Index}: afterAssignmentId={item.AfterAssignmentId}; afterTitle={item.AfterAssignmentTitle}; beforeTitle={item.BeforeAssignmentTitle}; concept={item.Concept}; reason={item.Reason}; taskCount={item.TaskCount}; difficulty={item.Difficulty}; titleHint={item.TitleHint}; nearbyTitleExamples={examples}.");
         }
-        sb.AppendLine("Не копируй существующие задания дословно. Сгенерируй именно вводящие мостики, а не ещё один общий topic-pack.");
+        sb.AppendLine("Не копируй существующие задания дословно (точное название + тот же смысл). Похожие задачи с другим акцентом — допустимы. Сгенерируй именно вводящие мостики, а не ещё один общий topic-pack.");
+
+        // ── Explicit dedup blocklist: existing course task titles ──
+        var existingTitles = new List<string>();
+        if (audit.TitleExamples != null)
+            existingTitles.AddRange(audit.TitleExamples);
+        // Pull full assignment list from inspection (all course tasks)
+        if (memory.LastCourseInspection != null)
+            existingTitles.AddRange(memory.LastCourseInspection.Assignments.Select(x => x.Title));
+        // Also pull from plan item title examples
+        foreach (var item in items)
+        {
+            if (item.TitleExamples != null)
+                existingTitles.AddRange(item.TitleExamples);
+        }
+        existingTitles = existingTitles
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(20)
+            .ToList();
+        if (existingTitles.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("==== ЗАДАНИЯ, КОТОРЫЕ УЖЕ ЕСТЬ В КУРСЕ ====");
+            foreach (var title in existingTitles)
+                sb.AppendLine($"  • {title}");
+            sb.AppendLine("Похожие задачи допустимы, если они отличаются хотя бы немного (другие числа, другой контекст, другой акцент). Но НЕ создавай точных копий с тем же названием и тем же смыслом.");
+        }
+
         return sb.ToString().Trim();
     }
 
@@ -3793,11 +3893,20 @@ public sealed class AiChatService
         return set;
     }
 
+    private static readonly HashSet<string> _knownPedagogicalConcepts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cout", "cin", "variables", "program-structure", "printf/scanf",
+        "if", "for", "while", "getline", "string", "fixed/setprecision",
+        "sqrt/pow", "abs",
+    };
+
     private static bool ShouldFlagConcept(string concept, string? focus)
     {
+        // Known pedagogical concepts are always flagged — they represent real prerequisite gaps
+        if (_knownPedagogicalConcepts.Contains(concept))
+            return true;
+        // Unknown concepts (regex-extracted function names, etc.) require focus match
         if (!string.IsNullOrWhiteSpace(focus) && !MatchesFocus(concept, focus))
-            return false;
-        if ((concept.Equals("cout", StringComparison.OrdinalIgnoreCase) || concept.Equals("cin", StringComparison.OrdinalIgnoreCase)) && !FocusWantsSyntaxBasics(focus))
             return false;
         return true;
     }

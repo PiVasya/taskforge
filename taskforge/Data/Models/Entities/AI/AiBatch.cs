@@ -13,6 +13,9 @@ public sealed class AiBatch
     public Guid? CreatedByUserId { get; set; }
     public User? CreatedByUser { get; set; }
 
+    /// <summary>Chat session that created this batch (for feedback loop).</summary>
+    public Guid? ChatSessionId { get; set; }
+
     [Required]
     public string Prompt { get; set; } = string.Empty;
 
