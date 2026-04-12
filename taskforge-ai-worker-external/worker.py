@@ -433,13 +433,8 @@ def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: str) -> str:
-    memory = _chat_memory(payload)
-    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
-    for raw in (memory.get("latestIntentKind"), agent_state.get("latestIntentKind")):
-        value = str(raw or "").strip()
-        if value:
-            return value
     low = (last_user or prompt or "").strip().lower()
+    # User text takes priority over stale memory — fresh request always wins
     if any(marker in low for marker in ["поправь план", "измени план", "исправь план", "поставь её второй", "поставь ее второй", "добавь вторым", "сделай задачку"]):
         return "revise-plan"
     if any(marker in low for marker in ["покажи план", "какой план", "что в плане"]):
@@ -448,6 +443,13 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "generate"
     if "план" in low:
         return "plan"
+    # Fall back to memory only if user text gives no actionable signal
+    memory = _chat_memory(payload)
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    for raw in (memory.get("latestIntentKind"), agent_state.get("latestIntentKind")):
+        value = str(raw or "").strip()
+        if value:
+            return value
     return "chat"
 
 
@@ -457,7 +459,8 @@ def _chat_latest_teaching_script(payload: Dict[str, Any], last_user: str) -> str
         value = str(raw or "").strip()
         if value:
             return value
-    return str(last_user or "").strip()
+    # Do NOT fall back to last_user — it caused suppress_bridge_plan_loop to fire on every message
+    return ""
 
 
 def _chat_suppress_bridge_plan_loop(payload: Dict[str, Any], latest_intent_kind: str, teaching_script: str, last_user: str) -> bool:
@@ -475,9 +478,21 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     if isinstance(result.get("actions"), list) and str(result.get("assistantMessage") or "").strip():
         if result.get("actions"):
+            # Sanitize: prevent assistantMessage from leaking into action arguments as prompt
+            _assistant_msg = str(result.get("assistantMessage") or "").strip()
+            _last_user = _chat_last_user_text(payload)
+            for _action in result["actions"]:
+                if not isinstance(_action, dict):
+                    continue
+                _args = _action.get("arguments") if isinstance(_action.get("arguments"), dict) else {}
+                _action_prompt = str(_args.get("prompt") or "").strip()
+                if _action_prompt and _assistant_msg and _action_prompt == _assistant_msg:
+                    _args["prompt"] = _last_user or _action_prompt
             return result
 
-    prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or result.get("assistantMessage") or "").strip()
+    prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or "").strip()
+    if not prompt:
+        prompt = _chat_last_user_text(payload) or str(result.get("assistantMessage") or "").strip()
     if not prompt:
         return {
             "assistantMessage": "Я не смогла собрать внятный ответ по этому сообщению. Сформулируй запрос чуть конкретнее: что именно сделать и для какого курса.",
@@ -766,8 +781,12 @@ def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], j
     required, preferred = _stage_required_keys(job_type)
     repair_cfg = _stage_llm_config(job_type, payload, _job_retry_count(job))
     repair_cfg.stage = f"{stage}_schema_repair"
-    repair_cfg.timeout = min(repair_cfg.timeout, 45)
-    repair_cfg.num_predict = min(repair_cfg.num_predict or 320, 320)
+    if job_type in {"assignment_repair", "assignment_generate_from_text"}:
+        repair_cfg.timeout = min(repair_cfg.timeout + 30, 75)
+        repair_cfg.num_predict = min(repair_cfg.num_predict or 1200, 1200)
+    else:
+        repair_cfg.timeout = min(repair_cfg.timeout, 45)
+        repair_cfg.num_predict = min(repair_cfg.num_predict or 320, 320)
     repair_cfg.required_keys = required
     repair_cfg.preferred_keys = preferred
     repair_cfg.json_schema = None
@@ -1452,6 +1471,12 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             result["draftValidation"] = run_self_check(repaired_draft)
             validation = result.get("draftValidation") if isinstance(result.get("draftValidation"), dict) else {}
             _log_stage("stage-repair-validation", job, payload, validation=validation)
+            # Guard: if LLM repair worsened the draft significantly, fall back to deterministic repair
+            pre_score = float((payload.get("scorecard") or {}).get("overallScore") or 0)
+            post_score = float(validation.get("score") or 0)
+            if pre_score > 0 and post_score < pre_score * 0.7:
+                _log_stage("stage-repair-regression", job, payload, pre_score=pre_score, post_score=post_score)
+                return _finish(fallback_repair_result(payload, job))
         return _finish(result)
 
     # ── Default: generic generation ───────────────────

@@ -345,6 +345,32 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "availableActions": payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [],
         "defaults": payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {},
     }
+    # Dynamic directives based on conversation state to prevent planning loops
+    _dynamic = []
+    _conv = compact_payload.get("conversation") or []
+    _mem = compact_payload.get("memory") or {}
+    _plan_action_names = {"analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan"}
+    _recent_plan_count = 0
+    for _msg in _conv[-8:]:
+        if isinstance(_msg, dict):
+            for _a in (_msg.get("actions") if isinstance(_msg.get("actions"), list) else []):
+                if isinstance(_a, dict) and str(_a.get("name") or "") in _plan_action_names:
+                    _recent_plan_count += 1
+    if _recent_plan_count >= 3:
+        _dynamic.append(
+            "КРИТИЧНО: В последних ходах уже было >=3 planning-шагов (audit/inspect/plan/show/revise). "
+            "Хватит планировать! Переходи к реальной генерации (queue_generate_bridge_batch, queue_generate_from_text, queue_generate_batch) "
+            "или задай пользователю единственный конкретный вопрос. НЕ вызывай analyze_course_progression, inspect_course_assignments, "
+            "prepare_bridge_plan или show_bridge_plan без ЯВНОЙ НОВОЙ просьбы пользователя в ЭТОМ ходе."
+        )
+    if isinstance(_mem.get("lastBridgePlan"), dict) and isinstance(_mem.get("lastCourseAudit"), dict):
+        _dynamic.append(
+            "У тебя УЖЕ есть и аудит курса, и готовый план мостиков в memory. "
+            "Если пользователь не просит явно пересмотреть план — переходи сразу к генерации."
+        )
+    _dynamic_section = ""
+    if _dynamic:
+        _dynamic_section = "\n\nДинамические директивы (ПРИОРИТЕТНЫЕ):\n" + "\n".join(f"- {d}" for d in _dynamic) + "\n\n"
     return (
         "Ты — TaskForge AI chat orchestrator. Верни только один валидный JSON-объект без markdown и без пояснений вокруг JSON.\\n\\n"
         "Твоя задача: ответить пользователю по-русски и, если данных уже достаточно, выбрать одно или несколько доступных действий TaskForge. "
@@ -396,6 +422,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "  ]\\n"
         "}\\n\\n"
         "Для совместимости можно дополнительно вернуть action как первый элемент actions, но основной формат — именно actions.\\n\\n"
+        f"{_dynamic_section}"
         f"Payload:\\n{_prompt_json(compact_payload)}\\n\\n"
         f"Files:\\n{files_text(job)}"
     )
@@ -643,7 +670,18 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
 
 
 def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_result: Dict[str, Any], schema_errors: List[str] | None = None) -> str:
-    compact_payload = compact_payload_for_stage(payload.get("requestType") or stage, payload)
+    if stage in {"draft_generate", "assignment_repair", "repair"} or str(stage or "").startswith("repair_"):
+        # Radically compress payload for draft/repair — LLM needs its token budget for the full draft
+        _brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+        _task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+        compact_payload = {
+            "assignmentType": payload.get("assignmentType") or "code-test",
+            "qualityGates": payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {},
+            "brief": {k: _brief[k] for k in ("titleHint", "targetSkill", "summary", "generationPrompt") if _brief.get(k)},
+            "task": {k: _task[k] for k in ("targetSkill", "microGoal", "MicroGoal") if _task.get(k)},
+        }
+    else:
+        compact_payload = compact_payload_for_stage(payload.get("requestType") or stage, payload)
     bad_json = _prompt_json(bad_result)
     if stage == "gap_analysis":
         expected = (

@@ -88,6 +88,23 @@ def _is_openrouter() -> bool:
     return "openrouter.ai" in (EXTERNAL_AI_BASE_URL or "").lower()
 
 
+# ── Provider ban cache for region/capability errors ──────────
+_openrouter_banned_providers: dict[str, float] = {}
+_PROVIDER_BAN_DURATION = 600  # 10 minutes
+
+
+def _ban_openrouter_provider(provider_name: str) -> None:
+    if provider_name:
+        _openrouter_banned_providers[provider_name] = time.time() + _PROVIDER_BAN_DURATION
+        log_event('openrouter-provider-banned', provider=provider_name, duration=_PROVIDER_BAN_DURATION)
+
+
+def _filter_banned_providers(order: list[str]) -> list[str]:
+    now = time.time()
+    filtered = [p for p in order if _openrouter_banned_providers.get(p, 0) < now]
+    return filtered if filtered else order  # never return empty — keep original as last resort
+
+
 def _strip_code_fences(text: str) -> str:
     cleaned = text.strip()
     if cleaned.startswith("```"):
@@ -257,6 +274,9 @@ def _openrouter_provider_payload(cfg: OllamaCallConfig) -> Dict[str, Any]:
     provider = dict(cfg.routing or {})
     if OPENROUTER_PROVIDER_ORDER and "order" not in provider:
         provider["order"] = OPENROUTER_PROVIDER_ORDER
+    # Filter out providers that previously returned unsupported-region errors
+    if isinstance(provider.get("order"), list):
+        provider["order"] = _filter_banned_providers(provider["order"])
     provider.setdefault("allow_fallbacks", OPENROUTER_ALLOW_FALLBACKS)
     provider["require_parameters"] = True if cfg.json_schema else provider.get("require_parameters", OPENROUTER_REQUIRE_PARAMETERS)
     if OPENROUTER_DATA_COLLECTION:
@@ -309,6 +329,13 @@ def _call_openai_compatible(prompt: str, cfg: OllamaCallConfig) -> tuple[Dict[st
     resp = requests.post(f"{EXTERNAL_AI_BASE_URL}/chat/completions", json=body, headers=headers, timeout=cfg.timeout)
     if resp.status_code >= 400 and used_json_hint:
         log_event('llm-json-hint-rejected', level='warning', provider=('openrouter' if _is_openrouter() else 'openai_compatible'), stage=cfg.stage, response_preview=preview_text(resp.text, RESPONSE_PREVIEW_CHARS))
+        # Detect region ban and exclude provider from future routing
+        if _is_openrouter() and resp.status_code == 403 and "unsupported_country" in (resp.text or "").lower():
+            _routing_order = (body.get("provider") or {}).get("order") if isinstance(body.get("provider"), dict) else []
+            if isinstance(_routing_order, list) and _routing_order:
+                _ban_openrouter_provider(_routing_order[0])
+            if isinstance(body.get("provider"), dict) and isinstance(body["provider"].get("order"), list):
+                body["provider"]["order"] = _filter_banned_providers(body["provider"]["order"])
         if cfg.json_schema and cfg.json_mode:
             body["response_format"] = {"type": "json_object"}
         else:
