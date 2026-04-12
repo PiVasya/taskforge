@@ -169,7 +169,8 @@ public sealed class AiChatService
             session.Title = BuildSessionTitle(messages);
 
         session.PlanJson = SerializeMemory(BuildMemory(messages, session.PlanJson));
-        var payload = await BuildChatPayloadAsync(session, messages, ct);
+        var actionMode = string.IsNullOrWhiteSpace(request.ActionMode) ? "multi" : request.ActionMode.Trim().ToLowerInvariant();
+        var payload = await BuildChatPayloadAsync(session, messages, actionMode, ct);
         var job = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = AiFoundryJobTypes.ChatTurn,
@@ -685,6 +686,29 @@ public sealed class AiChatService
                         : (audit.Findings.Count > 0
                             ? BuildBridgePlan(audit, memory.LastCourseInspection, SelectAuditFindings(audit, args), ReadString(args, "focus"), ResolveRequestedAfterAssignmentId(args, memory), Math.Clamp(ReadInt(args, "count") ?? 6, 1, 12))
                             : null);
+
+                    // Fallback: build plan from anchor if audit findings are empty (mirrors prepare_bridge_plan logic)
+                    if ((bridgePlan == null || bridgePlan.Items.Count == 0))
+                    {
+                        var inspection = memory.LastCourseInspection != null && memory.LastCourseInspection.CourseId == courseId.Value ? memory.LastCourseInspection : null;
+                        var inspectionAnchor = BuildInspectionPlacementCandidate(inspection);
+                        var anchorId = ResolveRequestedAfterAssignmentId(args, memory) ?? inspectionAnchor?.AfterAssignmentId;
+                        if (anchorId.HasValue)
+                        {
+                            var anchorTitle = ResolveRequestedAfterAssignmentTitle(memory, anchorId)
+                                ?? inspectionAnchor?.AfterAssignmentTitle
+                                ?? await _db.TaskAssignments.AsNoTracking()
+                                    .Where(x => x.Id == anchorId.Value)
+                                    .Select(x => x.Title)
+                                    .FirstOrDefaultAsync(ct);
+                            bridgePlan = BuildDetailedBridgePlanFromAnchor(
+                                audit, inspection, anchorId.Value, anchorTitle,
+                                ReadString(args, "focus"),
+                                Math.Clamp(ReadInt(args, "count") ?? 6, 1, 12),
+                                memory.AgentState);
+                        }
+                    }
+
                     if (bridgePlan == null || bridgePlan.Items.Count == 0)
                         return FailTool("Не удалось собрать plan items для bridge-batch. Сначала собери план мостиков или обнови аудит/инспекцию курса.");
 
@@ -961,7 +985,7 @@ public sealed class AiChatService
         }
     }
 
-    private async Task<object> BuildChatPayloadAsync(AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, CancellationToken ct)
+    private async Task<object> BuildChatPayloadAsync(AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, string actionMode, CancellationToken ct)
     {
         var courses = await _db.Courses.AsNoTracking()
             .OrderBy(x => x.Title)
@@ -1348,7 +1372,8 @@ public sealed class AiChatService
                 difficulty = 2,
                 count = 5,
                 mode = "topic-pack",
-            }
+            },
+            actionMode,
         };
     }
 

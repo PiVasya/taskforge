@@ -580,6 +580,12 @@ public sealed class AiFoundryChatSendMessageRequestDto
     public string Content { get; set; } = string.Empty;
 
     public List<AiFoundryChatAttachmentDto> Attachments { get; set; } = new();
+
+    /// <summary>
+    /// "multi" = AI may return several actions per turn (default);
+    /// "single" = strictly one action per turn.
+    /// </summary>
+    public string? ActionMode { get; set; }
 }
 
 public sealed class AiFoundryCourseAuditFindingDto

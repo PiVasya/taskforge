@@ -496,8 +496,19 @@ export default function AdminAiChatPage() {
   const [dragActive, setDragActive] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
+  const [actionMode, setActionMode] = useState(() => {
+    try { return localStorage.getItem('aiChat_actionMode') || 'multi'; } catch { return 'multi'; }
+  });
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
+
+  const toggleActionMode = useCallback(() => {
+    setActionMode((prev) => {
+      const next = prev === 'multi' ? 'single' : 'multi';
+      try { localStorage.setItem('aiChat_actionMode', next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   const previousPendingRef = useRef(false);
 
   const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
@@ -655,6 +666,7 @@ export default function AdminAiChatPage() {
       const response = await sendAiChatMessage(activeSessionId, {
         content: text || (uploaded.length ? 'Используй прикреплённые файлы в контексте.' : ''),
         attachments: uploaded,
+        actionMode,
       });
 
       setSession(response.session);
@@ -882,9 +894,22 @@ export default function AdminAiChatPage() {
               {sending ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
             </Button>
           </div>
-          <div className="flex gap-2 mt-2">
+          <div className="flex items-center gap-2 mt-2">
             <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(CONTINUE_MESSAGE)} disabled={sending || pending}>Продолжай</button>
             <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(GENERATE_MESSAGE)} disabled={sending || pending}>Генерация</button>
+            <span className="flex-1" />
+            <button
+              type="button"
+              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                actionMode === 'multi'
+                  ? 'bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:text-primary-foreground'
+                  : 'opacity-50 hover:opacity-80 border-neutral-300 dark:border-neutral-700'
+              }`}
+              onClick={toggleActionMode}
+              title={actionMode === 'multi' ? 'Мульти-режим: AI делает несколько действий за ход' : 'Одиночный режим: AI делает одно действие за ход'}
+            >
+              {actionMode === 'multi' ? '⚡ Мульти' : '1️⃣ Одно'}
+            </button>
           </div>
         </div>
       </div>
@@ -1122,13 +1147,26 @@ export default function AdminAiChatPage() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" disabled={sending || pending || actionBusy} onClick={() => setMessage(CONTINUE_MESSAGE)}>
                 Продолжай по памяти
               </Button>
               <Button type="button" variant="outline" disabled={sending || pending || actionBusy} onClick={() => setMessage(GENERATE_MESSAGE)}>
                 Начать генерацию
               </Button>
+              <span className="flex-1" />
+              <button
+                type="button"
+                className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                  actionMode === 'multi'
+                    ? 'bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:text-primary-foreground'
+                    : 'opacity-50 hover:opacity-80 border-neutral-300 dark:border-neutral-700'
+                }`}
+                onClick={toggleActionMode}
+                title={actionMode === 'multi' ? 'Мульти-режим: AI делает несколько действий за ход' : 'Одиночный режим: AI делает одно действие за ход'}
+              >
+                {actionMode === 'multi' ? '⚡ Мульти' : '1️⃣ Одно'}
+              </button>
             </div>
 
             <Field label="Сообщение для AI" hint="Enter — новая строка, Ctrl/Cmd+Enter — отправить. AI видит память сессии и может продолжать прошлую линию диалога без повторного описания контекста.">
