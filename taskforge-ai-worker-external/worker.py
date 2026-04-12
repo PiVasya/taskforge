@@ -488,11 +488,22 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 _action_prompt = str(_args.get("prompt") or "").strip()
                 if _action_prompt and _assistant_msg and _action_prompt == _assistant_msg:
                     _args["prompt"] = _last_user or _action_prompt
-            return result
+        # Return as-is whether actions is non-empty or empty — LLM chose deliberately
+        return result
+
+    # If LLM returned a substantive assistantMessage without actions array,
+    # treat it as a valid informational answer — don't discard it for generation fallback
+    _llm_msg = str(result.get("assistantMessage") or "").strip()
+    if _llm_msg and len(_llm_msg) > 40:
+        return {
+            "assistantMessage": _llm_msg,
+            "actions": [],
+            "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
+        }
 
     prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or "").strip()
     if not prompt:
-        prompt = _chat_last_user_text(payload) or str(result.get("assistantMessage") or "").strip()
+        prompt = _chat_last_user_text(payload) or _llm_msg
     if not prompt:
         return {
             "assistantMessage": "Я не смогла собрать внятный ответ по этому сообщению. Сформулируй запрос чуть конкретнее: что именно сделать и для какого курса.",
@@ -691,7 +702,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             }],
         }
 
-    audit_markers = ["изучи курс", "посмотри что уже есть", "допил", "пробел", "мостик", "подводящ", "новая функция", "перед этим набор заданий"]
+    audit_markers = ["изучи курс", "проанализируй курс", "проанализируй", "анализируй курс", "анализируй", "посмотри что уже есть", "допил", "пробел", "мостик", "подводящ", "новая функция", "новые функции", "найди момент", "найди где", "перед этим набор заданий", "покажи пробел", "проверь курс"]
     if any(marker in (last_user or "").lower() for marker in audit_markers):
         return {
             "assistantMessage": "Сначала быстро проверю курс и найду пробелы перед генерацией.",

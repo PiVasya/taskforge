@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Select, Textarea } from '../../components/ui';
@@ -771,6 +771,27 @@ export default function AdminAiChatPage() {
       getAiChatSession(urlSessionId).then(setSession).catch(() => {});
     }
   }, [isFullscreen, searchParams, sessionId]);
+
+  // In fullscreen mode (new tab), apply theme classes that Layout normally handles
+  useLayoutEffect(() => {
+    if (!isFullscreen) return;
+    const root = document.documentElement;
+    const palettes = ['blue', 'pink', 'apple', 'red', 'honey', 'violet'];
+    const readUi = () => { try { const r = localStorage.getItem('uiSettings'); return r ? JSON.parse(r) : null; } catch { return null; } };
+    const apply = () => {
+      const ui = readUi();
+      const palette = palettes.includes(ui?.colorTheme) ? ui.colorTheme : (localStorage.getItem('colorTheme') || 'pink');
+      const mode = ui?.mode || localStorage.getItem('mode') || 'dark';
+      root.classList.remove(...palettes);
+      root.classList.add(palette);
+      if (mode === 'dark') root.classList.add('dark');
+      else root.classList.remove('dark');
+    };
+    apply();
+    const onStorage = (e) => { if (e.key && ['colorTheme', 'mode', 'uiSettings'].includes(e.key)) apply(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [isFullscreen]);
 
   // Fullscreen: render without Layout, no sidebar, full viewport
   if (isFullscreen) {
