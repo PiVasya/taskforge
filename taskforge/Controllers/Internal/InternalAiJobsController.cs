@@ -63,7 +63,7 @@ public sealed class InternalAiJobsController : ControllerBase
     [HttpPost("{jobId:guid}/complete")]
     public async Task<IActionResult> Complete(Guid jobId, [FromBody] AiWorkerCompleteRequestDto request, CancellationToken ct = default)
     {
-        Console.WriteLine($"[InternalAiJobsController] complete >>> jobId={jobId} workerId='{request.WorkerId}' model='{request.ModelName}' resultLen={request.ResultJson?.Length ?? 0}");
+        Console.WriteLine($"[InternalAiJobsController] complete >>> jobId={jobId} workerId='{request.WorkerId}' model='{request.ModelName}' resultLen={request.ResultJson?.Length ?? 0} telemetryLen={request.TelemetryJson?.Length ?? 0}");
         if (!IsAuthorizedInternal())
         {
             _log.LogWarning("Complete unauthorized for jobId={JobId}", jobId);
@@ -71,8 +71,8 @@ public sealed class InternalAiJobsController : ControllerBase
             return Unauthorized();
         }
 
-        _log.LogInformation("Complete → jobId={JobId} worker={WorkerId} model={Model} resultLen={Len}",
-            jobId, request.WorkerId, request.ModelName, request.ResultJson?.Length ?? 0);
+        _log.LogInformation("Complete → jobId={JobId} worker={WorkerId} model={Model} resultLen={Len} telemetryLen={TelemetryLen}",
+            jobId, request.WorkerId, request.ModelName, request.ResultJson?.Length ?? 0, request.TelemetryJson?.Length ?? 0);
         var ok = await _jobs.CompleteAsync(jobId, request, ct);
         Console.WriteLine($"[InternalAiJobsController] complete <<< jobId={jobId} ok={ok}");
         return ok ? Ok() : NotFound();

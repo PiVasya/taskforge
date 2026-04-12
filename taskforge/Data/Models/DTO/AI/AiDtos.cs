@@ -285,6 +285,8 @@ public sealed class AiJobDetailsDto : AiJobListItemDto
     public List<AiArtifactDto> Artifacts { get; set; } = new();
     public string? InputJson { get; set; }
     public string? ResultJson { get; set; }
+
+    public string? TelemetryJson { get; set; }
     public DateTime? HeartbeatAtUtc { get; set; }
     public List<AiJobFileDto> Files { get; set; } = new();
 }
@@ -451,6 +453,8 @@ public sealed class AiWorkerCompleteRequestDto
     public string? ModelName { get; set; }
 
     public string? ResultJson { get; set; }
+
+    public string? TelemetryJson { get; set; }
 }
 
 public sealed class AiWorkerFailRequestDto

@@ -114,6 +114,12 @@ public sealed partial class AiJobService
         var createRequest = BuildCreateAssignmentRequest(draftRoot, assignmentType, title, description, difficulty, rating, tags, canonicalOnly);
         var assignmentId = await _assignmentService.CreateAsync(courseId, createRequest, actorUserId);
 
+        await _db.TaskAssignments
+            .Where(x => x.Id == assignmentId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.IsAiGenerated, true)
+                .SetProperty(x => x.UpdatedAt, DateTime.UtcNow), ct);
+
         if (assignmentType == "test")
         {
             var dto = BuildTaskTestEditDto(draftRoot, canonicalOnly);

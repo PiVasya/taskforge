@@ -1,4 +1,4 @@
-﻿"""Draft validation, quality checks and self-check orchestration.
+"""Draft validation, quality checks and self-check orchestration.
 
 BUG-FIX: ``run_self_check`` and ``attach_self_check`` were *called* in the
 original monolith but never *defined*.  They are implemented here.
@@ -189,15 +189,25 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
         try:
             res = run_python_solution(code, stdin_text)
             actual = normalize_text(res.get("stdout") or "")
-            ok = res.get("returncode") == 0 and actual == expected
+            timed_out = bool(res.get("timedOut"))
+            crashed = res.get("returncode") not in {0, None}
+            ok = res.get("returncode") == 0 and not timed_out and actual == expected
+            if timed_out:
+                details = f"timeout after sandbox limit; expected={expected!r}; actual={actual!r}; stderr={truncate_text(res.get('stderr') or '', 200)!r}"
+            else:
+                details = (
+                    f"expected={expected!r}; actual={actual!r}; "
+                    f"rc={res.get('returncode')} signal={res.get('signal')} sandboxed={res.get('sandboxed')} mode={res.get('sandboxMode')} stderr={truncate_text(res.get('stderr') or '', 200)!r}"
+                )
             checks.append({
                 "name": f"test-{idx}",
                 "status": "passed" if ok else "failed",
-                "details": (
-                    f"expected={expected!r}; actual={actual!r}; "
-                    f"rc={res.get('returncode')} stderr={truncate_text(res.get('stderr') or '', 200)!r}"
-                ),
+                "details": details,
             })
+            if timed_out:
+                checks.append({"name": f"test-{idx}-runtime-timeout", "status": "failed", "details": "referenceSolution превысил sandbox timeout"})
+            elif crashed:
+                checks.append({"name": f"test-{idx}-runtime-exit", "status": "failed", "details": f"process exited with rc={res.get('returncode')} signal={res.get('signal')} mode={res.get('sandboxMode')}"})
             if ok:
                 passed_runtime += 1
         except Exception as ex:

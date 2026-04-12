@@ -9,17 +9,114 @@ import re
 import time
 from typing import Any, Dict, List
 
-from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_DESCRIPTION_LEN, MAX_REPAIR_ATTEMPTS
+from config import (
+    MAX_REPAIR_ATTEMPTS,
+    MIN_DESCRIPTION_LEN,
+    MIN_HIDDEN_TESTS,
+    MIN_PUBLIC_TESTS,
+    ROUTE_AWARE_REPAIR,
+)
 from log import log
-from text_utils import normalize_text, truncate_text, has_html_markup, safe_int
-from validators import run_self_check, attach_self_check
-from reviews import run_similarity_review
-from prompt_builder import build_repair_prompt
+from llm_client import call_llm
 from payload import sanitize_result_payload
-from ollama import call_ollama
+from prompt_builder import build_repair_prompt
+from reviews import run_similarity_review
+from text_utils import has_html_markup, normalize_text, strip_conflicting_lists, truncate_text
+from validators import attach_self_check, run_self_check
 
 
 # ── Deterministic fallback repair ─────────────────────
+
+def _gather_review_hints(reviews: List[Dict[str, Any]]) -> List[str]:
+    hints: List[str] = []
+    for review in reviews[:6]:
+        if not isinstance(review, dict):
+            continue
+        result = review.get("result") if isinstance(review.get("result"), dict) else {}
+        for finding in (result.get("findings") if isinstance(result.get("findings"), list) else [])[:2]:
+            if isinstance(finding, dict):
+                msg = normalize_text(finding.get("message"))
+                if msg:
+                    hints.append(msg)
+    return hints
+
+
+def _unique_tests(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen: set[str] = set()
+    result: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = f"{normalize_text(item.get('input'))}|{normalize_text(item.get('expectedOutput'))}"
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(item))
+    return result
+
+
+def _rebalance_code_tests(draft: Dict[str, Any]) -> None:
+    public_tests = _unique_tests([dict(x) for x in list(draft.get("publicTests") or []) if isinstance(x, dict)])
+    hidden_tests = _unique_tests([dict(x) for x in list(draft.get("hiddenTests") or []) if isinstance(x, dict)])
+    while len(public_tests) < MIN_PUBLIC_TESTS and len(hidden_tests) > MIN_HIDDEN_TESTS:
+        public_tests.append(hidden_tests.pop(0))
+    while len(hidden_tests) < MIN_HIDDEN_TESTS and len(public_tests) > MIN_PUBLIC_TESTS:
+        hidden_tests.append(public_tests.pop())
+    draft["publicTests"] = public_tests
+    draft["hiddenTests"] = hidden_tests
+
+
+def _wrap_python_solution(code: str) -> str:
+    raw = str(code or "").rstrip()
+    if not raw:
+        return raw
+    low = raw.lower()
+    if "def solve" in raw or "if __name__ == '__main__'" in low or 'if __name__ == "__main__"' in low:
+        return raw + ("\n" if not raw.endswith("\n") else "")
+    body = "\n".join(f"    {line}" if line.strip() else "" for line in raw.splitlines())
+    return (
+        "def solve():\n"
+        f"{body}\n\n"
+        "if __name__ == '__main__':\n"
+        "    solve()\n"
+    )
+
+
+def _pad_description(description: str, hints: List[str]) -> str:
+    text = normalize_text(description)
+    if len(text) >= MIN_DESCRIPTION_LEN:
+        return text
+    suffix_bits = [
+        "Уточни формат входных данных, ожидаемый формат вывода и ограничение на крайние случаи.",
+    ]
+    if hints:
+        suffix_bits.append("Ключевые замечания для исправления: " + "; ".join(hints[:3]))
+    padded = (text + "\n\n" + " ".join(suffix_bits)).strip() if text else " ".join(suffix_bits)
+    return truncate_text(padded, max(MIN_DESCRIPTION_LEN + 160, len(padded)))
+
+
+def _apply_route_aware_repairs(repaired: Dict[str, Any], primary_route: str, hints: List[str]) -> None:
+    if not ROUTE_AWARE_REPAIR:
+        return
+    route = normalize_text(primary_route).lower() or "general"
+    if route in {"description", "brief", "general"}:
+        repaired["description"] = _pad_description(str(repaired.get("description") or ""), hints)
+    if repaired.get("assignmentType") == "code-test":
+        repaired["publicTests"] = [dict(x) for x in list(repaired.get("publicTests") or []) if isinstance(x, dict)]
+        repaired["hiddenTests"] = [dict(x) for x in list(repaired.get("hiddenTests") or []) if isinstance(x, dict)]
+        required, forbidden, _ = strip_conflicting_lists(repaired.get("requiredCalls"), repaired.get("forbiddenCalls"))
+        repaired["requiredCalls"] = required
+        repaired["forbiddenCalls"] = forbidden
+        if route in {"tests", "general"}:
+            _rebalance_code_tests(repaired)
+        if route in {"solution", "general"}:
+            code = normalize_text(repaired.get("referenceSolutionPython"))
+            if code:
+                repaired["referenceSolutionPython"] = _wrap_python_solution(code)
+        if route == "policy":
+            repaired["requiredCalls"] = required
+            repaired["forbiddenCalls"] = forbidden
+
 
 def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
@@ -44,20 +141,8 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
     if description and has_html_markup(description):
         repaired["description"] = normalize_text(description)
 
-    if repaired.get("assignmentType") == "code-test":
-        repaired["publicTests"] = [dict(x) for x in list(repaired.get("publicTests") or []) if isinstance(x, dict)]
-        repaired["hiddenTests"] = [dict(x) for x in list(repaired.get("hiddenTests") or []) if isinstance(x, dict)]
-        repaired["requiredCalls"] = list(repaired.get("requiredCalls") or [])
-        repaired["forbiddenCalls"] = list(repaired.get("forbiddenCalls") or [])
-
-    findings_digest: List[str] = []
-    for review in reviews[:6]:
-        if not isinstance(review, dict):
-            continue
-        result = review.get("result") if isinstance(review.get("result"), dict) else {}
-        for finding in (result.get("findings") if isinstance(result.get("findings"), list) else [])[:2]:
-            if isinstance(finding, dict):
-                findings_digest.append(normalize_text(finding.get("message")))
+    findings_digest = _gather_review_hints(reviews)
+    _apply_route_aware_repairs(repaired, primary_route, findings_digest)
 
     meta = repaired.get("meta") if isinstance(repaired.get("meta"), dict) else {}
     meta["repairSummary"] = {
@@ -69,6 +154,7 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
         "overallScore": scorecard.get("overallScore"),
         "repairedAt": int(time.time()),
         "reviewHints": findings_digest[:6],
+        "routeAware": bool(ROUTE_AWARE_REPAIR),
     }
     repaired["meta"] = meta
     wrapped = sanitize_result_payload(job.get("type") or "assignment_repair", payload, {"draft": repaired})
@@ -77,7 +163,7 @@ def fallback_repair_result(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict
     return {
         "schemaVersion": normalize_text(payload.get("schemaVersion")) or "draft-v2",
         "draft": repaired_wrapped,
-        "repairSummary": f"Fallback repair applied via route {primary_route} without deterministic subject templates.",
+        "repairSummary": f"Fallback repair applied via route {primary_route} with deterministic route-aware adjustments.",
         "draftValidation": validation,
     }
 
@@ -182,7 +268,7 @@ def try_improve_generation(
                 "jobId": job.get("id"), "attempt": attempt_no,
                 "promptLen": len(repair_prompt), "promptPreview": repair_prompt[:1500],
             })
-            repaired = call_ollama(repair_prompt)
+            repaired = call_llm(repair_prompt)
             repaired = _coerce_repair_result(job, payload, repaired)
             repaired_draft = repaired.get("draft") if isinstance(repaired, dict) and isinstance(repaired.get("draft"), dict) else None
             if not isinstance(repaired_draft, dict):

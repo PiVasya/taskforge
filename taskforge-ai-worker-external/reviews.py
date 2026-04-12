@@ -1,4 +1,4 @@
-﻿"""Individual review stages — structural, pedagogy, style, similarity,
+"""Individual review stages — structural, pedagogy, style, similarity,
 runtime, test-strength, brief review, and batch-context review.
 
 BUG-FIX: ``run_batch_context_review`` called bare ``jaccard()`` which was
@@ -13,7 +13,19 @@ import json
 import re
 from typing import Any, Dict, List
 
-from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESCRIPTION_LEN
+from config import (
+    MIN_PUBLIC_TESTS,
+    MIN_HIDDEN_TESTS,
+    MIN_TOTAL_TESTS,
+    MIN_DESCRIPTION_LEN,
+    DUPLICATE_CLUSTERING,
+    DUPLICATE_CLUSTER_THRESHOLD,
+    DUPLICATE_CLUSTER_WARNING_SIZE,
+    DUPLICATE_CLUSTER_FAIL_SIZE,
+    DUPLICATE_SIGNATURES,
+    SIMILARITY_SIGNATURE_WARNING_THRESHOLD,
+    SIMILARITY_SIGNATURE_FAIL_THRESHOLD,
+)
 from log import log
 from text_utils import (
     normalize_text,
@@ -23,6 +35,8 @@ from text_utils import (
     jaccard,
     safe_int,
 )
+from similarity_signatures import similarity_signature_report
+from duplicate_clusters import cluster_duplicate_candidates
 from validators import (
     collect_quality_checks_common,
     summarize_status,
@@ -139,13 +153,22 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
 def run_similarity_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     references = payload.get("referenceAssignments") if isinstance(payload.get("referenceAssignments"), list) else []
+    peer_drafts = payload.get("batchPeerDrafts") if isinstance(payload.get("batchPeerDrafts"), list) else []
+    anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
     title = normalize_text(draft.get("title"))
     description = normalize_text(draft.get("description"))
+    signature_hint_ids = {normalize_text(item.get("id")) for item in (anchor_context.get("duplicateSignatureHints") if isinstance(anchor_context.get("duplicateSignatureHints"), list) else []) if isinstance(item, dict) and normalize_text(item.get("id"))}
     checks: List[Dict[str, Any]] = []
     scored: List[Dict[str, Any]] = []
+    signature_values: List[float] = []
+    candidate_pool: List[Dict[str, Any]] = []
     for ref in references[:20]:
-        if not isinstance(ref, dict):
-            continue
+        if isinstance(ref, dict):
+            enriched = dict(ref); enriched.setdefault("source", "referenceAssignment"); candidate_pool.append(enriched)
+    for ref in peer_drafts[:12]:
+        if isinstance(ref, dict):
+            enriched = dict(ref); enriched.setdefault("source", "batchPeerDraft"); candidate_pool.append(enriched)
+    for ref in candidate_pool[:32]:
         ref_title = normalize_text(ref.get("title"))
         ref_desc = normalize_text(ref.get("descriptionSummary") or ref.get("description"))
         title_sim = compute_text_similarity(title, ref_title)
@@ -154,20 +177,17 @@ def run_similarity_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[
         ref_words = {w for w in ref_desc.casefold().split() if len(w) >= 4}
         draft_words = {w for w in description.casefold().split() if len(w) >= 4}
         lexical_overlap = (len(ref_words & draft_words) / max(1, len(ref_words | draft_words))) if (ref_words or draft_words) else 0.0
-        combined = max(title_sim, desc_sim, exact_title, lexical_overlap)
-        scored.append({
-            "referenceId": ref.get("id"),
-            "title": ref_title,
-            "titleSimilarity": round(title_sim, 4),
-            "descriptionSimilarity": round(desc_sim, 4),
-            "combinedSimilarity": round(combined, 4),
-            "lexicalOverlap": round(lexical_overlap, 4),
-            "exactTitle": bool(exact_title),
-        })
+        signature = similarity_signature_report(f"{title}\n{description}", f"{ref_title}\n{ref_desc}") if DUPLICATE_SIGNATURES else {"combined": 0.0, "shingleJaccard": 0.0, "simhashSimilarity": 0.0, "hammingDistance": 64, "sharedShingles": 0}
+        signature_score = float(signature.get("combined") or 0.0)
+        signature_values.append(signature_score)
+        combined = max(title_sim, desc_sim, exact_title, lexical_overlap, signature_score)
+        if normalize_text(ref.get("id")) in signature_hint_ids:
+            combined = max(combined, min(0.99, signature_score + 0.05))
+        scored.append({"referenceId": ref.get("id"), "title": ref_title, "titleSimilarity": round(title_sim,4), "descriptionSimilarity": round(desc_sim,4), "combinedSimilarity": round(combined,4), "lexicalOverlap": round(lexical_overlap,4), "exactTitle": bool(exact_title), "signatureScore": round(signature_score,4), "shingleJaccard": round(float(signature.get("shingleJaccard") or 0.0),4), "simhashSimilarity": round(float(signature.get("simhashSimilarity") or 0.0),4), "hammingDistance": int(signature.get("hammingDistance") or 64), "hintedByAnchorContext": normalize_text(ref.get("id")) in signature_hint_ids, "source": ref.get("source") or "referenceAssignment"})
     scored.sort(key=lambda x: x["combinedSimilarity"], reverse=True)
     top = scored[:3]
     max_sim = top[0]["combinedSimilarity"] if top else 0.0
-
+    max_signature = max(signature_values) if signature_values else 0.0
     top0 = top[0] if top else {}
     if top0.get("exactTitle") or max_sim >= 0.86:
         checks.append({"name": "similarity-max", "status": "failed", "details": f"Слишком высокая похожесть на существующее задание: {max_sim:.2f}"})
@@ -175,30 +195,38 @@ def run_similarity_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[
         checks.append({"name": "similarity-max", "status": "warning", "details": f"Похожесть на существующее задание выглядит высокой: {max_sim:.2f}"})
     else:
         checks.append({"name": "similarity-max", "status": "passed", "details": f"Максимальная похожесть приемлемая: {max_sim:.2f}"})
-
+    if DUPLICATE_SIGNATURES:
+        if max_signature >= SIMILARITY_SIGNATURE_FAIL_THRESHOLD:
+            checks.append({"name": "similarity-signature", "status": "failed", "details": f"Signature-based duplicate risk too high: {max_signature:.2f}"})
+        elif max_signature >= SIMILARITY_SIGNATURE_WARNING_THRESHOLD:
+            checks.append({"name": "similarity-signature", "status": "warning", "details": f"Signature-based duplicate risk elevated: {max_signature:.2f}"})
+        else:
+            checks.append({"name": "similarity-signature", "status": "passed", "details": f"Signature-based duplicate risk acceptable: {max_signature:.2f}"})
     if len(top) >= 2 and top[0]["combinedSimilarity"] >= 0.75 and top[1]["combinedSimilarity"] >= 0.75:
         checks.append({"name": "similarity-cluster", "status": "warning", "details": "Draft похож сразу на несколько referenceAssignments"})
     else:
         checks.append({"name": "similarity-cluster", "status": "passed", "details": "Явного кластера дублей не найдено"})
-
+    cluster_preview: List[Dict[str, Any]] = []
+    if DUPLICATE_CLUSTERING:
+        cluster_items = [{"id": "draft-current", "title": title, "description": description, "source": "currentDraft"}]
+        for item in candidate_pool[:10]:
+            cluster_items.append({"id": item.get("id"), "title": item.get("title"), "description": item.get("description") or item.get("descriptionSummary"), "source": item.get("source")})
+        cluster_preview = cluster_duplicate_candidates(cluster_items, threshold=DUPLICATE_CLUSTER_THRESHOLD, limit=10)
+        current_cluster = next((cluster for cluster in cluster_preview if any(isinstance(member, dict) and normalize_text(member.get("id")) == "draft-current" for member in (cluster.get("members") if isinstance(cluster.get("members"), list) else []))), None)
+        if isinstance(current_cluster, dict) and int(current_cluster.get("size") or 0) >= DUPLICATE_CLUSTER_FAIL_SIZE:
+            checks.append({"name": "similarity-cluster-signature", "status": "failed", "details": f"Current draft falls into duplicate cluster size={current_cluster.get('size')} max={current_cluster.get('maxScore')}"})
+        elif isinstance(current_cluster, dict) and int(current_cluster.get("size") or 0) >= DUPLICATE_CLUSTER_WARNING_SIZE:
+            checks.append({"name": "similarity-cluster-signature", "status": "warning", "details": f"Current draft near duplicate cluster size={current_cluster.get('size')} max={current_cluster.get('maxScore')}"})
+        else:
+            checks.append({"name": "similarity-cluster-signature", "status": "passed", "details": "Current draft not grouped into signature cluster"})
     status = summarize_status(checks)
     findings = build_findings_from_checks(checks)
     if top and max_sim >= 0.75:
-        findings.append({
-            "severity": "medium" if max_sim < 0.9 else "high",
-            "code": "similarity-top-reference",
-            "message": f"Наиболее похожий reference: {top[0].get('title') or top[0].get('referenceId')}",
-            "repairHint": "Измени учебную цель, формулировку и тесты, чтобы задача меньше дублировала существующие задания.",
-        })
-    return {
-        "draftId": payload.get("draftId") or job.get("targetEntityId"),
-        "status": status,
-        "summary": "Similarity review completed.",
-        "score": sum(1 for x in checks if x.get("status") == "passed") / max(1, len(checks)),
-        "checks": checks,
-        "findings": findings,
-        "topReferences": top,
-    }
+        findings.append({"severity": "medium" if max_sim < 0.9 else "high", "code": "similarity-top-reference", "message": f"Наиболее похожий reference: {top[0].get('title') or top[0].get('referenceId')}", "repairHint": "Измени учебную цель, формулировку и тесты, чтобы задача меньше дублировала существующие задания."})
+    if DUPLICATE_SIGNATURES and top and max_signature >= SIMILARITY_SIGNATURE_WARNING_THRESHOLD:
+        findings.append({"severity": "medium" if max_signature < SIMILARITY_SIGNATURE_FAIL_THRESHOLD else "high", "code": "similarity-signature-top-reference", "message": f"Signature-based near-duplicate risk highest for: {top[0].get('title') or top[0].get('referenceId')}", "repairHint": "Сделай задачу заметно отличимой по формулировке, входным данным, тестам и учебной цели. Избегай тех же шинглов и почти идентичной структуры условия."})
+    cluster_summary = {"clusterCount": len(cluster_preview), "largestClusterSize": max((int(cluster.get("size") or 0) for cluster in cluster_preview), default=0), "topClusterScore": max((float(cluster.get("maxScore") or 0.0) for cluster in cluster_preview), default=0.0)}
+    return {"draftId": payload.get("draftId") or job.get("targetEntityId"), "status": status, "summary": "Similarity review completed.", "score": sum(1 for x in checks if x.get("status") == "passed") / max(1, len(checks)), "checks": checks, "findings": findings, "topReferences": top, "duplicateClusters": cluster_preview[:4], "duplicateClusterSummary": cluster_summary}
 
 
 # ── Runtime review ────────────────────────────────────
@@ -500,35 +528,28 @@ def run_batch_context_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
         if combo >= 0.45:
             overlaps.append({"id": ref.get("id"), "title": rtitle, "score": round(combo, 3)})
     overlaps.sort(key=lambda x: x["score"], reverse=True)
-
     if overlaps and overlaps[0]["score"] >= 0.75:
-        findings.append({
-            "severity": "high", "code": "batch_context.duplicate",
-            "message": "Draft слишком похож на соседнюю задачу набора.",
-            "suggestedRepair": "Измени микроцель, пример и тестовое ядро.",
-            "confidence": overlaps[0]["score"],
-        })
+        findings.append({"severity": "high", "code": "batch_context.duplicate", "message": "Draft слишком похож на соседнюю задачу набора.", "suggestedRepair": "Измени микроцель, пример и тестовое ядро.", "confidence": overlaps[0]["score"]})
     elif len(overlaps) >= 2:
-        findings.append({
-            "severity": "medium", "code": "batch_context.cluster_overlap",
-            "message": "Draft частично пересекается с несколькими соседними задачами набора.",
-            "suggestedRepair": "Усиль отличие по навыку, формату или ограничениям.",
-            "confidence": overlaps[0]["score"],
-        })
-    checks.append({
-        "name": "peerOverlap",
-        "status": "failed" if any(f["severity"] == "high" for f in findings) else ("warning" if findings else "passed"),
-        "details": json.dumps(overlaps[:3], ensure_ascii=False),
-    })
-
+        findings.append({"severity": "medium", "code": "batch_context.cluster_overlap", "message": "Draft частично пересекается с несколькими соседними задачами набора.", "suggestedRepair": "Усиль отличие по навыку, формату или ограничениям.", "confidence": overlaps[0]["score"]})
+    checks.append({"name": "peerOverlap", "status": "failed" if any(f["severity"] == "high" for f in findings) else ("warning" if findings else "passed"), "details": json.dumps(overlaps[:3], ensure_ascii=False)})
+    duplicate_clusters: List[Dict[str, Any]] = []
+    if DUPLICATE_CLUSTERING:
+        cluster_items = [{"id": "draft-current", "title": title, "description": description, "source": "currentDraft"}]
+        for ref in refs[:12]:
+            if isinstance(ref, dict):
+                cluster_items.append({"id": ref.get("id"), "title": ref.get("title"), "description": ref.get("description") or ref.get("descriptionSummary"), "source": "batchPeerDraft"})
+        duplicate_clusters = cluster_duplicate_candidates(cluster_items, threshold=DUPLICATE_CLUSTER_THRESHOLD, limit=12)
+        current_cluster = next((cluster for cluster in duplicate_clusters if any(isinstance(member, dict) and normalize_text(member.get("id")) == "draft-current" for member in (cluster.get("members") if isinstance(cluster.get("members"), list) else []))), None)
+        if isinstance(current_cluster, dict) and int(current_cluster.get("size") or 0) >= 3:
+            findings.append({"severity": "high", "code": "batch_context.signature_cluster", "message": "Draft попал в кластер близких peer drafts по signature similarity.", "suggestedRepair": "Смени microGoal, опорный пример, ограничения и тестовое ядро, чтобы задача не сидела в том же кластере.", "confidence": min(0.98, float(current_cluster.get("maxScore") or 0.85))})
+        elif isinstance(current_cluster, dict) and int(current_cluster.get("size") or 0) == 2:
+            findings.append({"severity": "medium", "code": "batch_context.signature_pair", "message": "Draft слишком близок к одному из peer drafts по signature similarity.", "suggestedRepair": "Усиль отличие по формулировке, входу/выходу и ожидаемым тестам.", "confidence": min(0.9, float(current_cluster.get("maxScore") or 0.75))})
+        checks.append({"name": "peerSignatureCluster", "status": "failed" if any(f.get("code") == "batch_context.signature_cluster" for f in findings) else ("warning" if any(f.get("code") == "batch_context.signature_pair" for f in findings) else "passed"), "details": json.dumps(duplicate_clusters[:2], ensure_ascii=False)})
     target_skill = normalize_text(item_ctx.get("TargetSkill") or item_ctx.get("targetSkill"))
     difficulty_target = safe_int(item_ctx.get("DifficultyTarget") or item_ctx.get("difficultyTarget"), 0)
     skill_tokens = [tok for tok in re.split(r"[^\wа-яА-Я]+", target_skill.lower()) if len(tok) >= 4 and tok not in {"базовый", "вывод", "ввод", "простые", "правила", "значение", "значения"}]
-    anchor_haystack = " ".join([
-        title.lower(),
-        description.lower(),
-        normalize_text(item_ctx.get("microGoal") or item_ctx.get("MicroGoal")).lower(),
-    ])
+    anchor_haystack = " ".join([title.lower(), description.lower(), normalize_text(item_ctx.get("microGoal") or item_ctx.get("MicroGoal")).lower()])
     matched_tokens = [tok for tok in skill_tokens if tok in anchor_haystack]
     if target_skill:
         if matched_tokens:
@@ -539,64 +560,10 @@ def run_batch_context_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
             checks.append({"name": "skill-anchor", "status": "passed", "details": f"implicit:{target_skill}"})
     if difficulty_target:
         checks.append({"name": "difficulty-target", "status": "passed", "details": str(difficulty_target)})
-
     status = "passed"
     if any(f["severity"] == "high" for f in findings):
         status = "failed"
     elif findings:
         status = "needs-review"
     score = 1.0 - min(len(overlaps), 4) * 0.15
-    return {
-        "status": status,
-        "score": round(max(0.0, score), 3),
-        "summary": "Batch context review completed.",
-        "checks": checks,
-        "findings": findings,
-        "topOverlaps": overlaps[:5],
-        "batchItemContext": item_ctx,
-    }
-
-    if overlaps and overlaps[0]["score"] >= 0.75:
-        findings.append({
-            "severity": "high", "code": "batch_context.duplicate",
-            "message": "Draft слишком похож на соседнюю задачу набора.",
-            "suggestedRepair": "Измени микроцель, пример и тестовое ядро.",
-            "confidence": overlaps[0]["score"],
-        })
-    elif len(overlaps) >= 2:
-        findings.append({
-            "severity": "medium", "code": "batch_context.cluster_overlap",
-            "message": "Draft частично пересекается с несколькими соседними задачами набора.",
-            "suggestedRepair": "Усиль отличие по навыку, формату или ограничениям.",
-            "confidence": overlaps[0]["score"],
-        })
-    checks.append({
-        "name": "peerOverlap",
-        "status": "failed" if any(f["severity"] == "high" for f in findings) else ("warning" if findings else "passed"),
-        "details": json.dumps(overlaps[:3], ensure_ascii=False),
-    })
-
-    target_skill = normalize_text(item_ctx.get("TargetSkill") or item_ctx.get("targetSkill"))
-    difficulty_target = safe_int(item_ctx.get("DifficultyTarget") or item_ctx.get("difficultyTarget"), 0)
-    if target_skill and target_skill.lower() in description.lower():
-        checks.append({"name": "skill-anchor", "status": "passed", "details": target_skill})
-    elif target_skill:
-        checks.append({"name": "skill-anchor", "status": "warning", "details": f"targetSkill={target_skill}"})
-    if difficulty_target:
-        checks.append({"name": "difficulty-target", "status": "passed", "details": str(difficulty_target)})
-
-    status = "passed"
-    if any(f["severity"] == "high" for f in findings):
-        status = "failed"
-    elif findings or any(c.get("status") == "warning" for c in checks):
-        status = "needs-review"
-    score = 1.0 - min(len(overlaps), 4) * 0.15 - (0.1 if any(c.get("status") == "warning" for c in checks) else 0.0)
-    return {
-        "status": status,
-        "score": round(max(0.0, score), 3),
-        "summary": "Batch context review completed.",
-        "checks": checks,
-        "findings": findings,
-        "topOverlaps": overlaps[:5],
-        "batchItemContext": item_ctx,
-    }
+    return {"status": status, "score": round(max(0.0, score), 3), "summary": "Batch context review completed.", "checks": checks, "findings": findings, "topOverlaps": overlaps[:5], "batchItemContext": item_ctx, "duplicateClusters": duplicate_clusters[:4]}

@@ -1,4 +1,4 @@
-﻿"""TaskForge AI Worker — thin orchestrator.
+"""TaskForge AI Worker — thin orchestrator.
 
 All business logic lives in dedicated modules:
   config, log, text_utils, api_client, runners, payload,
@@ -39,12 +39,25 @@ from config import (
     BATCH_PLAN_MAX_RETRIES,
     REFERENCE_PACK_MAX_RETRIES,
     BRIEF_MAX_RETRIES,
+    CHAT_STRICT_MODE,
+    DRAFT_SUBSTAGES,
+    SCHEMA_VALIDATION_MODE,
+    STRUCTURED_OUTPUTS,
+    STAGE_PROVIDER_ORDER_PLANNING,
+    STAGE_PROVIDER_ORDER_CHAT,
+    STAGE_PROVIDER_ORDER_DRAFT,
+    STAGE_PROVIDER_ORDER_REPAIR,
+    STAGE_PROVIDER_ORDER_REVIEW,
+    STAGE_ROUTING_OVERRIDES,
+    WORKER_TELEMETRY_ENABLED,
+    DUPLICATE_CLUSTER_PREVIEW_GROUPS,
 )
 from log import log, logger, log_event, preview_text, INCLUDE_PROMPTS, INCLUDE_RESPONSES, PROMPT_PREVIEW_CHARS, RESPONSE_PREVIEW_CHARS
 from api_client import pull_job, heartbeat, complete, fail
 from payload import parse_payload, sanitize_result_payload, _derive_course_style_title
 from validators import run_self_check
-from ollama import call_ollama, OllamaCallConfig
+from llm_client import call_llm, OllamaCallConfig
+from schemas import openrouter_response_format, validate_stage_result
 from prompt_builder import (
     build_prompt,
     build_course_profile_prompt,
@@ -173,6 +186,29 @@ def _stage_required_keys(job_type: str) -> tuple[list[str], list[str]]:
     if job_type == "assistant_chat_turn":
         return (["assistantMessage", "actions"], ["sessionTitle", "action"])
     return ([], [])
+
+
+def _schema_stage_name(job_type: str) -> str | None:
+    mapping = {
+        "assignment_course_profile_build": "course_profile_build",
+        "assignment_gap_analysis": "gap_analysis",
+        "assignment_batch_plan": "batch_plan",
+        "assignment_batch_replan": "batch_plan",
+        "assignment_reference_pack_build": "reference_pack",
+        "assignment_brief_generate": "brief",
+        "assignment_brief_repair": "brief",
+        "assignment_generate_from_text": "draft_generate",
+        "assignment_repair": "assignment_repair",
+        "assistant_chat_turn": "assistant_chat_turn",
+    }
+    return mapping.get(job_type)
+
+
+def _stage_schema_errors(job_type: str, result: Dict[str, Any]) -> list[str]:
+    if SCHEMA_VALIDATION_MODE == "off":
+        return []
+    ok, errors = validate_stage_result(_schema_stage_name(job_type), result)
+    return [] if ok else errors
 
 
 def _schema_missing_reason(job_type: str, payload: Dict[str, Any], result: Dict[str, Any]) -> str | None:
@@ -304,6 +340,90 @@ def _chat_build_session_title(payload: Dict[str, Any]) -> str | None:
     if title.lower().startswith("ai чат") or title.lower().startswith("ai chat"):
         return title[:64]
     return f"AI чат · {title}"[:64]
+
+
+def _collect_known_ids(payload: Dict[str, Any], key: str) -> set[str]:
+    values: set[str] = set()
+    if key == "courseId":
+        for item in [payload.get("courseId"), ((payload.get("selectedCourse") or {}) if isinstance(payload.get("selectedCourse"), dict) else {}).get("id")]:
+            if str(item or "").strip():
+                values.add(str(item).strip())
+        for collection_key in ("availableCourses", "recentCourses"):
+            items = payload.get(collection_key) if isinstance(payload.get(collection_key), list) else []
+            for obj in items:
+                if isinstance(obj, dict) and str(obj.get("id") or "").strip():
+                    values.add(str(obj.get("id")).strip())
+        return values
+    source_map = {"draftId": "recentDrafts", "assignmentId": "recentAssignments", "batchId": "recentBatches", "userId": "recentUsers", "sourceAttemptId": "recentAttempts"}
+    items = payload.get(source_map.get(key, "")) if isinstance(payload.get(source_map.get(key, "")), list) else []
+    for obj in items:
+        if isinstance(obj, dict):
+            raw = obj.get(key) or obj.get("id")
+            if str(raw or "").strip():
+                values.add(str(raw).strip())
+    return values
+
+
+def _action_is_destructive(name: str) -> bool:
+    return name in {"approve_draft", "reject_draft", "publish_draft"}
+
+
+def _validate_chat_action_arguments(payload: Dict[str, Any], action: Dict[str, Any]) -> tuple[bool, str | None]:
+    args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+    action["arguments"] = args
+    for key, value in list(args.items()):
+        if not key.endswith("Id") and not key.endswith("Ids"):
+            continue
+        base_key = key[:-1] if key.endswith("Ids") else key
+        known = _collect_known_ids(payload, base_key)
+        if not known:
+            continue
+        if key.endswith("Ids"):
+            values = value if isinstance(value, list) else [value]
+            normalized = [str(item).strip() for item in values if str(item).strip()]
+            if any(item not in known for item in normalized):
+                return False, f"unknown ids in {key}"
+            args[key] = normalized
+        else:
+            normalized = str(value or "").strip()
+            if normalized and normalized not in known:
+                return False, f"unknown id in {key}"
+            args[key] = normalized
+    if _action_is_destructive(str(action.get("name") or "")) and not bool(args.get("confirmed")):
+        return False, "destructive action requires confirmed=true"
+    return True, None
+
+
+def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> tuple[Dict[str, Any], list[str]]:
+    if not CHAT_STRICT_MODE or not isinstance(result, dict):
+        return result, []
+    allowed = {str(item.get("name") or "").strip() for item in (payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else []) if isinstance(item, dict)}
+    actions = result.get("actions") if isinstance(result.get("actions"), list) else []
+    strict_actions: list[Dict[str, Any]] = []
+    issues: list[str] = []
+    for action in actions[:3]:
+        if not isinstance(action, dict):
+            issues.append("action is not object")
+            continue
+        name = str(action.get("name") or "").strip()
+        if not name or (allowed and name not in allowed):
+            issues.append(f"unknown action: {name or '-'}")
+            continue
+        if not isinstance(action.get("arguments"), dict):
+            action["arguments"] = {}
+        ok, reason = _validate_chat_action_arguments(payload, action)
+        if not ok:
+            issues.append(reason or f"invalid action args: {name}")
+            continue
+        strict_actions.append({"name": name, "reason": str(action.get("reason") or "").strip() or "Выбрано по текущему контексту чата.", "arguments": action.get("arguments") if isinstance(action.get("arguments"), dict) else {}})
+    result["actions"] = strict_actions
+    if issues and not strict_actions and not str(result.get("assistantMessage") or "").strip():
+        result["assistantMessage"] = "Мне не хватает надёжных данных для запуска действия без риска ошибки. Уточни запрос или выбери сущность явно."
+    elif issues and any("confirmed" in issue for issue in issues) and not strict_actions:
+        result["assistantMessage"] = str(result.get("assistantMessage") or "").strip() or "Для этого действия нужно явное подтверждение публикации или одобрения."
+    if issues and not result.get("sessionTitle"):
+        result["sessionTitle"] = _chat_build_session_title(payload)
+    return result, issues
 
 
 def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
@@ -550,11 +670,11 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     }
 
 
-def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], job_type: str, bad_result: Dict[str, Any]) -> Dict[str, Any]:
-    if job_type not in {"assignment_course_profile_build", "assignment_gap_analysis", "assignment_batch_plan", "assignment_batch_replan", "assignment_generate_from_text"}:
+def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], job_type: str, bad_result: Dict[str, Any], schema_errors: list[str] | None = None) -> Dict[str, Any]:
+    stage = _schema_stage_name(job_type)
+    if not stage:
         return bad_result
-    stage = "batch_plan" if job_type in {"assignment_batch_plan", "assignment_batch_replan"} else ("gap_analysis" if job_type == "assignment_gap_analysis" else ("draft_generate" if job_type == "assignment_generate_from_text" else "course_profile_build"))
-    prompt = build_stage_schema_repair_prompt(stage, payload, bad_result)
+    prompt = build_stage_schema_repair_prompt(stage, payload, bad_result, schema_errors=schema_errors)
     required, preferred = _stage_required_keys(job_type)
     repair_cfg = _stage_llm_config(job_type, payload, _job_retry_count(job))
     repair_cfg.stage = f"{stage}_schema_repair"
@@ -562,10 +682,12 @@ def _repair_invalid_stage_result(job: Dict[str, Any], payload: Dict[str, Any], j
     repair_cfg.num_predict = min(repair_cfg.num_predict or 320, 320)
     repair_cfg.required_keys = required
     repair_cfg.preferred_keys = preferred
-    _log_stage("stage-schema-repair-prompt", job, payload, prompt_len=len(prompt), required=required, preferred=preferred)
-    repaired = call_ollama(prompt, repair_cfg)
+    repair_cfg.json_schema = None
+    _log_stage("stage-schema-repair-prompt", job, payload, prompt_len=len(prompt), required=required, preferred=preferred, schema_errors=(schema_errors or [])[:6])
+    repaired = call_llm(prompt, repair_cfg)
     _log_stage("stage-schema-repair-raw", job, payload, result=_result_summary(repaired))
     return sanitize_result_payload(job_type, payload, repaired)
+
 
 
 def _payload_overview(payload: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -586,6 +708,46 @@ def _payload_overview(payload: Dict[str, Any] | None) -> Dict[str, Any]:
     if INCLUDE_PROMPTS and isinstance(prompt, str) and prompt.strip():
         info['prompt_preview'] = preview_text(prompt, PROMPT_PREVIEW_CHARS)
     return info
+
+
+def _consume_llm_meta(result: Any) -> dict[str, Any] | None:
+    if isinstance(result, dict):
+        meta = result.pop("__llmMeta", None)
+        if isinstance(meta, dict):
+            return meta
+    return None
+
+
+def _build_worker_telemetry(job: Dict[str, Any], payload: Dict[str, Any], result: Dict[str, Any], llm_meta: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not WORKER_TELEMETRY_ENABLED:
+        return None
+    telemetry: dict[str, Any] = {
+        "jobType": (job.get("type") or "").lower().strip(),
+        "jobId": job.get("id"),
+        "stageCode": job.get("stageCode") or payload.get("stageCode"),
+        "compactMode": payload.get("__compactMode"),
+        "retryCount": _job_retry_count(job),
+        "resultKeys": sorted(result.keys())[:16] if isinstance(result, dict) else [],
+    }
+    anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
+    selection = payload.get("selectionTelemetry") if isinstance(payload.get("selectionTelemetry"), dict) else {}
+    if selection:
+        telemetry["selectionTelemetry"] = {
+            "anchorId": selection.get("anchorId"),
+            "selectedIds": list(selection.get("selectedIds") or [])[:8],
+            "seedTokens": list(selection.get("seedTokens") or [])[:8],
+            "topCandidates": list(selection.get("topCandidates") or [])[:5],
+        }
+    duplicate_preview = anchor_context.get("duplicateClustersPreview") if isinstance(anchor_context.get("duplicateClustersPreview"), list) else []
+    duplicate_hints = anchor_context.get("duplicateSignatureHints") if isinstance(anchor_context.get("duplicateSignatureHints"), list) else []
+    telemetry["duplicateSignals"] = {
+        "clusterCount": len(duplicate_preview),
+        "signatureHints": len(duplicate_hints),
+        "clusters": duplicate_preview[:max(1, DUPLICATE_CLUSTER_PREVIEW_GROUPS)],
+    }
+    if isinstance(llm_meta, dict) and llm_meta:
+        telemetry["llm"] = llm_meta
+    return telemetry
 
 
 def _result_overview(result: Any) -> Dict[str, Any]:
@@ -789,10 +951,10 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     llm_cfg = _stage_llm_config(job_type, payload, retry_count)
 
     style_prompt = build_draft_course_style_analysis_prompt(job, payload)
-    style_cfg = OllamaCallConfig(stage="draft_course_style_analysis", timeout=min(50, llm_cfg.timeout), num_predict=320, temperature=0.08, required_keys=["courseStyle", "titleStyle"], preferred_keys=["summary", "antiPatterns", "positivePatterns"])
+    style_cfg = _with_stage_schema(OllamaCallConfig(stage="draft_course_style_analysis", timeout=min(50, llm_cfg.timeout), num_predict=320, temperature=0.08, required_keys=["courseStyle", "titleStyle"], preferred_keys=["summary", "antiPatterns", "positivePatterns"]), "assignment_generate_from_text", retry_count, str(payload.get("__compactMode") or "").strip().lower())
     _log_stage("substage-prepare", job, payload, substage="draft_course_style_analysis", prompt_len=len(style_prompt), timeout=style_cfg.timeout, num_predict=style_cfg.num_predict)
     try:
-        style_raw = call_ollama(style_prompt, style_cfg)
+        style_raw = call_llm(style_prompt, style_cfg)
     except Exception as ex:
         logger.warning(f"draft course style analysis failed: {ex} [{_job_context(job, payload)}]")
         style_raw = {}
@@ -800,10 +962,10 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     _log_stage("substage-done", job, payload, substage="draft_course_style_analysis", result=_result_summary(style_result))
 
     spec_prompt = build_draft_generation_spec_prompt(job, payload, style_result)
-    spec_cfg = OllamaCallConfig(stage="draft_generation_spec", timeout=min(50, llm_cfg.timeout), num_predict=320, temperature=0.08, required_keys=["generationSpec"], preferred_keys=["summary"])
+    spec_cfg = _with_stage_schema(OllamaCallConfig(stage="draft_generation_spec", timeout=min(50, llm_cfg.timeout), num_predict=320, temperature=0.08, required_keys=["generationSpec"], preferred_keys=["summary"]), "assignment_generate_from_text", retry_count, str(payload.get("__compactMode") or "").strip().lower())
     _log_stage("substage-prepare", job, payload, substage="draft_generation_spec", prompt_len=len(spec_prompt), timeout=spec_cfg.timeout, num_predict=spec_cfg.num_predict)
     try:
-        spec_raw = call_ollama(spec_prompt, spec_cfg)
+        spec_raw = call_llm(spec_prompt, spec_cfg)
     except Exception as ex:
         logger.warning(f"draft generation spec failed: {ex} [{_job_context(job, payload)}]")
         spec_raw = {}
@@ -815,10 +977,10 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     enriched_payload["generationSpec"] = spec_result.get("generationSpec") if isinstance(spec_result, dict) else {}
 
     content_prompt = build_draft_content_plan_prompt(job, enriched_payload)
-    content_cfg = OllamaCallConfig(stage="draft_content_plan", timeout=min(50, llm_cfg.timeout), num_predict=360, temperature=0.08, required_keys=["contentPlan"], preferred_keys=["summary"])
+    content_cfg = _with_stage_schema(OllamaCallConfig(stage="draft_content_plan", timeout=min(50, llm_cfg.timeout), num_predict=360, temperature=0.08, required_keys=["contentPlan"], preferred_keys=["summary"]), "assignment_generate_from_text", retry_count, str(payload.get("__compactMode") or "").strip().lower())
     _log_stage("substage-prepare", job, enriched_payload, substage="draft_content_plan", prompt_len=len(content_prompt), timeout=content_cfg.timeout, num_predict=content_cfg.num_predict)
     try:
-        content_raw = call_ollama(content_prompt, content_cfg)
+        content_raw = call_llm(content_prompt, content_cfg)
     except Exception as ex:
         logger.warning(f"draft content plan failed: {ex} [{_job_context(job, enriched_payload)}]")
         content_raw = {}
@@ -827,10 +989,10 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     _log_stage("substage-done", job, enriched_payload, substage="draft_content_plan", result=_result_summary(content_result))
 
     body_prompt = build_draft_body_generate_prompt(job, enriched_payload)
-    body_cfg = OllamaCallConfig(stage="draft_body_generate", timeout=min(llm_cfg.timeout, max(60, llm_cfg.timeout)), num_predict=min(llm_cfg.num_predict or 1200, 1400), temperature=0.10, required_keys=["draft"], preferred_keys=["summary", "decisionSummary"])
+    body_cfg = _with_stage_schema(OllamaCallConfig(stage="draft_body_generate", timeout=min(llm_cfg.timeout, max(60, llm_cfg.timeout)), num_predict=min(llm_cfg.num_predict or 1200, 1400), temperature=0.10, required_keys=["draft"], preferred_keys=["summary", "decisionSummary"]), "assignment_generate_from_text", retry_count, str(payload.get("__compactMode") or "").strip().lower())
     _log_stage("substage-prepare", job, enriched_payload, substage="draft_body_generate", prompt_len=len(body_prompt), timeout=body_cfg.timeout, num_predict=body_cfg.num_predict)
     try:
-        body_result = call_ollama(body_prompt, body_cfg)
+        body_result = call_llm(body_prompt, body_cfg)
     except Exception as ex:
         logger.warning(f"draft body ollama failed: {ex} [{_job_context(job, enriched_payload)}]")
         fallback_job = dict(job)
@@ -841,19 +1003,19 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     _log_stage("substage-done", job, enriched_payload, substage="draft_body_generate", result=body_result)
 
     title_prompt = build_draft_title_generate_prompt(job, enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})
-    title_cfg = OllamaCallConfig(stage="draft_title_generate", timeout=min(40, llm_cfg.timeout), num_predict=120, temperature=0.08, required_keys=["title"], preferred_keys=["summary"])
+    title_cfg = _with_stage_schema(OllamaCallConfig(stage="draft_title_generate", timeout=min(40, llm_cfg.timeout), num_predict=120, temperature=0.08, required_keys=["title"], preferred_keys=["summary"]), "assignment_generate_from_text", retry_count, str(payload.get("__compactMode") or "").strip().lower())
     _log_stage("substage-prepare", job, enriched_payload, substage="draft_title_generate", prompt_len=len(title_prompt), timeout=title_cfg.timeout, num_predict=title_cfg.num_predict)
     try:
-        title_result = call_ollama(title_prompt, title_cfg)
+        title_result = call_llm(title_prompt, title_cfg)
     except Exception as ex:
         logger.warning(f"draft title ollama failed: {ex} [{_job_context(job, enriched_payload)}]")
         title_result = {"title": _derive_course_style_title(enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {})}
     if _title_looks_bad(str((title_result or {}).get("title") or "")):
         try:
             repair_prompt = build_draft_title_repair_prompt(job, enriched_payload, body_result.get("draft") if isinstance(body_result.get("draft"), dict) else {}, str((title_result or {}).get("title") or ""))
-            repair_cfg = OllamaCallConfig(stage="draft_title_repair", timeout=min(35, llm_cfg.timeout), num_predict=80, temperature=0.06, required_keys=["title"], preferred_keys=["summary"])
+            repair_cfg = _with_stage_schema(OllamaCallConfig(stage="draft_title_repair", timeout=min(35, llm_cfg.timeout), num_predict=80, temperature=0.06, required_keys=["title"], preferred_keys=["summary"]), "assignment_generate_from_text", retry_count, str(payload.get("__compactMode") or "").strip().lower())
             _log_stage("substage-prepare", job, enriched_payload, substage="draft_title_repair", prompt_len=len(repair_prompt), timeout=repair_cfg.timeout, num_predict=repair_cfg.num_predict)
-            repaired_title = call_ollama(repair_prompt, repair_cfg)
+            repaired_title = call_llm(repair_prompt, repair_cfg)
             if isinstance(repaired_title, dict) and str(repaired_title.get("title") or "").strip():
                 title_result = repaired_title
             _log_stage("substage-done", job, enriched_payload, substage="draft_title_repair", result=(repaired_title if isinstance(repaired_title, dict) else {"title": repaired_title}))
@@ -898,32 +1060,111 @@ def _stage_retry_limit(job_type: str) -> int:
     return MAX_JOB_RETRIES
 
 
+def _use_draft_substages(payload: Dict[str, Any], retry_count: int) -> bool:
+    explicit = payload.get("__useDraftSubstages")
+    if isinstance(explicit, bool):
+        return explicit
+    if explicit is not None:
+        return str(explicit).strip().lower() in {"1", "true", "yes", "on"}
+    if DRAFT_SUBSTAGES:
+        return True
+    compact_mode = str(payload.get("__compactMode") or "").strip().lower()
+    ref_count = len(payload.get("referenceAssignments") or []) if isinstance(payload.get("referenceAssignments"), list) else 0
+    return retry_count > 0 or compact_mode == "ultra" or ref_count >= 8
+
+
+def _stage_group(stage_name: str | None, job_type: str | None = None) -> str:
+    stage = str(stage_name or job_type or "").strip().lower()
+    if stage in {"course_profile_build", "gap_analysis", "batch_plan", "brief", "reference_pack"} or stage.startswith("assignment_batch"):
+        return "planning"
+    if stage == "assistant_chat_turn":
+        return "chat"
+    if stage.startswith("repair") or stage in {"assignment_repair"}:
+        return "repair"
+    if stage.startswith("draft_") or stage == "draft_generate" or stage == "assignment_generate_from_text":
+        return "draft"
+    return "review"
+
+
+def _stage_routing_profile(stage_name: str | None, job_type: str | None, retry_count: int, compact_mode: str) -> Dict[str, Any] | None:
+    group = _stage_group(stage_name, job_type)
+    override = None
+    if isinstance(STAGE_ROUTING_OVERRIDES, dict):
+        override = STAGE_ROUTING_OVERRIDES.get(str(stage_name or "")) or STAGE_ROUTING_OVERRIDES.get(str(job_type or "")) or STAGE_ROUTING_OVERRIDES.get(group)
+    if isinstance(override, dict):
+        profile = dict(override)
+    else:
+        if group == "planning":
+            order = STAGE_PROVIDER_ORDER_PLANNING
+        elif group == "chat":
+            order = STAGE_PROVIDER_ORDER_CHAT
+        elif group == "draft":
+            order = STAGE_PROVIDER_ORDER_DRAFT
+        elif group == "repair":
+            order = STAGE_PROVIDER_ORDER_REPAIR
+        else:
+            order = STAGE_PROVIDER_ORDER_REVIEW
+        profile = {"order": order} if order else {}
+    if not profile:
+        return None
+    if retry_count > 0:
+        profile.setdefault("allow_fallbacks", True)
+    if compact_mode == "ultra":
+        profile.setdefault("allow_fallbacks", True)
+    return profile
+
+
+def _stage_plugins(stage_name: str | None, retry_count: int, compact_mode: str, wants_schema: bool) -> list[dict[str, Any]]:
+    plugin_ids: list[str] = []
+    if wants_schema:
+        plugin_ids.append("response-healing")
+    if retry_count > 0 or compact_mode in {"compact", "ultra"} or _stage_group(stage_name) in {"draft", "repair"}:
+        plugin_ids.append("context-compression")
+    unique: list[str] = []
+    seen: set[str] = set()
+    for item in plugin_ids:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return [{"id": item} for item in unique]
+
+
+def _with_stage_schema(cfg: OllamaCallConfig, job_type: str | None = None, retry_count: int = 0, compact_mode: str = "") -> OllamaCallConfig:
+    if STRUCTURED_OUTPUTS and not cfg.json_schema:
+        cfg.json_schema = openrouter_response_format(cfg.stage)
+    routing = _stage_routing_profile(cfg.stage, job_type, retry_count, compact_mode)
+    if routing:
+        cfg.routing = routing
+    plugins = _stage_plugins(cfg.stage, retry_count, compact_mode, bool(cfg.json_schema or cfg.json_mode))
+    if plugins:
+        cfg.plugins = plugins
+    return cfg
+
+
 def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) -> OllamaCallConfig:
     compact_mode = str(payload.get("__compactMode") or "").strip().lower()
     if job_type == "assignment_course_profile_build":
-        return OllamaCallConfig(stage="course_profile_build", timeout=COURSE_PROFILE_TIMEOUT, num_predict=360 if compact_mode else COURSE_PROFILE_NUM_PREDICT, temperature=0.1, required_keys=["canonicalRequest", "courseDigest", "courseProfile"], preferred_keys=["summary", "decisionSummary"])
+        return _with_stage_schema(OllamaCallConfig(stage="course_profile_build", timeout=COURSE_PROFILE_TIMEOUT, num_predict=360 if compact_mode else COURSE_PROFILE_NUM_PREDICT, temperature=0.1, required_keys=["canonicalRequest", "courseDigest", "courseProfile"], preferred_keys=["summary", "decisionSummary"]), job_type, retry_count, compact_mode)
     if job_type == "assignment_gap_analysis":
-        return OllamaCallConfig(stage="gap_analysis", timeout=GAP_ANALYSIS_TIMEOUT, num_predict=280 if compact_mode else GAP_ANALYSIS_NUM_PREDICT, temperature=0.1, required_keys=["gapAnalysis", "coverage"], preferred_keys=["summary", "decisionSummary", "canonicalRequest", "courseDigest"])
+        return _with_stage_schema(OllamaCallConfig(stage="gap_analysis", timeout=GAP_ANALYSIS_TIMEOUT, num_predict=280 if compact_mode else GAP_ANALYSIS_NUM_PREDICT, temperature=0.1, required_keys=["gapAnalysis", "coverage"], preferred_keys=["summary", "decisionSummary", "canonicalRequest", "courseDigest"]), job_type, retry_count, compact_mode)
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
-        return OllamaCallConfig(stage="batch_plan", timeout=BATCH_PLAN_TIMEOUT, num_predict=260 if compact_mode else BATCH_PLAN_NUM_PREDICT, temperature=0.08, required_keys=["plan"], preferred_keys=["canonicalRequest", "coverage", "summary", "decisionSummary"])
+        return _with_stage_schema(OllamaCallConfig(stage="batch_plan", timeout=BATCH_PLAN_TIMEOUT, num_predict=260 if compact_mode else BATCH_PLAN_NUM_PREDICT, temperature=0.08, required_keys=["plan"], preferred_keys=["canonicalRequest", "coverage", "summary", "decisionSummary"]), job_type, retry_count, compact_mode)
     if job_type in {"assignment_brief_generate", "assignment_brief_repair"}:
-        return OllamaCallConfig(stage="brief", timeout=BRIEF_TIMEOUT, num_predict=420 if compact_mode else BRIEF_NUM_PREDICT, temperature=0.12, required_keys=["titleHint", "generationPrompt", "targetSkill"], preferred_keys=["summary", "difficultyTarget"])
+        return _with_stage_schema(OllamaCallConfig(stage="brief", timeout=BRIEF_TIMEOUT, num_predict=420 if compact_mode else BRIEF_NUM_PREDICT, temperature=0.12, required_keys=["titleHint", "generationPrompt", "targetSkill"], preferred_keys=["summary", "difficultyTarget"]), job_type, retry_count, compact_mode)
     if job_type == "assignment_reference_pack_build":
-        return OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12, required_keys=["stylePack", "policyPack", "exemplarPack"], preferred_keys=["generationHints", "signals"])
+        return _with_stage_schema(OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12, required_keys=["stylePack", "policyPack", "exemplarPack"], preferred_keys=["generationHints", "signals"]), job_type, retry_count, compact_mode)
     if job_type == "assignment_generate_from_text":
-        return OllamaCallConfig(stage="draft_generate", timeout=GENERATION_TIMEOUT, num_predict=1200 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["summary", "decisionSummary", "draftValidation"])
+        return _with_stage_schema(OllamaCallConfig(stage="draft_generate", timeout=GENERATION_TIMEOUT, num_predict=1200 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["summary", "decisionSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assignment_repair":
-        return OllamaCallConfig(stage="repair", timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"])
+        repair_plan = payload.get("repairPlan") if isinstance(payload.get("repairPlan"), dict) else {}
+        primary_route = str(repair_plan.get("primaryRoute") or "general").strip().lower() or "general"
+        stage_name = f"repair_{primary_route}" if primary_route != "general" else "repair"
+        return _with_stage_schema(OllamaCallConfig(stage=stage_name, timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assistant_chat_turn":
-        return OllamaCallConfig(
-            stage="assistant_chat_turn",
-            timeout=GENERATION_TIMEOUT,
-            num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200),
-            temperature=0.05,
-            required_keys=["assistantMessage", "actions"],
-            preferred_keys=["sessionTitle", "action"],
-        )
-    return OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15)
+        return _with_stage_schema(OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.05, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"]), job_type, retry_count, compact_mode)
+    return _with_stage_schema(OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15), job_type, retry_count, compact_mode)
+
 
 
 # ── Job dispatcher ────────────────────────────────────
@@ -936,18 +1177,36 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     _log_stage("stage-start", job, payload, payload_keys=sorted(payload.keys())[:20], compact_mode=payload.get("__compactMode"), retry_count=retry_count)
 
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
+        llm_meta = _consume_llm_meta(result)
+        if llm_meta:
+            _log_stage("stage-llm-meta", job, payload, llm_meta=llm_meta)
+        worker_telemetry = _build_worker_telemetry(job, payload, result, llm_meta)
+        if worker_telemetry:
+            result["__workerTelemetry"] = worker_telemetry
         if job_type == "assistant_chat_turn":
             result = _normalize_chat_turn_result(payload, result)
+            result, chat_issues = _apply_chat_strict_mode(payload, result)
+            if chat_issues:
+                _log_stage("chat-strict-mode-adjusted", job, payload, issues=chat_issues[:8], result=result)
         missing_reason = _schema_missing_reason(job_type, payload, result)
-        if missing_reason:
-            _log_stage("stage-schema-invalid", job, payload, reason=missing_reason, result=result)
+        schema_errors = _stage_schema_errors(job_type, result)
+        schema_reason = "; ".join(schema_errors[:6]) if schema_errors else None
+        invalid_reason = missing_reason or schema_reason
+        if invalid_reason:
+            _log_stage("stage-schema-invalid", job, payload, reason=invalid_reason, missing_reason=missing_reason, schema_errors=schema_errors[:8], result=result)
             try:
-                result = _repair_invalid_stage_result(job, payload, job_type, result)
+                result = _repair_invalid_stage_result(job, payload, job_type, result, schema_errors=schema_errors)
+                if job_type == "assistant_chat_turn":
+                    result = _normalize_chat_turn_result(payload, result)
+                    result, _ = _apply_chat_strict_mode(payload, result)
             except Exception as ex:
                 _log_stage("stage-schema-repair-failed", job, payload, error=ex)
             missing_reason = _schema_missing_reason(job_type, payload, result)
-            if missing_reason:
-                _log_stage("stage-schema-fallback", job, payload, reason=missing_reason)
+            schema_errors = _stage_schema_errors(job_type, result)
+            schema_reason = "; ".join(schema_errors[:6]) if schema_errors else None
+            invalid_reason = missing_reason or (None if SCHEMA_VALIDATION_MODE == "soft" else schema_reason)
+            if invalid_reason:
+                _log_stage("stage-schema-fallback", job, payload, reason=invalid_reason, schema_errors=schema_errors[:8])
                 fallback_job = dict(job)
                 import json as _json
                 fallback_job["inputJson"] = _json.dumps(payload, ensure_ascii=False)
@@ -955,6 +1214,8 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
                     result = sanitize_result_payload(job_type, payload, fallback_course_profile(payload, job))
                 elif job_type == "assignment_gap_analysis":
                     result = sanitize_result_payload(job_type, payload, fallback_gap_analysis(payload, job))
+                elif job_type == "assistant_chat_turn":
+                    result = {"assistantMessage": "Мне не хватило надёжных данных, чтобы безопасно выбрать действие. Уточни запрос короче или выбери сущность явно.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
                 else:
                     result = sanitize_result_payload(job_type, payload, fallback_result(fallback_job))
         _log_stage("stage-done", job, payload, result=result)
@@ -967,11 +1228,12 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         llm_cfg = _stage_llm_config(job_type, payload, retry_count)
         if stage_name:
             llm_cfg.stage = stage_name
+            llm_cfg = _with_stage_schema(llm_cfg, job_type, retry_count, str(payload.get("__compactMode") or "").strip().lower())
         _log_stage("stage-prompt-ready", job, payload, builder=builder_name, prompt_len=len(prompt), prompt_preview=(preview_text(prompt, PROMPT_PREVIEW_CHARS) if INCLUDE_PROMPTS else None), timeout=llm_cfg.timeout, num_predict=llm_cfg.num_predict)
         try:
-            result = call_ollama(prompt, llm_cfg)
+            result = call_llm(prompt, llm_cfg)
         except Exception as ex:
-            logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
+            logger.warning(f"llm provider failed for {job_type}: {ex} [{_job_context(job, payload)}]")
             stage_retry_limit = _stage_retry_limit(job_type)
             should_retry = retry_count < max(0, stage_retry_limit - 1)
             planner_fallback_allowed = job_type in {"assignment_batch_plan", "assignment_batch_replan"} and retry_count >= PLANNER_FALLBACK_AFTER_RETRY_COUNT
@@ -1011,7 +1273,12 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Draft generate ────────────────────────────────
     if job_type == "assignment_generate_from_text":
-        result = _ollama_stage(build_draft_generate_prompt, sanitize=True, allow_fallback=True, stage_name="draft_generate")
+        use_substages = _use_draft_substages(payload, retry_count)
+        _log_stage("stage-draft-mode", job, payload, use_substages=use_substages)
+        if use_substages:
+            result = _generate_draft_via_substages(job, payload, retry_count)
+        else:
+            result = _ollama_stage(build_draft_generate_prompt, sanitize=True, allow_fallback=True, stage_name="draft_generate")
         if payload.get("enableSelfCheck", True):
             before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
             result = try_improve_generation(job, payload, result)
@@ -1061,9 +1328,9 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         prompt = build_batch_review_prompt(job, payload)
         _log_stage("stage-prompt-ready", job, payload, builder="build_batch_review_prompt", prompt_len=len(prompt))
         try:
-            result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
+            result = call_llm(prompt, _stage_llm_config(job_type, payload, retry_count))
         except Exception as ex:
-            logger.warning(f"batch review ollama failed: {ex} [{_job_context(job, payload)}]")
+            logger.warning(f"batch review provider failed: {ex} [{_job_context(job, payload)}]")
             result = run_batch_review(payload, job)
             _log_stage("stage-fallback-result", job, payload, builder="build_batch_review_prompt", fallback="run_batch_review")
         return _finish(result)
@@ -1073,9 +1340,9 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         prompt = build_chat_turn_prompt(job, payload)
         _log_stage("stage-prompt-ready", job, payload, builder="build_chat_turn_prompt", prompt_len=len(prompt))
         try:
-            result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
+            result = call_llm(prompt, _stage_llm_config(job_type, payload, retry_count))
         except Exception as ex:
-            logger.warning(f"chat orchestrator failed: {ex} [{_job_context(job, payload)}]")
+            logger.warning(f"chat orchestrator provider failed: {ex} [{_job_context(job, payload)}]")
             raise RetryableStageError(f"{job_type} failed: {ex}") from ex
         return _finish(result)
 
@@ -1084,9 +1351,9 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         prompt = build_prompt(job, payload)
         _log_stage("stage-prompt-ready", job, payload, builder="build_prompt", prompt_len=len(prompt))
         try:
-            result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
+            result = call_llm(prompt, _stage_llm_config(job_type, payload, retry_count))
         except Exception as ex:
-            logger.warning(f"repair ollama failed: {ex} [{_job_context(job, payload)}]")
+            logger.warning(f"repair provider failed: {ex} [{_job_context(job, payload)}]")
             return _finish(fallback_repair_result(payload, job))
         repaired_draft = result.get("draft") if isinstance(result.get("draft"), dict) else None
         if isinstance(repaired_draft, dict):
@@ -1099,9 +1366,9 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     prompt = build_prompt(job, payload)
     _log_stage("stage-prompt-ready", job, payload, builder="build_prompt", prompt_len=len(prompt))
     try:
-        result = call_ollama(prompt, _stage_llm_config(job_type, payload, retry_count))
+        result = call_llm(prompt, _stage_llm_config(job_type, payload, retry_count))
     except Exception as ex:
-        logger.warning(f"ollama failed for {job_type}: {ex} [{_job_context(job, payload)}]")
+        logger.warning(f"llm provider failed for {job_type}: {ex} [{_job_context(job, payload)}]")
         raise RetryableStageError(f"{job_type} failed: {ex}") from ex
     if job_type.startswith("assignment_generate") and payload.get("enableSelfCheck", True):
         before_keys = sorted(result.keys())[:12] if isinstance(result, dict) else []

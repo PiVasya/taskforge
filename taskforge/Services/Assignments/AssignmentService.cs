@@ -121,6 +121,7 @@ namespace taskforge.Services
                 || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false)
                 || _db.UserTaskMathAttempts.Any(m => m.TaskAssignmentId == a.Id && m.UserId == currentUserId && m.Passed),
             Sort = a.Sort,
+            IsAiGenerated = a.IsAiGenerated,
             CanEdit = a.Course.OwnerId == currentUserId
                       || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
         })
@@ -174,6 +175,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             || _db.UserTaskMathAttempts.Any(m => m.TaskAssignmentId == a.Id && m.UserId == currentUserId && m.Passed),
         TestCases = visibleCases,
         Sort = a.Sort,
+        IsAiGenerated = a.IsAiGenerated,
         ImageTestReferenceKey = a.Type == "image-test" ? a.ImageTestReferenceKey : (canEdit ? a.ImageTestReferenceKey : null),
         ImageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
         CodeForbiddenCalls = canEdit ? DeserializeCallList(a.CodeForbiddenCallsJson) : new List<string>(),

@@ -82,17 +82,20 @@ def heartbeat(job_id: str):
 def complete(job_id: str, result: Dict[str, Any]):
     from config import ACTIVE_MODEL
 
+    telemetry = result.pop("__workerTelemetry", None) if isinstance(result, dict) else None
+    telemetry_json = json.dumps(telemetry, ensure_ascii=False) if isinstance(telemetry, dict) else None
     result_json = json.dumps(result, ensure_ascii=False)
     status = result.get("status") if isinstance(result, dict) else None
     score = result.get("score") if isinstance(result, dict) else None
     keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
-    log_event('job-complete-api', job_id=job_id, model=ACTIVE_MODEL, result_len=len(result_json), status=status, score=score, keys=keys, result_preview=preview_text(result_json, 500))
+    log_event('job-complete-api', job_id=job_id, model=ACTIVE_MODEL, result_len=len(result_json), telemetry_len=(len(telemetry_json) if telemetry_json else 0), status=status, score=score, keys=keys, result_preview=preview_text(result_json, 500))
     resp = post(
         f"/api/internal/ai/jobs/{job_id}/complete",
         {
             "workerId": WORKER_ID,
             "modelName": ACTIVE_MODEL,
             "resultJson": result_json,
+            "telemetryJson": telemetry_json,
         },
         expected=[200, 404, 409],
     )

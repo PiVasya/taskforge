@@ -487,7 +487,9 @@ public sealed partial class AiJobService : IAiJobService
         ConsoleFoundry("complete-before-artifacts", job, $"normalizedResultLen={job.ResultJson?.Length ?? 0} resultPreview='{PreviewForConsole(job.ResultJson, 220)}'");
         try
         {
-            await PersistDerivedArtifactsAsync(job, ct);
+            await PersistWorkerTelemetryArtifactsAsync(job, request.TelemetryJson, ct);
+            await PersistWorkerTelemetryArtifactsAsync(job, request.TelemetryJson, ct);
+        await PersistDerivedArtifactsAsync(job, ct);
             await _db.SaveChangesAsync(ct);
         }
         catch (DbUpdateException ex) when (IsDraftSaveConflict(ex))
@@ -502,6 +504,118 @@ public sealed partial class AiJobService : IAiJobService
         ConsoleFoundry("complete-after-sync", job);
         Console.WriteLine($"[AiJobService] complete <<< saved jobId={jobId} status='{job.Status}' completedAt='{job.CompletedAtUtc:O}' model='{job.ModelName}'");
         return true;
+    }
+
+    private async Task PersistWorkerTelemetryArtifactsAsync(AiJob job, string? telemetryJson, CancellationToken ct)
+    {
+        telemetryJson = NormalizeJsonOrNull(telemetryJson) ?? telemetryJson;
+        if (string.IsNullOrWhiteSpace(telemetryJson))
+        {
+            await PersistInputTelemetryArtifactsAsync(job, ct);
+            return;
+        }
+
+        var existing = await _db.AiArtifacts.FirstOrDefaultAsync(x => x.JobId == job.Id && x.ArtifactType == "worker-telemetry", ct);
+        if (existing == null)
+        {
+            existing = new AiArtifact
+            {
+                Id = Guid.NewGuid(),
+                JobId = job.Id,
+                DraftId = job.TargetEntityType != null && job.TargetEntityType.Equals("ai-draft", StringComparison.OrdinalIgnoreCase) ? job.TargetEntityId : null,
+                ArtifactType = "worker-telemetry",
+                StageCode = job.StageCode,
+                Status = job.Status,
+                ModelName = job.ModelName,
+                PayloadJson = telemetryJson,
+                CreatedAtUtc = DateTime.UtcNow,
+            };
+            _db.AiArtifacts.Add(existing);
+        }
+        else
+        {
+            existing.StageCode = job.StageCode;
+            existing.Status = job.Status;
+            existing.ModelName = job.ModelName;
+            existing.PayloadJson = telemetryJson;
+        }
+
+        await PersistInputTelemetryArtifactsAsync(job, ct);
+    }
+
+    private async Task PersistInputTelemetryArtifactsAsync(AiJob job, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(job.InputJson))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(job.InputJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("selectionTelemetry", out var selection) && selection.ValueKind == JsonValueKind.Object)
+            {
+                var existingSelection = await _db.AiArtifacts.FirstOrDefaultAsync(x => x.JobId == job.Id && x.ArtifactType == "selection-telemetry", ct);
+                if (existingSelection == null)
+                {
+                    _db.AiArtifacts.Add(new AiArtifact
+                    {
+                        Id = Guid.NewGuid(),
+                        JobId = job.Id,
+                        DraftId = job.TargetEntityType != null && job.TargetEntityType.Equals("ai-draft", StringComparison.OrdinalIgnoreCase) ? job.TargetEntityId : null,
+                        ArtifactType = "selection-telemetry",
+                        StageCode = job.StageCode,
+                        Status = job.Status,
+                        ModelName = job.ModelName,
+                        PayloadJson = selection.GetRawText(),
+                        CreatedAtUtc = DateTime.UtcNow,
+                    });
+                }
+                else
+                {
+                    existingSelection.PayloadJson = selection.GetRawText();
+                    existingSelection.StageCode = job.StageCode;
+                    existingSelection.Status = job.Status;
+                    existingSelection.ModelName = job.ModelName;
+                }
+            }
+
+            if (root.TryGetProperty("anchorContext", out var anchor) && anchor.ValueKind == JsonValueKind.Object && anchor.TryGetProperty("duplicateClustersPreview", out var clusters) && clusters.ValueKind == JsonValueKind.Array)
+            {
+                var payload = JsonSerializer.Serialize(new
+                {
+                    clusterCount = clusters.GetArrayLength(),
+                    clusters = clusters,
+                }, JsonOptions);
+                var existingClusters = await _db.AiArtifacts.FirstOrDefaultAsync(x => x.JobId == job.Id && x.ArtifactType == "duplicate-clusters", ct);
+                if (existingClusters == null)
+                {
+                    _db.AiArtifacts.Add(new AiArtifact
+                    {
+                        Id = Guid.NewGuid(),
+                        JobId = job.Id,
+                        DraftId = job.TargetEntityType != null && job.TargetEntityType.Equals("ai-draft", StringComparison.OrdinalIgnoreCase) ? job.TargetEntityId : null,
+                        ArtifactType = "duplicate-clusters",
+                        StageCode = job.StageCode,
+                        Status = job.Status,
+                        ModelName = job.ModelName,
+                        PayloadJson = payload,
+                        CreatedAtUtc = DateTime.UtcNow,
+                    });
+                }
+                else
+                {
+                    existingClusters.PayloadJson = payload;
+                    existingClusters.StageCode = job.StageCode;
+                    existingClusters.Status = job.Status;
+                    existingClusters.ModelName = job.ModelName;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
     }
 
     private static bool IsDraftSaveConflict(DbUpdateException ex)
@@ -1292,6 +1406,7 @@ public sealed partial class AiJobService : IAiJobService
         RetryCount = job.RetryCount,
         InputJson = job.InputJson,
         ResultJson = job.ResultJson,
+        TelemetryJson = job.Artifacts.OrderByDescending(x => x.CreatedAtUtc).FirstOrDefault(x => x.ArtifactType == "worker-telemetry")?.PayloadJson,
         ErrorText = job.ErrorText,
         Files = job.Files.Select(MapFile).ToList(),
         Artifacts = job.Artifacts.OrderBy(x => x.CreatedAtUtc).Select(MapArtifact).ToList(),

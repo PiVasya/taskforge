@@ -1,4 +1,9 @@
+import os
+import sys
 import unittest
+
+ROOT = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, ROOT)
 
 from payload import sanitize_result_payload
 from validators import run_self_check

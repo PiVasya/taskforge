@@ -1,4 +1,4 @@
-﻿"""Prompt construction for every job type.
+"""Prompt construction for every job type.
 
 BUG-FIX: ``build_job_specific_instructions`` previously returned a *dict*
 for several job types (batch_plan, reference_pack_build, etc.).  Since
@@ -120,6 +120,22 @@ def _pedagogy_appendix(compact_payload: Dict[str, Any]) -> str:
         dup_titles = [truncate_text((item or {}).get("title"), 72) for item in possible_duplicates if isinstance(item, dict) and truncate_text((item or {}).get("title"), 72)]
         if dup_titles:
             lines.append(f"- Особенно не дублируй существующие задания: {'; '.join(dup_titles[:4])}.")
+    duplicate_signature_hints = anchor_context.get("duplicateSignatureHints") if isinstance(anchor_context.get("duplicateSignatureHints"), list) else []
+    if duplicate_signature_hints:
+        dup_sig_titles = [truncate_text((item or {}).get("title"), 72) for item in duplicate_signature_hints if isinstance(item, dict) and truncate_text((item or {}).get("title"), 72)]
+        if dup_sig_titles:
+            lines.append(f"- Signature-based duplicate hints тоже указывают на риск повтора: {'; '.join(dup_sig_titles[:3])}. Сделай задачу заметно отличимой по формулировке, входу/выходу и тестам.")
+    duplicate_clusters = anchor_context.get("duplicateClustersPreview") if isinstance(anchor_context.get("duplicateClustersPreview"), list) else []
+    if duplicate_clusters:
+        cluster_titles = []
+        for cluster in duplicate_clusters[:2]:
+            if not isinstance(cluster, dict):
+                continue
+            for member in (cluster.get("members") if isinstance(cluster.get("members"), list) else [])[:2]:
+                if isinstance(member, dict) and truncate_text(member.get("title"), 72):
+                    cluster_titles.append(truncate_text(member.get("title"), 72))
+        if cluster_titles:
+            lines.append(f"- Duplicate clusters показывают группы похожих задач рядом: {'; '.join(cluster_titles[:4])}. Не попадай в этот же кластер и не копируй его структуру.")
     if bool(pedagogy.get("preferGuidedWalkthroughs")) or task_format == "guided-walkthrough":
         lines.extend([
             "- Для этого slot предпочитай guided walkthrough: описание должно вести ученика по маленьким шагам, а не бросать сразу в сухую формулировку.",
@@ -274,11 +290,13 @@ def build_job_specific_instructions(job_type: str, payload: Dict[str, Any]) -> s
         )
 
     if t == "assignment_repair":
+        route_directive = _repair_route_directive(payload)
         return (
             "Исправь существующий draft по findings и reviewResults. "
             "Верни только JSON вида {\"draft\": {...}, \"repairSummary\": \"...\"}. "
             "Не придумывай новую тему без причины: сохрани ядро задания, "
-            "но исправь формулировку, тесты, solution и policy там, где review нашёл проблемы."
+            "но исправь формулировку, тесты, solution и policy там, где review нашёл проблемы.\n"
+            f"Route-aware repair directive: {route_directive}"
         )
 
     if t == "submission_review":
@@ -398,6 +416,38 @@ def build_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     )
 
 
+def _repair_route_directive(payload: Dict[str, Any]) -> str:
+    repair_plan = payload.get("repairPlan") if isinstance(payload.get("repairPlan"), dict) else {}
+    primary_route = normalize_text(repair_plan.get("primaryRoute") or "general").lower() or "general"
+    routes = [normalize_text(x).lower() for x in (repair_plan.get("routes") if isinstance(repair_plan.get("routes"), list) else []) if normalize_text(x)]
+    findings = payload.get("reviewResults") if isinstance(payload.get("reviewResults"), list) else []
+    hints: List[str] = []
+    for review in findings[:4]:
+        result = review.get("result") if isinstance(review, dict) else {}
+        finding_list = result.get("findings") if isinstance(result, dict) and isinstance(result.get("findings"), list) else []
+        for item in finding_list[:2]:
+            if isinstance(item, dict):
+                msg = normalize_text(item.get("message"))
+                if msg:
+                    hints.append(msg)
+    route_map = {
+        "tests": "Сохрани тему, title и основную формулировку. Меняй прежде всего publicTests, hiddenTests и referenceSolutionPython. Не перепридумывай задачу целиком.",
+        "solution": "Сохрани title, description и тесты максимально стабильными. Чини главным образом referenceSolutionPython и связанные code-policy поля.",
+        "description": "Сохрани учебную цель и shape тестов. Перепиши в первую очередь description/title/summary, устрани неоднозначность и педагогические провалы.",
+        "brief": "Сохрани ядро draft, но усили generation intent: title, framing, targetSkill, microGoal и обоснование placement.",
+        "policy": "Не меняй тему и общую структуру задачи. Исправь requiredCalls/forbiddenCalls, allowedLanguages и конфликтующие policy constraints.",
+        "general": "Исправь проблемы минимально инвазивно: сохрани ядро задания и меняй только действительно проблемные поля.",
+    }
+    directive = route_map.get(primary_route, route_map["general"])
+    extra = []
+    if routes:
+        extra.append(f"Активные repair routes: {', '.join(routes)}.")
+    if hints:
+        extra.append("Ключевые review hints: " + "; ".join(hints[:4]))
+    extra.append("Стабильные части draft по возможности не трогай без явной необходимости.")
+    return directive + "\n" + "\n".join(extra)
+
+
 def build_repair_prompt(
     job: Dict[str, Any],
     payload: Dict[str, Any],
@@ -408,16 +458,18 @@ def build_repair_prompt(
     draft = bad_result.get("draft") if isinstance(bad_result.get("draft"), dict) else {}
     compact_payload = dict(payload)
     compact_payload["referenceAssignments"] = compact_reference_assignments(payload)
+    route_directive = _repair_route_directive(payload)
     return (
         "Ты — TaskForge AI. Сейчас нужно исправить неудачный draft. "
         "Верни только валидный JSON вида {\"draft\": {...}} без markdown.\n\n"
         f"Тип job: {job.get('type')}\n"
         f"Попытка исправления: {attempt_no}\n\n"
         f"Требования:\n{build_job_specific_instructions(job.get('type') or '', payload)}\n\n"
+        f"Route-aware repair directive:\n{route_directive}\n\n"
         f"Изначальный payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Плохой draft, который нужно переписать:\n{json.dumps(draft, ensure_ascii=False, indent=2)}\n\n"
         f"Ошибки self-check:\n{json.dumps(validation, ensure_ascii=False, indent=2)}\n\n"
-        "Исправь все замечания, усили условие, добавь недостающие тесты и верни полностью новый готовый draft."
+        "Исправь все замечания, сохрани стабильные поля по максимуму и верни полностью готовый draft."
     )
 
 
@@ -581,7 +633,7 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
     )
 
 
-def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_result: Dict[str, Any]) -> str:
+def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_result: Dict[str, Any], schema_errors: List[str] | None = None) -> str:
     compact_payload = compact_payload_for_stage(payload.get("requestType") or stage, payload)
     bad_json = _prompt_json(bad_result)
     if stage == "gap_analysis":
@@ -595,9 +647,15 @@ def build_stage_schema_repair_prompt(stage: str, payload: Dict[str, Any], bad_re
             '"coverage":{"coverageBand":"low|medium|high","noveltyGoal":"..."},"summary":"...","decisionSummary":{"confidence":"low|medium|high","source":"llm-batch-plan-repair"},'
             '"plan":{"tasks":[{"index":1,"titleHint":"...","targetSkill":"...","primarySkill":"...","microGoal":"...","uniqueAngle":"...","difficultyTarget":3,"mustInclude":["..."],"antiDuplicateHints":["..."],"whyItExists":"...","placementAfterAssignmentId":"guid или null","placementAfterTitle":"...","placementReason":"...","taskFormat":"guided-walkthrough|exercise","learningMode":"guided-walkthrough|exercise","decisionLog":[{"stage":"batch_plan","message":"..."}]}]}}'
         )
-    elif stage == "draft_generate":
+    elif stage in {"draft_generate", "assignment_repair", "repair"}:
         assignment_type = normalize_text(payload.get("assignmentType") or "code-test") or "code-test"
         expected = _draft_response_format(payload, assignment_type, include_pending_title=False, min_public=MIN_PUBLIC_TESTS, min_hidden=MIN_HIDDEN_TESTS)
+    elif stage == "assistant_chat_turn":
+        expected = '{"assistantMessage":"...","sessionTitle":"...","actions":[{"name":"queue_generate_from_text","reason":"...","arguments":{"courseId":"..."}}]}'
+    elif stage == "brief":
+        expected = '{"titleHint":"...","summary":"...","generationPrompt":"...","sourceText":"...","notes":"...","difficultyTarget":2,"targetSkill":"...","decisionLog":[{"stage":"brief_generate","message":"..."}]}'
+    elif stage == "reference_pack":
+        expected = '{"stylePack":{"titleStyle":{"examples":["..."]}},"policyPack":{"requiredCalls":["..."]},"exemplarPack":{"titles":["..."]},"generationHints":["..."],"signals":[{"code":"...","weight":0.5}]}'
     else:
         expected = (
             '{"canonicalRequest":{"domain":"...","count":2,"difficulty":3,"mustInclude":["..."],"avoid":["..."]},'
@@ -1035,6 +1093,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 - Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
 - Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.
 - Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.
+- Если в payload есть selectionTelemetry, используй topCandidates и selectedTitles как сигнал, какие referenceAssignments считались самыми близкими и почему.
 - referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: выбери существующий anchor из referenceAssignments или верни null.
 

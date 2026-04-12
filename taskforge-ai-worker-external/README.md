@@ -94,6 +94,46 @@ TASKFORGE_EXTERNAL_AI_MODEL=claude-sonnet-4-20250514
 - старый pipeline сохранён почти полностью, чтобы можно было сравнивать локальный и внешний AI;
 - этот вариант нужен именно для следующего шага: тестировать внешний AI без удаления старого локального worker-а.
 
+## Что добавлено в больших апдейтах
+
+- OpenRouter-native structured outputs + schema validation по ключевым стадиям.
+- Route-aware repair и substage draft generation.
+- Stage-aware provider routing profiles (`planning/chat/draft/repair/review`).
+- Selection telemetry и signature-based duplicate hints.
+- Sandbox runner в двух режимах: `process` и `container`.
+
+### Дополнительные env
+
+- `TASKFORGE_AI_PROVIDER_ORDER_PLANNING=anthropic,openai`
+- `TASKFORGE_AI_PROVIDER_ORDER_CHAT=openai,anthropic`
+- `TASKFORGE_AI_PROVIDER_ORDER_DRAFT=openai,anthropic`
+- `TASKFORGE_AI_PROVIDER_ORDER_REPAIR=openai,anthropic`
+- `TASKFORGE_AI_STAGE_ROUTING_JSON={...}` — точечные overrides по stage/group
+- `TASKFORGE_AI_DUPLICATE_SIGNATURES=true`
+- `TASKFORGE_AI_SIMILARITY_SIGNATURE_WARNING=0.66`
+- `TASKFORGE_AI_SIMILARITY_SIGNATURE_FAIL=0.82`
+- `TASKFORGE_AI_SANDBOX_MODE=process|container`
+- `TASKFORGE_AI_RUNNER_RUNTIME=docker`
+- `TASKFORGE_AI_RUNNER_CONTAINER_IMAGE=taskforge-python-runner:wave4`
+
+### Containerized sandbox
+
+Для более жёсткой изоляции можно собрать runner image отдельно:
+
+```bash
+docker build -f taskforge-ai-worker-external/runner.Dockerfile -t taskforge-python-runner:wave4 .
+```
+
+После этого включить:
+
+```env
+TASKFORGE_AI_SANDBOX_RUNNER=true
+TASKFORGE_AI_SANDBOX_MODE=container
+TASKFORGE_AI_RUNNER_CONTAINER_IMAGE=taskforge-python-runner:wave4
+```
+
+Такой режим запускает решения через `docker run --network none --read-only ...` и оставляет fallback на обычный process-mode, если runtime недоступен.
+
 
 ## Логи worker
 
@@ -115,3 +155,17 @@ volumes:
 cat ./logs/taskforge-ai-worker-external/worker.log
 cat ./logs/taskforge-ai-worker-external/worker.jsonl
 ```
+
+
+## Wave5 additions
+- Canonical external-LLM adapter import path is now `llm_client.py`; legacy `ollama.py` stays as a compatibility shim.
+- LLM success logs now include token/cost telemetry when the provider returns usage metadata.
+- Duplicate analysis now includes signature-based clustering for reference assignments and peer drafts.
+- GitHub Actions includes `test-external-ai-worker.yml` to run compileall + pytest before shipping worker-only changes.
+
+
+## Wave6 telemetry and duplicate tuning
+
+- `TASKFORGE_AI_WORKER_TELEMETRY=true` — worker sends `telemetryJson` to backend complete endpoint.
+- `TASKFORGE_AI_DUPLICATE_CLUSTER_WARNING_SIZE=2` — cluster size that triggers warning.
+- `TASKFORGE_AI_DUPLICATE_CLUSTER_FAIL_SIZE=3` — cluster size that triggers fail.

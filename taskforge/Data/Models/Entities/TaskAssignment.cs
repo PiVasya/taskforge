@@ -36,6 +36,9 @@ namespace taskforge.Data.Models.Entities
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public int Sort { get; set; } = 0;
 
+        // Признак, что задание было создано/опубликовано через AI-пайплайн.
+        public bool IsAiGenerated { get; set; } = false;
+
         // ===== image-test =====
         // Ключ эталонной картинки (храним именно ключ, а не публичный URL)
         public string? ImageTestReferenceKey { get; set; }

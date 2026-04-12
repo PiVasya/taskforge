@@ -708,6 +708,7 @@ public sealed partial class AiJobService
             .ToList();
 
         var scorecardJson = BuildScorecardJson(latestByType, draft.BatchItemId != null);
+        scorecardJson = await EnrichScorecardWithTelemetryAsync(scorecardJson, latestByType.Select(x => x.Id).ToList(), ct);
         draft.DraftJson = MergeDraftMetaJson(draft.DraftJson, "aiScorecard", scorecardJson);
         draft.UpdatedAtUtc = DateTime.UtcNow;
 
@@ -726,6 +727,98 @@ public sealed partial class AiJobService
             await RefreshBatchSummaryAsync(draft.BatchId.Value, ct);
         ConsoleFoundryDraft("scorecard-refresh-done", draft, $"reviews={reviews.Count} scorecardJsonLen={scorecardJson?.Length ?? 0}");
         return scorecardJson;
+    }
+
+    private async Task<string> EnrichScorecardWithTelemetryAsync(string scorecardJson, IReadOnlyList<Guid> reviewJobIds, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(scorecardJson) || reviewJobIds.Count == 0)
+            return scorecardJson;
+
+        var artifacts = await _db.AiArtifacts.AsNoTracking()
+            .Where(x => reviewJobIds.Contains(x.JobId) && (x.ArtifactType == "worker-telemetry" || x.ArtifactType == "selection-telemetry" || x.ArtifactType == "duplicate-clusters"))
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        var providers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectionAnchors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        double totalCost = 0;
+        int promptTokens = 0;
+        int completionTokens = 0;
+        int totalTokens = 0;
+        int selectionArtifacts = 0;
+        int duplicateClusterArtifacts = 0;
+        int largestDuplicateCluster = 0;
+
+        foreach (var artifact in artifacts)
+        {
+            if (string.IsNullOrWhiteSpace(artifact.PayloadJson))
+                continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(artifact.PayloadJson);
+                var root = doc.RootElement;
+                if (artifact.ArtifactType == "worker-telemetry")
+                {
+                    var llm = root.TryGetProperty("llm", out var llmNode) && llmNode.ValueKind == JsonValueKind.Object ? llmNode : root;
+                    if (llm.TryGetProperty("provider", out var providerNode) && providerNode.ValueKind == JsonValueKind.String)
+                        providers.Add(providerNode.GetString() ?? string.Empty);
+                    if (llm.TryGetProperty("model", out var modelNode) && modelNode.ValueKind == JsonValueKind.String)
+                        models.Add(modelNode.GetString() ?? string.Empty);
+                    if (llm.TryGetProperty("promptTokens", out var pt) && pt.TryGetInt32(out var ptValue))
+                        promptTokens += ptValue;
+                    if (llm.TryGetProperty("completionTokens", out var ctNode) && ctNode.TryGetInt32(out var ctValue))
+                        completionTokens += ctValue;
+                    if (llm.TryGetProperty("totalTokens", out var ttNode) && ttNode.TryGetInt32(out var ttValue))
+                        totalTokens += ttValue;
+                    if (llm.TryGetProperty("cost", out var costNode) && costNode.TryGetDouble(out var costValue))
+                        totalCost += costValue;
+                    if (root.TryGetProperty("selectionTelemetry", out var selectionNode) && selectionNode.ValueKind == JsonValueKind.Object && selectionNode.TryGetProperty("anchorId", out var anchorNode) && anchorNode.ValueKind == JsonValueKind.String)
+                        selectionAnchors.Add(anchorNode.GetString() ?? string.Empty);
+                }
+                else if (artifact.ArtifactType == "selection-telemetry")
+                {
+                    selectionArtifacts += 1;
+                    if (root.TryGetProperty("anchorId", out var anchorNode) && anchorNode.ValueKind == JsonValueKind.String)
+                        selectionAnchors.Add(anchorNode.GetString() ?? string.Empty);
+                }
+                else if (artifact.ArtifactType == "duplicate-clusters")
+                {
+                    duplicateClusterArtifacts += 1;
+                    if (root.TryGetProperty("clusters", out var clustersNode) && clustersNode.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var cluster in clustersNode.EnumerateArray())
+                        {
+                            if (cluster.ValueKind == JsonValueKind.Object && cluster.TryGetProperty("size", out var sizeNode) && sizeNode.TryGetInt32(out var sizeValue))
+                            {
+                                largestDuplicateCluster = Math.Max(largestDuplicateCluster, sizeValue);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        using var scorecardDoc = JsonDocument.Parse(scorecardJson);
+        var rootObject = JsonNode.Parse(scorecardDoc.RootElement.GetRawText())?.AsObject() ?? new JsonObject();
+        rootObject["llmTelemetry"] = new JsonObject
+        {
+            ["artifactCount"] = artifacts.Count,
+            ["providers"] = new JsonArray(providers.OrderBy(x => x).Select(x => (JsonNode?)x).ToArray()),
+            ["models"] = new JsonArray(models.OrderBy(x => x).Select(x => (JsonNode?)x).ToArray()),
+            ["promptTokens"] = promptTokens,
+            ["completionTokens"] = completionTokens,
+            ["totalTokens"] = totalTokens,
+            ["estimatedCost"] = Math.Round(totalCost, 6),
+            ["selectionArtifacts"] = selectionArtifacts,
+            ["selectionAnchors"] = new JsonArray(selectionAnchors.OrderBy(x => x).Select(x => (JsonNode?)x).ToArray()),
+            ["duplicateClusterArtifacts"] = duplicateClusterArtifacts,
+            ["largestDuplicateCluster"] = largestDuplicateCluster,
+        };
+        return rootObject.ToJsonString(JsonOptions);
     }
 
     private async Task RefreshBatchSummaryAsync(Guid batchId, CancellationToken ct)

@@ -1,4 +1,4 @@
-﻿"""Payload parsing, compacting, sanitisation and beginner-track detection."""
+"""Payload parsing, compacting, sanitisation and beginner-track detection."""
 
 import json
 import re
@@ -16,8 +16,16 @@ from config import (
     MIN_HIDDEN_TESTS,
     MAX_HIDDEN_TESTS,
     MIN_TOTAL_TESTS,
+    SELECTION_TELEMETRY,
+    DUPLICATE_CLUSTERING,
+    DUPLICATE_CLUSTER_LIMIT,
+    DUPLICATE_CLUSTER_THRESHOLD,
+    DUPLICATE_SIGNATURES,
+    SIMILARITY_SIGNATURE_HINTS_LIMIT,
 )
 from log import log, log_debug, logger
+from similarity_signatures import similarity_signature_report
+from duplicate_clusters import cluster_duplicate_candidates
 from text_utils import (
     normalize_text,
     truncate_text,
@@ -161,14 +169,16 @@ def _reference_seed_tokens(payload: Dict[str, Any]) -> List[str]:
     return _placement_keywords(*values)
 
 
-def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int, description_len: int, include_cases: bool) -> List[Dict[str, Any]]:
+def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int, description_len: int, include_cases: bool, return_telemetry: bool = False) -> Any:
     base = compact_reference_assignments(payload, limit=MAX_REFERENCE_ASSIGNMENTS, description_len=description_len, include_cases=include_cases)
     if not base:
-        return []
+        empty = {"anchorId": normalize_text(_desired_anchor_id(payload)), "selectedIds": [], "seedTokens": [], "topCandidates": []}
+        return ([], empty) if return_telemetry else []
     anchor_id = _desired_anchor_id(payload)
     refs_sorted = sorted(base, key=lambda ref: (safe_int(ref.get("sort"), safe_int(ref.get("index"), 10**9)), safe_int(ref.get("index"), 10**9)))
     selected: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    top_candidates: list[dict[str, Any]] = []
 
     def _add(ref: Dict[str, Any]) -> None:
         ref_id = normalize_text(ref.get("id")) or normalize_text(ref.get("title"))
@@ -187,7 +197,7 @@ def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int,
 
     seed_tokens = _reference_seed_tokens(payload)
     if seed_tokens:
-        ranked: List[tuple[int, int, Dict[str, Any]]] = []
+        ranked: List[tuple[int, int, Dict[str, Any], int, int]] = []
         target_diff = max(1, safe_int((payload.get("task") or {}).get("difficultyTarget") if isinstance(payload.get("task"), dict) else payload.get("difficulty"), safe_int(payload.get("difficulty"), 2)))
         for order, ref in enumerate(base):
             title = normalize_text(ref.get("title")).lower()
@@ -198,9 +208,11 @@ def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int,
             score = shared * 5 - diff_penalty
             if normalize_text(ref.get("id")) == anchor_id:
                 score += 6
-            ranked.append((score, -order, ref))
+            ranked.append((score, -order, ref, shared, diff_penalty))
         ranked.sort(reverse=True)
-        for score, _order, ref in ranked:
+        for score, _order, ref, shared, diff_penalty in ranked[:8]:
+            top_candidates.append({"id": ref.get("id"), "title": truncate_text(ref.get("title"), 120), "score": score, "sharedTokens": shared, "difficultyPenalty": diff_penalty, "isAnchor": normalize_text(ref.get("id")) == anchor_id})
+        for score, _order, ref, _shared, _diff_penalty in ranked:
             if len(selected) >= limit:
                 break
             if score <= 0 and len(selected) >= max(4, limit // 2):
@@ -211,7 +223,11 @@ def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int,
         if len(selected) >= limit:
             break
         _add(ref)
-    return selected[:limit]
+    result = selected[:limit]
+    if not return_telemetry:
+        return result
+    telemetry = {"anchorId": anchor_id, "seedTokens": seed_tokens[:8], "selectedIds": [normalize_text(ref.get("id")) for ref in result if normalize_text(ref.get("id"))], "selectedTitles": [truncate_text(ref.get("title"), 90) for ref in result[:6]], "topCandidates": top_candidates, "limit": limit}
+    return result, telemetry
 
 
 def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -236,6 +252,14 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
                     break
     seed_tokens = _reference_seed_tokens(payload)
     possible_duplicates: List[Dict[str, Any]] = []
+    query_text = " ".join([
+        normalize_text(payload.get("prompt")),
+        normalize_text(payload.get("sourceText")),
+        normalize_text(payload.get("titleHint")),
+        normalize_text(((payload.get("task") or {}).get("targetSkill") if isinstance(payload.get("task"), dict) else "")),
+        normalize_text(((payload.get("task") or {}).get("microGoal") if isinstance(payload.get("task"), dict) else "")),
+    ]).strip()
+    signature_hints: List[Dict[str, Any]] = []
     if seed_tokens:
         scored: List[tuple[int, Dict[str, Any]]] = []
         for ref in refs_sorted:
@@ -254,6 +278,30 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
                 "difficulty": ref.get("difficulty"),
                 "score": score,
             })
+    if DUPLICATE_SIGNATURES and query_text:
+        signature_scored: List[tuple[float, Dict[str, Any], Dict[str, Any]]] = []
+        for ref in refs_sorted:
+            ref_text = " ".join([
+                normalize_text(ref.get("title")),
+                normalize_text(ref.get("descriptionSummary") or ref.get("description")),
+            ]).strip()
+            if not ref_text:
+                continue
+            metrics = similarity_signature_report(query_text, ref_text)
+            combined = float(metrics.get("combined") or 0.0)
+            if combined <= 0.35:
+                continue
+            signature_scored.append((combined, ref, metrics))
+        signature_scored.sort(key=lambda item: item[0], reverse=True)
+        for combined, ref, metrics in signature_scored[: max(1, SIMILARITY_SIGNATURE_HINTS_LIMIT)]:
+            signature_hints.append({
+                "id": ref.get("id"),
+                "title": truncate_text(ref.get("title"), 120),
+                "combined": round(combined, 4),
+                "shingleJaccard": round(float(metrics.get("shingleJaccard") or 0.0), 4),
+                "simhashSimilarity": round(float(metrics.get("simhashSimilarity") or 0.0), 4),
+                "hammingDistance": int(metrics.get("hammingDistance") or 64),
+            })
     nearby: List[Dict[str, Any]] = []
     if anchor is not None:
         anchor_idx = next((idx for idx, ref in enumerate(refs_sorted) if normalize_text(ref.get("id")) == normalize_text(anchor.get("id"))), 0)
@@ -265,11 +313,24 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
                 "sort": ref.get("sort"),
                 "descriptionSummary": truncate_text(ref.get("descriptionSummary"), 160),
             })
+    duplicate_clusters_preview = []
+    if DUPLICATE_CLUSTERING:
+        cluster_items = []
+        for ref in refs_sorted[: max(2, DUPLICATE_CLUSTER_LIMIT)]:
+            cluster_items.append({
+                "id": ref.get("id"),
+                "title": truncate_text(ref.get("title"), 120),
+                "descriptionSummary": truncate_text(ref.get("descriptionSummary") or ref.get("description"), 160),
+                "source": "referenceAssignment",
+            })
+        duplicate_clusters_preview = cluster_duplicate_candidates(cluster_items, threshold=DUPLICATE_CLUSTER_THRESHOLD, limit=max(2, DUPLICATE_CLUSTER_LIMIT))
     return {
         "anchorAssignmentId": normalize_text(anchor.get("id")) if isinstance(anchor, dict) else None,
         "anchorTitle": truncate_text(anchor.get("title"), 120) if isinstance(anchor, dict) else None,
         "nearbyAssignments": nearby,
         "possibleDuplicates": possible_duplicates,
+        "duplicateSignatureHints": signature_hints,
+        "duplicateClustersPreview": duplicate_clusters_preview[:3],
     }
 
 
@@ -866,7 +927,15 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
         ref_desc_len = 130
         include_cases = True
 
-    compact["referenceAssignments"] = _select_reference_assignments_for_stage(payload, limit=ref_limit, description_len=ref_desc_len, include_cases=include_cases)
+    if SELECTION_TELEMETRY:
+        compact["referenceAssignments"], selection_telemetry = _select_reference_assignments_for_stage(payload, limit=ref_limit, description_len=ref_desc_len, include_cases=include_cases, return_telemetry=True)
+        selected_refs = compact["referenceAssignments"] if isinstance(compact.get("referenceAssignments"), list) else []
+        selected_titles = [normalize_text(item.get("title"))[:120] for item in selected_refs[:6] if isinstance(item, dict) and normalize_text(item.get("title"))]
+        if selected_titles:
+            selection_telemetry["selectedTitles"] = selected_titles
+        compact["selectionTelemetry"] = selection_telemetry
+    else:
+        compact["referenceAssignments"] = _select_reference_assignments_for_stage(payload, limit=ref_limit, description_len=ref_desc_len, include_cases=include_cases)
     anchor_context = _build_anchor_context(payload, compact["referenceAssignments"])
     if anchor_context:
         compact["anchorContext"] = anchor_context
@@ -1080,6 +1149,84 @@ def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int
             break
     return tasks
 
+def _known_assignment_ids(payload: Dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for bucket_name in ("referenceAssignments", "recentAssignments"):
+        bucket = payload.get(bucket_name) if isinstance(payload.get(bucket_name), list) else []
+        for item in bucket:
+            if isinstance(item, dict):
+                value = normalize_text(item.get("id") or item.get("assignmentId") or item.get("Id"))
+                if value:
+                    ids.add(value)
+    batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+    placement_plan = batch_memory.get("placementPlan") if isinstance(batch_memory.get("placementPlan"), list) else []
+    for item in placement_plan:
+        if isinstance(item, dict):
+            value = normalize_text(item.get("afterAssignmentId"))
+            if value:
+                ids.add(value)
+    return ids
+
+
+def _validate_batch_plan(payload: Dict[str, Any], canonical: Dict[str, Any], tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    checks: List[Dict[str, Any]] = []
+    expected_count = max(1, safe_int(canonical.get("count"), len(tasks) or 1))
+    checks.append({
+        "name": "count-matches",
+        "status": "passed" if len(tasks) == expected_count else "failed",
+        "details": f"expected={expected_count} actual={len(tasks)}",
+    })
+    normalized_skills = [normalize_text(item.get("targetSkill")).casefold() for item in tasks if normalize_text(item.get("targetSkill"))]
+    duplicates = len(normalized_skills) - len(set(normalized_skills))
+    checks.append({
+        "name": "unique-target-skills",
+        "status": "passed" if duplicates == 0 else "warning",
+        "details": "targetSkill values unique" if duplicates == 0 else f"duplicates={duplicates}",
+    })
+    known_ids = _known_assignment_ids(payload)
+    unknown_ids = [normalize_text(item.get("placementAfterAssignmentId")) for item in tasks if normalize_text(item.get("placementAfterAssignmentId")) and normalize_text(item.get("placementAfterAssignmentId")) not in known_ids]
+    checks.append({
+        "name": "placement-ids-known",
+        "status": "passed" if not unknown_ids else "warning",
+        "details": "all placement ids known" if not unknown_ids else f"unknown ids: {unknown_ids[:4]}",
+    })
+    generic_count = 0
+    for item in tasks:
+        text_blob = " ".join([
+            normalize_text(item.get("titleHint")),
+            normalize_text(item.get("targetSkill")),
+            normalize_text(item.get("microGoal")),
+        ]).casefold()
+        if not text_blob or text_blob in {"task", "задача"} or len(text_blob) < 16:
+            generic_count += 1
+    checks.append({
+        "name": "no-generic-slots",
+        "status": "passed" if generic_count == 0 else "warning",
+        "details": "slot descriptions look specific" if generic_count == 0 else f"generic slots={generic_count}",
+    })
+    avoid_terms = [normalize_text(x).casefold() for x in (canonical.get("avoid") if isinstance(canonical.get("avoid"), list) else []) if normalize_text(x)]
+    domain_conflicts = 0
+    if avoid_terms:
+        for item in tasks:
+            blob = " ".join([normalize_text(item.get("targetSkill")), normalize_text(item.get("microGoal"))]).casefold()
+            if any(term and term in blob for term in avoid_terms):
+                domain_conflicts += 1
+    checks.append({
+        "name": "domain-consistency",
+        "status": "passed" if domain_conflicts == 0 else "warning",
+        "details": "no obvious conflicts with avoid[]" if domain_conflicts == 0 else f"conflicts={domain_conflicts}",
+    })
+    has_failed = any(item.get("status") == "failed" for item in checks)
+    has_warning = any(item.get("status") == "warning" for item in checks)
+    status = "failed" if has_failed else ("needs-review" if has_warning else "passed")
+    passed = sum(1 for item in checks if item.get("status") == "passed")
+    return {
+        "status": status,
+        "summary": f"Batch plan validation: {passed}/{len(checks)} passed.",
+        "checks": checks,
+    }
+
+
 def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     from fallbacks import build_fallback_plan_tasks
 
@@ -1118,12 +1265,14 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
         task["learningMode"] = normalize_text(task.get("learningMode") or task.get("taskFormat") or task["taskFormat"]) or task["taskFormat"]
     coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
     decision_summary = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-plan"}
+    plan_validation = _validate_batch_plan(payload, canonical, tasks)
     return {
         "canonicalRequest": canonical,
         "coverage": coverage,
         "summary": normalize_text(result.get("summary")) or f"Batch plan repaired for {canonical.get('domain')} domain.",
         "decisionSummary": decision_summary,
         "plan": {"tasks": tasks},
+        "planValidation": plan_validation,
     }
 
 
