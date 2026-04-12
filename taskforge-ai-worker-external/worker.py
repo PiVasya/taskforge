@@ -481,13 +481,23 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             # Sanitize: prevent assistantMessage from leaking into action arguments as prompt
             _assistant_msg = str(result.get("assistantMessage") or "").strip()
             _last_user = _chat_last_user_text(payload)
+            # Deduplicate actions by name — keep first occurrence only
+            _seen_action_names = set()
+            _deduped_actions = []
             for _action in result["actions"]:
                 if not isinstance(_action, dict):
                     continue
+                _aname = str(_action.get("name") or "").strip()
+                if _aname and _aname in _seen_action_names:
+                    continue
+                if _aname:
+                    _seen_action_names.add(_aname)
                 _args = _action.get("arguments") if isinstance(_action.get("arguments"), dict) else {}
                 _action_prompt = str(_args.get("prompt") or "").strip()
                 if _action_prompt and _assistant_msg and _action_prompt == _assistant_msg:
                     _args["prompt"] = _last_user or _action_prompt
+                _deduped_actions.append(_action)
+            result["actions"] = _deduped_actions
         # Return as-is whether actions is non-empty or empty — LLM chose deliberately
         return result
 
@@ -534,7 +544,26 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     memory = _chat_memory(payload)
     has_audit = isinstance(memory.get("lastCourseAudit"), dict)
-    has_bridge_plan = isinstance(memory.get("lastBridgePlan"), dict)
+    _bridge_plan_obj = memory.get("lastBridgePlan") if isinstance(memory.get("lastBridgePlan"), dict) else {}
+    _bridge_plan_items = _bridge_plan_obj.get("items") or _bridge_plan_obj.get("planItems") or _bridge_plan_obj.get("slots") or []
+    has_bridge_plan = bool(_bridge_plan_obj) and isinstance(_bridge_plan_items, list) and len(_bridge_plan_items) > 0
+    # Detect broken bridge plan: object exists but has no usable items or status indicates failure
+    _bridge_plan_failed = bool(_bridge_plan_obj) and not has_bridge_plan
+    if not _bridge_plan_failed and isinstance(_bridge_plan_obj.get("status"), str) and _bridge_plan_obj["status"] in ("failed", "empty", "error"):
+        _bridge_plan_failed = True
+        has_bridge_plan = False
+    # Also detect recent tool result failure in conversation
+    _last_tool_failed = False
+    _conv_check = (payload.get("conversation") if isinstance(payload.get("conversation"), list) else [])[-4:]
+    for _ci in reversed(_conv_check):
+        if not isinstance(_ci, dict):
+            continue
+        for _tr in (_ci.get("toolResults") or _ci.get("results") or []):
+            if isinstance(_tr, dict) and str(_tr.get("status") or "").lower() in ("failed", "error"):
+                _last_tool_failed = True
+                break
+        if _last_tool_failed:
+            break
     agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
     latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
     latest_teaching_script = _chat_latest_teaching_script(payload, last_user)
@@ -557,6 +586,20 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                         "prompt": latest_teaching_script or prompt,
                         **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
                         **({"count": explicit_count} if explicit_count else {}),
+                    },
+                }],
+            }
+        if _bridge_plan_failed or _last_tool_failed:
+            return {
+                "assistantMessage": "Предыдущий план не получился, пересобираю заново.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "prepare_bridge_plan",
+                    "reason": "Прошлый bridge plan оказался пустым или failed. Нужно собрать новый план по аудиту прежде чем генерировать.",
+                    "arguments": {
+                        "courseId": course_id,
+                        "focus": focus_text,
+                        "prompt": latest_teaching_script or prompt,
                     },
                 }],
             }
@@ -617,40 +660,56 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         }
 
     bridge_markers = ["по этому плану", "по последнему аудиту", "сгенерируй мостики", "создай мостики", "добавь мостики", "подводящие задания"]
-    direct_generation_markers = ["всё, делай", "все, делай", "делай", "саму задачу", "готовую задачу", "готовый текст задачи", "создай черновик", "сразу генерац", "сгенерируй задачу", "сделай задачу"]
-    if has_bridge_plan and (any(marker in (last_user or "").lower() for marker in bridge_markers) or any(marker in (last_user or "").lower() for marker in direct_generation_markers)):
-        if has_bridge_plan:
-            return {
-                "assistantMessage": "Перехожу к генерации задач по плану.",
-                "sessionTitle": _chat_build_session_title(payload),
-                "actions": [{
-                    "name": "queue_generate_bridge_batch",
-                    "reason": "Пользователь подтверждает, что нужно генерировать мостиковые задачи по уже собранному плану курса.",
-                    "arguments": {
-                        "courseId": course_id,
-                        "focus": focus_text,
-                        "prompt": prompt,
-                        **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                        **({"count": explicit_count} if explicit_count else {}),
-                    },
-                }],
-            }
-        if has_audit:
-            return {
-                "assistantMessage": "Сначала соберу план, потом перейду к генерации.",
-                "sessionTitle": _chat_build_session_title(payload),
-                "actions": [{
-                    "name": "prepare_bridge_plan",
-                    "reason": "Перед bridge-generation лучше сначала зафиксировать явный план вставок по аудиту курса.",
-                    "arguments": {
-                        "courseId": course_id,
-                        "focus": focus_text,
-                        "prompt": prompt,
-                        **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                        **({"count": explicit_count} if explicit_count else {}),
-                    },
-                }],
-            }
+    direct_generation_markers = ["всё, делай", "все, делай", "делай", "саму задачу", "готовую задачу", "готовый текст задачи", "создай черновик", "сразу генерац", "сгенерируй задачу", "сделай задачу", "открывай"]
+    _wants_bridge_gen = any(marker in (last_user or "").lower() for marker in bridge_markers) or any(marker in (last_user or "").lower() for marker in direct_generation_markers)
+    # If bridge plan failed or is empty, redirect to prepare_bridge_plan instead of doomed generation
+    if _wants_bridge_gen and (_bridge_plan_failed or _last_tool_failed) and has_audit:
+        return {
+            "assistantMessage": "Предыдущий план оказался пустым, пересобираю его с нуля.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "prepare_bridge_plan",
+                "reason": "Bridge plan пуст или failed — нужно собрать заново перед generation.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": focus_text,
+                    "prompt": prompt,
+                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                },
+            }],
+        }
+    if has_bridge_plan and _wants_bridge_gen:
+        return {
+            "assistantMessage": "Перехожу к генерации задач по плану.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "queue_generate_bridge_batch",
+                "reason": "Пользователь подтверждает, что нужно генерировать мостиковые задачи по уже собранному плану курса.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": focus_text,
+                    "prompt": prompt,
+                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                    **({"count": explicit_count} if explicit_count else {}),
+                },
+            }],
+        }
+    if _wants_bridge_gen and has_audit:
+        return {
+            "assistantMessage": "Сначала соберу план, потом перейду к генерации.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "prepare_bridge_plan",
+                "reason": "Перед bridge-generation лучше сначала зафиксировать явный план вставок по аудиту курса.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": focus_text,
+                    "prompt": prompt,
+                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                    **({"count": explicit_count} if explicit_count else {}),
+                },
+            }],
+        }
 
     plan_markers = ["собери план", "сделай план", "предложи план", "список что надо сделать", "в каких местах", "что ты поняла", "план вставок"]
     short_followup = (last_user or "").strip().lower() in {"продолжай", "давай дальше", "дальше", "начинай", "ок", "го", "погнали", "делай дальше"}
