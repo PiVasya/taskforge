@@ -977,6 +977,270 @@ public sealed class AiChatService
                         JobId = job.Id,
                     };
                 }
+
+                // ── show_draft: Display full draft content inline in chat ──────────
+                case "show_draft":
+                {
+                    var draftId = ReadGuid(args, "draftId");
+                    if (!draftId.HasValue)
+                        return FailTool("Для просмотра черновика нужен draftId.");
+
+                    var draft = await _db.AiGeneratedAssignmentDrafts
+                        .AsNoTracking()
+                        .Where(d => d.Id == draftId.Value)
+                        .Select(d => new { d.Id, d.Title, d.AssignmentType, d.Status, d.DraftJson, d.BatchItemId })
+                        .FirstOrDefaultAsync(ct);
+                    if (draft == null)
+                        return FailTool("Черновик не найден.");
+
+                    // Parse DraftJson to extract key fields for display
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine($"📄 **{draft.Title}** (тип: {draft.AssignmentType}, статус: {draft.Status})");
+                    sb.AppendLine();
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(draft.DraftJson);
+                        var root = doc.RootElement;
+
+                        if (root.TryGetProperty("description", out var desc) && desc.ValueKind == JsonValueKind.String)
+                        {
+                            var descText = desc.GetString() ?? "";
+                            sb.AppendLine("**Условие:**");
+                            sb.AppendLine(descText.Length > 2000 ? descText[..2000] + "…" : descText);
+                            sb.AppendLine();
+                        }
+
+                        if (root.TryGetProperty("initialCode", out var init) && init.ValueKind == JsonValueKind.String)
+                        {
+                            var initText = init.GetString() ?? "";
+                            if (!string.IsNullOrWhiteSpace(initText))
+                            {
+                                sb.AppendLine("**Начальный код:**");
+                                sb.AppendLine($"```\n{(initText.Length > 1000 ? initText[..1000] + "…" : initText)}\n```");
+                                sb.AppendLine();
+                            }
+                        }
+
+                        if (root.TryGetProperty("solution", out var sol) && sol.ValueKind == JsonValueKind.String)
+                        {
+                            var solText = sol.GetString() ?? "";
+                            sb.AppendLine("**Эталонное решение:**");
+                            sb.AppendLine($"```\n{(solText.Length > 1500 ? solText[..1500] + "…" : solText)}\n```");
+                            sb.AppendLine();
+                        }
+
+                        // Test cases
+                        if (root.TryGetProperty("testCases", out var tests) && tests.ValueKind == JsonValueKind.Array)
+                        {
+                            var testCount = tests.GetArrayLength();
+                            sb.AppendLine($"**Тесты ({testCount}):**");
+                            int shown = 0;
+                            foreach (var tc in tests.EnumerateArray())
+                            {
+                                if (shown >= 5) { sb.AppendLine($"… и ещё {testCount - 5}"); break; }
+                                var inp = tc.TryGetProperty("input", out var i) ? i.ToString() : "—";
+                                var exp = tc.TryGetProperty("expectedOutput", out var e) ? e.ToString() : "—";
+                                sb.AppendLine($"  [{shown + 1}] input: {Truncate(inp, 120)} → expected: {Truncate(exp, 120)}");
+                                shown++;
+                            }
+                            sb.AppendLine();
+                        }
+
+                        // Hints
+                        if (root.TryGetProperty("hints", out var hints) && hints.ValueKind == JsonValueKind.Array)
+                        {
+                            var hintList = new List<string>();
+                            foreach (var h in hints.EnumerateArray())
+                                hintList.Add(h.ValueKind == JsonValueKind.String ? h.GetString()! : h.ToString());
+                            if (hintList.Count > 0)
+                                sb.AppendLine($"**Подсказки:** {string.Join(" / ", hintList.Take(5))}");
+                        }
+                    }
+                    catch
+                    {
+                        sb.AppendLine("(Не удалось разобрать содержимое черновика)");
+                    }
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = sb.ToString(),
+                        DraftId = draft.Id,
+                    };
+                }
+
+                // ── show_draft_reviews: Display scorecard + review results ──────────
+                case "show_draft_reviews":
+                {
+                    var draftId = ReadGuid(args, "draftId");
+                    if (!draftId.HasValue)
+                        return FailTool("Для просмотра оценок нужен draftId.");
+
+                    var item = await _db.AiBatchItems
+                        .AsNoTracking()
+                        .Where(i => i.DraftId == draftId.Value)
+                        .Select(i => new { i.Id, i.Status, i.ScorecardJson, i.BriefReviewJson, i.RepairCount, i.Index,
+                            DraftTitle = i.Draft != null ? i.Draft.Title : null })
+                        .FirstOrDefaultAsync(ct);
+
+                    if (item == null)
+                    {
+                        // Fallback: maybe draft exists but not linked to a batch item — just return minimal info
+                        var standalone = await _db.AiGeneratedAssignmentDrafts.AsNoTracking()
+                            .Where(d => d.Id == draftId.Value)
+                            .Select(d => new { d.Title, d.Status })
+                            .FirstOrDefaultAsync(ct);
+                        if (standalone == null)
+                            return FailTool("Черновик не найден.");
+                        return new AiFoundryChatToolResultDto
+                        {
+                            Status = "done",
+                            Summary = $"📄 {standalone.Title} — статус: {standalone.Status}. Этот черновик не привязан к batch-pipeline, поэтому детальной оценки нет.",
+                            DraftId = draftId,
+                        };
+                    }
+
+                    var rsb = new System.Text.StringBuilder();
+                    rsb.AppendLine($"📊 **Оценка черновика** #{item.Index + 1}: {item.DraftTitle ?? "(без названия)"} (статус: {item.Status}, ремонтов: {item.RepairCount})");
+                    rsb.AppendLine();
+
+                    if (!string.IsNullOrWhiteSpace(item.ScorecardJson))
+                    {
+                        try
+                        {
+                            using var sdoc = JsonDocument.Parse(item.ScorecardJson);
+                            var sr = sdoc.RootElement;
+                            if (sr.TryGetProperty("band", out var band))
+                                rsb.AppendLine($"**Band:** {band}");
+                            if (sr.TryGetProperty("overallScore", out var os) && os.TryGetInt32(out var osVal))
+                                rsb.AppendLine($"**Общая оценка:** {osVal}/100");
+                            if (sr.TryGetProperty("dimensions", out var dims) && dims.ValueKind == JsonValueKind.Object)
+                            {
+                                rsb.AppendLine("**Измерения:**");
+                                foreach (var prop in dims.EnumerateObject())
+                                {
+                                    if (prop.Value.ValueKind == JsonValueKind.Object)
+                                    {
+                                        var dimScore = prop.Value.TryGetProperty("score", out var ds) && ds.TryGetInt32(out var dsv) ? dsv : (int?)null;
+                                        var dimIssues = prop.Value.TryGetProperty("issues", out var di) && di.ValueKind == JsonValueKind.Array ? di.GetArrayLength() : 0;
+                                        rsb.AppendLine($"  • {prop.Name}: {dimScore?.ToString() ?? "—"}/100{(dimIssues > 0 ? $" ({dimIssues} замечаний)" : "")}");
+                                    }
+                                }
+                            }
+                            if (sr.TryGetProperty("repairPlan", out var rp) && rp.ValueKind == JsonValueKind.Object)
+                            {
+                                if (rp.TryGetProperty("primaryRoute", out var pr))
+                                    rsb.AppendLine($"**План ремонта:** {pr}");
+                            }
+                        }
+                        catch { rsb.AppendLine("(Не удалось разобрать scorecard)"); }
+                    }
+                    else
+                    {
+                        rsb.AppendLine("Scorecard ещё не готов (проверки не завершены).");
+                    }
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = rsb.ToString(),
+                        DraftId = draftId,
+                    };
+                }
+
+                // ── cancel_batch: Cancel/delete a batch from chat ───────────────────
+                case "cancel_batch":
+                {
+                    if (!(ReadBool(args, "confirmed") ?? false))
+                        return ConfirmationRequired(toolCall, "Для отмены batch нужно явное подтверждение.");
+
+                    var batchId = ReadGuid(args, "batchId");
+                    if (!batchId.HasValue)
+                        return FailTool("Для отмены batch нужен batchId.");
+
+                    var ok = await _jobs.DeleteBatchAsync(batchId.Value, ct);
+                    if (!ok)
+                        return FailTool("Batch не найден.");
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = $"Batch {batchId.Value} удалён вместе с черновиками.",
+                    };
+                }
+
+                // ── publish_batch: Bulk-publish all approved drafts from a batch ────
+                case "publish_batch":
+                {
+                    if (!(ReadBool(args, "confirmed") ?? false))
+                        return ConfirmationRequired(toolCall, "Для массовой публикации batch нужно явное подтверждение.");
+
+                    var batchId = ReadGuid(args, "batchId");
+                    if (!batchId.HasValue)
+                        return FailTool("Для массовой публикации нужен batchId.");
+
+                    var batch = await _db.AiBatches.AsNoTracking()
+                        .Where(b => b.Id == batchId.Value)
+                        .Select(b => new { b.Id, b.CourseId })
+                        .FirstOrDefaultAsync(ct);
+                    if (batch == null)
+                        return FailTool("Batch не найден.");
+
+                    var draftsToPublish = await _db.AiBatchItems
+                        .AsNoTracking()
+                        .Where(i => i.BatchId == batchId.Value && i.DraftId.HasValue
+                            && (i.Status == "ready" || i.Status == "reviewed" || i.Status == "approved"))
+                        .OrderBy(i => i.Index)
+                        .Select(i => new { i.DraftId, i.Draft!.Title })
+                        .ToListAsync(ct);
+
+                    if (draftsToPublish.Count == 0)
+                        return FailTool("В этом batch нет готовых к публикации черновиков (нужен статус ready/reviewed/approved).");
+
+                    var forcePublish = ReadBool(args, "forceWithoutPassedSelfCheck") ?? false;
+                    var published = new List<string>();
+                    var failed = new List<string>();
+
+                    foreach (var d in draftsToPublish)
+                    {
+                        try
+                        {
+                            var result = await _jobs.PublishDraftAsync(d.DraftId!.Value,
+                                createdByUserId ?? session.CreatedByUserId ?? Guid.Empty,
+                                new PublishAiDraftRequestDto
+                                {
+                                    CourseId = ReadGuid(args, "courseId") ?? batch.CourseId ?? session.CourseId,
+                                    ForceWithoutPassedSelfCheck = forcePublish,
+                                }, ct);
+                            if (result != null)
+                                published.Add(result.Title);
+                            else
+                                failed.Add(d.Title ?? d.DraftId.ToString()!);
+                        }
+                        catch
+                        {
+                            failed.Add(d.Title ?? d.DraftId.ToString()!);
+                        }
+                    }
+
+                    var psb = new System.Text.StringBuilder();
+                    psb.AppendLine($"📦 Массовая публикация batch:");
+                    if (published.Count > 0)
+                        psb.AppendLine($"✅ Опубликовано ({published.Count}): {string.Join(", ", published.Select(t => $"«{t}»"))}");
+                    if (failed.Count > 0)
+                        psb.AppendLine($"❌ Не удалось ({failed.Count}): {string.Join(", ", failed.Select(t => $"«{t}»"))}");
+                    if (published.Count == 0 && failed.Count == 0)
+                        psb.AppendLine("Ничего не опубликовано.");
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = failed.Count > 0 ? "partial" : "done",
+                        Summary = psb.ToString(),
+                        BatchId = batchId,
+                    };
+                }
+
                 default:
                     return FailTool($"Неизвестное действие AI: {toolCall.Name}");
             }
@@ -1367,6 +1631,34 @@ public sealed class AiChatService
                     description = "Запустить AI-risk-review пользователя на основе попыток и интеграций.",
                     requiredArguments = new[] { "userId" },
                     optionalArguments = new[] { "prompt", "priority", "includeSupport", "includeMinecraft", "includeRecentAttempts" },
+                },
+                new
+                {
+                    name = "show_draft",
+                    description = "Показать содержимое AI-черновика прямо в чате: условие задачи, эталонное решение, тесты, подсказки. Используй когда пользователь хочет посмотреть что сгенерировалось.",
+                    requiredArguments = new[] { "draftId" },
+                    optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
+                    name = "show_draft_reviews",
+                    description = "Показать оценку качества (scorecard) черновика: band, общая оценка, оценки по измерениям (pedagogy, structural, style, runtime, similarity), план ремонта.",
+                    requiredArguments = new[] { "draftId" },
+                    optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
+                    name = "cancel_batch",
+                    description = "Отменить и удалить batch вместе с черновиками. Используй если пользователь явно просит остановить/отменить/удалить batch.",
+                    requiredArguments = new[] { "batchId", "confirmed" },
+                    optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
+                    name = "publish_batch",
+                    description = "Массово опубликовать все готовые черновики из batch (ready/reviewed/approved). Используй если пользователь просит 'опубликуй всё' или 'публикуй batch'.",
+                    requiredArguments = new[] { "batchId", "confirmed" },
+                    optionalArguments = new[] { "courseId", "forceWithoutPassedSelfCheck" },
                 },
             },
             defaults = new
@@ -4094,6 +4386,12 @@ public sealed class AiChatService
 
     private static string? ReadString(JsonObject args, string propertyName)
         => args[propertyName]?.ToString()?.Trim();
+
+    private static string Truncate(string? text, int maxLen)
+    {
+        if (string.IsNullOrEmpty(text)) return "—";
+        return text.Length <= maxLen ? text : text[..maxLen] + "…";
+    }
 
     private static int? ReadInt(JsonObject args, string propertyName)
     {
