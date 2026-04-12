@@ -431,9 +431,10 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         return {"assistantMessage": "Я не смогла корректно разобрать ответ модели. Повтори запрос короче или уточни действие.", "actions": []}
 
     if isinstance(result.get("actions"), list) and str(result.get("assistantMessage") or "").strip():
-        return result
+        if result.get("actions"):
+            return result
 
-    prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or "").strip()
+    prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or result.get("assistantMessage") or "").strip()
     if not prompt:
         return {
             "assistantMessage": "Я не смогла собрать внятный ответ по этому сообщению. Сформулируй запрос чуть конкретнее: что именно сделать и для какого курса.",
@@ -484,12 +485,19 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             }],
         }
 
-    revise_markers = ["поправь план", "измени план", "поменяй план", "убери", "оставь только", "подтверди", "отклони", "сдвинь", "после этого задания", "сделай по 2 задачи", "исправь план"]
+    revise_markers = ["поправь план", "измени план", "поменяй план", "убери", "оставь только", "подтверди", "отклони", "сдвинь", "после этого задания", "сделай по 2 задачи", "исправь план", "поставь её второй", "поставь ее второй", "сделай задачку"]
     if has_bridge_plan and any(marker in (last_user or "").lower() for marker in revise_markers):
         args = {
             "courseId": course_id,
             "note": prompt,
         }
+        low = (last_user or "").lower()
+        if "втор" in low:
+            args["itemIndex"] = 2
+        elif "перв" in low:
+            args["itemIndex"] = 1
+        elif "трет" in low:
+            args["itemIndex"] = 3
         low = (last_user or "").lower()
         if "подтвер" in low:
             args["confirm"] = True
@@ -506,7 +514,8 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         }
 
     bridge_markers = ["по этому плану", "по последнему аудиту", "сгенерируй мостики", "создай мостики", "добавь мостики", "подводящие задания"]
-    if any(marker in (last_user or "").lower() for marker in bridge_markers):
+    direct_generation_markers = ["всё, делай", "все, делай", "делай", "саму задачу", "готовую задачу", "готовый текст задачи", "создай черновик", "сразу генерац", "сгенерируй задачу", "сделай задачу"]
+    if has_bridge_plan and (any(marker in (last_user or "").lower() for marker in bridge_markers) or any(marker in (last_user or "").lower() for marker in direct_generation_markers)):
         if has_bridge_plan:
             return {
                 "assistantMessage": "Перехожу к генерации задач по плану.",
@@ -517,6 +526,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     "arguments": {
                         "courseId": course_id,
                         "focus": focus_text,
+                        "prompt": prompt,
                         **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
                         **({"count": explicit_count} if explicit_count else {}),
                     },
@@ -532,6 +542,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     "arguments": {
                         "courseId": course_id,
                         "focus": focus_text,
+                        "prompt": prompt,
                         **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
                         **({"count": explicit_count} if explicit_count else {}),
                     },
@@ -1162,7 +1173,11 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
         stage_name = f"repair_{primary_route}" if primary_route != "general" else "repair"
         return _with_stage_schema(OllamaCallConfig(stage=stage_name, timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assistant_chat_turn":
-        return _with_stage_schema(OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.05, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"]), job_type, retry_count, compact_mode)
+        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.05, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
+        cfg.json_mode = True
+        cfg = _with_stage_schema(cfg, job_type, retry_count, compact_mode)
+        cfg.json_schema = None
+        return cfg
     return _with_stage_schema(OllamaCallConfig(stage=job_type or "generic", timeout=GENERATION_TIMEOUT, num_predict=GENERATION_NUM_PREDICT, temperature=0.15), job_type, retry_count, compact_mode)
 
 

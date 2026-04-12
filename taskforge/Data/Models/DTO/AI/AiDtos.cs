@@ -682,6 +682,8 @@ public sealed class AiFoundryAgentStateDto
     public string LearnerAudience { get; set; } = "general";
     public string PedagogyMode { get; set; } = "standard";
     public string? NextSuggestedAction { get; set; }
+    public string? LatestIntentKind { get; set; }
+    public bool PreferDirectGeneration { get; set; }
     public Guid? PlacementAfterAssignmentId { get; set; }
     public string? PlacementAfterAssignmentTitle { get; set; }
     public bool HasCourseAudit { get; set; }
@@ -701,6 +703,10 @@ public sealed class AiFoundryChatMemoryDto
     public List<string> RecentGoals { get; set; } = new();
     public List<string> RecentFiles { get; set; } = new();
     public List<string> RecentActions { get; set; } = new();
+    public string? LatestIntentKind { get; set; }
+    public string? LatestExplicitInstruction { get; set; }
+    public string? LatestTeachingScript { get; set; }
+    public bool SuppressBridgePlanLoop { get; set; }
     public int MessageCount { get; set; }
     public DateTime? LastUserMessageAtUtc { get; set; }
     public DateTime? LastAssistantMessageAtUtc { get; set; }

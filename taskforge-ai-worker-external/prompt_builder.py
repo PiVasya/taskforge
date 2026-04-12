@@ -109,6 +109,12 @@ def _pedagogy_appendix(compact_payload: Dict[str, Any]) -> str:
         lines.append("- В batchMemory уже есть placementPlan из чата/аудита курса: не игнорируй его и не придумывай тему с нуля.")
     if agent_state.get("userIntentSummary"):
         lines.append(f"- Каноническая цель агента: {truncate_text(agent_state.get('userIntentSummary'), 180)}. Сохраняй именно этот учебный замысел до конца генерации.")
+    if batch_memory.get("latestIntentKind"):
+        lines.append(f"- Последний явный режим запроса пользователя: {truncate_text(batch_memory.get('latestIntentKind'), 80)}.")
+    if batch_memory.get("latestExplicitInstruction"):
+        lines.append(f"- Последняя явная инструкция пользователя: {truncate_text(batch_memory.get('latestExplicitInstruction'), 220)}.")
+    if batch_memory.get("latestTeachingScript"):
+        lines.append("- В batchMemory уже есть почти готовый teaching-script. Не сворачивай его в общую педагогическую цель и не теряй объяснения по строкам кода.")
     if agent_state.get("nextSuggestedAction"):
         lines.append(f"- Следующий шаг агента по state: {truncate_text(agent_state.get('nextSuggestedAction'), 140)}.")
     if agent_state.get("placementCandidates"):
@@ -349,6 +355,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "agentState — это каноническое состояние агента между чатом и pipeline: userIntentSummary, currentStage, pedagogyMode, nextSuggestedAction и placementCandidates. "
         "Если agentState заполнен, используй его как важный source of truth, но не позволяй устаревшему nextSuggestedAction перебивать самый свежий user-message. Новый явный запрос пользователя важнее старой подсказки из памяти.\n\n"
         "Если пользователь меняет задачу: сообщает про косяк в уже созданных или опубликованных задачах, просит найти ещё пробелы, скрытые prerequisite-ошибки, слишком раннее использование переменных, cin/cout, #include, using namespace std или main — это новый diagnostic-audit запрос. В таком случае не возвращайся автоматически к старому bridge-plan и не делай вид, что пользователь всё ещё просит показать прежний план.\n\n"
+        "Если пользователь уже сам написал почти готовую обучалку, эталонный код или teaching-script, это сильнее старого плана. Такой текст нельзя растворять в абстрактном microGoal: сохраняй порядок шагов, конкретные строки кода и смысл объяснений. Если после этого пользователь говорит 'всё, делай' или 'сделай саму задачу', приоритет — generation, а не очередной show/revise plan.\n\n"
         "show_bridge_plan и revise_bridge_plan подходят только когда пользователь прямо просит показать, уточнить или поправить план. Не вызывай show_bridge_plan просто потому, что в memory остался старый план мостиков.\n\n"
         "Если пользователь даёт feedback на уже созданные или опубликованные задачи и просит найти похожие педагогические косяки, сначала используй analyze_course_progression; при необходимости затем inspect_course_assignments. Только после нового аудита можно предлагать corrective bridge plan или новую генерацию.\n\n"
         "Если пользователь явно просит короткий ответ, только итог, без внутренних шагов, без старого плана или без технических деталей — это приоритетное UX-ограничение. В таком случае assistantMessage должен содержать только итог или следующий короткий вопрос, без пересказа процесса.\n\n"

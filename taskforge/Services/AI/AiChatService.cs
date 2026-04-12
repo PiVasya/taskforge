@@ -696,7 +696,7 @@ public sealed class AiChatService
 
                     var requestedCount = Math.Clamp(ReadInt(args, "count") ?? selectedItems.Sum(x => Math.Max(1, x.TaskCount)), 1, 50);
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? Math.Max(1, Math.Min(3, selectedItems.Max(x => x.Difficulty))), 1, 3);
-                    var prompt = BuildBridgeBatchPrompt(audit, bridgePlan, selectedItems, ReadString(args, "prompt"), ReadString(args, "focus"));
+                    var prompt = BuildBridgeBatchPrompt(audit, bridgePlan, selectedItems, memory, ReadString(args, "prompt"), ReadString(args, "focus"));
                     var notes = BuildBridgeBatchNotes(audit, bridgePlan, selectedItems);
 
                     var memoryForBatch = BuildMemory(messages, session.PlanJson);
@@ -1844,6 +1844,10 @@ public sealed class AiChatService
             difficulty,
             requireCourseAwarePlanning = placementPlan.Count > 0 || audit != null,
             userIntentSummary = ShortenSingleLine(prompt, 260),
+            latestIntentKind = memory.LatestIntentKind,
+            latestExplicitInstruction = ShortenSingleLine(memory.LatestExplicitInstruction, 260),
+            latestTeachingScript = memory.LatestTeachingScript,
+            suppressBridgePlanLoop = memory.SuppressBridgePlanLoop,
             learnerProfile,
             pedagogy = new
             {
@@ -1869,6 +1873,10 @@ public sealed class AiChatService
                 summary = ShortenSingleLine(memory.Summary, 220),
                 facts = (memory.Facts ?? new List<string>()).Take(6).ToList(),
                 recentGoals = (memory.RecentGoals ?? new List<string>()).Take(4).ToList(),
+                latestIntentKind = memory.LatestIntentKind,
+                latestExplicitInstruction = ShortenSingleLine(memory.LatestExplicitInstruction, 220),
+                latestTeachingScript = memory.LatestTeachingScript,
+                suppressBridgePlanLoop = memory.SuppressBridgePlanLoop,
                 agentState = memory.AgentState,
             },
             agentState = BuildBatchAgentStateSnapshot(memory, courseId, prompt, batchKind, requestedCount, difficulty, learnerProfile, constraints, styleHints, placementPlan),
@@ -1975,19 +1983,92 @@ public sealed class AiChatService
         };
     }
 
+    private static string DetectLatestIntentKind(string? text)
+    {
+        var low = (text ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(low))
+            return "chat";
+        if (IsDiagnosticGapAuditIntent(low))
+            return "audit";
+        if (low.Contains("покажи план") || low.Contains("какой план") || low.Contains("что в плане") || low.Contains("show_bridge_plan"))
+            return "show-plan";
+        if (low.Contains("поправь план") || low.Contains("измени план") || low.Contains("исправь план") || low.Contains("поставь её второй") || low.Contains("поставь ее второй") || low.Contains("вторым") || low.Contains("сделай задачку") || low.Contains("добавь вторым"))
+            return "revise-plan";
+        if (low.Contains("не план") || low.Contains("не revise") || low.Contains("не show") || low.Contains("саму задачу") || low.Contains("готовую задачу") || low.Contains("готовый текст") || low.Contains("создай черновик") || low.Contains("создай draft") || low.Contains("сразу генерац") || low.Contains("сгенерируй") || low.Contains("создай зада") || Regex.IsMatch(low, @"\bвсе[,! ]*делай\b|\bвсё[,! ]*делай\b|\bделай\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return "generate";
+        if (low.Contains("план"))
+            return "plan";
+        return "chat";
+    }
+
+    private static string? ExtractLatestTeachingScript(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        var raw = text.Trim();
+        var low = raw.ToLowerInvariant();
+        var looksLikeScript = low.Contains("#include")
+            || low.Contains("int main")
+            || low.Contains("cout <<")
+            || low.Contains("cin >>")
+            || low.Contains("эталонное решение")
+            || low.Contains("должно быть расписано")
+            || low.Contains("по одной строчке")
+            || low.Contains("что писать и зачем");
+        if (!looksLikeScript)
+            return null;
+        return raw.Length <= 2200 ? raw : raw[..2200];
+    }
+
+    private static bool ShouldSuppressBridgePlanLoop(string? latestGoal, string? latestIntentKind, string? latestTeachingScript)
+    {
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(latestTeachingScript))
+            return true;
+        var low = (latestGoal ?? string.Empty).ToLowerInvariant();
+        return low.Contains("не возвращайся к план")
+            || low.Contains("не показывай план")
+            || low.Contains("не делай новый план")
+            || low.Contains("не show_bridge_plan")
+            || low.Contains("не revise_bridge_plan")
+            || low.Contains("нужна сама задача")
+            || low.Contains("нужен именно текст задачи");
+    }
+
+    private static List<int> InferPlanItemIndexesFromText(string? text)
+    {
+        var low = (text ?? string.Empty).ToLowerInvariant();
+        var result = new List<int>();
+        void add(int value)
+        {
+            if (value >= 1 && value <= 24 && !result.Contains(value))
+                result.Add(value);
+        }
+        if (Regex.IsMatch(low, @"\b(перв(ый|ое|ым|ую)|1[- ]?(й|ая|ое)?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) add(1);
+        if (Regex.IsMatch(low, @"\b(втор(ой|ое|ым|ую)|2[- ]?(й|ая|ое)?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) add(2);
+        if (Regex.IsMatch(low, @"\b(трет(ий|ье|ьим|ью)|3[- ]?(й|ья|ье)?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) add(3);
+        if (Regex.IsMatch(low, @"\b(четв(ёрт|ерт)(ый|ое|ым|ую)|4[- ]?(й|ая|ое)?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) add(4);
+        return result;
+    }
+
     private static AiFoundryAgentStateDto BuildChatAgentState(
         AiFoundryChatMemoryDto previous,
         IReadOnlyList<string> recentGoals,
         IReadOnlyList<string> recentActions,
-        string? nextAgentStep)
+        string? nextAgentStep,
+        string? latestIntentKind,
+        string? latestTeachingScript)
     {
         var latestGoal = recentGoals.Count > 0 ? recentGoals[^1] : previous.AgentState?.UserIntentSummary;
         var intentSummary = recentGoals.Count > 0
             ? ShortenSingleLine(recentGoals[^1], 220)
             : ShortenSingleLine(previous.AgentState?.UserIntentSummary ?? string.Empty, 220);
-        var diagnosticAuditIntent = IsDiagnosticGapAuditIntent(latestGoal);
-        var learnerProfile = BuildLearnerProfileSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, null);
-        var constraints = BuildGenerationConstraintsSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, null);
+        latestIntentKind ??= previous.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
+        latestTeachingScript ??= previous.LatestTeachingScript;
+        var diagnosticAuditIntent = string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal);
+        var learnerProfile = BuildLearnerProfileSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, latestTeachingScript);
+        var constraints = BuildGenerationConstraintsSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, latestTeachingScript);
         var styleHints = new List<string>();
         if (previous.LastCourseAudit != null)
             styleHints.AddRange(previous.LastCourseAudit.StyleHints ?? new List<string>());
@@ -2068,10 +2149,21 @@ public sealed class AiChatService
         var firstPlacement = placementCandidates.FirstOrDefault(x => x.AfterAssignmentId.HasValue);
         var workflowKind = "conversation";
         var currentStage = "idle";
+        var preferDirectGeneration = string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(latestTeachingScript);
         if (diagnosticAuditIntent)
         {
             workflowKind = "course-audit";
             currentStage = previous.LastCourseAudit != null ? "audit-ready" : "audit-requested";
+        }
+        else if (preferDirectGeneration && previous.LastBridgePlan != null)
+        {
+            workflowKind = "bridge-generation";
+            currentStage = "generation-requested";
+        }
+        else if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && previous.LastBridgePlan != null)
+        {
+            workflowKind = "bridge-planning";
+            currentStage = "bridge-revision-requested";
         }
         else if (previous.LastBridgePlan != null)
         {
@@ -2105,12 +2197,14 @@ public sealed class AiChatService
             LearnerAudience = Convert.ToString(learnerProfile["audience"]) ?? "general",
             PedagogyMode = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || Convert.ToBoolean(learnerProfile["explainLikeChild"]) ? "guided-simple" : "standard",
             NextSuggestedAction = string.IsNullOrWhiteSpace(nextAgentStep) ? null : ShortenSingleLine(nextAgentStep, 120),
+            LatestIntentKind = latestIntentKind,
+            PreferDirectGeneration = preferDirectGeneration,
             PlacementAfterAssignmentId = firstPlacement?.AfterAssignmentId,
             PlacementAfterAssignmentTitle = firstPlacement?.AfterAssignmentTitle,
             HasCourseAudit = previous.LastCourseAudit != null,
             HasCourseInspection = previous.LastCourseInspection != null,
             HasBridgePlan = previous.LastBridgePlan != null,
-            ReadyForGeneration = !diagnosticAuditIntent && previous.LastBridgePlan != null && (string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected)),
+            ReadyForGeneration = !diagnosticAuditIntent && previous.LastBridgePlan != null && (preferDirectGeneration || string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected)),
             ActiveGoals = recentGoals.Take(4).ToList(),
             ActiveConstraints = ((constraints["mustStayBeforeConcepts"] as List<string>) ?? new List<string>())
                 .Concat((constraints["avoidConcepts"] as List<string>) ?? new List<string>())
@@ -2239,7 +2333,7 @@ public sealed class AiChatService
             .Where(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Content))
             .ToList();
         var assistantMessages = messages
-            .Where(x => string.Equals(x.Role, "assistant", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Content) && !string.Equals(x.Status, "processing", StringComparison.OrdinalIgnoreCase))
+            .Where(x => string.Equals(x.Role, "assistant", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "processing", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         var recentGoals = DistinctRecentStrings(userMessages.Select(x => x.Content), 4, 120);
@@ -2259,9 +2353,17 @@ public sealed class AiChatService
             6,
             80);
 
+        var latestGoal = userMessages.LastOrDefault()?.Content;
+        var latestIntentKind = DetectLatestIntentKind(latestGoal) ?? previous.LatestIntentKind;
+        var latestTeachingScript = ExtractLatestTeachingScript(latestGoal) ?? previous.LatestTeachingScript;
+        var latestExplicitInstruction = ShortenMultiline(latestGoal, 900);
+        var suppressBridgePlanLoop = ShouldSuppressBridgePlanLoop(latestGoal, latestIntentKind, latestTeachingScript);
+
         var facts = new List<string>();
         if (recentGoals.Count > 0)
             facts.Add($"Последняя цель пользователя: {recentGoals[^1]}");
+        if (!string.IsNullOrWhiteSpace(latestTeachingScript) && facts.Count < 6)
+            facts.Add($"Последний пользовательский teaching-script: {ShortenSingleLine(latestTeachingScript, 160)}");
         if (recentFiles.Count > 0)
             facts.Add($"В сессии уже использовались файлы: {string.Join(", ", recentFiles.Take(3))}");
         if (recentActions.Count > 0)
@@ -2282,12 +2384,16 @@ public sealed class AiChatService
             summaryParts.Add($"В этой сессии уже {messages.Count} сообщений.");
         if (recentGoals.Count > 0)
             summaryParts.Add($"Текущая линия разговора: {recentGoals[^1]}.");
+        if (!string.IsNullOrWhiteSpace(latestIntentKind))
+            summaryParts.Add($"Последний режим запроса: {latestIntentKind}.");
         if (recentActions.Count > 0)
             summaryParts.Add($"Ранее уже использовали действия: {string.Join(", ", recentActions.Take(3))}.");
         if (recentEntities.Count > 0)
             summaryParts.Add($"Последние сущности: {string.Join(", ", recentEntities.Take(3))}.");
         if (!string.IsNullOrWhiteSpace(lastAssistantOutcome))
             summaryParts.Add($"Последний ответ AI: {lastAssistantOutcome}.");
+        if (!string.IsNullOrWhiteSpace(latestTeachingScript))
+            summaryParts.Add("Пользователь уже дал явный teaching-script/эталон, который нужно сохранять при следующей генерации.");
 
         var summary = string.Join(" ", summaryParts).Trim();
         if (string.IsNullOrWhiteSpace(summary))
@@ -2301,17 +2407,27 @@ public sealed class AiChatService
             facts.Add($"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 140)}");
         if (previous.LastCourseInspection != null)
             summary = string.Join(" ", new[] { summary, $"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (previous.LastBridgePlan != null && facts.Count < 6)
+        if (!suppressBridgePlanLoop && previous.LastBridgePlan != null && facts.Count < 6)
             facts.Add($"Последний план мостиков: {ShortenSingleLine(previous.LastBridgePlan.Summary, 140)}");
-        if (previous.LastBridgePlan != null)
+        if (!suppressBridgePlanLoop && previous.LastBridgePlan != null)
             summary = string.Join(" ", new[] { summary, $"Последний план мостиков: {ShortenSingleLine(previous.LastBridgePlan.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        var nextAgentStep = SuggestNextAgentStep(previous);
+        var nextAgentStep = SuggestNextAgentStep(new AiFoundryChatMemoryDto
+        {
+            RecentGoals = recentGoals.ToList(),
+            AgentState = previous.AgentState,
+            LastCourseAudit = previous.LastCourseAudit,
+            LastCourseInspection = previous.LastCourseInspection,
+            LastBridgePlan = previous.LastBridgePlan,
+            LatestIntentKind = latestIntentKind,
+            LatestTeachingScript = latestTeachingScript,
+            SuppressBridgePlanLoop = suppressBridgePlanLoop,
+        });
         if (!string.IsNullOrWhiteSpace(nextAgentStep) && facts.Count < 6)
             facts.Add($"Следующий логичный шаг агента: {nextAgentStep}");
         if (!string.IsNullOrWhiteSpace(nextAgentStep))
             summary = string.Join(" ", new[] { summary, $"Следующий логичный шаг агента: {nextAgentStep}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
 
-        var agentState = BuildChatAgentState(previous, recentGoals, recentActions, nextAgentStep);
+        var agentState = BuildChatAgentState(previous, recentGoals, recentActions, nextAgentStep, latestIntentKind, latestTeachingScript);
         if (!string.IsNullOrWhiteSpace(agentState.CurrentStage) && facts.Count < 6)
             facts.Add($"Стадия агента: {agentState.CurrentStage}");
         if (!string.IsNullOrWhiteSpace(agentState.UserIntentSummary))
@@ -2324,6 +2440,10 @@ public sealed class AiChatService
             RecentGoals = recentGoals,
             RecentFiles = recentFiles,
             RecentActions = recentActions,
+            LatestIntentKind = latestIntentKind,
+            LatestExplicitInstruction = latestExplicitInstruction,
+            LatestTeachingScript = latestTeachingScript,
+            SuppressBridgePlanLoop = suppressBridgePlanLoop,
             MessageCount = messages.Count,
             LastUserMessageAtUtc = userMessages.LastOrDefault()?.CreatedAtUtc,
             LastAssistantMessageAtUtc = assistantMessages.LastOrDefault()?.CreatedAtUtc,
@@ -2710,6 +2830,8 @@ public sealed class AiChatService
         var hasAudit = auditMatchesFocus;
         var hasInspection = inspectionMatchesFocus;
         var placementAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory);
+        var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(focus);
+        var preferDirectGeneration = memory.SuppressBridgePlanLoop || memory.AgentState?.PreferDirectGeneration == true || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase);
 
         if (diagnosticAuditIntent)
         {
@@ -2741,6 +2863,27 @@ public sealed class AiChatService
             }
 
             return null;
+        }
+
+        if (preferDirectGeneration && memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId && memory.LastBridgePlan.Items.Count > 0)
+        {
+            var selectedIndexes = memory.LastBridgePlan.Items
+                .Where(x => !x.Rejected)
+                .OrderBy(x => x.Index)
+                .Select(x => x.Index)
+                .ToList();
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "queue_generate_bridge_batch",
+                Reason = "Последний явный запрос пользователя — не обсуждать план дальше, а перейти к генерации по уже собранным plan items и teaching-script.",
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    courseId,
+                    focus,
+                    itemIndexes = selectedIndexes,
+                    prompt = memory.LatestTeachingScript ?? memory.LatestExplicitInstruction,
+                }, JsonOptions),
+            };
         }
 
         if (!hasAudit && !hasInspection && !placementAfterAssignmentId.HasValue)
@@ -2792,6 +2935,21 @@ public sealed class AiChatService
             };
         }
 
+        if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "revise_bridge_plan",
+                Reason = "Последний запрос пользователя — точечно поправить уже собранный bridge-plan, не пересобирая его с нуля.",
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    courseId,
+                    itemIndexes = InferPlanItemIndexesFromText(memory.LatestExplicitInstruction),
+                    note = memory.LatestExplicitInstruction,
+                }, JsonOptions),
+            };
+        }
+
         return new AiFoundryChatToolCallDto
         {
             Name = "show_bridge_plan",
@@ -2803,7 +2961,8 @@ public sealed class AiChatService
     private static string? SuggestNextAgentStep(AiFoundryChatMemoryDto memory)
     {
         var latestGoal = memory.RecentGoals?.LastOrDefault() ?? memory.AgentState?.UserIntentSummary;
-        var diagnosticAuditIntent = IsDiagnosticGapAuditIntent(latestGoal);
+        var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
+        var diagnosticAuditIntent = string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal);
         var hasAudit = memory.LastCourseAudit != null;
         var hasInspection = memory.LastCourseInspection != null && memory.LastCourseInspection.Assignments.Count > 0;
         var hasPlacement = memory.AgentState?.PlacementAfterAssignmentId.HasValue == true || (memory.AgentState?.PlacementCandidates?.Any(x => x.AfterAssignmentId.HasValue) == true);
@@ -2817,6 +2976,13 @@ public sealed class AiChatService
             return "сформулировать конкретные педагогические косяки и только потом решать, нужен ли новый план мостиков";
         }
 
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
+            return "сгенерировать мостики через queue_generate_bridge_batch";
+        if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
+            return "точечно поправить bridge-plan через revise_bridge_plan";
+        if (string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
+            return "показать текущий bridge-plan через show_bridge_plan";
+
         if (!hasAudit && !hasInspection && !hasPlacement)
             return "сначала сделать analyze_course_progression";
         if (!hasInspection && !hasPlacement)
@@ -2826,7 +2992,7 @@ public sealed class AiChatService
         var confirmed = memory.LastBridgePlan.Items.Count(x => x.Confirmed && !x.Rejected);
         if (string.Equals(memory.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || confirmed > 0)
             return "сгенерировать мостики через queue_generate_bridge_batch";
-        return "показать и уточнить план мостиков через show_bridge_plan / revise_bridge_plan";
+        return memory.SuppressBridgePlanLoop ? "сгенерировать мостики через queue_generate_bridge_batch" : "показать и уточнить план мостиков через show_bridge_plan / revise_bridge_plan";
     }
 
     private static string? _chatFallbackFocus(List<AiFoundryChatMessageDto> messages)
@@ -3199,6 +3365,8 @@ public sealed class AiChatService
     {
         var revised = CloneBridgePlan(plan);
         var indexes = ReadIndexes(args, "itemIndexes", "itemIndex", "findingIndexes");
+        if (indexes.Count == 0)
+            indexes = InferPlanItemIndexesFromText(ReadString(args, "note") ?? ReadString(args, "reason"));
         var selected = revised.Items
             .Where(x => indexes.Count == 0 || indexes.Contains(x.Index) || indexes.Contains(x.Index - 1))
             .ToList();
@@ -3383,6 +3551,7 @@ public sealed class AiChatService
         AiFoundryCourseAuditDto audit,
         AiFoundryBridgePlanDto plan,
         List<AiFoundryBridgePlanItemDto> items,
+        AiFoundryChatMemoryDto memory,
         string? userPrompt,
         string? focus)
     {
@@ -3393,7 +3562,16 @@ public sealed class AiChatService
             sb.AppendLine($"Нужно допилить курс «{audit.CourseTitle}» bridge-задачами, которые мягко вводят новые функции и конструкции до их резкого появления.");
         if (!string.IsNullOrWhiteSpace(focus ?? plan.Focus))
             sb.AppendLine($"Фокус: {(focus ?? plan.Focus)!.Trim()}.");
+        if (!string.IsNullOrWhiteSpace(memory.LatestExplicitInstruction))
+            sb.AppendLine($"Последняя явная инструкция пользователя: {memory.LatestExplicitInstruction.Trim()}.");
+        if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
+        {
+            sb.AppendLine("У пользователя уже есть почти готовый teaching-script/эталон. Не сворачивай его в абстрактный microGoal: сохраняй порядок объяснения, примеры строк кода и смысл каждой строки.");
+            sb.AppendLine("Latest teaching-script:");
+            sb.AppendLine(memory.LatestTeachingScript.Trim());
+        }
         sb.AppendLine("Работай по согласованному плану вставок, а не придумывай точки размещения с нуля.");
+        sb.AppendLine("Если пользователь уже дал почти готовую обучалку, новая задача должна следовать именно ей. Нельзя писать 'создай переменную' или 'считай число', пока в самой задаче не объяснено, как это сделать строка за строкой.");
         sb.AppendLine("Используй стиль названий и формулировок текущего курса, избегай абстрактных и слишком общих названий.");
         if (plan.StyleHints.Count > 0)
             sb.AppendLine($"Стиль названий курса: {string.Join("; ", plan.StyleHints.Take(4))}.");

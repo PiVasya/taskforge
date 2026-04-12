@@ -422,6 +422,10 @@ def _compact_batch_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
         "source": normalize_text(memory.get("source")),
         "batchKind": normalize_text(memory.get("batchKind")),
         "userIntentSummary": truncate_text(memory.get("userIntentSummary"), 220),
+        "latestIntentKind": normalize_text(memory.get("latestIntentKind")),
+        "latestExplicitInstruction": truncate_text(memory.get("latestExplicitInstruction"), 260),
+        "latestTeachingScript": truncate_text(memory.get("latestTeachingScript"), 1200),
+        "suppressBridgePlanLoop": bool(memory.get("suppressBridgePlanLoop")),
         "requireCourseAwarePlanning": bool(memory.get("requireCourseAwarePlanning")),
         "learnerProfile": {
             "audience": normalize_text(learner.get("audience")),
