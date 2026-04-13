@@ -387,10 +387,8 @@ export default function CourseAssignmentsPage() {
               <IfEditor>
                 <div
                   className="flex items-center gap-2 rounded-2xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.36)] px-2.5 py-2 shadow-soft"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <Input
                     type="number"
@@ -401,10 +399,8 @@ export default function CourseAssignmentsPage() {
                     title="Позиция задания в курсе"
                     value={posDraft[a.id] ?? String(positionById.get(a.id) ?? "")}
                     onChange={(e) => setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") e.currentTarget.blur();
                       if (e.key === "Escape") {
@@ -437,8 +433,8 @@ export default function CourseAssignmentsPage() {
                       type="button"
                       className="grid h-9 w-9 place-items-center hover:bg-[rgba(var(--border)/0.18)]"
                       title="Выше"
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
-                        e.preventDefault();
                         e.stopPropagation();
                         swapByIndex(idx, idx - 1);
                       }}
@@ -449,8 +445,8 @@ export default function CourseAssignmentsPage() {
                       type="button"
                       className="grid h-9 w-9 place-items-center border-l border-[rgba(var(--border)/0.55)] hover:bg-[rgba(var(--border)/0.18)]"
                       title="Ниже"
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
-                        e.preventDefault();
                         e.stopPropagation();
                         swapByIndex(idx, idx + 1);
                       }}
