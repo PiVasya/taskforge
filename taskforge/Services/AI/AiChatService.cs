@@ -142,8 +142,7 @@ public sealed class AiChatService
             job.CompletedAtUtc = DateTime.UtcNow;
             job.ErrorText = string.IsNullOrWhiteSpace(job.ErrorText)
                 ? "Chat session deleted by user."
-                : job.ErrorText + "
-Chat session deleted by user.";
+                : job.ErrorText + "\nChat session deleted by user.";
         }
 
         var linkedBatches = await _db.AiBatches
