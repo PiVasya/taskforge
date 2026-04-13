@@ -789,6 +789,11 @@ public sealed class AiFoundryChatConfirmToolRequestDto
 
     [MaxLength(1000)]
     public string? Note { get; set; }
+
+    /// <summary>
+    /// 0 = максимально свободно, 100 = максимально буквально и строго по пользовательской инструкции.
+    /// </summary>
+    public int? InstructionStrictness { get; set; }
 }
 
 public sealed class AiFoundryChatResolveRequestDto

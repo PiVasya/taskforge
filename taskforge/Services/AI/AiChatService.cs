@@ -489,6 +489,10 @@ public sealed class AiChatService
             args = new JsonObject();
         }
 
+        var instructionStrictness = ClampInstructionStrictness(
+            ReadInt(args, "instructionStrictness"),
+            DeserializeMemory(session.PlanJson).InstructionStrictness);
+
         try
         {
             switch (action)

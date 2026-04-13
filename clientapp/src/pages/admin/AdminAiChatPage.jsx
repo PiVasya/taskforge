@@ -793,6 +793,7 @@ export default function AdminAiChatPage() {
         toolName: result.confirmationToolCall.name,
         argumentsJson: result.confirmationToolCall.argumentsJson,
         note: result.suggestedConfirmationMessage || `Подтверждаю выполнение действия ${result.confirmationToolCall.name}.`,
+        instructionStrictness,
       });
       setSession(response.session);
       setSessions((prev) => prev.map((item) => (item.id === response.session.id ? upsertSessionListItem(response.session) : item)));
