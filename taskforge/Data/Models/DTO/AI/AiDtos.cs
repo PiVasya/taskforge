@@ -690,6 +690,37 @@ public sealed class AiFoundryBridgePlanDto
     public List<AiFoundryBridgePlanItemDto> Items { get; set; } = new();
 }
 
+public sealed class AiFoundryChatDraftTestPreviewDto
+{
+    public string Input { get; set; } = string.Empty;
+    public string ExpectedOutput { get; set; } = string.Empty;
+}
+
+public sealed class AiFoundryChatDraftProposalDto
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Title { get; set; } = string.Empty;
+    public string AssignmentType { get; set; } = "code-test";
+    public int Difficulty { get; set; } = 2;
+    public string Goal { get; set; } = string.Empty;
+    public string ConditionPreview { get; set; } = string.Empty;
+    public string? FullCondition { get; set; }
+    public List<string> MustKeep { get; set; } = new();
+    public List<string> Avoid { get; set; } = new();
+    public List<AiFoundryChatDraftTestPreviewDto> PublicTests { get; set; } = new();
+    public string Status { get; set; } = "draft";
+}
+
+public sealed class AiFoundryChatDraftBlueprintDto
+{
+    public string Summary { get; set; } = string.Empty;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+    public int Revision { get; set; } = 1;
+    public string Source { get; set; } = "chat";
+    public bool ApprovedForDraft { get; set; }
+    public List<AiFoundryChatDraftProposalDto> Proposals { get; set; } = new();
+}
+
 public sealed class AiFoundryAgentPlacementCandidateDto
 {
     public string Source { get; set; } = string.Empty;
@@ -745,6 +776,7 @@ public sealed class AiFoundryChatMemoryDto
     public AiFoundryCourseInspectionDto? LastCourseInspection { get; set; }
     public AiFoundryBridgePlanDto? LastBridgePlan { get; set; }
     public AiFoundryAgentStateDto AgentState { get; set; } = new();
+    public AiFoundryChatDraftBlueprintDto? CurrentDraftBlueprint { get; set; }
 }
 
 public sealed class AiFoundryChatSessionListItemDto

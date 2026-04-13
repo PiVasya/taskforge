@@ -36,7 +36,7 @@ class ChatMemoryRoutingTests(unittest.TestCase):
             },
         }
         result = worker._normalize_chat_turn_result(payload, {})
-        self.assertEqual(result["actions"][0]["name"], "queue_generate_from_text")
+        self.assertEqual(result["actions"][0]["name"], "save_chat_blueprint")
 
     def test_short_followup_without_clear_next_step_asks_question(self):
         payload = {
@@ -63,6 +63,21 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
         self.assertIn("приоритет у inspect_course_assignments", prompt)
         self.assertIn("Не превращай каждый запрос про курс в bridge-plan workflow", prompt)
+
+    def test_finalize_request_uses_chat_blueprint(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Одобряю, закидывай в черновик"}],
+            "memory": {
+                "currentDraftBlueprint": {
+                    "summary": "Есть варианты",
+                    "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант 1", "conditionPreview": "..."}]
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"][0]["name"], "finalize_chat_blueprint")
 
 
 if __name__ == "__main__":

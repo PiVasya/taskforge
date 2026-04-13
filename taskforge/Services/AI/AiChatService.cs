@@ -768,6 +768,128 @@ public sealed class AiChatService
                         CourseId = batch.CourseId,
                     };
                 }
+                case "save_chat_blueprint":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем сохранять примерные условия.");
+
+                    var proposals = ReadChatBlueprintProposals(args);
+                    if (proposals.Count == 0)
+                        return FailTool("Не удалось сохранить примерные условия: proposals пустой или сломан.");
+
+                    var memory = BuildMemory(messages, session.PlanJson);
+                    var nextRevision = Math.Max(ReadInt(args, "revision") ?? ((memory.CurrentDraftBlueprint?.Revision ?? 0) + 1), 1);
+                    var blueprint = new AiFoundryChatDraftBlueprintDto
+                    {
+                        Summary = ReadString(args, "summary") ?? BuildChatBlueprintSummaryText(proposals),
+                        UpdatedAtUtc = DateTime.UtcNow,
+                        Revision = nextRevision,
+                        Source = "chat",
+                        ApprovedForDraft = ReadBool(args, "approvedForDraft") ?? false,
+                        Proposals = proposals,
+                    };
+                    session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildChatBlueprintSummary(blueprint),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                    };
+                }
+                case "show_chat_blueprint":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем показывать примерные условия.");
+
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var blueprint = memory.CurrentDraftBlueprint;
+                    if (blueprint == null || blueprint.Proposals.Count == 0)
+                        return FailTool("В этой сессии пока нет сохранённых примерных условий. Сначала обсуди задачу со мной, и я соберу черновой вариант.");
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildChatBlueprintSummary(blueprint),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                    };
+                }
+                case "drop_chat_blueprint":
+                {
+                    var memory = BuildMemory(messages, session.PlanJson);
+                    session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, null));
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = "Сбросила сохранённые примерные условия из памяти этой сессии. Можно собирать новые варианты с нуля.",
+                        CourseId = ReadGuid(args, "courseId") ?? session.CourseId,
+                        NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                    };
+                }
+                case "finalize_chat_blueprint":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем превращать условия из чата в черновики.");
+
+                    var memory = BuildMemory(messages, session.PlanJson);
+                    var blueprint = memory.CurrentDraftBlueprint;
+                    if (blueprint == null || blueprint.Proposals.Count == 0)
+                        return FailTool("В памяти этой сессии нет согласованных примерных условий. Сначала собери и обсуди варианты, потом уже превращай их в черновики.");
+
+                    var selectedProposalIds = ReadGuidList(args, "proposalIds");
+                    var selected = selectedProposalIds.Count == 0
+                        ? blueprint.Proposals.ToList()
+                        : blueprint.Proposals.Where(x => selectedProposalIds.Contains(x.Id)).ToList();
+                    if (selected.Count == 0)
+                        return FailTool("Не нашла ни одного подходящего варианта для финализации. Проверь proposalIds или сначала покажи текущие варианты.");
+
+                    var strictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness);
+                    var enableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true;
+                    var priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100);
+                    var createdJobs = new List<AiJobDetailsDto>();
+                    foreach (var proposal in selected)
+                    {
+                        var job = await _jobs.QueueGenerateAssignmentFromTextAsync(new AiGenerateAssignmentFromTextRequestDto
+                        {
+                            CourseId = courseId.Value,
+                            AssignmentType = string.IsNullOrWhiteSpace(proposal.AssignmentType) ? "code-test" : proposal.AssignmentType,
+                            Prompt = BuildPromptFromChatBlueprintProposal(proposal, memory),
+                            SourceText = BuildSourceTextFromChatBlueprintProposal(proposal, memory),
+                            TitleHint = proposal.Title,
+                            Difficulty = Math.Clamp(proposal.Difficulty, 1, 5),
+                            Count = 1,
+                            Notes = $"Finalized from chat blueprint session {session.Id}. Revision {blueprint.Revision}.",
+                            Priority = priority,
+                            EnableSelfCheck = enableSelfCheck,
+                            InstructionStrictness = strictness,
+                            UserInstructionSnapshot = memory.LatestExplicitInstruction,
+                            TeachingScript = memory.LatestTeachingScript,
+                        }, createdByUserId, createdByDisplayName, ct);
+                        createdJobs.Add(job);
+                        proposal.Status = "queued";
+                    }
+                    blueprint.ApprovedForDraft = true;
+                    blueprint.UpdatedAtUtc = DateTime.UtcNow;
+                    session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
+
+                    var summary = createdJobs.Count == 1
+                        ? $"Превратила согласованное условие в полноценный draft-черновик. Поставила 1 job в очередь ({createdJobs[0].Id})."
+                        : $"Превратила согласованные условия в полноценные draft-черновики. Поставила в очередь {createdJobs.Count} отдельных job без batch.";
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = summary,
+                        CourseId = courseId,
+                        JobId = createdJobs.Count == 1 ? createdJobs[0].Id : null,
+                        NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                    };
+                }
+
                 case "queue_generate_from_text":
                 {
                     var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
@@ -1525,6 +1647,7 @@ public sealed class AiChatService
             courseId = session.CourseId,
             selectedCourse,
             memory,
+            currentDraftBlueprint = memory.CurrentDraftBlueprint,
             instructionStrictness = memory.InstructionStrictness,
             conversation,
             recentAttachments = attachmentDigest,
@@ -1595,8 +1718,36 @@ public sealed class AiChatService
                 },
                 new
                 {
+                    name = "save_chat_blueprint",
+                    description = "Сохранить в памяти чата 1 или несколько примерных условий/набросков задач, чтобы потом обсудить правки и только после одобрения превратить их в полноценные draft-черновики.",
+                    requiredArguments = new[] { "courseId", "proposals" },
+                    optionalArguments = new[] { "summary", "approvedForDraft", "revision" },
+                },
+                new
+                {
+                    name = "show_chat_blueprint",
+                    description = "Показать текущие примерные условия, уже сохранённые в памяти этой чат-сессии, без запуска генерации draft.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
+                    name = "finalize_chat_blueprint",
+                    description = "После явного одобрения пользователя превратить сохранённые примерные условия из чата в полноценные draft-черновики. Не использовать без явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик'.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "proposalIds", "priority", "enableSelfCheck" },
+                },
+                new
+                {
+                    name = "drop_chat_blueprint",
+                    description = "Сбросить текущие примерные условия из памяти чата, если пользователь просит начать заново или выбросить старые варианты.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
                     name = "queue_generate_from_text",
-                    description = "Запустить генерацию одного или нескольких заданий из текста.",
+                    description = "Запустить генерацию одного или нескольких заданий из текста. В чате использовать только после того, как пользователь уже одобрил примерные условия или явно просит пропустить этап обсуждения.",
                     requiredArguments = new[] { "courseId", "prompt" },
                     optionalArguments = new[] { "assignmentType", "sourceText", "count", "difficulty", "titleHint", "notes", "priority", "enableSelfCheck" },
                 },
@@ -2022,7 +2173,11 @@ public sealed class AiChatService
                 "revise_bridge_plan" => "Точечно правлю уже собранный план мостиков по твоим замечаниям.",
                 "advance_agent_stage" => "Продолжаю агента по памяти и выбираю следующий логичный шаг без повторного объяснения контекста.",
                 "queue_generate_bridge_batch" => "Запускаю bridge-batch по последнему плану мостиков.",
-                "queue_generate_from_text" => "Запускаю генерацию из текста.",
+                "save_chat_blueprint" => "Собираю примерные условия прямо в чате.",
+            "show_chat_blueprint" => "Показываю текущие примерные условия из памяти чата.",
+            "finalize_chat_blueprint" => "Превращаю согласованные условия из чата в draft-черновики.",
+            "drop_chat_blueprint" => "Сбрасываю текущие примерные условия из памяти чата.",
+            "queue_generate_from_text" => "Запускаю генерацию из текста.",
                 "queue_generate_from_file" => "Запускаю генерацию из файла.",
                 "queue_validate_draft" => "Запускаю self-check черновика.",
                 "queue_analyze_assignment" => "Запускаю анализ задания.",
@@ -2402,7 +2557,13 @@ public sealed class AiChatService
             return "show-plan";
         if (low.Contains("поправь план") || low.Contains("измени план") || low.Contains("исправь план") || low.Contains("поставь её второй") || low.Contains("поставь ее второй") || low.Contains("вторым") || low.Contains("сделай задачку") || low.Contains("добавь вторым"))
             return "revise-plan";
-        if (low.Contains("не план") || low.Contains("не revise") || low.Contains("не show") || low.Contains("саму задачу") || low.Contains("готовую задачу") || low.Contains("готовый текст") || low.Contains("создай черновик") || low.Contains("создай draft") || low.Contains("сразу генерац") || low.Contains("сгенерируй") || low.Contains("создай зада") || Regex.IsMatch(low, @"\bвсе[,! ]*делай\b|\bвсё[,! ]*делай\b|\bделай\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        if (low.Contains("одобря") || low.Contains("закидывай в черновик") || low.Contains("в черновик") || low.Contains("финализируй") || low.Contains("сделай черновик"))
+            return "finalize-blueprint";
+        if (low.Contains("покажи варианты") || low.Contains("какие варианты") || low.Contains("покажи услов") || low.Contains("покажи наброс"))
+            return "show-blueprint";
+        if (low.Contains("начни заново") || low.Contains("сбрось варианты") || low.Contains("удали варианты") || low.Contains("очисти условия"))
+            return "drop-blueprint";
+        if (low.Contains("не план") || low.Contains("не revise") || low.Contains("не show") || low.Contains("саму задачу") || low.Contains("готовую задачу") || low.Contains("готовый текст") || low.Contains("создай черновик") || low.Contains("создай draft") || low.Contains("сразу генерац") || low.Contains("сгенерируй") || low.Contains("создай зада") || low.Contains("сделай зада") || Regex.IsMatch(low, @"\bвсе[,! ]*делай\b|\bвсё[,! ]*делай\b|\bделай\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return "generate";
         if (low.Contains("план") || low.Contains("мостик") || low.Contains("подводящ"))
             return "plan";
@@ -2826,6 +2987,8 @@ public sealed class AiChatService
             summaryParts.Add($"Последний ответ AI: {lastAssistantOutcome}.");
         if (!string.IsNullOrWhiteSpace(latestTeachingScript))
             summaryParts.Add("Пользователь уже дал явный teaching-script/эталон, который нужно сохранять при следующей генерации.");
+        if (previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0)
+            summaryParts.Add($"В памяти уже есть {previous.CurrentDraftBlueprint.Proposals.Count} согласуемых услов{(previous.CurrentDraftBlueprint.Proposals.Count == 1 ? "ие" : "ий")} из чата, которые можно показать, поправить или превратить в draft.");
 
         var summary = string.Join(" ", summaryParts).Trim();
         if (string.IsNullOrWhiteSpace(summary))
@@ -2833,6 +2996,8 @@ public sealed class AiChatService
 
         if (previous.LastCourseAudit != null && facts.Count < 6)
             facts.Add($"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 140)}");
+        if (previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0 && facts.Count < 6)
+            facts.Add($"В чате уже согласуются условия: {string.Join(", ", previous.CurrentDraftBlueprint.Proposals.Select(x => ShortenSingleLine(x.Title, 40)).Take(3))}");
         if (previous.LastCourseAudit != null)
             summary = string.Join(" ", new[] { summary, $"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
         if (previous.LastCourseInspection != null && facts.Count < 6)
@@ -2884,6 +3049,7 @@ public sealed class AiChatService
             LastCourseInspection = previous.LastCourseInspection,
             LastBridgePlan = previous.LastBridgePlan,
             AgentState = agentState,
+            CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
         };
     }
 
@@ -2933,6 +3099,10 @@ public sealed class AiChatService
             "revise_bridge_plan" => "точечная правка плана мостиков",
             "advance_agent_stage" => "автопродолжение агента",
             "queue_generate_bridge_batch" => "bridge-batch по плану мостиков",
+            "save_chat_blueprint" => "примерные условия из чата",
+            "show_chat_blueprint" => "просмотр примерных условий",
+            "finalize_chat_blueprint" => "финализация условий в черновики",
+            "drop_chat_blueprint" => "сброс примерных условий",
             "queue_generate_from_text" => "генерация из текста",
             "queue_generate_from_file" => "генерация из файла",
             "queue_validate_draft" => "валидация draft",
@@ -3450,6 +3620,8 @@ public sealed class AiChatService
             return "сформулировать конкретные педагогические косяки и только потом решать, нужен ли новый план мостиков";
         }
 
+        if (memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0)
+            return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия из чата, а потом вызвать finalize_chat_blueprint";
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "сгенерировать мостики через queue_generate_bridge_batch";
         if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
@@ -3496,6 +3668,189 @@ public sealed class AiChatService
         memory ??= new AiFoundryChatMemoryDto();
         memory.LastBridgePlan = plan;
         return memory;
+    }
+
+    private static AiFoundryChatMemoryDto WithCurrentDraftBlueprint(AiFoundryChatMemoryDto memory, AiFoundryChatDraftBlueprintDto? blueprint)
+    {
+        memory ??= new AiFoundryChatMemoryDto();
+        memory.CurrentDraftBlueprint = blueprint;
+        return memory;
+    }
+
+    private static List<Guid> ReadGuidList(JsonObject args, string propertyName)
+    {
+        var result = new List<Guid>();
+        if (args[propertyName] is not JsonArray arr)
+            return result;
+        foreach (var node in arr)
+        {
+            if (node == null)
+                continue;
+            if (Guid.TryParse(node.ToString(), out var value))
+                result.Add(value);
+        }
+        return result.Distinct().ToList();
+    }
+
+    private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args)
+    {
+        var result = new List<AiFoundryChatDraftProposalDto>();
+        if (args["proposals"] is not JsonArray proposals)
+            return result;
+        foreach (var node in proposals)
+        {
+            if (node is not JsonObject obj)
+                continue;
+            var title = obj["title"]?.ToString()?.Trim();
+            var conditionPreview = obj["conditionPreview"]?.ToString()?.Trim() ?? obj["summary"]?.ToString()?.Trim();
+            var fullCondition = obj["fullCondition"]?.ToString()?.Trim() ?? conditionPreview;
+            if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(conditionPreview) && string.IsNullOrWhiteSpace(fullCondition))
+                continue;
+            var proposal = new AiFoundryChatDraftProposalDto
+            {
+                Id = Guid.TryParse(obj["id"]?.ToString(), out var parsedId) ? parsedId : Guid.NewGuid(),
+                Title = string.IsNullOrWhiteSpace(title) ? ShortenSingleLine(conditionPreview ?? fullCondition ?? "Новая задача", 80) : title,
+                AssignmentType = string.IsNullOrWhiteSpace(obj["assignmentType"]?.ToString()) ? "code-test" : obj["assignmentType"]!.ToString()!.Trim(),
+                Difficulty = Math.Clamp(int.TryParse(obj["difficulty"]?.ToString(), out var difficulty) ? difficulty : 2, 1, 5),
+                Goal = ShortenMultiline(obj["goal"]?.ToString() ?? obj["microGoal"]?.ToString() ?? string.Empty, 400),
+                ConditionPreview = ShortenMultiline(conditionPreview ?? fullCondition ?? string.Empty, 900),
+                FullCondition = ShortenMultiline(fullCondition ?? conditionPreview ?? string.Empty, 4000),
+                Status = string.IsNullOrWhiteSpace(obj["status"]?.ToString()) ? "draft" : obj["status"]!.ToString()!.Trim(),
+            };
+            proposal.MustKeep = ReadStringList(obj, "mustKeep");
+            proposal.Avoid = ReadStringList(obj, "avoid");
+            proposal.PublicTests = ReadChatDraftTests(obj, "publicTests");
+            result.Add(proposal);
+        }
+        return result;
+    }
+
+    private static List<string> ReadStringList(JsonObject obj, string propertyName)
+    {
+        var result = new List<string>();
+        if (obj[propertyName] is not JsonArray arr)
+            return result;
+        foreach (var node in arr)
+        {
+            var value = node?.ToString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(value) && !result.Contains(value, StringComparer.OrdinalIgnoreCase))
+                result.Add(ShortenSingleLine(value, 240));
+        }
+        return result;
+    }
+
+    private static List<AiFoundryChatDraftTestPreviewDto> ReadChatDraftTests(JsonObject obj, string propertyName)
+    {
+        var result = new List<AiFoundryChatDraftTestPreviewDto>();
+        if (obj[propertyName] is not JsonArray arr)
+            return result;
+        foreach (var node in arr)
+        {
+            if (node is not JsonObject testObj)
+                continue;
+            var input = testObj["input"]?.ToString() ?? string.Empty;
+            var expectedOutput = testObj["expectedOutput"]?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(input) && string.IsNullOrWhiteSpace(expectedOutput))
+                continue;
+            result.Add(new AiFoundryChatDraftTestPreviewDto
+            {
+                Input = ShortenMultiline(input, 200),
+                ExpectedOutput = ShortenMultiline(expectedOutput, 200),
+            });
+        }
+        return result;
+    }
+
+    private static string BuildChatBlueprintSummaryText(List<AiFoundryChatDraftProposalDto> proposals)
+    {
+        if (proposals.Count == 0)
+            return "Сохранила пустой набор примерных условий.";
+        if (proposals.Count == 1)
+            return $"Сохранила 1 примерное условие: {proposals[0].Title}.";
+        return $"Сохранила {proposals.Count} примерных условий для обсуждения и правок.";
+    }
+
+    private static string BuildChatBlueprintSummary(AiFoundryChatDraftBlueprintDto blueprint)
+    {
+        if (blueprint == null || blueprint.Proposals.Count == 0)
+            return "Примерных условий пока нет.";
+        var sb = new StringBuilder();
+        sb.AppendLine($"Черновой набор условий из чата · revision {Math.Max(1, blueprint.Revision)}");
+        if (!string.IsNullOrWhiteSpace(blueprint.Summary))
+            sb.AppendLine(ShortenMultiline(blueprint.Summary, 220));
+        for (var i = 0; i < blueprint.Proposals.Count; i++)
+        {
+            var proposal = blueprint.Proposals[i];
+            sb.AppendLine($"{i + 1}. {proposal.Title} · {proposal.AssignmentType} · сложность {proposal.Difficulty}/5");
+            if (!string.IsNullOrWhiteSpace(proposal.Goal))
+                sb.AppendLine($"   Цель: {ShortenSingleLine(proposal.Goal, 180)}");
+            if (!string.IsNullOrWhiteSpace(proposal.ConditionPreview))
+                sb.AppendLine($"   Условие: {ShortenMultiline(proposal.ConditionPreview, 240)}");
+            if (proposal.MustKeep.Count > 0)
+                sb.AppendLine($"   Сохранить обязательно: {string.Join(", ", proposal.MustKeep.Take(4))}");
+            if (proposal.Avoid.Count > 0)
+                sb.AppendLine($"   Не добавлять: {string.Join(", ", proposal.Avoid.Take(4))}");
+        }
+        sb.AppendLine("Напиши, что менять, или скажи 'одобряю, закидывай в черновик'.");
+        return sb.ToString().Trim();
+    }
+
+    private static string BuildPromptFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatMemoryDto memory)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Нужно превратить уже согласованное примерное условие из чата в полноценный AI draft без смены учебной мысли.");
+        if (!string.IsNullOrWhiteSpace(proposal.Goal))
+            sb.AppendLine($"Цель: {proposal.Goal}");
+        sb.AppendLine($"Название-ориентир: {proposal.Title}");
+        if (proposal.MustKeep.Count > 0)
+            sb.AppendLine($"Обязательные элементы: {string.Join(", ", proposal.MustKeep)}");
+        if (proposal.Avoid.Count > 0)
+            sb.AppendLine($"Запрещено добавлять: {string.Join(", ", proposal.Avoid)}");
+        if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
+            sb.AppendLine("Следуй teaching-script из чата максимально близко. Не теряй порядок шагов, если он был явно задан.");
+        sb.AppendLine("Сначала сделай хорошее итоговое условие, тесты и reference solution. Не уезжай в новую тему и не расширяй scope.");
+        return sb.ToString().Trim();
+    }
+
+    private static string BuildSourceTextFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatMemoryDto memory)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Название: {proposal.Title}");
+        if (!string.IsNullOrWhiteSpace(proposal.Goal))
+            sb.AppendLine($"Учебная цель: {proposal.Goal}");
+        if (!string.IsNullOrWhiteSpace(proposal.FullCondition))
+        {
+            sb.AppendLine("Примерное условие:");
+            sb.AppendLine(proposal.FullCondition);
+        }
+        else if (!string.IsNullOrWhiteSpace(proposal.ConditionPreview))
+        {
+            sb.AppendLine("Примерное условие:");
+            sb.AppendLine(proposal.ConditionPreview);
+        }
+        if (!string.IsNullOrWhiteSpace(memory.LatestExplicitInstruction))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Последняя явная инструкция пользователя:");
+            sb.AppendLine(memory.LatestExplicitInstruction);
+        }
+        if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Teaching-script пользователя:");
+            sb.AppendLine(memory.LatestTeachingScript);
+        }
+        if (proposal.MustKeep.Count > 0)
+            sb.AppendLine($"Сохранить обязательно: {string.Join(", ", proposal.MustKeep)}");
+        if (proposal.Avoid.Count > 0)
+            sb.AppendLine($"Не добавлять: {string.Join(", ", proposal.Avoid)}");
+        if (proposal.PublicTests.Count > 0)
+        {
+            sb.AppendLine("Примерные публичные тесты:");
+            foreach (var test in proposal.PublicTests.Take(6))
+                sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
+        }
+        return sb.ToString().Trim();
     }
 
     private static Guid? ResolveRequestedAfterAssignmentId(JsonObject args, AiFoundryChatMemoryDto memory)

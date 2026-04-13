@@ -13,7 +13,7 @@ class ChatStrictModeTests(unittest.TestCase):
         self.payload = {
             "courseId": "c1",
             "selectedCourse": {"id": "c1"},
-            "availableActions": [{"name": "publish_draft"}, {"name": "queue_generate_from_text"}],
+            "availableActions": [{"name": "publish_draft"}, {"name": "queue_generate_from_text"}, {"name": "save_chat_blueprint"}, {"name": "finalize_chat_blueprint"}],
             "recentDrafts": [{"id": "d1"}],
             "recentAssignments": [{"id": "a1"}],
             "recentBatches": [{"id": "b1"}],
@@ -35,6 +35,13 @@ class ChatStrictModeTests(unittest.TestCase):
         result, issues = worker._apply_chat_strict_mode(self.payload, {"assistantMessage": "ok", "actions": [{"name": "publish_draft", "reason": "x", "arguments": {"draftId": "d1"}}]})
         self.assertEqual(result["actions"], [])
         self.assertTrue(any("confirmed" in issue for issue in issues))
+
+    def test_direct_generation_requires_blueprint_approval(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "Сделай задачу"}]
+        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "queue_generate_from_text", "reason": "x", "arguments": {"courseId": "c1"}}]})
+        self.assertEqual(result["actions"], [])
+        self.assertTrue(any("blueprint approval" in issue for issue in issues))
 
 
 if __name__ == "__main__":

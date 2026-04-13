@@ -434,6 +434,14 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
             continue
         if not isinstance(action.get("arguments"), dict):
             action["arguments"] = {}
+        last_user = _chat_last_user_text(payload)
+        latest_intent_kind = _chat_latest_intent_kind(payload, last_user, str(result.get("assistantMessage") or ""))
+        if name in {"queue_generate_from_text", "queue_generate_batch", "queue_generate_from_file"} and latest_intent_kind == "generate" and not _chat_is_finalize_request(last_user):
+            issues.append("generation requires chat blueprint approval first")
+            continue
+        if name == "finalize_chat_blueprint" and not _chat_is_finalize_request(last_user):
+            issues.append("finalize_chat_blueprint requires explicit approval")
+            continue
         ok, reason = _validate_chat_action_arguments(payload, action)
         if not ok:
             issues.append(reason or f"invalid action args: {name}")
@@ -453,6 +461,92 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
 
 def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+
+
+def _chat_blueprint(payload: Dict[str, Any]) -> Dict[str, Any]:
+    direct = payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else None
+    if isinstance(direct, dict):
+        return direct
+    memory = _chat_memory(payload)
+    return memory.get("currentDraftBlueprint") if isinstance(memory.get("currentDraftBlueprint"), dict) else {}
+
+
+def _chat_blueprint_proposals(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
+    blueprint = _chat_blueprint(payload)
+    proposals = blueprint.get("proposals") if isinstance(blueprint.get("proposals"), list) else []
+    return [item for item in proposals if isinstance(item, dict)]
+
+
+def _chat_is_finalize_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(marker in low for marker in [
+        "одобря", "ок, делай", "ок делай", "норм, делай", "закидывай в черновик", "в черновик", "сделай черновик",
+        "преврати в черновик", "финализируй", "сохраняй как задачу", "делай draft", "создавай draft"
+    ])
+
+
+def _chat_is_show_blueprint_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(marker in low for marker in ["покажи варианты", "покажи услов", "какие варианты", "покажи наброс", "покажи черновые услов", "ещё раз покажи"]) 
+
+
+def _chat_is_drop_blueprint_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(marker in low for marker in ["начни заново", "сбрось варианты", "удали варианты", "выбрось варианты", "заново варианты", "очисти условия"]) 
+
+
+def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, Any], last_user: str, prompt: str, count: int, assignment_type: str, difficulty: int) -> list[Dict[str, Any]]:
+    raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
+    proposals = raw.get("proposals") if isinstance(raw.get("proposals"), list) else []
+    clean: list[Dict[str, Any]] = []
+    for index, item in enumerate(proposals[: max(1, min(5, count))], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("name") or f"Вариант {index}").strip()
+        cond = str(item.get("conditionPreview") or item.get("fullCondition") or item.get("summary") or item.get("condition") or "").strip()
+        goal = str(item.get("goal") or item.get("microGoal") or "").strip()
+        if not title and not cond:
+            continue
+        proposal = {
+            "title": title or f"Вариант {index}",
+            "assignmentType": str(item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
+            "difficulty": max(1, min(5, int(item.get("difficulty") or difficulty or 2))),
+            "goal": goal,
+            "conditionPreview": cond[:1200],
+            "fullCondition": str(item.get("fullCondition") or cond).strip()[:5000],
+            "mustKeep": [str(x).strip() for x in (item.get("mustKeep") if isinstance(item.get("mustKeep"), list) else []) if str(x).strip()][:8],
+            "avoid": [str(x).strip() for x in (item.get("avoid") if isinstance(item.get("avoid"), list) else []) if str(x).strip()][:8],
+            "publicTests": [
+                {
+                    "input": str(t.get("input") or "").strip()[:200],
+                    "expectedOutput": str(t.get("expectedOutput") or "").strip()[:200],
+                }
+                for t in ((item.get("publicTests") if isinstance(item.get("publicTests"), list) else [])[:6]) if isinstance(t, dict)
+            ],
+        }
+        clean.append(proposal)
+    if clean:
+        return clean
+    base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
+    base_condition = str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
+    default_count = max(1, min(3, count or 1))
+    return [{
+        "title": str(result.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
+        "assignmentType": assignment_type,
+        "difficulty": difficulty,
+        "goal": str(result.get("goal") or "").strip(),
+        "conditionPreview": base_condition[:1200],
+        "fullCondition": (base_condition or prompt or last_user)[:5000],
+        "mustKeep": [],
+        "avoid": [],
+        "publicTests": [],
+    } for i in range(1, default_count + 1)]
 
 
 def _chat_is_listing_request(text: str) -> bool:
@@ -480,13 +574,19 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "inspect"
     if _chat_is_audit_request(low):
         return "audit"
+    if _chat_is_drop_blueprint_request(low):
+        return "drop-blueprint"
+    if _chat_is_show_blueprint_request(low):
+        return "show-blueprint"
+    if _chat_is_finalize_request(low):
+        return "finalize-blueprint"
     if any(marker in low for marker in ["поправь план", "измени план", "исправь план", "поставь её второй", "поставь ее второй", "добавь вторым"]):
         return "revise-plan"
     if any(marker in low for marker in ["покажи план", "какой план", "что в плане"]):
         return "show-plan"
     if any(marker in low for marker in ["собери план", "сделай план", "предложи план", "план вставок", "мостик", "подводящ"]):
         return "plan"
-    if any(marker in low for marker in ["не план", "саму задачу", "готовую задачу", "готовый текст", "создай черновик", "создай draft", "сразу генерац", "сгенерируй", "создай зада", "всё, делай", "все, делай", "делай всё", "делай все", "сделай всё сразу", "сделай все сразу"]):
+    if any(marker in low for marker in ["не план", "саму задачу", "готовую задачу", "готовый текст", "создай черновик", "создай draft", "сразу генерац", "сгенерируй", "создай зада", "сделай зада", "всё, делай", "все, делай", "делай всё", "делай все", "сделай всё сразу", "сделай все сразу"]):
         return "generate"
     memory = _chat_memory(payload)
     agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
@@ -519,6 +619,26 @@ def _chat_suppress_bridge_plan_loop(payload: Dict[str, Any], latest_intent_kind:
 def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return {"assistantMessage": "Я не смогла корректно разобрать ответ модели. Повтори запрос короче или уточни действие.", "actions": []}
+
+    last_user = _chat_last_user_text(payload)
+    prompt = str(result.get("prompt") or result.get("summary") or result.get("assistantMessage") or "").strip()
+    latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
+    if latest_intent_kind == "generate" and isinstance(result.get("draftBlueprint"), dict):
+        proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), 1), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
+        result["actions"] = [{
+            "name": "save_chat_blueprint",
+            "reason": "Сначала сохраняю примерные условия из чата, чтобы пользователь мог их поправить и утвердить перед финализацией в draft.",
+            "arguments": {
+                "courseId": _chat_pick_course_id(payload, result),
+                "summary": str((result.get("draftBlueprint") or {}).get("summary") or result.get("assistantMessage") or "").strip()[:300],
+                "proposals": proposals,
+            },
+        }]
+        return {
+            "assistantMessage": str(result.get("assistantMessage") or "").strip() or "Я набросала примерные условия. Посмотри, что поправить, и потом скажи, когда закидывать в черновик.",
+            "actions": result.get("actions") or [],
+            "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
+        }
 
     if isinstance(result.get("actions"), list) and str(result.get("assistantMessage") or "").strip():
         if result.get("actions"):
@@ -649,7 +769,51 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             }],
         }
 
+    blueprint = _chat_blueprint(payload)
+    blueprint_proposals = _chat_blueprint_proposals(payload)
+
+    if latest_intent_kind == "show-blueprint":
+        if blueprint_proposals:
+            return {
+                "assistantMessage": "Показываю текущие примерные условия из этой сессии.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "show_chat_blueprint",
+                    "reason": "Пользователь просит показать уже собранные примерные условия, не превращая их пока в draft.",
+                    "arguments": {"courseId": course_id},
+                }],
+            }
+        return {"assistantMessage": "Пока нет сохранённых примерных условий. Сначала опиши, какую задачу или набор задач ты хочешь собрать.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
+    if latest_intent_kind == "drop-blueprint":
+        if blueprint_proposals:
+            return {
+                "assistantMessage": "Сброшу старые варианты и начнём с чистого листа.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{"name": "drop_chat_blueprint", "reason": "Пользователь просит выбросить старые примерные условия и собрать новые.", "arguments": {"courseId": course_id}}],
+            }
+        return {"assistantMessage": "Сейчас в памяти и так нет старых вариантов. Можно сразу описывать новый замысел.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
+    if latest_intent_kind == "finalize-blueprint":
+        if blueprint_proposals:
+            return {
+                "assistantMessage": "Ок, превращаю согласованные условия в полноценные draft-черновики.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "finalize_chat_blueprint",
+                    "reason": "Пользователь явно одобрил текущие примерные условия и просит закинуть их в черновики.",
+                    "arguments": {"courseId": course_id, "enableSelfCheck": True},
+                }],
+            }
+        return {"assistantMessage": "Мне пока нечего финализировать: сначала нужно собрать и обсудить примерные условия прямо в чате.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
     if short_followup:
+        if blueprint_proposals:
+            return {
+                "assistantMessage": "Продолжаю по текущим примерным условиям. Напиши, что менять, или скажи, когда уже закидывать в черновик.",
+                "actions": [],
+                "sessionTitle": _chat_build_session_title(payload),
+            }
         next_suggested = str(agent_state.get("nextSuggestedAction") or "").strip().lower()
         if next_suggested in {"inspect_course_assignments", "prepare_bridge_plan", "queue_generate_bridge_batch", "queue_generate_batch", "queue_generate_from_text"}:
             return {
@@ -658,82 +822,35 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "actions": [{
                     "name": "advance_agent_stage",
                     "reason": "Короткий follow-up пользователя. Можно безопасно продолжить от сохранённого agentState.",
-                    "arguments": {
-                        "courseId": course_id,
-                        "focus": focus_text,
-                    },
+                    "arguments": {"courseId": course_id, "focus": focus_text},
                 }],
             }
-        return {
-            "assistantMessage": "Уточни, что именно продолжать: показать существующие задания, искать пробелы или генерировать новые?",
-            "actions": [],
-            "sessionTitle": _chat_build_session_title(payload),
-        }
+        return {"assistantMessage": "Уточни, что именно продолжать: показать существующие задания, искать пробелы или собирать новые условия в чате?", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
 
     if wants_multiple and explicit_count is None:
-        return {
-            "assistantMessage": f"Поняла направление. Сколько задач нужно сгенерировать: 3, 5, 7, 10 или другое число? Сейчас вижу режим {mode} и сложность {difficulty}/5.",
-            "actions": [],
-            "sessionTitle": _chat_build_session_title(payload),
-        }
+        return {"assistantMessage": f"Поняла направление. Сколько задач нужно набросать в чате: 2, 3, 5 или другое число? Сейчас вижу сложность {difficulty}/5.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
 
-    if last_attachment and mentioned_file:
+    if last_attachment and mentioned_file and latest_intent_kind == "generate" and _chat_is_finalize_request(last_user):
         return {
-            "assistantMessage": f"Запускаю генерацию по файлу '{last_attachment.get('originalName') or last_attachment.get('fileKey') or 'файл'}'.",
+            "assistantMessage": f"Ок, запускаю финальную генерацию по файлу '{last_attachment.get('originalName') or last_attachment.get('fileKey') or 'файл'}'.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "queue_generate_from_file",
-                "reason": "Пользователь попросил использовать прикреплённый файл как источник для генерации.",
-                "arguments": {
-                    "courseId": course_id,
-                    "prompt": prompt,
-                    "fileKey": last_attachment.get("fileKey"),
-                    "assignmentType": assignment_type,
-                    "count": final_count,
-                    "difficulty": difficulty,
-                    "titleHint": result.get("titleHint") or result.get("title") or None,
-                    "enableSelfCheck": True,
-                },
-            }],
-        }
-
-    if latest_intent_kind == "generate" and (wants_multiple or final_count > 1):
-        return {
-            "assistantMessage": f"Запускаю batch на {final_count} задач.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "queue_generate_batch",
-                "reason": "Пользователь просит несколько новых заданий.",
-                "arguments": {
-                    "courseId": course_id,
-                    "prompt": prompt,
-                    "assignmentType": assignment_type,
-                    "count": final_count,
-                    "difficulty": difficulty,
-                    "mode": mode,
-                },
+                "reason": "Пользователь явно подтвердил финальную генерацию из прикреплённого файла.",
+                "arguments": {"courseId": course_id, "prompt": prompt, "fileKey": last_attachment.get("fileKey"), "assignmentType": assignment_type, "count": final_count, "difficulty": difficulty, "titleHint": result.get("titleHint") or result.get("title") or None, "enableSelfCheck": True},
             }],
         }
 
     if latest_intent_kind == "generate":
-        source_text = prompt
-        if last_attachment and str(last_attachment.get("textExcerpt") or "").strip():
-            source_text = str(last_attachment.get("textExcerpt"))[:4000]
+        proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, final_count, assignment_type, difficulty)
+        assistant = str(result.get("assistantMessage") or "").strip() or ("Я набросала примерные условия для обсуждения. Посмотри, что менять, и потом скажи, когда уже закидывать в черновик." if final_count <= 1 else f"Я набросала {len(proposals)} примерных условий. Посмотри, что менять, и потом скажи, когда уже закидывать их в черновики.")
         return {
-            "assistantMessage": "Запускаю генерацию по текущему контексту.",
+            "assistantMessage": assistant,
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
-                "name": "queue_generate_from_text",
-                "reason": "Пользователь явно просит создать новое задание по текущему диалогу.",
-                "arguments": {
-                    "courseId": course_id,
-                    "prompt": prompt,
-                    "sourceText": source_text,
-                    "assignmentType": assignment_type,
-                    "count": final_count,
-                    "difficulty": difficulty,
-                    "enableSelfCheck": True,
-                },
+                "name": "save_chat_blueprint",
+                "reason": "Для нового задания сначала нужно сохранить примерные условия в памяти чата, обсудить правки и только потом финализировать в draft.",
+                "arguments": {"courseId": course_id, "summary": assistant[:300], "proposals": proposals},
             }],
         }
 

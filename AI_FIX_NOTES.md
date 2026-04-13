@@ -1,41 +1,32 @@
-# AI chat + instruction strictness update
+# AI chat-first drafting workflow
 
-Что добавлено:
+## Что изменено
 
-- В AI-чате появился управляемый уровень `instructionStrictness` (0..100).
-- Настройка живёт в UI как slider и отправляется вместе с сообщением.
-- Значение сохраняется в памяти сессии чата и используется в следующих ходах.
+Вместо default-паттерна `chat -> queue_generate_*` теперь основной UX такой:
 
-Как работает:
+1. Пользователь обсуждает идею задачи в чате.
+2. AI предлагает 1 или несколько примерных условий.
+3. Эти примерные условия сохраняются в памяти сессии как `currentDraftBlueprint`.
+4. Пользователь правит/одобряет варианты в чате.
+5. Только после явного одобрения AI вызывает `finalize_chat_blueprint` и создаёт полноценные draft-черновики.
 
-- `0..20` — свободный режим: модель может смелее интерпретировать intent и предлагать свои улучшения.
-- `21..69` — сбалансированный режим.
-- `70..100` — строгий режим: модель должна держать пользовательскую мысль, не расширять scope и сохранять явные фрагменты/запреты из инструкции.
+## Новые chat tools
 
-Что изменено в пайплайне:
+- `save_chat_blueprint`
+- `show_chat_blueprint`
+- `drop_chat_blueprint`
+- `finalize_chat_blueprint`
 
-- Chat payload теперь несёт `instructionStrictness`.
-- Память чата хранит `instructionStrictness`.
-- Генерация из текста/файла получает:
-  - `instructionStrictness`
-  - `userInstructionSnapshot`
-  - `teachingScript`
-- Prompt builder усиливает literal-following при высокой строгости.
-- Для генерации и repair температура теперь зависит от строгости.
-- Добавлена generic instruction-fidelity validation:
-  - если пропали явные пользовательские фрагменты,
-  - если нарушены явные запреты,
-  - если сломан порядок шагов при запросе на буквальное следование,
-  то draft получает `needs-review` и уходит в repair.
+## Что осталось
 
-Изменённые файлы:
+Старые `queue_generate_from_text`, `queue_generate_from_file`, `queue_generate_batch` не удалены физически, но больше не являются default UX для обычного generation-диалога в чате.
+
+## Файлы
 
 - `taskforge/Data/Models/DTO/AI/AiDtos.cs`
 - `taskforge/Services/AI/AiChatService.cs`
-- `taskforge/Services/AI/AiJobService.cs`
-- `clientapp/src/pages/admin/AdminAiChatPage.jsx`
-- `taskforge-ai-worker-external/payload.py`
-- `taskforge-ai-worker-external/prompt_builder.py`
 - `taskforge-ai-worker-external/worker.py`
-- `taskforge-ai-worker-external/repair.py`
-- `taskforge-ai-worker-external/tests/test_instruction_strictness.py`
+- `taskforge-ai-worker-external/prompt_builder.py`
+- `taskforge-ai-worker-external/tests/test_chat_memory_routing.py`
+- `taskforge-ai-worker-external/tests/test_chat_strict_mode.py`
+- `clientapp/src/pages/admin/AdminAiChatPage.jsx`

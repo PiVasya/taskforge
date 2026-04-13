@@ -443,6 +443,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "courseId": payload.get("courseId"),
         "selectedCourse": payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else None,
         "memory": payload.get("memory") if isinstance(payload.get("memory"), dict) else {},
+        "currentDraftBlueprint": payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else (((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("currentDraftBlueprint") if isinstance((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("currentDraftBlueprint"), dict) else None)),
         "agentState": ((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("agentState") if isinstance((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("agentState"), dict) else {}),
         "conversation": payload.get("conversation")[-16:] if isinstance(payload.get("conversation"), list) else [],
         "recentAttachments": payload.get("recentAttachments")[-10:] if isinstance(payload.get("recentAttachments"), list) else [],
@@ -502,6 +503,9 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Сначала пойми интент текущего сообщения: это может быть обычный разговор, просьба показать существующие задания, просьба найти пробелы, просьба собрать план или просьба сгенерировать новое. Не превращай каждый запрос про курс в bridge-plan workflow. "
         "Если пользователь просит показать, перечислить, вывести или изучить уже существующие задания курса — приоритет у inspect_course_assignments, а не у prepare_bridge_plan/show_bridge_plan. После такого запроса не перескакивай к мостикам без новой явной просьбы пользователя. "
         "Если пользователь просто комментирует, сомневается, ругается или формулирует мысль вслух — нормально ответить по-человечески с actions=[] и задать один точный вопрос. "
+        "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. "
+        "Если пользователь просит несколько задач, всё равно сначала покажи несколько примерных условий и сохрани их в chat blueprint. batch и прямая генерация — запасной вариант, а не default UX. "
+        "Если в memory уже есть currentDraftBlueprint, не придумывай новый workflow с нуля: либо покажи текущие варианты, либо обнови их новой revision, либо финализируй их после явного одобрения. "
         "assistantMessage — это видимый пользователю финальный ответ за ход. Он должен быть коротким, спокойным и без технической кухни: не перечисляй внутренние шаги, tool names, agent loop, analyze_course_progression, inspect_course_assignments, prepare_bridge_plan, show_bridge_plan, batchId, afterAssignmentId или anchor, если пользователь не просил именно эти детали. Если backend сам продолжит внутренние шаги, не описывай их в assistantMessage. Обычно достаточно 1-4 коротких предложений. "
         "Если данных не хватает — actions должен быть пустым массивом, а assistantMessage должен кратко запросить недостающие параметры.\\n\\n"
         "==== ПРИНЦИП: НИКОГДА НЕ ИМИТИРУЙ РАБОТУ ====\\n"
@@ -524,7 +528,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "show_bridge_plan и revise_bridge_plan подходят только когда пользователь прямо просит показать, уточнить или поправить план. Не вызывай show_bridge_plan просто потому, что в memory остался старый план мостиков.\n\n"
         "Если пользователь даёт feedback на уже созданные или опубликованные задачи и просит найти похожие педагогические косяки, сначала используй analyze_course_progression; при необходимости затем inspect_course_assignments. Только после нового аудита можно предлагать corrective bridge plan или новую генерацию.\n\n"
         "Если пользователь явно просит короткий ответ, только итог, без внутренних шагов, без старого плана или без технических деталей — это приоритетное UX-ограничение. В таком случае assistantMessage должен содержать только итог или следующий короткий вопрос, без пересказа процесса.\n\n"
-        "Когда пользователь просит создать пакет заданий на несколько элементов, обычно подходит queue_generate_batch. Если он уточняет педагогический режим вроде «первоклассники», «очень простым языком», «нужны пошаговые путеводители» — сохрани это в reason/arguments как важную часть генерации, не теряй эти требования. "
+        "Когда пользователь просит создать новое задание или набор задач, сначала собери примерные условия в чате и сохрани их через save_chat_blueprint. Лишь после явного одобрения пользователя переходи к finalize_chat_blueprint. "
         "Если пользователь просит сначала изучить курс и перечислить существующие задания — используй inspect_course_assignments и остановись на этом. "
         "Если пользователь просит найти пробелы, слишком резкие вводы новых функций или скрытые prerequisite-ошибки — используй analyze_course_progression. "
         "Если пользователь после аудита хочет посмотреть конкретные существующие задания, названия, соседние элементы курса или место вставки вокруг anchor — используй inspect_course_assignments. "
@@ -532,7 +536,11 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если у тебя уже есть готовый план мостиков в memory и пользователь прямо просит сгенерировать мостики по нему — подходит queue_generate_bridge_batch. "
         "advance_agent_stage используй только когда пользователь явно просит продолжить уже начатый pipeline и из memory действительно ясно, какой шаг следующий. "
         "Если пользователь хочет несколько заданий, но не указал количество явно, не подставляй count молча из defaults: сначала задай короткий уточняющий вопрос про количество и не запускай action. "
-        "Когда пользователь просит сгенерировать задание(я) из текста — queue_generate_from_text. "
+        "save_chat_blueprint — сохранить 1 или несколько примерных условий из чата для дальнейшего обсуждения. Это default action для generation workflow. "
+        "show_chat_blueprint — показать уже сохранённые примерные условия. "
+        "drop_chat_blueprint — сбросить старые варианты, если пользователь просит начать заново. "
+        "finalize_chat_blueprint — только после явного одобрения пользователя превратить согласованные условия в полноценные draft-черновики. "
+        "Когда пользователь сознательно просит пропустить этап обсуждения и сразу финализировать задачу из текста — queue_generate_from_text. "
         "Когда пользователь явно просит использовать прикреплённый файл — queue_generate_from_file. "
         "Когда пользователь просит проверить/провалидировать draft — queue_validate_draft. "
         "Когда пользователь просит анализ уже существующего задания — queue_analyze_assignment. "

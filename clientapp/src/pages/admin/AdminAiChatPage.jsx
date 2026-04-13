@@ -142,7 +142,9 @@ function MemoryPanel({ memory, courseTitle }) {
   const actions = uniqueStrings(memory?.recentActions);
   const agentState = memory?.agentState || {};
   const placementCandidates = Array.isArray(agentState?.placementCandidates) ? agentState.placementCandidates : [];
-  const hasMemory = Boolean(memory?.messageCount || facts.length || goals.length || files.length || actions.length || memory?.summary || agentState?.currentStage || agentState?.userIntentSummary);
+  const draftBlueprint = memory?.currentDraftBlueprint || null;
+  const draftProposals = Array.isArray(draftBlueprint?.proposals) ? draftBlueprint.proposals : [];
+  const hasMemory = Boolean(memory?.messageCount || facts.length || goals.length || files.length || actions.length || memory?.summary || agentState?.currentStage || agentState?.userIntentSummary || draftProposals.length);
 
   return (
     <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))] p-4">
@@ -164,6 +166,29 @@ function MemoryPanel({ memory, courseTitle }) {
           <div className="mt-3 text-sm leading-6 opacity-90 whitespace-pre-wrap">
             {memory?.summary || 'AI уже держит в памяти ход разговора, прошлые действия и контекст файлов.'}
           </div>
+
+          {draftProposals.length > 0 ? (
+            <div className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+              <div className="text-xs uppercase tracking-[0.18em] opacity-50">Черновые условия из чата</div>
+              {draftBlueprint?.summary ? <div className="mt-2 text-sm opacity-85 whitespace-pre-wrap">{draftBlueprint.summary}</div> : null}
+              <div className="mt-3 space-y-3">
+                {draftProposals.slice(0, 4).map((item, index) => (
+                  <div key={item?.id || index} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">#{index + 1}</Badge>
+                      <span className="font-medium">{item?.title || `Вариант ${index + 1}`}</span>
+                      {item?.assignmentType ? <Badge variant="outline">{item.assignmentType}</Badge> : null}
+                      {item?.difficulty ? <Badge variant="outline">сложность {item.difficulty}/5</Badge> : null}
+                      {item?.status ? <Badge variant={item.status === 'queued' ? 'success' : 'outline'}>{item.status}</Badge> : null}
+                    </div>
+                    {item?.goal ? <div className="mt-2 text-sm opacity-80">Цель: {item.goal}</div> : null}
+                    {item?.conditionPreview ? <div className="mt-2 text-sm whitespace-pre-wrap opacity-90">{item.conditionPreview}</div> : null}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-xs opacity-65">Сейчас можно продолжать обсуждение в чате, просить правки или командовать финализацию в черновик.</div>
+            </div>
+          ) : null}
 
           {(agentState?.userIntentSummary || agentState?.nextSuggestedAction || placementCandidates.length > 0) ? (
             <div className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
