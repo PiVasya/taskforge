@@ -1810,37 +1810,12 @@ public sealed class AiChatService
         var preferDirectGeneration = memory.SuppressBridgePlanLoop || memory.AgentState?.PreferDirectGeneration == true || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase);
         var planOnlyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan" };
         var allPlanOnly = toolCalls.All(x => !string.IsNullOrWhiteSpace(x.Name) && planOnlyNames.Contains(x.Name.Trim()));
+        if (!preferDirectGeneration || !allPlanOnly)
+            return toolCalls;
 
         var courseId = session.CourseId
             ?? toolCalls.Select(x => ReadGuid(ParseArgumentsObject(x.ArgumentsJson), "courseId")).FirstOrDefault(x => x.HasValue);
-
-        if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase) && allPlanOnly && courseId.HasValue)
-        {
-            var requestedAfterAssignmentId = ResolveRequestedAfterAssignmentId(null, memory)
-                ?? memory.LastCourseAudit?.Findings.FirstOrDefault(x => x.AfterAssignmentId.HasValue)?.AfterAssignmentId
-                ?? memory.LastCourseInspection?.AroundAssignmentId;
-            var inspectArgs = new JsonObject
-            {
-                ["courseId"] = courseId.Value,
-                ["query"] = ShortenSingleLine(latestGoal ?? assistantText ?? string.Empty, 240),
-                ["window"] = 6,
-                ["limitAssignments"] = 28,
-            };
-            if (requestedAfterAssignmentId.HasValue)
-                inspectArgs["aroundAssignmentId"] = requestedAfterAssignmentId.Value;
-
-            return new List<AiFoundryChatToolCallDto>
-            {
-                new()
-                {
-                    Name = "inspect_course_assignments",
-                    Reason = "Свежий запрос пользователя — показать реальные задания курса, а не продолжать plan-only сценарий, поэтому принудительно переключаюсь на inspection.",
-                    ArgumentsJson = inspectArgs.ToJsonString(),
-                },
-            };
-        }
-
-        if (!preferDirectGeneration || !allPlanOnly || !courseId.HasValue)
+        if (!courseId.HasValue)
             return toolCalls;
 
         if (memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId.Value && memory.LastBridgePlan.Items.Count > 0)
@@ -2057,9 +2032,11 @@ public sealed class AiChatService
     {
         if (toolCalls == null || toolCalls.Count == 0)
             return false;
-        if (!toolCalls.Any(x => IsAgentLoopActionName(x.Name)))
+        if (toolResults.Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase)))
             return false;
-        return !toolResults.Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase));
+        if (toolCalls.Count != 1)
+            return false;
+        return string.Equals(toolCalls[0].Name, "advance_agent_stage", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldStopAutoAgentLoop(string? actionName, AiFoundryChatToolResultDto? result)
@@ -2114,9 +2091,6 @@ public sealed class AiChatService
 
         if (visibleSummaries.Count > 0)
         {
-            if (LooksLikePreActionAssistantText(text))
-                text = "Готово. Ниже — результат действий:";
-
             var appendix = string.Join("\n", visibleSummaries.Select(x => $"• {x}"));
             if (!string.IsNullOrWhiteSpace(appendix) && !text.Contains(appendix, StringComparison.OrdinalIgnoreCase))
                 text = $"{text}\n\n{appendix}";
@@ -2133,32 +2107,12 @@ public sealed class AiChatService
             return true;
 
         var status = (result.Status ?? string.Empty).Trim();
-        if (string.Equals(status, "done", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(result.Summary))
-            return true;
         if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(status, "error", StringComparison.OrdinalIgnoreCase)
             || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return string.IsNullOrWhiteSpace(result.Summary) && !string.IsNullOrWhiteSpace(result.NavigateTo);
-    }
-
-    private static bool LooksLikePreActionAssistantText(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return true;
-
-        var low = text.Trim().ToLowerInvariant();
-        return low.Contains("сейчас")
-            || low.Contains("открываю")
-            || low.Contains("собираю")
-            || low.Contains("выполняю")
-            || low.Contains("подготовлю")
-            || low.Contains("покажу")
-            || low.Contains("изучу")
-            || low.Contains("сверю")
-            || low.Contains("сейчас соберу")
-            || low.Contains("сейчас подготовлю");
     }
 
     private static AiFoundryChatAttachmentDto? ResolveAttachment(List<AiFoundryChatMessageDto> messages, string? preferredFileKey)
@@ -2416,40 +2370,38 @@ public sealed class AiChatService
         var low = (text ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(low))
             return "chat";
+        if (IsInspectCourseIntent(low))
+            return "inspect";
         if (IsDiagnosticGapAuditIntent(low))
             return "audit";
-        if (IsInspectAssignmentsIntent(low))
-            return "inspect";
         if (low.Contains("покажи план") || low.Contains("какой план") || low.Contains("что в плане") || low.Contains("show_bridge_plan"))
             return "show-plan";
         if (low.Contains("поправь план") || low.Contains("измени план") || low.Contains("исправь план") || low.Contains("поставь её второй") || low.Contains("поставь ее второй") || low.Contains("вторым") || low.Contains("сделай задачку") || low.Contains("добавь вторым"))
             return "revise-plan";
         if (low.Contains("не план") || low.Contains("не revise") || low.Contains("не show") || low.Contains("саму задачу") || low.Contains("готовую задачу") || low.Contains("готовый текст") || low.Contains("создай черновик") || low.Contains("создай draft") || low.Contains("сразу генерац") || low.Contains("сгенерируй") || low.Contains("создай зада") || Regex.IsMatch(low, @"\bвсе[,! ]*делай\b|\bвсё[,! ]*делай\b|\bделай\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return "generate";
-        if (low.Contains("план"))
+        if (low.Contains("план") || low.Contains("мостик") || low.Contains("подводящ"))
             return "plan";
         return "chat";
     }
 
-    private static bool IsInspectAssignmentsIntent(string? text)
+    private static bool IsInspectCourseIntent(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return false;
 
-        var low = text.Trim().ToLowerInvariant();
-        var asksToShow = new[]
-        {
-            "выведи", "выводи", "покажи", "показать", "перечисли", "список", "списком", "какие задания", "какие именно задания"
-        }.Any(x => low.Contains(x, StringComparison.Ordinal));
-        var mentionsAssignments = new[]
-        {
-            "задан", "упражнен", "assignments", "existing tasks", "эти задания", "эти упраж"
-        }.Any(x => low.Contains(x, StringComparison.Ordinal));
-
-        if (low.Contains("план") || low.Contains("мостик") || low.Contains("bridge-plan"))
-            return false;
-
-        return asksToShow && mentionsAssignments;
+        var hay = text.ToLowerInvariant();
+        var mentionsAssignments = hay.Contains("задан") || hay.Contains("assignment") || hay.Contains("урок") || hay.Contains("курс");
+        var asksToShow = hay.Contains("выведи")
+            || hay.Contains("выводи")
+            || hay.Contains("покажи")
+            || hay.Contains("показывай")
+            || hay.Contains("список")
+            || hay.Contains("перечисли")
+            || hay.Contains("какие")
+            || hay.Contains("изучи задачи курса");
+        var avoidsPlanning = !hay.Contains("мостик") && !hay.Contains("подводящ") && !hay.Contains("план");
+        return mentionsAssignments && asksToShow && avoidsPlanning;
     }
 
     private static string? ExtractLatestTeachingScript(string? text)
@@ -3297,36 +3249,22 @@ public sealed class AiChatService
 
         if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
         {
-            if (!hasAudit)
-            {
-                return new AiFoundryChatToolCallDto
-                {
-                    Name = "analyze_course_progression",
-                    Reason = "Пользователь просит показать реальные задания по проблемным местам курса, поэтому сначала нужен свежий аудит под этот фокус.",
-                    ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus }, JsonOptions),
-                };
-            }
+            if (hasInspection)
+                return null;
 
-            if (!hasInspection)
+            return new AiFoundryChatToolCallDto
             {
-                var anchorId = placementAfterAssignmentId
-                    ?? memory.LastCourseAudit?.Findings.FirstOrDefault(x => x.AfterAssignmentId.HasValue)?.AfterAssignmentId;
-                return new AiFoundryChatToolCallDto
+                Name = "inspect_course_assignments",
+                Reason = "Последний запрос пользователя — посмотреть существующие задания курса, поэтому сначала нужно показать сами задания, а не строить новый план.",
+                ArgumentsJson = JsonSerializer.Serialize(new
                 {
-                    Name = "inspect_course_assignments",
-                    Reason = "После аудита следующий шаг — показать пользователю реальные существующие задания, а не перескакивать к плану мостиков.",
-                    ArgumentsJson = JsonSerializer.Serialize(new
-                    {
-                        courseId,
-                        query = focus,
-                        aroundAssignmentId = anchorId,
-                        window = 6,
-                        limitAssignments = 28,
-                    }, JsonOptions),
-                };
-            }
-
-            return null;
+                    courseId,
+                    query = focus,
+                    aroundAssignmentId = placementAfterAssignmentId,
+                    window = placementAfterAssignmentId.HasValue ? 4 : 0,
+                    limitAssignments = 30,
+                }, JsonOptions),
+            };
         }
 
         if (diagnosticAuditIntent)
@@ -3382,33 +3320,41 @@ public sealed class AiChatService
             };
         }
 
-        if (!hasAudit && !hasInspection && !placementAfterAssignmentId.HasValue)
+        if (string.Equals(latestIntentKind, "plan", StringComparison.OrdinalIgnoreCase))
         {
-            return new AiFoundryChatToolCallDto
+            if (!hasAudit && !hasInspection && !placementAfterAssignmentId.HasValue)
             {
-                Name = "analyze_course_progression",
-                Reason = "В памяти ещё нет актуального аудита или inspection-данных курса, поэтому следующий логичный шаг — сначала изучить курс и найти пробелы.",
-                ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus }, JsonOptions),
-            };
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "analyze_course_progression",
+                    Reason = "Чтобы собрать осмысленный план, сначала нужен актуальный аудит курса под текущий фокус.",
+                    ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus }, JsonOptions),
+                };
+            }
+
+            if (!hasInspection && !placementAfterAssignmentId.HasValue)
+            {
+                var firstFinding = memory.LastCourseAudit?.Findings.FirstOrDefault();
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "inspect_course_assignments",
+                    Reason = "Перед планом полезно открыть реальные задания курса вокруг точки вставки, чтобы сверить стиль и последовательность.",
+                    ArgumentsJson = JsonSerializer.Serialize(new
+                    {
+                        courseId,
+                        query = focus,
+                        aroundAssignmentId = firstFinding?.AfterAssignmentId,
+                        window = 4,
+                        limitAssignments = 28,
+                    }, JsonOptions),
+                };
+            }
         }
 
-        if (!hasInspection && !placementAfterAssignmentId.HasValue)
-        {
-            var firstFinding = memory.LastCourseAudit?.Findings.FirstOrDefault();
-            return new AiFoundryChatToolCallDto
-            {
-                Name = "inspect_course_assignments",
-                Reason = "После аудита полезно открыть реальные задания курса вокруг точки вставки, чтобы сверить стиль и последовательность.",
-                ArgumentsJson = JsonSerializer.Serialize(new
-                {
-                    courseId,
-                    query = focus,
-                    aroundAssignmentId = firstFinding?.AfterAssignmentId,
-                    window = 4,
-                    limitAssignments = 28,
-                }, JsonOptions),
-            };
-        }
+        if (!string.Equals(latestIntentKind, "plan", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase))
+            return null;
 
         if (memory.LastBridgePlan == null || memory.LastBridgePlan.CourseId != courseId || memory.LastBridgePlan.Items.Count == 0)
         {
@@ -3479,6 +3425,8 @@ public sealed class AiChatService
         if (string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "показать текущий bridge-plan через show_bridge_plan";
 
+        if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
+            return hasInspection ? null : "показать существующие задания курса через inspect_course_assignments";
         if (!hasAudit && !hasInspection && !hasPlacement)
             return "сначала сделать analyze_course_progression";
         if (!hasInspection && !hasPlacement)
@@ -3826,33 +3774,15 @@ public sealed class AiChatService
     private static string BuildCourseInspectionSummary(AiFoundryCourseInspectionDto report)
     {
         var sb = new StringBuilder();
-        var diagnosticMode = IsDiagnosticGapAuditIntent(report.Query) || FocusWantsSyntaxBasics(report.Query);
-        if (diagnosticMode)
+        sb.Append($"Открыла курс «{report.CourseTitle}». ");
+        if (!string.IsNullOrWhiteSpace(report.Query))
+            sb.Append($"Фокус просмотра: {report.Query}. ");
+        sb.Append(report.Summary);
+        if (report.Assignments.Count > 0)
         {
-            sb.Append($"Изучила курс «{report.CourseTitle}». ");
-            if (!string.IsNullOrWhiteSpace(report.Query))
-                sb.Append($"Собрала реальные задания по фокусу: {report.Query}. ");
-            if (!string.IsNullOrWhiteSpace(report.Summary))
-                sb.Append(report.Summary.Trim());
-            if (report.Assignments.Count > 0)
-            {
-                sb.Append($"\n\nНиже — {report.Assignments.Count} существующих заданий, которые стоит проверить как первые появления или резкие вводы темы:");
-                foreach (var item in report.Assignments.Take(12))
-                    sb.Append($"\n{item.Sort}. {item.Title} (сложность {item.Difficulty}) — {item.DescriptionExcerpt}");
-            }
-        }
-        else
-        {
-            sb.Append($"Открыла курс «{report.CourseTitle}». ");
-            if (!string.IsNullOrWhiteSpace(report.Query))
-                sb.Append($"Фокус просмотра: {report.Query}. ");
-            sb.Append(report.Summary);
-            if (report.Assignments.Count > 0)
-            {
-                sb.Append("\n\nЧто просмотрела:");
-                foreach (var item in report.Assignments)
-                    sb.Append($"\n- sort={item.Sort}, assignmentId={item.Id}, difficulty={item.Difficulty}: {item.Title} — {item.DescriptionExcerpt}");
-            }
+            sb.Append("\n\nЧто просмотрела:");
+            foreach (var item in report.Assignments)
+                sb.Append($"\n- sort={item.Sort}, assignmentId={item.Id}, difficulty={item.Difficulty}: {item.Title} — {item.DescriptionExcerpt}");
         }
         var result = sb.ToString().Trim();
         return result.Length <= 1900 ? result : result[..1900];

@@ -298,6 +298,8 @@ def _chat_extract_assignment_id(text: str) -> str | None:
 
 def _chat_wants_multiple(text: str, model_count: int) -> bool:
     low = (text or "").lower()
+    if any(token in low for token in ["саму задачу", "одну задачу", "одно задание", "один пример", "одну штуку"]):
+        return False
     return model_count > 1 or any(token in low for token in ["batch", "пакет", "нескольк", "много", "ещё", "еще", "задач"])
 
 
@@ -432,18 +434,39 @@ def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
 
 
+def _chat_is_listing_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    mentions_assignments = any(token in low for token in ["задан", "assignment", "урок", "курс"])
+    asks_to_show = any(token in low for token in ["выведи", "выводи", "покажи", "показывай", "список", "перечисли", "какие", "изучи задачи курса"])
+    mentions_plan = any(token in low for token in ["план", "мостик", "подводящ"])
+    return mentions_assignments and asks_to_show and not mentions_plan
+
+
+def _chat_is_audit_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    asks_audit = any(token in low for token in ["косяк", "косяки", "пробел", "пробелы", "найди", "найти", "проверь", "аудит", "слишком рано", "до объясн", "прежде чем", "ещё такие", "еще такие", "опубликован"])
+    mentions_pedagogy = any(token in low for token in ["переменн", "cout", "cin", "ввод", "вывод", "include", "namespace", "main", "синтакс", "объясн", "подвод", "лесенк", "новая функция", "новые функции"])
+    return asks_audit and mentions_pedagogy
+
+
 def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: str) -> str:
     low = (last_user or prompt or "").strip().lower()
-    # User text takes priority over stale memory — fresh request always wins
-    if any(marker in low for marker in ["поправь план", "измени план", "исправь план", "поставь её второй", "поставь ее второй", "добавь вторым", "сделай задачку"]):
+    if _chat_is_listing_request(low):
+        return "inspect"
+    if _chat_is_audit_request(low):
+        return "audit"
+    if any(marker in low for marker in ["поправь план", "измени план", "исправь план", "поставь её второй", "поставь ее второй", "добавь вторым"]):
         return "revise-plan"
     if any(marker in low for marker in ["покажи план", "какой план", "что в плане"]):
         return "show-plan"
-    if any(marker in low for marker in ["не план", "саму задачу", "готовую задачу", "готовый текст", "создай черновик", "создай draft", "сразу генерац", "сгенерируй", "создай зада", "всё, делай", "все, делай", "делай всё", "делай все", "делай", "сделай всё сразу", "сделай все сразу"]):
-        return "generate"
-    if "план" in low:
+    if any(marker in low for marker in ["собери план", "сделай план", "предложи план", "план вставок", "мостик", "подводящ"]):
         return "plan"
-    # Fall back to memory only if user text gives no actionable signal
+    if any(marker in low for marker in ["не план", "саму задачу", "готовую задачу", "готовый текст", "создай черновик", "создай draft", "сразу генерац", "сгенерируй", "создай зада", "всё, делай", "все, делай", "делай всё", "делай все", "сделай всё сразу", "сделай все сразу"]):
+        return "generate"
     memory = _chat_memory(payload)
     agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
     for raw in (memory.get("latestIntentKind"), agent_state.get("latestIntentKind")):
@@ -478,42 +501,37 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     if isinstance(result.get("actions"), list) and str(result.get("assistantMessage") or "").strip():
         if result.get("actions"):
-            # Sanitize: prevent assistantMessage from leaking into action arguments as prompt
-            _assistant_msg = str(result.get("assistantMessage") or "").strip()
-            _last_user = _chat_last_user_text(payload)
-            # Deduplicate actions by name — keep first occurrence only
-            _seen_action_names = set()
-            _deduped_actions = []
-            for _action in result["actions"]:
-                if not isinstance(_action, dict):
+            assistant_msg = str(result.get("assistantMessage") or "").strip()
+            last_user = _chat_last_user_text(payload)
+            seen_action_names = set()
+            deduped_actions = []
+            for action in result["actions"]:
+                if not isinstance(action, dict):
                     continue
-                _aname = str(_action.get("name") or "").strip()
-                if _aname and _aname in _seen_action_names:
+                aname = str(action.get("name") or "").strip()
+                if aname and aname in seen_action_names:
                     continue
-                if _aname:
-                    _seen_action_names.add(_aname)
-                _args = _action.get("arguments") if isinstance(_action.get("arguments"), dict) else {}
-                _action_prompt = str(_args.get("prompt") or "").strip()
-                if _action_prompt and _assistant_msg and _action_prompt == _assistant_msg:
-                    _args["prompt"] = _last_user or _action_prompt
-                _deduped_actions.append(_action)
-            result["actions"] = _deduped_actions
-        # Return as-is whether actions is non-empty or empty — LLM chose deliberately
+                if aname:
+                    seen_action_names.add(aname)
+                args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+                action_prompt = str(args.get("prompt") or "").strip()
+                if action_prompt and assistant_msg and action_prompt == assistant_msg:
+                    args["prompt"] = last_user or action_prompt
+                deduped_actions.append(action)
+            result["actions"] = deduped_actions
         return result
 
-    # If LLM returned a substantive assistantMessage without actions array,
-    # treat it as a valid informational answer — don't discard it for generation fallback
-    _llm_msg = str(result.get("assistantMessage") or "").strip()
-    if _llm_msg and len(_llm_msg) > 40:
+    llm_msg = str(result.get("assistantMessage") or "").strip()
+    if llm_msg and len(llm_msg) > 40:
         return {
-            "assistantMessage": _llm_msg,
+            "assistantMessage": llm_msg,
             "actions": [],
             "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
         }
 
     prompt = str(result.get("prompt") or result.get("summary") or result.get("message") or "").strip()
     if not prompt:
-        prompt = _chat_last_user_text(payload) or _llm_msg
+        prompt = _chat_last_user_text(payload) or llm_msg
     if not prompt:
         return {
             "assistantMessage": "Я не смогла собрать внятный ответ по этому сообщению. Сформулируй запрос чуть конкретнее: что именно сделать и для какого курса.",
@@ -534,251 +552,106 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     attachments = _chat_recent_attachments(payload)
     mentioned_file = any(token in (last_user or "").lower() for token in ["файл", "влож", "прикреп", "pdf", "docx", "xlsx", "pptx", "zip"])
     last_attachment = attachments[-1] if attachments else None
+    memory = _chat_memory(payload)
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
+    focus_text = last_user or prompt
+    explicit_after_assignment_id = _chat_extract_assignment_id(last_user)
+    remembered_after_assignment_id = explicit_after_assignment_id or agent_state.get("placementAfterAssignmentId") or ((agent_state.get("placementCandidates") or [{}])[0].get("afterAssignmentId") if isinstance(agent_state.get("placementCandidates"), list) and agent_state.get("placementCandidates") else None)
+    short_followup = (last_user or "").strip().lower() in {"продолжай", "давай дальше", "дальше", "начинай", "ок", "го", "погнали", "делай дальше"}
 
-    if not course_id:
+    if not course_id and latest_intent_kind in {"inspect", "audit", "plan", "generate"}:
         return {
-            "assistantMessage": "Я поняла, что нужно генерировать задания, но у этого чата не выбран курс. Сначала выбери курс справа, и я продолжу без повторного объяснения контекста.",
+            "assistantMessage": "Для этого шага нужен выбранный курс. Выбери курс справа, и я продолжу в этом же контексте.",
             "actions": [],
             "sessionTitle": _chat_build_session_title(payload),
         }
 
-    memory = _chat_memory(payload)
-    has_audit = isinstance(memory.get("lastCourseAudit"), dict)
-    _bridge_plan_obj = memory.get("lastBridgePlan") if isinstance(memory.get("lastBridgePlan"), dict) else {}
-    _bridge_plan_items = _bridge_plan_obj.get("items") or _bridge_plan_obj.get("planItems") or _bridge_plan_obj.get("slots") or []
-    has_bridge_plan = bool(_bridge_plan_obj) and isinstance(_bridge_plan_items, list) and len(_bridge_plan_items) > 0
-    # Detect broken bridge plan: object exists but has no usable items or status indicates failure
-    _bridge_plan_failed = bool(_bridge_plan_obj) and not has_bridge_plan
-    if not _bridge_plan_failed and isinstance(_bridge_plan_obj.get("status"), str) and _bridge_plan_obj["status"] in ("failed", "empty", "error"):
-        _bridge_plan_failed = True
-        has_bridge_plan = False
-    # Also detect recent tool result failure in conversation
-    _last_tool_failed = False
-    _conv_check = (payload.get("conversation") if isinstance(payload.get("conversation"), list) else [])[-4:]
-    for _ci in reversed(_conv_check):
-        if not isinstance(_ci, dict):
-            continue
-        for _tr in (_ci.get("toolResults") or _ci.get("results") or []):
-            if isinstance(_tr, dict) and str(_tr.get("status") or "").lower() in ("failed", "error"):
-                _last_tool_failed = True
-                break
-        if _last_tool_failed:
-            break
-    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
-    latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
-    latest_teaching_script = _chat_latest_teaching_script(payload, last_user)
-    suppress_bridge_plan_loop = _chat_suppress_bridge_plan_loop(payload, latest_intent_kind, latest_teaching_script, last_user)
-    explicit_after_assignment_id = _chat_extract_assignment_id(last_user)
-    remembered_after_assignment_id = explicit_after_assignment_id or agent_state.get("placementAfterAssignmentId") or ((agent_state.get("placementCandidates") or [{}])[0].get("afterAssignmentId") if isinstance(agent_state.get("placementCandidates"), list) and agent_state.get("placementCandidates") else None)
-    focus_text = last_user or prompt
+    if latest_intent_kind == "inspect":
+        return {
+            "assistantMessage": "Открою существующие задания курса и выведу их сюда списком.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "inspect_course_assignments",
+                "reason": "Пользователь просит посмотреть и перечислить уже существующие задания курса, а не строить новый план.",
+                "arguments": {
+                    "courseId": course_id,
+                    "query": focus_text,
+                    **({"aroundAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                    "window": 4 if remembered_after_assignment_id else 0,
+                    "limitAssignments": 30,
+                },
+            }],
+        }
 
-    if suppress_bridge_plan_loop and latest_intent_kind == "generate":
-        if has_bridge_plan:
+    if latest_intent_kind == "audit":
+        return {
+            "assistantMessage": "Сначала проверю курс под этот фокус и найду проблемные места.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "analyze_course_progression",
+                "reason": "Пользователь просит найти педагогические пробелы и резкие вводы новых сущностей в курсе.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": focus_text,
+                },
+            }],
+        }
+
+    if latest_intent_kind == "plan":
+        has_audit = isinstance(memory.get("lastCourseAudit"), dict)
+        if has_audit:
             return {
-                "assistantMessage": "Перехожу к генерации по последнему согласованному плану.",
+                "assistantMessage": "Соберу план вставок по найденному контексту.",
                 "sessionTitle": _chat_build_session_title(payload),
                 "actions": [{
-                    "name": "queue_generate_bridge_batch",
-                    "reason": "Последняя явная инструкция пользователя важнее старого plan-loop: нужно перейти к генерации по уже собранному bridge plan и teaching-script.",
+                    "name": "prepare_bridge_plan",
+                    "reason": "Пользователь прямо просит план мостиков или подводящих заданий.",
                     "arguments": {
                         "courseId": course_id,
                         "focus": focus_text,
-                        "prompt": latest_teaching_script or prompt,
                         **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
                         **({"count": explicit_count} if explicit_count else {}),
                     },
                 }],
             }
-        if _bridge_plan_failed or _last_tool_failed:
-            return {
-                "assistantMessage": "Предыдущий план не получился, пересобираю заново.",
-                "sessionTitle": _chat_build_session_title(payload),
-                "actions": [{
-                    "name": "prepare_bridge_plan",
-                    "reason": "Прошлый bridge plan оказался пустым или failed. Нужно собрать новый план по аудиту прежде чем генерировать.",
-                    "arguments": {
-                        "courseId": course_id,
-                        "focus": focus_text,
-                        "prompt": latest_teaching_script or prompt,
-                    },
-                }],
-            }
-        if has_audit or agent_state:
-            return {
-                "assistantMessage": "Продолжаю автоматически от последнего найденного шага и доведу до генерации.",
-                "sessionTitle": _chat_build_session_title(payload),
-                "actions": [{
-                    "name": "advance_agent_stage",
-                    "reason": "Пользователь просит не обсуждать план дальше, а сразу довести текущий pipeline до реальной генерации.",
-                    "arguments": {
-                        "courseId": course_id,
-                        "focus": focus_text,
-                    },
-                }],
-            }
-
-    show_plan_markers = ["покажи план", "что в плане", "какой план", "план мостиков", "покажи текущий план"]
-    if has_bridge_plan and not suppress_bridge_plan_loop and any(marker in (last_user or "").lower() for marker in show_plan_markers):
         return {
-            "assistantMessage": "Покажу текущий план.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "show_bridge_plan",
-                "reason": "Пользователь хочет увидеть уже собранный план мостиков, а не пересобирать его с нуля.",
-                "arguments": {
-                    "courseId": course_id,
-                },
-            }],
-        }
-
-    revise_markers = ["поправь план", "измени план", "поменяй план", "убери", "оставь только", "подтверди", "отклони", "сдвинь", "после этого задания", "сделай по 2 задачи", "исправь план", "поставь её второй", "поставь ее второй", "сделай задачку"]
-    if has_bridge_plan and latest_intent_kind == "revise-plan" and any(marker in (last_user or "").lower() for marker in revise_markers):
-        args = {
-            "courseId": course_id,
-            "note": prompt,
-        }
-        low = (last_user or "").lower()
-        if "втор" in low:
-            args["itemIndex"] = 2
-        elif "перв" in low:
-            args["itemIndex"] = 1
-        elif "трет" in low:
-            args["itemIndex"] = 3
-        low = (last_user or "").lower()
-        if "подтвер" in low:
-            args["confirm"] = True
-        if "отклони" in low or "убери" in low:
-            args["reject"] = True
-        return {
-            "assistantMessage": "Поправлю текущий план.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "revise_bridge_plan",
-                "reason": "Пользователь правит уже готовый план мостиков и ожидает точечное изменение без полной пересборки.",
-                "arguments": args,
-            }],
-        }
-
-    bridge_markers = ["по этому плану", "по последнему аудиту", "сгенерируй мостики", "создай мостики", "добавь мостики", "подводящие задания"]
-    direct_generation_markers = ["всё, делай", "все, делай", "делай", "саму задачу", "готовую задачу", "готовый текст задачи", "создай черновик", "сразу генерац", "сгенерируй задачу", "сделай задачу", "открывай"]
-    _wants_bridge_gen = any(marker in (last_user or "").lower() for marker in bridge_markers) or any(marker in (last_user or "").lower() for marker in direct_generation_markers)
-    # If bridge plan failed or is empty, redirect to prepare_bridge_plan instead of doomed generation
-    if _wants_bridge_gen and (_bridge_plan_failed or _last_tool_failed) and has_audit:
-        return {
-            "assistantMessage": "Предыдущий план оказался пустым, пересобираю его с нуля.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "prepare_bridge_plan",
-                "reason": "Bridge plan пуст или failed — нужно собрать заново перед generation.",
-                "arguments": {
-                    "courseId": course_id,
-                    "focus": focus_text,
-                    "prompt": prompt,
-                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                },
-            }],
-        }
-    if has_bridge_plan and _wants_bridge_gen:
-        return {
-            "assistantMessage": "Перехожу к генерации задач по плану.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "queue_generate_bridge_batch",
-                "reason": "Пользователь подтверждает, что нужно генерировать мостиковые задачи по уже собранному плану курса.",
-                "arguments": {
-                    "courseId": course_id,
-                    "focus": focus_text,
-                    "prompt": prompt,
-                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                    **({"count": explicit_count} if explicit_count else {}),
-                },
-            }],
-        }
-    if _wants_bridge_gen and has_audit:
-        return {
-            "assistantMessage": "Сначала соберу план, потом перейду к генерации.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "prepare_bridge_plan",
-                "reason": "Перед bridge-generation лучше сначала зафиксировать явный план вставок по аудиту курса.",
-                "arguments": {
-                    "courseId": course_id,
-                    "focus": focus_text,
-                    "prompt": prompt,
-                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                    **({"count": explicit_count} if explicit_count else {}),
-                },
-            }],
-        }
-
-    plan_markers = ["собери план", "сделай план", "предложи план", "список что надо сделать", "в каких местах", "что ты поняла", "план вставок"]
-    short_followup = (last_user or "").strip().lower() in {"продолжай", "давай дальше", "дальше", "начинай", "ок", "го", "погнали", "делай дальше"}
-    if short_followup and (course_id and (has_audit or has_bridge_plan)):
-        return {
-            "assistantMessage": "Продолжаю по памяти этой сессии.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "advance_agent_stage",
-                "reason": "Пользователь дал короткий follow-up без нового контекста и ожидает, что агент сам продолжит со следующего логичного шага.",
-                "arguments": {
-                    "courseId": course_id,
-                    "focus": focus_text,
-                },
-            }],
-        }
-
-    if has_audit and any(marker in (last_user or "").lower() for marker in plan_markers):
-        return {
-            "assistantMessage": "Соберу план мостиков.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "prepare_bridge_plan",
-                "reason": "После аудита курса следующий шаг — зафиксировать план вставок и только потом переходить к генерации.",
-                "arguments": {
-                    "courseId": course_id,
-                    "focus": focus_text,
-                    **({"afterAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                    **({"count": explicit_count} if explicit_count else {}),
-                },
-            }],
-        }
-
-    inspect_markers = ["открой задания", "посмотри задания", "какие задания", "какие там названия", "покажи названия", "покажи соседние", "покажи что уже есть", "детальнее", "подробнее"]
-    if has_audit and any(marker in (last_user or "").lower() for marker in inspect_markers):
-        return {
-            "assistantMessage": "Сначала быстро сверю соседние задания курса.",
-            "sessionTitle": _chat_build_session_title(payload),
-            "actions": [{
-                "name": "inspect_course_assignments",
-                "reason": "После аудита курса нужно открыть не только ближайшие, но и landmark-задания вокруг темы, чтобы не принимать решение по слишком узкому фрагменту курса.",
-                "arguments": {
-                    "courseId": course_id,
-                    "query": focus_text,
-                    **({"aroundAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
-                    "window": 2,
-                    "limitAssignments": 18,
-                },
-            }],
-        }
-
-    audit_markers = ["изучи курс", "проанализируй курс", "проанализируй", "анализируй курс", "анализируй", "посмотри что уже есть", "допил", "пробел", "мостик", "подводящ", "новая функция", "новые функции", "найди момент", "найди где", "перед этим набор заданий", "покажи пробел", "проверь курс"]
-    if any(marker in (last_user or "").lower() for marker in audit_markers):
-        return {
-            "assistantMessage": "Сначала быстро проверю курс и найду пробелы перед генерацией.",
+            "assistantMessage": "Сначала быстро проверю курс, чтобы план был опорным, а не выдуманным.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "analyze_course_progression",
-                "reason": "Пользователь просит сначала изучить курс, найти пробелы и только потом переходить к генерации.",
+                "reason": "Для осмысленного плана сначала нужен аудит курса под текущий запрос.",
                 "arguments": {
                     "courseId": course_id,
                     "focus": focus_text,
                 },
             }],
+        }
+
+    if short_followup:
+        next_suggested = str(agent_state.get("nextSuggestedAction") or "").strip().lower()
+        if next_suggested in {"inspect_course_assignments", "prepare_bridge_plan", "queue_generate_bridge_batch", "queue_generate_batch", "queue_generate_from_text"}:
+            return {
+                "assistantMessage": "Продолжаю от текущего состояния сессии.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "advance_agent_stage",
+                    "reason": "Короткий follow-up пользователя. Можно безопасно продолжить от сохранённого agentState.",
+                    "arguments": {
+                        "courseId": course_id,
+                        "focus": focus_text,
+                    },
+                }],
+            }
+        return {
+            "assistantMessage": "Уточни, что именно продолжать: показать существующие задания, искать пробелы или генерировать новые?",
+            "actions": [],
+            "sessionTitle": _chat_build_session_title(payload),
         }
 
     if wants_multiple and explicit_count is None:
         return {
-            "assistantMessage": f"Поняла направление. Я уже собрала черновик плана: тип={assignment_type}, сложность={difficulty}/5, режим={mode}. Сколько задач нужно сгенерировать: 3, 5, 7, 10 или другое число?",
+            "assistantMessage": f"Поняла направление. Сколько задач нужно сгенерировать: 3, 5, 7, 10 или другое число? Сейчас вижу режим {mode} и сложность {difficulty}/5.",
             "actions": [],
             "sessionTitle": _chat_build_session_title(payload),
         }
@@ -803,13 +676,13 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             }],
         }
 
-    if wants_multiple or final_count > 1:
+    if latest_intent_kind == "generate" and (wants_multiple or final_count > 1):
         return {
             "assistantMessage": f"Запускаю batch на {final_count} задач.",
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "queue_generate_batch",
-                "reason": "Пользователь просит несколько заданий, поэтому подходит batch-generation через Foundry pipeline.",
+                "reason": "Пользователь просит несколько новых заданий.",
                 "arguments": {
                     "courseId": course_id,
                     "prompt": prompt,
@@ -821,25 +694,32 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             }],
         }
 
-    source_text = prompt
-    if last_attachment and str(last_attachment.get("textExcerpt") or "").strip():
-        source_text = str(last_attachment.get("textExcerpt"))[:4000]
+    if latest_intent_kind == "generate":
+        source_text = prompt
+        if last_attachment and str(last_attachment.get("textExcerpt") or "").strip():
+            source_text = str(last_attachment.get("textExcerpt"))[:4000]
+        return {
+            "assistantMessage": "Запускаю генерацию по текущему контексту.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "queue_generate_from_text",
+                "reason": "Пользователь явно просит создать новое задание по текущему диалогу.",
+                "arguments": {
+                    "courseId": course_id,
+                    "prompt": prompt,
+                    "sourceText": source_text,
+                    "assignmentType": assignment_type,
+                    "count": final_count,
+                    "difficulty": difficulty,
+                    "enableSelfCheck": True,
+                },
+            }],
+        }
+
     return {
-        "assistantMessage": "Запускаю генерацию по текущему контексту.",
+        "assistantMessage": "Уточни, что ты хочешь сделать с этим курсом: показать существующие задания, найти пробелы или сгенерировать новые?",
+        "actions": [],
         "sessionTitle": _chat_build_session_title(payload),
-        "actions": [{
-            "name": "queue_generate_from_text",
-            "reason": "По запросу лучше подходит точечная генерация из текста текущего диалога.",
-            "arguments": {
-                "courseId": course_id,
-                "prompt": prompt,
-                "sourceText": source_text,
-                "assignmentType": assignment_type,
-                "count": final_count,
-                "difficulty": difficulty,
-                "enableSelfCheck": True,
-            },
-        }],
     }
 
 
@@ -1339,7 +1219,7 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
         stage_name = f"repair_{primary_route}" if primary_route != "general" else "repair"
         return _with_stage_schema(OllamaCallConfig(stage=stage_name, timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assistant_chat_turn":
-        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.12, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
+        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.05, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
         cfg.json_mode = True
         cfg = _with_stage_schema(cfg, job_type, retry_count, compact_mode)
         cfg.json_schema = None
