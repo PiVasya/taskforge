@@ -915,30 +915,98 @@ public sealed class AiChatService
                     if (!courseId.HasValue)
                         return FailTool("Нужно выбрать courseId, прежде чем запускать генерацию.");
 
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var useCurrentBlueprint = ReadBool(args, "useCurrentBlueprint") ?? false;
+                    var proposalId = ReadGuid(args, "proposalId");
+                    var blueprint = memory.CurrentDraftBlueprint;
+                    var selectedProposal = (useCurrentBlueprint || proposalId.HasValue) && blueprint != null && blueprint.Proposals.Count > 0
+                        ? (proposalId.HasValue
+                            ? blueprint.Proposals.FirstOrDefault(x => x.Id == proposalId.Value)
+                            : blueprint.Proposals.FirstOrDefault())
+                        : null;
+
+                    var assignmentType = ReadString(args, "assignmentType")
+                        ?? (string.IsNullOrWhiteSpace(selectedProposal?.AssignmentType) ? null : selectedProposal!.AssignmentType)
+                        ?? "code-test";
+                    var prompt = ReadString(args, "prompt")
+                        ?? (selectedProposal != null ? BuildPromptFromChatBlueprintProposal(selectedProposal, memory) : null)
+                        ?? BuildFallbackPrompt(messages);
+                    var sourceText = ReadString(args, "sourceText")
+                        ?? (selectedProposal != null ? BuildSourceTextFromChatBlueprintProposal(selectedProposal, memory) : null)
+                        ?? BuildSourceTextFromRecentAttachments(messages);
+                    var titleHint = ReadString(args, "titleHint") ?? selectedProposal?.Title;
+                    var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? selectedProposal?.Difficulty ?? 2, 1, 5);
+                    var notes = ReadString(args, "notes")
+                        ?? (selectedProposal != null && blueprint != null ? $"Generated directly from chat blueprint session {session.Id}. Revision {blueprint.Revision}." : null);
+                    var structuredContextJson = selectedProposal != null && blueprint != null
+                        ? BuildStructuredContextFromChatBlueprintProposal(selectedProposal, blueprint, session.Id)
+                        : null;
+
                     var job = await _jobs.QueueGenerateAssignmentFromTextAsync(new AiGenerateAssignmentFromTextRequestDto
                     {
                         CourseId = courseId.Value,
-                        AssignmentType = ReadString(args, "assignmentType") ?? "code-test",
-                        Prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages),
-                        SourceText = ReadString(args, "sourceText") ?? BuildSourceTextFromRecentAttachments(messages),
-                        TitleHint = ReadString(args, "titleHint"),
-                        Difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5),
+                        AssignmentType = assignmentType,
+                        Prompt = prompt,
+                        SourceText = sourceText,
+                        TitleHint = titleHint,
+                        Difficulty = difficulty,
                         Count = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 50),
-                        Notes = ReadString(args, "notes"),
+                        Notes = notes,
+                        StructuredContextJson = structuredContextJson,
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                         EnableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true,
-                        InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), DeserializeMemory(session.PlanJson).InstructionStrictness),
-                        UserInstructionSnapshot = DeserializeMemory(session.PlanJson).LatestExplicitInstruction,
-                        TeachingScript = DeserializeMemory(session.PlanJson).LatestTeachingScript,
+                        InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness),
+                        UserInstructionSnapshot = memory.LatestExplicitInstruction,
+                        TeachingScript = memory.LatestTeachingScript,
                     }, createdByUserId, createdByDisplayName, ct);
+
+                    if (selectedProposal != null && blueprint != null)
+                    {
+                        selectedProposal.Status = "queued";
+                        blueprint.ApprovedForDraft = true;
+                        blueprint.UpdatedAtUtc = DateTime.UtcNow;
+                        session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
+                    }
 
                     return new AiFoundryChatToolResultDto
                     {
                         Status = "done",
-                        Summary = "Поставил в очередь генерацию заданий из текста.",
+                        Summary = selectedProposal != null
+                            ? "Поставил в очередь генерацию задания по уже согласованному условию из чата."
+                            : "Поставил в очередь генерацию заданий из текста.",
                         NavigateTo = "/admin/ai",
                         JobId = job.Id,
                         CourseId = courseId,
+                    };
+                }
+                case "revise_draft_from_chat":
+                {
+                    var draftId = ReadGuid(args, "draftId");
+                    if (!draftId.HasValue)
+                        return FailTool("Нужен draftId, чтобы поправить уже готовый AI-черновик.");
+
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages);
+                    var job = await _jobs.QueueReviseDraftFromChatAsync(new AiReviseDraftFromChatRequestDto
+                    {
+                        DraftId = draftId.Value,
+                        Prompt = prompt,
+                        Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                        InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness),
+                        UserInstructionSnapshot = memory.LatestExplicitInstruction,
+                        TeachingScript = memory.LatestTeachingScript,
+                    }, createdByUserId, createdByDisplayName, ct);
+
+                    if (job == null)
+                        return FailTool("Не удалось найти AI-черновик для правки. Проверь draftId или открой нужный draft заново.");
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = "Поставил в очередь правку готового AI-черновика по новым замечаниям из чата.",
+                        NavigateTo = "/admin/ai",
+                        JobId = job.Id,
+                        CourseId = ReadGuid(args, "courseId") ?? session.CourseId,
                     };
                 }
                 case "queue_generate_from_file":
@@ -1766,9 +1834,16 @@ public sealed class AiChatService
                 new
                 {
                     name = "queue_generate_from_text",
-                    description = "Запустить генерацию одного или нескольких заданий из текста. В чате использовать только после того, как пользователь уже одобрил примерные условия или явно просит пропустить этап обсуждения.",
-                    requiredArguments = new[] { "courseId", "prompt" },
-                    optionalArguments = new[] { "assignmentType", "sourceText", "count", "difficulty", "titleHint", "notes", "priority", "enableSelfCheck" },
+                    description = "Запустить генерацию одного или нескольких заданий из текста. Если в памяти уже есть согласованный blueprint, можно использовать именно его и не передавать prompt вручную.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "assignmentType", "prompt", "sourceText", "count", "difficulty", "titleHint", "notes", "priority", "enableSelfCheck", "useCurrentBlueprint", "proposalId" },
+                },
+                new
+                {
+                    name = "revise_draft_from_chat",
+                    description = "Исправить уже созданный AI-черновик по новым замечаниям пользователя из чата, не создавая новый draft с нуля.",
+                    requiredArguments = new[] { "draftId", "prompt" },
+                    optionalArguments = new[] { "courseId", "priority", "instructionStrictness" },
                 },
                 new
                 {
@@ -2197,6 +2272,7 @@ public sealed class AiChatService
             "finalize_chat_blueprint" => "Превращаю согласованные условия из чата в draft-черновики.",
             "drop_chat_blueprint" => "Сбрасываю текущие примерные условия из памяти чата.",
             "queue_generate_from_text" => "Запускаю генерацию из текста.",
+            "revise_draft_from_chat" => "Правлю уже готовый AI-черновик по твоим замечаниям.",
                 "queue_generate_from_file" => "Запускаю генерацию из файла.",
                 "queue_validate_draft" => "Запускаю self-check черновика.",
                 "queue_analyze_assignment" => "Запускаю анализ задания.",
@@ -2248,6 +2324,7 @@ public sealed class AiChatService
             || string.Equals(actionName, "queue_generate_bridge_batch", StringComparison.OrdinalIgnoreCase)
             || string.Equals(actionName, "queue_generate_batch", StringComparison.OrdinalIgnoreCase)
             || string.Equals(actionName, "queue_generate_from_text", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionName, "revise_draft_from_chat", StringComparison.OrdinalIgnoreCase)
             || string.Equals(actionName, "queue_generate_from_file", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -3149,6 +3226,7 @@ public sealed class AiChatService
             "finalize_chat_blueprint" => "финализация условий в черновики",
             "drop_chat_blueprint" => "сброс примерных условий",
             "queue_generate_from_text" => "генерация из текста",
+            "revise_draft_from_chat" => "правка готового черновика",
             "queue_generate_from_file" => "генерация из файла",
             "queue_validate_draft" => "валидация draft",
             "approve_draft" => "approve draft",

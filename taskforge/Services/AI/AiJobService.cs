@@ -156,7 +156,7 @@ public sealed partial class AiJobService : IAiJobService
                 userInstructionSnapshot = request.UserInstructionSnapshot,
                 teachingScript = request.TeachingScript,
                 structuredContext = string.IsNullOrWhiteSpace(request.StructuredContextJson)
-                    ? null
+                    ? (JsonNode?)null
                     : JsonSerializer.Deserialize<JsonNode>(request.StructuredContextJson, JsonOptions),
             });
 
@@ -723,6 +723,38 @@ public sealed partial class AiJobService : IAiJobService
         return await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = "assignment_validate_draft",
+            TargetEntityType = "ai-draft",
+            TargetEntityId = draft.Id,
+            CourseId = draft.CourseId,
+            Priority = request.Priority,
+            InputJson = JsonSerializer.Serialize(input, JsonOptions),
+        }, createdByUserId, createdByDisplayName, ct);
+    }
+
+    public async Task<AiJobDetailsDto?> QueueReviseDraftFromChatAsync(AiReviseDraftFromChatRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var draft = await _db.AiGeneratedAssignmentDrafts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.DraftId, ct);
+        if (draft == null) return null;
+
+        var input = new
+        {
+            requestType = "assignment_repair",
+            draftId = draft.Id,
+            courseId = draft.CourseId,
+            assignmentType = draft.AssignmentType,
+            prompt = request.Prompt,
+            draft = JsonSerializer.Deserialize<object>(draft.DraftJson ?? "{}"),
+            targetSchema = BuildTargetSchema(draft.AssignmentType),
+            referenceAssignments = await BuildReferenceAssignmentsAsync(draft.CourseId, draft.AssignmentType, ct),
+            qualityGates = BuildQualityGates(draft.AssignmentType),
+            instructionStrictness = request.InstructionStrictness,
+            userInstructionSnapshot = request.UserInstructionSnapshot,
+            teachingScript = request.TeachingScript,
+        };
+
+        return await EnqueueAsync(new CreateAiJobRequestDto
+        {
+            Type = "assignment_repair",
             TargetEntityType = "ai-draft",
             TargetEntityId = draft.Id,
             CourseId = draft.CourseId,

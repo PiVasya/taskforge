@@ -378,6 +378,23 @@ public sealed class ValidateAiDraftRequestDto
     public int Priority { get; set; } = 15;
 }
 
+public sealed class AiReviseDraftFromChatRequestDto
+{
+    [Required]
+    public Guid DraftId { get; set; }
+
+    [Required]
+    public string Prompt { get; set; } = string.Empty;
+
+    public int? InstructionStrictness { get; set; }
+
+    public string? UserInstructionSnapshot { get; set; }
+
+    public string? TeachingScript { get; set; }
+
+    public int Priority { get; set; } = 20;
+}
+
 public sealed class PublishAiDraftRequestDto
 {
     public Guid? CourseId { get; set; }

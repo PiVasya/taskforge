@@ -436,10 +436,11 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
             action["arguments"] = {}
         last_user = _chat_last_user_text(payload)
         latest_intent_kind = _chat_latest_intent_kind(payload, last_user, str(result.get("assistantMessage") or ""))
-        if name in {"queue_generate_from_text", "queue_generate_batch", "queue_generate_from_file"} and latest_intent_kind == "generate" and not _chat_is_finalize_request(last_user):
+        explicit_generate_ok = _chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_approved_blueprint(payload)
+        if name in {"queue_generate_from_text", "queue_generate_batch", "queue_generate_from_file"} and latest_intent_kind == "generate" and not explicit_generate_ok:
             issues.append("generation requires chat blueprint approval first")
             continue
-        if name == "finalize_chat_blueprint" and not _chat_is_finalize_request(last_user):
+        if name == "finalize_chat_blueprint" and not (_chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_blueprint(payload)):
             issues.append("finalize_chat_blueprint requires explicit approval")
             continue
         ok, reason = _validate_chat_action_arguments(payload, action)
@@ -477,13 +478,52 @@ def _chat_blueprint_proposals(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
     return [item for item in proposals if isinstance(item, dict)]
 
 
+def _chat_has_blueprint(payload: Dict[str, Any]) -> bool:
+    return len(_chat_blueprint_proposals(payload)) > 0
+
+
+def _chat_has_approved_blueprint(payload: Dict[str, Any]) -> bool:
+    blueprint = _chat_blueprint(payload)
+    if not isinstance(blueprint, dict):
+        return False
+    return bool(blueprint.get("approvedForDraft") or blueprint.get("ApprovedForDraft")) and _chat_has_blueprint(payload)
+
+
+def _chat_is_direct_generate_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    markers = [
+        "всё генерируй", "все генерируй", "генерируй задачу", "генерируй уже", "запускай создание",
+        "запускай генерацию", "не черновик", "без черновика", "делай уже фул", "делай фул", "делай уже полную",
+        "сразу создавай задачу", "сразу запускай задачу", "создавай задачу", "запускай создание задачи",
+        "я её опубликую", "я ее опубликую", "готовое задание", "готовую задачу", "делай задачу уже"
+    ]
+    return any(marker in low for marker in markers)
+
+
+def _chat_is_edit_draft_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    edit_markers = [
+        "отредач", "отредакт", "поправь", "исправь", "измени", "доработай", "перепиши"
+    ]
+    draft_markers = [
+        "черновик", "draft", "готовое", "что получилось", "сгенерирован", "задание"
+    ]
+    return any(marker in low for marker in edit_markers) and any(marker in low for marker in draft_markers)
+
+
 def _chat_is_finalize_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
         return False
     return any(marker in low for marker in [
         "одобря", "ок, делай", "ок делай", "норм, делай", "закидывай в черновик", "в черновик", "сделай черновик",
-        "преврати в черновик", "финализируй", "сохраняй как задачу", "делай draft", "создавай draft"
+        "преврати в черновик", "финализируй", "сохраняй как задачу", "делай draft", "создавай draft",
+        "всё генерируй", "все генерируй", "генерируй задачу", "запускай создание", "запускай генерацию",
+        "не черновик", "без черновика", "делай уже фул", "делай фул", "я её опубликую", "я ее опубликую"
     ])
 
 
@@ -663,6 +703,10 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "drop-blueprint"
     if _chat_is_show_blueprint_request(low):
         return "show-blueprint"
+    if _chat_is_edit_draft_request(low):
+        return "edit-draft"
+    if _chat_is_direct_generate_request(low):
+        return "generate"
     if _chat_is_finalize_request(low):
         return "finalize-blueprint"
     if any(marker in low for marker in ["поправь план", "измени план", "исправь план", "поставь её второй", "поставь ее второй", "добавь вторым"]):
@@ -857,6 +901,26 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     blueprint = _chat_blueprint(payload)
     blueprint_proposals = _chat_blueprint_proposals(payload)
 
+    if latest_intent_kind == "generate" and blueprint_proposals and (_chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_approved_blueprint(payload)):
+        selected = blueprint_proposals[0]
+        return {
+            "assistantMessage": "Ок, запускаю создание задачи по уже согласованному условию из чата.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "queue_generate_from_text",
+                "reason": "Уже есть согласованный chat blueprint, а пользователь явно просит сразу запустить создание задачи.",
+                "arguments": {
+                    "courseId": course_id,
+                    "useCurrentBlueprint": True,
+                    "proposalId": selected.get("id"),
+                    "assignmentType": selected.get("assignmentType") or assignment_type,
+                    "difficulty": selected.get("difficulty") or difficulty,
+                    "titleHint": selected.get("title") or result.get("titleHint") or result.get("title") or None,
+                    "enableSelfCheck": True,
+                },
+            }],
+        }
+
     if latest_intent_kind == "show-blueprint":
         if blueprint_proposals:
             return {
@@ -891,6 +955,25 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 }],
             }
         return {"assistantMessage": "Мне пока нечего финализировать: сначала нужно собрать и обсудить примерные условия прямо в чате.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
+    if latest_intent_kind == "edit-draft":
+        recent_drafts = payload.get("recentDrafts") if isinstance(payload.get("recentDrafts"), list) else []
+        latest_draft_id = None
+        for item in recent_drafts:
+            if isinstance(item, dict) and str(item.get("id") or "").strip():
+                latest_draft_id = str(item.get("id")).strip()
+                break
+        if latest_draft_id:
+            return {
+                "assistantMessage": "Ок, запущу правку уже готового AI-черновика по твоим замечаниям.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "revise_draft_from_chat",
+                    "reason": "Пользователь просит поправить уже готовый AI-черновик по новому сообщению.",
+                    "arguments": {"courseId": course_id, "draftId": latest_draft_id, "prompt": focus_text},
+                }],
+            }
+        return {"assistantMessage": "Я не вижу в этой сессии готового AI-черновика для правки. Сначала сгенерируй его или открой нужный draft.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
 
     if short_followup:
         if blueprint_proposals:

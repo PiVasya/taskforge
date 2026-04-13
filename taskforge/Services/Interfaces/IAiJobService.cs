@@ -26,6 +26,7 @@ public interface IAiJobService
     Task<AiGeneratedDraftDto?> GetDraftAsync(Guid id, CancellationToken ct = default);
     Task<bool> ReviewDraftAsync(Guid id, Guid reviewedByUserId, string action, CancellationToken ct = default);
     Task<AiJobDetailsDto?> QueueValidateDraftAsync(Guid draftId, ValidateAiDraftRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
+    Task<AiJobDetailsDto?> QueueReviseDraftFromChatAsync(AiReviseDraftFromChatRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<PublishAiDraftResultDto?> PublishDraftAsync(Guid id, Guid reviewedByUserId, PublishAiDraftRequestDto request, CancellationToken ct = default);
     Task<bool> DeleteDraftAsync(Guid id, CancellationToken ct = default);
     Task<bool> DeleteBatchAsync(Guid id, CancellationToken ct = default);

@@ -79,6 +79,34 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         result = worker._normalize_chat_turn_result(payload, {})
         self.assertEqual(result["actions"][0]["name"], "finalize_chat_blueprint")
 
+    def test_direct_generate_uses_existing_blueprint(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Не черновик, запускай создание задачи по тому что выше"}],
+            "memory": {
+                "currentDraftBlueprint": {
+                    "approvedForDraft": True,
+                    "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант 1", "assignmentType": "code-test", "difficulty": 1, "conditionPreview": "..."}]
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"][0]["name"], "queue_generate_from_text")
+        self.assertTrue(result["actions"][0]["arguments"].get("useCurrentBlueprint"))
+
+    def test_edit_request_routes_to_revise_draft(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "recentDrafts": [{"id": "d1"}],
+            "conversation": [{"role": "user", "content": "Поправь готовый черновик: поменяй формулировку и тесты"}],
+            "memory": {},
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"][0]["name"], "revise_draft_from_chat")
+        self.assertEqual(result["actions"][0]["arguments"].get("draftId"), "d1")
+
 
 if __name__ == "__main__":
     unittest.main()
