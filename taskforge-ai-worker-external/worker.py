@@ -501,27 +501,112 @@ def _chat_is_drop_blueprint_request(text: str) -> bool:
     return any(marker in low for marker in ["начни заново", "сбрось варианты", "удали варианты", "выбрось варианты", "заново варианты", "очисти условия"]) 
 
 
+def _chat_instruction_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from prompt_builder import _extract_instruction_contract  # type: ignore
+        contract = _extract_instruction_contract(payload)
+        return contract if isinstance(contract, dict) else {}
+    except Exception:
+        return {}
+
+
+def _chat_extract_code_like_snippets(text: str) -> list[str]:
+    text = str(text or "")
+    snippets: list[str] = []
+    seen: set[str] = set()
+
+    def push(value: str) -> None:
+        item = str(value or "").strip().strip('`')
+        if len(item) < 2:
+            return
+        key = item.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        snippets.append(item[:160])
+
+    import re
+    for match in re.findall(r"`([^`]{2,200})`", text):
+        push(match)
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        candidate = re.sub(r"^(шаг\s*\d+[:.)-]?|напиши(?:те)?[:\s-]*|введите[:\s-]*|сделай(?:те)?[:\s-]*)", "", line, flags=re.IGNORECASE).strip()
+        if 2 <= len(candidate) <= 200 and any(token in candidate for token in ["#", ";", "<", ">", "{", "}", "(", ")", "::", "<<", ">>"]):
+            push(candidate)
+    return snippets[:8]
+
+
+def _chat_build_fallback_blueprint_condition(last_user: str, assistant: str, contract: Dict[str, Any]) -> str:
+    explicit_lines = [line.strip() for line in str(last_user or "").splitlines() if line.strip()]
+    exact = [str(x).strip() for x in (contract.get("exactSnippets") if isinstance(contract.get("exactSnippets"), list) else []) if str(x).strip()]
+    forbidden = [str(x).strip() for x in (contract.get("forbiddenSnippets") if isinstance(contract.get("forbiddenSnippets"), list) else []) if str(x).strip()]
+    code_lines = _chat_extract_code_like_snippets(last_user)
+    focus_lines: list[str] = []
+    for line in explicit_lines:
+        low = line.lower()
+        if any(token in low for token in ["курс рассчитан", "пиши короче", "для первокласс", "1 в 1", "пошагово", "полное решение", "без return", "return 0", "пример:"]):
+            focus_lines.append(line)
+    sections: list[str] = []
+    if focus_lines:
+        sections.append("Что нужно сделать:\n" + "\n".join(focus_lines[:6]))
+    elif assistant:
+        sections.append("Что нужно сделать:\n" + str(assistant).strip()[:400])
+    if code_lines or exact:
+        merged: list[str] = []
+        seen: set[str] = set()
+        for item in code_lines + exact:
+            key = item.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        sections.append("Обязательные строки или фрагменты:\n" + "\n".join(f"- {item}" for item in merged[:8]))
+    if forbidden:
+        sections.append("Что нельзя добавлять:\n" + "\n".join(f"- {item}" for item in forbidden[:6]))
+    if contract.get("preserveOrder"):
+        sections.append("Важно: сохраняй порядок шагов таким же, как его задал пользователь.")
+    return "\n\n".join(section for section in sections if section).strip()
+
+
 def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, Any], last_user: str, prompt: str, count: int, assignment_type: str, difficulty: int) -> list[Dict[str, Any]]:
     raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
     proposals = raw.get("proposals") if isinstance(raw.get("proposals"), list) else []
+    contract = _chat_instruction_contract(payload)
+    exact = [str(x).strip() for x in (contract.get("exactSnippets") if isinstance(contract.get("exactSnippets"), list) else []) if str(x).strip()]
+    forbidden = [str(x).strip() for x in (contract.get("forbiddenSnippets") if isinstance(contract.get("forbiddenSnippets"), list) else []) if str(x).strip()]
     clean: list[Dict[str, Any]] = []
     for index, item in enumerate(proposals[: max(1, min(5, count))], start=1):
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or item.get("name") or f"Вариант {index}").strip()
         cond = str(item.get("conditionPreview") or item.get("fullCondition") or item.get("summary") or item.get("condition") or "").strip()
+        full_condition = str(item.get("fullCondition") or cond).strip()
         goal = str(item.get("goal") or item.get("microGoal") or "").strip()
         if not title and not cond:
             continue
+        must_keep = [str(x).strip() for x in (item.get("mustKeep") if isinstance(item.get("mustKeep"), list) else []) if str(x).strip()][:8]
+        avoid = [str(x).strip() for x in (item.get("avoid") if isinstance(item.get("avoid"), list) else []) if str(x).strip()][:8]
+        for snippet in exact[:8]:
+            if snippet.casefold() not in {x.casefold() for x in must_keep}:
+                must_keep.append(snippet)
+        for snippet in forbidden[:8]:
+            if snippet.casefold() not in {x.casefold() for x in avoid}:
+                avoid.append(snippet)
+        if not cond:
+            cond = _chat_build_fallback_blueprint_condition(last_user, str(result.get("assistantMessage") or ""), contract)
+        if not full_condition:
+            full_condition = _chat_build_fallback_blueprint_condition(last_user, str(result.get("assistantMessage") or ""), contract)
         proposal = {
             "title": title or f"Вариант {index}",
             "assignmentType": str(item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
             "difficulty": max(1, min(5, int(item.get("difficulty") or difficulty or 2))),
             "goal": goal,
-            "conditionPreview": cond[:1200],
-            "fullCondition": str(item.get("fullCondition") or cond).strip()[:5000],
-            "mustKeep": [str(x).strip() for x in (item.get("mustKeep") if isinstance(item.get("mustKeep"), list) else []) if str(x).strip()][:8],
-            "avoid": [str(x).strip() for x in (item.get("avoid") if isinstance(item.get("avoid"), list) else []) if str(x).strip()][:8],
+            "conditionPreview": cond[:2000],
+            "fullCondition": full_condition[:8000],
+            "mustKeep": must_keep[:10],
+            "avoid": avoid[:10],
             "publicTests": [
                 {
                     "input": str(t.get("input") or "").strip()[:200],
@@ -534,17 +619,17 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     if clean:
         return clean
     base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
-    base_condition = str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
+    base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
     default_count = max(1, min(3, count or 1))
     return [{
         "title": str(result.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
         "assignmentType": assignment_type,
         "difficulty": difficulty,
         "goal": str(result.get("goal") or "").strip(),
-        "conditionPreview": base_condition[:1200],
-        "fullCondition": (base_condition or prompt or last_user)[:5000],
-        "mustKeep": [],
-        "avoid": [],
+        "conditionPreview": base_condition[:2000],
+        "fullCondition": (base_condition or prompt or last_user)[:8000],
+        "mustKeep": exact[:10],
+        "avoid": forbidden[:10],
         "publicTests": [],
     } for i in range(1, default_count + 1)]
 

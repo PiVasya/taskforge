@@ -133,6 +133,25 @@ public sealed class AiChatService
         if (session == null)
             return false;
 
+        var activeChatJobs = await _db.AiJobs
+            .Where(x => x.TargetEntityType == "chat-session" && x.TargetEntityId == sessionId && x.CompletedAtUtc == null)
+            .ToListAsync(ct);
+        foreach (var job in activeChatJobs)
+        {
+            job.Status = "cancelled";
+            job.CompletedAtUtc = DateTime.UtcNow;
+            job.ErrorText = string.IsNullOrWhiteSpace(job.ErrorText)
+                ? "Chat session deleted by user."
+                : job.ErrorText + "
+Chat session deleted by user.";
+        }
+
+        var linkedBatches = await _db.AiBatches
+            .Where(x => x.ChatSessionId == sessionId)
+            .ToListAsync(ct);
+        foreach (var batch in linkedBatches)
+            batch.ChatSessionId = null;
+
         _db.AiFoundryChatSessions.Remove(session);
         await _db.SaveChangesAsync(ct);
         return true;
@@ -2659,6 +2678,7 @@ public sealed class AiChatService
         latestIntentKind ??= previous.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
         latestTeachingScript ??= previous.LatestTeachingScript;
         var diagnosticAuditIntent = string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal);
+        var hasBlueprint = previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0;
         var learnerProfile = BuildLearnerProfileSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, latestTeachingScript);
         var constraints = BuildGenerationConstraintsSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, latestTeachingScript);
         var styleHints = new List<string>();
@@ -2742,7 +2762,12 @@ public sealed class AiChatService
         var workflowKind = "conversation";
         var currentStage = "idle";
         var preferDirectGeneration = string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(latestTeachingScript);
-        if (diagnosticAuditIntent)
+        if (hasBlueprint)
+        {
+            workflowKind = "chat-blueprint";
+            currentStage = previous.CurrentDraftBlueprint!.ApprovedForDraft ? "blueprint-finalized" : "blueprint-review";
+        }
+        else if (diagnosticAuditIntent)
         {
             workflowKind = "course-audit";
             currentStage = previous.LastCourseAudit != null ? "audit-ready" : "audit-requested";
@@ -2796,7 +2821,8 @@ public sealed class AiChatService
             HasCourseAudit = previous.LastCourseAudit != null,
             HasCourseInspection = previous.LastCourseInspection != null,
             HasBridgePlan = previous.LastBridgePlan != null,
-            ReadyForGeneration = !diagnosticAuditIntent && previous.LastBridgePlan != null && (preferDirectGeneration || string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected)),
+            ReadyForGeneration = hasBlueprint && previous.CurrentDraftBlueprint?.ApprovedForDraft == true
+                || (!diagnosticAuditIntent && previous.LastBridgePlan != null && (preferDirectGeneration || string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected))),
             ActiveGoals = recentGoals.Take(4).ToList(),
             ActiveConstraints = ((constraints["mustStayBeforeConcepts"] as List<string>) ?? new List<string>())
                 .Concat((constraints["avoidConcepts"] as List<string>) ?? new List<string>())
@@ -2949,7 +2975,12 @@ public sealed class AiChatService
         var latestIntentKind = DetectLatestIntentKind(latestGoal) ?? previous.LatestIntentKind;
         var latestTeachingScript = ExtractLatestTeachingScript(latestGoal) ?? previous.LatestTeachingScript;
         var latestExplicitInstruction = ShortenMultiline(latestGoal, 900);
-        var suppressBridgePlanLoop = ShouldSuppressBridgePlanLoop(latestGoal, latestIntentKind, latestTeachingScript);
+        var hasBlueprint = previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0;
+        var blueprintIntent = string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "finalize-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "show-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "drop-blueprint", StringComparison.OrdinalIgnoreCase);
+        var suppressBridgePlanLoop = ShouldSuppressBridgePlanLoop(latestGoal, latestIntentKind, latestTeachingScript) || hasBlueprint || blueprintIntent;
         var instructionStrictness = ClampInstructionStrictness(instructionStrictnessOverride, previous.InstructionStrictness);
 
         var facts = new List<string>();
@@ -2989,24 +3020,26 @@ public sealed class AiChatService
             summaryParts.Add("Пользователь уже дал явный teaching-script/эталон, который нужно сохранять при следующей генерации.");
         if (previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0)
             summaryParts.Add($"В памяти уже есть {previous.CurrentDraftBlueprint.Proposals.Count} согласуемых услов{(previous.CurrentDraftBlueprint.Proposals.Count == 1 ? "ие" : "ий")} из чата, которые можно показать, поправить или превратить в draft.");
+        if (hasBlueprint)
+            summaryParts.Add("Сейчас основной workflow — согласование условий в чате, а не bridge-планирование.");
 
         var summary = string.Join(" ", summaryParts).Trim();
         if (string.IsNullOrWhiteSpace(summary))
             summary = !string.IsNullOrWhiteSpace(previous.Summary) ? previous.Summary : "Пока это пустая сессия без накопленной памяти.";
 
-        if (previous.LastCourseAudit != null && facts.Count < 6)
+        if (!hasBlueprint && previous.LastCourseAudit != null && facts.Count < 6)
             facts.Add($"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 140)}");
         if (previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0 && facts.Count < 6)
             facts.Add($"В чате уже согласуются условия: {string.Join(", ", previous.CurrentDraftBlueprint.Proposals.Select(x => ShortenSingleLine(x.Title, 40)).Take(3))}");
-        if (previous.LastCourseAudit != null)
+        if (!hasBlueprint && previous.LastCourseAudit != null)
             summary = string.Join(" ", new[] { summary, $"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (previous.LastCourseInspection != null && facts.Count < 6)
+        if (!hasBlueprint && previous.LastCourseInspection != null && facts.Count < 6)
             facts.Add($"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 140)}");
-        if (previous.LastCourseInspection != null)
+        if (!hasBlueprint && previous.LastCourseInspection != null)
             summary = string.Join(" ", new[] { summary, $"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (!suppressBridgePlanLoop && previous.LastBridgePlan != null && facts.Count < 6)
+        if (!suppressBridgePlanLoop && !hasBlueprint && previous.LastBridgePlan != null && facts.Count < 6)
             facts.Add($"Последний план мостиков: {ShortenSingleLine(previous.LastBridgePlan.Summary, 140)}");
-        if (!suppressBridgePlanLoop && previous.LastBridgePlan != null)
+        if (!suppressBridgePlanLoop && !hasBlueprint && previous.LastBridgePlan != null)
             summary = string.Join(" ", new[] { summary, $"Последний план мостиков: {ShortenSingleLine(previous.LastBridgePlan.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
         var nextAgentStep = SuggestNextAgentStep(new AiFoundryChatMemoryDto
         {
@@ -3018,13 +3051,25 @@ public sealed class AiChatService
             LatestIntentKind = latestIntentKind,
             LatestTeachingScript = latestTeachingScript,
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
+            CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
         });
         if (!string.IsNullOrWhiteSpace(nextAgentStep) && facts.Count < 6)
             facts.Add($"Следующий логичный шаг агента: {nextAgentStep}");
         if (!string.IsNullOrWhiteSpace(nextAgentStep))
             summary = string.Join(" ", new[] { summary, $"Следующий логичный шаг агента: {nextAgentStep}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
 
-        var agentState = BuildChatAgentState(previous, recentGoals, recentActions, nextAgentStep, latestIntentKind, latestTeachingScript);
+        var memoryContextForAgent = new AiFoundryChatMemoryDto
+        {
+            LastCourseAudit = previous.LastCourseAudit,
+            LastCourseInspection = previous.LastCourseInspection,
+            LastBridgePlan = previous.LastBridgePlan,
+            AgentState = previous.AgentState,
+            CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
+            LatestIntentKind = latestIntentKind,
+            LatestTeachingScript = latestTeachingScript,
+            SuppressBridgePlanLoop = suppressBridgePlanLoop,
+        };
+        var agentState = BuildChatAgentState(memoryContextForAgent, recentGoals, recentActions, nextAgentStep, latestIntentKind, latestTeachingScript);
         if (!string.IsNullOrWhiteSpace(agentState.CurrentStage) && facts.Count < 6)
             facts.Add($"Стадия агента: {agentState.CurrentStage}");
         if (!string.IsNullOrWhiteSpace(agentState.UserIntentSummary))
@@ -3766,7 +3811,15 @@ public sealed class AiChatService
         if (proposals.Count == 0)
             return "Сохранила пустой набор примерных условий.";
         if (proposals.Count == 1)
-            return $"Сохранила 1 примерное условие: {proposals[0].Title}.";
+        {
+            var proposal = proposals[0];
+            var preview = !string.IsNullOrWhiteSpace(proposal.ConditionPreview)
+                ? ShortenSingleLine(proposal.ConditionPreview, 120)
+                : ShortenSingleLine(proposal.FullCondition ?? string.Empty, 120);
+            return string.IsNullOrWhiteSpace(preview)
+                ? $"Сохранила 1 примерное условие: {proposal.Title}."
+                : $"Сохранила 1 примерное условие: {proposal.Title}. Черновик: {preview}";
+        }
         return $"Сохранила {proposals.Count} примерных условий для обсуждения и правок.";
     }
 
@@ -3777,21 +3830,36 @@ public sealed class AiChatService
         var sb = new StringBuilder();
         sb.AppendLine($"Черновой набор условий из чата · revision {Math.Max(1, blueprint.Revision)}");
         if (!string.IsNullOrWhiteSpace(blueprint.Summary))
-            sb.AppendLine(ShortenMultiline(blueprint.Summary, 220));
+            sb.AppendLine(ShortenMultiline(blueprint.Summary, 260));
         for (var i = 0; i < blueprint.Proposals.Count; i++)
         {
             var proposal = blueprint.Proposals[i];
-            sb.AppendLine($"{i + 1}. {proposal.Title} · {proposal.AssignmentType} · сложность {proposal.Difficulty}/5");
+            sb.AppendLine();
+            sb.AppendLine($"Вариант {i + 1}. {proposal.Title}");
+            sb.AppendLine($"Тип: {proposal.AssignmentType} · сложность {proposal.Difficulty}/5 · статус {proposal.Status}");
             if (!string.IsNullOrWhiteSpace(proposal.Goal))
-                sb.AppendLine($"   Цель: {ShortenSingleLine(proposal.Goal, 180)}");
-            if (!string.IsNullOrWhiteSpace(proposal.ConditionPreview))
-                sb.AppendLine($"   Условие: {ShortenMultiline(proposal.ConditionPreview, 240)}");
+                sb.AppendLine($"Цель: {ShortenSingleLine(proposal.Goal, 220)}");
+
+            var previewText = !string.IsNullOrWhiteSpace(proposal.FullCondition) ? proposal.FullCondition : proposal.ConditionPreview;
+            if (!string.IsNullOrWhiteSpace(previewText))
+            {
+                sb.AppendLine("Черновик условия:");
+                sb.AppendLine(ShortenMultiline(previewText, 1200));
+            }
+
             if (proposal.MustKeep.Count > 0)
-                sb.AppendLine($"   Сохранить обязательно: {string.Join(", ", proposal.MustKeep.Take(4))}");
+                sb.AppendLine($"Сохранить обязательно: {string.Join(", ", proposal.MustKeep.Take(6))}");
             if (proposal.Avoid.Count > 0)
-                sb.AppendLine($"   Не добавлять: {string.Join(", ", proposal.Avoid.Take(4))}");
+                sb.AppendLine($"Не добавлять: {string.Join(", ", proposal.Avoid.Take(6))}");
+            if (proposal.PublicTests.Count > 0)
+            {
+                sb.AppendLine("Публичные тесты:");
+                foreach (var test in proposal.PublicTests.Take(4))
+                    sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
+            }
         }
-        sb.AppendLine("Напиши, что менять, или скажи 'одобряю, закидывай в черновик'.");
+        sb.AppendLine();
+        sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
         return sb.ToString().Trim();
     }
 

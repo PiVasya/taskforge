@@ -1,32 +1,42 @@
-# AI chat-first drafting workflow
+# AI chat update: blueprint UX, stale-memory cleanup, dead-chat delete
 
-## Что изменено
+## Что исправлено
 
-Вместо default-паттерна `chat -> queue_generate_*` теперь основной UX такой:
+### 1) Chat-first blueprint UX
+- `save_chat_blueprint` теперь показывает не только summary, но и реальный preview черновика:
+  - title
+  - goal
+  - full/preview condition
+  - mustKeep / avoid
+  - public tests
+- worker при fallback строит более конкретный blueprint из пользовательской инструкции и teaching-script, а не сохраняет только абстрактную выжимку.
 
-1. Пользователь обсуждает идею задачи в чате.
-2. AI предлагает 1 или несколько примерных условий.
-3. Эти примерные условия сохраняются в памяти сессии как `currentDraftBlueprint`.
-4. Пользователь правит/одобряет варианты в чате.
-5. Только после явного одобрения AI вызывает `finalize_chat_blueprint` и создаёт полноценные draft-черновики.
+### 2) Мостики больше не лезут в память поверх blueprint-flow
+- Когда в памяти уже есть `currentDraftBlueprint`, chat memory:
+  - не подмешивает старый `nextAgentStep` про мостики
+  - не тащит `LastBridgePlan` в summary/facts
+  - переключает `agentState.workflowKind` на `chat-blueprint`
+- Из-за этого после обсуждения условий AI меньше заражается старым audit/bridge контекстом.
 
-## Новые chat tools
+### 3) Удаление мёртвого чата
+- Удаление AI-чата теперь:
+  - отменяет незавершённые chat jobs
+  - отвязывает связанные `AiBatches.ChatSessionId`
+  - удаляет саму сессию
+- Во фронте можно удалить чат прямо из списка.
+- Если чат не открывается, UI всё равно даёт выбрать его и удалить.
+- Кнопка удаления больше не блокируется только из-за `pending`.
 
-- `save_chat_blueprint`
-- `show_chat_blueprint`
-- `drop_chat_blueprint`
-- `finalize_chat_blueprint`
-
-## Что осталось
-
-Старые `queue_generate_from_text`, `queue_generate_from_file`, `queue_generate_batch` не удалены физически, но больше не являются default UX для обычного generation-диалога в чате.
-
-## Файлы
-
-- `taskforge/Data/Models/DTO/AI/AiDtos.cs`
+## Изменённые файлы
 - `taskforge/Services/AI/AiChatService.cs`
 - `taskforge-ai-worker-external/worker.py`
 - `taskforge-ai-worker-external/prompt_builder.py`
-- `taskforge-ai-worker-external/tests/test_chat_memory_routing.py`
-- `taskforge-ai-worker-external/tests/test_chat_strict_mode.py`
 - `clientapp/src/pages/admin/AdminAiChatPage.jsx`
+
+## Что проверено
+- `python -m py_compile` для worker/prompt
+- `python -m unittest tests.test_chat_memory_routing tests.test_chat_strict_mode tests.test_instruction_strictness`
+
+## Что не проверено здесь
+- `dotnet build` / Docker build
+- полный frontend build

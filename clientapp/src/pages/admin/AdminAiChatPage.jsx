@@ -611,19 +611,78 @@ export default function AdminAiChatPage() {
     };
   }, []);
 
+  const selectSession = useCallback(async (nextSessionId, fallbackItem = null) => {
+    if (!nextSessionId) {
+      setSessionId(null);
+      setSession(null);
+      return null;
+    }
+    setSessionId(nextSessionId);
+    try {
+      const full = await getAiChatSession(nextSessionId);
+      setSession(full);
+      setSessions((prev) => prev.map((item) => (item.id === full.id ? upsertSessionListItem(full) : item)));
+      return full;
+    } catch (e) {
+      const fallback = fallbackItem ? {
+        id: fallbackItem.id,
+        courseId: fallbackItem.courseId || null,
+        courseTitle: fallbackItem.courseTitle || null,
+        title: fallbackItem.title || 'Повреждённый AI-чат',
+        createdAtUtc: fallbackItem.createdAtUtc,
+        updatedAtUtc: fallbackItem.updatedAtUtc,
+        memory: {
+          summary: fallbackItem.memorySummary || 'Не удалось открыть этот чат. Его всё ещё можно удалить из списка или создать новый.',
+          messageCount: fallbackItem.messageCount || 0,
+          instructionStrictness,
+        },
+        messages: [],
+      } : null;
+      setSession(fallback);
+      notify.error(handleApiError(e, 'Не удалось открыть этот чат. Его можно удалить из списка.'));
+      return null;
+    }
+  }, [instructionStrictness, notify, upsertSessionListItem]);
+
+  const deleteSessionFromList = useCallback(async (id) => {
+    if (!id) return;
+    if (!window.confirm('Удалить этот AI-чат?')) return;
+    try {
+      try {
+        await deleteAiChatSession(id);
+      } catch (e) {
+        const status = e?.response?.status;
+        if (status !== 404) throw e;
+      }
+      const nextList = sessions.filter((item) => item.id !== id);
+      setSessions(nextList);
+      if (sessionId === id) {
+        const nextId = nextList[0]?.id || null;
+        if (nextId) {
+          await selectSession(nextId, nextList[0]);
+        } else {
+          setSessionId(null);
+          setSession(null);
+        }
+      }
+      notify.success('Чат удалён');
+    } catch (e) {
+      notify.error(handleApiError(e, 'Не удалось удалить чат'));
+    }
+  }, [notify, selectSession, sessionId, sessions]);
+
   const loadSessions = useCallback(async (preferredId) => {
     const list = await getAiChatSessions();
     setSessions(list);
     const nextId = preferredId || sessionId || list[0]?.id || null;
     if (nextId) {
-      setSessionId(nextId);
-      const full = await getAiChatSession(nextId);
-      setSession(full);
+      const fallbackItem = list.find((item) => item.id === nextId) || null;
+      await selectSession(nextId, fallbackItem);
     } else {
       setSessionId(null);
       setSession(null);
     }
-  }, [sessionId]);
+  }, [selectSession, sessionId]);
 
   useEffect(() => {
     let active = true;
@@ -732,15 +791,14 @@ export default function AdminAiChatPage() {
     if (!sessionId) return;
     try {
       setRefreshing(true);
-      const full = await getAiChatSession(sessionId);
-      setSession(full);
+      await selectSession(sessionId, sessions.find((item) => item.id === sessionId) || null);
       await loadSessions(sessionId);
     } catch (e) {
       notify.error(handleApiError(e, 'Не удалось обновить чат'));
     } finally {
       setRefreshing(false);
     }
-  }, [loadSessions, notify, sessionId]);
+  }, [loadSessions, notify, selectSession, sessionId, sessions]);
 
   const syncCurrentCourse = useCallback(async (nextCourseId) => {
     if (!sessionId) return;
@@ -852,23 +910,7 @@ export default function AdminAiChatPage() {
 
   const deleteCurrent = async () => {
     if (!sessionId) return;
-    if (!window.confirm('Удалить текущий AI-чат?')) return;
-    try {
-      await deleteAiChatSession(sessionId);
-      const nextList = sessions.filter((item) => item.id !== sessionId);
-      setSessions(nextList);
-      const nextId = nextList[0]?.id || null;
-      setSessionId(nextId);
-      if (nextId) {
-        const full = await getAiChatSession(nextId);
-        setSession(full);
-      } else {
-        setSession(null);
-      }
-      notify.success('Чат удалён');
-    } catch (e) {
-      notify.error(handleApiError(e, 'Не удалось удалить чат'));
-    }
+    await deleteSessionFromList(sessionId);
   };
 
   const exportCurrent = useCallback(async (format = 'md') => {
@@ -904,10 +946,9 @@ export default function AdminAiChatPage() {
     if (!isFullscreen) return;
     const urlSessionId = searchParams.get('session');
     if (urlSessionId && urlSessionId !== sessionId) {
-      setSessionId(urlSessionId);
-      getAiChatSession(urlSessionId).then(setSession).catch(() => {});
+      selectSession(urlSessionId, sessions.find((item) => item.id === urlSessionId) || null).catch(() => {});
     }
-  }, [isFullscreen, searchParams, sessionId]);
+  }, [isFullscreen, searchParams, selectSession, sessionId, sessions]);
 
   // In fullscreen mode (new tab), apply theme classes that Layout normally handles
   useLayoutEffect(() => {
@@ -1096,15 +1137,20 @@ export default function AdminAiChatPage() {
                 Пока нет сессий. Создай новый чат и начни с запроса вроде: «сделай batch на 5 задач по строкам».
               </div>
             ) : filteredSessions.map((item) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={async () => {
-                  setSessionId(item.id);
-                  const full = await getAiChatSession(item.id);
-                  setSession(full);
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  selectSession(item.id, item).catch(() => {});
                 }}
-                className={`rounded-2xl border px-3 py-3 text-left transition ${sessionId === item.id
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectSession(item.id, item).catch(() => {});
+                  }
+                }}
+                className={`rounded-2xl border px-3 py-3 text-left transition cursor-pointer ${sessionId === item.id
                   ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)]'
                   : 'border-neutral-200/70 dark:border-neutral-800 hover:border-[rgba(var(--accent)/0.28)]'}`}
               >
@@ -1113,13 +1159,24 @@ export default function AdminAiChatPage() {
                   <div className="flex items-center gap-2">
                     {item.messageCount ? <Badge variant="outline">{item.messageCount}</Badge> : null}
                     {item.isPending ? <Badge variant="outline">AI думает</Badge> : null}
+                    <button
+                      type="button"
+                      className="rounded-full p-1 opacity-50 hover:opacity-100 text-red-500"
+                      title="Удалить чат"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSessionFromList(item.id);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
                 {item.courseTitle ? <div className="mt-1 text-xs opacity-60 line-clamp-1">{item.courseTitle}</div> : null}
                 {item.lastMessagePreview ? <div className="mt-1 text-xs opacity-70 line-clamp-2">{item.lastMessagePreview}</div> : null}
                 {!item.lastMessagePreview && item.memorySummary ? <div className="mt-1 text-xs opacity-60 line-clamp-2">{item.memorySummary}</div> : null}
                 <div className="mt-2 text-[11px] opacity-45">{formatDate(item.updatedAtUtc)}</div>
-              </button>
+              </div>
             ))}
           </div>
         </Card>
@@ -1143,7 +1200,7 @@ export default function AdminAiChatPage() {
               <Button type="button" variant="outline" onClick={renameCurrent} disabled={!sessionId || pending || actionBusy}>
                 <Pencil size={16} />
               </Button>
-              <Button type="button" variant="outline" onClick={deleteCurrent} disabled={!sessionId || pending || actionBusy} className="text-red-500">
+              <Button type="button" variant="outline" onClick={deleteCurrent} disabled={!sessionId || actionBusy} className="text-red-500">
                 <Trash2 size={16} />
               </Button>
               <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
