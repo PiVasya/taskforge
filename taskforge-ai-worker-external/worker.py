@@ -1339,7 +1339,7 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
         stage_name = f"repair_{primary_route}" if primary_route != "general" else "repair"
         return _with_stage_schema(OllamaCallConfig(stage=stage_name, timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assistant_chat_turn":
-        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.05, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
+        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.12, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
         cfg.json_mode = True
         cfg = _with_stage_schema(cfg, job_type, retry_count, compact_mode)
         cfg.json_schema = None
