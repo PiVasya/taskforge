@@ -4,6 +4,13 @@ function emitQuotaChanged() {
   try { window.dispatchEvent(new Event('quota:changed')); } catch {}
 }
 
+function imageRequestConfig(timeout) {
+  return {
+    timeout,
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 400,
+  };
+}
+
 // Загрузить/заменить эталонную картинку для image-test.
 // threshold — порог совпадения в процентах (0..100)
 export async function uploadImageTestReference(assignmentId, file, threshold = 90) {
@@ -19,7 +26,7 @@ export async function uploadImageTestReference(assignmentId, file, threshold = 9
 export async function compareImageTest(assignmentId, file) {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare`, fd);
+  const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare`, fd, imageRequestConfig());
   emitQuotaChanged();
   return res.data;
 }
@@ -31,7 +38,7 @@ export async function compareImageTestCode(assignmentId, language, code, input =
     code,
     input,
     debug,
-  });
+  }, imageRequestConfig());
   emitQuotaChanged();
   return res.data;
 }
@@ -43,9 +50,7 @@ export async function runImageTestCode(assignmentId, language, code, input = "",
     code,
     input,
     debug,
-  }, {
-    timeout: 60000, // 60 секунд для генерации картинки
-  });
+  }, imageRequestConfig(60000));
   emitQuotaChanged();
   return res.data;
 }
@@ -57,9 +62,7 @@ export async function submitImageTestCode(assignmentId, language, code, input = 
     code,
     input,
     debug,
-  }, {
-    timeout: 90000, // 90 секунд для генерации + сравнения с нейронкой
-  });
+  }, imageRequestConfig(90000));
   emitQuotaChanged();
   return res.data;
 }

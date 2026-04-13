@@ -86,6 +86,41 @@ function buildImageTaskErrorText(err, fallbackMessage) {
     lines.push(`• ${step}`);
   }
 
+  if (parsed.code) {
+    lines.push(`Код ошибки: ${parsed.code}`);
+  }
+
+  return Array.from(new Set(lines.filter(Boolean))).join('\n');
+}
+
+function buildImageTaskResponseText(resp, fallbackMessage) {
+  if (!resp || typeof resp !== 'object') return fallbackMessage;
+
+  const primaryMessage =
+    resp.message ||
+    resp.error ||
+    resp.runnerError ||
+    fallbackMessage ||
+    'Не удалось обработать ответ сервера';
+
+  const lines = [primaryMessage];
+
+  if (resp.detail && resp.detail !== primaryMessage) {
+    lines.push(resp.detail);
+  }
+
+  if (resp.userHint && resp.userHint !== primaryMessage) {
+    lines.push(resp.userHint);
+  }
+
+  for (const step of Array.isArray(resp.howToFix) ? resp.howToFix : []) {
+    lines.push(`• ${step}`);
+  }
+
+  if (resp.code) {
+    lines.push(`Код ошибки: ${resp.code}`);
+  }
+
   return Array.from(new Set(lines.filter(Boolean))).join('\n');
 }
 
@@ -484,7 +519,7 @@ export default function AssignmentSolvePage() {
             isTrial: true,
           });
         } else {
-          const errMsg = resp?.runnerError || 'Не удалось сгенерировать картинку';
+          const errMsg = buildImageTaskResponseText(resp, 'Не удалось сгенерировать картинку');
           setImgError(errMsg);
         }
       } catch (e) {
@@ -526,7 +561,7 @@ export default function AssignmentSolvePage() {
             notify.warn(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
           }
         } else {
-          const errMsg = resp?.runnerError || 'Не удалось проверить решение';
+          const errMsg = buildImageTaskResponseText(resp, 'Не удалось проверить решение');
           setImgError(errMsg);
         }
       } catch (e) {
@@ -613,7 +648,7 @@ export default function AssignmentSolvePage() {
                 <div>
                   <label className="label">Язык</label>
                   <Select
-                    value={imageLangs.some((l) => l.value === language) ? language : (imageLangs[0]?.value || 'python')}
+                    value={language}
                     onChange={(e) => setLanguage(e.target.value)}
                   >
                     {imageLangs.map((l) => (

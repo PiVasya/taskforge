@@ -213,9 +213,48 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
                     .Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? "Некорректное значение" : e.ErrorMessage)
                     .ToArray());
 
+        var requestPath = context.HttpContext.Request.Path.ToString();
+        var lowerPath = requestPath.ToLowerInvariant();
+        var isSoftImageValidation =
+            lowerPath.Contains("/image-test/run-code") ||
+            lowerPath.Contains("/image-tests/run-code") ||
+            lowerPath.Contains("/image-test/compare-code") ||
+            lowerPath.Contains("/image-tests/compare-code") ||
+            lowerPath.Contains("/image-test/submit-code") ||
+            lowerPath.Contains("/image-tests/submit-code") ||
+            lowerPath.Contains("/image-test/compare-upload") ||
+            lowerPath.Contains("/image-tests/compare-upload") ||
+            lowerPath.EndsWith("/image-test/compare") ||
+            lowerPath.EndsWith("/image-tests/compare");
+
+        if (isSoftImageValidation)
+        {
+            return new OkObjectResult(new
+            {
+                ok = false,
+                message = "Сервер не смог разобрать запрос к image-заданию.",
+                detail = "Часть полей отсутствует, имеет неверный формат или не соответствует ожидаемой схеме.",
+                path = requestPath,
+                trace = context.HttpContext.TraceIdentifier,
+                traceId = context.HttpContext.TraceIdentifier,
+                errors,
+                code = "VALIDATION_FAILED",
+                userHint = "Проверьте payload запроса и попробуйте отправить решение ещё раз.",
+                severity = "validation",
+                howToFix = new[]
+                {
+                    "Проверьте, что в теле запроса есть обязательные поля language и code.",
+                    "Убедитесь, что Content-Type выставлен корректно и JSON не повреждён.",
+                    "Сверьте payload в DevTools с контрактом фронта и бэка.",
+                },
+                httpStatus = StatusCodes.Status400BadRequest,
+                runnerError = "Сервер не смог разобрать запрос к image-заданию."
+            });
+        }
+
         return new BadRequestObjectResult(BuildErrorPayload(
             message: "Проверьте заполнение формы",
-            path: context.HttpContext.Request.Path.ToString(),
+            path: requestPath,
             traceId: context.HttpContext.TraceIdentifier,
             errors: errors,
             code: "VALIDATION_FAILED",

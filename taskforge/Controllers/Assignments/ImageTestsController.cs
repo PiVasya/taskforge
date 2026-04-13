@@ -57,7 +57,7 @@ public sealed class ImageTestsController : ControllerBase
     [HttpPost("reference")]
     public async Task<ActionResult<UploadReferenceResponse>> UploadReference(
         [FromRoute] Guid assignmentId,
-        [FromForm] IFormFile file,
+        [FromForm] IFormFile? file,
         [FromForm] double threshold,
         CancellationToken ct)
     {
@@ -89,18 +89,18 @@ public sealed class ImageTestsController : ControllerBase
     }
 
     // Added optional MimeType property so the client can specify the uploaded image mime type.
-    public sealed record CompareUploadedImageRequest(string SubmittedImageBase64)
+    public sealed record CompareUploadedImageRequest(string? SubmittedImageBase64)
     {
         public string? MimeType { get; init; }
     }
 
-    public sealed record CompareCodeRequest(string Language, string Code, string? Input = null, bool Debug = false);
+    public sealed record CompareCodeRequest(string? Language, string? Code, string? Input = null, bool Debug = false);
 
     /// <summary>
     /// "Пробный запуск" рисовалки: просто рендер без сравнения.
     /// По желанию можно включить сравнение с эталоном.
     /// </summary>
-    public sealed record RunCodeRequest(string Language, string Code, string? Input = null, bool Debug = false, bool CompareWithReference = false);
+    public sealed record RunCodeRequest(string? Language, string? Code, string? Input = null, bool Debug = false, bool CompareWithReference = false);
 
     public sealed record ImageTestRunResponse(
         bool Ok,
@@ -210,6 +210,32 @@ public sealed class ImageTestsController : ControllerBase
         params string[] howToFix)
         => BuildErrorResponse(StatusCodes.Status404NotFound, message, detail, code, userHint, "warning", howToFix);
 
+
+    private OkObjectResult SoftImageValidation(
+        string message,
+        string? detail = null,
+        string? code = null,
+        string? userHint = null,
+        params string[] howToFix)
+    {
+        var cleanSteps = howToFix?.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray() ?? Array.Empty<string>();
+        return Ok(new
+        {
+            ok = false,
+            message,
+            detail,
+            path = HttpContext?.Request?.Path.ToString(),
+            trace = HttpContext?.TraceIdentifier,
+            traceId = HttpContext?.TraceIdentifier,
+            code,
+            userHint,
+            howToFix = cleanSteps,
+            severity = "validation",
+            httpStatus = StatusCodes.Status400BadRequest,
+            runnerError = message,
+        });
+    }
+
     private static string FormatLangLabel(string lang)
     {
         return NormalizeLang(lang) switch
@@ -233,7 +259,7 @@ public sealed class ImageTestsController : ControllerBase
     [RequireQuota(QuotaBuckets.Tasks)]
     public async Task<ActionResult<ImageTestCompareResponse>> Compare(
         [FromRoute] Guid assignmentId,
-        [FromForm] IFormFile file,
+        [FromForm] IFormFile? file,
         CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
@@ -250,11 +276,11 @@ public sealed class ImageTestsController : ControllerBase
             return Forbid();
         }
         if (a is null) return HumanNotFound("Задание не найдено.", "Возможно, оно было удалено или ссылка устарела.", "ASSIGNMENT_NOT_FOUND", "Откройте задание из списка курса заново.", "Обновите страницу со списком заданий.", "Перейдите в курс и выберите задание ещё раз.");
-        if (a.Type != TaskAssignmentTypes.ImageTest) return HumanBadRequest("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
-        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return HumanBadRequest("У задания пока не настроена эталонная картинка.", "Без эталона сервер не может сравнить ваш результат с правильным изображением.", "IMAGE_REFERENCE_MISSING", "Это нужно исправить в режиме редактирования задания.", "Откройте задание на редактирование и загрузите эталонное изображение.", "После загрузки эталона попробуйте отправить решение ещё раз.");
-        if (file is null || file.Length == 0) return HumanBadRequest("Файл не был прикреплён или пришёл пустым.", "Сервер не получил изображение для проверки.", "IMAGE_FILE_EMPTY", "Выберите изображение заново и отправьте ещё раз.", "Проверьте, что вы действительно выбрали файл на устройстве.", "Если ошибка повторяется, обновите страницу и попробуйте отправить файл ещё раз.");
+        if (a.Type != TaskAssignmentTypes.ImageTest) return SoftImageValidation("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return SoftImageValidation("У задания пока не настроена эталонная картинка.", "Без эталона сервер не может сравнить ваш результат с правильным изображением.", "IMAGE_REFERENCE_MISSING", "Это нужно исправить в режиме редактирования задания.", "Откройте задание на редактирование и загрузите эталонное изображение.", "После загрузки эталона попробуйте отправить решение ещё раз.");
+        if (file is null || file.Length == 0) return SoftImageValidation("Файл не был прикреплён или пришёл пустым.", "Сервер не получил изображение для проверки.", "IMAGE_FILE_EMPTY", "Выберите изображение заново и отправьте ещё раз.", "Проверьте, что вы действительно выбрали файл на устройстве.", "Если ошибка повторяется, обновите страницу и попробуйте отправить файл ещё раз.");
 
-        var userId = _currentUser.GetUserId();
+                var userId = _currentUser.GetUserId();
 
         // Read uploaded bytes
         byte[] submittedBytes;
@@ -346,11 +372,11 @@ public sealed class ImageTestsController : ControllerBase
 
     [HttpPost("compare-upload")]
     [RequireQuota(QuotaBuckets.Tasks)]
-    public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest req, CancellationToken ct)
+    public async Task<ActionResult<ImageTestCompareResponse>> CompareUpload([FromRoute] Guid assignmentId, [FromBody] CompareUploadedImageRequest? req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
         // Use req.MimeType for logging purposes; this may be null when not supplied.
-        _log.LogInformation("CompareUpload start trace={Trace} assignmentId={AssignmentId} mime={MimeType} base64Len={Len}", trace, assignmentId, req.MimeType, req.SubmittedImageBase64?.Length ?? 0);
+        _log.LogInformation("CompareUpload start trace={Trace} assignmentId={AssignmentId} mime={MimeType} base64Len={Len}", trace, assignmentId, req?.MimeType, req?.SubmittedImageBase64?.Length ?? 0);
         TaskAssignment a;
         try
         {
@@ -361,24 +387,28 @@ public sealed class ImageTestsController : ControllerBase
             return Forbid();
         }
         if (a is null) return HumanNotFound("Задание не найдено.", "Возможно, оно было удалено или ссылка устарела.", "ASSIGNMENT_NOT_FOUND", "Откройте задание из списка курса заново.", "Обновите страницу со списком заданий.", "Перейдите в курс и выберите задание ещё раз.");
-        if (a.Type != TaskAssignmentTypes.ImageTest) return HumanBadRequest("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
-        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return HumanBadRequest("У задания пока не настроена эталонная картинка.", "Без эталона сервер не может сравнить ваш результат с правильным изображением.", "IMAGE_REFERENCE_MISSING", "Это нужно исправить в режиме редактирования задания.", "Откройте задание на редактирование и загрузите эталонное изображение.", "После загрузки эталона попробуйте отправить решение ещё раз.");
+        if (a.Type != TaskAssignmentTypes.ImageTest) return SoftImageValidation("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return SoftImageValidation("У задания пока не настроена эталонная картинка.", "Без эталона сервер не может сравнить ваш результат с правильным изображением.", "IMAGE_REFERENCE_MISSING", "Это нужно исправить в режиме редактирования задания.", "Откройте задание на редактирование и загрузите эталонное изображение.", "После загрузки эталона попробуйте отправить решение ещё раз.");
+        if (req is null) return SoftImageValidation("Сервер не смог прочитать тело запроса.", "Тело запроса отсутствует или было передано в неподдерживаемом формате.", "IMAGE_REQUEST_BODY_INVALID", "Проверьте формат отправки решения и повторите попытку.", "Обновите страницу и отправьте решение ещё раз.", "Если ошибка повторяется, откройте DevTools и проверьте payload запроса.");
 
         var userId = _currentUser.GetUserId();
 
         // 1) Decode submitted image from base64 (dataURL or plain base64)
         byte[] submittedBytes;
+        if (string.IsNullOrWhiteSpace(req?.SubmittedImageBase64))
+            return SoftImageValidation("Изображение не было передано в запросе.", "Сервер не получил base64 с изображением пользователя.", "IMAGE_BASE64_MISSING", "Сформируйте изображение заново и повторите отправку.", "Если вы рисуете на canvas, убедитесь, что изображение действительно сформировано.", "Если вы выбираете файл, используйте форму загрузки изображения.");
+
         try
         {
             submittedBytes = Base64Helper.DecodeDataUrlOrBase64(req.SubmittedImageBase64);
         }
         catch
         {
-            return HumanBadRequest("Не удалось прочитать изображение из запроса.", "Картинка была передана в повреждённом или неподдерживаемом base64-формате.", "IMAGE_BASE64_INVALID", "Попробуйте выбрать файл заново или отправить изображение другим способом.", "Если картинка берётся из canvas, убедитесь, что base64 формируется полностью.", "Если вы отправляете файл, используйте форму загрузки изображения.");
+            return SoftImageValidation("Не удалось прочитать изображение из запроса.", "Картинка была передана в повреждённом или неподдерживаемом base64-формате.", "IMAGE_BASE64_INVALID", "Попробуйте выбрать файл заново или отправить изображение другим способом.", "Если картинка берётся из canvas, убедитесь, что base64 формируется полностью.", "Если вы отправляете файл, используйте форму загрузки изображения.");
         }
 
         if (submittedBytes.Length == 0)
-            return HumanBadRequest("Из изображения ничего не удалось прочитать.", "После декодирования base64 сервер получил пустой файл.", "IMAGE_BASE64_EMPTY", "Сформируйте изображение заново и повторите отправку.", "Проверьте, что картинка действительно была нарисована или загружена перед отправкой.", "Если вы отправляете canvas, убедитесь, что он не пустой.");
+            return SoftImageValidation("Из изображения ничего не удалось прочитать.", "После декодирования base64 сервер получил пустой файл.", "IMAGE_BASE64_EMPTY", "Сформируйте изображение заново и повторите отправку.", "Проверьте, что картинка действительно была нарисована или загружена перед отправкой.", "Если вы отправляете canvas, убедитесь, что он не пустой.");
 
         // 2) Upload submitted image
         // Default to "image/png" if no mime type is provided by the client.
@@ -460,13 +490,13 @@ public sealed class ImageTestsController : ControllerBase
     /// </summary>
     [HttpPost("run-code")]
     [RequireQuota(QuotaBuckets.Tasks)]
-    public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest req, CancellationToken ct)
+    public async Task<ActionResult<ImageTestRunResponse>> RunCode([FromRoute] Guid assignmentId, [FromBody] RunCodeRequest? req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
         var isAdmin = User.IsInRole("Admin");
-        var effectiveDebug = isAdmin && req.Debug;
+        var effectiveDebug = isAdmin && (req?.Debug ?? false);
         _log.LogInformation("RunCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len} debug={Debug} compare={Compare}",
-            trace, assignmentId, req.Language, req.Code?.Length ?? 0, effectiveDebug, req.CompareWithReference);
+            trace, assignmentId, req?.Language, req?.Code?.Length ?? 0, effectiveDebug, req?.CompareWithReference ?? false);
 
         TaskAssignment a;
         try
@@ -478,14 +508,15 @@ public sealed class ImageTestsController : ControllerBase
             return Forbid();
         }
         if (a is null) return HumanNotFound("Задание не найдено.", "Возможно, оно было удалено или ссылка устарела.", "ASSIGNMENT_NOT_FOUND", "Откройте задание из списка курса заново.", "Обновите страницу со списком заданий.", "Перейдите в курс и выберите задание ещё раз.");
-        if (a.Type != TaskAssignmentTypes.ImageTest) return HumanBadRequest("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
-        if (string.IsNullOrWhiteSpace(req.Code)) return HumanBadRequest("Вы отправили пустой код.", "Сервер получил запрос без текста программы.", "IMAGE_CODE_EMPTY", "Вставьте или напишите решение, а затем повторите отправку.", "Проверьте, что редактор не пустой.", "Если код был вставлен только что, дождитесь обновления редактора и попробуйте снова.");
+        if (a.Type != TaskAssignmentTypes.ImageTest) return SoftImageValidation("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
+        if (req is null) return SoftImageValidation("Сервер не смог прочитать тело запроса.", "Тело запроса отсутствует или было передано в неподдерживаемом формате.", "IMAGE_REQUEST_BODY_INVALID", "Проверьте формат отправки решения и повторите попытку.", "Обновите страницу и отправьте решение ещё раз.", "Если ошибка повторяется, откройте DevTools и проверьте payload запроса.");
+        if (string.IsNullOrWhiteSpace(req.Code)) return SoftImageValidation("Вы отправили пустой код.", "Сервер получил запрос без текста программы.", "IMAGE_CODE_EMPTY", "Вставьте или напишите решение, а затем повторите отправку.", "Проверьте, что редактор не пустой.", "Если код был вставлен только что, дождитесь обновления редактора и попробуйте снова.");
 
-                var allowedLangs = GetAllowedImageLangs(a);
+        var allowedLangs = GetAllowedImageLangs(a);
 
         var lang = NormalizeLang(req.Language ?? string.Empty);
         if (!allowedLangs.Contains(lang))
-            return HumanBadRequest($"Для этого задания нельзя отправлять решение на языке {FormatLangLabel(lang)}.", $"Разрешённые языки: {FormatAllowedLangs(allowedLangs)}.", "IMAGE_LANG_NOT_ALLOWED", "Выберите разрешённый язык в выпадающем списке и отправьте решение ещё раз.", "Если список языков на странице выглядит неправильно, обновите страницу.", "Если в задании должен быть доступен другой язык, сообщите преподавателю или редактору курса.");
+            return SoftImageValidation($"Для этого задания нельзя отправлять решение на языке {FormatLangLabel(lang)}.", $"Разрешённые языки: {FormatAllowedLangs(allowedLangs)}.", "IMAGE_LANG_NOT_ALLOWED", "Выберите разрешённый язык в выпадающем списке и отправьте решение ещё раз.", "Если список языков на странице выглядит неправильно, обновите страницу.", "Если в задании должен быть доступен другой язык, сообщите преподавателю или редактору курса.");
 // Guardrail: users sometimes paste Pascal into a Python editor (or vice versa).
         // That leads to confusing errors like Python SyntaxError for Pascal comments.
         // We auto-correct the language for image-tests based on simple heuristics.
@@ -691,13 +722,13 @@ public sealed class ImageTestsController : ControllerBase
     /// </summary>
     [HttpPost("compare-code")]
     [RequireQuota(QuotaBuckets.Tasks)]
-    public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
+    public async Task<ActionResult<ImageTestCompareResponse>> CompareCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest? req, CancellationToken ct)
     {
         var trace = HttpContext.TraceIdentifier;
         var isAdmin = User.IsInRole("Admin");
-        var effectiveDebug = isAdmin && req.Debug;
-        DebugConsole.Log("ImageTests", $"CompareCode start trace={trace} assignmentId={assignmentId} lang={req.Language} codeLen={req.Code?.Length ?? 0} debug={req.Debug}");
-        _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req.Language, req.Code?.Length ?? 0);
+        var effectiveDebug = isAdmin && (req?.Debug ?? false);
+        DebugConsole.Log("ImageTests", $"CompareCode start trace={trace} assignmentId={assignmentId} lang={req?.Language} codeLen={req?.Code?.Length ?? 0} debug={req?.Debug ?? false}");
+        _log.LogInformation("CompareCode start trace={Trace} assignmentId={AssignmentId} lang={Lang} codeLen={Len}", trace, assignmentId, req?.Language, req?.Code?.Length ?? 0);
         TaskAssignment a;
         try
         {
@@ -708,9 +739,10 @@ public sealed class ImageTestsController : ControllerBase
             return Forbid();
         }
         if (a is null) return HumanNotFound("Задание не найдено.", "Возможно, оно было удалено или ссылка устарела.", "ASSIGNMENT_NOT_FOUND", "Откройте задание из списка курса заново.", "Обновите страницу со списком заданий.", "Перейдите в курс и выберите задание ещё раз.");
-        if (a.Type != TaskAssignmentTypes.ImageTest) return HumanBadRequest("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
-        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return HumanBadRequest("У задания пока не настроена эталонная картинка.", "Без эталона сервер не может сравнить ваш результат с правильным изображением.", "IMAGE_REFERENCE_MISSING", "Это нужно исправить в режиме редактирования задания.", "Откройте задание на редактирование и загрузите эталонное изображение.", "После загрузки эталона попробуйте отправить решение ещё раз.");
-        if (string.IsNullOrWhiteSpace(req.Code)) return HumanBadRequest("Вы отправили пустой код.", "Сервер получил запрос без текста программы.", "IMAGE_CODE_EMPTY", "Вставьте или напишите решение, а затем повторите отправку.", "Проверьте, что редактор не пустой.", "Если код был вставлен только что, дождитесь обновления редактора и попробуйте снова.");
+        if (a.Type != TaskAssignmentTypes.ImageTest) return SoftImageValidation("Это задание не проверяется по картинке.", "Маршрут image-test вызван для задания другого типа.", "ASSIGNMENT_TYPE_MISMATCH", "Откройте правильный тип задания или проверьте настройки на странице редактирования.", "Если вы решаете обычное code-test задание, используйте стандартную отправку решения.", "Если это должно быть image-test задание, проверьте его тип в редакторе.");
+        if (string.IsNullOrWhiteSpace(a.ImageTestReferenceKey)) return SoftImageValidation("У задания пока не настроена эталонная картинка.", "Без эталона сервер не может сравнить ваш результат с правильным изображением.", "IMAGE_REFERENCE_MISSING", "Это нужно исправить в режиме редактирования задания.", "Откройте задание на редактирование и загрузите эталонное изображение.", "После загрузки эталона попробуйте отправить решение ещё раз.");
+        if (req is null) return SoftImageValidation("Сервер не смог прочитать тело запроса.", "Тело запроса отсутствует или было передано в неподдерживаемом формате.", "IMAGE_REQUEST_BODY_INVALID", "Проверьте формат отправки решения и повторите попытку.", "Обновите страницу и отправьте решение ещё раз.", "Если ошибка повторяется, откройте DevTools и проверьте payload запроса.");
+        if (string.IsNullOrWhiteSpace(req.Code)) return SoftImageValidation("Вы отправили пустой код.", "Сервер получил запрос без текста программы.", "IMAGE_CODE_EMPTY", "Вставьте или напишите решение, а затем повторите отправку.", "Проверьте, что редактор не пустой.", "Если код был вставлен только что, дождитесь обновления редактора и попробуйте снова.");
 
         var canEdit = await CanEditAssignmentAsync(a, ct);
         var referenceUrlForUser = canEdit ? $"/api/private-files/{Uri.EscapeDataString(a.ImageTestReferenceKey)}" : null;
@@ -719,7 +751,7 @@ public sealed class ImageTestsController : ControllerBase
 
         var lang = NormalizeLang(req.Language ?? string.Empty);
         if (!allowedLangs.Contains(lang))
-            return HumanBadRequest($"Для этого задания нельзя отправлять решение на языке {FormatLangLabel(lang)}.", $"Разрешённые языки: {FormatAllowedLangs(allowedLangs)}.", "IMAGE_LANG_NOT_ALLOWED", "Выберите разрешённый язык в выпадающем списке и отправьте решение ещё раз.", "Если список языков на странице выглядит неправильно, обновите страницу.", "Если в задании должен быть доступен другой язык, сообщите преподавателю или редактору курса.");
+            return SoftImageValidation($"Для этого задания нельзя отправлять решение на языке {FormatLangLabel(lang)}.", $"Разрешённые языки: {FormatAllowedLangs(allowedLangs)}.", "IMAGE_LANG_NOT_ALLOWED", "Выберите разрешённый язык в выпадающем списке и отправьте решение ещё раз.", "Если список языков на странице выглядит неправильно, обновите страницу.", "Если в задании должен быть доступен другой язык, сообщите преподавателю или редактору курса.");
 var userId = _currentUser.GetUserId();
         var codeLen = Encoding.UTF8.GetByteCount(req.Code);
 
@@ -1042,7 +1074,7 @@ var userId = _currentUser.GetUserId();
     /// </summary>
     [HttpPost("submit-code")]
     [RequireQuota(QuotaBuckets.Tasks)]
-    public Task<ActionResult<ImageTestCompareResponse>> SubmitCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest req, CancellationToken ct)
+    public Task<ActionResult<ImageTestCompareResponse>> SubmitCode([FromRoute] Guid assignmentId, [FromBody] CompareCodeRequest? req, CancellationToken ct)
         => CompareCode(assignmentId, req, ct);
     private async Task<TaskAssignment?> GetViewableImageAssignmentAsync(Guid assignmentId, CancellationToken ct)
     {
