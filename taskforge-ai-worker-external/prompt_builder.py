@@ -994,6 +994,27 @@ def _compact_course_style_examples(payload: Dict[str, Any], limit: int = 8) -> L
     return examples[:limit]
 
 
+def _compact_approved_blueprint(payload: Dict[str, Any]) -> Dict[str, Any] | None:
+    ctx = payload.get("structuredContext") if isinstance(payload.get("structuredContext"), dict) else {}
+    if normalize_text(ctx.get("kind")) != "approved-chat-blueprint":
+        return None
+    return {
+        "kind": "approved-chat-blueprint",
+        "title": truncate_text(ctx.get("title"), 120),
+        "goal": truncate_text(ctx.get("goal"), 180),
+        "fullCondition": truncate_text(ctx.get("fullCondition"), 700),
+        "conditionPreview": truncate_text(ctx.get("conditionPreview"), 260),
+        "mustKeep": unique_string_list(ctx.get("mustKeep"), 10),
+        "avoid": unique_string_list(ctx.get("avoid"), 10),
+        "publicTests": [
+            {
+                "input": truncate_text((x or {}).get("input"), 40),
+                "expectedOutput": truncate_text((x or {}).get("expectedOutput"), 80),
+            }
+            for x in list(ctx.get("publicTests") or [])[:6] if isinstance(x, dict)
+        ],
+    }
+
 def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
@@ -1013,6 +1034,7 @@ def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[
         },
         "courseExamples": _compact_course_style_examples(payload, limit=8),
         "titleExamples": _compact_title_examples(payload, limit=14),
+        "approvedBlueprint": _compact_approved_blueprint(payload),
     }
     return (
         "Ты — TaskForge AI course style analyst. Верни только JSON без markdown.\n\n"
@@ -1055,6 +1077,7 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         "peerItems": compact_peers,
         "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
         "anchorBuckets": _collect_reference_buckets(payload),
+        "approvedBlueprint": _compact_approved_blueprint(payload),
     }
     return (
         "Ты — TaskForge AI generation planner. Верни только JSON без markdown.\n\n"
@@ -1099,6 +1122,7 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
         "styleContract": (reference_pack.get("generationHints") or {}).get("styleContract") if isinstance(reference_pack.get("generationHints"), dict) else None,
         "peerItems": _compact_peer_context(payload, limit=6),
+        "approvedBlueprint": _compact_approved_blueprint(payload),
     }
     return (
         "Ты — TaskForge AI draft content planner. Верни только JSON без markdown.\n\n"
@@ -1246,6 +1270,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
 - Не создавай тесты, где input состоит только из пробелов или пустых строк с пробелами: такие кейсы несовместимы с сайтом.
+- Если задача логически не требует ввода, не оставляй input пустым: используй явный текстовый sentinel "пусто" и прямо напиши в условии, что этот вход нужно игнорировать.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: новая задача должна помнить, после какого существующего задания её лучше вставить в курсе.
 
 Draft body payload:
@@ -1307,6 +1332,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 - Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.
 - Если в payload есть selectionTelemetry, используй topCandidates и selectedTitles как сигнал, какие referenceAssignments считались самыми близкими и почему.
 - referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
+- Если задача логически без ввода, не используй пустой input в тестах: используй текстовый sentinel "пусто" и объясни в условии, что ввод надо игнорировать.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: выбери существующий anchor из referenceAssignments или верни null.
 
 Draft payload:

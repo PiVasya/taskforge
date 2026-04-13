@@ -40,3 +40,11 @@
 ## Что не проверено здесь
 - `dotnet build` / Docker build
 - полный frontend build
+
+
+## Update: no-input sentinel + blueprint fidelity
+- Для code-test пустой input больше не путешествует по пайплайну как пустая строка: он нормализуется в текстовый sentinel `пусто`.
+- Публикация AI draft и обычное создание/обновление тест-кейсов теперь тоже нормализуют пустой input в `пусто`, чтобы не было расхождения между worker/self-check и проектной валидацией.
+- finalize_chat_blueprint теперь прокидывает approved blueprint как structured context в generation job.
+- Генератор усилил blueprint-fidelity: согласованный title/condition из чата считаются каноном, а для простых intro-output задач фиксированный литерал вывода и reference solution больше не должны уезжать в соседнюю тему вроде `System online`.
+- В prompt builder добавлены явные правила: если задача без ввода, использовать sentinel `пусто`, а не пустой input.

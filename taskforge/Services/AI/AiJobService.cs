@@ -155,6 +155,9 @@ public sealed partial class AiJobService : IAiJobService
                 instructionStrictness = request.InstructionStrictness,
                 userInstructionSnapshot = request.UserInstructionSnapshot,
                 teachingScript = request.TeachingScript,
+                structuredContext = string.IsNullOrWhiteSpace(request.StructuredContextJson)
+                    ? null
+                    : JsonSerializer.Deserialize<JsonNode>(request.StructuredContextJson, JsonOptions),
             });
 
         return await EnqueueAsync(new CreateAiJobRequestDto
@@ -188,6 +191,7 @@ public sealed partial class AiJobService : IAiJobService
                 instructionStrictness = request.InstructionStrictness,
                 userInstructionSnapshot = request.UserInstructionSnapshot,
                 teachingScript = request.TeachingScript,
+                structuredContext = null,
             });
 
         return await EnqueueAsync(new CreateAiJobRequestDto

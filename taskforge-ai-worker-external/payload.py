@@ -1393,6 +1393,8 @@ def _generation_seed_text(payload: Dict[str, Any], result: Dict[str, Any] | None
     return " ".join(x for x in parts if x).lower()
 
 
+NO_INPUT_SENTINEL = "пусто"
+
 # Removed deterministic subject-template draft builders.
 # Draft synthesis must stay LLM-first; sanitization may only wrap/normalize model output.
 
@@ -1400,14 +1402,145 @@ def _default_code_test_draft_for_seed(payload: Dict[str, Any]) -> Dict[str, Any]
     return None
 
 
-def _is_site_incompatible_test_case(test: Dict[str, Any]) -> bool:
-    raw_input = test.get("input")
-    if raw_input is None:
-        return True
-    raw_input = str(raw_input)
-    if raw_input != "" and raw_input.strip() == "":
-        return True
-    return False
+def _normalize_test_input_value(value: Any) -> str:
+    text = normalize_text(value)
+    if not text:
+        return NO_INPUT_SENTINEL
+    return text
+
+
+def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ctx = payload.get("structuredContext") if isinstance(payload.get("structuredContext"), dict) else {}
+    if normalize_text(ctx.get("kind")) == "approved-chat-blueprint":
+        must_keep = [normalize_text(x) for x in list(ctx.get("mustKeep") or []) if normalize_text(x)]
+        avoid = [normalize_text(x) for x in list(ctx.get("avoid") or []) if normalize_text(x)]
+        public_tests = []
+        for item in list(ctx.get("publicTests") or []):
+            if not isinstance(item, dict):
+                continue
+            public_tests.append({
+                "input": _normalize_test_input_value(item.get("input")),
+                "expectedOutput": normalize_text(item.get("expectedOutput")),
+            })
+        return {
+            "kind": "approved-chat-blueprint",
+            "title": normalize_text(ctx.get("title")),
+            "fullCondition": normalize_text(ctx.get("fullCondition")),
+            "conditionPreview": normalize_text(ctx.get("conditionPreview")),
+            "goal": normalize_text(ctx.get("goal")),
+            "mustKeep": must_keep,
+            "avoid": avoid,
+            "publicTests": [x for x in public_tests if x.get("expectedOutput")],
+        }
+    return {}
+
+
+def _extract_fixed_output_literal(contract: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    texts = [
+        contract.get("fullCondition"),
+        contract.get("conditionPreview"),
+        payload.get("sourceText"),
+        payload.get("teachingScript"),
+        payload.get("userInstructionSnapshot"),
+        payload.get("prompt"),
+    ]
+    for text in texts:
+        norm = normalize_text(text)
+        if not norm:
+            continue
+        for pattern in [
+            r'cout\s*<<\s*"([^"]{1,120})"',
+            r"cout\s*<<\s*'([^']{1,120})'",
+            r'вывед[ие][тс]?\s+на\s+экран\s+(?:слово|фразу|строку)\s+"([^"]{1,120})"',
+            r'вывед[ие][тс]?\s+на\s+экран\s+(?:слово|фразу|строку)\s+«([^»]{1,120})»',
+        ]:
+            m = re.search(pattern, norm, flags=re.IGNORECASE)
+            if m:
+                return normalize_text(m.group(1))
+    return ""
+
+
+def _blueprint_requires_no_input(contract: Dict[str, Any], payload: Dict[str, Any]) -> bool:
+    texts = [contract.get("fullCondition"), contract.get("conditionPreview"), payload.get("sourceText"), payload.get("teachingScript"), payload.get("prompt")]
+    hay = "\n".join(normalize_text(x).lower() for x in texts if normalize_text(x))
+    return any(token in hay for token in ["входные данные не требуются", "ничего считывать", "без ввода", "программа не должна ничего считывать", "игнорируй ввод", "cout <<"])
+
+
+def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    contract = _extract_blueprint_contract(payload)
+    if contract.get("kind") != "approved-chat-blueprint":
+        return draft
+    aligned = dict(draft)
+    title = contract.get("title")
+    if title:
+        aligned["title"] = title
+    full_condition = contract.get("fullCondition") or contract.get("conditionPreview")
+    if full_condition:
+        aligned["description"] = full_condition
+    fixed_output = _extract_fixed_output_literal(contract, payload)
+    no_input = _blueprint_requires_no_input(contract, payload)
+
+    def _normalize_tests(tests: Any) -> List[Dict[str, Any]]:
+        items = [dict(x) for x in list(tests or []) if isinstance(x, dict)]
+        result: List[Dict[str, Any]] = []
+        for item in items:
+            inp = _normalize_test_input_value(item.get("input"))
+            exp = normalize_text(item.get("expectedOutput"))
+            if fixed_output:
+                exp = fixed_output + "\n"
+            if not exp:
+                continue
+            result.append({"input": inp, "expectedOutput": exp})
+        return result
+
+    public_tests = _normalize_tests(aligned.get("publicTests"))
+    hidden_tests = _normalize_tests(aligned.get("hiddenTests"))
+
+    if contract.get("publicTests"):
+        seed_tests = [dict(x) for x in contract.get("publicTests") if isinstance(x, dict)]
+        public_tests = []
+        for item in seed_tests:
+            exp = normalize_text(item.get("expectedOutput"))
+            if fixed_output:
+                exp = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
+            if not exp:
+                continue
+            public_tests.append({"input": _normalize_test_input_value(item.get("input")), "expectedOutput": exp})
+
+    if fixed_output:
+        desired = fixed_output + "\n"
+        if not public_tests:
+            public_tests = [
+                {"input": NO_INPUT_SENTINEL if no_input else "0", "expectedOutput": desired},
+                {"input": "1", "expectedOutput": desired},
+                {"input": "test", "expectedOutput": desired},
+                {"input": "abc", "expectedOutput": desired},
+            ]
+        if not hidden_tests:
+            hidden_tests = [{"input": "hidden_check", "expectedOutput": desired}]
+        aligned["referenceSolutionPython"] = (
+            f'import sys\n'
+            f'def solve():\n'
+            f'    _ = sys.stdin.read()\n'
+            f'    print({fixed_output!r})\n'
+            f'if __name__ == "__main__":\n'
+            f'    solve()'
+        )
+    elif no_input:
+        public_tests = [{**t, "input": _normalize_test_input_value(t.get("input"))} for t in public_tests]
+        hidden_tests = [{**t, "input": _normalize_test_input_value(t.get("input"))} for t in hidden_tests]
+
+    if public_tests:
+        aligned["publicTests"] = public_tests
+    if hidden_tests:
+        aligned["hiddenTests"] = hidden_tests
+    must_keep = [x.casefold() for x in list(contract.get("mustKeep") or [])]
+    required = unique_string_list(aligned.get("requiredCalls") or [], 8)
+    if any("cout" in x for x in must_keep) and "cout" not in [x.casefold() for x in required]:
+        required.append("cout")
+    if required:
+        aligned["requiredCalls"] = unique_string_list(required, 8)
+    return aligned
 
 
 def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
@@ -1417,7 +1550,7 @@ def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
     for test in tests:
         if _is_site_incompatible_test_case(test):
             continue
-        key = (normalize_text(test.get("input")), normalize_text(test.get("expectedOutput")))
+        key = (_normalize_test_input_value(test.get("input")), normalize_text(test.get("expectedOutput")))
         if key in seen:
             continue
         seen.add(key)
@@ -1531,6 +1664,7 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
     normalized["placementReason"] = placement.get("placementReason")
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         _rebalance_code_tests(normalized, payload)
+        normalized = _apply_blueprint_contract_to_code_test_draft(normalized, payload)
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         normalized = _ensure_solvable_code_test_draft(normalized, payload)
     return normalized
@@ -1585,7 +1719,7 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
             if not isinstance(item, dict):
                 continue
             mapped_item = {
-                "input": normalize_text(item.get("input") if canonical_only else (item.get("input") or item.get("stdin") or item.get("in"))),
+                "input": _normalize_test_input_value(item.get("input") if canonical_only else (item.get("input") or item.get("stdin") or item.get("in"))),
                 "expectedOutput": normalize_text(item.get("expectedOutput") if canonical_only else (item.get("expectedOutput") or item.get("expected_output") or item.get("output") or item.get("stdout") or item.get("out"))),
             }
             if _is_site_incompatible_test_case(mapped_item):

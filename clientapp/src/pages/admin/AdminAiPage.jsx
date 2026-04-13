@@ -1687,6 +1687,7 @@ export default function AdminAiPage() {
 
   /* ── Drafts (the main thing!) ───────────────────── */
   var renderDrafts = function () {
+    var needsCourseSelectionWarning = !courseScopeId && drafts.some(function (d) { return !d.courseId; });
     return (
       <Card>
         <SectionTitle
@@ -1700,10 +1701,10 @@ export default function AdminAiPage() {
           <Badge intent="danger">Отклонено: {draftCounts.rejected}</Badge>
           <Badge intent="success">Опубликовано: {draftCounts.published}</Badge>
         </div>
-        {!courseScopeId ? (
+        {needsCourseSelectionWarning ? (
           <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-800/30 p-3 text-sm flex items-center gap-2 mb-4">
             <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-            <span>Курс не выбран. Для публикации нужно выбрать курс на вкладке «Обзор».</span>
+            <span>У части черновиков курс не указан. Для публикации таких черновиков выбери курс на вкладке «Обзор».</span>
           </div>
         ) : null}
         <div className="space-y-4 mt-4 max-h-[76vh] overflow-auto pr-1">

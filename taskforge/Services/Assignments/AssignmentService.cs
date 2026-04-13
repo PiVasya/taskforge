@@ -11,6 +11,7 @@ namespace taskforge.Services
 {
     public sealed class AssignmentService : IAssignmentService
     {
+        private const string NoInputSentinel = "пусто";
         private readonly ApplicationDbContext _db;
 
         public AssignmentService(ApplicationDbContext db) => _db = db;
@@ -85,7 +86,7 @@ namespace taskforge.Services
                     entity.TestCases.Add(new TaskTestCase
                     {
                         Id = Guid.NewGuid(),
-                        Input = tc.Input ?? string.Empty,
+                        Input = NormalizeCodeTestInput(tc.Input),
                         ExpectedOutput = tc.ExpectedOutput ?? string.Empty,
                         IsHidden = tc.IsHidden
                     });
@@ -354,6 +355,13 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             return true;
         }
 
+        private static string NormalizeCodeTestInput(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return NoInputSentinel;
+            return raw;
+        }
+
         private static void ValidateAssignmentPayload(
             string? title,
             string? description,
@@ -389,10 +397,10 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 
                 var invalidIndex = codeTestCases
                     .Select((x, idx) => new { x, idx })
-                    .FirstOrDefault(x => string.IsNullOrWhiteSpace(x.x.Input) || string.IsNullOrWhiteSpace(x.x.ExpectedOutput));
+                    .FirstOrDefault(x => string.IsNullOrWhiteSpace(x.x.ExpectedOutput));
 
                 if (invalidIndex != null)
-                    throw new ValidationException($"Тест-кейс #{invalidIndex.idx + 1} должен содержать и Input, и Expected Output.");
+                    throw new ValidationException($"Тест-кейс #{invalidIndex.idx + 1} должен содержать Expected Output.");
             }
 
             if (assignmentType == TaskAssignmentTypes.ImageTest)

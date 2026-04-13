@@ -882,6 +882,7 @@ public sealed class AiChatService
                             Difficulty = Math.Clamp(proposal.Difficulty, 1, 5),
                             Count = 1,
                             Notes = $"Finalized from chat blueprint session {session.Id}. Revision {blueprint.Revision}.",
+                            StructuredContextJson = BuildStructuredContextFromChatBlueprintProposal(proposal, blueprint, session.Id),
                             Priority = priority,
                             EnableSelfCheck = enableSelfCheck,
                             InstructionStrictness = strictness,
@@ -3875,8 +3876,30 @@ public sealed class AiChatService
             sb.AppendLine($"Запрещено добавлять: {string.Join(", ", proposal.Avoid)}");
         if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
             sb.AppendLine("Следуй teaching-script из чата максимально близко. Не теряй порядок шагов, если он был явно задан.");
+        if (!string.IsNullOrWhiteSpace(proposal.FullCondition))
+            sb.AppendLine("Одобренный черновик условия из чата — это канонический источник истины. Финальный draft обязан сохранять ту же учебную мысль, те же литералы, те же шаги и тот же scope.");
+        sb.AppendLine("Если в согласованном условии уже есть конкретные строки кода, точный вывод, точные ограничения или конкретный каркас программы, не подменяй их новыми значениями.");
         sb.AppendLine("Сначала сделай хорошее итоговое условие, тесты и reference solution. Не уезжай в новую тему и не расширяй scope.");
         return sb.ToString().Trim();
+    }
+
+    private static string BuildStructuredContextFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatDraftBlueprintDto blueprint, Guid sessionId)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            kind = "approved-chat-blueprint",
+            sessionId,
+            revision = Math.Max(1, blueprint?.Revision ?? 1),
+            title = proposal.Title,
+            assignmentType = proposal.AssignmentType,
+            difficulty = proposal.Difficulty,
+            goal = proposal.Goal,
+            conditionPreview = proposal.ConditionPreview,
+            fullCondition = proposal.FullCondition,
+            mustKeep = proposal.MustKeep,
+            avoid = proposal.Avoid,
+            publicTests = proposal.PublicTests.Select(x => new { input = x.Input, expectedOutput = x.ExpectedOutput }).ToList(),
+        }, JsonOptions);
     }
 
     private static string BuildSourceTextFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatMemoryDto memory)
@@ -3907,6 +3930,8 @@ public sealed class AiChatService
             sb.AppendLine("Teaching-script пользователя:");
             sb.AppendLine(memory.LatestTeachingScript);
         }
+        sb.AppendLine();
+        sb.AppendLine("Важно: это уже одобренный blueprint из чата. Нельзя менять тему, ключевые литералы, итоговый вывод и порядок шагов без прямого запроса пользователя.");
         if (proposal.MustKeep.Count > 0)
             sb.AppendLine($"Сохранить обязательно: {string.Join(", ", proposal.MustKeep)}");
         if (proposal.Avoid.Count > 0)

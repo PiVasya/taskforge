@@ -13,6 +13,7 @@ namespace taskforge.Services.AI;
 
 public sealed partial class AiJobService
 {
+    private const string NoInputSentinel = "пусто";
     public async Task<PublishAiDraftResultDto?> PublishDraftAsync(Guid id, Guid reviewedByUserId, PublishAiDraftRequestDto request, CancellationToken ct = default)
     {
         var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -413,7 +414,7 @@ public sealed partial class AiJobService
             var list = new List<CreateTestCaseDto>();
             foreach (var item in arr.EnumerateArray())
             {
-                var input = ReadString(item, "input") ?? string.Empty;
+                var input = NormalizeTestInput(ReadString(item, "input"));
                 var output = ReadString(item, "expectedOutput") ?? ReadString(item, "output") ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(input) && string.IsNullOrWhiteSpace(output)) continue;
                 list.Add(new CreateTestCaseDto
@@ -426,6 +427,13 @@ public sealed partial class AiJobService
             return list;
         }
         return new List<CreateTestCaseDto>();
+    }
+
+    private static string NormalizeTestInput(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return NoInputSentinel;
+        return raw;
     }
 
     private static List<TaskTestOptionDto> ReadTestOptions(JsonElement node, params string[] names)
@@ -774,7 +782,7 @@ public sealed partial class AiJobService
             var list = new List<TaskTestCase>();
             foreach (var item in arr.EnumerateArray())
             {
-                var input = ReadString(item, "input") ?? string.Empty;
+                var input = NormalizeTestInput(ReadString(item, "input"));
                 var output = ReadString(item, "expectedOutput") ?? ReadString(item, "output") ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(input) && string.IsNullOrWhiteSpace(output)) continue;
                 list.Add(new TaskTestCase
