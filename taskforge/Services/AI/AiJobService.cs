@@ -191,7 +191,7 @@ public sealed partial class AiJobService : IAiJobService
                 instructionStrictness = request.InstructionStrictness,
                 userInstructionSnapshot = request.UserInstructionSnapshot,
                 teachingScript = request.TeachingScript,
-                structuredContext = null,
+                structuredContext = (JsonNode?)null,
             });
 
         return await EnqueueAsync(new CreateAiJobRequestDto
