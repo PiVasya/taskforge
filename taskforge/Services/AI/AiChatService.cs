@@ -30,6 +30,8 @@ public sealed class AiChatService
         "advance_agent_stage",
     };
 
+    private const int DefaultInstructionStrictness = 55;
+
     private readonly ApplicationDbContext _db;
     private readonly IAiJobService _jobs;
     private readonly ILogger<AiChatService> _log;
@@ -86,7 +88,11 @@ public sealed class AiChatService
             CreatedByUserId = userId,
             Title = title,
             MessagesJson = "[]",
-            PlanJson = SerializeMemory(new AiFoundryChatMemoryDto { Summary = "Новая сессия. Пока без сообщений." }),
+            PlanJson = SerializeMemory(new AiFoundryChatMemoryDto
+            {
+                Summary = "Новая сессия. Пока без сообщений.",
+                InstructionStrictness = ClampInstructionStrictness(request.InstructionStrictness),
+            }),
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
         };
@@ -108,6 +114,12 @@ public sealed class AiChatService
             session.Title = request.Title.Trim();
 
         session.CourseId = request.CourseId;
+        if (request.InstructionStrictness.HasValue)
+        {
+            var memory = DeserializeMemory(session.PlanJson);
+            memory.InstructionStrictness = ClampInstructionStrictness(request.InstructionStrictness, memory.InstructionStrictness);
+            session.PlanJson = SerializeMemory(memory);
+        }
         session.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
 
@@ -149,7 +161,7 @@ public sealed class AiChatService
             {
                 Pending = true,
                 PendingJobId = pendingAssistant.PendingJobId,
-                Session = MapSession(session, pendingCourseMap, messages, BuildMemory(messages, session.PlanJson)),
+                Session = MapSession(session, pendingCourseMap, messages, BuildMemory(messages, session.PlanJson, request.InstructionStrictness)),
             };
         }
 
@@ -168,9 +180,10 @@ public sealed class AiChatService
         if (string.IsNullOrWhiteSpace(session.Title) || string.Equals(session.Title, "Новый AI-чат", StringComparison.OrdinalIgnoreCase))
             session.Title = BuildSessionTitle(messages);
 
-        session.PlanJson = SerializeMemory(BuildMemory(messages, session.PlanJson));
+        var instructionStrictness = ClampInstructionStrictness(request.InstructionStrictness, DeserializeMemory(session.PlanJson).InstructionStrictness);
+        session.PlanJson = SerializeMemory(BuildMemory(messages, session.PlanJson, instructionStrictness));
         var actionMode = string.IsNullOrWhiteSpace(request.ActionMode) ? "multi" : request.ActionMode.Trim().ToLowerInvariant();
-        var payload = await BuildChatPayloadAsync(session, messages, actionMode, ct);
+        var payload = await BuildChatPayloadAsync(session, messages, actionMode, instructionStrictness, ct);
         var job = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = AiFoundryJobTypes.ChatTurn,
@@ -210,7 +223,7 @@ public sealed class AiChatService
         {
             Pending = true,
             PendingJobId = job.Id,
-            Session = MapSession(session, resultCourseMap, messages, BuildMemory(messages, session.PlanJson)),
+            Session = MapSession(session, resultCourseMap, messages, BuildMemory(messages, session.PlanJson, instructionStrictness)),
         };
     }
 
@@ -235,7 +248,7 @@ public sealed class AiChatService
             {
                 Pending = true,
                 PendingJobId = messages.LastOrDefault(IsPendingAssistant)?.PendingJobId,
-                Session = MapSession(session, pendingCourseMap, messages, BuildMemory(messages, session.PlanJson)),
+                Session = MapSession(session, pendingCourseMap, messages, BuildMemory(messages, session.PlanJson, request.InstructionStrictness)),
             };
         }
 
@@ -489,7 +502,7 @@ public sealed class AiChatService
                     var prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages);
                     var count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50);
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5);
-                    var memory = BuildMemory(messages, session.PlanJson);
+                    var memory = BuildMemory(messages, session.PlanJson, instructionStrictness);
                     var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, "topic-pack", count, difficulty);
 
                     var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
@@ -769,6 +782,9 @@ public sealed class AiChatService
                         Notes = ReadString(args, "notes"),
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                         EnableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true,
+                        InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), DeserializeMemory(session.PlanJson).InstructionStrictness),
+                        UserInstructionSnapshot = DeserializeMemory(session.PlanJson).LatestExplicitInstruction,
+                        TeachingScript = DeserializeMemory(session.PlanJson).LatestTeachingScript,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     return new AiFoundryChatToolResultDto
@@ -805,6 +821,9 @@ public sealed class AiChatService
                         Notes = ReadString(args, "notes"),
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
                         EnableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true,
+                        InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), DeserializeMemory(session.PlanJson).InstructionStrictness),
+                        UserInstructionSnapshot = DeserializeMemory(session.PlanJson).LatestExplicitInstruction,
+                        TeachingScript = DeserializeMemory(session.PlanJson).LatestTeachingScript,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     return new AiFoundryChatToolResultDto
@@ -1252,7 +1271,7 @@ public sealed class AiChatService
         }
     }
 
-    private async Task<object> BuildChatPayloadAsync(AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, string actionMode, CancellationToken ct)
+    private async Task<object> BuildChatPayloadAsync(AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, string actionMode, int? instructionStrictness, CancellationToken ct)
     {
         var courses = await _db.Courses.AsNoTracking()
             .OrderBy(x => x.Title)
@@ -1502,6 +1521,7 @@ public sealed class AiChatService
             courseId = session.CourseId,
             selectedCourse,
             memory,
+            instructionStrictness = memory.InstructionStrictness,
             conversation,
             recentAttachments = attachmentDigest,
             recentAssignments,
@@ -2733,7 +2753,7 @@ public sealed class AiChatService
            && string.Equals(message.Status, "processing", StringComparison.OrdinalIgnoreCase)
            && message.PendingJobId.HasValue;
 
-    private static AiFoundryChatMemoryDto BuildMemory(List<AiFoundryChatMessageDto> messages, string? existingMemoryJson = null)
+    private static AiFoundryChatMemoryDto BuildMemory(List<AiFoundryChatMessageDto> messages, string? existingMemoryJson = null, int? instructionStrictnessOverride = null)
     {
         var previous = DeserializeMemory(existingMemoryJson);
         var userMessages = messages
@@ -2765,6 +2785,7 @@ public sealed class AiChatService
         var latestTeachingScript = ExtractLatestTeachingScript(latestGoal) ?? previous.LatestTeachingScript;
         var latestExplicitInstruction = ShortenMultiline(latestGoal, 900);
         var suppressBridgePlanLoop = ShouldSuppressBridgePlanLoop(latestGoal, latestIntentKind, latestTeachingScript);
+        var instructionStrictness = ClampInstructionStrictness(instructionStrictnessOverride, previous.InstructionStrictness);
 
         var facts = new List<string>();
         if (recentGoals.Count > 0)
@@ -2843,6 +2864,7 @@ public sealed class AiChatService
         return new AiFoundryChatMemoryDto
         {
             Summary = summary,
+            InstructionStrictness = instructionStrictness,
             Facts = facts.Take(6).ToList(),
             RecentGoals = recentGoals,
             RecentFiles = recentFiles,
@@ -2874,6 +2896,12 @@ public sealed class AiChatService
         {
             return new AiFoundryChatMemoryDto();
         }
+    }
+
+    private static int ClampInstructionStrictness(int? value, int? fallback = null)
+    {
+        var resolved = value ?? fallback ?? DefaultInstructionStrictness;
+        return Math.Clamp(resolved, 0, 100);
     }
 
     private static string SerializeMemory(AiFoundryChatMemoryDto memory)

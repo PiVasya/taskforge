@@ -526,6 +526,14 @@ export default function AdminAiChatPage() {
   const [actionMode, setActionMode] = useState(() => {
     try { return localStorage.getItem('aiChat_actionMode') || 'multi'; } catch { return 'multi'; }
   });
+  const [instructionStrictness, setInstructionStrictness] = useState(() => {
+    try {
+      const raw = Number(localStorage.getItem('aiChat_instructionStrictness') || '55');
+      return Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 55;
+    } catch {
+      return 55;
+    }
+  });
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
 
@@ -554,6 +562,12 @@ export default function AdminAiChatPage() {
     return true;
   }, [currentMessages]);
   const lastAssistantMessage = useMemo(() => ([...currentMessages].reverse().find((x) => x.role === 'assistant' && x.status !== 'processing') || null), [currentMessages]);
+
+  const strictnessLabel = useMemo(() => {
+    if (instructionStrictness <= 20) return 'Свободно';
+    if (instructionStrictness >= 85) return 'Максимум';
+    return 'Баланс';
+  }, [instructionStrictness]);
 
   const upsertSessionListItem = useCallback((full) => {
     const messages = Array.isArray(full?.messages) ? full.messages : [];
@@ -642,6 +656,36 @@ export default function AdminAiChatPage() {
   }, [lastAssistantMessage, notify, pending]);
 
   useEffect(() => {
+    const next = Number(session?.memory?.instructionStrictness);
+    if (!Number.isFinite(next)) return;
+    setInstructionStrictness((prev) => (prev === next ? prev : Math.max(0, Math.min(100, next))));
+  }, [session?.id, session?.memory?.instructionStrictness]);
+
+  useEffect(() => {
+    try { localStorage.setItem('aiChat_instructionStrictness', String(instructionStrictness)); } catch { /* ignore */ }
+  }, [instructionStrictness]);
+
+  useEffect(() => {
+    if (!sessionId || !session) return undefined;
+    const currentStrictness = Number(session?.memory?.instructionStrictness);
+    if (Number.isFinite(currentStrictness) && currentStrictness === instructionStrictness) return undefined;
+    const timer = setTimeout(async () => {
+      try {
+        const updated = await updateAiChatSession(sessionId, {
+          title: session?.title,
+          courseId: session?.courseId || null,
+          instructionStrictness,
+        });
+        setSession(updated);
+        setSessions((prev) => prev.map((item) => (item.id === updated.id ? upsertSessionListItem(updated) : item)));
+      } catch {
+        // ignore slider sync errors; explicit send will still carry strictness
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [instructionStrictness, sessionId, session, upsertSessionListItem]);
+
+  useEffect(() => {
     const node = listRef.current;
     if (!node) return;
     node.scrollTop = node.scrollHeight;
@@ -651,12 +695,13 @@ export default function AdminAiChatPage() {
     const created = await createAiChatSession({
       courseId: selectedCourseId || null,
       title: selectedCourseId ? `AI чат · ${courses.find((x) => String(x.id) === String(selectedCourseId))?.title || 'курс'}` : undefined,
+      instructionStrictness,
     });
     setSessionId(created.id);
     setSession(created);
     setSessions((prev) => [upsertSessionListItem(created), ...prev]);
     return created;
-  }, [courses, selectedCourseId, upsertSessionListItem]);
+  }, [courses, instructionStrictness, selectedCourseId, upsertSessionListItem]);
 
   const refreshCurrent = useCallback(async () => {
     if (!sessionId) return;
@@ -678,6 +723,7 @@ export default function AdminAiChatPage() {
       const updated = await updateAiChatSession(sessionId, {
         title: session?.title,
         courseId: nextCourseId || null,
+        instructionStrictness,
       });
       setSession(updated);
       setSessions((prev) => prev.map((item) => (item.id === updated.id ? upsertSessionListItem(updated) : item)));
@@ -685,7 +731,7 @@ export default function AdminAiChatPage() {
     } catch (e) {
       notify.error(handleApiError(e, 'Не удалось изменить курс чата'));
     }
-  }, [notify, session?.title, sessionId, upsertSessionListItem]);
+  }, [instructionStrictness, notify, session?.title, sessionId, upsertSessionListItem]);
 
   const addFiles = useCallback((incoming) => {
     const next = Array.from(incoming || []).filter(Boolean);
@@ -719,6 +765,7 @@ export default function AdminAiChatPage() {
         content: text || (uploaded.length ? 'Используй прикреплённые файлы в контексте.' : ''),
         attachments: uploaded,
         actionMode,
+        instructionStrictness,
       });
 
       setSession(response.session);
@@ -736,7 +783,7 @@ export default function AdminAiChatPage() {
     } finally {
       setSending(false);
     }
-  }, [createSession, files, message, notify, sessionId, upsertSessionListItem]);
+  }, [actionMode, createSession, files, instructionStrictness, message, notify, sessionId, upsertSessionListItem]);
 
   const onConfirmTool = useCallback(async (result) => {
     if (!sessionId || !result?.confirmationToolCall) return;
@@ -768,7 +815,7 @@ export default function AdminAiChatPage() {
     const nextTitle = window.prompt('Новое название чата', session?.title || '');
     if (!nextTitle || !nextTitle.trim()) return;
     try {
-      const updated = await updateAiChatSession(sessionId, { title: nextTitle.trim(), courseId: session?.courseId || null });
+      const updated = await updateAiChatSession(sessionId, { title: nextTitle.trim(), courseId: session?.courseId || null, instructionStrictness });
       setSession(updated);
       setSessions((prev) => prev.map((item) => (item.id === updated.id ? upsertSessionListItem(updated) : item)));
       notify.success('Название чата обновлено');
@@ -949,7 +996,22 @@ export default function AdminAiChatPage() {
           <div className="flex items-center gap-2 mt-2">
             <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(CONTINUE_MESSAGE)} disabled={sending || pending}>Продолжай</button>
             <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(GENERATE_MESSAGE)} disabled={sending || pending}>Генерация</button>
-            <span className="flex-1" />
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs opacity-80">
+                <span>Строгость</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={instructionStrictness}
+                  onChange={(e) => setInstructionStrictness(Number(e.target.value))}
+                  disabled={sending || pending || actionBusy}
+                  className="w-28 accent-[rgb(var(--accent))]"
+                  title="0 = свободнее, 100 = максимально буквально следует пользовательской инструкции"
+                />
+                <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
+              </div>
             <button
               type="button"
               className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
@@ -962,6 +1024,7 @@ export default function AdminAiChatPage() {
             >
               {actionMode === 'multi' ? '⚡ Мульти' : '1️⃣ Одно'}
             </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1207,6 +1270,21 @@ export default function AdminAiChatPage() {
                 Начать генерацию
               </Button>
               <span className="flex-1" />
+              <div className="flex items-center gap-2 text-xs opacity-80">
+                <span>Строгость</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={instructionStrictness}
+                  onChange={(e) => setInstructionStrictness(Number(e.target.value))}
+                  disabled={sending || pending || actionBusy}
+                  className="w-28 accent-[rgb(var(--accent))]"
+                  title="0 = свободнее, 100 = максимально буквально следует пользовательской инструкции"
+                />
+                <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
+              </div>
               <button
                 type="button"
                 className={`text-xs px-2 py-1 rounded-full border transition-colors ${

@@ -51,6 +51,12 @@ public sealed class AiGenerateAssignmentFromTextRequestDto
     [Required]
     public Guid CourseId { get; set; }
 
+    public int? InstructionStrictness { get; set; }
+
+    public string? UserInstructionSnapshot { get; set; }
+
+    public string? TeachingScript { get; set; }
+
     [Required, MaxLength(50)]
     public string AssignmentType { get; set; } = "math";
 
@@ -79,6 +85,12 @@ public sealed class AiGenerateAssignmentFromFileRequestDto
 {
     [Required]
     public Guid CourseId { get; set; }
+
+    public int? InstructionStrictness { get; set; }
+
+    public string? UserInstructionSnapshot { get; set; }
+
+    public string? TeachingScript { get; set; }
 
     [Required, MaxLength(50)]
     public string AssignmentType { get; set; } = "math";
@@ -567,6 +579,8 @@ public sealed class AiFoundryChatCreateSessionRequestDto
 
     [MaxLength(200)]
     public string? Title { get; set; }
+
+    public int? InstructionStrictness { get; set; }
 }
 
 public sealed class AiFoundryChatUpdateSessionRequestDto
@@ -575,6 +589,8 @@ public sealed class AiFoundryChatUpdateSessionRequestDto
     public string? Title { get; set; }
 
     public Guid? CourseId { get; set; }
+
+    public int? InstructionStrictness { get; set; }
 }
 
 public sealed class AiFoundryChatSendMessageRequestDto
@@ -589,6 +605,11 @@ public sealed class AiFoundryChatSendMessageRequestDto
     /// "single" = strictly one action per turn.
     /// </summary>
     public string? ActionMode { get; set; }
+
+    /// <summary>
+    /// 0 = максимально свободно, 100 = максимально буквально и строго по пользовательской инструкции.
+    /// </summary>
+    public int? InstructionStrictness { get; set; }
 }
 
 public sealed class AiFoundryCourseAuditFindingDto
@@ -708,6 +729,7 @@ public sealed class AiFoundryAgentStateDto
 public sealed class AiFoundryChatMemoryDto
 {
     public string Summary { get; set; } = string.Empty;
+    public int InstructionStrictness { get; set; } = 55;
     public List<string> Facts { get; set; } = new();
     public List<string> RecentGoals { get; set; } = new();
     public List<string> RecentFiles { get; set; } = new();

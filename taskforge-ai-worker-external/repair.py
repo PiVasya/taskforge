@@ -19,7 +19,7 @@ from config import (
 from log import log
 from llm_client import call_llm
 from payload import sanitize_result_payload
-from prompt_builder import build_repair_prompt
+from prompt_builder import build_repair_prompt, _extract_instruction_contract, _instruction_strictness
 from reviews import run_similarity_review
 from text_utils import has_html_markup, normalize_text, strip_conflicting_lists, truncate_text
 from validators import attach_self_check, run_self_check
@@ -217,6 +217,90 @@ def _with_reference_similarity_validation(payload: Dict[str, Any], draft: Dict[s
     }
 
 
+def _with_instruction_fidelity_validation(payload: Dict[str, Any], draft: Dict[str, Any], validation: Dict[str, Any]) -> Dict[str, Any]:
+    strictness = _instruction_strictness(payload)
+    if strictness < 70:
+        return validation
+    contract = _extract_instruction_contract(payload)
+    exact = [str(x).strip() for x in (contract.get("exactSnippets") or []) if str(x).strip()]
+    forbidden = [str(x).strip() for x in (contract.get("forbiddenSnippets") or []) if str(x).strip()]
+    if not exact and not forbidden and not contract.get("preserveOrder"):
+        return validation
+
+    haystack = "\n".join([
+        normalize_text(draft.get("title")),
+        normalize_text(draft.get("description")),
+        normalize_text(draft.get("referenceSolutionPython")),
+    ])
+    low_haystack = haystack.casefold()
+    checks = list(validation.get("checks") or [])
+    findings = list(validation.get("findings") or [])
+    status = normalize_text(validation.get("status")).lower() or "passed"
+
+    missing_exact = [snippet for snippet in exact[:6] if snippet.casefold() not in low_haystack]
+    present_positions = []
+    for snippet in exact[:6]:
+        idx = low_haystack.find(snippet.casefold())
+        if idx >= 0:
+            present_positions.append((snippet, idx))
+    order_ok = True
+    if contract.get("preserveOrder") and len(present_positions) >= 2:
+        order_ok = [idx for _, idx in present_positions] == sorted(idx for _, idx in present_positions)
+
+    forbidden_hits = [snippet for snippet in forbidden[:6] if snippet.casefold() in low_haystack]
+
+    if missing_exact:
+        checks.append({"name": "instruction-exact-snippets", "status": "failed", "details": "Не сохранены явные пользовательские фрагменты: " + "; ".join(missing_exact[:4])})
+        findings.append({
+            "severity": "high" if strictness >= 90 else "medium",
+            "code": "instruction-exact-snippets",
+            "message": "В draft пропали явные фрагменты из пользовательской инструкции: " + "; ".join(missing_exact[:4]),
+            "repairHint": "Сохрани обязательные пользовательские фрагменты дословно в уместном месте draft, не заменяй их абстрактным пересказом.",
+        })
+        status = "needs-review"
+    else:
+        checks.append({"name": "instruction-exact-snippets", "status": "passed", "details": f"preserved={len(present_positions)}"})
+
+    if contract.get("preserveOrder"):
+        if order_ok:
+            checks.append({"name": "instruction-order", "status": "passed", "details": "Порядок пользовательских шагов сохранён."})
+        else:
+            checks.append({"name": "instruction-order", "status": "failed", "details": "Порядок явных пользовательских шагов нарушен."})
+            findings.append({
+                "severity": "medium",
+                "code": "instruction-order",
+                "message": "Draft нарушает порядок шагов/примеров, который пользователь просил сохранить.",
+                "repairHint": "Верни шаги и примеры в том же порядке, в каком их задал пользователь.",
+            })
+            status = "needs-review"
+
+    if forbidden_hits:
+        checks.append({"name": "instruction-forbidden-snippets", "status": "failed", "details": "Нарушены пользовательские запреты: " + "; ".join(forbidden_hits[:4])})
+        findings.append({
+            "severity": "high" if strictness >= 85 else "medium",
+            "code": "instruction-forbidden-snippets",
+            "message": "Draft содержит то, что пользователь явно запретил: " + "; ".join(forbidden_hits[:4]),
+            "repairHint": "Удали или перепиши запрещённые пользователем фрагменты и не добавляй их обратно при ремонте.",
+        })
+        status = "needs-review"
+    else:
+        checks.append({"name": "instruction-forbidden-snippets", "status": "passed", "details": "Явные пользовательские запреты соблюдены."})
+
+    passed = sum(1 for item in checks if normalize_text((item or {}).get("status")).lower() == "passed")
+    total = max(1, len(checks))
+    summary = normalize_text(validation.get("summary")) or "Draft self-check completed."
+    if missing_exact or forbidden_hits or (contract.get("preserveOrder") and not order_ok):
+        summary = f"{summary} Instruction fidelity requires changes."
+    return {
+        **validation,
+        "status": status,
+        "score": passed / total,
+        "checks": checks,
+        "findings": findings,
+        "summary": summary,
+    }
+
+
 # ── LLM-driven repair loop ───────────────────────────
 
 def _coerce_repair_result(job: Dict[str, Any], payload: Dict[str, Any], repaired: Any) -> Dict[str, Any] | None:
@@ -251,7 +335,7 @@ def try_improve_generation(
     draft = result.get("draft") if isinstance(result.get("draft"), dict) else None
     if not isinstance(draft, dict):
         return result
-    validation = _with_reference_similarity_validation(payload, draft, run_self_check(draft))
+    validation = _with_instruction_fidelity_validation(payload, draft, _with_reference_similarity_validation(payload, draft, run_self_check(draft)))
     log("self-check generated draft", {
         "jobId": job.get("id"), "status": validation.get("status"),
         "score": validation.get("score"), "summary": validation.get("summary"),
@@ -274,7 +358,7 @@ def try_improve_generation(
             if not isinstance(repaired_draft, dict):
                 log("repair returned no draft", {"jobId": job.get("id"), "attempt": attempt_no})
                 continue
-            current_validation = _with_reference_similarity_validation(payload, repaired_draft, run_self_check(repaired_draft))
+            current_validation = _with_instruction_fidelity_validation(payload, repaired_draft, _with_reference_similarity_validation(payload, repaired_draft, run_self_check(repaired_draft)))
             log("repair self-check", {
                 "jobId": job.get("id"), "attempt": attempt_no,
                 "status": current_validation.get("status"),

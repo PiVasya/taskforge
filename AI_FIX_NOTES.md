@@ -1,36 +1,41 @@
-# AI fixes for chat behavior
+# AI chat + instruction strictness update
 
-## What was wrong
-- The Python worker had a large hardcoded fallback router that aggressively pushed course conversations into bridge-plan flows.
-- The backend auto-agent loop kept continuing after audit/inspect steps, which made the chat feel scripted instead of conversational.
-- The prompt heavily biased the model toward hidden multi-step planning instead of natural dialogue.
+Что добавлено:
 
-## What was changed
-- `taskforge-ai-worker-external/worker.py`
-  - Added explicit separation between intents: inspect existing tasks, audit gaps, build plan, generate.
-  - Stopped converting generic course requests into bridge planning by default.
-  - Listing requests like "изучи задачи курса и выведи их сюда" now route to `inspect_course_assignments`.
-  - Short ambiguous follow-ups now prefer a clarification question instead of silent pipeline continuation.
-  - Generation follow-up like "всё, делай саму задачу" now routes to direct generation instead of old bridge-plan automation.
-  - Improved singular-vs-multiple detection so "саму задачу" is treated as one task.
+- В AI-чате появился управляемый уровень `instructionStrictness` (0..100).
+- Настройка живёт в UI как slider и отправляется вместе с сообщением.
+- Значение сохраняется в памяти сессии чата и используется в следующих ходах.
 
+Как работает:
+
+- `0..20` — свободный режим: модель может смелее интерпретировать intent и предлагать свои улучшения.
+- `21..69` — сбалансированный режим.
+- `70..100` — строгий режим: модель должна держать пользовательскую мысль, не расширять scope и сохранять явные фрагменты/запреты из инструкции.
+
+Что изменено в пайплайне:
+
+- Chat payload теперь несёт `instructionStrictness`.
+- Память чата хранит `instructionStrictness`.
+- Генерация из текста/файла получает:
+  - `instructionStrictness`
+  - `userInstructionSnapshot`
+  - `teachingScript`
+- Prompt builder усиливает literal-following при высокой строгости.
+- Для генерации и repair температура теперь зависит от строгости.
+- Добавлена generic instruction-fidelity validation:
+  - если пропали явные пользовательские фрагменты,
+  - если нарушены явные запреты,
+  - если сломан порядок шагов при запросе на буквальное следование,
+  то draft получает `needs-review` и уходит в repair.
+
+Изменённые файлы:
+
+- `taskforge/Data/Models/DTO/AI/AiDtos.cs`
 - `taskforge/Services/AI/AiChatService.cs`
-  - Added explicit `inspect` intent detection for existing task listing requests.
-  - Restricted backend auto-continuation: it now auto-continues only for explicit `advance_agent_stage`, not for every audit/inspect action.
-  - Adjusted next-step selection so inspect requests do not collapse into bridge planning.
-
+- `taskforge/Services/AI/AiJobService.cs`
+- `clientapp/src/pages/admin/AdminAiChatPage.jsx`
+- `taskforge-ai-worker-external/payload.py`
 - `taskforge-ai-worker-external/prompt_builder.py`
-  - Rebalanced the chat prompt toward natural dialogue.
-  - Added stronger guidance that inspect/list/show requests must prefer `inspect_course_assignments` and must not jump to bridge plans.
-  - Reduced multi-action bias and hidden pipeline chaining.
-
-- `taskforge-ai-worker-external/tests/test_chat_memory_routing.py`
-  - Replaced bridge-centric routing tests with tests that cover inspect-first conversational behavior.
-
-## Validation performed
-- `python3 -m py_compile` on modified Python files.
-- Unit tests:
-  - `tests/test_chat_memory_routing.py`
-  - `tests/test_prompt_builder_regressions.py`
-  - `tests/test_chat_stage_config.py`
-  - `tests/test_chat_strict_mode.py`
+- `taskforge-ai-worker-external/worker.py`
+- `taskforge-ai-worker-external/repair.py`
+- `taskforge-ai-worker-external/tests/test_instruction_strictness.py`

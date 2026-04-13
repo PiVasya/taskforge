@@ -876,13 +876,13 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
     is_draft_stage = job_type in {"draft_generate", "draft_body_generate", "draft_title_generate", "draft_title_repair", "assignment_generate_from_text", "assignment_repair"}
     ultra_compact = compact_mode == "ultra"
 
-    keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType", "batchItemId"]
+    keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType", "batchItemId", "instructionStrictness", "userInstructionSnapshot", "teachingScript"]
     if is_planner_stage:
-        keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType"]
+        keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "requestType", "instructionStrictness", "userInstructionSnapshot", "teachingScript"]
     elif is_gap_stage:
-        keep_scalar = ["assignmentType", "mode", "count", "prompt", "batchId", "courseId", "requestType"]
+        keep_scalar = ["assignmentType", "mode", "count", "prompt", "batchId", "courseId", "requestType", "instructionStrictness", "userInstructionSnapshot", "teachingScript"]
     elif is_course_stage:
-        keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId"]
+        keep_scalar = ["assignmentType", "mode", "count", "difficulty", "prompt", "batchId", "courseId", "instructionStrictness", "userInstructionSnapshot", "teachingScript"]
 
     for key in keep_scalar:
         if key in payload:

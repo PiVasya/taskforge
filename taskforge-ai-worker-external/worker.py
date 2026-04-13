@@ -116,6 +116,27 @@ def _preview(value: Any, limit: int = 120) -> str:
     return text[: limit - 3] + "..."
 
 
+def _payload_instruction_strictness(payload: Dict[str, Any]) -> int:
+    for raw in [
+        payload.get("instructionStrictness"),
+        ((payload.get("memory") or {}) if isinstance(payload.get("memory"), dict) else {}).get("instructionStrictness"),
+        ((payload.get("batchMemory") or {}) if isinstance(payload.get("batchMemory"), dict) else {}).get("instructionStrictness"),
+    ]:
+        try:
+            if raw is None or raw == "":
+                continue
+            return max(0, min(100, int(raw)))
+        except Exception:
+            continue
+    return 55
+
+
+def _strictness_temperature(strictness: int, low: float, high: float) -> float:
+    strictness = max(0, min(100, int(strictness)))
+    span = high - low
+    return round(high - (span * (strictness / 100.0)), 4)
+
+
 def _job_context(job: Dict[str, Any], payload: Dict[str, Any] | None = None) -> str:
     payload = payload or {}
     parts = [
@@ -1212,14 +1233,20 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
     if job_type == "assignment_reference_pack_build":
         return _with_stage_schema(OllamaCallConfig(stage="reference_pack", timeout=REFERENCE_PACK_TIMEOUT, num_predict=420 if compact_mode else REFERENCE_PACK_NUM_PREDICT, temperature=0.12, required_keys=["stylePack", "policyPack", "exemplarPack"], preferred_keys=["generationHints", "signals"]), job_type, retry_count, compact_mode)
     if job_type == "assignment_generate_from_text":
-        return _with_stage_schema(OllamaCallConfig(stage="draft_generate", timeout=GENERATION_TIMEOUT, num_predict=1200 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["summary", "decisionSummary", "draftValidation"]), job_type, retry_count, compact_mode)
+        strictness = _payload_instruction_strictness(payload)
+        temperature = _strictness_temperature(strictness, 0.03, 0.18)
+        return _with_stage_schema(OllamaCallConfig(stage="draft_generate", timeout=GENERATION_TIMEOUT, num_predict=1200 if compact_mode else GENERATION_NUM_PREDICT, temperature=temperature, required_keys=["draft"], preferred_keys=["summary", "decisionSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assignment_repair":
         repair_plan = payload.get("repairPlan") if isinstance(payload.get("repairPlan"), dict) else {}
         primary_route = str(repair_plan.get("primaryRoute") or "general").strip().lower() or "general"
         stage_name = f"repair_{primary_route}" if primary_route != "general" else "repair"
-        return _with_stage_schema(OllamaCallConfig(stage=stage_name, timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=0.1, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"]), job_type, retry_count, compact_mode)
+        strictness = _payload_instruction_strictness(payload)
+        temperature = _strictness_temperature(strictness, 0.02, 0.12)
+        return _with_stage_schema(OllamaCallConfig(stage=stage_name, timeout=GENERATION_TIMEOUT, num_predict=1000 if compact_mode else GENERATION_NUM_PREDICT, temperature=temperature, required_keys=["draft"], preferred_keys=["repairSummary", "draftValidation"]), job_type, retry_count, compact_mode)
     if job_type == "assistant_chat_turn":
-        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=0.05, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
+        strictness = _payload_instruction_strictness(payload)
+        temperature = _strictness_temperature(strictness, 0.01, 0.2)
+        cfg = OllamaCallConfig(stage="assistant_chat_turn", timeout=GENERATION_TIMEOUT, num_predict=900 if compact_mode else min(GENERATION_NUM_PREDICT, 1200), temperature=temperature, required_keys=["assistantMessage", "actions"], preferred_keys=["sessionTitle", "action"], json_schema=None, assistant_prefill=False)
         cfg.json_mode = True
         cfg = _with_stage_schema(cfg, job_type, retry_count, compact_mode)
         cfg.json_schema = None

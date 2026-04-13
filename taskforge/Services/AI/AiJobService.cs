@@ -149,7 +149,13 @@ public sealed partial class AiJobService : IAiJobService
             enableSelfCheck: request.EnableSelfCheck,
             sourceText: request.SourceText,
             file: null,
-            ct: ct);
+            ct: ct,
+            additional: new
+            {
+                instructionStrictness = request.InstructionStrictness,
+                userInstructionSnapshot = request.UserInstructionSnapshot,
+                teachingScript = request.TeachingScript,
+            });
 
         return await EnqueueAsync(new CreateAiJobRequestDto
         {
@@ -176,7 +182,13 @@ public sealed partial class AiJobService : IAiJobService
             enableSelfCheck: request.EnableSelfCheck,
             sourceText: null,
             file: new { request.FileKey, request.OriginalName, request.MimeType, request.PublicUrl },
-            ct: ct);
+            ct: ct,
+            additional: new
+            {
+                instructionStrictness = request.InstructionStrictness,
+                userInstructionSnapshot = request.UserInstructionSnapshot,
+                teachingScript = request.TeachingScript,
+            });
 
         return await EnqueueAsync(new CreateAiJobRequestDto
         {

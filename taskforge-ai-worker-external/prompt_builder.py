@@ -163,6 +163,117 @@ def _pedagogy_appendix(compact_payload: Dict[str, Any]) -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+def _instruction_strictness(payload: Dict[str, Any]) -> int:
+    candidates = [
+        payload.get("instructionStrictness"),
+        ((payload.get("memory") or {}) if isinstance(payload.get("memory"), dict) else {}).get("instructionStrictness"),
+        ((payload.get("batchMemory") or {}) if isinstance(payload.get("batchMemory"), dict) else {}).get("instructionStrictness"),
+    ]
+    for raw in candidates:
+        try:
+            if raw is None or raw == "":
+                continue
+            return max(0, min(100, int(raw)))
+        except Exception:
+            continue
+    return 55
+
+
+def _instruction_text_sources(payload: Dict[str, Any]) -> List[str]:
+    texts: List[str] = []
+    for value in [
+        payload.get("prompt"),
+        payload.get("sourceText"),
+        payload.get("notes"),
+        payload.get("userInstructionSnapshot"),
+        payload.get("teachingScript"),
+    ]:
+        norm = normalize_text(value)
+        if norm:
+            texts.append(norm)
+    for container_key in ("memory", "batchMemory"):
+        container = payload.get(container_key) if isinstance(payload.get(container_key), dict) else {}
+        for value in [container.get("latestExplicitInstruction"), container.get("latestTeachingScript")]:
+            norm = normalize_text(value)
+            if norm:
+                texts.append(norm)
+    return texts
+
+
+def _extract_instruction_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
+    texts = _instruction_text_sources(payload)
+    joined = "\n".join(texts)
+    low = joined.lower()
+    exact: List[str] = []
+    forbidden: List[str] = []
+
+    def _push_unique(bucket: List[str], value: str, limit: int = 8) -> None:
+        item = normalize_text(value).strip("`'\" ")
+        if not item or len(item) < 2:
+            return
+        item = truncate_text(item, 160)
+        if item.casefold() in {x.casefold() for x in bucket}:
+            return
+        if len(bucket) < limit:
+            bucket.append(item)
+
+    for match in re.findall(r"`([^`]{2,160})`", joined):
+        _push_unique(exact, match)
+    for match in re.findall(r"[«\"]([^\n\"]{2,160})[»\"]", joined):
+        if any(ch in match for ch in "#;<>:{}()[]"):
+            _push_unique(exact, match)
+    for text_block in texts:
+        for raw_line in text_block.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            candidate = re.sub(r"^(шаг\s*\d+[:.)-]?|напиши(?:те)?[:\s-]*|введите[:\s-]*|сделай(?:те)?[:\s-]*)", "", line, flags=re.IGNORECASE).strip()
+            if 2 <= len(candidate) <= 160 and any(token in candidate for token in ["#", ";", "<", ">", "{", "}", "(", ")", "::"]):
+                _push_unique(exact, candidate)
+    forbid_patterns = [
+        r"(?:без|не надо|не нужно|не использовать|не используй|не добавляй|не пиши|убери|исключи)\s+([^\n\.,!?:;]{1,80})",
+        r"([^\n\.,!?:;]{1,80})\s+не надо",
+        r"([^\n\.,!?:;]{1,80})\s+ненадо",
+    ]
+    for pattern in forbid_patterns:
+        for match in re.findall(pattern, joined, flags=re.IGNORECASE):
+            _push_unique(forbidden, match, limit=10)
+    preserve_order = any(token in low for token in ["по шагам", "шаг за шагом", "в том же порядке", "тот же порядок", "1 в 1", "один в один", "строго по примеру", "буквально", "именно так"])
+    lock_scope = any(token in low for token in ["именно", "строго", "точно", "ровно", "без новых", "не добавляй нового", "не вводи новую тему"]) or preserve_order
+    return {
+        "exactSnippets": exact[:8],
+        "forbiddenSnippets": forbidden[:10],
+        "preserveOrder": preserve_order,
+        "lockScope": lock_scope,
+    }
+
+
+def _instruction_fidelity_appendix(payload: Dict[str, Any]) -> str:
+    strictness = _instruction_strictness(payload)
+    contract = _extract_instruction_contract(payload)
+    lines = [f"- Текущая строгость следования пользовательской инструкции: {strictness}/100."]
+    if strictness <= 20:
+        lines.append("- Свободный режим: можно смелее интерпретировать intent, предлагать улучшения и не держаться буквально за форму примеров.")
+    elif strictness <= 69:
+        lines.append("- Сбалансированный режим: сохраняй основную мысль пользователя, но можешь аккуратно упрощать, нормализовать и улучшать формулировки.")
+    else:
+        lines.append("- Строгий режим: приоритет №1 — не потерять пользовательскую мысль, не расширить scope и не подменить задачу своей интерпретацией.")
+        lines.append("- Если пользователь дал пример, эталон, teaching-script или список шагов, считай это контрактом, а не просто вдохновением.")
+        lines.append("- Не вводи новые учебные сущности, новые ограничения, новый формат IO или новый pedagogical scope без прямого запроса пользователя.")
+        lines.append("- Когда есть выбор между креативностью и буквальным следованием инструкции, выбирай буквальное следование инструкции.")
+        if contract.get("lockScope"):
+            lines.append("- В этом запросе есть маркеры буквального следования. Не сдвигай микроцель и не уезжай в соседнюю тему.")
+        if contract.get("preserveOrder"):
+            lines.append("- Сохрани порядок шагов/примеров пользователя. Не переставляй их местами без жёсткой необходимости.")
+        exact = contract.get("exactSnippets") if isinstance(contract.get("exactSnippets"), list) else []
+        forbidden = contract.get("forbiddenSnippets") if isinstance(contract.get("forbiddenSnippets"), list) else []
+        if exact:
+            lines.append("- Сохрани следующие явные пользовательские фрагменты дословно там, где они уместны: " + "; ".join(exact[:6]))
+        if forbidden:
+            lines.append("- Не нарушай явно заданные пользователем запреты/исключения: " + "; ".join(forbidden[:6]))
+    return "\n".join(lines) + "\n"
+
+
 # ── Generation requirements (code-test / test / math) ────────
 
 def build_generation_requirements(payload: Dict[str, Any]) -> str:
@@ -438,6 +549,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Не выдумывай id. Используй только те courseId, draftId, assignmentId, batchId, userId и sourceAttemptId, которые уже есть в payload. "
         "Если курс не ясен — не угадывай, а попроси пользователя выбрать. "
         f"{_action_mode_instruction}"
+        f"{_instruction_fidelity_appendix(compact_payload)}"
         "Если memory уже содержит ясный контекст и параметров хватает, можно сразу переходить к генерации или следующему действию.\\n\\n"
         "Если можешь улучшить UX, можешь дополнительно вернуть sessionTitle — короткое новое название чата.\\n\\n"
         "Верни JSON строго вида:\\n"
@@ -539,6 +651,7 @@ def build_repair_prompt(
         f"Попытка исправления: {attempt_no}\n\n"
         f"Требования:\n{build_job_specific_instructions(job.get('type') or '', payload)}\n\n"
         f"Route-aware repair directive:\n{route_directive}\n\n"
+        f"Instruction fidelity contract:\n{_instruction_fidelity_appendix(compact_payload)}\n"
         f"Изначальный payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Плохой draft, который нужно переписать:\n{json.dumps(draft, ensure_ascii=False, indent=2)}\n\n"
         f"Ошибки self-check:\n{json.dumps(validation, ensure_ascii=False, indent=2)}\n\n"
@@ -782,7 +895,8 @@ def build_brief_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Формат JSON: {\"titleHint\":\"...\",\"summary\":\"...\",\"generationPrompt\":\"...\","
         "\"sourceText\":\"...\",\"notes\":\"...\",\"difficultyTarget\":2,\"targetSkill\":\"...\","
         "\"decisionLog\":[{\"stage\":\"brief_generate\",\"message\":\"...\"}]}.\n"
-        + "\n".join(extra_rules) + "\n\n"
+        + "\n".join(extra_rules) + "\n"
+        + _instruction_fidelity_appendix(compact_payload) + "\n"
         + f"Brief payload:\n{_prompt_json(compact_payload)}"
     )
 
@@ -806,7 +920,8 @@ def build_brief_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> s
         "Формат JSON: {\"titleHint\":\"...\",\"summary\":\"...\",\"generationPrompt\":\"...\","
         "\"sourceText\":\"...\",\"notes\":\"...\",\"difficultyTarget\":2,\"targetSkill\":\"...\","
         "\"decisionLog\":[{\"stage\":\"brief_repair\",\"message\":\"...\"}]}.\n"
-        + "\n".join(extra_rules) + "\n\n"
+        + "\n".join(extra_rules) + "\n"
+        + _instruction_fidelity_appendix(compact_payload) + "\n"
         + f"Brief repair payload:\n{_prompt_json(compact_payload)}"
     )
 
@@ -1117,7 +1232,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - description должен выглядеть как условие из этого курса и сохранять course-native стиль.
 - Строго следуй generationSpec.exactTask и generationSpec.ioContract, если они заданы.
 - Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.
-{rules}{_pedagogy_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
+{rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
@@ -1140,7 +1255,7 @@ def _build_test_body_prompt(compact_payload: Dict[str, Any], response_format: st
 - Это не code-test. Не добавляй поля из программирования, языки или тест-кейсы.
 - description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.
 - Каждый вопрос должен быть педагогически осмысленным, без дублей и без пустых заглушек.
-{rules}- Сохраняй course-native терминологию и уровень сложности.
+{rules}{_instruction_fidelity_appendix(compact_payload)}- Сохраняй course-native терминологию и уровень сложности.
 - Настройки settings должны быть полными и каноническими.
 
 Draft body payload:
@@ -1159,7 +1274,7 @@ def _build_math_body_prompt(compact_payload: Dict[str, Any], response_format: st
 - Это не code-test. Не добавляй allowedLanguages, publicTests, hiddenTests и referenceSolutionPython.
 - description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.
 - Блоки должны образовывать педагогическую последовательность и не быть случайным набором.
-{rules}- Настройки settings и блоки должны быть полными и каноническими.
+{rules}{_instruction_fidelity_appendix(compact_payload)}- Настройки settings и блоки должны быть полными и каноническими.
 
 Draft body payload:
 {_prompt_json(compact_payload)}"""
@@ -1177,7 +1292,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
-{rules}{_pedagogy_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+{rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
 - Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
 - Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.
 - Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.
