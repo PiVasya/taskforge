@@ -48,3 +48,6 @@
 - finalize_chat_blueprint теперь прокидывает approved blueprint как structured context в generation job.
 - Генератор усилил blueprint-fidelity: согласованный title/condition из чата считаются каноном, а для простых intro-output задач фиксированный литерал вывода и reference solution больше не должны уезжать в соседнюю тему вроде `System online`.
 - В prompt builder добавлены явные правила: если задача без ввода, использовать sentinel `пусто`, а не пустой input.
+
+- fixed payload crash in code-test rebalancing by restoring site-compatibility test helper after sentinel-input refactor;
+- hardened approved blueprint contract so sanitized draft re-applies agreed title/description after generation normalization.

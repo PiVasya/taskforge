@@ -1409,6 +1409,16 @@ def _normalize_test_input_value(value: Any) -> str:
     return text
 
 
+def _is_site_incompatible_test_case(test: Dict[str, Any]) -> bool:
+    if not isinstance(test, dict):
+        return True
+    expected = normalize_text(test.get("expectedOutput"))
+    if not expected:
+        return True
+    normalized_input = _normalize_test_input_value(test.get("input"))
+    return not bool(normalized_input)
+
+
 def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
     ctx = payload.get("structuredContext") if isinstance(payload.get("structuredContext"), dict) else {}
     if normalize_text(ctx.get("kind")) == "approved-chat-blueprint":
@@ -1665,6 +1675,12 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         _rebalance_code_tests(normalized, payload)
         normalized = _apply_blueprint_contract_to_code_test_draft(normalized, payload)
+        contract = _extract_blueprint_contract(payload)
+        if contract.get("kind") == "approved-chat-blueprint":
+            if normalize_text(contract.get("title")):
+                normalized["title"] = normalize_text(contract.get("title"))
+            if normalize_text(contract.get("fullCondition") or contract.get("conditionPreview")):
+                normalized["description"] = normalize_text(contract.get("fullCondition") or contract.get("conditionPreview"))
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         normalized = _ensure_solvable_code_test_draft(normalized, payload)
     return normalized
