@@ -23,6 +23,9 @@ class PayloadBlueprintContractTests(unittest.TestCase):
                 "fullCondition": "Условие\n1. Напиши #include <iostream>\n2. Напиши using namespace std;\n3. Напиши int main() { }\n4. Внутри напиши cout << \"Hi\";",
                 "conditionPreview": "cout << \"Hi\";",
                 "mustKeep": ["#include <iostream>", "using namespace std;", "int main()", 'cout << "Hi";'],
+                "placementAfterAssignmentId": "8ad8bfd9-de84-4a60-8e03-f4fa58cb0c74",
+                "placementAfterTitle": "Первый маленький шаг",
+                "placementReason": "Новая задача должна стоять сразу после первого маленького шага.",
                 "publicTests": [],
             },
         }

@@ -722,6 +722,9 @@ public sealed class AiFoundryChatDraftProposalDto
     public string Goal { get; set; } = string.Empty;
     public string ConditionPreview { get; set; } = string.Empty;
     public string? FullCondition { get; set; }
+    public Guid? PlacementAfterAssignmentId { get; set; }
+    public string? PlacementAfterTitle { get; set; }
+    public string? PlacementReason { get; set; }
     public List<string> MustKeep { get; set; } = new();
     public List<string> Avoid { get; set; } = new();
     public List<AiFoundryChatDraftTestPreviewDto> PublicTests { get; set; } = new();

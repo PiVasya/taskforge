@@ -1402,6 +1402,13 @@ def _default_code_test_draft_for_seed(payload: Dict[str, Any]) -> Dict[str, Any]
     return None
 
 
+def _looks_like_actual_html(value: Any) -> bool:
+    text = normalize_text(value)
+    if not text or "<" not in text or ">" not in text:
+        return False
+    return bool(re.search(r"<\s*/?\s*(p|br|div|span|section|article|strong|b|em|i|u|code|pre|blockquote|ul|ol|li|h[1-6]|img|a)\b", text, flags=re.IGNORECASE))
+
+
 def _normalize_test_input_value(value: Any) -> str:
     text = normalize_text(value)
     if not text:
@@ -1440,6 +1447,9 @@ def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
             "goal": normalize_text(ctx.get("goal")),
             "mustKeep": must_keep,
             "avoid": avoid,
+            "placementAfterAssignmentId": normalize_text(ctx.get("placementAfterAssignmentId") or ctx.get("afterAssignmentId")),
+            "placementAfterTitle": normalize_text(ctx.get("placementAfterTitle") or ctx.get("afterAssignmentTitle")),
+            "placementReason": normalize_text(ctx.get("placementReason")),
             "publicTests": [x for x in public_tests if x.get("expectedOutput")],
         }
     return {}
@@ -1487,6 +1497,7 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
     full_condition = contract.get("fullCondition") or contract.get("conditionPreview")
     if full_condition:
         aligned["description"] = full_condition
+
     fixed_output = _extract_fixed_output_literal(contract, payload)
     no_input = _blueprint_requires_no_input(contract, payload)
 
@@ -1494,10 +1505,10 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
         items = [dict(x) for x in list(tests or []) if isinstance(x, dict)]
         result: List[Dict[str, Any]] = []
         for item in items:
-            inp = _normalize_test_input_value(item.get("input"))
+            inp = NO_INPUT_SENTINEL if no_input else _normalize_test_input_value(item.get("input"))
             exp = normalize_text(item.get("expectedOutput"))
             if fixed_output:
-                exp = fixed_output + "\n"
+                exp = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
             if not exp:
                 continue
             result.append({"input": inp, "expectedOutput": exp})
@@ -1515,19 +1526,15 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
                 exp = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
             if not exp:
                 continue
-            public_tests.append({"input": _normalize_test_input_value(item.get("input")), "expectedOutput": exp})
+            public_tests.append({"input": NO_INPUT_SENTINEL if no_input else _normalize_test_input_value(item.get("input")), "expectedOutput": exp})
 
     if fixed_output:
-        desired = fixed_output + "\n"
+        desired = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
         if not public_tests:
-            public_tests = [
-                {"input": NO_INPUT_SENTINEL if no_input else "0", "expectedOutput": desired},
-                {"input": "1", "expectedOutput": desired},
-                {"input": "test", "expectedOutput": desired},
-                {"input": "abc", "expectedOutput": desired},
-            ]
+            base_input = NO_INPUT_SENTINEL if no_input else "0"
+            public_tests = [{"input": base_input, "expectedOutput": desired}]
         if not hidden_tests:
-            hidden_tests = [{"input": "hidden_check", "expectedOutput": desired}]
+            hidden_tests = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
         aligned["referenceSolutionPython"] = (
             f'import sys\n'
             f'def solve():\n'
@@ -1536,20 +1543,43 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
             f'if __name__ == "__main__":\n'
             f'    solve()'
         )
-    elif no_input:
-        public_tests = [{**t, "input": _normalize_test_input_value(t.get("input"))} for t in public_tests]
-        hidden_tests = [{**t, "input": _normalize_test_input_value(t.get("input"))} for t in hidden_tests]
+
+    if no_input:
+        public_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in public_tests]
+        hidden_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in hidden_tests]
 
     if public_tests:
         aligned["publicTests"] = public_tests
     if hidden_tests:
         aligned["hiddenTests"] = hidden_tests
+
     must_keep = [x.casefold() for x in list(contract.get("mustKeep") or [])]
     required = unique_string_list(aligned.get("requiredCalls") or [], 8)
-    if any("cout" in x for x in must_keep) and "cout" not in [x.casefold() for x in required]:
+    forbidden = unique_string_list(aligned.get("forbiddenCalls") or [], 10)
+
+    if any("cout" in x for x in must_keep) or fixed_output:
         required.append("cout")
-    if required:
-        aligned["requiredCalls"] = unique_string_list(required, 8)
+        forbidden = [x for x in forbidden if x.casefold() != "cout"]
+    if any("int main" in x for x in must_keep):
+        forbidden = [x for x in forbidden if x.casefold() not in {"main", "int main"}]
+    if no_input:
+        forbidden.extend(["scanf", "printf", "cin"])
+        required = [x for x in required if x.casefold() not in {"scanf", "printf", "cin"}]
+
+    required, forbidden, _ = strip_conflicting_lists(required, forbidden)
+    aligned["requiredCalls"] = unique_string_list(required, 8)
+    aligned["forbiddenCalls"] = unique_string_list(forbidden, 10)
+
+    placement_after_id = normalize_text(contract.get("placementAfterAssignmentId"))
+    if placement_after_id:
+        aligned["placementAfterAssignmentId"] = placement_after_id
+    placement_after_title = normalize_text(contract.get("placementAfterTitle"))
+    if placement_after_title:
+        aligned["placementAfterTitle"] = placement_after_title
+    placement_reason = normalize_text(contract.get("placementReason"))
+    if placement_reason:
+        aligned["placementReason"] = placement_reason
+
     return aligned
 
 
@@ -1660,7 +1690,7 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
     normalized = dict(draft)
     desc = normalized.get("description")
     if isinstance(desc, str) and desc.strip():
-        normalized["description"] = strip_html_to_text(desc) if "<" in desc and ">" in desc else normalize_text(desc)
+        normalized["description"] = strip_html_to_text(desc) if _looks_like_actual_html(desc) else normalize_text(desc)
     title = normalize_text(normalized.get("title"))
     if not title or title == "__PENDING_TITLE__":
         fallback_title = normalize_text(payload.get("titleHint")) or normalize_text(((payload.get("brief") or {}).get("titleHint")))
@@ -1720,6 +1750,17 @@ def _normalize_code_policy_lists(draft: Dict[str, Any]) -> None:
 def _ensure_solvable_code_test_draft(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     repaired = dict(draft)
     _normalize_code_policy_lists(repaired)
+    contract = _extract_blueprint_contract(payload)
+    fixed_output = _extract_fixed_output_literal(contract, payload)
+    no_input = _blueprint_requires_no_input(contract, payload)
+    if contract.get("kind") == "approved-chat-blueprint":
+        repaired = _apply_blueprint_contract_to_code_test_draft(repaired, payload)
+        if fixed_output:
+            desired = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
+            if not isinstance(repaired.get("publicTests"), list) or not repaired.get("publicTests"):
+                repaired["publicTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "0", "expectedOutput": desired}]
+            if not isinstance(repaired.get("hiddenTests"), list) or not repaired.get("hiddenTests"):
+                repaired["hiddenTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
     return repaired
 
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:

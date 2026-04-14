@@ -14,6 +14,7 @@ namespace taskforge.Services.AI;
 public sealed partial class AiJobService
 {
     private const string NoInputSentinel = "пусто";
+    private static readonly Regex HtmlTagRegex = new(@"<\s*/?\s*(p|br|div|span|section|article|strong|b|em|i|u|code|pre|blockquote|ul|ol|li|h[1-6]|img|a)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     public async Task<PublishAiDraftResultDto?> PublishDraftAsync(Guid id, Guid reviewedByUserId, PublishAiDraftRequestDto request, CancellationToken ct = default)
     {
         var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -537,7 +538,7 @@ public sealed partial class AiJobService
     }
 
     private static bool LooksLikeHtml(string value)
-        => !string.IsNullOrWhiteSpace(value) && value.IndexOf('<') >= 0 && value.IndexOf('>') > value.IndexOf('<');
+        => !string.IsNullOrWhiteSpace(value) && HtmlTagRegex.IsMatch(value);
 
     private static string ConvertHtmlToTipTapJson(string html)
     {
@@ -562,34 +563,136 @@ public sealed partial class AiJobService
             .Replace('\r', '\n')
             .Trim();
 
-        var paragraphs = text
-            .Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(x => x.Trim())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToList();
-
-        if (paragraphs.Count == 0 && !string.IsNullOrWhiteSpace(text))
-            paragraphs.Add(text);
-
-        var content = paragraphs.Select(BuildParagraphNode).ToArray();
-        var doc = new { type = "doc", content };
+        var content = BuildTipTapContentFromPlainText(text);
+        var doc = new Dictionary<string, object?>
+        {
+            ["type"] = "doc",
+            ["content"] = content,
+        };
         return JsonSerializer.Serialize(doc, JsonOptions);
+    }
+
+    private static List<object> BuildTipTapContentFromPlainText(string text)
+    {
+        var content = new List<object>();
+        if (string.IsNullOrWhiteSpace(text))
+            return content;
+
+        var lines = text.Split('\n');
+        var paragraphBuffer = new List<string>();
+        var index = 0;
+
+        void FlushParagraphBuffer()
+        {
+            if (paragraphBuffer.Count == 0) return;
+            var paragraphText = string.Join(" ", paragraphBuffer.Select(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+            paragraphBuffer.Clear();
+            if (!string.IsNullOrWhiteSpace(paragraphText))
+                content.Add(BuildParagraphNode(paragraphText));
+        }
+
+        while (index < lines.Length)
+        {
+            var line = (lines[index] ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                FlushParagraphBuffer();
+                index++;
+                continue;
+            }
+
+            var numberedMatch = Regex.Match(line, @"^(\d+)\.\s+(.*)$");
+            if (numberedMatch.Success)
+            {
+                FlushParagraphBuffer();
+                var listItems = new List<object>();
+                while (index < lines.Length)
+                {
+                    var current = (lines[index] ?? string.Empty).Trim();
+                    var currentMatch = Regex.Match(current, @"^(\d+)\.\s+(.*)$");
+                    if (!currentMatch.Success)
+                        break;
+
+                    var itemContent = new List<object>();
+                    var mainText = currentMatch.Groups[2].Value.Trim();
+                    if (!string.IsNullOrWhiteSpace(mainText))
+                        itemContent.Add(BuildParagraphNode(mainText));
+                    index++;
+
+                    while (index < lines.Length)
+                    {
+                        var continuation = (lines[index] ?? string.Empty).Trim();
+                        if (string.IsNullOrWhiteSpace(continuation))
+                        {
+                            index++;
+                            break;
+                        }
+                        if (Regex.IsMatch(continuation, @"^\d+\.\s+"))
+                            break;
+                        itemContent.Add(BuildParagraphNode(continuation));
+                        index++;
+                    }
+
+                    listItems.Add(new Dictionary<string, object?>
+                    {
+                        ["type"] = "listItem",
+                        ["content"] = itemContent,
+                    });
+                }
+
+                if (listItems.Count > 0)
+                {
+                    content.Add(new Dictionary<string, object?>
+                    {
+                        ["type"] = "orderedList",
+                        ["attrs"] = new Dictionary<string, object?> { ["start"] = 1 },
+                        ["content"] = listItems,
+                    });
+                }
+                continue;
+            }
+
+            paragraphBuffer.Add(line);
+            index++;
+        }
+
+        FlushParagraphBuffer();
+        return content;
     }
 
     private static object BuildParagraphNode(string paragraph)
     {
-        var lines = (paragraph ?? string.Empty)
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(x => x.Trim())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToList();
+        var text = (paragraph ?? string.Empty).Trim();
+        var textNode = IsLikelyCodeText(text)
+            ? new Dictionary<string, object?>
+            {
+                ["type"] = "text",
+                ["text"] = text,
+                ["marks"] = new[] { new Dictionary<string, object?> { ["type"] = "code" } }
+            }
+            : new Dictionary<string, object?>
+            {
+                ["type"] = "text",
+                ["text"] = text,
+            };
 
-        var text = string.Join("\n", lines);
-        return new
+        return new Dictionary<string, object?>
         {
-            type = "paragraph",
-            content = new[] { new { type = "text", text } }
+            ["type"] = "paragraph",
+            ["content"] = new[] { textNode }
         };
+    }
+
+    private static bool IsLikelyCodeText(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var text = value.Trim();
+        return text.StartsWith("#include", StringComparison.Ordinal)
+            || text.StartsWith("using namespace", StringComparison.Ordinal)
+            || text.StartsWith("int main", StringComparison.Ordinal)
+            || text.StartsWith("cout", StringComparison.Ordinal)
+            || text.StartsWith("cin", StringComparison.Ordinal)
+            || text == "}" || text == "{" || text.StartsWith("return", StringComparison.Ordinal);
     }
 
     private static JsonDocument? BuildStringListDocument(JsonElement root, string property)

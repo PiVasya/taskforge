@@ -797,6 +797,17 @@ public sealed class AiChatService
                         return FailTool("Не удалось сохранить примерные условия: proposals пустой или сломан.");
 
                     var memory = BuildMemory(messages, session.PlanJson);
+                    var defaultAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory);
+                    var defaultAfterAssignmentTitle = ResolveRequestedAfterAssignmentTitle(memory, defaultAfterAssignmentId);
+                    foreach (var proposal in proposals)
+                    {
+                        if (!proposal.PlacementAfterAssignmentId.HasValue && defaultAfterAssignmentId.HasValue)
+                            proposal.PlacementAfterAssignmentId = defaultAfterAssignmentId;
+                        if (string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle) && !string.IsNullOrWhiteSpace(defaultAfterAssignmentTitle))
+                            proposal.PlacementAfterTitle = defaultAfterAssignmentTitle;
+                        if (string.IsNullOrWhiteSpace(proposal.PlacementReason) && (!string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle) || proposal.PlacementAfterAssignmentId.HasValue))
+                            proposal.PlacementReason = $"Поставить после «{proposal.PlacementAfterTitle ?? "выбранного задания"}», чтобы новая задача логично продолжала текущую лестницу курса.";
+                    }
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? ((memory.CurrentDraftBlueprint?.Revision ?? 0) + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
                     {
@@ -3838,6 +3849,9 @@ public sealed class AiChatService
                 Goal = ShortenMultiline(obj["goal"]?.ToString() ?? obj["microGoal"]?.ToString() ?? string.Empty, 400),
                 ConditionPreview = ShortenMultiline(conditionPreview ?? fullCondition ?? string.Empty, 900),
                 FullCondition = ShortenMultiline(fullCondition ?? conditionPreview ?? string.Empty, 4000),
+                PlacementAfterAssignmentId = Guid.TryParse(obj["placementAfterAssignmentId"]?.ToString() ?? obj["afterAssignmentId"]?.ToString(), out var parsedAfterId) ? parsedAfterId : null,
+                PlacementAfterTitle = ShortenSingleLine(obj["placementAfterTitle"]?.ToString() ?? obj["afterAssignmentTitle"]?.ToString() ?? string.Empty, 180),
+                PlacementReason = ShortenSingleLine(obj["placementReason"]?.ToString() ?? string.Empty, 240),
                 Status = string.IsNullOrWhiteSpace(obj["status"]?.ToString()) ? "draft" : obj["status"]!.ToString()!.Trim(),
             };
             proposal.MustKeep = ReadStringList(obj, "mustKeep");
@@ -3917,6 +3931,10 @@ public sealed class AiChatService
             sb.AppendLine($"Тип: {proposal.AssignmentType} · сложность {proposal.Difficulty}/5 · статус {proposal.Status}");
             if (!string.IsNullOrWhiteSpace(proposal.Goal))
                 sb.AppendLine($"Цель: {ShortenSingleLine(proposal.Goal, 220)}");
+            if (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle))
+                sb.AppendLine($"Позиция: после «{proposal.PlacementAfterTitle ?? "выбранного задания"}»{(proposal.PlacementAfterAssignmentId.HasValue ? $" [{proposal.PlacementAfterAssignmentId}]" : string.Empty)}");
+            if (!string.IsNullOrWhiteSpace(proposal.PlacementReason))
+                sb.AppendLine($"Почему сюда: {ShortenSingleLine(proposal.PlacementReason, 220)}");
 
             var previewText = !string.IsNullOrWhiteSpace(proposal.FullCondition) ? proposal.FullCondition : proposal.ConditionPreview;
             if (!string.IsNullOrWhiteSpace(previewText))
@@ -3939,7 +3957,6 @@ public sealed class AiChatService
         sb.AppendLine();
         sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
         return sb.ToString().Trim();
-    }
 
     private static string BuildPromptFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatMemoryDto memory)
     {
@@ -3954,6 +3971,10 @@ public sealed class AiChatService
             sb.AppendLine($"Запрещено добавлять: {string.Join(", ", proposal.Avoid)}");
         if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
             sb.AppendLine("Следуй teaching-script из чата максимально близко. Не теряй порядок шагов, если он был явно задан.");
+        if (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle))
+            sb.AppendLine($"Позиция в курсе должна быть после задания «{proposal.PlacementAfterTitle ?? "выбранный anchor"}»{(proposal.PlacementAfterAssignmentId.HasValue ? $" [{proposal.PlacementAfterAssignmentId}]" : string.Empty)}.");
+        if (!string.IsNullOrWhiteSpace(proposal.PlacementReason))
+            sb.AppendLine($"Обоснование позиции: {proposal.PlacementReason}");
         if (!string.IsNullOrWhiteSpace(proposal.FullCondition))
             sb.AppendLine("Одобренный черновик условия из чата — это канонический источник истины. Финальный draft обязан сохранять ту же учебную мысль, те же литералы, те же шаги и тот же scope.");
         sb.AppendLine("Если в согласованном условии уже есть конкретные строки кода, точный вывод, точные ограничения или конкретный каркас программы, не подменяй их новыми значениями.");
@@ -3976,6 +3997,9 @@ public sealed class AiChatService
             fullCondition = proposal.FullCondition,
             mustKeep = proposal.MustKeep,
             avoid = proposal.Avoid,
+            placementAfterAssignmentId = proposal.PlacementAfterAssignmentId,
+            placementAfterTitle = proposal.PlacementAfterTitle,
+            placementReason = proposal.PlacementReason,
             publicTests = proposal.PublicTests.Select(x => new { input = x.Input, expectedOutput = x.ExpectedOutput }).ToList(),
         }, JsonOptions);
     }
@@ -3995,6 +4019,12 @@ public sealed class AiChatService
         {
             sb.AppendLine("Примерное условие:");
             sb.AppendLine(proposal.ConditionPreview);
+        }
+        if (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle))
+        {
+            sb.AppendLine($"Позиция в курсе: после «{proposal.PlacementAfterTitle ?? "выбранного задания"}»{(proposal.PlacementAfterAssignmentId.HasValue ? $" [{proposal.PlacementAfterAssignmentId}]" : string.Empty)}");
+            if (!string.IsNullOrWhiteSpace(proposal.PlacementReason))
+                sb.AppendLine($"Почему именно туда: {proposal.PlacementReason}");
         }
         if (!string.IsNullOrWhiteSpace(memory.LatestExplicitInstruction))
         {
