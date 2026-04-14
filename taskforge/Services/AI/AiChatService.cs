@@ -34,6 +34,7 @@ public sealed class AiChatService
 
     private readonly ApplicationDbContext _db;
     private readonly IAiJobService _jobs;
+    private readonly IAssignmentService _assignments;
     private readonly ILogger<AiChatService> _log;
 
     private sealed class ChatToolExecutionDto
@@ -43,10 +44,11 @@ public sealed class AiChatService
         public string? AgentTrace { get; set; }
     }
 
-    public AiChatService(ApplicationDbContext db, IAiJobService jobs, ILogger<AiChatService> log)
+    public AiChatService(ApplicationDbContext db, IAiJobService jobs, IAssignmentService assignments, ILogger<AiChatService> log)
     {
         _db = db;
         _jobs = jobs;
+        _assignments = assignments;
         _log = log;
     }
 
@@ -1392,6 +1394,164 @@ public sealed class AiChatService
                     };
                 }
 
+                case "monitor_generation_jobs":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    var limitDrafts = Math.Clamp(ReadInt(args, "limitDrafts") ?? 8, 1, 20);
+                    var requestedJobIds = ReadGuidList(args, "jobIds");
+
+                    var jobsQuery = _db.AiJobs.AsNoTracking()
+                        .Where(x => x.Type == AiFoundryJobTypes.GenerateAssignmentFromText || x.Type == "assignment_repair");
+                    if (courseId.HasValue)
+                        jobsQuery = jobsQuery.Where(x => x.CourseId == courseId.Value);
+                    if (requestedJobIds.Count > 0)
+                        jobsQuery = jobsQuery.Where(x => requestedJobIds.Contains(x.Id));
+
+                    var recentJobs = await jobsQuery
+                        .OrderByDescending(x => x.CreatedAtUtc)
+                        .Take(limitDrafts)
+                        .Select(x => new { x.Id, x.Status, x.CreatedAtUtc, x.CompletedAtUtc, x.ErrorText })
+                        .ToListAsync(ct);
+
+                    var jobIds = recentJobs.Select(x => x.Id).ToList();
+                    var draftsQuery = _db.AiGeneratedAssignmentDrafts.AsQueryable();
+                    if (courseId.HasValue)
+                        draftsQuery = draftsQuery.Where(x => x.CourseId == courseId.Value);
+                    if (jobIds.Count > 0)
+                        draftsQuery = draftsQuery.Where(x => jobIds.Contains(x.JobId) || (x.ParentJobId.HasValue && jobIds.Contains(x.ParentJobId.Value)));
+
+                    var drafts = await draftsQuery
+                        .OrderByDescending(x => x.UpdatedAtUtc)
+                        .Take(limitDrafts)
+                        .Select(x => new { x.Id, x.JobId, x.ParentJobId, x.Title, x.Status, x.UpdatedAtUtc })
+                        .ToListAsync(ct);
+
+                    var autoRevise = ReadBool(args, "autoReviseNeedsReview") ?? false;
+                    var memory = DeserializeMemory(session.PlanJson);
+                    var revised = new List<string>();
+                    if (autoRevise)
+                    {
+                        foreach (var draft in drafts.Where(x => string.Equals(x.Status, "needs-review", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "repaired", StringComparison.OrdinalIgnoreCase)).Take(3))
+                        {
+                            var revisePrompt = ReadString(args, "prompt") ?? BuildAutoRevisionPrompt(memory, draft.Title);
+                            var reviseJob = await _jobs.QueueReviseDraftFromChatAsync(new AiReviseDraftFromChatRequestDto
+                            {
+                                DraftId = draft.Id,
+                                Prompt = revisePrompt,
+                                Priority = Math.Clamp(ReadInt(args, "priority") ?? 18, 1, 100),
+                                InstructionStrictness = memory.InstructionStrictness,
+                                UserInstructionSnapshot = memory.LatestExplicitInstruction,
+                                TeachingScript = memory.LatestTeachingScript,
+                            }, createdByUserId, createdByDisplayName, ct);
+                            if (reviseJob != null)
+                                revised.Add(draft.Title);
+                        }
+                    }
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine("Мониторинг генерации:");
+                    if (recentJobs.Count == 0 && drafts.Count == 0)
+                    {
+                        sb.AppendLine("Пока не вижу недавних generation job или AI-черновиков в этом контексте.");
+                    }
+                    else
+                    {
+                        var groupedJobs = recentJobs.GroupBy(x => (x.Status ?? string.Empty).Trim(), StringComparer.OrdinalIgnoreCase)
+                            .Select(g => $"{g.Key}:{g.Count()}")
+                            .ToList();
+                        if (groupedJobs.Count > 0)
+                            sb.AppendLine($"Job-статусы: {string.Join(", ", groupedJobs)}");
+                        var groupedDrafts = drafts.GroupBy(x => (x.Status ?? string.Empty).Trim(), StringComparer.OrdinalIgnoreCase)
+                            .Select(g => $"{g.Key}:{g.Count()}")
+                            .ToList();
+                        if (groupedDrafts.Count > 0)
+                            sb.AppendLine($"Черновики: {string.Join(", ", groupedDrafts)}");
+                        foreach (var draft in drafts.Take(6))
+                            sb.AppendLine($"- {draft.Title} — {draft.Status}");
+                    }
+                    if (revised.Count > 0)
+                        sb.AppendLine($"Автоправка поставлена в очередь для: {string.Join(", ", revised.Select(x => $"«{x}»"))}");
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = revised.Count > 0 ? "partial" : "done",
+                        Summary = sb.ToString().Trim(),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai",
+                    };
+                }
+
+                case "edit_assignment_from_chat":
+                {
+                    var assignmentId = ReadGuid(args, "assignmentId");
+                    if (!assignmentId.HasValue)
+                        return FailTool("Для правки опубликованного задания нужен assignmentId.");
+
+                    var actorUserId = createdByUserId ?? session.CreatedByUserId ?? Guid.Empty;
+                    var current = await _assignments.GetDetailsAsync(assignmentId.Value, actorUserId);
+                    if (current == null)
+                        return FailTool("Не удалось найти опубликованное задание для правки.");
+
+                    var updatedTitle = ReadString(args, "title") ?? current.Title;
+                    var updatedDescription = ReadString(args, "description") ?? current.Description;
+                    var updatedTags = ReadString(args, "tags") ?? current.Tags;
+                    var updatedDifficulty = Math.Clamp(ReadInt(args, "difficulty") ?? current.Difficulty, 1, 3);
+                    var updatedRating = Math.Max(0, ReadInt(args, "rating") ?? current.Rating);
+                    var updatedAllowedLanguages = ReadStringList(args, "allowedLanguages");
+                    var updatedRequiredCalls = ReadStringList(args, "requiredCalls");
+                    var updatedForbiddenCalls = ReadStringList(args, "forbiddenCalls");
+                    if (updatedAllowedLanguages.Count == 0)
+                        updatedAllowedLanguages = current.AllowedLanguages?.ToList() ?? new List<string>();
+                    if (updatedRequiredCalls.Count == 0)
+                        updatedRequiredCalls = current.CodeRequiredCalls?.ToList() ?? new List<string>();
+                    if (updatedForbiddenCalls.Count == 0)
+                        updatedForbiddenCalls = current.CodeForbiddenCalls?.ToList() ?? new List<string>();
+
+                    var promptText = ReadString(args, "prompt");
+                    if (!string.IsNullOrWhiteSpace(promptText))
+                    {
+                        updatedTitle = TryExtractTitleFromPrompt(promptText) ?? updatedTitle;
+                        updatedDescription = TryExtractDescriptionFromPrompt(promptText) ?? updatedDescription;
+                    }
+
+                    await _assignments.UpdateAsync(assignmentId.Value, actorUserId, new UpdateAssignmentRequest
+                    {
+                        Title = updatedTitle,
+                        Description = updatedDescription,
+                        Type = current.Type,
+                        AllowedLanguages = updatedAllowedLanguages,
+                        Difficulty = updatedDifficulty,
+                        Rating = updatedRating,
+                        Tags = updatedTags,
+                        Sort = current.Sort,
+                        CodeRequiredCalls = updatedRequiredCalls,
+                        CodeForbiddenCalls = updatedForbiddenCalls,
+                        TestCases = current.TestCases.Select(x => new UpdateTestCaseDto
+                        {
+                            Id = x.Id,
+                            Input = x.Input,
+                            ExpectedOutput = x.ExpectedOutput,
+                            IsHidden = x.IsHidden,
+                        }).ToList(),
+                    });
+
+                    var explicitSort = ReadInt(args, "sort");
+                    if (explicitSort.HasValue)
+                        await _assignments.UpdateSortAsync(assignmentId.Value, actorUserId, explicitSort.Value);
+                    var afterAssignmentId = ReadGuid(args, "afterAssignmentId");
+                    if (afterAssignmentId.HasValue)
+                        await _assignments.PlaceAfterAssignmentAsync(assignmentId.Value, afterAssignmentId, actorUserId);
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = $"Обновила опубликованное задание «{updatedTitle}» прямо в курсе.",
+                        AssignmentId = assignmentId,
+                        CourseId = current.CourseId,
+                        NavigateTo = $"/assignments/{assignmentId.Value}",
+                    };
+                }
+
                 // ── cancel_batch: Cancel/delete a batch from chat ───────────────────
                 case "cancel_batch":
                 {
@@ -1925,6 +2085,20 @@ public sealed class AiChatService
                     description = "Показать оценку качества (scorecard) черновика: band, общая оценка, оценки по измерениям (pedagogy, structural, style, runtime, similarity), план ремонта.",
                     requiredArguments = new[] { "draftId" },
                     optionalArguments = Array.Empty<string>(),
+                },
+                new
+                {
+                    name = "monitor_generation_jobs",
+                    description = "Собрать статусы недавних generation job и черновиков: что готово, что needs-review, что опубликовано. При необходимости можно автоматически поставить проблемные AI-черновики на правку.",
+                    requiredArguments = new[] { "courseId" },
+                    optionalArguments = new[] { "jobIds", "limitDrafts", "autoReviseNeedsReview", "prompt" },
+                },
+                new
+                {
+                    name = "edit_assignment_from_chat",
+                    description = "Изменить уже опубликованное задание в курсе по замечаниям из чата: переименовать, обновить условие, теги, сложность, рейтинг, sort, placement и code policy.",
+                    requiredArguments = new[] { "assignmentId", "prompt" },
+                    optionalArguments = new[] { "courseId", "title", "description", "difficulty", "rating", "tags", "sort", "afterAssignmentId", "requiredCalls", "forbiddenCalls", "allowedLanguages" },
                 },
                 new
                 {
@@ -3874,6 +4048,45 @@ public sealed class AiChatService
                 result.Add(ShortenSingleLine(value, 240));
         }
         return result;
+    }
+
+    private static string BuildAutoRevisionPrompt(AiFoundryChatMemoryDto memory, string? draftTitle)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Проверь черновик{(string.IsNullOrWhiteSpace(draftTitle) ? string.Empty : $" «{draftTitle}»")} и доведи его до publishable состояния.");
+        sb.AppendLine("Строго держись согласованной учебной мысли, не уезжай в scanf/printf или в лишний ввод, если пользователь этого не просил.");
+        if (!string.IsNullOrWhiteSpace(memory?.LatestTeachingScript))
+            sb.AppendLine("Сохрани стиль teaching-script из чата максимально близко.");
+        if (!string.IsNullOrWhiteSpace(memory?.LatestExplicitInstruction))
+            sb.AppendLine($"Последняя явная инструкция пользователя: {memory.LatestExplicitInstruction}");
+        return sb.ToString().Trim();
+    }
+
+    private static string? TryExtractTitleFromPrompt(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+        var match = Regex.Match(prompt, "(?:переименуй|название(?:\\s+сделай)?|назови)\\s+(?:в|на)?\\s*[«\"“]?([^\\n\\r\"»”]{3,180})", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+            return null;
+        return ShortenSingleLine(match.Groups[1].Value.Trim(), 180);
+    }
+
+    private static string? TryExtractDescriptionFromPrompt(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+        var markers = new[] { "условие:", "описание:", "текст задания:", "замени описание на" };
+        foreach (var marker in markers)
+        {
+            var idx = prompt.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                continue;
+            var value = prompt[(idx + marker.Length)..].Trim();
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+        return null;
     }
 
     private static List<AiFoundryChatDraftTestPreviewDto> ReadChatDraftTests(JsonObject obj, string propertyName)

@@ -1528,15 +1528,21 @@ def _blueprint_requires_no_input(contract: Dict[str, Any], payload: Dict[str, An
 def _derive_contract_code_policy(contract: Dict[str, Any], fixed_output: str, no_input: bool) -> Tuple[List[str], List[str]]:
     must_keep = [normalize_text(x).lower() for x in list(contract.get("mustKeep") or []) if normalize_text(x)]
     avoid = [normalize_text(x).lower() for x in list(contract.get("avoid") or []) if normalize_text(x)]
+    full_text = "\n".join([
+        normalize_text(contract.get("fullCondition")).lower(),
+        normalize_text(contract.get("conditionPreview")).lower(),
+        " ".join(must_keep),
+        " ".join(avoid),
+    ])
     required: List[str] = []
     forbidden: List[str] = []
-    if fixed_output or any("cout" in x for x in must_keep):
+    if fixed_output or any("cout" in x for x in must_keep) or "cout" in full_text:
         required.append("cout")
-    if any("cin" in x for x in must_keep):
+    if any("cin" in x for x in must_keep) or "cin" in full_text:
         required.append("cin")
-    if any("scanf" in x for x in must_keep):
+    if any("scanf" in x for x in must_keep) or "scanf" in full_text:
         required.append("scanf")
-    if any("printf" in x for x in must_keep):
+    if any("printf" in x for x in must_keep) or "printf" in full_text:
         required.append("printf")
     if no_input:
         forbidden.extend(["cin", "scanf", "printf"])
@@ -1623,11 +1629,15 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
     must_keep = [x.casefold() for x in list(contract.get("mustKeep") or [])]
     required = unique_string_list(aligned.get("requiredCalls") or [], 8)
     forbidden = unique_string_list(aligned.get("forbiddenCalls") or [], 10)
+    contract_required, contract_forbidden = _derive_contract_code_policy(contract, fixed_output, no_input)
+    required = [x for x in required if x.casefold() not in {"scanf", "printf", "cin"} or not no_input]
+    required.extend(contract_required)
+    forbidden.extend(contract_forbidden)
 
-    if any("cout" in x for x in must_keep) or fixed_output:
+    if any("cout" in x for x in must_keep) or fixed_output or "cout" in normalize_text(contract.get("fullCondition")).lower():
         required.append("cout")
         forbidden = [x for x in forbidden if x.casefold() != "cout"]
-    if any("int main" in x for x in must_keep):
+    if any("int main" in x for x in must_keep) or "int main" in normalize_text(contract.get("fullCondition")).lower():
         forbidden = [x for x in forbidden if x.casefold() not in {"main", "int main"}]
     if no_input:
         forbidden.extend(["scanf", "printf", "cin"])
@@ -1891,6 +1901,9 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
 
     if isinstance(result.get("draft"), dict):
         result["draft"] = _normalize_generated_draft_fields(result["draft"], payload)
+        contract = _extract_blueprint_contract(payload)
+        if contract.get("kind") == "approved-chat-blueprint":
+            result["summary"] = normalize_text(contract.get("goal") or contract.get("conditionPreview") or contract.get("title") or result.get("summary"))
         assignment_type = normalize_text(result["draft"].get("assignmentType")).lower()
         if assignment_type == "code-test" and schema_version != "draft-v2" and isinstance(result["draft"].get("codePolicy"), dict):
             policy = result["draft"].get("codePolicy") or {}

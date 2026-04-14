@@ -515,6 +515,26 @@ def _chat_is_edit_draft_request(text: str) -> bool:
     return any(marker in low for marker in edit_markers) and any(marker in low for marker in draft_markers)
 
 
+def _chat_is_edit_assignment_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    edit_markers = ["переименуй", "переименовать", "поправь", "исправь", "измени", "доработай", "обнови", "переставь"]
+    published_markers = ["готовое задание", "задание в курсе", "в курсе", "опубликован", "опубликованное", "название", "позици", "sort", "рейтинг", "сложност", "теги"]
+    return any(marker in low for marker in edit_markers) and any(marker in low for marker in published_markers)
+
+
+def _chat_is_monitor_jobs_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(marker in low for marker in [
+        "следи", "следить", "проверь что вышло", "что там по задач", "что сгенерилось",
+        "покажи что получилось", "посмотри черновики", "монитор", "статус генерации",
+        "если что поправляй", "доделай сам"
+    ])
+
+
 def _chat_is_finalize_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
@@ -656,11 +676,25 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             ],
         }
         clean.append(proposal)
+    if clean and len(clean) < max(1, min(12, count or 1)):
+        desired = max(1, min(12, count or 1))
+        seed = clean[-1]
+        continuation_text = str(result.get("assistantMessage") or prompt or last_user or "").strip()
+        while len(clean) < desired:
+            idx = len(clean) + 1
+            clone = dict(seed)
+            clone["title"] = re.sub(r"(\d+)(?!.*\d)", lambda m: str(int(m.group(1)) + 1), str(seed.get("title") or f"Вариант {idx}"), count=1)
+            if clone["title"] == seed.get("title"):
+                clone["title"] = f"Вариант {idx}"
+            clone["conditionPreview"] = str(seed.get("conditionPreview") or continuation_text).strip()[:2000]
+            clone["fullCondition"] = str(seed.get("fullCondition") or clone["conditionPreview"] or prompt or last_user).strip()[:8000]
+            clone["publicTests"] = [dict(x) for x in list(seed.get("publicTests") or []) if isinstance(x, dict)]
+            clean.append(clone)
     if clean:
         return clean
     base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
     base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
-    default_count = max(1, min(3, count or 1))
+    default_count = max(1, min(12, count or 1))
     return [{
         "title": str(result.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
         "assignmentType": assignment_type,
@@ -705,6 +739,10 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "show-blueprint"
     if _chat_is_edit_draft_request(low):
         return "edit-draft"
+    if _chat_is_edit_assignment_request(low):
+        return "edit-assignment"
+    if _chat_is_monitor_jobs_request(low):
+        return "monitor-jobs"
     if _chat_is_direct_generate_request(low):
         return "generate"
     if _chat_is_finalize_request(low):
@@ -974,6 +1012,36 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 }],
             }
         return {"assistantMessage": "Я не вижу в этой сессии готового AI-черновика для правки. Сначала сгенерируй его или открой нужный draft.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
+    if latest_intent_kind == "edit-assignment":
+        recent_assignments = payload.get("recentAssignments") if isinstance(payload.get("recentAssignments"), list) else []
+        latest_assignment_id = None
+        for item in recent_assignments:
+            if isinstance(item, dict) and str(item.get("id") or "").strip():
+                latest_assignment_id = str(item.get("id")).strip()
+                break
+        if latest_assignment_id:
+            return {
+                "assistantMessage": "Ок, применю правки к уже опубликованному заданию в курсе.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "edit_assignment_from_chat",
+                    "reason": "Пользователь просит править уже опубликованное задание по новому сообщению.",
+                    "arguments": {"courseId": course_id, "assignmentId": latest_assignment_id, "prompt": focus_text},
+                }],
+            }
+        return {"assistantMessage": "Я не вижу подходящего опубликованного задания в текущем контексте. Назови его точнее или открой курс так, чтобы оно попало в recentAssignments.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
+    if latest_intent_kind == "monitor-jobs":
+        return {
+            "assistantMessage": "Проверю, что уже сгенерировалось, и если увижу проблемные черновики, подскажу или поставлю их на правку.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "monitor_generation_jobs",
+                "reason": "Пользователь просит следить за генерацией и не терять проблемные черновики.",
+                "arguments": {"courseId": course_id, "autoReviseNeedsReview": True, "limitDrafts": 12},
+            }],
+        }
 
     if short_followup:
         if blueprint_proposals:

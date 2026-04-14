@@ -542,6 +542,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "drop_chat_blueprint — сбросить старые варианты, если пользователь просит начать заново. "
         "finalize_chat_blueprint — только после явного одобрения пользователя превратить согласованные условия в полноценные draft-черновики. "
         "Когда пользователь сознательно просит пропустить этап обсуждения и сразу финализировать задачу из текста — queue_generate_from_text. Если пользователь просит поправить уже созданный AI-черновик по новому сообщению — revise_draft_from_chat. "
+        "Если пользователь хочет, чтобы AI сама следила за уже запущенной генерацией, собирала статусы, показывала что вышло и при необходимости ставила черновики на правку — используй monitor_generation_jobs. "
+        "Если пользователь просит поправить уже опубликованное задание в курсе (переименовать, передвинуть, обновить описание, теги, сложность, code policy) — используй edit_assignment_from_chat. "
         "Когда пользователь явно просит использовать прикреплённый файл — queue_generate_from_file. "
         "Когда пользователь просит проверить/провалидировать draft — queue_validate_draft. "
         "Когда пользователь просит анализ уже существующего задания — queue_analyze_assignment. "
@@ -550,6 +552,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "==== ПРОСМОТР И УПРАВЛЕНИЕ ПРЯМО В ЧАТЕ ====\\n"
         "show_draft — показать содержимое черновика (условие, решение, тесты) прямо в чате. Используй после генерации или когда пользователь просит 'покажи что получилось', 'покажи задание', 'что сгенерировалось'. "
         "show_draft_reviews — показать оценки качества (scorecard) черновика: band, общая оценка, измерения. Используй когда пользователь спрашивает 'какая оценка', 'качество', 'как прошла проверка'. "
+        "monitor_generation_jobs — собрать статусы недавних generation job и AI-черновиков, показать что уже готово, что needs-review и что опубликовано; при явном запросе можно включать autoReviseNeedsReview. "
+        "edit_assignment_from_chat — обновить уже опубликованное задание в курсе по замечаниям пользователя. "
         "cancel_batch — отменить и удалить batch. Используй если пользователь явно просит 'отмени', 'удали batch', 'стоп'. "
         "publish_batch — массово опубликовать все готовые черновики из batch. Используй если пользователь просит 'опубликуй всё', 'публикуй batch'. "
         "ВАЖНО: после завершения генерации batch автоматически покажи содержимое первого черновика через show_draft, чтобы пользователю не приходилось просить об этом.\\n\\n"
@@ -573,7 +577,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "  \\\"sessionTitle\\\": \\\"...\\\",\\n"
         "  \\\"actions\\\": [\\n"
         "    {\\n"
-        "      \\\"name\\\": \\\"queue_generate_batch|analyze_course_progression|inspect_course_assignments|prepare_bridge_plan|show_bridge_plan|revise_bridge_plan|advance_agent_stage|queue_generate_bridge_batch|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|show_draft|show_draft_reviews|cancel_batch|publish_batch|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
+        "      \\\"name\\\": \\\"queue_generate_batch|analyze_course_progression|inspect_course_assignments|prepare_bridge_plan|show_bridge_plan|revise_bridge_plan|advance_agent_stage|queue_generate_bridge_batch|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|show_draft|show_draft_reviews|monitor_generation_jobs|edit_assignment_from_chat|cancel_batch|publish_batch|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
         "      \\\"reason\\\": \\\"...\\\",\\n"
         "      \\\"arguments\\\": { ... }\\n"
         "    }\\n"
@@ -1270,6 +1274,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.
 - Если в payload есть approvedBlueprint, он важнее noveltyHook, anti-duplicate и style-экспериментов: approvedBlueprint — это канон, а не вдохновение.
 - При approvedBlueprint нельзя подменять cout на scanf/printf, добавлять ввод без явного запроса или менять точный вывод/каркас программы.
+- При approvedBlueprint нельзя даже в summary/solution/test cases уводить задачу в scanf/printf/cin, если blueprint согласован как no-input или cout-only. Если blueprint задаёт точный порядок шагов, сохрани его буквально.
 {rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
