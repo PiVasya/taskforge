@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.DTO.AI;
+using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.Entities;
 using taskforge.Data.Models.Entities.AI;
 using taskforge.Services.Interfaces;
@@ -1401,7 +1402,7 @@ public sealed class AiChatService
                     var requestedJobIds = ReadGuidList(args, "jobIds");
 
                     var jobsQuery = _db.AiJobs.AsNoTracking()
-                        .Where(x => x.Type == AiFoundryJobTypes.GenerateAssignmentFromText || x.Type == "assignment_repair");
+                        .Where(x => x.Type == "assignment_generate_from_text" || x.Type == "assignment_repair");
                     if (courseId.HasValue)
                         jobsQuery = jobsQuery.Where(x => x.CourseId == courseId.Value);
                     if (requestedJobIds.Count > 0)
