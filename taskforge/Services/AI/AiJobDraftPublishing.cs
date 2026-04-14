@@ -615,8 +615,7 @@ public sealed partial class AiJobService
 
                     var itemContent = new List<object>();
                     var mainText = currentMatch.Groups[2].Value.Trim();
-                    if (!string.IsNullOrWhiteSpace(mainText))
-                        itemContent.Add(BuildParagraphNode(mainText));
+                    AppendInstructionItemContent(itemContent, mainText);
                     index++;
 
                     while (index < lines.Length)
@@ -629,7 +628,7 @@ public sealed partial class AiJobService
                         }
                         if (Regex.IsMatch(continuation, @"^\d+\.\s+"))
                             break;
-                        itemContent.Add(BuildParagraphNode(continuation));
+                        AppendInstructionItemContent(itemContent, continuation);
                         index++;
                     }
 
@@ -660,26 +659,73 @@ public sealed partial class AiJobService
         return content;
     }
 
-    private static object BuildParagraphNode(string paragraph)
+    private static void AppendInstructionItemContent(List<object> itemContent, string text)
+    {
+        var normalized = (text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        var split = TrySplitInstructionCode(normalized);
+        if (split.HasValue)
+        {
+            if (!string.IsNullOrWhiteSpace(split.Value.Lead))
+                itemContent.Add(BuildParagraphNode(split.Value.Lead));
+            if (!string.IsNullOrWhiteSpace(split.Value.Code))
+                itemContent.Add(BuildCodeParagraphNode(split.Value.Code));
+            return;
+        }
+
+        itemContent.Add(IsLikelyCodeText(normalized) ? BuildCodeParagraphNode(normalized) : BuildParagraphNode(normalized));
+    }
+
+    private static (string Lead, string Code)? TrySplitInstructionCode(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var markers = new[] { "#include", "using namespace", "int main", "cout", "cin", "scanf", "printf", "return", "}" };
+        foreach (var marker in markers)
+        {
+            var idx = value.IndexOf(marker, StringComparison.Ordinal);
+            if (idx <= 0) continue;
+            var lead = value[..idx].TrimEnd(' ', ':');
+            var code = value[idx..].Trim();
+            if (!string.IsNullOrWhiteSpace(code) && IsLikelyCodeText(code))
+                return (lead, code);
+        }
+        return null;
+    }
+
+    private static object BuildCodeParagraphNode(string paragraph)
     {
         var text = (paragraph ?? string.Empty).Trim();
-        var textNode = IsLikelyCodeText(text)
-            ? new Dictionary<string, object?>
-            {
-                ["type"] = "text",
-                ["text"] = text,
-                ["marks"] = new[] { new Dictionary<string, object?> { ["type"] = "code" } }
-            }
-            : new Dictionary<string, object?>
-            {
-                ["type"] = "text",
-                ["text"] = text,
-            };
-
         return new Dictionary<string, object?>
         {
             ["type"] = "paragraph",
-            ["content"] = new[] { textNode }
+            ["content"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "text",
+                    ["text"] = text,
+                    ["marks"] = new[] { new Dictionary<string, object?> { ["type"] = "code" } }
+                }
+            }
+        };
+    }
+
+    private static object BuildParagraphNode(string paragraph)
+    {
+        var text = (paragraph ?? string.Empty).Trim();
+        return new Dictionary<string, object?>
+        {
+            ["type"] = "paragraph",
+            ["content"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "text",
+                    ["text"] = text,
+                }
+            }
         };
     }
 

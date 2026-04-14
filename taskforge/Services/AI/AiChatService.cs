@@ -3957,6 +3957,7 @@ public sealed class AiChatService
         sb.AppendLine();
         sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
         return sb.ToString().Trim();
+    }
 
     private static string BuildPromptFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatMemoryDto memory)
     {

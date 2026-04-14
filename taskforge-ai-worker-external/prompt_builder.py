@@ -1004,6 +1004,9 @@ def _compact_approved_blueprint(payload: Dict[str, Any]) -> Dict[str, Any] | Non
         "goal": truncate_text(ctx.get("goal"), 180),
         "fullCondition": truncate_text(ctx.get("fullCondition"), 700),
         "conditionPreview": truncate_text(ctx.get("conditionPreview"), 260),
+        "placementAfterAssignmentId": truncate_text(ctx.get("placementAfterAssignmentId") or ctx.get("afterAssignmentId"), 80),
+        "placementAfterTitle": truncate_text(ctx.get("placementAfterTitle") or ctx.get("afterAssignmentTitle"), 120),
+        "placementReason": truncate_text(ctx.get("placementReason"), 180),
         "mustKeep": unique_string_list(ctx.get("mustKeep"), 10),
         "avoid": unique_string_list(ctx.get("avoid"), 10),
         "publicTests": [
@@ -1265,6 +1268,8 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - description должен выглядеть как условие из этого курса и сохранять course-native стиль.
 - Строго следуй generationSpec.exactTask и generationSpec.ioContract, если они заданы.
 - Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.
+- Если в payload есть approvedBlueprint, он важнее noveltyHook, anti-duplicate и style-экспериментов: approvedBlueprint — это канон, а не вдохновение.
+- При approvedBlueprint нельзя подменять cout на scanf/printf, добавлять ввод без явного запроса или менять точный вывод/каркас программы.
 {rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.

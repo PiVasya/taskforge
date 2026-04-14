@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from config import (
     MAX_REFERENCE_ASSIGNMENTS,
@@ -1480,10 +1480,77 @@ def _extract_fixed_output_literal(contract: Dict[str, Any], payload: Dict[str, A
     return ""
 
 
+def _contains_input_call_markers(text: str) -> bool:
+    hay = normalize_text(text).lower()
+    if not hay:
+        return False
+    markers = [
+        " cin", "cin ", "scanf", "printf", "getline",
+        "считай", "считать", "прочитай", "прочитать", "введи", "ввести",
+        "входные данные", "прочесть",
+    ]
+    return any(marker in hay for marker in markers)
+
+
 def _blueprint_requires_no_input(contract: Dict[str, Any], payload: Dict[str, Any]) -> bool:
-    texts = [contract.get("fullCondition"), contract.get("conditionPreview"), payload.get("sourceText"), payload.get("teachingScript"), payload.get("prompt")]
+    texts = [
+        contract.get("fullCondition"),
+        contract.get("conditionPreview"),
+        payload.get("sourceText"),
+        payload.get("teachingScript"),
+        payload.get("prompt"),
+        payload.get("userInstructionSnapshot"),
+    ]
     hay = "\n".join(normalize_text(x).lower() for x in texts if normalize_text(x))
-    return any(token in hay for token in ["входные данные не требуются", "ничего считывать", "без ввода", "программа не должна ничего считывать", "игнорируй ввод", "cout <<"])
+    if any(token in hay for token in [
+        "входные данные не требуются",
+        "ничего считывать",
+        "без ввода",
+        "программа не должна ничего считывать",
+        "игнорируй ввод",
+        "ввод отсутствует",
+    ]):
+        return True
+    fixed_output = _extract_fixed_output_literal(contract, payload)
+    must_keep = " ".join(normalize_text(x).lower() for x in list(contract.get("mustKeep") or []) if normalize_text(x))
+    public_tests = contract.get("publicTests") if isinstance(contract.get("publicTests"), list) else []
+    explicit_input_examples = any(
+        normalize_text((x or {}).get("input")) not in {"", NO_INPUT_SENTINEL}
+        for x in public_tests if isinstance(x, dict)
+    )
+    if fixed_output and not explicit_input_examples and not _contains_input_call_markers(hay) and not _contains_input_call_markers(must_keep):
+        return True
+    if 'cout <<' in hay and not _contains_input_call_markers(hay.replace('cout <<', '')):
+        return True
+    return False
+
+
+def _derive_contract_code_policy(contract: Dict[str, Any], fixed_output: str, no_input: bool) -> Tuple[List[str], List[str]]:
+    must_keep = [normalize_text(x).lower() for x in list(contract.get("mustKeep") or []) if normalize_text(x)]
+    avoid = [normalize_text(x).lower() for x in list(contract.get("avoid") or []) if normalize_text(x)]
+    required: List[str] = []
+    forbidden: List[str] = []
+    if fixed_output or any("cout" in x for x in must_keep):
+        required.append("cout")
+    if any("cin" in x for x in must_keep):
+        required.append("cin")
+    if any("scanf" in x for x in must_keep):
+        required.append("scanf")
+    if any("printf" in x for x in must_keep):
+        required.append("printf")
+    if no_input:
+        forbidden.extend(["cin", "scanf", "printf"])
+    for token in avoid:
+        if "scanf" in token:
+            forbidden.append("scanf")
+        if "printf" in token:
+            forbidden.append("printf")
+        if "cin" in token:
+            forbidden.append("cin")
+        if "cout" in token:
+            forbidden.append("cout")
+    required, forbidden, _ = strip_conflicting_lists(required, forbidden)
+    return unique_string_list(required, 8), unique_string_list(forbidden, 10)
 
 
 def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1702,6 +1769,14 @@ def _normalize_generated_draft_fields(draft: Dict[str, Any], payload: Dict[str, 
     normalized["placementAfterAssignmentId"] = placement.get("placementAfterAssignmentId")
     normalized["placementAfterTitle"] = placement.get("placementAfterTitle")
     normalized["placementReason"] = placement.get("placementReason")
+    contract = _extract_blueprint_contract(payload)
+    if contract.get("kind") == "approved-chat-blueprint":
+        if normalize_text(contract.get("placementAfterAssignmentId")):
+            normalized["placementAfterAssignmentId"] = normalize_text(contract.get("placementAfterAssignmentId"))
+        if normalize_text(contract.get("placementAfterTitle")):
+            normalized["placementAfterTitle"] = normalize_text(contract.get("placementAfterTitle"))
+        if normalize_text(contract.get("placementReason")):
+            normalized["placementReason"] = normalize_text(contract.get("placementReason"))
     if normalize_text(normalized.get("assignmentType")).lower() == "code-test":
         _rebalance_code_tests(normalized, payload)
         normalized = _apply_blueprint_contract_to_code_test_draft(normalized, payload)
