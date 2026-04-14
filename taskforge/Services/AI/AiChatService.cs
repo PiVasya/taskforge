@@ -7,7 +7,6 @@ using taskforge.Constants;
 using taskforge.Data;
 using taskforge.Data.Models.DTO.AI;
 using taskforge.Data.Models.DTO;
-using taskforge.Data.Models.DTO.Assignments;
 using taskforge.Data.Models.Entities;
 using taskforge.Data.Models.Entities.AI;
 using taskforge.Services.Interfaces;
