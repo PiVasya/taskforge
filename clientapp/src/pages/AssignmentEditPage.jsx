@@ -211,10 +211,6 @@ export default function AssignmentEditPage() {
       if (!Array.isArray(testCases) || testCases.length === 0) {
         issues.push('Для code-test нужен хотя бы один тест-кейс.');
       } else {
-        testCases.forEach((t, idx) => {
-          if (!String(t?.input ?? '').trim()) issues.push(`Тест #${idx + 1}: заполни Input.`);
-          if (!String(t?.expectedOutput ?? '').trim()) issues.push(`Тест #${idx + 1}: заполни Expected Output.`);
-        });
       }
     }
 

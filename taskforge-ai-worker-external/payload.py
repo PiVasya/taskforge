@@ -1393,7 +1393,7 @@ def _generation_seed_text(payload: Dict[str, Any], result: Dict[str, Any] | None
     return " ".join(x for x in parts if x).lower()
 
 
-NO_INPUT_SENTINEL = "пусто"
+NO_INPUT_SENTINEL = ""
 
 # Removed deterministic subject-template draft builders.
 # Draft synthesis must stay LLM-first; sanitization may only wrap/normalize model output.
@@ -1410,20 +1410,11 @@ def _looks_like_actual_html(value: Any) -> bool:
 
 
 def _normalize_test_input_value(value: Any) -> str:
-    text = normalize_text(value)
-    if not text:
-        return NO_INPUT_SENTINEL
-    return text
+    return "" if value is None else str(value)
 
 
 def _is_site_incompatible_test_case(test: Dict[str, Any]) -> bool:
-    if not isinstance(test, dict):
-        return True
-    expected = normalize_text(test.get("expectedOutput"))
-    if not expected:
-        return True
-    normalized_input = _normalize_test_input_value(test.get("input"))
-    return not bool(normalized_input)
+    return not isinstance(test, dict)
 
 
 def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1450,7 +1441,7 @@ def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
             "placementAfterAssignmentId": normalize_text(ctx.get("placementAfterAssignmentId") or ctx.get("afterAssignmentId")),
             "placementAfterTitle": normalize_text(ctx.get("placementAfterTitle") or ctx.get("afterAssignmentTitle")),
             "placementReason": normalize_text(ctx.get("placementReason")),
-            "publicTests": [x for x in public_tests if x.get("expectedOutput")],
+            "publicTests": public_tests,
         }
     return {}
 
@@ -1833,9 +1824,9 @@ def _ensure_solvable_code_test_draft(draft: Dict[str, Any], payload: Dict[str, A
         if fixed_output:
             desired = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
             if not isinstance(repaired.get("publicTests"), list) or not repaired.get("publicTests"):
-                repaired["publicTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "0", "expectedOutput": desired}]
-            if not isinstance(repaired.get("hiddenTests"), list) or not repaired.get("hiddenTests"):
-                repaired["hiddenTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
+                repaired["publicTests"] = [{"input": "" if no_input else "0", "expectedOutput": desired}]
+            if not isinstance(repaired.get("hiddenTests"), list):
+                repaired["hiddenTests"] = []
     return repaired
 
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:

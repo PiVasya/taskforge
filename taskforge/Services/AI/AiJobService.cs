@@ -807,6 +807,30 @@ public sealed partial class AiJobService : IAiJobService
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<AiGeneratedDraftDto?> UpdateDraftAsync(Guid id, UpdateAiDraftRequestDto request, Guid reviewedByUserId, CancellationToken ct = default)
+    {
+        var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (draft == null) return null;
+
+        var raw = string.IsNullOrWhiteSpace(request.DraftJson) ? "{}" : request.DraftJson.Trim();
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        var publishable = ExtractPublishableDraftRoot(root);
+        var normalizedTitle = NormalizePublishedDraftTitle(ReadString(publishable, "title") ?? draft.Title ?? string.Empty, ReadString(publishable, "description"));
+        var normalizedType = NormalizeDraftAssignmentType(draft.AssignmentType, publishable);
+
+        draft.DraftJson = JsonSerializer.Serialize(JsonSerializer.Deserialize<object>(raw), JsonOptions);
+        draft.Title = string.IsNullOrWhiteSpace(normalizedTitle) ? (draft.Title ?? string.Empty) : normalizedTitle;
+        draft.AssignmentType = normalizedType;
+        draft.Status = string.Equals(draft.Status, "published", StringComparison.OrdinalIgnoreCase) ? draft.Status : "draft";
+        draft.ReviewedByUserId = reviewedByUserId;
+        draft.ReviewedAtUtc = DateTime.UtcNow;
+        draft.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        return await GetDraftAsync(id, ct);
+    }
+
     public async Task<bool> ReviewDraftAsync(Guid id, Guid reviewedByUserId, string action, CancellationToken ct = default)
     {
         var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -1704,9 +1728,9 @@ public sealed partial class AiJobService : IAiJobService
             "code-test" => new
             {
                 minDescriptionLength = 200,
-                minPublicTests = 2,
-                minHiddenTests = 1,
-                minTotalTests = 5,
+                minPublicTests = 1,
+                minHiddenTests = 0,
+                minTotalTests = 1,
                 preferPublicTestsMoreThanHidden = true,
                 requireReferenceSolutionPython = true,
                 requireCodePolicyReview = true,
@@ -1856,9 +1880,9 @@ public sealed partial class AiJobService : IAiJobService
                 forbiddenCalls = "string[] optional",
                 quality = new
                 {
-                    minPublicTests = 2,
-                    minHiddenTests = 1,
-                    minTotalTests = 5,
+                    minPublicTests = 1,
+                    minHiddenTests = 0,
+                    minTotalTests = 1,
                     preferPublicTestsMoreThanHidden = true,
                     requireEdgeCases = true,
                     requireDeterministicReferenceSolution = true,

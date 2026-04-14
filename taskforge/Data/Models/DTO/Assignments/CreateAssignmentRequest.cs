@@ -49,11 +49,9 @@ namespace taskforge.Data.Models.DTO
 
     public sealed class CreateTestCaseDto
     {
-        [Required]
-        public string Input { get; set; } = string.Empty;
+        public string? Input { get; set; }
 
-        [Required]
-        public string ExpectedOutput { get; set; } = string.Empty;
+        public string? ExpectedOutput { get; set; }
 
         public bool IsHidden { get; set; } = false;
     }

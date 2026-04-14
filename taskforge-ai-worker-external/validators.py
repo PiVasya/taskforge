@@ -20,10 +20,7 @@ from runners import run_python_solution
 # ── Shared helpers ───────────────────────────────────
 
 def _is_site_incompatible_test_input(value: Any) -> bool:
-    if value is None:
-        return True
-    text = str(value)
-    return text != "" and text.strip() == ""
+    return False
 
 
 def has_html(text: str) -> bool:

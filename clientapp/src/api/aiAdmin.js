@@ -98,3 +98,8 @@ export async function retryAiJob(id) {
 export async function cancelAiJob(id) {
   await api.post(`/api/admin/ai/jobs/${id}/cancel`);
 }
+
+export async function updateAiDraft(id, payload) {
+  const { data } = await api.put(`/api/admin/ai/drafts/${id}`, payload);
+  return data;
+}

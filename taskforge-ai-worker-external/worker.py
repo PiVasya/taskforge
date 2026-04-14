@@ -263,8 +263,8 @@ def _schema_missing_reason(job_type: str, payload: Dict[str, Any], result: Dict[
             if assignment_type == "code-test":
                 if not isinstance(draft.get("publicTests"), list) or not draft.get("publicTests"):
                     return "missing draft.publicTests"
-                if not isinstance(draft.get("hiddenTests"), list) or not draft.get("hiddenTests"):
-                    return "missing draft.hiddenTests"
+                if draft.get("hiddenTests") is not None and not isinstance(draft.get("hiddenTests"), list):
+                    return "invalid draft.hiddenTests"
                 if not str(draft.get("referenceSolutionPython") or "").strip():
                     return "missing draft.referenceSolutionPython"
             continue

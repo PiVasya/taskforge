@@ -146,6 +146,13 @@ public sealed class AdminAiController : ControllerBase
         return data == null ? NotFound() : Ok(data);
     }
 
+    [HttpPut("drafts/{id:guid}")]
+    public async Task<IActionResult> UpdateDraft(Guid id, [FromBody] UpdateAiDraftRequestDto request, CancellationToken ct = default)
+    {
+        var data = await _jobs.UpdateDraftAsync(id, request, _current.GetUserId(), ct);
+        return data == null ? NotFound() : Ok(data);
+    }
+
     [HttpPost("drafts/{id:guid}/review")]
     public async Task<IActionResult> ReviewDraft(Guid id, [FromBody] ReviewAiDraftRequestDto request, CancellationToken ct = default)
     {

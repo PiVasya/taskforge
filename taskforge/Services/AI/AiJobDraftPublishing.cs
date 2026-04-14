@@ -246,9 +246,7 @@ public sealed partial class AiJobService
                 ? ReadCreateTestCases(draftRoot, false, "publicTests")
                 : ReadCreateTestCases(draftRoot, false, "publicTests", "tests");
             var hiddenTests = ReadCreateTestCases(draftRoot, true, "hiddenTests");
-            if (publicTests.Count < 2) throw new ValidationException($"Нужно минимум 2 открытых теста (publicTests), сейчас: {publicTests.Count}.");
-            if (hiddenTests.Count < 1) throw new ValidationException($"Нужен минимум 1 скрытый тест (hiddenTests), сейчас: {hiddenTests.Count}.");
-            if (publicTests.Count + hiddenTests.Count < 5) throw new ValidationException($"Нужно минимум 5 тестов суммарно (publicTests + hiddenTests), сейчас: {publicTests.Count + hiddenTests.Count}.");
+            if (publicTests.Count + hiddenTests.Count < 1) throw new ValidationException($"Для code-test нужен хотя бы один тест, сейчас: {publicTests.Count + hiddenTests.Count}.");
             request.TestCases = publicTests.Concat(hiddenTests).ToList();
         }
 
@@ -432,9 +430,9 @@ public sealed partial class AiJobService
 
     private static string NormalizeTestInput(string? raw)
     {
-        if (string.IsNullOrWhiteSpace(raw))
-            return NoInputSentinel;
-        return raw;
+        if (raw == null)
+            return string.Empty;
+        return raw == NoInputSentinel ? string.Empty : raw;
     }
 
     private static List<TaskTestOptionDto> ReadTestOptions(JsonElement node, params string[] names)

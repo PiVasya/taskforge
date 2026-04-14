@@ -46,9 +46,9 @@ class PayloadBlueprintContractTests(unittest.TestCase):
 
         self.assertEqual(draft["title"], "Задание 1. Выводим «Hi»")
         self.assertIn('cout << "Hi";', draft["description"])
-        self.assertEqual(draft["publicTests"][0]["input"], payload.NO_INPUT_SENTINEL)
+        self.assertEqual(draft["publicTests"][0]["input"], "")
         self.assertEqual(draft["publicTests"][0]["expectedOutput"], "Hi\n")
-        self.assertTrue(draft["hiddenTests"][0]["input"])
+        self.assertEqual(draft["hiddenTests"][0]["input"], "")
         self.assertIn("print('Hi')", draft["referenceSolutionPython"])
         self.assertIn("cout", [x.lower() for x in draft["requiredCalls"]])
 

@@ -50,11 +50,9 @@ namespace taskforge.Data.Models.DTO
     {
         public Guid? Id { get; set; } // не обязателен при replace-all
 
-        [Required]
-        public string Input { get; set; } = string.Empty;
+        public string? Input { get; set; }
 
-        [Required]
-        public string ExpectedOutput { get; set; } = string.Empty;
+        public string? ExpectedOutput { get; set; }
 
         public bool IsHidden { get; set; } = false;
     }

@@ -11,7 +11,6 @@ namespace taskforge.Services
 {
     public sealed class AssignmentService : IAssignmentService
     {
-        private const string NoInputSentinel = "пусто";
         private readonly ApplicationDbContext _db;
 
         public AssignmentService(ApplicationDbContext db) => _db = db;
@@ -87,7 +86,7 @@ namespace taskforge.Services
                     {
                         Id = Guid.NewGuid(),
                         Input = NormalizeCodeTestInput(tc.Input),
-                        ExpectedOutput = tc.ExpectedOutput ?? string.Empty,
+                        ExpectedOutput = NormalizeCodeTestOutput(tc.ExpectedOutput),
                         IsHidden = tc.IsHidden
                     });
                 }
@@ -149,8 +148,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         .Select(tc => new AssignmentTestCaseDto
         {
             Id = tc.Id,
-            Input = tc.Input,
-            ExpectedOutput = tc.ExpectedOutput,
+            Input = tc.Input ?? string.Empty,
+            ExpectedOutput = tc.ExpectedOutput ?? string.Empty,
             IsHidden = tc.IsHidden
         })
         .ToList();
@@ -263,7 +262,7 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                     Id = Guid.NewGuid(),
                     TaskAssignmentId = task.Id,
                     Input = tc.Input ?? string.Empty,
-                    ExpectedOutput = tc.ExpectedOutput ?? string.Empty,
+                    ExpectedOutput = NormalizeCodeTestOutput(tc.ExpectedOutput),
                     IsHidden = tc.IsHidden
                 });
 
@@ -357,10 +356,17 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 
         private static string NormalizeCodeTestInput(string? raw)
         {
-            if (string.IsNullOrWhiteSpace(raw))
-                return NoInputSentinel;
-            return raw;
+            if (raw == null)
+                return string.Empty;
+            return raw == NoInputSentinel ? string.Empty : raw;
         }
+
+        private static string NormalizeCodeTestOutput(string? raw)
+        {
+            return raw ?? string.Empty;
+        }
+
+        private const string NoInputSentinel = "пусто";
 
         private static void ValidateAssignmentPayload(
             string? title,
@@ -395,12 +401,6 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 if (codeTestCases == null || codeTestCases.Count == 0)
                     throw new ValidationException("Для code-test нужен хотя бы один тест-кейс.");
 
-                var invalidIndex = codeTestCases
-                    .Select((x, idx) => new { x, idx })
-                    .FirstOrDefault(x => string.IsNullOrWhiteSpace(x.x.ExpectedOutput));
-
-                if (invalidIndex != null)
-                    throw new ValidationException($"Тест-кейс #{invalidIndex.idx + 1} должен содержать Expected Output.");
             }
 
             if (assignmentType == TaskAssignmentTypes.ImageTest)

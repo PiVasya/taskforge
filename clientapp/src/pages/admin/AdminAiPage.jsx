@@ -17,6 +17,7 @@ import {
   clearAiJobs,
   retryAiJob,
   cancelAiJob,
+  updateAiDraft,
 } from '../../api/aiAdmin';
 import { createCourse, getCourses } from '../../api/courses';
 import { handleApiError } from '../../utils/handleApiError';
@@ -184,6 +185,23 @@ function getPublishability(draft) {
   return { can: true, reason: 'Не проверен — будет force-публикация', force: true };
 }
 
+
+function getDraftEditIssues(draft) {
+  var parsed = tryParse(draft && draft.draftJson);
+  if (!parsed) return ['JSON черновика повреждён.'];
+  var root = parsed && parsed.draft && typeof parsed.draft === 'object' ? parsed.draft : parsed;
+  var issues = [];
+  if (!String(root.title || draft.title || '').trim()) issues.push('Укажи title.');
+  if (!String(root.description || '').replace(/<[^>]*>/g, ' ').trim()) issues.push('Заполни description.');
+  var assignmentType = String(root.assignmentType || draft.assignmentType || '').trim().toLowerCase();
+  if (assignmentType === 'code-test') {
+    var publicTests = Array.isArray(root.publicTests) ? root.publicTests : [];
+    var hiddenTests = Array.isArray(root.hiddenTests) ? root.hiddenTests : [];
+    if (publicTests.length + hiddenTests.length < 1) issues.push('Для code-test нужен хотя бы один тест.');
+  }
+  return issues;
+}
+
 /** Вытаскивает человекочитаемую информацию из DraftJson */
 function extractDraftPreview(draftJson) {
   var parsed = tryParse(draftJson);
@@ -337,6 +355,7 @@ export default function AdminAiPage() {
   var [courseCreateForm, setCourseCreateForm] = useState(courseCreateEmpty);
   var [batchForm, setBatchForm] = useState(batchEmpty);
   var [expandedDrafts, setExpandedDrafts] = useState({});
+  var [draftEditors, setDraftEditors] = useState({});
 
   var load = useCallback(
     async function () {
@@ -594,12 +613,41 @@ export default function AdminAiPage() {
     }
   };
 
-  var toggleDraftExpanded = function (id) {
+  var toggleDraftExpanded = function (id, rawJson) {
     setExpandedDrafts(function (prev) {
       var next = Object.assign({}, prev);
       next[id] = !prev[id];
       return next;
     });
+    setDraftEditors(function (prev) {
+      if (Object.prototype.hasOwnProperty.call(prev, id)) return prev;
+      var next = Object.assign({}, prev);
+      next[id] = prettyJson(rawJson);
+      return next;
+    });
+  };
+
+  var updateDraftEditor = function (id, value) {
+    setDraftEditors(function (prev) {
+      var next = Object.assign({}, prev);
+      next[id] = value;
+      return next;
+    });
+  };
+
+  var saveDraftNow = async function (draft) {
+    try {
+      setBusy(true);
+      var raw = draftEditors[draft.id] != null ? draftEditors[draft.id] : prettyJson(draft.draftJson);
+      JSON.parse(raw);
+      await updateAiDraft(draft.id, { draftJson: raw });
+      notify.success('Черновик сохранён');
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось сохранить черновик');
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* ── Delete actions ─────────────────────────────── */
@@ -1693,7 +1741,7 @@ export default function AdminAiPage() {
         <SectionTitle
           icon={FileStack}
           title="Черновики"
-          subtitle="Готовые черновики из batch pipeline. Одобри и опубликуй."
+          subtitle="AI-черновики. Можно проверить, отредактировать и опубликовать."
         />
         <div className="flex gap-2 flex-wrap text-xs mt-3 mb-2">
           <Badge intent="secondary">Всего: {draftCounts.total}</Badge>
@@ -1710,7 +1758,7 @@ export default function AdminAiPage() {
         <div className="space-y-4 mt-4 max-h-[76vh] overflow-auto pr-1">
           {drafts.length === 0 ? (
             <div className="text-center opacity-70 py-8">
-              Черновиков пока нет. Создай пакет, чтобы AI начал генерировать.
+              Черновиков пока нет. Создай пакет или используй AI-чат, чтобы AI начал генерировать.
             </div>
           ) : null}
           {drafts.map(function (draft) {
@@ -1718,6 +1766,8 @@ export default function AdminAiPage() {
             var pub = getPublishability(draft);
             var isExpanded = !!expandedDrafts[draft.id];
             var isPublished = (draft.status || '').toLowerCase() === 'published';
+            var editIssues = getDraftEditIssues(draft);
+            var editorText = draftEditors[draft.id] != null ? draftEditors[draft.id] : prettyJson(draft.draftJson);
 
             return (
               <div
@@ -1784,6 +1834,16 @@ export default function AdminAiPage() {
                 ) : null}
 
                 {/* Publish info */}
+                {!isPublished && editIssues.length ? (
+                  <div className="rounded-xl border border-amber-200/60 bg-amber-50/60 dark:border-amber-800/40 dark:bg-amber-950/10 p-3 text-sm">
+                    <div className="font-medium mb-1">Нужно проверить перед публикацией:</div>
+                    <ul className="list-disc pl-5 space-y-1 text-xs opacity-80">
+                      {editIssues.map(function (issue, idx) {
+                        return <li key={idx}>{issue}</li>;
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
                 {!isPublished && pub.reason ? (
                   <div
                     className={
@@ -1875,7 +1935,7 @@ export default function AdminAiPage() {
                 <button
                   type="button"
                   onClick={function () {
-                    toggleDraftExpanded(draft.id);
+                    toggleDraftExpanded(draft.id, draft.draftJson);
                   }}
                   className="text-xs opacity-60 flex items-center gap-1 hover:opacity-100 transition"
                 >
@@ -1883,7 +1943,15 @@ export default function AdminAiPage() {
                   {isExpanded ? 'Скрыть JSON' : 'Показать JSON'}
                 </button>
                 {isExpanded ? (
-                  <Textarea rows={14} readOnly value={prettyJson(draft.draftJson)} className="font-mono text-xs" />
+                  <div className="space-y-2">
+                    <Textarea rows={14} value={editorText} onChange={function (e) { updateDraftEditor(draft.id, e.target.value); }} className="font-mono text-xs" />
+                    {!isPublished ? (
+                      <div className="flex gap-2">
+                        <Button variant="outline" disabled={busy} onClick={function () { saveDraftNow(draft); }}>Сохранить JSON</Button>
+                        <Button variant="outline" disabled={busy} onClick={function () { updateDraftEditor(draft.id, prettyJson(editorText)); }}>Форматировать JSON</Button>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             );
@@ -1903,7 +1971,7 @@ export default function AdminAiPage() {
               <Sparkles size={22} /> AI Foundry
             </h1>
             <p className="text-sm opacity-70 mt-1">
-              Создавай пакеты заданий, следи за стадиями pipeline и публикуй готовые черновики.
+              Создавай задания через AI, редактируй черновики и публикуй готовые результаты.
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">

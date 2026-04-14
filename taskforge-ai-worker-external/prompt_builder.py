@@ -15,7 +15,7 @@ import json
 import re
 from typing import Any, Dict, List
 
-from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_DESCRIPTION_LEN, MAX_HIDDEN_TESTS
+from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESCRIPTION_LEN, MAX_HIDDEN_TESTS
 from log import log
 from text_utils import normalize_text, truncate_text, safe_int, unique_string_list, strip_html_to_text, summarize_description
 from payload import (
@@ -294,7 +294,7 @@ def build_generation_requirements(payload: Dict[str, Any]) -> str:
         lines.extend([
             f"Нужно минимум {quality.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests.",
             f"Нужно минимум {quality.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests.",
-            f"Всего тестов должно быть не меньше {quality.get('minTotalTests', max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 5))}.",
+            f"Всего тестов должно быть не меньше {quality.get('minTotalTests', MIN_TOTAL_TESTS)}.",
             f"description должен быть не короче {quality.get('minDescriptionLength', MIN_DESCRIPTION_LEN)} символов.",
             "В description обязательно раскрой: суть задачи, формат входных данных, формат выходных данных, ограничения, хотя бы одну заметку или пояснение.",
             "referenceSolutionPython должен быть полностью рабочим, детерминированным, читать stdin и печатать только ответ.",
@@ -1213,7 +1213,7 @@ def _draft_response_format(payload: Dict[str, Any], assignment_type: str, includ
         "description": "Полное условие без HTML",
         "allowedLanguages": _supported_code_languages(payload),
         "publicTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(1, min_public))],
-        "hiddenTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(1, min_hidden))],
+        "hiddenTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(0, min_hidden))],
         "referenceSolutionPython": "...",
         "requiredCalls": [],
         "forbiddenCalls": [],
@@ -1245,10 +1245,10 @@ def _draft_type_rules(payload: Dict[str, Any], assignment_type: str, quality_gat
             "- Не добавляй allowedLanguages, publicTests, hiddenTests и referenceSolutionPython в math draft.\n"
         )
     return (
-        "- Для code-test обязательны: title, description, publicTests, hiddenTests, referenceSolutionPython.\n"
+        "- Для code-test обязательны: title, description, publicTests, referenceSolutionPython. hiddenTests можно оставить пустым списком.\n"
         "- allowedLanguages обязателен, если курс/контекст уже ограничивает языки.\n"
         f"- Разрешённые языки для этой генерации: {', '.join(_supported_code_languages(payload))}. Если контекст курса сужает список, не добавляй другие языки.\n"
-        f"- Нужно минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests, минимум {quality_gates.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests и всего не меньше {quality_gates.get('minTotalTests', max(MIN_PUBLIC_TESTS + MIN_HIDDEN_TESTS, 5))} тестов.\n"
+        f"- Нужно минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests, минимум {quality_gates.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests и всего не меньше {quality_gates.get('minTotalTests', 1)} тестов.\n"
         "- Предпочтительно делать publicTests больше, чем hiddenTests, если это не вредит качеству покрытия.\n"
         "- Используй только root-level requiredCalls и forbiddenCalls. Не вкладывай их в codePolicy.\n"
     )
@@ -1275,7 +1275,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
 - Не создавай тесты, где input состоит только из пробелов или пустых строк с пробелами: такие кейсы несовместимы с сайтом.
-- Если задача логически не требует ввода, не оставляй input пустым: используй явный текстовый sentinel "пусто" и прямо напиши в условии, что этот вход нужно игнорировать.
+- Если задача логически не требует ввода, оставляй input пустой строкой. Это нормальный пустой stdin.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: новая задача должна помнить, после какого существующего задания её лучше вставить в курсе.
 
 Draft body payload:
@@ -1337,7 +1337,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 - Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.
 - Если в payload есть selectionTelemetry, используй topCandidates и selectedTitles как сигнал, какие referenceAssignments считались самыми близкими и почему.
 - referenceSolutionPython должен быть детерминированным и совместимым со всеми test cases без подгонки expectedOutput.
-- Если задача логически без ввода, не используй пустой input в тестах: используй текстовый sentinel "пусто" и объясни в условии, что ввод надо игнорировать.
+- Если задача логически без ввода, используй пустой input в тестах. Это нормальный пустой stdin.
 - Сохрани placementAfterAssignmentId/placementAfterTitle/placementReason: выбери существующий anchor из referenceAssignments или верни null.
 
 Draft payload:

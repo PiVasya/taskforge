@@ -9,11 +9,9 @@ namespace taskforge.Data.Models.Entities
         public Guid TaskAssignmentId { get; set; }
         public TaskAssignment TaskAssignment { get; set; } = null!;
 
-        [Required]
-        public string Input { get; set; } = string.Empty;
+        public string? Input { get; set; }
 
-        [Required]
-        public string ExpectedOutput { get; set; } = string.Empty;
+        public string? ExpectedOutput { get; set; }
 
         public bool IsHidden { get; set; } = false; // скрытые тесты для проверки «по-честному»
     }

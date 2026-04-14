@@ -361,6 +361,13 @@ public sealed class AiAssignmentInsightListItemDto
     public DateTime CreatedAtUtc { get; set; }
 }
 
+public sealed class UpdateAiDraftRequestDto
+{
+    [Required]
+    public string DraftJson { get; set; } = "{}";
+}
+
+
 public sealed class ReviewAiDraftRequestDto
 {
     [Required, MaxLength(32)]

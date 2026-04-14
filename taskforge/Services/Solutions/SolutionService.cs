@@ -114,8 +114,8 @@ namespace taskforge.Services
                 Code = req.Code,
                 TestCases = orderedCases.Select(tc => new TestCaseDto
                 {
-                    Input = tc.Input,
-                    ExpectedOutput = tc.ExpectedOutput
+                    Input = tc.Input ?? string.Empty,
+                    ExpectedOutput = tc.ExpectedOutput ?? string.Empty
                 }).ToList(),
 
                 PolicyForbiddenCalls = forb.Count > 0 ? forb : null,
@@ -141,8 +141,8 @@ namespace taskforge.Services
 
                 full.Cases.Add(new SolutionCaseResultDto
                 {
-                    Input = isHiddenForUser ? null : tc.Input,
-                    Expected = isHiddenForUser ? null : tc.ExpectedOutput,
+                    Input = isHiddenForUser ? null : (tc.Input ?? string.Empty),
+                    Expected = isHiddenForUser ? null : (tc.ExpectedOutput ?? string.Empty),
                     Actual = isHiddenForUser ? null : r.ActualOutput,
                     Passed = r.Passed,
                     Hidden = tc.IsHidden,
