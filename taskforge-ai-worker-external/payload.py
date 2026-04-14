@@ -1528,21 +1528,15 @@ def _blueprint_requires_no_input(contract: Dict[str, Any], payload: Dict[str, An
 def _derive_contract_code_policy(contract: Dict[str, Any], fixed_output: str, no_input: bool) -> Tuple[List[str], List[str]]:
     must_keep = [normalize_text(x).lower() for x in list(contract.get("mustKeep") or []) if normalize_text(x)]
     avoid = [normalize_text(x).lower() for x in list(contract.get("avoid") or []) if normalize_text(x)]
-    full_text = "\n".join([
-        normalize_text(contract.get("fullCondition")).lower(),
-        normalize_text(contract.get("conditionPreview")).lower(),
-        " ".join(must_keep),
-        " ".join(avoid),
-    ])
     required: List[str] = []
     forbidden: List[str] = []
-    if fixed_output or any("cout" in x for x in must_keep) or "cout" in full_text:
+    if fixed_output or any("cout" in x for x in must_keep):
         required.append("cout")
-    if any("cin" in x for x in must_keep) or "cin" in full_text:
+    if any("cin" in x for x in must_keep):
         required.append("cin")
-    if any("scanf" in x for x in must_keep) or "scanf" in full_text:
+    if any("scanf" in x for x in must_keep):
         required.append("scanf")
-    if any("printf" in x for x in must_keep) or "printf" in full_text:
+    if any("printf" in x for x in must_keep):
         required.append("printf")
     if no_input:
         forbidden.extend(["cin", "scanf", "printf"])
@@ -1606,8 +1600,8 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
         if not public_tests:
             base_input = NO_INPUT_SENTINEL if no_input else "0"
             public_tests = [{"input": base_input, "expectedOutput": desired}]
-        if not hidden_tests and not no_input:
-            hidden_tests = [{"input": "1", "expectedOutput": desired}]
+        if not hidden_tests:
+            hidden_tests = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
         aligned["referenceSolutionPython"] = (
             f'import sys\n'
             f'def solve():\n'
@@ -1618,8 +1612,8 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
         )
 
     if no_input:
-        public_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in public_tests[:1]]
-        hidden_tests = []
+        public_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in public_tests]
+        hidden_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in hidden_tests]
 
     if public_tests:
         aligned["publicTests"] = public_tests
@@ -1629,15 +1623,11 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
     must_keep = [x.casefold() for x in list(contract.get("mustKeep") or [])]
     required = unique_string_list(aligned.get("requiredCalls") or [], 8)
     forbidden = unique_string_list(aligned.get("forbiddenCalls") or [], 10)
-    contract_required, contract_forbidden = _derive_contract_code_policy(contract, fixed_output, no_input)
-    required = [x for x in required if x.casefold() not in {"scanf", "printf", "cin"} or not no_input]
-    required.extend(contract_required)
-    forbidden.extend(contract_forbidden)
 
-    if any("cout" in x for x in must_keep) or fixed_output or "cout" in normalize_text(contract.get("fullCondition")).lower():
+    if any("cout" in x for x in must_keep) or fixed_output:
         required.append("cout")
         forbidden = [x for x in forbidden if x.casefold() != "cout"]
-    if any("int main" in x for x in must_keep) or "int main" in normalize_text(contract.get("fullCondition")).lower():
+    if any("int main" in x for x in must_keep):
         forbidden = [x for x in forbidden if x.casefold() not in {"main", "int main"}]
     if no_input:
         forbidden.extend(["scanf", "printf", "cin"])
@@ -1672,7 +1662,7 @@ def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
             continue
         seen.add(key)
         unique.append({"input": key[0], "expectedOutput": key[1]})
-    return unique[: max(0, MAX_HIDDEN_TESTS)]
+    return unique[: max(1, MAX_HIDDEN_TESTS)]
 
 
 _TITLE_LEADING_FILLERS = [
@@ -1752,16 +1742,7 @@ def _rebalance_code_tests(draft: Dict[str, Any], payload: Dict[str, Any]) -> Non
     public_tests = [dict(x) for x in list(draft.get("publicTests") or []) if isinstance(x, dict) and not _is_site_incompatible_test_case(dict(x))]
     hidden_tests = [dict(x) for x in list(draft.get("hiddenTests") or []) if isinstance(x, dict) and not _is_site_incompatible_test_case(dict(x))]
     quality = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
-    prefer_public_more = bool(quality.get("preferPublicTestsMoreThanHidden", False))
-    contract = _extract_blueprint_contract(payload)
-    no_input = _blueprint_requires_no_input(contract, payload)
-    if no_input:
-        if public_tests:
-            draft["publicTests"] = [{**public_tests[0], "input": NO_INPUT_SENTINEL}]
-        else:
-            draft["publicTests"] = [{"input": NO_INPUT_SENTINEL, "expectedOutput": ""}]
-        draft["hiddenTests"] = []
-        return
+    prefer_public_more = bool(quality.get("preferPublicTestsMoreThanHidden", True))
     if not prefer_public_more:
         draft["publicTests"] = public_tests
         draft["hiddenTests"] = _limit_hidden_tests(hidden_tests)
@@ -1853,10 +1834,8 @@ def _ensure_solvable_code_test_draft(draft: Dict[str, Any], payload: Dict[str, A
             desired = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
             if not isinstance(repaired.get("publicTests"), list) or not repaired.get("publicTests"):
                 repaired["publicTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "0", "expectedOutput": desired}]
-            if no_input:
-                repaired["hiddenTests"] = []
-            elif not isinstance(repaired.get("hiddenTests"), list) or not repaired.get("hiddenTests"):
-                repaired["hiddenTests"] = [{"input": "1", "expectedOutput": desired}]
+            if not isinstance(repaired.get("hiddenTests"), list) or not repaired.get("hiddenTests"):
+                repaired["hiddenTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
     return repaired
 
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
@@ -1912,9 +1891,6 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
 
     if isinstance(result.get("draft"), dict):
         result["draft"] = _normalize_generated_draft_fields(result["draft"], payload)
-        contract = _extract_blueprint_contract(payload)
-        if contract.get("kind") == "approved-chat-blueprint":
-            result["summary"] = normalize_text(contract.get("goal") or contract.get("conditionPreview") or contract.get("title") or result.get("summary"))
         assignment_type = normalize_text(result["draft"].get("assignmentType")).lower()
         if assignment_type == "code-test" and schema_version != "draft-v2" and isinstance(result["draft"].get("codePolicy"), dict):
             policy = result["draft"].get("codePolicy") or {}
