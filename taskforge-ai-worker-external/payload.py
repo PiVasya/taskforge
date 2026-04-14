@@ -1606,8 +1606,8 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
         if not public_tests:
             base_input = NO_INPUT_SENTINEL if no_input else "0"
             public_tests = [{"input": base_input, "expectedOutput": desired}]
-        if not hidden_tests:
-            hidden_tests = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
+        if not hidden_tests and not no_input:
+            hidden_tests = [{"input": "1", "expectedOutput": desired}]
         aligned["referenceSolutionPython"] = (
             f'import sys\n'
             f'def solve():\n'
@@ -1618,8 +1618,8 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
         )
 
     if no_input:
-        public_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in public_tests]
-        hidden_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in hidden_tests]
+        public_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in public_tests[:1]]
+        hidden_tests = []
 
     if public_tests:
         aligned["publicTests"] = public_tests
@@ -1672,7 +1672,7 @@ def _limit_hidden_tests(hidden_tests: Any) -> List[Dict[str, Any]]:
             continue
         seen.add(key)
         unique.append({"input": key[0], "expectedOutput": key[1]})
-    return unique[: max(1, MAX_HIDDEN_TESTS)]
+    return unique[: max(0, MAX_HIDDEN_TESTS)]
 
 
 _TITLE_LEADING_FILLERS = [
@@ -1752,7 +1752,16 @@ def _rebalance_code_tests(draft: Dict[str, Any], payload: Dict[str, Any]) -> Non
     public_tests = [dict(x) for x in list(draft.get("publicTests") or []) if isinstance(x, dict) and not _is_site_incompatible_test_case(dict(x))]
     hidden_tests = [dict(x) for x in list(draft.get("hiddenTests") or []) if isinstance(x, dict) and not _is_site_incompatible_test_case(dict(x))]
     quality = payload.get("qualityGates") if isinstance(payload.get("qualityGates"), dict) else {}
-    prefer_public_more = bool(quality.get("preferPublicTestsMoreThanHidden", True))
+    prefer_public_more = bool(quality.get("preferPublicTestsMoreThanHidden", False))
+    contract = _extract_blueprint_contract(payload)
+    no_input = _blueprint_requires_no_input(contract, payload)
+    if no_input:
+        if public_tests:
+            draft["publicTests"] = [{**public_tests[0], "input": NO_INPUT_SENTINEL}]
+        else:
+            draft["publicTests"] = [{"input": NO_INPUT_SENTINEL, "expectedOutput": ""}]
+        draft["hiddenTests"] = []
+        return
     if not prefer_public_more:
         draft["publicTests"] = public_tests
         draft["hiddenTests"] = _limit_hidden_tests(hidden_tests)
@@ -1844,8 +1853,10 @@ def _ensure_solvable_code_test_draft(draft: Dict[str, Any], payload: Dict[str, A
             desired = fixed_output + ("\n" if not fixed_output.endswith("\n") else "")
             if not isinstance(repaired.get("publicTests"), list) or not repaired.get("publicTests"):
                 repaired["publicTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "0", "expectedOutput": desired}]
-            if not isinstance(repaired.get("hiddenTests"), list) or not repaired.get("hiddenTests"):
-                repaired["hiddenTests"] = [{"input": NO_INPUT_SENTINEL if no_input else "1", "expectedOutput": desired}]
+            if no_input:
+                repaired["hiddenTests"] = []
+            elif not isinstance(repaired.get("hiddenTests"), list) or not repaired.get("hiddenTests"):
+                repaired["hiddenTests"] = [{"input": "1", "expectedOutput": desired}]
     return repaired
 
 def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace taskforge.Data.Models.DTO.AI;
 
@@ -359,6 +359,19 @@ public sealed class AiAssignmentInsightListItemDto
     public string Summary { get; set; } = string.Empty;
     public string? SuggestionsJson { get; set; }
     public DateTime CreatedAtUtc { get; set; }
+}
+
+
+public sealed class UpdateAiDraftRequestDto
+{
+    [Required]
+    public string DraftJson { get; set; } = "{}";
+
+    [MaxLength(200)]
+    public string? Title { get; set; }
+
+    [MaxLength(32)]
+    public string? Status { get; set; }
 }
 
 public sealed class ReviewAiDraftRequestDto

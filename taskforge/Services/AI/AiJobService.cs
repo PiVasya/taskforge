@@ -807,6 +807,34 @@ public sealed partial class AiJobService : IAiJobService
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<AiGeneratedDraftDto?> UpdateDraftAsync(Guid id, UpdateAiDraftRequestDto request, Guid updatedByUserId, CancellationToken ct = default)
+    {
+        var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (draft == null) return null;
+
+        using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(request.DraftJson) ? "{}" : request.DraftJson);
+        var root = doc.RootElement;
+        var title = !string.IsNullOrWhiteSpace(request.Title)
+            ? request.Title!.Trim()
+            : (root.TryGetProperty("title", out var titleEl) ? (titleEl.GetString() ?? string.Empty).Trim() : draft.Title);
+        if (string.IsNullOrWhiteSpace(title))
+            title = draft.Title;
+        if (title.Length > 200)
+            title = title[..200];
+
+        var status = string.IsNullOrWhiteSpace(request.Status) ? draft.Status : request.Status!.Trim().ToLowerInvariant();
+        if (status.Length > 32)
+            status = status[..32];
+
+        draft.Title = title;
+        draft.DraftJson = request.DraftJson;
+        draft.Status = status;
+        draft.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return await GetDraftAsync(id, ct);
+    }
+
     public async Task<bool> ReviewDraftAsync(Guid id, Guid reviewedByUserId, string action, CancellationToken ct = default)
     {
         var draft = await _db.AiGeneratedAssignmentDrafts.FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -1704,10 +1732,10 @@ public sealed partial class AiJobService : IAiJobService
             "code-test" => new
             {
                 minDescriptionLength = 200,
-                minPublicTests = 2,
-                minHiddenTests = 1,
-                minTotalTests = 5,
-                preferPublicTestsMoreThanHidden = true,
+                minPublicTests = 1,
+                minHiddenTests = 0,
+                minTotalTests = 1,
+                preferPublicTestsMoreThanHidden = false,
                 requireReferenceSolutionPython = true,
                 requireCodePolicyReview = true,
                 requireEdgeCases = true,

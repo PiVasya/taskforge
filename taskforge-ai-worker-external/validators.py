@@ -96,9 +96,9 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     code = draft.get("referenceSolutionPython")
     meta = draft.get("meta") if isinstance(draft.get("meta"), dict) else {}
     qg = meta.get("qualityGates") if isinstance(meta.get("qualityGates"), dict) else {}
-    min_public = safe_int(qg.get("minPublicTests"), MIN_PUBLIC_TESTS)
-    min_hidden = safe_int(qg.get("minHiddenTests"), MIN_HIDDEN_TESTS)
-    min_total = safe_int(qg.get("minTotalTests"), max(MIN_TOTAL_TESTS, min_public + min_hidden))
+    min_public = max(1, safe_int(qg.get("minPublicTests"), 1))
+    min_hidden = max(0, safe_int(qg.get("minHiddenTests"), 0))
+    min_total = max(1, safe_int(qg.get("minTotalTests"), max(1, min_public + min_hidden)))
     prefer_public_more = bool(qg.get("preferPublicTestsMoreThanHidden", True))
     expected_langs = [normalize_text(x).lower() for x in list(meta.get("expectedAllowedLanguages") or []) if normalize_text(x)]
     checks: List[Dict[str, Any]] = collect_quality_checks_common(draft)

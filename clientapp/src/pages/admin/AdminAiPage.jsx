@@ -17,6 +17,7 @@ import {
   clearAiJobs,
   retryAiJob,
   cancelAiJob,
+  updateAiDraft,
 } from '../../api/aiAdmin';
 import { createCourse, getCourses } from '../../api/courses';
 import { handleApiError } from '../../utils/handleApiError';
@@ -246,6 +247,32 @@ function extractPlacementSuggestion(draftJson) {
   };
 }
 
+function validateDraftForEditor(draftJson) {
+  var parsed = tryParse(draftJson);
+  var draft = parsed && parsed.draft ? parsed.draft : parsed;
+  if (!draft) return ['Черновик не содержит валидный JSON.'];
+  var issues = [];
+  var type = String(draft.assignmentType || '').trim();
+  var title = String(draft.title || '').trim();
+  var description = String(draft.description || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim();
+  if (!title) issues.push('Укажи название задания.');
+  if (!description) issues.push('Заполни условие задания.');
+  if (type === 'code-test') {
+    var tests = [];
+    if (Array.isArray(draft.publicTests)) tests = tests.concat(draft.publicTests);
+    if (Array.isArray(draft.hiddenTests)) tests = tests.concat(draft.hiddenTests);
+    if (!tests.length) {
+      issues.push('Для code-test нужен хотя бы один тест-кейс.');
+    } else {
+      tests.forEach(function (t, idx) {
+        if (!String(t && t.input != null ? t.input : '').trim()) issues.push('Тест #' + (idx + 1) + ': заполни Input.');
+        if (!String(t && t.expectedOutput != null ? t.expectedOutput : '').trim()) issues.push('Тест #' + (idx + 1) + ': заполни Expected Output.');
+      });
+    }
+  }
+  return Array.from(new Set(issues));
+}
+
 /* ── Small UI components ─────────────────────────── */
 function TabButton({ active, icon: Icon, children, onClick, count }) {
   return (
@@ -328,6 +355,7 @@ export default function AdminAiPage() {
   var [selectedBatch, setSelectedBatch] = useState(null);
   var [selectedBatchItem, setSelectedBatchItem] = useState(null);
   var [loading, setLoading] = useState(true);
+  var [draftEditors, setDraftEditors] = useState({});
   var [busy, setBusy] = useState(false);
   var [pageError, setPageError] = useState('');
   var [activeTab, setActiveTab] = useState('overview');
@@ -600,6 +628,37 @@ export default function AdminAiPage() {
       next[id] = !prev[id];
       return next;
     });
+    setDraftEditors(function (prev) {
+      if (prev[id]) return prev;
+      var found = drafts.find(function (x) { return x.id === id; });
+      if (!found) return prev;
+      return Object.assign({}, prev, { [id]: prettyJson(found.draftJson) });
+    });
+  };
+
+  var saveDraftEditsNow = async function (draft) {
+    try {
+      setBusy(true);
+      var raw = (draftEditors && draftEditors[draft.id]) || draft.draftJson || '{}';
+      var parsed = JSON.parse(raw);
+      var rootDraft = parsed && parsed.draft ? parsed.draft : parsed;
+      var issues = validateDraftForEditor(raw);
+      if (issues.length > 0) {
+        notify.warn('Исправь черновик: ' + issues[0]);
+        return;
+      }
+      await updateAiDraft(draft.id, {
+        draftJson: JSON.stringify(parsed),
+        title: rootDraft && rootDraft.title ? String(rootDraft.title) : draft.title,
+        status: 'draft',
+      });
+      notify.success('Черновик сохранён');
+      await load();
+    } catch (e) {
+      handleApiError(e, notify, 'Не удалось сохранить правки черновика');
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* ── Delete actions ─────────────────────────────── */
@@ -1716,6 +1775,7 @@ export default function AdminAiPage() {
           {drafts.map(function (draft) {
             var selfCheck = extractSelfCheck(draft.draftJson);
             var pub = getPublishability(draft);
+            var draftIssues = validateDraftForEditor(draft.draftJson);
             var isExpanded = !!expandedDrafts[draft.id];
             var isPublished = (draft.status || '').toLowerCase() === 'published';
 
@@ -1798,6 +1858,13 @@ export default function AdminAiPage() {
                   </div>
                 ) : null}
 
+                {draftIssues.length ? (
+                  <div className="rounded-xl border border-amber-300/50 bg-amber-50/60 dark:bg-amber-950/20 p-3 text-xs space-y-1">
+                    <div className="font-medium">Нужно исправить перед публикацией:</div>
+                    {draftIssues.map(function (issue, idx) { return <div key={idx}>- {issue}</div>; })}
+                  </div>
+                ) : null}
+
                 {/* Actions */}
                 <div className="flex gap-2 flex-wrap items-center">
                   {!isPublished ? (
@@ -1823,7 +1890,7 @@ export default function AdminAiPage() {
                         Self-check
                       </Button>
                       <Button
-                        disabled={busy || !pub.can || (!courseScopeId && !draft.courseId)}
+                        disabled={busy || !pub.can || draftIssues.length > 0 || (!courseScopeId && !draft.courseId)}
                         onClick={function () {
                           publishDraftNow(draft, pub.force);
                         }}
@@ -1883,7 +1950,22 @@ export default function AdminAiPage() {
                   {isExpanded ? 'Скрыть JSON' : 'Показать JSON'}
                 </button>
                 {isExpanded ? (
-                  <Textarea rows={14} readOnly value={prettyJson(draft.draftJson)} className="font-mono text-xs" />
+                  <div className="space-y-2">
+                    <Textarea
+                      rows={16}
+                      value={(draftEditors && draftEditors[draft.id]) || prettyJson(draft.draftJson)}
+                      onChange={function (e) {
+                        var value = e.target.value;
+                        setDraftEditors(function (prev) { return Object.assign({}, prev, { [draft.id]: value }); });
+                      }}
+                      className="font-mono text-xs"
+                    />
+                    <div className="flex gap-2">
+                      <Button variant="outline" disabled={busy} onClick={function () { saveDraftEditsNow(draft); }}>
+                        Сохранить правки
+                      </Button>
+                    </div>
+                  </div>
                 ) : null}
               </div>
             );
