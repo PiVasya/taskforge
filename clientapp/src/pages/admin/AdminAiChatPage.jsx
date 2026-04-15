@@ -135,6 +135,25 @@ function FileChip({ file, onRemove, removable = false }) {
   );
 }
 
+function renderTestPreviewList(title, tests) {
+  if (!Array.isArray(tests) || tests.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <div className="text-xs uppercase tracking-[0.16em] opacity-55">{title}</div>
+      <div className="mt-2 space-y-2">
+        {tests.slice(0, 6).map((test, index) => (
+          <div key={`${title}-${index}`} className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2 text-xs font-mono">
+            <div className="opacity-60">input</div>
+            <div className="whitespace-pre-wrap break-words">{String(test?.input || '∅')}</div>
+            <div className="mt-2 opacity-60">expected</div>
+            <div className="whitespace-pre-wrap break-words">{String(test?.expectedOutput || '')}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MemoryPanel({ memory, courseTitle }) {
   const facts = uniqueStrings(memory?.facts);
   const goals = uniqueStrings(memory?.recentGoals);
@@ -182,7 +201,13 @@ function MemoryPanel({ memory, courseTitle }) {
                       {item?.status ? <Badge variant={item.status === 'queued' ? 'success' : 'outline'}>{item.status}</Badge> : null}
                     </div>
                     {item?.goal ? <div className="mt-2 text-sm opacity-80">Цель: {item.goal}</div> : null}
-                    {item?.conditionPreview ? <div className="mt-2 text-sm whitespace-pre-wrap opacity-90">{item.conditionPreview}</div> : null}
+                    {item?.placementAfterTitle ? <div className="mt-2 text-xs opacity-70">После: {item.placementAfterTitle}</div> : null}
+                    {item?.placementReason ? <div className="mt-1 text-xs opacity-65">Почему сюда: {item.placementReason}</div> : null}
+                    {(item?.fullCondition || item?.conditionPreview) ? <div className="mt-2 text-sm whitespace-pre-wrap opacity-90">{item.fullCondition || item.conditionPreview}</div> : null}
+                    {Array.isArray(item?.mustKeep) && item.mustKeep.length > 0 ? <div className="mt-3 text-xs opacity-75">Сохранить: {item.mustKeep.join(', ')}</div> : null}
+                    {Array.isArray(item?.avoid) && item.avoid.length > 0 ? <div className="mt-1 text-xs opacity-70">Не добавлять: {item.avoid.join(', ')}</div> : null}
+                    {renderTestPreviewList('Публичные тесты', item?.publicTests)}
+                    {renderTestPreviewList('Скрытые тесты', item?.hiddenTests)}
                   </div>
                 ))}
               </div>

@@ -215,8 +215,8 @@ function extractDraftPreview(draftJson) {
   info.tags = parsed.tags;
 
   // code-test specifics
-  if (parsed.publicTests) info.publicTests = Array.isArray(parsed.publicTests) ? parsed.publicTests.length : 0;
-  if (parsed.hiddenTests) info.hiddenTests = Array.isArray(parsed.hiddenTests) ? parsed.hiddenTests.length : 0;
+  if (parsed.publicTests) info.publicTests = Array.isArray(parsed.publicTests) ? parsed.publicTests : [];
+  if (parsed.hiddenTests) info.hiddenTests = Array.isArray(parsed.hiddenTests) ? parsed.hiddenTests : [];
   if (parsed.allowedLanguages)
     info.languages = Array.isArray(parsed.allowedLanguages) ? parsed.allowedLanguages.join(', ') : parsed.allowedLanguages;
   if (parsed.forbiddenCalls)
@@ -318,8 +318,6 @@ function DraftPreviewCard({ draft }) {
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-70">
         {preview.difficulty != null ? <span>Сложность: {preview.difficulty}</span> : null}
         {preview.languages ? <span>Языки: {preview.languages}</span> : null}
-        {preview.publicTests != null ? <span>Открытых тестов: {preview.publicTests}</span> : null}
-        {preview.hiddenTests != null ? <span>Скрытых тестов: {preview.hiddenTests}</span> : null}
         {preview.blocks != null ? <span>Блоков: {preview.blocks}</span> : null}
         {preview.questions != null ? <span>Вопросов: {preview.questions}</span> : null}
         {preview.forbiddenCalls != null && preview.forbiddenCalls > 0 ? (
@@ -329,6 +327,40 @@ function DraftPreviewCard({ draft }) {
         {preview.placementAfterTitle ? <span>После: {preview.placementAfterTitle}</span> : null}
       </div>
       {preview.placementReason ? <div className="text-xs opacity-70">Позиция: {preview.placementReason}</div> : null}
+      {Array.isArray(preview.publicTests) && preview.publicTests.length > 0 ? (
+        <div className="pt-2">
+          <div className="text-xs font-medium opacity-70 mb-1">Публичные тесты</div>
+          <div className="space-y-1">
+            {preview.publicTests.slice(0, 2).map(function (t, i) {
+              return (
+                <div key={i} className="flex gap-3 text-xs font-mono bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
+                  <span className="opacity-50">вход:</span>
+                  <span className="whitespace-pre-wrap">{String((t && t.input) || '').trim() || '∅'}</span>
+                  <span className="opacity-50 ml-auto">→</span>
+                  <span className="whitespace-pre-wrap">{String((t && t.expectedOutput) || '').trim()}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      {Array.isArray(preview.hiddenTests) && preview.hiddenTests.length > 0 ? (
+        <div className="pt-2">
+          <div className="text-xs font-medium opacity-70 mb-1">Скрытые тесты</div>
+          <div className="space-y-1">
+            {preview.hiddenTests.slice(0, 2).map(function (t, i) {
+              return (
+                <div key={i} className="flex gap-3 text-xs font-mono bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
+                  <span className="opacity-50">вход:</span>
+                  <span className="whitespace-pre-wrap">{String((t && t.input) || '').trim() || '∅'}</span>
+                  <span className="opacity-50 ml-auto">→</span>
+                  <span className="whitespace-pre-wrap">{String((t && t.expectedOutput) || '').trim()}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1356,8 +1388,6 @@ export default function AdminAiPage() {
               {preview.assignmentType ? <span className="font-medium uppercase">{preview.assignmentType}</span> : null}
               {preview.difficulty != null ? <span>Сложность: {preview.difficulty}</span> : null}
               {preview.languages ? <span>Языки: {preview.languages}</span> : null}
-              {preview.publicTests != null ? <span>Открытых тестов: {preview.publicTests}</span> : null}
-              {preview.hiddenTests != null ? <span>Скрытых тестов: {preview.hiddenTests}</span> : null}
               {preview.blocks != null ? <span>Блоков: {preview.blocks}</span> : null}
               {preview.questions != null ? <span>Вопросов: {preview.questions}</span> : null}
               {preview.tags ? <span>Теги: {preview.tags}</span> : null}
@@ -1368,13 +1398,30 @@ export default function AdminAiPage() {
             {/* Show public tests for code-test */}
             {parsed && Array.isArray(parsed.publicTests) && parsed.publicTests.length > 0 ? (
               <div>
-                <div className="text-xs font-medium opacity-70 mb-1">Примеры тестов:</div>
+                <div className="text-xs font-medium opacity-70 mb-1">Публичные тесты:</div>
                 <div className="space-y-1">
-                  {parsed.publicTests.slice(0, 3).map(function (t, i) {
+                  {parsed.publicTests.slice(0, 4).map(function (t, i) {
                     return (
                       <div key={i} className="flex gap-3 text-xs font-mono bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
                         <span className="opacity-50">вход:</span>
-                        <span className="whitespace-pre-wrap">{(t.input || '').trim()}</span>
+                        <span className="whitespace-pre-wrap">{(t.input || '').trim() || '∅'}</span>
+                        <span className="opacity-50 ml-auto">→</span>
+                        <span className="whitespace-pre-wrap">{(t.expectedOutput || '').trim()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {parsed && Array.isArray(parsed.hiddenTests) && parsed.hiddenTests.length > 0 ? (
+              <div>
+                <div className="text-xs font-medium opacity-70 mb-1">Скрытые тесты:</div>
+                <div className="space-y-1">
+                  {parsed.hiddenTests.slice(0, 4).map(function (t, i) {
+                    return (
+                      <div key={i} className="flex gap-3 text-xs font-mono bg-neutral-50 dark:bg-neutral-800/50 rounded-lg px-3 py-1.5">
+                        <span className="opacity-50">вход:</span>
+                        <span className="whitespace-pre-wrap">{(t.input || '').trim() || '∅'}</span>
                         <span className="opacity-50 ml-auto">→</span>
                         <span className="whitespace-pre-wrap">{(t.expectedOutput || '').trim()}</span>
                       </div>

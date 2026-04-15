@@ -510,9 +510,22 @@ def _chat_is_edit_draft_request(text: str) -> bool:
         "отредач", "отредакт", "поправь", "исправь", "измени", "доработай", "перепиши"
     ]
     draft_markers = [
-        "черновик", "draft", "готовое", "что получилось", "сгенерирован", "задание"
+        "черновик", "draft", "готовое", "что получилось", "сгенерирован", "опубликован"
     ]
     return any(marker in low for marker in edit_markers) and any(marker in low for marker in draft_markers)
+
+
+def _chat_is_edit_blueprint_request(payload: Dict[str, Any], text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    edit_markers = ["отредач", "отредакт", "поправь", "исправь", "измени", "доработай", "перепиши", "замени"]
+    target_markers = ["вариант", "услов", "задач", "тест", "пример", "шаг"]
+    if not any(marker in low for marker in edit_markers):
+        return False
+    if any(marker in low for marker in ["черновик", "draft", "опубликован", "что получилось"]):
+        return False
+    return _chat_has_blueprint(payload) and any(marker in low for marker in target_markers)
 
 
 def _chat_is_finalize_request(text: str) -> bool:
@@ -613,6 +626,7 @@ def _chat_build_fallback_blueprint_condition(last_user: str, assistant: str, con
 def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, Any], last_user: str, prompt: str, count: int, assignment_type: str, difficulty: int) -> list[Dict[str, Any]]:
     raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
     proposals = raw.get("proposals") if isinstance(raw.get("proposals"), list) else []
+    existing = _chat_blueprint_proposals(payload)
     contract = _chat_instruction_contract(payload)
     exact = [str(x).strip() for x in (contract.get("exactSnippets") if isinstance(contract.get("exactSnippets"), list) else []) if str(x).strip()]
     forbidden = [str(x).strip() for x in (contract.get("forbiddenSnippets") if isinstance(contract.get("forbiddenSnippets"), list) else []) if str(x).strip()]
@@ -620,14 +634,15 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     for index, item in enumerate(proposals[: max(1, min(5, count))], start=1):
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title") or item.get("name") or f"Вариант {index}").strip()
-        cond = str(item.get("conditionPreview") or item.get("fullCondition") or item.get("summary") or item.get("condition") or "").strip()
-        full_condition = str(item.get("fullCondition") or cond).strip()
-        goal = str(item.get("goal") or item.get("microGoal") or "").strip()
+        existing_item = existing[index - 1] if index - 1 < len(existing) and isinstance(existing[index - 1], dict) else {}
+        title = str(item.get("title") or item.get("name") or existing_item.get("title") or f"Вариант {index}").strip()
+        cond = str(item.get("conditionPreview") or item.get("fullCondition") or item.get("summary") or item.get("condition") or existing_item.get("conditionPreview") or "").strip()
+        full_condition = str(item.get("fullCondition") or existing_item.get("fullCondition") or cond).strip()
+        goal = str(item.get("goal") or item.get("microGoal") or existing_item.get("goal") or "").strip()
         if not title and not cond:
             continue
-        must_keep = [str(x).strip() for x in (item.get("mustKeep") if isinstance(item.get("mustKeep"), list) else []) if str(x).strip()][:8]
-        avoid = [str(x).strip() for x in (item.get("avoid") if isinstance(item.get("avoid"), list) else []) if str(x).strip()][:8]
+        must_keep = [str(x).strip() for x in (item.get("mustKeep") if isinstance(item.get("mustKeep"), list) else existing_item.get("mustKeep") if isinstance(existing_item.get("mustKeep"), list) else []) if str(x).strip()][:8]
+        avoid = [str(x).strip() for x in (item.get("avoid") if isinstance(item.get("avoid"), list) else existing_item.get("avoid") if isinstance(existing_item.get("avoid"), list) else []) if str(x).strip()][:8]
         for snippet in exact[:8]:
             if snippet.casefold() not in {x.casefold() for x in must_keep}:
                 must_keep.append(snippet)
@@ -639,20 +654,32 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
         if not full_condition:
             full_condition = _chat_build_fallback_blueprint_condition(last_user, str(result.get("assistantMessage") or ""), contract)
         proposal = {
+            "id": item.get("id") or existing_item.get("id") or None,
             "title": title or f"Вариант {index}",
-            "assignmentType": str(item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
-            "difficulty": max(1, min(5, int(item.get("difficulty") or difficulty or 2))),
+            "assignmentType": str(item.get("assignmentType") or existing_item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
+            "difficulty": max(1, min(5, int(item.get("difficulty") or existing_item.get("difficulty") or difficulty or 2))),
             "goal": goal,
             "conditionPreview": cond[:2000],
             "fullCondition": full_condition[:8000],
             "mustKeep": must_keep[:10],
             "avoid": avoid[:10],
+            "placementAfterAssignmentId": item.get("placementAfterAssignmentId") or existing_item.get("placementAfterAssignmentId") or item.get("afterAssignmentId") or existing_item.get("afterAssignmentId"),
+            "placementAfterTitle": item.get("placementAfterTitle") or existing_item.get("placementAfterTitle") or item.get("afterAssignmentTitle") or existing_item.get("afterAssignmentTitle"),
+            "placementReason": item.get("placementReason") or existing_item.get("placementReason"),
+            "status": item.get("status") or existing_item.get("status") or "draft",
             "publicTests": [
                 {
                     "input": str(t.get("input") or "").strip()[:200],
                     "expectedOutput": str(t.get("expectedOutput") or "").strip()[:200],
                 }
-                for t in ((item.get("publicTests") if isinstance(item.get("publicTests"), list) else [])[:6]) if isinstance(t, dict)
+                for t in (((item.get("publicTests") if isinstance(item.get("publicTests"), list) else existing_item.get("publicTests") if isinstance(existing_item.get("publicTests"), list) else [])[:8])) if isinstance(t, dict)
+            ],
+            "hiddenTests": [
+                {
+                    "input": str(t.get("input") or "").strip()[:200],
+                    "expectedOutput": str(t.get("expectedOutput") or "").strip()[:200],
+                }
+                for t in (((item.get("hiddenTests") if isinstance(item.get("hiddenTests"), list) else existing_item.get("hiddenTests") if isinstance(existing_item.get("hiddenTests"), list) else [])[:8])) if isinstance(t, dict)
             ],
         }
         clean.append(proposal)
@@ -662,7 +689,8 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
     default_count = max(1, min(3, count or 1))
     return [{
-        "title": str(result.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
+        "id": (existing[i - 1].get("id") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else None),
+        "title": str(result.get("title") or (existing[i - 1].get("title") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else f"Вариант {i}")).strip() or f"Вариант {i}",
         "assignmentType": assignment_type,
         "difficulty": difficulty,
         "goal": str(result.get("goal") or "").strip(),
@@ -671,6 +699,7 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
         "mustKeep": exact[:10],
         "avoid": forbidden[:10],
         "publicTests": [],
+        "hiddenTests": [],
     } for i in range(1, default_count + 1)]
 
 
@@ -703,6 +732,8 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "drop-blueprint"
     if _chat_is_show_blueprint_request(low):
         return "show-blueprint"
+    if _chat_is_edit_blueprint_request(payload, low):
+        return "revise-blueprint"
     if _chat_is_edit_draft_request(low):
         return "edit-draft"
     if _chat_is_direct_generate_request(low):
@@ -752,11 +783,13 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     last_user = _chat_last_user_text(payload)
     prompt = str(result.get("prompt") or result.get("summary") or result.get("assistantMessage") or "").strip()
     latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
-    if latest_intent_kind == "generate" and isinstance(result.get("draftBlueprint"), dict):
-        proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), 1), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
+    if latest_intent_kind in {"generate", "revise-blueprint"} and isinstance(result.get("draftBlueprint"), dict):
+        proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), max(1, len(_chat_blueprint_proposals(payload)) or 1)), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
+        action_name = "revise_chat_blueprint" if latest_intent_kind == "revise-blueprint" and _chat_has_blueprint(payload) else "save_chat_blueprint"
+        assistant_fallback = "Я обновила примерные условия в чате. Посмотри, всё ли теперь совпадает, и скажи, когда уже закидывать в черновик." if action_name == "revise_chat_blueprint" else "Я набросала примерные условия. Посмотри, что поправить, и потом скажи, когда закидывать в черновик."
         result["actions"] = [{
-            "name": "save_chat_blueprint",
-            "reason": "Сначала сохраняю примерные условия из чата, чтобы пользователь мог их поправить и утвердить перед финализацией в draft.",
+            "name": action_name,
+            "reason": "Обновляю уже сохранённые примерные условия по новым замечаниям пользователя." if action_name == "revise_chat_blueprint" else "Сначала сохраняю примерные условия из чата, чтобы пользователь мог их поправить и утвердить перед финализацией в draft.",
             "arguments": {
                 "courseId": _chat_pick_course_id(payload, result),
                 "summary": str((result.get("draftBlueprint") or {}).get("summary") or result.get("assistantMessage") or "").strip()[:300],
@@ -764,7 +797,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             },
         }]
         return {
-            "assistantMessage": str(result.get("assistantMessage") or "").strip() or "Я набросала примерные условия. Посмотри, что поправить, и потом скажи, когда закидывать в черновик.",
+            "assistantMessage": str(result.get("assistantMessage") or "").strip() or assistant_fallback,
             "actions": result.get("actions") or [],
             "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
         }
@@ -942,6 +975,15 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "actions": [{"name": "drop_chat_blueprint", "reason": "Пользователь просит выбросить старые примерные условия и собрать новые.", "arguments": {"courseId": course_id}}],
             }
         return {"assistantMessage": "Сейчас в памяти и так нет старых вариантов. Можно сразу описывать новый замысел.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+
+    if latest_intent_kind == "revise-blueprint":
+        if blueprint_proposals:
+            return {
+                "assistantMessage": "Поняла. Обновлю текущие варианты в чате по твоим замечаниям.",
+                "actions": [],
+                "sessionTitle": _chat_build_session_title(payload),
+            }
+        return {"assistantMessage": "Сейчас нечего править: сначала нужно собрать примерные условия прямо в чате.", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
 
     if latest_intent_kind == "finalize-blueprint":
         if blueprint_proposals:

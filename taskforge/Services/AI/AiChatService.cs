@@ -828,6 +828,41 @@ public sealed class AiChatService
                         NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
                     };
                 }
+                case "revise_chat_blueprint":
+                {
+                    var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
+                    if (!courseId.HasValue)
+                        return FailTool("Нужно выбрать courseId, прежде чем править примерные условия.");
+
+                    var memory = BuildMemory(messages, session.PlanJson);
+                    var current = memory.CurrentDraftBlueprint;
+                    if (current == null || current.Proposals.Count == 0)
+                        return FailTool("В этой сессии пока нет сохранённых примерных условий. Сначала собери их через чат.");
+
+                    var proposals = ReadChatBlueprintProposals(args, current);
+                    if (proposals.Count == 0)
+                        return FailTool("Не удалось обновить примерные условия: proposals пустой или сломан.");
+
+                    var nextRevision = Math.Max(ReadInt(args, "revision") ?? (current.Revision + 1), 1);
+                    var blueprint = new AiFoundryChatDraftBlueprintDto
+                    {
+                        Summary = ReadString(args, "summary") ?? BuildChatBlueprintSummaryText(proposals),
+                        UpdatedAtUtc = DateTime.UtcNow,
+                        Revision = nextRevision,
+                        Source = current.Source,
+                        ApprovedForDraft = ReadBool(args, "approvedForDraft") ?? false,
+                        Proposals = proposals,
+                    };
+                    session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
+
+                    return new AiFoundryChatToolResultDto
+                    {
+                        Status = "done",
+                        Summary = BuildChatBlueprintSummary(blueprint),
+                        CourseId = courseId,
+                        NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                    };
+                }
                 case "show_chat_blueprint":
                 {
                     var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
@@ -1823,6 +1858,13 @@ public sealed class AiChatService
                 },
                 new
                 {
+                    name = "revise_chat_blueprint",
+                    description = "Обновить уже сохранённые примерные условия из памяти чата по новым замечаниям пользователя, не сбрасывая workflow.",
+                    requiredArguments = new[] { "courseId", "proposals" },
+                    optionalArguments = new[] { "summary", "approvedForDraft", "revision" },
+                },
+                new
+                {
                     name = "show_chat_blueprint",
                     description = "Показать текущие примерные условия, уже сохранённые в памяти этой чат-сессии, без запуска генерации draft.",
                     requiredArguments = new[] { "courseId" },
@@ -2279,6 +2321,7 @@ public sealed class AiChatService
                 "advance_agent_stage" => "Продолжаю агента по памяти и выбираю следующий логичный шаг без повторного объяснения контекста.",
                 "queue_generate_bridge_batch" => "Запускаю bridge-batch по последнему плану мостиков.",
                 "save_chat_blueprint" => "Собираю примерные условия прямо в чате.",
+            "revise_chat_blueprint" => "Обновляю уже сохранённые примерные условия по новым замечаниям.",
             "show_chat_blueprint" => "Показываю текущие примерные условия из памяти чата.",
             "finalize_chat_blueprint" => "Превращаю согласованные условия из чата в draft-черновики.",
             "drop_chat_blueprint" => "Сбрасываю текущие примерные условия из памяти чата.",
@@ -2668,6 +2711,9 @@ public sealed class AiChatService
             return "finalize-blueprint";
         if (low.Contains("покажи варианты") || low.Contains("какие варианты") || low.Contains("покажи услов") || low.Contains("покажи наброс"))
             return "show-blueprint";
+        if ((low.Contains("поправ") || low.Contains("исправ") || low.Contains("измени") || low.Contains("доработ") || low.Contains("перепиш"))
+            && (low.Contains("вариант") || low.Contains("услов") || low.Contains("тест") || low.Contains("задач")))
+            return "revise-blueprint";
         if (low.Contains("начни заново") || low.Contains("сбрось варианты") || low.Contains("удали варианты") || low.Contains("очисти условия"))
             return "drop-blueprint";
         if (low.Contains("не план") || low.Contains("не revise") || low.Contains("не show") || low.Contains("саму задачу") || low.Contains("готовую задачу") || low.Contains("готовый текст") || low.Contains("создай черновик") || low.Contains("создай draft") || low.Contains("сразу генерац") || low.Contains("сгенерируй") || low.Contains("создай зада") || low.Contains("сделай зада") || Regex.IsMatch(low, @"\bвсе[,! ]*делай\b|\bвсё[,! ]*делай\b|\bделай\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
@@ -3233,6 +3279,7 @@ public sealed class AiChatService
             "advance_agent_stage" => "автопродолжение агента",
             "queue_generate_bridge_batch" => "bridge-batch по плану мостиков",
             "save_chat_blueprint" => "примерные условия из чата",
+            "revise_chat_blueprint" => "правка примерных условий",
             "show_chat_blueprint" => "просмотр примерных условий",
             "finalize_chat_blueprint" => "финализация условий в черновики",
             "drop_chat_blueprint" => "сброс примерных условий",
@@ -3826,37 +3873,44 @@ public sealed class AiChatService
         return result.Distinct().ToList();
     }
 
-    private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args)
+    private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args, AiFoundryChatDraftBlueprintDto? previous = null)
     {
         var result = new List<AiFoundryChatDraftProposalDto>();
         if (args["proposals"] is not JsonArray proposals)
             return result;
-        foreach (var node in proposals)
+        for (var index = 0; index < proposals.Count; index++)
         {
-            if (node is not JsonObject obj)
+            if (proposals[index] is not JsonObject obj)
                 continue;
             var title = obj["title"]?.ToString()?.Trim();
             var conditionPreview = obj["conditionPreview"]?.ToString()?.Trim() ?? obj["summary"]?.ToString()?.Trim();
             var fullCondition = obj["fullCondition"]?.ToString()?.Trim() ?? conditionPreview;
             if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(conditionPreview) && string.IsNullOrWhiteSpace(fullCondition))
                 continue;
+
+            var hasExplicitId = Guid.TryParse(obj["id"]?.ToString(), out var parsedId);
+            var existing = hasExplicitId
+                ? previous?.Proposals.FirstOrDefault(x => x.Id == parsedId)
+                : (previous != null && index < previous.Proposals.Count ? previous.Proposals[index] : null);
+
             var proposal = new AiFoundryChatDraftProposalDto
             {
-                Id = Guid.TryParse(obj["id"]?.ToString(), out var parsedId) ? parsedId : Guid.NewGuid(),
-                Title = string.IsNullOrWhiteSpace(title) ? ShortenSingleLine(conditionPreview ?? fullCondition ?? "Новая задача", 80) : title,
-                AssignmentType = string.IsNullOrWhiteSpace(obj["assignmentType"]?.ToString()) ? "code-test" : obj["assignmentType"]!.ToString()!.Trim(),
-                Difficulty = Math.Clamp(int.TryParse(obj["difficulty"]?.ToString(), out var difficulty) ? difficulty : 2, 1, 5),
-                Goal = ShortenMultiline(obj["goal"]?.ToString() ?? obj["microGoal"]?.ToString() ?? string.Empty, 400),
-                ConditionPreview = ShortenMultiline(conditionPreview ?? fullCondition ?? string.Empty, 900),
-                FullCondition = ShortenMultiline(fullCondition ?? conditionPreview ?? string.Empty, 4000),
-                PlacementAfterAssignmentId = Guid.TryParse(obj["placementAfterAssignmentId"]?.ToString() ?? obj["afterAssignmentId"]?.ToString(), out var parsedAfterId) ? parsedAfterId : null,
-                PlacementAfterTitle = ShortenSingleLine(obj["placementAfterTitle"]?.ToString() ?? obj["afterAssignmentTitle"]?.ToString() ?? string.Empty, 180),
-                PlacementReason = ShortenSingleLine(obj["placementReason"]?.ToString() ?? string.Empty, 240),
-                Status = string.IsNullOrWhiteSpace(obj["status"]?.ToString()) ? "draft" : obj["status"]!.ToString()!.Trim(),
+                Id = hasExplicitId ? parsedId : existing?.Id ?? Guid.NewGuid(),
+                Title = string.IsNullOrWhiteSpace(title) ? ShortenSingleLine(conditionPreview ?? fullCondition ?? existing?.Title ?? "Новая задача", 80) : title,
+                AssignmentType = string.IsNullOrWhiteSpace(obj["assignmentType"]?.ToString()) ? (existing?.AssignmentType ?? "code-test") : obj["assignmentType"]!.ToString()!.Trim(),
+                Difficulty = Math.Clamp(int.TryParse(obj["difficulty"]?.ToString(), out var difficulty) ? difficulty : existing?.Difficulty ?? 2, 1, 5),
+                Goal = ShortenMultiline(obj["goal"]?.ToString() ?? obj["microGoal"]?.ToString() ?? existing?.Goal ?? string.Empty, 400),
+                ConditionPreview = ShortenMultiline(conditionPreview ?? existing?.ConditionPreview ?? fullCondition ?? string.Empty, 900),
+                FullCondition = ShortenMultiline(fullCondition ?? existing?.FullCondition ?? conditionPreview ?? string.Empty, 4000),
+                PlacementAfterAssignmentId = Guid.TryParse(obj["placementAfterAssignmentId"]?.ToString() ?? obj["afterAssignmentId"]?.ToString(), out var parsedAfterId) ? parsedAfterId : existing?.PlacementAfterAssignmentId,
+                PlacementAfterTitle = ShortenSingleLine(obj["placementAfterTitle"]?.ToString() ?? obj["afterAssignmentTitle"]?.ToString() ?? existing?.PlacementAfterTitle ?? string.Empty, 180),
+                PlacementReason = ShortenSingleLine(obj["placementReason"]?.ToString() ?? existing?.PlacementReason ?? string.Empty, 240),
+                Status = string.IsNullOrWhiteSpace(obj["status"]?.ToString()) ? (existing?.Status ?? "draft") : obj["status"]!.ToString()!.Trim(),
             };
-            proposal.MustKeep = ReadStringList(obj, "mustKeep");
-            proposal.Avoid = ReadStringList(obj, "avoid");
-            proposal.PublicTests = ReadChatDraftTests(obj, "publicTests");
+            proposal.MustKeep = obj.ContainsKey("mustKeep") ? ReadStringList(obj, "mustKeep") : CloneStringList(existing?.MustKeep);
+            proposal.Avoid = obj.ContainsKey("avoid") ? ReadStringList(obj, "avoid") : CloneStringList(existing?.Avoid);
+            proposal.PublicTests = obj.ContainsKey("publicTests") ? ReadChatDraftTests(obj, "publicTests") : CloneChatDraftTests(existing?.PublicTests);
+            proposal.HiddenTests = obj.ContainsKey("hiddenTests") ? ReadChatDraftTests(obj, "hiddenTests") : CloneChatDraftTests(existing?.HiddenTests);
             result.Add(proposal);
         }
         return result;
@@ -3875,6 +3929,10 @@ public sealed class AiChatService
         }
         return result;
     }
+
+    private static List<string> CloneStringList(IEnumerable<string>? source)
+        => source?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => ShortenSingleLine(x, 240)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
+
 
     private static List<AiFoundryChatDraftTestPreviewDto> ReadChatDraftTests(JsonObject obj, string propertyName)
     {
@@ -3897,6 +3955,13 @@ public sealed class AiChatService
         }
         return result;
     }
+
+    private static List<AiFoundryChatDraftTestPreviewDto> CloneChatDraftTests(IEnumerable<AiFoundryChatDraftTestPreviewDto>? source)
+        => source?.Select(x => new AiFoundryChatDraftTestPreviewDto
+        {
+            Input = ShortenMultiline(x.Input, 200),
+            ExpectedOutput = ShortenMultiline(x.ExpectedOutput, 200),
+        }).ToList() ?? new List<AiFoundryChatDraftTestPreviewDto>();
 
     private static string BuildChatBlueprintSummaryText(List<AiFoundryChatDraftProposalDto> proposals)
     {
@@ -3950,7 +4015,13 @@ public sealed class AiChatService
             if (proposal.PublicTests.Count > 0)
             {
                 sb.AppendLine("Публичные тесты:");
-                foreach (var test in proposal.PublicTests.Take(4))
+                foreach (var test in proposal.PublicTests.Take(6))
+                    sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
+            }
+            if (proposal.HiddenTests.Count > 0)
+            {
+                sb.AppendLine("Скрытые тесты:");
+                foreach (var test in proposal.HiddenTests.Take(6))
                     sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
             }
         }
@@ -4002,6 +4073,7 @@ public sealed class AiChatService
             placementAfterTitle = proposal.PlacementAfterTitle,
             placementReason = proposal.PlacementReason,
             publicTests = proposal.PublicTests.Select(x => new { input = x.Input, expectedOutput = x.ExpectedOutput }).ToList(),
+            hiddenTests = proposal.HiddenTests.Select(x => new { input = x.Input, expectedOutput = x.ExpectedOutput }).ToList(),
         }, JsonOptions);
     }
 
@@ -4049,6 +4121,12 @@ public sealed class AiChatService
         {
             sb.AppendLine("Примерные публичные тесты:");
             foreach (var test in proposal.PublicTests.Take(6))
+                sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
+        }
+        if (proposal.HiddenTests.Count > 0)
+        {
+            sb.AppendLine("Примерные скрытые тесты:");
+            foreach (var test in proposal.HiddenTests.Take(6))
                 sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
         }
         return sb.ToString().Trim();

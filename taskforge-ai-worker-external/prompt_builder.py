@@ -292,18 +292,21 @@ def build_generation_requirements(payload: Dict[str, Any]) -> str:
     ]
     if assignment_type == "code-test":
         lines.extend([
-            f"Нужно минимум {quality.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests.",
-            f"Нужно минимум {quality.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests.",
-            f"Всего тестов должно быть не меньше {quality.get('minTotalTests', MIN_TOTAL_TESTS)}.",
             f"description должен быть не короче {quality.get('minDescriptionLength', MIN_DESCRIPTION_LEN)} символов.",
             "В description обязательно раскрой: суть задачи, формат входных данных, формат выходных данных, ограничения, хотя бы одну заметку или пояснение.",
             "referenceSolutionPython должен быть полностью рабочим, детерминированным, читать stdin и печатать только ответ.",
             "Сгенерируй edge cases: минимальные значения, типичные значения, пограничные случаи.",
-            "Количество publicTests и hiddenTests выбирай осознанно под задачу, а не по шаблону.",
-            "Предпочтительно publicTests делать больше, чем hiddenTests, чтобы студент видел больше примеров.",
+            "Количество publicTests и hiddenTests выбирай динамически под конкретную задачу, а не по шаблону.",
+            "Не делай все тесты однотипными и не копируй один и тот же IO-контракт между соседними вариантами.",
+            "Предпочтительно publicTests делать больше, чем hiddenTests, если это не конфликтует с учебной целью.",
             "Если задача требует ограничений по коду, добавь forbiddenCalls и/или requiredCalls как массивы строк.",
-            "Не делай все тесты однотипными.",
         ])
+        if 'minPublicTests' in quality:
+            lines.append(f"Соблюдай нижнюю границу publicTests из qualityGates: {quality.get('minPublicTests')}.")
+        if 'minHiddenTests' in quality:
+            lines.append(f"Соблюдай нижнюю границу hiddenTests из qualityGates: {quality.get('minHiddenTests')}.")
+        if 'minTotalTests' in quality:
+            lines.append(f"Суммарное количество тестов не должно быть меньше {quality.get('minTotalTests')}.")
     elif assignment_type == "test":
         lines.extend([
             f"description должен быть не короче {quality.get('minDescriptionLength', 120)} символов.",
@@ -503,10 +506,10 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Сначала пойми интент текущего сообщения: это может быть обычный разговор, просьба показать существующие задания, просьба найти пробелы, просьба собрать план или просьба сгенерировать новое. Не превращай каждый запрос про курс в bridge-plan workflow. "
         "Если пользователь просит показать, перечислить, вывести или изучить уже существующие задания курса — приоритет у inspect_course_assignments, а не у prepare_bridge_plan/show_bridge_plan. После такого запроса не перескакивай к мостикам без новой явной просьбы пользователя. "
         "Если пользователь просто комментирует, сомневается, ругается или формулирует мысль вслух — нормально ответить по-человечески с actions=[] и задать один точный вопрос. "
-        "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. Если пользователь уже явно просит сразу запускать создание задачи ('всё генерируй', 'не черновик', 'запускай создание задачи') и в памяти есть согласованный blueprint, можно идти в queue_generate_from_text по этому blueprint. "
+        "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Если пользователь присылает правки к уже сохранённым вариантам, обновляй их через revise_chat_blueprint новой revision, а не начинай workflow заново. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. Если пользователь уже явно просит сразу запускать создание задачи ('всё генерируй', 'не черновик', 'запускай создание задачи') и в памяти есть согласованный blueprint, можно идти в queue_generate_from_text по этому blueprint. "
         "Когда сохраняешь blueprint, не ограничивайся абстрактным summary. Внутри blueprint proposals дай читаемый черновик условия: title, conditionPreview и по возможности fullCondition с реальным текстом будущего задания, чтобы пользователь мог править именно условие, а не только идею. "
         "Если пользователь просит несколько задач, всё равно сначала покажи несколько примерных условий и сохрани их в chat blueprint. batch и прямая генерация — запасной вариант, а не default UX. "
-        "Если в memory уже есть currentDraftBlueprint, не придумывай новый workflow с нуля: либо покажи текущие варианты, либо обнови их новой revision, либо финализируй их после явного одобрения. "
+        "Если в memory уже есть currentDraftBlueprint, не придумывай новый workflow с нуля: либо покажи текущие варианты, либо обнови их через revise_chat_blueprint новой revision, либо финализируй их после явного одобрения. При правке по возможности сохраняй id вариантов и меняй только то, о чём попросил пользователь. "
         "assistantMessage — это видимый пользователю финальный ответ за ход. Он должен быть коротким, спокойным и без технической кухни: не перечисляй внутренние шаги, tool names, agent loop, analyze_course_progression, inspect_course_assignments, prepare_bridge_plan, show_bridge_plan, batchId, afterAssignmentId или anchor, если пользователь не просил именно эти детали. Если backend сам продолжит внутренние шаги, не описывай их в assistantMessage. Обычно достаточно 1-4 коротких предложений. "
         "Если данных не хватает — actions должен быть пустым массивом, а assistantMessage должен кратко запросить недостающие параметры.\\n\\n"
         "==== ПРИНЦИП: НИКОГДА НЕ ИМИТИРУЙ РАБОТУ ====\\n"
@@ -537,7 +540,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если у тебя уже есть готовый план мостиков в memory и пользователь прямо просит сгенерировать мостики по нему — подходит queue_generate_bridge_batch. "
         "advance_agent_stage используй только когда пользователь явно просит продолжить уже начатый pipeline и из memory действительно ясно, какой шаг следующий. "
         "Если пользователь хочет несколько заданий, но не указал количество явно, не подставляй count молча из defaults: сначала задай короткий уточняющий вопрос про количество и не запускай action. "
-        "save_chat_blueprint — сохранить 1 или несколько примерных условий из чата для дальнейшего обсуждения. Это default action для generation workflow. В arguments.proposals передавай максимально конкретный preview: условие, обязательные фрагменты, запреты, черновые тесты. "
+        "save_chat_blueprint — сохранить 1 или несколько примерных условий из чата для дальнейшего обсуждения. Это default action для generation workflow. revise_chat_blueprint — обновить уже сохранённые условия по новым правкам пользователя без потери текущего workflow. В arguments.proposals передавай максимально конкретный preview: условие, обязательные фрагменты, placement, публичные и скрытые тесты. Количество тестов выбирай по задаче, а не по шаблону. "
         "show_chat_blueprint — показать уже сохранённые примерные условия. "
         "drop_chat_blueprint — сбросить старые варианты, если пользователь просит начать заново. "
         "finalize_chat_blueprint — только после явного одобрения пользователя превратить согласованные условия в полноценные draft-черновики. "
@@ -1212,8 +1215,8 @@ def _draft_response_format(payload: Dict[str, Any], assignment_type: str, includ
         "title": title,
         "description": "Полное условие без HTML",
         "allowedLanguages": _supported_code_languages(payload),
-        "publicTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(1, min_public))],
-        "hiddenTests": [{"input": "...", "expectedOutput": "..."} for _ in range(max(0, min_hidden))],
+        "publicTests": [{"input": "...", "expectedOutput": "..."}],
+        "hiddenTests": [{"input": "...", "expectedOutput": "..."}],
         "referenceSolutionPython": "...",
         "requiredCalls": [],
         "forbiddenCalls": [],
@@ -1248,9 +1251,12 @@ def _draft_type_rules(payload: Dict[str, Any], assignment_type: str, quality_gat
         "- Для code-test обязательны: title, description, publicTests, referenceSolutionPython. hiddenTests можно оставить пустым списком.\n"
         "- allowedLanguages обязателен, если курс/контекст уже ограничивает языки.\n"
         f"- Разрешённые языки для этой генерации: {', '.join(_supported_code_languages(payload))}. Если контекст курса сужает список, не добавляй другие языки.\n"
-        f"- Нужно минимум {quality_gates.get('minPublicTests', MIN_PUBLIC_TESTS)} publicTests, минимум {quality_gates.get('minHiddenTests', MIN_HIDDEN_TESTS)} hiddenTests и всего не меньше {quality_gates.get('minTotalTests', 1)} тестов.\n"
-        "- Предпочтительно делать publicTests больше, чем hiddenTests, если это не вредит качеству покрытия.\n"
-        "- Используй только root-level requiredCalls и forbiddenCalls. Не вкладывай их в codePolicy.\n"
+        + (f"- Соблюдай нижнюю границу publicTests из qualityGates: {quality_gates.get('minPublicTests')}.\n" if 'minPublicTests' in quality_gates else "")
+        + (f"- Соблюдай нижнюю границу hiddenTests из qualityGates: {quality_gates.get('minHiddenTests')}.\n" if 'minHiddenTests' in quality_gates else "")
+        + (f"- Суммарное количество тестов не должно быть меньше {quality_gates.get('minTotalTests')}.\n" if 'minTotalTests' in quality_gates else "")
+        + "- Количество publicTests и hiddenTests выбирай по задаче, не выравнивай их искусственно под один шаблон.\n"
+        + "- Предпочтительно делать publicTests больше, чем hiddenTests, если это не вредит качеству покрытия.\n"
+        + "- Используй только root-level requiredCalls и forbiddenCalls. Не вкладывай их в codePolicy.\n"
     )
 
 

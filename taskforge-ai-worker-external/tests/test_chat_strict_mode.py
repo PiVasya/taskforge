@@ -13,7 +13,7 @@ class ChatStrictModeTests(unittest.TestCase):
         self.payload = {
             "courseId": "c1",
             "selectedCourse": {"id": "c1"},
-            "availableActions": [{"name": "publish_draft"}, {"name": "queue_generate_from_text"}, {"name": "save_chat_blueprint"}, {"name": "finalize_chat_blueprint"}, {"name": "revise_draft_from_chat"}],
+            "availableActions": [{"name": "publish_draft"}, {"name": "queue_generate_from_text"}, {"name": "save_chat_blueprint"}, {"name": "revise_chat_blueprint"}, {"name": "finalize_chat_blueprint"}, {"name": "revise_draft_from_chat"}],
             "recentDrafts": [{"id": "d1"}],
             "recentAssignments": [{"id": "a1"}],
             "recentBatches": [{"id": "b1"}],

@@ -735,6 +735,7 @@ public sealed class AiFoundryChatDraftProposalDto
     public List<string> MustKeep { get; set; } = new();
     public List<string> Avoid { get; set; } = new();
     public List<AiFoundryChatDraftTestPreviewDto> PublicTests { get; set; } = new();
+    public List<AiFoundryChatDraftTestPreviewDto> HiddenTests { get; set; } = new();
     public string Status { get; set; } = "draft";
 }
 

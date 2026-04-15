@@ -1430,6 +1430,14 @@ def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "input": _normalize_test_input_value(item.get("input")),
                 "expectedOutput": normalize_text(item.get("expectedOutput")),
             })
+        hidden_tests = []
+        for item in list(ctx.get("hiddenTests") or []):
+            if not isinstance(item, dict):
+                continue
+            hidden_tests.append({
+                "input": _normalize_test_input_value(item.get("input")),
+                "expectedOutput": normalize_text(item.get("expectedOutput")),
+            })
         return {
             "kind": "approved-chat-blueprint",
             "title": normalize_text(ctx.get("title")),
@@ -1442,6 +1450,9 @@ def _extract_blueprint_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
             "placementAfterTitle": normalize_text(ctx.get("placementAfterTitle") or ctx.get("afterAssignmentTitle")),
             "placementReason": normalize_text(ctx.get("placementReason")),
             "publicTests": public_tests,
+            "hiddenTests": hidden_tests,
+            "hasPublicTestsField": "publicTests" in ctx,
+            "hasHiddenTestsField": "hiddenTests" in ctx,
         }
     return {}
 
@@ -1606,9 +1617,9 @@ def _apply_blueprint_contract_to_code_test_draft(draft: Dict[str, Any], payload:
         public_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in public_tests]
         hidden_tests = [{**t, "input": NO_INPUT_SENTINEL} for t in hidden_tests]
 
-    if public_tests:
+    if public_tests or contract.get("hasPublicTestsField"):
         aligned["publicTests"] = public_tests
-    if hidden_tests:
+    if hidden_tests or contract.get("hasHiddenTestsField"):
         aligned["hiddenTests"] = hidden_tests
 
     must_keep = [x.casefold() for x in list(contract.get("mustKeep") or [])]

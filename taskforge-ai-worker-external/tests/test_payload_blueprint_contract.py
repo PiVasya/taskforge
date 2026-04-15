@@ -26,7 +26,8 @@ class PayloadBlueprintContractTests(unittest.TestCase):
                 "placementAfterAssignmentId": "8ad8bfd9-de84-4a60-8e03-f4fa58cb0c74",
                 "placementAfterTitle": "Первый маленький шаг",
                 "placementReason": "Новая задача должна стоять сразу после первого маленького шага.",
-                "publicTests": [],
+                "publicTests": [{"input": "", "expectedOutput": "Hi\n"}],
+                "hiddenTests": [],
             },
         }
         raw_result = {
@@ -49,9 +50,36 @@ class PayloadBlueprintContractTests(unittest.TestCase):
         self.assertEqual(draft["publicTests"][0]["input"], "")
         self.assertEqual(draft["publicTests"][0]["expectedOutput"], "Hi\n")
         self.assertEqual(draft["hiddenTests"][0]["input"], "")
+        self.assertEqual(len(draft["hiddenTests"]), 1)
         self.assertIn("print('Hi')", draft["referenceSolutionPython"])
         self.assertIn("cout", [x.lower() for x in draft["requiredCalls"]])
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PayloadBlueprintHiddenTestsResetTests(unittest.TestCase):
+    def test_empty_hidden_tests_in_blueprint_drop_leaked_generated_hidden_tests(self):
+        request_payload = {
+            "assignmentType": "code-test",
+            "schemaVersion": "draft-v2",
+            "structuredContext": {
+                "kind": "approved-chat-blueprint",
+                "title": "Тест",
+                "fullCondition": "Выведи Hi",
+                "publicTests": [{"input": "", "expectedOutput": "Hi\n"}],
+                "hiddenTests": [],
+            },
+        }
+        raw_result = {
+            "draft": {
+                "assignmentType": "code-test",
+                "title": "bad",
+                "description": "bad",
+                "publicTests": [{"input": "1", "expectedOutput": "1"}],
+                "hiddenTests": [{"input": "999", "expectedOutput": "999"}],
+            }
+        }
+        sanitized = payload.sanitize_result_payload("assignment_generate_from_text", request_payload, raw_result)
+        self.assertEqual(sanitized["draft"]["hiddenTests"], [])

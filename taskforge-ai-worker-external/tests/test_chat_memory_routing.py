@@ -107,6 +107,34 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["actions"][0]["name"], "revise_draft_from_chat")
         self.assertEqual(result["actions"][0]["arguments"].get("draftId"), "d1")
 
+    def test_edit_blueprint_request_routes_to_revise_chat_blueprint(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Поправь второй вариант: оставь условие, но замени тесты и шаг 3"}],
+            "memory": {
+                "currentDraftBlueprint": {
+                    "summary": "Есть варианты",
+                    "proposals": [
+                        {"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант 1", "conditionPreview": "..."},
+                        {"id": "22222222-2222-2222-2222-222222222222", "title": "Вариант 2", "conditionPreview": "..."}
+                    ]
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {
+            "assistantMessage": "Обновляю варианты.",
+            "draftBlueprint": {
+                "summary": "Переписал второй вариант.",
+                "proposals": [
+                    {"title": "Вариант 1", "conditionPreview": "...", "publicTests": []},
+                    {"title": "Вариант 2", "conditionPreview": "Новый текст", "publicTests": [{"input": "1", "expectedOutput": "2"}], "hiddenTests": [{"input": "2", "expectedOutput": "3"}]}
+                ]
+            }
+        })
+        self.assertEqual(result["actions"][0]["name"], "revise_chat_blueprint")
+        self.assertEqual(result["actions"][0]["arguments"]["proposals"][1]["id"], "22222222-2222-2222-2222-222222222222")
+
 
 if __name__ == "__main__":
     unittest.main()
