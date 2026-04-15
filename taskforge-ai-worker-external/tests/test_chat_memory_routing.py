@@ -10,6 +10,23 @@ import prompt_builder  # type: ignore
 
 
 class ChatMemoryRoutingTests(unittest.TestCase):
+    def test_gap_remediation_request_prefers_advance_agent_stage(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Сгенерируй задачи на все пробелы в курсе и предложи решения"}],
+            "memory": {
+                "agentState": {
+                    "objectiveKind": "course-gap-remediation",
+                    "objectiveSummary": "Найти пробелы, проверить соседние задания и собрать решения",
+                    "nextSuggestedAction": "запустить discovery по курсу через analyze_course_progression",
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"][0]["name"], "advance_agent_stage")
+        self.assertIn("полный проход", result["assistantMessage"].lower())
+
     def test_inspect_request_prefers_course_listing_over_bridge_plan(self):
         payload = {
             "courseId": "c1",
@@ -134,6 +151,76 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         })
         self.assertEqual(result["actions"][0]["name"], "revise_chat_blueprint")
         self.assertEqual(result["actions"][0]["arguments"]["proposals"][1]["id"], "22222222-2222-2222-2222-222222222222")
+
+    def test_strong_style_feedback_with_blueprint_routes_to_revise_blueprint(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Сделай 1 в 1 как первое задание, пошагово"}],
+            "memory": {
+                "currentDraftBlueprint": {
+                    "summary": "Есть варианты",
+                    "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант 1", "conditionPreview": "..."}]
+                }
+            },
+        }
+        intent = worker._chat_latest_intent_kind(payload, payload["conversation"][0]["content"], "")
+        self.assertEqual(intent, "revise-blueprint")
+
+    def test_short_followup_uses_plan_steps_to_continue(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "дальше"}],
+            "memory": {
+                "agentState": {
+                    "confidencePercent": 72,
+                    "autonomyMode": "guided-proactive",
+                    "planSteps": [
+                        {"key": "verify", "title": "Проверить соседние задания", "status": "current", "recommendedAction": "inspect_course_assignments", "summary": "Подтвердить спорные места по реальным заданиям."}
+                    ],
+                    "decisionCandidates": [{"name": "inspect_course_assignments", "why": "Нужно проверить соседние задания", "status": "preferred"}],
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"][0]["name"], "advance_agent_stage")
+
+    def test_short_followup_with_blocker_summary_stops_for_clarification(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "продолжай"}],
+            "memory": {
+                "agentState": {
+                    "confidencePercent": 48,
+                    "needsClarification": True,
+                    "autonomyMode": "ask-first",
+                    "blockerSummary": "Нужно сначала понять, какие именно пробелы закрывать: весь курс или только ввод/вывод.",
+                    "openQuestions": ["Уточнить фокус remediation."],
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"], [])
+        self.assertIn("лучше не прыгать", result["assistantMessage"])
+
+    def test_short_followup_with_low_confidence_surfaces_blocker(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "дальше"}],
+            "memory": {
+                "agentState": {
+                    "confidencePercent": 20,
+                    "openQuestions": ["Нужно сначала подтвердить пробелы по курсу."],
+                    "decisionCandidates": [{"name": "analyze_course_progression", "why": "Сначала нужен discovery", "status": "preferred"}],
+                }
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"], [])
+        self.assertIn("не хватает опоры", result["assistantMessage"])
 
 
 if __name__ == "__main__":

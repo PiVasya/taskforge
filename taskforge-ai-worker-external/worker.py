@@ -722,17 +722,154 @@ def _chat_is_audit_request(text: str) -> bool:
     return asks_audit and mentions_pedagogy
 
 
+def _chat_is_gap_remediation_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    asks_for_coverage = any(token in low for token in [
+        "все пробел", "все дыр", "все косяк", "все слабые места", "закрой пробел", "закрыть пробел",
+        "на все пробел", "по всем пробел", "весь курс", "по всему курсу", "реально проанализируй",
+        "предложи решения", "предложи мостики", "предложи как закрыть", "найди пробелы и",
+        "сгенерируй задачи на все", "собери задачи на все", "исправь пробелы", "ремеди"
+    ])
+    mentions_course = any(token in low for token in ["курс", "курса", "курсе", "обучал", "лесенк", "педагог", "мостик", "подводящ"])
+    return asks_for_coverage and mentions_course
+
+
+def _chat_has_strong_blueprint_revision_signal(payload: Dict[str, Any], text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low or not _chat_has_blueprint(payload):
+        return False
+    explicit_approval = _chat_is_finalize_request(low) and not any(marker in low for marker in ["не так", "передел", "сначала", "но", "только", "замени", "оставь"])
+    if explicit_approval:
+        return False
+    revision_markers = [
+        "1 в 1", "один в один", "пошагово", "как первое задание", "как в первом задании", "как образец",
+        "точно как", "сделай как", "передел", "не так", "оставь", "замени", "используй", "остальное устраивает",
+        "сохрани", "убери", "добавь", "только не", "только чтобы", "повтори структуру"
+    ]
+    return any(marker in low for marker in revision_markers)
+
+
+def _chat_agent_state(payload: Dict[str, Any]) -> Dict[str, Any]:
+    memory = _chat_memory(payload)
+    return memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+
+
+def _chat_agent_plan_steps(payload: Dict[str, Any]) -> list[dict[str, Any]]:
+    agent_state = _chat_agent_state(payload)
+    items = agent_state.get("planSteps") if isinstance(agent_state.get("planSteps"), list) else []
+    clean = []
+    for item in items[:8]:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        title = str(item.get("title") or "").strip()
+        status = str(item.get("status") or "pending").strip().lower() or "pending"
+        action = str(item.get("recommendedAction") or "").strip()
+        if not key and not title:
+            continue
+        clean.append({
+            "key": key,
+            "title": title,
+            "status": status,
+            "summary": str(item.get("summary") or "").strip(),
+            "recommendedAction": action,
+            "successSignal": str(item.get("successSignal") or "").strip(),
+            "blockedBy": str(item.get("blockedBy") or "").strip(),
+        })
+    return clean
+
+
+def _chat_agent_candidate_actions(payload: Dict[str, Any]) -> list[dict[str, Any]]:
+    clean = []
+    seen = set()
+    for step in _chat_agent_plan_steps(payload):
+        name = str(step.get("recommendedAction") or "").strip()
+        if not name or name in seen:
+            continue
+        status = "preferred" if step.get("status") == "current" else ("candidate" if step.get("status") == "pending" else "done")
+        clean.append({
+            "name": name,
+            "why": str(step.get("summary") or step.get("successSignal") or "").strip(),
+            "status": status,
+        })
+        seen.add(name)
+    agent_state = _chat_agent_state(payload)
+    actions = agent_state.get("decisionCandidates") if isinstance(agent_state.get("decisionCandidates"), list) else []
+    for item in actions[:5]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name or name in seen:
+            continue
+        clean.append({
+            "name": name,
+            "why": str(item.get("why") or "").strip(),
+            "status": str(item.get("status") or "candidate").strip().lower() or "candidate",
+        })
+        seen.add(name)
+    return clean
+
+
+def _chat_agent_open_questions(payload: Dict[str, Any]) -> list[str]:
+    agent_state = _chat_agent_state(payload)
+    items = agent_state.get("openQuestions") if isinstance(agent_state.get("openQuestions"), list) else []
+    return [str(x).strip() for x in items if str(x).strip()][:6]
+
+
+def _chat_agent_confidence(payload: Dict[str, Any]) -> int:
+    agent_state = _chat_agent_state(payload)
+    try:
+        return max(0, min(100, int(agent_state.get("confidencePercent") or 0)))
+    except Exception:
+        return 0
+
+
+def _chat_agent_blocker_summary(payload: Dict[str, Any]) -> str:
+    agent_state = _chat_agent_state(payload)
+    return str(agent_state.get("blockerSummary") or "").strip()
+
+
+def _chat_agent_needs_clarification(payload: Dict[str, Any]) -> bool:
+    agent_state = _chat_agent_state(payload)
+    return bool(agent_state.get("needsClarification"))
+
+
+def _chat_agent_autonomy_mode(payload: Dict[str, Any]) -> str:
+    agent_state = _chat_agent_state(payload)
+    return str(agent_state.get("autonomyMode") or "").strip().lower()
+
+
+def _chat_pick_agent_candidate_action(payload: Dict[str, Any]) -> str:
+    allowed = {
+        "analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan",
+        "save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint",
+        "queue_generate_from_text", "show_chat_blueprint", "show_bridge_plan"
+    }
+    for item in _chat_agent_candidate_actions(payload):
+        name = item["name"]
+        status = str(item.get("status") or "candidate").strip().lower()
+        if status == "done":
+            continue
+        if name in allowed:
+            return name
+    return ""
+
+
 def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: str) -> str:
     low = (last_user or prompt or "").strip().lower()
     if _chat_is_listing_request(low):
         return "inspect"
+    if _chat_is_gap_remediation_request(low):
+        return "remediation"
     if _chat_is_audit_request(low):
         return "audit"
     if _chat_is_drop_blueprint_request(low):
         return "drop-blueprint"
     if _chat_is_show_blueprint_request(low):
         return "show-blueprint"
-    if _chat_is_edit_blueprint_request(payload, low):
+    if _chat_is_edit_blueprint_request(payload, low) or _chat_has_strong_blueprint_revision_signal(payload, low):
         return "revise-blueprint"
     if _chat_is_edit_draft_request(low):
         return "edit-draft"
@@ -863,11 +1000,25 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     remembered_after_assignment_id = explicit_after_assignment_id or agent_state.get("placementAfterAssignmentId") or ((agent_state.get("placementCandidates") or [{}])[0].get("afterAssignmentId") if isinstance(agent_state.get("placementCandidates"), list) and agent_state.get("placementCandidates") else None)
     short_followup = (last_user or "").strip().lower() in {"продолжай", "давай дальше", "дальше", "начинай", "ок", "го", "погнали", "делай дальше"}
 
-    if not course_id and latest_intent_kind in {"inspect", "audit", "plan", "generate"}:
+    if not course_id and latest_intent_kind in {"inspect", "audit", "remediation", "plan", "generate"}:
         return {
             "assistantMessage": "Для этого шага нужен выбранный курс. Выбери курс справа, и я продолжу в этом же контексте.",
             "actions": [],
             "sessionTitle": _chat_build_session_title(payload),
+        }
+
+    if latest_intent_kind == "remediation":
+        return {
+            "assistantMessage": "Запускаю полный проход по курсу: сначала найду реальные пробелы, потом проверю соседние задания и соберу решения.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "advance_agent_stage",
+                "reason": "Пользователь просит не просто аудит, а полноценный remediation-цикл по курсу: discover -> verify -> propose -> draft.",
+                "arguments": {
+                    "courseId": course_id,
+                    "focus": focus_text,
+                },
+            }],
         }
 
     if latest_intent_kind == "inspect":
@@ -1024,8 +1175,29 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "actions": [],
                 "sessionTitle": _chat_build_session_title(payload),
             }
+        confidence = _chat_agent_confidence(payload)
+        open_questions = _chat_agent_open_questions(payload)
+        blocker_summary = _chat_agent_blocker_summary(payload)
+        needs_clarification = _chat_agent_needs_clarification(payload)
+        autonomy_mode = _chat_agent_autonomy_mode(payload)
+        candidate_action = _chat_pick_agent_candidate_action(payload)
         next_suggested = str(agent_state.get("nextSuggestedAction") or "").strip().lower()
-        if next_suggested in {"inspect_course_assignments", "prepare_bridge_plan", "queue_generate_bridge_batch", "queue_generate_batch", "queue_generate_from_text"}:
+        if (needs_clarification or autonomy_mode == "ask-first") and (blocker_summary or open_questions):
+            blocker = blocker_summary or open_questions[0]
+            return {"assistantMessage": f"Сейчас лучше не прыгать дальше вслепую: {blocker}", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+        if confidence < 35 and open_questions:
+            return {"assistantMessage": f"Сейчас ещё не хватает опоры: {open_questions[0]}", "actions": [], "sessionTitle": _chat_build_session_title(payload)}
+        if candidate_action in {"analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint", "queue_generate_from_text"}:
+            return {
+                "assistantMessage": "Продолжаю от текущего состояния сессии.",
+                "sessionTitle": _chat_build_session_title(payload),
+                "actions": [{
+                    "name": "advance_agent_stage",
+                    "reason": "Короткий follow-up пользователя. Агент опирается на planSteps и decisionCandidates, а не только на старый nextSuggestedAction.",
+                    "arguments": {"courseId": course_id, "focus": focus_text},
+                }],
+            }
+        if next_suggested in {"analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "queue_generate_bridge_batch", "queue_generate_batch", "queue_generate_from_text"}:
             return {
                 "assistantMessage": "Продолжаю от текущего состояния сессии.",
                 "sessionTitle": _chat_build_session_title(payload),

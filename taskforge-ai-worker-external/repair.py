@@ -109,6 +109,12 @@ def _apply_route_aware_repairs(repaired: Dict[str, Any], primary_route: str, hin
         repaired["forbiddenCalls"] = forbidden
         if route in {"tests", "general"}:
             _rebalance_code_tests(repaired)
+            public_tests = [dict(x) for x in list(repaired.get("publicTests") or []) if isinstance(x, dict)]
+            hidden_tests = [dict(x) for x in list(repaired.get("hiddenTests") or []) if isinstance(x, dict)]
+            while len(public_tests) < 2 and hidden_tests:
+                public_tests.append(hidden_tests.pop(0))
+            repaired["publicTests"] = public_tests
+            repaired["hiddenTests"] = hidden_tests
         if route in {"solution", "general"}:
             code = normalize_text(repaired.get("referenceSolutionPython"))
             if code:

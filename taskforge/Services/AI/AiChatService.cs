@@ -2701,6 +2701,8 @@ public sealed class AiChatService
             return "chat";
         if (IsInspectCourseIntent(low))
             return "inspect";
+        if (IsCourseGapRemediationIntent(low))
+            return "remediation";
         if (IsDiagnosticGapAuditIntent(low))
             return "audit";
         if (low.Contains("покажи план") || low.Contains("какой план") || low.Contains("что в плане") || low.Contains("show_bridge_plan"))
@@ -2721,6 +2723,24 @@ public sealed class AiChatService
         if (low.Contains("план") || low.Contains("мостик") || low.Contains("подводящ"))
             return "plan";
         return "chat";
+    }
+
+    private static bool IsCourseGapRemediationIntent(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var hay = text.ToLowerInvariant();
+        var asksForCoverage = new[]
+        {
+            "все пробел", "все дыр", "все косяк", "все слабые места", "закрой пробел", "закрыть пробел",
+            "на все пробел", "по всем пробел", "весь курс", "по всему курсу", "реально проанализируй",
+            "предложи решения", "предложи мостики", "предложи как закрыть", "найди пробелы и",
+            "сгенерируй задачи на все", "собери задачи на все", "исправь пробелы", "ремеди"
+        }.Any(x => hay.Contains(x, StringComparison.Ordinal));
+        var mentionsCourse = new[] { "курс", "курса", "курсе", "обучал", "лесенк", "педагог", "мостик", "подводящ" }
+            .Any(x => hay.Contains(x, StringComparison.Ordinal));
+        return asksForCoverage && mentionsCourse;
     }
 
     private static bool IsInspectCourseIntent(string? text)
@@ -2811,8 +2831,17 @@ public sealed class AiChatService
             : ShortenSingleLine(previous.AgentState?.UserIntentSummary ?? string.Empty, 220);
         latestIntentKind ??= previous.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
         latestTeachingScript ??= previous.LatestTeachingScript;
-        var diagnosticAuditIntent = string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal);
+
+        var objectiveKind = DetermineAgentObjectiveKind(latestGoal, latestIntentKind, previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0);
+        var remediationIntent = string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase);
+        var diagnosticAuditIntent = string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase)
+            || IsDiagnosticGapAuditIntent(latestGoal);
         var hasBlueprint = previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0;
+        var hasAudit = previous.LastCourseAudit != null;
+        var hasInspection = previous.LastCourseInspection != null && previous.LastCourseInspection.Assignments.Count > 0;
+        var hasBridgePlan = previous.LastBridgePlan != null && previous.LastBridgePlan.Items.Count > 0;
+
         var learnerProfile = BuildLearnerProfileSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, latestTeachingScript);
         var constraints = BuildGenerationConstraintsSnapshot(string.Join(" ", recentGoals), intentSummary ?? string.Empty, latestTeachingScript);
         var styleHints = new List<string>();
@@ -2869,7 +2898,7 @@ public sealed class AiChatService
                 TitleHint = x.TitleHint,
             }));
         }
-        else if (!diagnosticAuditIntent && previous.LastCourseAudit != null)
+        else if ((remediationIntent || !diagnosticAuditIntent) && previous.LastCourseAudit != null)
         {
             placementCandidates.AddRange(previous.LastCourseAudit.Findings.Take(6).Select(x => new AiFoundryAgentPlacementCandidateDto
             {
@@ -2900,6 +2929,17 @@ public sealed class AiChatService
         {
             workflowKind = "chat-blueprint";
             currentStage = previous.CurrentDraftBlueprint!.ApprovedForDraft ? "blueprint-finalized" : "blueprint-review";
+        }
+        else if (remediationIntent)
+        {
+            workflowKind = "course-remediation";
+            currentStage = !hasAudit
+                ? "discover"
+                : !hasInspection
+                    ? "verify"
+                    : !hasBridgePlan
+                        ? "propose"
+                        : "solution-ready";
         }
         else if (diagnosticAuditIntent)
         {
@@ -2940,23 +2980,62 @@ public sealed class AiChatService
             currentStage = "batch-queued";
         }
 
+        var readyForGeneration = hasBlueprint && previous.CurrentDraftBlueprint?.ApprovedForDraft == true
+            || (!diagnosticAuditIntent && previous.LastBridgePlan != null && (preferDirectGeneration || string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected)));
+
+        var objectiveSummary = objectiveKind switch
+        {
+            "course-gap-remediation" => "Сначала найти реальные пробелы по всему курсу, затем проверить соседние задания, собрать мостики и только потом переходить к генерации.",
+            "course-diagnostics" => "Проверить курс на скрытые педагогические косяки и подтвердить их по реальным соседним заданиям.",
+            "bridge-planning" => "Собрать практичный план мостиков и точек вставки перед генерацией.",
+            "chat-blueprint" => "Согласовать с пользователем конкретные условия будущих задач прямо в чате перед финальной генерацией.",
+            "course-inspection" => "Открыть реальные задания курса и сверить последовательность, стиль и место вставки.",
+            "generation" => "Подготовить и довести задачи до генерации без потери пользовательского замысла.",
+            _ => intentSummary ?? string.Empty,
+        };
+
+        var subtasks = BuildAgentSubtasks(objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true);
+        var stageSummary = subtasks.FirstOrDefault(x => string.Equals(x.Status, "current", StringComparison.OrdinalIgnoreCase))?.Summary
+            ?? subtasks.FirstOrDefault(x => string.Equals(x.Status, "pending", StringComparison.OrdinalIgnoreCase))?.Summary
+            ?? nextAgentStep;
+        var evidenceLedger = BuildAgentEvidenceLedger(previous, objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint);
+        var openQuestions = BuildAgentOpenQuestions(previous, objectiveKind, latestIntentKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, intentSummary ?? string.Empty);
+        var riskFlags = BuildAgentRiskFlags(previous, objectiveKind, latestIntentKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration);
+        var completionCriteria = BuildAgentCompletionCriteria(objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true);
+        var decisionCandidates = BuildAgentDecisionCandidates(objectiveKind, currentStage, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, nextAgentStep);
+        var confidencePercent = EstimateAgentConfidencePercent(objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, openQuestions.Count, riskFlags.Count);
+        var confidenceReason = BuildAgentConfidenceReason(objectiveKind, confidencePercent, openQuestions, riskFlags);
+        var blockerSummary = BuildAgentBlockerSummary(openQuestions, riskFlags, confidencePercent, objectiveKind);
+        var needsClarification = ShouldAgentAskClarifyingQuestion(confidencePercent, openQuestions, riskFlags, currentStage, objectiveKind);
+        var autonomyMode = DetermineAgentAutonomyMode(needsClarification, confidencePercent, openQuestions, readyForGeneration, hasBlueprint);
+        var planSteps = BuildAgentPlanSteps(objectiveKind, currentStage, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, blockerSummary, decisionCandidates);
+        var selfCritique = BuildAgentSelfCritique(objectiveKind, openQuestions, riskFlags, decisionCandidates, hasBlueprint, readyForGeneration);
+
         return new AiFoundryAgentStateDto
         {
             WorkflowKind = workflowKind,
             CurrentStage = currentStage,
             UserIntentSummary = intentSummary ?? string.Empty,
+            ObjectiveKind = objectiveKind,
+            ObjectiveSummary = objectiveSummary,
+            StageSummary = string.IsNullOrWhiteSpace(stageSummary) ? null : ShortenSingleLine(stageSummary, 220),
             LearnerAudience = Convert.ToString(learnerProfile["audience"]) ?? "general",
             PedagogyMode = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || Convert.ToBoolean(learnerProfile["explainLikeChild"]) ? "guided-simple" : "standard",
             NextSuggestedAction = string.IsNullOrWhiteSpace(nextAgentStep) ? null : ShortenSingleLine(nextAgentStep, 120),
             LatestIntentKind = latestIntentKind,
+            ConfidencePercent = confidencePercent,
+            ConfidenceReason = string.IsNullOrWhiteSpace(confidenceReason) ? null : ShortenSingleLine(confidenceReason, 180),
+            SelfCritique = string.IsNullOrWhiteSpace(selfCritique) ? null : ShortenSingleLine(selfCritique, 220),
+            BlockerSummary = string.IsNullOrWhiteSpace(blockerSummary) ? null : ShortenSingleLine(blockerSummary, 180),
+            NeedsClarification = needsClarification,
+            AutonomyMode = autonomyMode,
             PreferDirectGeneration = preferDirectGeneration,
             PlacementAfterAssignmentId = firstPlacement?.AfterAssignmentId,
             PlacementAfterAssignmentTitle = firstPlacement?.AfterAssignmentTitle,
-            HasCourseAudit = previous.LastCourseAudit != null,
-            HasCourseInspection = previous.LastCourseInspection != null,
-            HasBridgePlan = previous.LastBridgePlan != null,
-            ReadyForGeneration = hasBlueprint && previous.CurrentDraftBlueprint?.ApprovedForDraft == true
-                || (!diagnosticAuditIntent && previous.LastBridgePlan != null && (preferDirectGeneration || string.Equals(previous.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || previous.LastBridgePlan.Items.Any(x => x.Confirmed && !x.Rejected))),
+            HasCourseAudit = hasAudit,
+            HasCourseInspection = hasInspection,
+            HasBridgePlan = hasBridgePlan,
+            ReadyForGeneration = readyForGeneration,
             ActiveGoals = recentGoals.Take(4).ToList(),
             ActiveConstraints = ((constraints["mustStayBeforeConcepts"] as List<string>) ?? new List<string>())
                 .Concat((constraints["avoidConcepts"] as List<string>) ?? new List<string>())
@@ -2964,8 +3043,452 @@ public sealed class AiChatService
                 .Take(6)
                 .ToList(),
             StyleHints = styleHints,
+            EvidenceLedger = evidenceLedger,
+            OpenQuestions = openQuestions,
+            RiskFlags = riskFlags,
+            CompletionCriteria = completionCriteria,
+            Subtasks = subtasks,
+            PlanSteps = planSteps,
+            DecisionCandidates = decisionCandidates,
             PlacementCandidates = placementCandidates.Take(6).ToList(),
         };
+    }
+
+    private static string DetermineAgentObjectiveKind(string? latestGoal, string? latestIntentKind, bool hasBlueprint)
+    {
+        if (hasBlueprint)
+            return "chat-blueprint";
+        if (string.Equals(latestIntentKind, "remediation", StringComparison.OrdinalIgnoreCase) || IsCourseGapRemediationIntent(latestGoal))
+            return "course-gap-remediation";
+        if (string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal))
+            return "course-diagnostics";
+        if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
+            return "course-inspection";
+        if (string.Equals(latestIntentKind, "plan", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase))
+            return "bridge-planning";
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase))
+            return "generation";
+        return "conversation";
+    }
+
+    private static List<AiFoundryAgentSubtaskDto> BuildAgentSubtasks(
+        string objectiveKind,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration,
+        bool blueprintApproved)
+    {
+        var items = new List<AiFoundryAgentSubtaskDto>();
+        void Add(string key, string title, string status, string summary)
+            => items.Add(new AiFoundryAgentSubtaskDto { Key = key, Title = title, Status = status, Summary = summary });
+
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("discover-gaps", "Найти пробелы", hasAudit ? "done" : "current", "Собрать реальные педагогические разрывы и резкие вводы новых тем по всему курсу.");
+            Add("verify-context", "Проверить соседние задания", !hasAudit ? "pending" : (hasInspection ? "done" : "current"), "Открыть реальные задания вокруг проблемных точек и подтвердить, что пробелы не ложные.");
+            Add("propose-solutions", "Предложить решения", !hasAudit || !hasInspection ? "pending" : (hasBridgePlan ? "done" : "current"), "Собрать мостики, точки вставки и педагогические решения для найденных дыр.");
+            Add("draft-solutions", "Перейти к генерации", !hasBridgePlan ? "pending" : (hasBlueprint || readyForGeneration ? (blueprintApproved ? "done" : "current") : "current"), "Либо показать решения в чате для согласования, либо после одобрения переходить к draft/generation.");
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("audit-course", "Провести аудит", hasAudit ? "done" : "current", "Проверить курс на скрытые prerequisite-ошибки и слишком резкий ввод новых конструкций.");
+            Add("inspect-neighbors", "Открыть соседние задания", !hasAudit ? "pending" : (hasInspection ? "done" : "current"), "Проверить конкретные задания вокруг спорных мест, чтобы подтвердить или снять проблему.");
+            Add("summarize-findings", "Сформулировать вывод", !hasAudit ? "pending" : "current", "Свести подтверждённые косяки в короткий и практичный итог для пользователя.");
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("blueprint-chat", "Согласовать условия", hasBlueprint ? "done" : "current", "Собрать или уточнить примерные условия задач прямо в чате.");
+            Add("blueprint-finalize", "Финализировать", !hasBlueprint ? "pending" : (blueprintApproved ? "done" : "current"), "После явного одобрения превратить chat blueprint в полноценные draft-черновики.");
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "bridge-planning", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("audit-or-inspect", "Опора на курс", hasAudit || hasInspection ? "done" : "current", "Подготовить аудит или inspection, чтобы план строился не на догадках.");
+            Add("bridge-plan", "Собрать план", hasBridgePlan ? "done" : "current", "Зафиксировать точки вставки, микроцели и формат мостиков.");
+            Add("confirm-plan", "Показать и уточнить", !hasBridgePlan ? "pending" : "current", "Проверить план вместе с пользователем перед генерацией.");
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "course-inspection", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("inspect-course", "Показать задания", hasInspection ? "done" : "current", "Открыть реальные задания курса и дать пользователю материал для точного обсуждения.");
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "generation", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("shape-request", "Уточнить форму задачи", hasBlueprint || hasBridgePlan ? "done" : "current", "Понять, нужно ли сначала обсуждение в чате, bridge plan или можно идти прямо в draft.");
+            Add("generate", "Перейти к генерации", readyForGeneration ? "current" : "pending", "Запустить генерацию только после того, как замысел и структура уже достаточно ясны.");
+            return items;
+        }
+
+        Add("understand-request", "Понять запрос", "current", "Уточнить цель пользователя и выбрать следующий полезный шаг без лишнего workflow.");
+        return items;
+    }
+
+    private static List<string> BuildAgentEvidenceLedger(
+        AiFoundryChatMemoryDto previous,
+        string objectiveKind,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint)
+    {
+        var evidence = new List<string>();
+        if (hasAudit && previous.LastCourseAudit != null)
+            evidence.Add($"Есть аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 140)}");
+        if (hasInspection && previous.LastCourseInspection != null)
+            evidence.Add($"Есть inspection по реальным заданиям: {previous.LastCourseInspection.Assignments.Count} элементов вокруг спорных мест.");
+        if (hasBridgePlan && previous.LastBridgePlan != null)
+            evidence.Add($"Есть план решений: {previous.LastBridgePlan.Items.Count} точек вставки или мостиков.");
+        if (hasBlueprint && previous.CurrentDraftBlueprint != null)
+            evidence.Add($"Есть согласуемые черновые условия: {previous.CurrentDraftBlueprint.Proposals.Count} вариант(ов), revision {previous.CurrentDraftBlueprint.Revision}.");
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase) && !hasAudit)
+            evidence.Add("Пока нет опорного аудита по курсу — агент ещё не подтвердил реальные пробелы.");
+        return evidence.Take(6).ToList();
+    }
+
+    private static List<string> BuildAgentOpenQuestions(
+        AiFoundryChatMemoryDto previous,
+        string objectiveKind,
+        string? latestIntentKind,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration,
+        string intentSummary)
+    {
+        var items = new List<string>();
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasAudit)
+                items.Add("Нужно сначала подтвердить пробелы по курсу, а не генерировать на ощущениях.");
+            if (hasAudit && !hasInspection)
+                items.Add("Нужно открыть соседние задания и снять ложные срабатывания аудита.");
+            if (hasInspection && !hasBridgePlan)
+                items.Add("Нужно превратить найденные пробелы в конкретные решения и точки вставки.");
+            if (hasBridgePlan && !hasBlueprint)
+                items.Add("Нужно показать пользователю примерные условия задач до финальной генерации.");
+        }
+        else if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasBlueprint)
+                items.Add("Нужно собрать хотя бы один осмысленный вариант условия прямо в чате.");
+            else if (previous.CurrentDraftBlueprint?.ApprovedForDraft != true)
+                items.Add("Нужно явное одобрение пользователя перед финализацией в draft.");
+        }
+        else if (string.Equals(objectiveKind, "generation", StringComparison.OrdinalIgnoreCase) && !readyForGeneration)
+        {
+            items.Add("Замысел пока недостаточно зафиксирован: не хватает опорного blueprint или plan-контекста.");
+        }
+        if (string.IsNullOrWhiteSpace(intentSummary))
+            items.Add("Текущий запрос пользователя слишком размытый — нужен более чёткий фокус.");
+        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList();
+    }
+
+    private static List<string> BuildAgentRiskFlags(
+        AiFoundryChatMemoryDto previous,
+        string objectiveKind,
+        string? latestIntentKind,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration)
+    {
+        var items = new List<string>();
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase) && !hasInspection && hasAudit)
+            items.Add("Есть риск принять аудит за истину без проверки соседних заданий.");
+        if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase) && hasBlueprint && previous.CurrentDraftBlueprint?.ApprovedForDraft != true)
+            items.Add("Есть риск слишком рано финализировать условия без последних правок пользователя.");
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && !readyForGeneration)
+            items.Add("Есть риск перепрыгнуть к генерации раньше, чем зафиксирован учебный замысел.");
+        if (hasBlueprint && previous.CurrentDraftBlueprint?.Proposals.Count > 1)
+            items.Add("Есть риск смешать соседние варианты, если править условия слишком абстрактно.");
+        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList();
+    }
+
+    private static List<string> BuildAgentCompletionCriteria(
+        string objectiveKind,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration,
+        bool blueprintApproved)
+    {
+        var items = new List<string>();
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
+        {
+            items.Add(hasAudit ? "Аудит курса собран." : "Нужен аудит курса.");
+            items.Add(hasInspection ? "Соседние задания проверены." : "Нужно проверить соседние задания.");
+            items.Add(hasBridgePlan ? "Решения и точки вставки собраны." : "Нужно собрать решения и точки вставки.");
+            items.Add(hasBlueprint || readyForGeneration ? "Можно переходить к обсуждению задач." : "Нужно показать пользователю примерные условия.");
+            return items;
+        }
+        if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase))
+        {
+            items.Add(hasBlueprint ? "Варианты условий сохранены." : "Нужно сохранить варианты условий.");
+            items.Add(blueprintApproved ? "Blueprint одобрен и готов к финализации." : "Нужно явное одобрение перед финализацией.");
+            return items;
+        }
+        items.Add(readyForGeneration ? "Контекст достаточен для следующего шага." : "Контекст ещё не дотянут до следующего шага.");
+        return items.Take(4).ToList();
+    }
+
+    private static string BuildAgentBlockerSummary(
+        IReadOnlyList<string> openQuestions,
+        IReadOnlyList<string> riskFlags,
+        int confidencePercent,
+        string objectiveKind)
+    {
+        if (openQuestions.Count > 0)
+            return openQuestions[0];
+        if (confidencePercent < 35 && riskFlags.Count > 0)
+            return riskFlags[0];
+        if (confidencePercent < 30)
+            return string.Equals(objectiveKind, "conversation", StringComparison.OrdinalIgnoreCase)
+                ? "Слишком мало опорных фактов: лучше сузить запрос, чем спешить с действием."
+                : "Контекст пока слабый: следующему шагу нужна более надёжная опора.";
+        return string.Empty;
+    }
+
+    private static bool ShouldAgentAskClarifyingQuestion(
+        int confidencePercent,
+        IReadOnlyList<string> openQuestions,
+        IReadOnlyList<string> riskFlags,
+        string currentStage,
+        string objectiveKind)
+    {
+        if (openQuestions.Count > 0 && confidencePercent < 65)
+            return true;
+        if (confidencePercent < 25)
+            return true;
+        if (string.Equals(objectiveKind, "conversation", StringComparison.OrdinalIgnoreCase) && confidencePercent < 40)
+            return true;
+        if (string.Equals(currentStage, "blueprint-review", StringComparison.OrdinalIgnoreCase) && openQuestions.Count > 0)
+            return true;
+        return riskFlags.Count >= 2 && confidencePercent < 55;
+    }
+
+    private static string DetermineAgentAutonomyMode(
+        bool needsClarification,
+        int confidencePercent,
+        IReadOnlyList<string> openQuestions,
+        bool readyForGeneration,
+        bool hasBlueprint)
+    {
+        if (needsClarification)
+            return "ask-first";
+        if (readyForGeneration)
+            return "execute-ready";
+        if (hasBlueprint || confidencePercent >= 70)
+            return "guided-proactive";
+        if (openQuestions.Count > 0)
+            return "cautious";
+        return "guided";
+    }
+
+    private static List<AiFoundryAgentPlanStepDto> BuildAgentPlanSteps(
+        string objectiveKind,
+        string currentStage,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration,
+        bool blueprintApproved,
+        string blockerSummary,
+        IReadOnlyList<AiFoundryAgentActionHintDto> decisionCandidates)
+    {
+        var items = new List<AiFoundryAgentPlanStepDto>();
+        void Add(string key, string title, string status, string summary, string? action = null, string? success = null, string? blockedBy = null)
+            => items.Add(new AiFoundryAgentPlanStepDto
+            {
+                Key = key,
+                Title = title,
+                Status = status,
+                Summary = summary,
+                RecommendedAction = action,
+                SuccessSignal = success,
+                BlockedBy = blockedBy,
+            });
+
+        string? blocker = string.IsNullOrWhiteSpace(blockerSummary) ? null : blockerSummary;
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("discover", "Discovery по курсу", hasAudit ? "done" : "current", "Собрать реальные педагогические пробелы по всему курсу.", "analyze_course_progression", "Есть findings аудита по курсу.", !hasAudit ? blocker : null);
+            Add("verify", "Проверка соседних заданий", !hasAudit ? "pending" : (hasInspection ? "done" : "current"), "Подтвердить пробелы на реальных соседних заданиях.", "inspect_course_assignments", "Есть inspection вокруг спорных точек.", hasAudit || hasInspection ? null : blocker);
+            Add("propose", "Сбор решений", !hasInspection ? "pending" : (hasBridgePlan ? "done" : "current"), "Превратить подтверждённые пробелы в решения и точки вставки.", "prepare_bridge_plan", "Есть практичный bridge plan.", hasInspection || hasBridgePlan ? null : blocker);
+            Add("shape", "Черновые условия", !hasBridgePlan ? "pending" : (hasBlueprint ? "done" : "current"), "Показать пользователю примерные условия задач и дождаться правок.", hasBlueprint ? "revise_chat_blueprint" : "save_chat_blueprint", "Есть chat blueprint с вариантами.", hasBridgePlan || hasBlueprint ? null : blocker);
+            Add("draft", "Финализация в draft", !hasBlueprint ? "pending" : (blueprintApproved ? "done" : "current"), "Только после одобрения перевести условия в draft/generation.", "finalize_chat_blueprint", "Blueprint одобрен и готов к draft.", blueprintApproved ? null : (hasBlueprint ? blocker ?? "Нужно одобрение пользователя перед финализацией." : blocker));
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("collect", "Собрать варианты", hasBlueprint ? "done" : "current", "Собрать в чате читаемые варианты условий.", "save_chat_blueprint", "Есть хотя бы один вариант условия.", !hasBlueprint ? blocker : null);
+            Add("revise", "Довести формулировки", !hasBlueprint ? "pending" : (blueprintApproved ? "done" : "current"), "Уточнить стиль, тесты и scope без потери мысли пользователя.", "revise_chat_blueprint", "Blueprint стал точным и согласованным.", hasBlueprint ? blocker : blocker);
+            Add("finalize", "Перевести в draft", !hasBlueprint ? "pending" : (blueprintApproved ? "done" : "current"), "После явного одобрения создать полноценный draft.", "finalize_chat_blueprint", "Есть финализированный draft.", blueprintApproved ? null : (blocker ?? "Нужно явное одобрение пользователя."));
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase))
+        {
+            Add("audit", "Целевой аудит", hasAudit ? "done" : "current", "Проверить курс на скрытые prerequisite-ошибки.", "analyze_course_progression", "Есть findings аудита.", !hasAudit ? blocker : null);
+            Add("inspect", "Проверить спорные места", !hasAudit ? "pending" : (hasInspection ? "done" : "current"), "Открыть соседние задания вокруг спорных мест.", "inspect_course_assignments", "Есть inspection по соседним заданиям.", hasAudit || hasInspection ? null : blocker);
+            Add("summarize", "Свести вывод", !hasAudit ? "pending" : "current", "Дать пользователю короткий и практичный итог без лишней выдумки.", null, "Есть итог по проблемам курса.", null);
+            return items;
+        }
+
+        if (string.Equals(objectiveKind, "generation", StringComparison.OrdinalIgnoreCase))
+        {
+            var currentAction = decisionCandidates.FirstOrDefault(x => string.Equals(x.Status, "preferred", StringComparison.OrdinalIgnoreCase))?.Name;
+            Add("stabilize", "Зафиксировать замысел", readyForGeneration ? "done" : "current", "Понять, можно ли уже генерировать безопасно.", currentAction, "Замысел и контекст зафиксированы.", !readyForGeneration ? blocker : null);
+            Add("generate", "Сгенерировать", readyForGeneration ? "current" : "pending", "Перейти к generation только когда контекст действительно собран.", readyForGeneration ? (currentAction ?? "queue_generate_from_text") : null, "Есть generated draft или batch.", !readyForGeneration ? blocker : null);
+            return items;
+        }
+
+        if (decisionCandidates.Count > 0)
+        {
+            foreach (var candidate in decisionCandidates.Take(3))
+                Add(candidate.Name, candidate.Name, string.Equals(candidate.Status, "preferred", StringComparison.OrdinalIgnoreCase) ? "current" : "pending", candidate.Why, candidate.Name, candidate.Why, blocker);
+            return items;
+        }
+
+        Add("understand", "Уточнить цель", string.Equals(currentStage, "idle", StringComparison.OrdinalIgnoreCase) ? "current" : "pending", "Сначала сузить цель пользователя и убрать двусмысленность.", null, "Понятно, что делать дальше.", blocker);
+        return items;
+    }
+
+    private static List<AiFoundryAgentActionHintDto> BuildAgentDecisionCandidates(
+        string objectiveKind,
+        string currentStage,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration,
+        bool blueprintApproved,
+        string? nextAgentStep)
+    {
+        var items = new List<AiFoundryAgentActionHintDto>();
+        void Add(string name, string why, string status = "candidate")
+            => items.Add(new AiFoundryAgentActionHintDto { Name = name, Why = why, Status = status });
+
+        if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasAudit)
+                Add("analyze_course_progression", "Сначала нужен discovery по курсу, иначе remediation будет строиться на догадках.", "preferred");
+            else if (!hasInspection)
+                Add("inspect_course_assignments", "Нужно проверить соседние задания вокруг найденных пробелов.", "preferred");
+            else if (!hasBridgePlan)
+                Add("prepare_bridge_plan", "Пора превратить подтверждённые пробелы в решения и точки вставки.", "preferred");
+            else if (!hasBlueprint)
+                Add("save_chat_blueprint", "Нужно показать пользователю примерные условия до финальной генерации.", "preferred");
+            else if (!blueprintApproved)
+                Add("revise_chat_blueprint", "Есть blueprint, но он ещё может требовать последних правок.", "candidate");
+            else
+                Add("finalize_chat_blueprint", "Условия уже согласованы и готовы к переходу в draft.", "preferred");
+        }
+        else if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasBlueprint)
+                Add("save_chat_blueprint", "Сначала нужно сохранить варианты условий из чата.", "preferred");
+            else if (!blueprintApproved)
+                Add("revise_chat_blueprint", "Blueprint есть, но его ещё можно точнее довести.", "preferred");
+            else
+                Add("finalize_chat_blueprint", "Blueprint уже одобрен и готов к финализации.", "preferred");
+        }
+        else if (string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasAudit)
+                Add("analyze_course_progression", "Сначала нужен целевой аудит курса.", "preferred");
+            else if (!hasInspection)
+                Add("inspect_course_assignments", "Нужно проверить соседние задания вокруг спорных мест.", "candidate");
+        }
+        else if (readyForGeneration)
+        {
+            Add("queue_generate_from_text", "Контекст уже достаточно собран для прямой генерации.", "preferred");
+        }
+
+        if (!string.IsNullOrWhiteSpace(nextAgentStep) && items.All(x => !string.Equals(x.Name, nextAgentStep, StringComparison.OrdinalIgnoreCase)))
+            Add(nextAgentStep, "Старый nextSuggestedAction всё ещё может быть полезной запасной траекторией.", "fallback");
+        return items.Take(4).ToList();
+    }
+
+    private static int EstimateAgentConfidencePercent(
+        string objectiveKind,
+        bool hasAudit,
+        bool hasInspection,
+        bool hasBridgePlan,
+        bool hasBlueprint,
+        bool readyForGeneration,
+        bool blueprintApproved,
+        int openQuestionCount,
+        int riskCount)
+    {
+        var score = 25;
+        if (hasAudit)
+            score += 15;
+        if (hasInspection)
+            score += 15;
+        if (hasBridgePlan)
+            score += 15;
+        if (hasBlueprint)
+            score += 15;
+        if (readyForGeneration)
+            score += 10;
+        if (blueprintApproved)
+            score += 5;
+        score -= Math.Min(20, openQuestionCount * 6);
+        score -= Math.Min(15, riskCount * 5);
+        if (string.Equals(objectiveKind, "conversation", StringComparison.OrdinalIgnoreCase))
+            score = Math.Min(score, 55);
+        return Math.Clamp(score, 10, 95);
+    }
+
+    private static string BuildAgentConfidenceReason(string objectiveKind, int confidencePercent, IReadOnlyList<string> openQuestions, IReadOnlyList<string> riskFlags)
+    {
+        if (confidencePercent >= 75)
+            return "Контекст уже достаточно собран, и агент понимает, какой следующий шаг безопаснее всего.";
+        if (openQuestions.Count > 0)
+            return $"Уверенность ограничена: {ShortenSingleLine(openQuestions[0], 120)}";
+        if (riskFlags.Count > 0)
+            return $"Есть осторожность из-за риска: {ShortenSingleLine(riskFlags[0], 120)}";
+        return string.Equals(objectiveKind, "conversation", StringComparison.OrdinalIgnoreCase)
+            ? "Диалог ещё слишком общий: агенту нужно чуть больше опорных фактов."
+            : "Агент уже собрал часть контекста, но ещё не закрыл все обязательные шаги.";
+    }
+
+    private static string BuildAgentSelfCritique(
+        string objectiveKind,
+        IReadOnlyList<string> openQuestions,
+        IReadOnlyList<string> riskFlags,
+        IReadOnlyList<AiFoundryAgentActionHintDto> decisionCandidates,
+        bool hasBlueprint,
+        bool readyForGeneration)
+    {
+        if (openQuestions.Count > 0)
+            return $"Агент ещё не должен действовать слишком резко: {ShortenSingleLine(openQuestions[0], 140)}";
+        if (riskFlags.Count > 0)
+            return $"Агенту нужно помнить про риск: {ShortenSingleLine(riskFlags[0], 140)}";
+        if (decisionCandidates.Count > 1)
+            return "У агента есть несколько правдоподобных следующих шагов; важно выбрать самый доказательный, а не самый быстрый.";
+        if (hasBlueprint && !readyForGeneration)
+            return "Blueprint уже есть, но он ещё не равен готовности к финальной генерации.";
+        return string.Equals(objectiveKind, "conversation", StringComparison.OrdinalIgnoreCase)
+            ? "Агенту пока не хватает узкого фокуса, поэтому полезнее уточнить цель, чем спешить с tool call."
+            : "Текущее состояние выглядит достаточно собранным для следующего шага без лишнего перескока.";
     }
 
     private static object BuildBatchAgentStateSnapshot(
@@ -2986,6 +3509,9 @@ public sealed class AiChatService
             workflowKind = batchKind,
             currentStage = "batch-structured-context",
             userIntentSummary = ShortenSingleLine(prompt, 220),
+            objectiveKind = existing.ObjectiveKind,
+            objectiveSummary = existing.ObjectiveSummary,
+            stageSummary = existing.StageSummary,
             learnerAudience = Convert.ToString(learnerProfile["audience"]) ?? existing.LearnerAudience,
             pedagogyMode = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || Convert.ToBoolean(learnerProfile["explainLikeChild"]) ? "guided-simple" : existing.PedagogyMode,
             nextSuggestedAction = existing.NextSuggestedAction,
@@ -3156,6 +3682,8 @@ public sealed class AiChatService
             summaryParts.Add($"В памяти уже есть {previous.CurrentDraftBlueprint.Proposals.Count} согласуемых услов{(previous.CurrentDraftBlueprint.Proposals.Count == 1 ? "ие" : "ий")} из чата, которые можно показать, поправить или превратить в draft.");
         if (hasBlueprint)
             summaryParts.Add("Сейчас основной workflow — согласование условий в чате, а не bridge-планирование.");
+        if (!string.IsNullOrWhiteSpace(previous.AgentState?.ObjectiveSummary))
+            summaryParts.Add($"Текущая цель агента: {ShortenSingleLine(previous.AgentState.ObjectiveSummary, 140)}.");
 
         var summary = string.Join(" ", summaryParts).Trim();
         if (string.IsNullOrWhiteSpace(summary))
@@ -3187,6 +3715,8 @@ public sealed class AiChatService
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
             CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
         });
+        if (!string.IsNullOrWhiteSpace(previous.AgentState?.ObjectiveSummary) && facts.Count < 6)
+            facts.Add($"Цель агента: {ShortenSingleLine(previous.AgentState.ObjectiveSummary, 140)}");
         if (!string.IsNullOrWhiteSpace(nextAgentStep) && facts.Count < 6)
             facts.Add($"Следующий логичный шаг агента: {nextAgentStep}");
         if (!string.IsNullOrWhiteSpace(nextAgentStep))
@@ -3206,8 +3736,12 @@ public sealed class AiChatService
         var agentState = BuildChatAgentState(memoryContextForAgent, recentGoals, recentActions, nextAgentStep, latestIntentKind, latestTeachingScript);
         if (!string.IsNullOrWhiteSpace(agentState.CurrentStage) && facts.Count < 6)
             facts.Add($"Стадия агента: {agentState.CurrentStage}");
+        if (!string.IsNullOrWhiteSpace(agentState.StageSummary) && facts.Count < 6)
+            facts.Add($"Текущий этап: {ShortenSingleLine(agentState.StageSummary, 140)}");
         if (!string.IsNullOrWhiteSpace(agentState.UserIntentSummary))
             summary = string.Join(" ", new[] { summary, $"Каноническая цель агента: {agentState.UserIntentSummary}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (!string.IsNullOrWhiteSpace(agentState.ObjectiveSummary))
+            summary = string.Join(" ", new[] { summary, $"Стратегия агента: {ShortenSingleLine(agentState.ObjectiveSummary, 160)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
 
         return new AiFoundryChatMemoryDto
         {
@@ -3621,13 +4155,22 @@ public sealed class AiChatService
     {
         var memory = DeserializeMemory(session.PlanJson);
         var focus = ReadString(args, "focus") ?? _chatFallbackFocus(messages);
-        var diagnosticAuditIntent = IsDiagnosticGapAuditIntent(focus);
+        var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(focus);
+        var hasBlueprint = memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0;
+        var objectiveKind = !string.IsNullOrWhiteSpace(memory.AgentState?.ObjectiveKind)
+            ? memory.AgentState.ObjectiveKind
+            : DetermineAgentObjectiveKind(focus, latestIntentKind, hasBlueprint);
+        var remediationIntent = string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase);
+        var diagnosticAuditIntent = string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase)
+            || IsDiagnosticGapAuditIntent(focus);
         var auditMatchesFocus = memory.LastCourseAudit != null && memory.LastCourseAudit.CourseId == courseId && FocusCompatible(memory.LastCourseAudit.Focus, focus);
         var inspectionMatchesFocus = memory.LastCourseInspection != null && memory.LastCourseInspection.CourseId == courseId && memory.LastCourseInspection.Assignments.Count > 0;
         var hasAudit = auditMatchesFocus;
         var hasInspection = inspectionMatchesFocus;
-        var placementAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory);
-        var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(focus);
+        var hasBridgePlan = memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId && memory.LastBridgePlan.Items.Count > 0;
+        var placementAfterAssignmentId = ResolveRequestedAfterAssignmentId(args, memory)
+            ?? memory.LastCourseAudit?.Findings.FirstOrDefault()?.AfterAssignmentId
+            ?? memory.AgentState?.PlacementAfterAssignmentId;
         var preferDirectGeneration = memory.SuppressBridgePlanLoop || memory.AgentState?.PreferDirectGeneration == true || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase);
 
         if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
@@ -3647,6 +4190,64 @@ public sealed class AiChatService
                     window = placementAfterAssignmentId.HasValue ? 4 : 0,
                     limitAssignments = 30,
                 }, JsonOptions),
+            };
+        }
+
+        if (remediationIntent)
+        {
+            if (!hasAudit)
+            {
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "analyze_course_progression",
+                    Reason = "Полноценный remediation-проход всегда начинается с нового аудита курса: нужно найти реальные пробелы, а не генерировать решения вслепую.",
+                    ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus }, JsonOptions),
+                };
+            }
+
+            if (!hasInspection)
+            {
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "inspect_course_assignments",
+                    Reason = "После аудита remediation-агент должен проверить реальные соседние задания вокруг дыр, чтобы отделить настоящие пробелы от ложных срабатываний.",
+                    ArgumentsJson = JsonSerializer.Serialize(new
+                    {
+                        courseId,
+                        query = focus,
+                        aroundAssignmentId = placementAfterAssignmentId,
+                        window = placementAfterAssignmentId.HasValue ? 5 : 0,
+                        limitAssignments = 32,
+                    }, JsonOptions),
+                };
+            }
+
+            if (!hasBridgePlan)
+            {
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "prepare_bridge_plan",
+                    Reason = "После discovery и verify remediation-агент должен собрать конкретные решения: мостики, afterAssignmentId и формат задач.",
+                    ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus, afterAssignmentId = placementAfterAssignmentId, count = 8 }, JsonOptions),
+                };
+            }
+
+            var confirmedForRemediation = memory.LastBridgePlan!.Items.Where(x => x.Confirmed && !x.Rejected).Select(x => x.Index).ToList();
+            if (preferDirectGeneration && confirmedForRemediation.Count > 0)
+            {
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "queue_generate_bridge_batch",
+                    Reason = "Remediation-агент уже собрал и подтвердил решения, поэтому теперь можно переходить к генерации по плану.",
+                    ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus, itemIndexes = confirmedForRemediation }, JsonOptions),
+                };
+            }
+
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "show_bridge_plan",
+                Reason = "Remediation-агент уже собрал решения и теперь должен показать их пользователю для обсуждения, прежде чем идти в генерацию.",
+                ArgumentsJson = JsonSerializer.Serialize(new { courseId }, JsonOptions),
             };
         }
 
@@ -3787,10 +4388,30 @@ public sealed class AiChatService
     {
         var latestGoal = memory.RecentGoals?.LastOrDefault() ?? memory.AgentState?.UserIntentSummary;
         var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
-        var diagnosticAuditIntent = string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal);
+        var objectiveKind = !string.IsNullOrWhiteSpace(memory.AgentState?.ObjectiveKind)
+            ? memory.AgentState.ObjectiveKind
+            : DetermineAgentObjectiveKind(latestGoal, latestIntentKind, memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0);
+        var diagnosticAuditIntent = string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase);
+        var remediationIntent = string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase);
         var hasAudit = memory.LastCourseAudit != null;
         var hasInspection = memory.LastCourseInspection != null && memory.LastCourseInspection.Assignments.Count > 0;
         var hasPlacement = memory.AgentState?.PlacementAfterAssignmentId.HasValue == true || (memory.AgentState?.PlacementCandidates?.Any(x => x.AfterAssignmentId.HasValue) == true);
+        var hasBridgePlan = memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0;
+
+        if (remediationIntent)
+        {
+            if (!hasAudit)
+                return "запустить discovery по курсу через analyze_course_progression";
+            if (!hasInspection)
+                return hasPlacement
+                    ? "проверить соседние задания вокруг найденных дыр через inspect_course_assignments"
+                    : "открыть опорные задания курса через inspect_course_assignments, чтобы подтвердить найденные пробелы";
+            if (!hasBridgePlan)
+                return "собрать план решений и мостиков через prepare_bridge_plan";
+            if (memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0)
+                return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия решений в чате, а потом финализировать их";
+            return "показать решения пользователю и только после согласования переходить к генерации";
+        }
 
         if (diagnosticAuditIntent)
         {

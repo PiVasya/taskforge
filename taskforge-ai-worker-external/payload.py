@@ -460,14 +460,59 @@ def _compact_batch_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
         "agentState": {
             "workflowKind": normalize_text(agent_state.get("workflowKind")),
             "currentStage": normalize_text(agent_state.get("currentStage")),
+            "objectiveKind": normalize_text(agent_state.get("objectiveKind")),
+            "objectiveSummary": truncate_text(agent_state.get("objectiveSummary"), 240),
+            "stageSummary": truncate_text(agent_state.get("stageSummary"), 220),
             "userIntentSummary": truncate_text(agent_state.get("userIntentSummary"), 220),
             "learnerAudience": normalize_text(agent_state.get("learnerAudience")),
             "pedagogyMode": normalize_text(agent_state.get("pedagogyMode")),
             "nextSuggestedAction": truncate_text(agent_state.get("nextSuggestedAction"), 140),
+            "confidencePercent": safe_int(agent_state.get("confidencePercent"), 35),
+            "confidenceReason": truncate_text(agent_state.get("confidenceReason"), 180),
+            "selfCritique": truncate_text(agent_state.get("selfCritique"), 220),
+            "blockerSummary": truncate_text(agent_state.get("blockerSummary"), 180),
+            "needsClarification": bool(agent_state.get("needsClarification")),
+            "autonomyMode": normalize_text(agent_state.get("autonomyMode")),
             "readyForGeneration": bool(agent_state.get("readyForGeneration")),
             "activeGoals": unique_string_list(agent_state.get("activeGoals"), 6),
             "activeConstraints": unique_string_list(agent_state.get("activeConstraints"), 6),
             "styleHints": unique_string_list(agent_state.get("styleHints"), 8),
+            "evidenceLedger": unique_string_list(agent_state.get("evidenceLedger"), 6),
+            "openQuestions": unique_string_list(agent_state.get("openQuestions"), 6),
+            "riskFlags": unique_string_list(agent_state.get("riskFlags"), 5),
+            "completionCriteria": unique_string_list(agent_state.get("completionCriteria"), 6),
+            "subtasks": [
+                {
+                    "key": normalize_text(item.get("key")),
+                    "title": truncate_text(item.get("title"), 120),
+                    "status": normalize_text(item.get("status")),
+                    "summary": truncate_text(item.get("summary"), 180),
+                }
+                for item in (agent_state.get("subtasks") if isinstance(agent_state.get("subtasks"), list) else [])[:6]
+                if isinstance(item, dict)
+            ],
+            "planSteps": [
+                {
+                    "key": normalize_text(item.get("key")),
+                    "title": truncate_text(item.get("title"), 120),
+                    "status": normalize_text(item.get("status")),
+                    "summary": truncate_text(item.get("summary"), 180),
+                    "recommendedAction": normalize_text(item.get("recommendedAction")),
+                    "successSignal": truncate_text(item.get("successSignal"), 140),
+                    "blockedBy": truncate_text(item.get("blockedBy"), 140),
+                }
+                for item in (agent_state.get("planSteps") if isinstance(agent_state.get("planSteps"), list) else [])[:8]
+                if isinstance(item, dict)
+            ],
+            "decisionCandidates": [
+                {
+                    "name": normalize_text(item.get("name")),
+                    "why": truncate_text(item.get("why"), 180),
+                    "status": normalize_text(item.get("status")),
+                }
+                for item in (agent_state.get("decisionCandidates") if isinstance(agent_state.get("decisionCandidates"), list) else [])[:5]
+                if isinstance(item, dict)
+            ],
             "selectedPlacementAfterAssignmentId": normalize_text(agent_state.get("selectedPlacementAfterAssignmentId") or agent_state.get("placementAfterAssignmentId")),
             "selectedPlacementAfterAssignmentTitle": truncate_text(agent_state.get("selectedPlacementAfterAssignmentTitle") or agent_state.get("placementAfterAssignmentTitle"), 120),
             "placementCandidates": [

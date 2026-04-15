@@ -16,6 +16,52 @@ LONG_DESC = (
 
 
 class PromptBuilderRegressionTests(unittest.TestCase):
+    def test_build_chat_turn_prompt_mentions_remediation_agent_loop(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "memory": {
+                "agentState": {
+                    "objectiveKind": "course-gap-remediation",
+                    "objectiveSummary": "Найти пробелы по курсу, проверить соседние задания и собрать решения",
+                    "currentStage": "discover",
+                    "confidencePercent": 42,
+                    "openQuestions": ["Нужно подтвердить пробелы по курсу."],
+                    "decisionCandidates": [{"name": "analyze_course_progression", "why": "Нужен discovery", "status": "preferred"}],
+                    "subtasks": [
+                        {"key": "discover-gaps", "title": "Найти пробелы", "status": "current"},
+                        {"key": "verify-context", "title": "Проверить соседние задания", "status": "pending"},
+                    ],
+                    "planSteps": [
+                        {"key": "discover", "title": "Discovery по курсу", "status": "current", "recommendedAction": "analyze_course_progression", "successSignal": "Есть findings аудита."},
+                        {"key": "verify", "title": "Проверка соседних заданий", "status": "pending", "recommendedAction": "inspect_course_assignments", "blockedBy": "Сначала нужен discovery."},
+                    ],
+                    "blockerSummary": "Нужно подтвердить пробелы по курсу.",
+                    "needsClarification": True,
+                    "autonomyMode": "ask-first",
+                }
+            },
+            "conversation": [{"role": "user", "content": "Сгенерируй задачи на все пробелы в курсе"}],
+            "availableActions": [
+                {"name": "advance_agent_stage"},
+                {"name": "analyze_course_progression"},
+                {"name": "inspect_course_assignments"},
+                {"name": "prepare_bridge_plan"},
+            ],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("objectiveKind", prompt)
+        self.assertIn("subtasks", prompt)
+        self.assertIn("planSteps", prompt)
+        self.assertIn("confidencePercent", prompt)
+        self.assertIn("blockerSummary", prompt)
+        self.assertIn("autonomyMode", prompt)
+        self.assertIn("openQuestions", prompt)
+        self.assertIn("decisionCandidates", prompt)
+        self.assertIn("remediation-agent", prompt)
+        self.assertIn("discover", prompt)
+        self.assertIn("prepare_bridge_plan", prompt)
+
     def test_build_draft_generate_prompt_accepts_dict_payload(self):
         payload = {
             "assignmentType": "code-test",

@@ -161,9 +161,16 @@ function MemoryPanel({ memory, courseTitle }) {
   const actions = uniqueStrings(memory?.recentActions);
   const agentState = memory?.agentState || {};
   const placementCandidates = Array.isArray(agentState?.placementCandidates) ? agentState.placementCandidates : [];
+  const subtasks = Array.isArray(agentState?.subtasks) ? agentState.subtasks : [];
+  const planSteps = Array.isArray(agentState?.planSteps) ? agentState.planSteps : [];
+  const evidenceLedger = uniqueStrings(agentState?.evidenceLedger);
+  const openQuestions = uniqueStrings(agentState?.openQuestions);
+  const riskFlags = uniqueStrings(agentState?.riskFlags);
+  const completionCriteria = uniqueStrings(agentState?.completionCriteria);
+  const decisionCandidates = Array.isArray(agentState?.decisionCandidates) ? agentState.decisionCandidates : [];
   const draftBlueprint = memory?.currentDraftBlueprint || null;
   const draftProposals = Array.isArray(draftBlueprint?.proposals) ? draftBlueprint.proposals : [];
-  const hasMemory = Boolean(memory?.messageCount || facts.length || goals.length || files.length || actions.length || memory?.summary || agentState?.currentStage || agentState?.userIntentSummary || draftProposals.length);
+  const hasMemory = Boolean(memory?.messageCount || facts.length || goals.length || files.length || actions.length || memory?.summary || agentState?.currentStage || agentState?.userIntentSummary || agentState?.objectiveSummary || subtasks.length || planSteps.length || draftProposals.length || evidenceLedger.length || openQuestions.length || riskFlags.length || decisionCandidates.length);
 
   return (
     <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))] p-4">
@@ -218,13 +225,102 @@ function MemoryPanel({ memory, courseTitle }) {
           {(agentState?.userIntentSummary || agentState?.nextSuggestedAction || placementCandidates.length > 0) ? (
             <div className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
               <div className="text-xs uppercase tracking-[0.18em] opacity-50">Каноническое состояние агента</div>
-              {agentState?.userIntentSummary ? <div className="mt-2 text-sm opacity-90">Цель: {agentState.userIntentSummary}</div> : null}
+              {agentState?.userIntentSummary ? <div className="mt-2 text-sm opacity-90">Запрос: {agentState.userIntentSummary}</div> : null}
+              {agentState?.objectiveSummary ? <div className="mt-2 text-sm opacity-80">Стратегия: {agentState.objectiveSummary}</div> : null}
               <div className="mt-2 flex flex-wrap gap-2">
+                {agentState?.objectiveKind ? <Badge variant="outline">objective: {agentState.objectiveKind}</Badge> : null}
                 {agentState?.learnerAudience ? <Badge variant="outline">аудитория: {agentState.learnerAudience}</Badge> : null}
                 {agentState?.pedagogyMode ? <Badge variant="outline">педагогика: {agentState.pedagogyMode}</Badge> : null}
+                {typeof agentState?.confidencePercent === 'number' ? <Badge variant={agentState.confidencePercent >= 70 ? 'success' : 'outline'}>уверенность: {agentState.confidencePercent}%</Badge> : null}
+                {agentState?.autonomyMode ? <Badge variant="outline">автономность: {agentState.autonomyMode}</Badge> : null}
+                {agentState?.needsClarification ? <Badge variant="outline">нужно уточнение</Badge> : null}
                 {(agentState?.activeConstraints || []).map((item) => <Badge key={item} variant="outline">{item}</Badge>)}
               </div>
-              {agentState?.nextSuggestedAction ? <div className="mt-3 text-sm opacity-80">Следующий шаг: {agentState.nextSuggestedAction}</div> : null}
+              {agentState?.stageSummary ? <div className="mt-3 text-sm opacity-80">Текущий этап: {agentState.stageSummary}</div> : null}
+              {agentState?.confidenceReason ? <div className="mt-2 text-sm opacity-75">Почему такая уверенность: {agentState.confidenceReason}</div> : null}
+              {agentState?.selfCritique ? <div className="mt-2 text-sm opacity-75">Самокритика агента: {agentState.selfCritique}</div> : null}
+              {agentState?.blockerSummary ? <div className="mt-2 text-sm opacity-80">Главный блокер: {agentState.blockerSummary}</div> : null}
+              {agentState?.nextSuggestedAction ? <div className="mt-2 text-sm opacity-75">Следующий шаг: {agentState.nextSuggestedAction}</div> : null}
+              {subtasks.length > 0 ? (
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {subtasks.slice(0, 6).map((item, index) => (
+                    <div key={`${item?.key || 'subtask'}-${index}`} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-sm">{item?.title || `Шаг ${index + 1}`}</span>
+                        <Badge variant={item?.status === 'done' ? 'success' : 'outline'}>{item?.status || 'pending'}</Badge>
+                      </div>
+                      {item?.summary ? <div className="mt-2 text-xs opacity-70 whitespace-pre-wrap">{item.summary}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {planSteps.length > 0 ? (
+                <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                  <div className="text-xs uppercase tracking-[0.16em] opacity-50">Мини-план агента</div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    {planSteps.slice(0, 8).map((item, index) => (
+                      <div key={`${item?.key || 'plan'}-${index}`} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-sm">{item?.title || `План ${index + 1}`}</span>
+                          {item?.status ? <Badge variant={item.status === 'done' ? 'success' : 'outline'}>{item.status}</Badge> : null}
+                          {item?.recommendedAction ? <Badge variant="outline">{item.recommendedAction}</Badge> : null}
+                        </div>
+                        {item?.summary ? <div className="mt-2 text-xs opacity-75 whitespace-pre-wrap">{item.summary}</div> : null}
+                        {item?.successSignal ? <div className="mt-2 text-xs opacity-65">Сигнал успеха: {item.successSignal}</div> : null}
+                        {item?.blockedBy ? <div className="mt-1 text-xs opacity-65">Блокер: {item.blockedBy}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {evidenceLedger.length > 0 ? (
+                <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                  <div className="text-xs uppercase tracking-[0.16em] opacity-50">Опорные доказательства</div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    {evidenceLedger.slice(0, 6).map((item, index) => (
+                      <div key={`evidence-${index}`} className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2 text-xs opacity-85">{item}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {(openQuestions.length > 0 || riskFlags.length > 0 || completionCriteria.length > 0) ? (
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                  <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                    <div className="text-xs uppercase tracking-[0.16em] opacity-50">Незакрытые вопросы</div>
+                    <div className="mt-2 space-y-2 text-xs opacity-80">
+                      {openQuestions.length === 0 ? <div className="opacity-50">Пока нет</div> : openQuestions.slice(0, 5).map((item, index) => <div key={`open-${index}`}>{item}</div>)}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                    <div className="text-xs uppercase tracking-[0.16em] opacity-50">Риски</div>
+                    <div className="mt-2 space-y-2 text-xs opacity-80">
+                      {riskFlags.length === 0 ? <div className="opacity-50">Пока нет</div> : riskFlags.slice(0, 5).map((item, index) => <div key={`risk-${index}`}>{item}</div>)}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                    <div className="text-xs uppercase tracking-[0.16em] opacity-50">Критерии завершения</div>
+                    <div className="mt-2 space-y-2 text-xs opacity-80">
+                      {completionCriteria.length === 0 ? <div className="opacity-50">Пока нет</div> : completionCriteria.slice(0, 5).map((item, index) => <div key={`done-${index}`}>{item}</div>)}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {decisionCandidates.length > 0 ? (
+                <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                  <div className="text-xs uppercase tracking-[0.16em] opacity-50">Кандидаты на следующий шаг</div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    {decisionCandidates.slice(0, 4).map((item, index) => (
+                      <div key={`candidate-${index}`} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-sm">{item?.name || `шаг ${index + 1}`}</span>
+                          {item?.status ? <Badge variant={item.status === 'preferred' ? 'success' : 'outline'}>{item.status}</Badge> : null}
+                        </div>
+                        {item?.why ? <div className="mt-2 text-xs opacity-75 whitespace-pre-wrap">{item.why}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {placementCandidates.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {placementCandidates.slice(0, 4).map((item, index) => (

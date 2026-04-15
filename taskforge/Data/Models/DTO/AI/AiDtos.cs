@@ -763,15 +763,50 @@ public sealed class AiFoundryAgentPlacementCandidateDto
     public string? TitleHint { get; set; }
 }
 
+public sealed class AiFoundryAgentSubtaskDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = "pending";
+    public string? Summary { get; set; }
+}
+
+public sealed class AiFoundryAgentActionHintDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Why { get; set; } = string.Empty;
+    public string Status { get; set; } = "candidate";
+}
+
+public sealed class AiFoundryAgentPlanStepDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = "pending";
+    public string? Summary { get; set; }
+    public string? RecommendedAction { get; set; }
+    public string? SuccessSignal { get; set; }
+    public string? BlockedBy { get; set; }
+}
+
 public sealed class AiFoundryAgentStateDto
 {
     public string WorkflowKind { get; set; } = "conversation";
     public string CurrentStage { get; set; } = "idle";
     public string UserIntentSummary { get; set; } = string.Empty;
+    public string ObjectiveKind { get; set; } = "conversation";
+    public string ObjectiveSummary { get; set; } = string.Empty;
+    public string? StageSummary { get; set; }
     public string LearnerAudience { get; set; } = "general";
     public string PedagogyMode { get; set; } = "standard";
     public string? NextSuggestedAction { get; set; }
     public string? LatestIntentKind { get; set; }
+    public int ConfidencePercent { get; set; } = 35;
+    public string? ConfidenceReason { get; set; }
+    public string? SelfCritique { get; set; }
+    public string? BlockerSummary { get; set; }
+    public bool NeedsClarification { get; set; }
+    public string AutonomyMode { get; set; } = "guided";
     public bool PreferDirectGeneration { get; set; }
     public Guid? PlacementAfterAssignmentId { get; set; }
     public string? PlacementAfterAssignmentTitle { get; set; }
@@ -782,6 +817,13 @@ public sealed class AiFoundryAgentStateDto
     public List<string> ActiveGoals { get; set; } = new();
     public List<string> ActiveConstraints { get; set; } = new();
     public List<string> StyleHints { get; set; } = new();
+    public List<string> EvidenceLedger { get; set; } = new();
+    public List<string> OpenQuestions { get; set; } = new();
+    public List<string> RiskFlags { get; set; } = new();
+    public List<string> CompletionCriteria { get; set; } = new();
+    public List<AiFoundryAgentSubtaskDto> Subtasks { get; set; } = new();
+    public List<AiFoundryAgentPlanStepDto> PlanSteps { get; set; } = new();
+    public List<AiFoundryAgentActionHintDto> DecisionCandidates { get; set; } = new();
     public List<AiFoundryAgentPlacementCandidateDto> PlacementCandidates { get; set; } = new();
 }
 
