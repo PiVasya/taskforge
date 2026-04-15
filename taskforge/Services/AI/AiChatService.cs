@@ -1562,7 +1562,7 @@ public sealed class AiChatService
         if (session.CourseId.HasValue)
             recentAssignmentsQuery = recentAssignmentsQuery.Where(x => x.CourseId == session.CourseId.Value);
 
-        var recentAssignments = await recentAssignmentsQuery
+        var recentAssignmentRows = await recentAssignmentsQuery
             .OrderByDescending(x => x.UpdatedAt)
             .Take(12)
             .Select(x => new
@@ -1576,6 +1576,28 @@ public sealed class AiChatService
                 updatedAtUtc = x.UpdatedAt,
             })
             .ToListAsync(ct);
+        var recentAssignmentOverviewMap = await LoadLatestAssignmentOverviewMapAsync(recentAssignmentRows.Select(x => x.id), ct);
+        var recentAssignments = recentAssignmentRows
+            .Select(x => new
+            {
+                x.id,
+                x.courseId,
+                x.title,
+                x.type,
+                x.difficulty,
+                x.rating,
+                x.updatedAtUtc,
+                latestAiOverview = recentAssignmentOverviewMap.TryGetValue(x.id, out var overview) ? overview : null,
+            })
+            .ToList();
+
+        AiCourseOverviewCoverageDto? courseOverviewCoverage = null;
+        List<AiCourseLandmarkAssignmentDto> landmarkAssignments = new();
+        if (session.CourseId.HasValue)
+        {
+            courseOverviewCoverage = await BuildCourseOverviewCoverageAsync(session.CourseId.Value, ct);
+            landmarkAssignments = await LoadCourseLandmarkAssignmentsAsync(session.CourseId.Value, 8, ct);
+        }
 
         var recentDraftsQuery = _db.AiGeneratedAssignmentDrafts.AsNoTracking().AsQueryable();
         if (session.CourseId.HasValue)
@@ -1785,6 +1807,8 @@ public sealed class AiChatService
             conversation,
             recentAttachments = attachmentDigest,
             recentAssignments,
+            courseOverviewCoverage,
+            landmarkAssignments,
             recentDrafts,
             recentBatches,
             recentJobs,
@@ -3147,7 +3171,11 @@ public sealed class AiChatService
         if (hasAudit && previous.LastCourseAudit != null)
             evidence.Add($"Есть аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 140)}");
         if (hasInspection && previous.LastCourseInspection != null)
+        {
             evidence.Add($"Есть inspection по реальным заданиям: {previous.LastCourseInspection.Assignments.Count} элементов вокруг спорных мест.");
+            if (previous.LastCourseInspection.Observations.Count > 0)
+                evidence.Add($"Подтверждено inspection: {ShortenSingleLine(previous.LastCourseInspection.Observations[0], 140)}");
+        }
         if (hasBridgePlan && previous.LastBridgePlan != null)
             evidence.Add($"Есть план решений: {previous.LastBridgePlan.Items.Count} точек вставки или мостиков.");
         if (hasBlueprint && previous.CurrentDraftBlueprint != null)
@@ -3174,7 +3202,7 @@ public sealed class AiChatService
             if (!hasAudit)
                 items.Add("Нужно сначала подтвердить пробелы по курсу, а не генерировать на ощущениях.");
             if (hasAudit && !hasInspection)
-                items.Add("Нужно открыть соседние задания и снять ложные срабатывания аудита.");
+                items.Add("Нужно открыть реальные задания, иначе ответ так и останется эвристикой без чтения условий.");
             if (hasInspection && !hasBridgePlan)
                 items.Add("Нужно превратить найденные пробелы в конкретные решения и точки вставки.");
             if (hasBridgePlan && !hasBlueprint)
@@ -3208,7 +3236,11 @@ public sealed class AiChatService
     {
         var items = new List<string>();
         if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase) && !hasInspection && hasAudit)
-            items.Add("Есть риск принять аудит за истину без проверки соседних заданий.");
+            items.Add("Есть риск принять эвристический аудит за истину без чтения реальных условий.");
+        if (string.Equals(objectiveKind, "course-diagnostics", StringComparison.OrdinalIgnoreCase) && !hasInspection && hasAudit)
+            items.Add("Есть риск принять эвристический аудит за истину без чтения реальных условий.");
+        if (hasInspection && hasAudit && previous.LastCourseInspection?.Observations.Any(x => x.Contains("обучалк", StringComparison.OrdinalIgnoreCase) || x.Contains("пошагов", StringComparison.OrdinalIgnoreCase)) == true)
+            items.Add("Есть риск повторять старый аудит даже после того, как inspection уже подтвердил обратное по реальным условиям.");
         if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase) && hasBlueprint && previous.CurrentDraftBlueprint?.ApprovedForDraft != true)
             items.Add("Есть риск слишком рано финализировать условия без последних правок пользователя.");
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && !readyForGeneration)
@@ -3697,6 +3729,8 @@ public sealed class AiChatService
             summary = string.Join(" ", new[] { summary, $"Последний аудит курса: {ShortenSingleLine(previous.LastCourseAudit.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
         if (!hasBlueprint && previous.LastCourseInspection != null && facts.Count < 6)
             facts.Add($"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 140)}");
+        if (!hasBlueprint && previous.LastCourseInspection?.Observations.Count > 0 && facts.Count < 6)
+            facts.Add($"По реальным условиям уже подтверждено: {ShortenSingleLine(previous.LastCourseInspection.Observations[0], 140)}");
         if (!hasBlueprint && previous.LastCourseInspection != null)
             summary = string.Join(" ", new[] { summary, $"Последний просмотр заданий: {ShortenSingleLine(previous.LastCourseInspection.Summary, 120)}." }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
         if (!suppressBridgePlanLoop && !hasBlueprint && previous.LastBridgePlan != null && facts.Count < 6)
@@ -3960,6 +3994,7 @@ public sealed class AiChatService
         public int Difficulty { get; set; }
         public string? Type { get; set; }
         public string? AllowedLanguagesCsv { get; set; }
+        public AiAssignmentOverviewDto? AiOverview { get; set; }
     }
 
     private async Task<AiFoundryCourseAuditDto?> AnalyzeCourseProgressionAsync(Guid courseId, string? focus, int? limitAssignments, CancellationToken ct)
@@ -3989,12 +4024,14 @@ public sealed class AiChatService
         for (var i = 0; i < ordered.Count; i++)
         {
             var current = ordered[i];
-            var concepts = ExtractCourseConcepts(current.Title + "\n" + current.Description);
+            var concepts = ExtractCourseConcepts($"{current.Title}\n{ExtractPlainTextFromRichDescription(current.Description)}");
             foreach (var concept in concepts)
             {
                 if (!seenConcepts.Add(concept))
                     continue;
                 if (!ShouldFlagConcept(concept, focusText))
+                    continue;
+                if (AssignmentIntroducesConcept(current, concept))
                     continue;
 
                 var after = i > 0 ? ordered[i - 1] : null;
@@ -4086,22 +4123,43 @@ public sealed class AiChatService
                 selected.Add(ordered[idx]);
         }
 
+        var importantSeeds = SelectImportantInspectionSeeds(ordered, Math.Min(6, maxItems));
         if (selected.Count == 0)
         {
+            selected.AddRange(importantSeeds);
             foreach (var idx in BuildInspectionLandmarkIndexes(ordered.Count))
+            {
+                if (selected.Count >= maxItems)
+                    break;
                 selected.Add(ordered[idx]);
+            }
         }
         else
         {
+            foreach (var important in importantSeeds)
+            {
+                if (selected.Count >= maxItems)
+                    break;
+                selected.Add(important);
+            }
+
             var landmarkIndexes = BuildInspectionLandmarkIndexes(ordered.Count);
             foreach (var idx in landmarkIndexes.Take(Math.Max(0, maxItems - selected.Count)).Take(6))
+            {
+                if (selected.Count >= maxItems)
+                    break;
                 selected.Add(ordered[idx]);
+            }
         }
 
-        var assignments = selected
+        var selectedSnapshots = selected
             .DistinctBy(x => x.Id)
             .OrderBy(x => x.Sort)
             .Take(maxItems)
+            .ToList();
+
+        var overviewMap = await LoadLatestAssignmentOverviewMapAsync(selectedSnapshots.Select(x => x.Id), ct);
+        var assignments = selectedSnapshots
             .Select(x => new AiFoundryCourseInspectionAssignmentDto
             {
                 Id = x.Id,
@@ -4109,8 +4167,10 @@ public sealed class AiChatService
                 Difficulty = x.Difficulty,
                 Title = x.Title,
                 DescriptionExcerpt = BuildDescriptionExcerpt(x.Description),
+                AiOverview = overviewMap.TryGetValue(x.Id, out var overview) ? overview : null,
             })
             .ToList();
+        var observations = BuildInspectionObservations(selectedSnapshots);
 
         var rangeText = assignments.Count == 0 ? null : $"sort {assignments.Min(x => x.Sort)}–{assignments.Max(x => x.Sort)}";
         return new AiFoundryCourseInspectionDto
@@ -4122,7 +4182,8 @@ public sealed class AiChatService
             GeneratedAtUtc = DateTime.UtcNow,
             Summary = assignments.Count == 0
                 ? "Подходящих заданий для просмотра не найдено."
-                : $"Открыла {assignments.Count} заданий курса ({rangeText}), чтобы сверить стиль, landmarks и место вставки новых bridge-задач.",
+                : $"Открыла {assignments.Count} реальных заданий курса ({rangeText}), чтобы проверить условия без догадок и снять ложные срабатывания аудита.",
+            Observations = observations,
             Assignments = assignments,
         };
     }
@@ -4147,6 +4208,13 @@ public sealed class AiChatService
 
         if (limitAssignments.HasValue && limitAssignments.Value > 0 && ordered.Count > limitAssignments.Value)
             ordered = ordered.Take(limitAssignments.Value).ToList();
+
+        var overviewMap = await LoadLatestAssignmentOverviewMapAsync(ordered.Select(x => x.Id), ct);
+        foreach (var snapshot in ordered)
+        {
+            if (overviewMap.TryGetValue(snapshot.Id, out var overview))
+                snapshot.AiOverview = overview;
+        }
 
         return ordered;
     }
@@ -5065,6 +5133,28 @@ public sealed class AiChatService
         if (!string.IsNullOrWhiteSpace(report.Query))
             sb.Append($"Фокус просмотра: {report.Query}. ");
         sb.Append(report.Summary);
+        if (report.Observations.Count > 0)
+        {
+            sb.Append("\n\nЧто подтвердилось по реальным условиям:");
+            foreach (var item in report.Observations.Take(6))
+                sb.Append($"\n- {item}");
+        }
+        var important = report.Assignments
+            .Where(x => x.AiOverview?.IsMeaningful() == true)
+            .OrderByDescending(x => (x.AiOverview?.ImportanceScore ?? (x.AiOverview?.IsImportant == true ? 0.75d : 0.0d)) + ((x.AiOverview?.PedagogicalRole ?? string.Empty).Equals("guided-intro", StringComparison.OrdinalIgnoreCase) ? 0.15d : 0d))
+            .ThenBy(x => x.Sort)
+            .Take(4)
+            .ToList();
+        if (important.Count > 0)
+        {
+            sb.Append("\n\nКакие задания выглядят опорными по AI overview:");
+            foreach (var item in important)
+            {
+                var ov = item.AiOverview!;
+                var why = ov.ImportanceReasons.FirstOrDefault() ?? ov.CourseValue ?? ov.Summary;
+                sb.Append($"\n- sort={item.Sort}: {item.Title} — роль: {ov.PedagogicalRole ?? "не указана"}; важно потому что: {why}");
+            }
+        }
         if (report.Assignments.Count > 0)
         {
             sb.Append("\n\nЧто просмотрела:");
@@ -5491,26 +5581,39 @@ public sealed class AiChatService
         return hints.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static HashSet<string> ExtractCourseConcepts(string? raw)
+    private static HashSet<string> ExtractCourseConcepts(string? raw, AiAssignmentOverviewDto? overview = null)
     {
-        var text = (raw ?? string.Empty).ToLowerInvariant();
+        var text = ExtractPlainTextFromRichDescription(raw).ToLowerInvariant();
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void add(string key, params string[] needles)
         {
             if (needles.Any(n => text.Contains(n)))
                 set.Add(key);
         }
+
         add("cout", "cout");
         add("cin", "cin");
-        add("variables", "перемен", "создай переменную", "объяви переменную", "объявление переменной", "int ", "double ", "long long", "char ");
-        add("program-structure", "#include", "using namespace std", "int main", "main()", "каркас программы", "структура программы");
+        if (ContainsVariableDeclaration(text))
+            set.Add("variables");
+        if (ContainsProgramStructure(text))
+            set.Add("program-structure");
         add("printf/scanf", "printf", "scanf");
-        add("getline", "getline", "строк с пробел", "строки с пробел", "строку с пробел");
-        add("string", " string", "строк");
+        add("getline", "getline", "строку с пробел", "строки с пробел", "строки целиком");
+        if (Regex.IsMatch(text, @"\bstring\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains("тип string")
+            || text.Contains("класс string"))
+            set.Add("string");
         add("fixed/setprecision", "setprecision", "fixed", "форматированн");
-        add("if", " if ", "услов", "ветв");
-        add("for", " for ", "цикл for");
-        add("while", " while ", "цикл while");
+        if (Regex.IsMatch(text, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains("ветвлен")
+            || text.Contains("условный оператор"))
+            set.Add("if");
+        if (Regex.IsMatch(text, @"\bfor\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains("цикл for"))
+            set.Add("for");
+        if (Regex.IsMatch(text, @"\bwhile\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains("цикл while"))
+            set.Add("while");
         add("sqrt/pow", "sqrt", "pow");
         add("abs", "abs(", "std::abs", "модул");
         foreach (Match m in Regex.Matches(text, @"\b([a-z_][a-z0-9_]*)\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
@@ -5522,7 +5625,326 @@ public sealed class AiChatService
                 continue;
             set.Add(name);
         }
+
+        if (overview != null)
+        {
+            foreach (var concept in overview.ConceptsIntroduced.Concat(overview.ConceptsReinforced).Concat(overview.Prerequisites))
+            {
+                var normalized = NormalizeOverviewConcept(concept);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                    set.Add(normalized!);
+            }
+        }
+
         return set;
+    }
+
+    private static string ExtractPlainTextFromRichDescription(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return string.Empty;
+
+        var normalized = NormalizeRichText(raw);
+        if (!string.IsNullOrWhiteSpace(normalized))
+            return normalized;
+
+        return raw.Replace("\r", " ").Replace("\n", " ").Trim();
+    }
+
+    private static string NormalizeRichText(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return string.Empty;
+
+        var fragments = new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            CollectRichTextFragments(doc.RootElement, fragments);
+        }
+        catch
+        {
+            return raw!.Replace("\r", " ").Replace("\n", " ").Trim();
+        }
+
+        return string.Join(" ", fragments.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+    }
+
+    private static void CollectRichTextFragments(JsonElement element, List<string> parts)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("text", out var textProp) && textProp.ValueKind == JsonValueKind.String)
+                    parts.Add(textProp.GetString() ?? string.Empty);
+                foreach (var property in element.EnumerateObject())
+                    CollectRichTextFragments(property.Value, parts);
+                break;
+            case JsonValueKind.Array:
+                foreach (var child in element.EnumerateArray())
+                    CollectRichTextFragments(child, parts);
+                break;
+            case JsonValueKind.String:
+                var value = element.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    parts.Add(value);
+                break;
+        }
+    }
+
+    private static bool ContainsVariableDeclaration(string text)
+        => Regex.IsMatch(text, @"\b(int|double|float|long\s+long|char|bool|string)\s+[a-z_][a-z0-9_]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains("объяви переменную")
+            || text.Contains("создай переменную")
+            || text.Contains("переменн");
+
+    private static bool ContainsProgramStructure(string text)
+        => text.Contains("#include")
+            || text.Contains("using namespace std")
+            || text.Contains("int main")
+            || text.Contains("main()")
+            || text.Contains("каркас программы")
+            || text.Contains("структура программы");
+
+    private static bool IsGuidedIntroAssignment(CourseAuditAssignmentSnapshot snapshot)
+    {
+        var overview = snapshot.AiOverview;
+        if (!string.IsNullOrWhiteSpace(overview?.PedagogicalRole) && overview.PedagogicalRole.Contains("guided", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!string.IsNullOrWhiteSpace(overview?.TeachingStyle) && (overview.TeachingStyle.Contains("step", StringComparison.OrdinalIgnoreCase) || overview.TeachingStyle.Contains("guided", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        var text = $"{snapshot.Title}\n{ExtractPlainTextFromRichDescription(snapshot.Description)}".ToLowerInvariant();
+        return text.Contains("следуй шагам")
+            || text.Contains("давай")
+            || text.Contains("напиши в самом начале")
+            || text.Contains("внутри напиши")
+            || text.Contains("закрой программу")
+            || text.Contains("эта строка подключает")
+            || text.Contains("это начало главной части программы");
+    }
+
+    private static bool AssignmentIntroducesConcept(CourseAuditAssignmentSnapshot snapshot, string concept)
+    {
+        var text = $"{snapshot.Title}\n{ExtractPlainTextFromRichDescription(snapshot.Description)}".ToLowerInvariant();
+        if (!IsGuidedIntroAssignment(snapshot))
+            return false;
+
+        var overviewConcepts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (snapshot.AiOverview != null)
+        {
+            foreach (var item in snapshot.AiOverview.ConceptsIntroduced.Concat(snapshot.AiOverview.ConceptsReinforced))
+            {
+                var normalized = NormalizeOverviewConcept(item);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                    overviewConcepts.Add(normalized!);
+            }
+        }
+
+        return concept switch
+        {
+            "cout" => text.Contains("cout") || overviewConcepts.Contains("cout"),
+            "program-structure" => text.Contains("#include") || text.Contains("using namespace std") || text.Contains("main") || overviewConcepts.Contains("program-structure"),
+            "variables" => ContainsVariableDeclaration(text) || text.Contains("переменн") || overviewConcepts.Contains("variables"),
+            "printf/scanf" => text.Contains("printf") || text.Contains("scanf") || overviewConcepts.Contains("printf/scanf"),
+            "cin" => text.Contains("cin") || overviewConcepts.Contains("cin"),
+            _ => overviewConcepts.Contains(concept),
+        };
+    }
+
+    private static List<CourseAuditAssignmentSnapshot> SelectImportantInspectionSeeds(List<CourseAuditAssignmentSnapshot> ordered, int take)
+    {
+        return ordered
+            .Where(x => x.AiOverview != null && x.AiOverview.IsMeaningful())
+            .OrderByDescending(GetAssignmentLandmarkScore)
+            .ThenBy(x => x.Sort)
+            .Take(Math.Clamp(take, 1, 8))
+            .ToList();
+    }
+
+    private static List<string> BuildInspectionObservations(List<CourseAuditAssignmentSnapshot> ordered)
+    {
+        var observations = new List<string>();
+        if (ordered.Count == 0)
+            return observations;
+
+        var important = ordered
+            .Where(x => x.AiOverview?.IsMeaningful() == true)
+            .OrderByDescending(GetAssignmentLandmarkScore)
+            .ThenBy(x => x.Sort)
+            .Take(2)
+            .ToList();
+        foreach (var item in important)
+        {
+            var ov = item.AiOverview!;
+            if (!string.IsNullOrWhiteSpace(ov.PedagogicalRole))
+            {
+                var why = ov.ImportanceReasons.FirstOrDefault() ?? ov.CourseValue ?? ov.Summary;
+                observations.Add($"«{item.Title}» AI overview помечает как {ov.PedagogicalRole}; это опорная точка курса, поэтому её надо учитывать при поиске пробелов и мостиков.");
+                if (!string.IsNullOrWhiteSpace(why))
+                    observations.Add($"Почему «{item.Title}» важно: {why}");
+            }
+        }
+
+        var first = ordered.OrderBy(x => x.Sort).First();
+        var firstText = $"{first.Title}\n{ExtractPlainTextFromRichDescription(first.Description)}".ToLowerInvariant();
+        if (AssignmentIntroducesConcept(first, "cout"))
+            observations.Add($"«{first.Title}» уже выглядит как пошаговая обучалка по cout, поэтому тут нельзя честно говорить, что вывод через cout появился совсем без введения.");
+        if (AssignmentIntroducesConcept(first, "program-structure"))
+            observations.Add($"«{first.Title}» уже объясняет каркас программы (#include / using namespace std / main) в самом условии.");
+        if (firstText.Contains("printf") && !AssignmentIntroducesConcept(first, "printf/scanf"))
+            observations.Add($"«{first.Title}» уже использует printf/scanf, но без такой же пошаговой подводки, как у первого guided-intro задания.");
+
+        var firstPrintf = ordered.FirstOrDefault(x => $"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}".ToLowerInvariant().Contains("printf"));
+        if (firstPrintf != null && !AssignmentIntroducesConcept(firstPrintf, "printf/scanf"))
+            observations.Add($"«{firstPrintf.Title}» выглядит как первое появление printf/scanf без отдельной детской пошаговой обучалки уровня первого задания.");
+
+        var firstCin = ordered.FirstOrDefault(x => $"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}".ToLowerInvariant().Contains("cin"));
+        if (firstCin != null && !AssignmentIntroducesConcept(firstCin, "cin"))
+            observations.Add($"«{firstCin.Title}» выглядит как первое прямое требование к cin и вводу данных, его уже можно считать реальным порогом входа.");
+
+        if (observations.Count == 0)
+            observations.Add("По реальным условиям видно, что часть стартовых тем уже объясняется в самих заданиях, поэтому голый эвристический аудит нужно перепроверять inspection-ом.");
+
+        return observations.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList();
+    }
+
+    private async Task<AiCourseOverviewCoverageDto> BuildCourseOverviewCoverageAsync(Guid courseId, CancellationToken ct)
+    {
+        var totalAssignments = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == courseId)
+            .CountAsync(ct);
+
+        if (totalAssignments <= 0)
+        {
+            return new AiCourseOverviewCoverageDto
+            {
+                TotalAssignments = 0,
+                AssignmentsWithOverview = 0,
+                AssignmentsMissingOverview = 0,
+                CoverageRatio = 0d,
+            };
+        }
+
+        var assignmentsWithOverview = await _db.AiAssignmentInsights.AsNoTracking()
+            .Where(x => x.Assignment != null
+                && x.Assignment.CourseId == courseId
+                && (x.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || x.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind))
+            .Select(x => x.AssignmentId)
+            .Distinct()
+            .CountAsync(ct);
+
+        var missing = Math.Max(0, totalAssignments - assignmentsWithOverview);
+        return new AiCourseOverviewCoverageDto
+        {
+            TotalAssignments = totalAssignments,
+            AssignmentsWithOverview = assignmentsWithOverview,
+            AssignmentsMissingOverview = missing,
+            CoverageRatio = totalAssignments == 0 ? 0d : Math.Round((double)assignmentsWithOverview / totalAssignments, 3),
+        };
+    }
+
+    private async Task<List<AiCourseLandmarkAssignmentDto>> LoadCourseLandmarkAssignmentsAsync(Guid courseId, int take, CancellationToken ct)
+    {
+        var maxItems = Math.Clamp(take, 3, 12);
+        var ordered = await LoadCourseAuditAssignmentsAsync(courseId, null, ct);
+        if (ordered.Count == 0)
+            return new List<AiCourseLandmarkAssignmentDto>();
+
+        return ordered
+            .Where(x => x.AiOverview != null && x.AiOverview.IsMeaningful())
+            .OrderByDescending(GetAssignmentLandmarkScore)
+            .ThenBy(x => x.Sort)
+            .Take(maxItems)
+            .Select(x => new AiCourseLandmarkAssignmentDto
+            {
+                Id = x.Id,
+                Sort = x.Sort,
+                Difficulty = x.Difficulty,
+                Title = x.Title,
+                Type = x.Type,
+                AiOverview = x.AiOverview,
+            })
+            .ToList();
+    }
+
+    private static double GetAssignmentLandmarkScore(CourseAuditAssignmentSnapshot snapshot)
+    {
+        var overview = snapshot.AiOverview;
+        if (overview == null)
+            return 0d;
+
+        var score = overview.ImportanceScore ?? (overview.IsImportant ? 0.75d : 0.35d);
+        if (overview.IsImportant)
+            score += 0.15d;
+
+        var role = (overview.PedagogicalRole ?? string.Empty).Trim().ToLowerInvariant();
+        score += role switch
+        {
+            "guided-intro" => 0.30d,
+            "milestone" => 0.26d,
+            "assessment" => 0.22d,
+            "bridge" => 0.18d,
+            "reference" => 0.14d,
+            "skill-drill" => 0.08d,
+            _ => 0d,
+        };
+
+        if (overview.ConceptsIntroduced.Count > 0)
+            score += Math.Min(0.12d, overview.ConceptsIntroduced.Count * 0.03d);
+        if (!string.IsNullOrWhiteSpace(overview.CourseValue))
+            score += 0.05d;
+        if (snapshot.Sort <= 3)
+            score += 0.05d;
+
+        return score;
+    }
+
+    private async Task<Dictionary<Guid, AiAssignmentOverviewDto>> LoadLatestAssignmentOverviewMapAsync(IEnumerable<Guid> assignmentIds, CancellationToken ct)
+    {
+        var ids = assignmentIds.Distinct().Where(x => x != Guid.Empty).ToList();
+        var map = new Dictionary<Guid, AiAssignmentOverviewDto>();
+        if (ids.Count == 0)
+            return map;
+
+        var insights = await _db.AiAssignmentInsights.AsNoTracking()
+            .Where(x => ids.Contains(x.AssignmentId) && (x.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || x.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        foreach (var insight in insights)
+        {
+            if (map.ContainsKey(insight.AssignmentId))
+                continue;
+            var overview = AiAssignmentOverviewHelper.ParseOverview(insight.SuggestionsJson, insight.Summary, insight.CreatedAtUtc);
+            if (overview != null)
+                map[insight.AssignmentId] = overview;
+        }
+
+        return map;
+    }
+
+    private static string? NormalizeOverviewConcept(string? raw)
+    {
+        var text = (raw ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        if (_knownPedagogicalConcepts.Contains(text))
+            return text;
+        if (text.Contains("cout")) return "cout";
+        if (text.Contains("cin")) return "cin";
+        if (text.Contains("printf") || text.Contains("scanf")) return "printf/scanf";
+        if (text.Contains("переменн") || text.Contains("variable")) return "variables";
+        if (text.Contains("main") || text.Contains("#include") || text.Contains("namespace") || text.Contains("каркас")) return "program-structure";
+        if (text.Contains("getline")) return "getline";
+        if (text == "string" || text.Contains("строк")) return "string";
+        if (text.Contains("setprecision") || text.Contains("fixed") || text.Contains("форматирован")) return "fixed/setprecision";
+        if (text == "if" || text.Contains("ветвлен") || text.Contains("услов")) return "if";
+        if (text == "for" || text.Contains("цикл for")) return "for";
+        if (text == "while" || text.Contains("цикл while")) return "while";
+        if (text.Contains("sqrt") || text.Contains("pow")) return "sqrt/pow";
+        if (text.Contains("abs") || text.Contains("модул")) return "abs";
+        return null;
     }
 
     private static readonly HashSet<string> _knownPedagogicalConcepts = new(StringComparer.OrdinalIgnoreCase)
@@ -5665,7 +6087,7 @@ public sealed class AiChatService
         if (string.IsNullOrWhiteSpace(query))
             return true;
 
-        var hay = ($"{item.Title} {item.Description}").ToLowerInvariant();
+        var hay = ($"{item.Title} {ExtractPlainTextFromRichDescription(item.Description)}").ToLowerInvariant();
         var tokens = ExtractInspectionTokens(query);
         if (tokens.Count == 0)
             return hay.Contains(query.Trim().ToLowerInvariant());
@@ -5709,7 +6131,7 @@ public sealed class AiChatService
 
     private static string BuildDescriptionExcerpt(string? raw)
     {
-        var normalized = ShortenSingleLine((raw ?? string.Empty).Replace("\r", " ").Replace("\n", " "), 140);
+        var normalized = ShortenSingleLine(ExtractPlainTextFromRichDescription(raw), 220);
         return string.IsNullOrWhiteSpace(normalized) ? "без описания" : normalized;
     }
 

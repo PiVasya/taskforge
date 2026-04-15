@@ -62,6 +62,68 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("discover", prompt)
         self.assertIn("prepare_bridge_plan", prompt)
 
+
+    def test_build_chat_turn_prompt_mentions_diagnostic_grounding_rules(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "memory": {
+                "lastCourseAudit": {"summary": "Есть старый эвристический аудит"},
+                "lastCourseInspection": {
+                    "summary": "Открыла реальные задания",
+                    "assignments": [{"id": "a1", "title": "Задание 1"}],
+                    "observations": ["Первое задание уже выглядит как пошаговая обучалка по cout."],
+                },
+            },
+            "conversation": [{"role": "user", "content": "Точно ли нету обучалки cout в курсе? посмотри точнее"}],
+            "availableActions": [
+                {"name": "analyze_course_progression"},
+                {"name": "inspect_course_assignments"},
+            ],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("inspection > audit", prompt)
+        self.assertIn("по реальным условиям", prompt)
+        self.assertIn("подтвердилось / что не подтвердилось / что осталось проверить", prompt)
+    def test_build_chat_turn_prompt_mentions_landmark_assignments_and_coverage(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "courseOverviewCoverage": {
+                "totalAssignments": 80,
+                "assignmentsWithOverview": 72,
+                "assignmentsMissingOverview": 8,
+                "coverageRatio": 0.9,
+            },
+            "landmarkAssignments": [
+                {
+                    "id": "a1",
+                    "sort": 0,
+                    "difficulty": 2,
+                    "title": "Задание 1. Твой первый вывод",
+                    "type": "code-test",
+                    "aiOverview": {
+                        "summary": "Пошаговая обучалка по первой программе.",
+                        "isImportant": True,
+                        "importanceScore": 0.97,
+                        "pedagogicalRole": "guided-intro",
+                        "importanceReasons": ["Открывает курс и задаёт стиль объяснений."],
+                    },
+                }
+            ],
+            "conversation": [{"role": "user", "content": "Посмотри, какие задания в курсе самые важные"}],
+            "availableActions": [
+                {"name": "inspect_course_assignments"},
+                {"name": "analyze_course_progression"},
+            ],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("landmarkAssignments", prompt)
+        self.assertIn("courseOverviewCoverage", prompt)
+        self.assertIn("persisted AI overview", prompt)
+        self.assertIn("guided-intro/bridge/milestone", prompt)
+
+
     def test_build_draft_generate_prompt_accepts_dict_payload(self):
         payload = {
             "assignmentType": "code-test",

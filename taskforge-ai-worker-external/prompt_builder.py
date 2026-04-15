@@ -404,9 +404,23 @@ def build_job_specific_instructions(job_type: str, payload: Dict[str, Any]) -> s
 
     if t == "assignment_analyze_existing":
         return (
-            "Проанализируй существующее задание и верни JSON: "
-            "{\"assignmentId\":\"...\",\"kind\":\"quality-audit\","
-            "\"summary\":\"...\",\"suggestions\":[\"...\",\"...\"]}"
+            "Проанализируй существующее задание как важную единицу курса. "
+            "Верни JSON вида: "
+            "{\"assignmentId\":\"...\",\"kind\":\"course-overview\","
+            "\"summary\":\"...\","
+            "\"overview\":{"
+            "\"isImportant\":true,"
+            "\"importanceScore\":0.0,"
+            "\"importanceReasons\":[\"...\"],"
+            "\"pedagogicalRole\":\"guided-intro|bridge|skill-drill|milestone|assessment|reference\","
+            "\"teachingStyle\":\"step-by-step|theory-first|practice-first|mixed\","
+            "\"studentStage\":\"absolute-beginner|beginner|intermediate|advanced\","
+            "\"conceptsIntroduced\":[\"...\"],"
+            "\"conceptsReinforced\":[\"...\"],"
+            "\"prerequisites\":[\"...\"],"
+            "\"surfaceSignals\":[\"cout\",\"cin\"],"
+            "\"courseValue\":\"...\"},"
+            "\"suggestions\":[\"...\",\"...\"]}"
         )
 
     if t == "assignment_repair":
@@ -451,6 +465,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "conversation": payload.get("conversation")[-16:] if isinstance(payload.get("conversation"), list) else [],
         "recentAttachments": payload.get("recentAttachments")[-10:] if isinstance(payload.get("recentAttachments"), list) else [],
         "recentAssignments": payload.get("recentAssignments")[:12] if isinstance(payload.get("recentAssignments"), list) else [],
+        "courseOverviewCoverage": payload.get("courseOverviewCoverage") if isinstance(payload.get("courseOverviewCoverage"), dict) else None,
+        "landmarkAssignments": payload.get("landmarkAssignments")[:8] if isinstance(payload.get("landmarkAssignments"), list) else [],
         "recentDrafts": payload.get("recentDrafts")[:12] if isinstance(payload.get("recentDrafts"), list) else [],
         "recentBatches": payload.get("recentBatches")[:8] if isinstance(payload.get("recentBatches"), list) else [],
         "recentJobs": payload.get("recentJobs")[:12] if isinstance(payload.get("recentJobs"), list) else [],
@@ -495,8 +511,9 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         )
     else:
         _action_mode_instruction = (
-            "ВАЖНО: По умолчанию возвращай 0 или 1 action за ход. Несколько actions допустимы только когда пользователь ЯВНО просит цепочку и каждый шаг действительно нужен. "
-            "Не склеивай audit -> inspect -> plan -> generation в один ход без явного запроса пользователя. "
+            "ВАЖНО: По умолчанию возвращай 0 или 1 action за ход. Несколько actions допустимы не только при явной просьбе пользователя, но и когда без этого нельзя честно снять ложные срабатывания и дать доказательный ответ. "
+            "Если пользователь просит проверить точнее, спорит с аудитом или требует реальные доказательства, разрешён короткий двухшаговый паттерн analyze_course_progression -> inspect_course_assignments. "
+            "Не склеивай audit -> inspect -> plan -> generation в один ход без реальной необходимости. "
             "Никогда не дублируй один и тот же action. Максимум 2 actions за ход. "
         )
 
@@ -504,7 +521,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Ты — TaskForge AI chat orchestrator. Верни только один валидный JSON-объект без markdown и без пояснений вокруг JSON.\\n\\n"
         "Твоя задача: вести ЖИВОЙ диалог с пользователем по-русски и использовать действия TaskForge только там, где они действительно помогают ответить на текущий запрос. "
         "Сначала пойми интент текущего сообщения: это может быть обычный разговор, просьба показать существующие задания, просьба найти пробелы, просьба собрать план или просьба сгенерировать новое. Не превращай каждый запрос про курс в bridge-plan workflow. "
-        "Если пользователь просит показать, перечислить, вывести или изучить уже существующие задания курса — приоритет у inspect_course_assignments, а не у prepare_bridge_plan/show_bridge_plan. После такого запроса не перескакивай к мостикам без новой явной просьбы пользователя. "
+        "Если пользователь просит показать, перечислить, вывести или изучить уже существующие задания курса — приоритет у inspect_course_assignments, а не у prepare_bridge_plan/show_bridge_plan. После такого запроса не перескакивай к мостикам без новой явной просьбы пользователя. Если inspect_course_assignments уже вернул AiOverview или в payload есть landmarkAssignments, используй эти поля в reasoning и в итоговом ответе: называй роль задания (guided-intro/bridge/milestone), важность и why-it-matters вместо голых догадок по title. "
         "Если пользователь просто комментирует, сомневается, ругается или формулирует мысль вслух — нормально ответить по-человечески с actions=[] и задать один точный вопрос. "
         "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Если пользователь присылает правки к уже сохранённым вариантам, обновляй их через revise_chat_blueprint новой revision, а не начинай workflow заново. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. Если пользователь уже явно просит сразу запускать создание задачи ('всё генерируй', 'не черновик', 'запускай создание задачи') и в памяти есть согласованный blueprint, можно идти в queue_generate_from_text по этому blueprint. "
         "Когда сохраняешь blueprint, не ограничивайся абстрактным summary. Внутри blueprint proposals дай читаемый черновик условия: title, conditionPreview и по возможности fullCondition с реальным текстом будущего задания, чтобы пользователь мог править именно условие, а не только идею. "
@@ -533,7 +550,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если пользователь уже сам написал почти готовую обучалку, эталонный код или teaching-script, это сильнее старого плана. Такой текст нельзя растворять в абстрактном microGoal: сохраняй порядок шагов, конкретные строки кода и смысл объяснений. Если после этого пользователь говорит 'всё, делай' или 'сделай саму задачу', приоритет — generation, а не очередной show/revise plan.\n\n"
         "Думай не как router по ключевым словам, а как аккуратный агент: перед действием быстро оцени цель пользователя, уже собранные доказательства, незакрытые вопросы и риск слишком раннего tool call. Если доказательств мало, сужай шаг и не притворяйся, будто всё уже ясно.\n\n"
         "show_bridge_plan и revise_bridge_plan подходят только когда пользователь прямо просит показать, уточнить или поправить план. Не вызывай show_bridge_plan просто потому, что в memory остался старый план мостиков.\n\n"
-        "Если пользователь даёт feedback на уже созданные или опубликованные задачи и просит найти похожие педагогические косяки, сначала используй analyze_course_progression; при необходимости затем inspect_course_assignments. Только после нового аудита можно предлагать corrective bridge plan или новую генерацию.\n\n"
+        "Если пользователь даёт feedback на уже созданные или опубликованные задачи и просит найти похожие педагогические косяки, сначала используй analyze_course_progression; при необходимости затем inspect_course_assignments. Только после нового аудита можно предлагать corrective bridge plan или новую генерацию.\n\nЕсли в памяти уже есть inspection, evidenceLedger или другие подтверждённые наблюдения по реальным заданиям, они важнее старого эвристического аудита: inspection > audit. Если в payload есть landmarkAssignments и courseOverviewCoverage, используй их как высокосигнальный слой контекста: landmarkAssignments показывают опорные задания курса по persisted AI overview, а coverage помогает понять, насколько широко этот слой уже заполнен. При анализе курса сначала смотри на landmarkAssignments, guided-intro/milestone/bridge роли и reasons importance, а уже потом на сырые названия. Не повторяй старый вывод, если inspection уже показал обратное. Когда пользователь пишет 'точно ли', 'посмотри точнее', 'где именно', 'по итогу где' или жалуется, что AI врёт, assistantMessage должен опираться на конкретные просмотренные задания и observations по реальным условиям. Не перечисляй неподтверждённые темы вроде getline/for/if, если их не открывали в inspection. Для итогового diagnostic-ответа можно дать 3-8 коротких строк в формате: что подтвердилось / что не подтвердилось / что осталось проверить.\n\n"
         "Если пользователь явно просит короткий ответ, только итог, без внутренних шагов, без старого плана или без технических деталей — это приоритетное UX-ограничение. В таком случае assistantMessage должен содержать только итог или следующий короткий вопрос, без пересказа процесса.\n\n"
         "Когда пользователь просит создать новое задание или набор задач, сначала собери примерные условия в чате и сохрани их через save_chat_blueprint. Лишь после явного одобрения пользователя переходи к finalize_chat_blueprint. "
         "Если пользователь просит сначала изучить курс и перечислить существующие задания — используй inspect_course_assignments и остановись на этом. "

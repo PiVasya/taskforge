@@ -719,7 +719,9 @@ def _chat_is_audit_request(text: str) -> bool:
         return False
     asks_audit = any(token in low for token in ["косяк", "косяки", "пробел", "пробелы", "найди", "найти", "проверь", "аудит", "слишком рано", "до объясн", "прежде чем", "ещё такие", "еще такие", "опубликован"])
     mentions_pedagogy = any(token in low for token in ["переменн", "cout", "cin", "ввод", "вывод", "include", "namespace", "main", "синтакс", "объясн", "подвод", "лесенк", "новая функция", "новые функции"])
-    return asks_audit and mentions_pedagogy
+    if asks_audit and mentions_pedagogy:
+        return True
+    return _chat_is_precision_check_request(low) and mentions_pedagogy
 
 
 def _chat_is_gap_remediation_request(text: str) -> bool:
@@ -894,6 +896,23 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
     return "chat"
 
 
+def _chat_is_precision_check_request(text: str) -> bool:
+    low = (text or "").lower()
+    return any(token in low for token in [
+        "точно",
+        "точнее",
+        "где именно",
+        "по итогу",
+        "проверь точнее",
+        "посмотри точнее",
+        "реальные условия",
+        "сама задача",
+        "само условие",
+        "она врёт",
+        "она врет",
+    ])
+
+
 def _chat_latest_teaching_script(payload: Dict[str, Any], last_user: str) -> str:
     memory = _chat_memory(payload)
     for raw in (memory.get("latestTeachingScript"), memory.get("latestExplicitInstruction")):
@@ -1039,6 +1058,51 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         }
 
     if latest_intent_kind == "audit":
+        has_audit = isinstance(memory.get("lastCourseAudit"), dict)
+        has_inspection = isinstance(memory.get("lastCourseInspection"), dict) and isinstance((memory.get("lastCourseInspection") or {}).get("assignments"), list) and len((memory.get("lastCourseInspection") or {}).get("assignments") or []) > 0
+        if _chat_is_precision_check_request(last_user):
+            if has_audit and not has_inspection:
+                return {
+                    "assistantMessage": "Открою реальные задания и сверю выводы по условиям, чтобы не опираться только на старый аудит.",
+                    "sessionTitle": _chat_build_session_title(payload),
+                    "actions": [{
+                        "name": "inspect_course_assignments",
+                        "reason": "Пользователь просит проверить точнее, поэтому нужно снять ложные срабатывания аудита по реальным условиям.",
+                        "arguments": {
+                            "courseId": course_id,
+                            "query": focus_text,
+                            **({"aroundAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                            "window": 4 if remembered_after_assignment_id else 2,
+                            "limitAssignments": 18,
+                        },
+                    }],
+                }
+            if not has_audit and not has_inspection:
+                return {
+                    "assistantMessage": "Сначала перепроверю курс, а потом сразу открою реальные задания, чтобы ответить по условиям, а не по догадкам.",
+                    "sessionTitle": _chat_build_session_title(payload),
+                    "actions": [
+                        {
+                            "name": "analyze_course_progression",
+                            "reason": "Нужен базовый аудит по курсу перед точечной проверкой спорных мест.",
+                            "arguments": {
+                                "courseId": course_id,
+                                "focus": focus_text,
+                            },
+                        },
+                        {
+                            "name": "inspect_course_assignments",
+                            "reason": "Сразу после аудита нужно открыть реальные задания и подтвердить или опровергнуть спорные выводы.",
+                            "arguments": {
+                                "courseId": course_id,
+                                "query": focus_text,
+                                **({"aroundAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                                "window": 4 if remembered_after_assignment_id else 2,
+                                "limitAssignments": 18,
+                            },
+                        },
+                    ],
+                }
         return {
             "assistantMessage": "Сначала проверю курс под этот фокус и найду проблемные места.",
             "sessionTitle": _chat_build_session_title(payload),

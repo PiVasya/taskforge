@@ -27,6 +27,31 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["actions"][0]["name"], "advance_agent_stage")
         self.assertIn("полный проход", result["assistantMessage"].lower())
 
+
+    def test_precision_audit_request_uses_inspection_when_audit_already_exists(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Точно ли нету обучалки cout в курсе? посмотри точнее"}],
+            "memory": {
+                "lastCourseAudit": {"summary": "Есть старый аудит"},
+            },
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(result["actions"][0]["name"], "inspect_course_assignments")
+
+    def test_precision_audit_request_can_chain_audit_and_inspection(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Проверь точнее по реальным условиям, где именно в курсе новые функции без обучалки"}],
+            "memory": {},
+        }
+        result = worker._normalize_chat_turn_result(payload, {})
+        self.assertEqual(len(result["actions"]), 2)
+        self.assertEqual(result["actions"][0]["name"], "analyze_course_progression")
+        self.assertEqual(result["actions"][1]["name"], "inspect_course_assignments")
+
     def test_inspect_request_prefers_course_listing_over_bridge_plan(self):
         payload = {
             "courseId": "c1",

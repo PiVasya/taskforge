@@ -138,6 +138,14 @@ public sealed class AiAnalyzeAssignmentRequestDto
     public int Priority { get; set; } = 10;
 }
 
+public sealed class AiBackfillAssignmentOverviewsRequestDto
+{
+    public Guid? CourseId { get; set; }
+    public bool OnlyMissing { get; set; } = true;
+    public int Limit { get; set; } = 200;
+    public int Priority { get; set; } = 5;
+}
+
 public sealed class AiReviewSubmissionRequestDto
 {
     [Required, MaxLength(32)]
@@ -660,6 +668,59 @@ public sealed class AiFoundryCourseAuditDto
     public List<AiFoundryCourseAuditFindingDto> Findings { get; set; } = new();
 }
 
+public sealed class AiAssignmentOverviewDto
+{
+    public string Summary { get; set; } = string.Empty;
+    public bool IsImportant { get; set; }
+    public double? ImportanceScore { get; set; }
+    public string? PedagogicalRole { get; set; }
+    public string? TeachingStyle { get; set; }
+    public string? StudentStage { get; set; }
+    public string? CourseValue { get; set; }
+    public List<string> ImportanceReasons { get; set; } = new();
+    public List<string> ConceptsIntroduced { get; set; } = new();
+    public List<string> ConceptsReinforced { get; set; } = new();
+    public List<string> Prerequisites { get; set; } = new();
+    public List<string> Signals { get; set; } = new();
+    public List<string> Suggestions { get; set; } = new();
+    public DateTime? CreatedAtUtc { get; set; }
+
+    public bool IsMeaningful()
+    {
+        return !string.IsNullOrWhiteSpace(Summary)
+            || IsImportant
+            || ImportanceScore.HasValue
+            || !string.IsNullOrWhiteSpace(PedagogicalRole)
+            || !string.IsNullOrWhiteSpace(TeachingStyle)
+            || !string.IsNullOrWhiteSpace(StudentStage)
+            || !string.IsNullOrWhiteSpace(CourseValue)
+            || ImportanceReasons.Count > 0
+            || ConceptsIntroduced.Count > 0
+            || ConceptsReinforced.Count > 0
+            || Prerequisites.Count > 0
+            || Signals.Count > 0
+            || Suggestions.Count > 0;
+    }
+}
+
+public sealed class AiCourseOverviewCoverageDto
+{
+    public int TotalAssignments { get; set; }
+    public int AssignmentsWithOverview { get; set; }
+    public int AssignmentsMissingOverview { get; set; }
+    public double CoverageRatio { get; set; }
+}
+
+public sealed class AiCourseLandmarkAssignmentDto
+{
+    public Guid Id { get; set; }
+    public int Sort { get; set; }
+    public int Difficulty { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? Type { get; set; }
+    public AiAssignmentOverviewDto? AiOverview { get; set; }
+}
+
 public sealed class AiFoundryCourseInspectionAssignmentDto
 {
     public Guid Id { get; set; }
@@ -667,6 +728,7 @@ public sealed class AiFoundryCourseInspectionAssignmentDto
     public int Difficulty { get; set; }
     public string Title { get; set; } = string.Empty;
     public string DescriptionExcerpt { get; set; } = string.Empty;
+    public AiAssignmentOverviewDto? AiOverview { get; set; }
 }
 
 public sealed class AiFoundryCourseInspectionDto
@@ -677,6 +739,7 @@ public sealed class AiFoundryCourseInspectionDto
     public Guid? AroundAssignmentId { get; set; }
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
     public string Summary { get; set; } = string.Empty;
+    public List<string> Observations { get; set; } = new();
     public List<AiFoundryCourseInspectionAssignmentDto> Assignments { get; set; } = new();
 }
 

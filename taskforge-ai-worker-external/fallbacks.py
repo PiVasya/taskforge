@@ -501,8 +501,21 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
     # ── misc ──────────────────────────────────────────
     if t == "assignment_analyze_existing":
         return {
-            "assignmentId": job.get("targetEntityId"), "kind": "quality-audit",
-            "summary": "Fallback-анализ: модель недоступна.",
+            "assignmentId": job.get("targetEntityId"), "kind": "course-overview",
+            "summary": "Fallback-обзор: модель недоступна, поэтому обзор собран в минимальном виде.",
+            "overview": {
+                "isImportant": False,
+                "importanceScore": 0.3,
+                "importanceReasons": ["Автоматический fallback без модели"],
+                "pedagogicalRole": "reference",
+                "teachingStyle": "mixed",
+                "studentStage": "unknown",
+                "conceptsIntroduced": [],
+                "conceptsReinforced": [],
+                "prerequisites": [],
+                "surfaceSignals": [],
+                "courseValue": "Нужен нормальный AI overview после восстановления модели.",
+            },
             "suggestions": ["Проверь ясность формулировки.", "Проверь баланс сложности."],
         }
     if t == "submission_review":

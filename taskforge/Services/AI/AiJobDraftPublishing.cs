@@ -84,6 +84,20 @@ public sealed partial class AiJobService
         draft.UpdatedAtUtc = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        try
+        {
+            await QueueAnalyzeAssignmentAsync(new taskforge.Data.Models.DTO.AI.AiAnalyzeAssignmentRequestDto
+            {
+                AssignmentId = publishResult.AssignmentId,
+                IncludeStats = false,
+                IncludeAttempts = false,
+                Priority = 5,
+            }, reviewedByUserId, null, ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to queue AI overview after publishing assignment {AssignmentId}", publishResult.AssignmentId);
+        }
 
         return new PublishAiDraftResultDto
         {

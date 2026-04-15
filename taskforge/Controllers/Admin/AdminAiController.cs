@@ -93,6 +93,15 @@ public sealed class AdminAiController : ControllerBase
         return data == null ? NotFound() : CreatedAtAction(nameof(GetJob), new { id = data.Id }, data);
     }
 
+    [HttpPost("assignment-overviews/backfill")]
+    public async Task<IActionResult> BackfillAssignmentOverviews([FromBody] AiBackfillAssignmentOverviewsRequestDto request, CancellationToken ct = default)
+    {
+        var userId = _current.GetUserId();
+        var name = User?.Identity?.Name;
+        var data = await _jobs.QueueAssignmentOverviewBackfillAsync(request, userId, name, ct);
+        return Ok(new { count = data.Count, jobs = data });
+    }
+
     [HttpPost("review-submission")]
     public async Task<IActionResult> ReviewSubmission([FromBody] AiReviewSubmissionRequestDto request, CancellationToken ct = default)
     {

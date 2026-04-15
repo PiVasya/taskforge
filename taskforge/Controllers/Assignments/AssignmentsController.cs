@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
+using taskforge.Data.Models.DTO.AI;
 using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers
@@ -16,17 +17,23 @@ namespace taskforge.Controllers
         private readonly ICurrentUserService _current;
         private readonly ApplicationDbContext _db;
         private readonly ICourseAccessService _access;
+        private readonly IAiJobService _aiJobs;
+        private readonly ILogger<AssignmentsController> _log;
 
         public AssignmentsController(
             IAssignmentService assignments,
             ICurrentUserService current,
             ApplicationDbContext db,
-            ICourseAccessService access)
+            ICourseAccessService access,
+            IAiJobService aiJobs,
+            ILogger<AssignmentsController> log)
         {
             _assignments = assignments;
             _current = current;
             _db = db;
             _access = access;
+            _aiJobs = aiJobs;
+            _log = log;
         }
 
         [HttpPost("courses/{courseId:guid}/assignments")]
@@ -39,7 +46,8 @@ namespace taskforge.Controllers
                 return Forbid();
 
             var id = await _assignments.CreateAsync(courseId, req, uid);
-            return CreatedAtAction(nameof(GetById), new { assignmentId = id }, new { id });
+            var overviewJobId = await TryQueueAssignmentOverviewAsync(id, uid, User?.Identity?.Name, HttpContext.RequestAborted);
+            return CreatedAtAction(nameof(GetById), new { assignmentId = id }, new { id, aiOverviewJobId = overviewJobId });
         }
 
         [HttpGet("courses/{courseId:guid}/assignments")]
@@ -90,6 +98,7 @@ namespace taskforge.Controllers
                 return Forbid();
 
             await _assignments.UpdateAsync(assignmentId, uid, req);
+            await TryQueueAssignmentOverviewAsync(assignmentId, uid, User?.Identity?.Name, HttpContext.RequestAborted);
             return NoContent();
         }
 
@@ -129,5 +138,24 @@ namespace taskforge.Controllers
             return NoContent();
         }
 
+        private async Task<Guid?> TryQueueAssignmentOverviewAsync(Guid assignmentId, Guid currentUserId, string? displayName, CancellationToken ct)
+        {
+            try
+            {
+                var job = await _aiJobs.QueueAnalyzeAssignmentAsync(new AiAnalyzeAssignmentRequestDto
+                {
+                    AssignmentId = assignmentId,
+                    IncludeStats = false,
+                    IncludeAttempts = false,
+                    Priority = 5,
+                }, currentUserId, displayName, ct);
+                return job?.Id;
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Failed to queue AI overview for assignment {AssignmentId}", assignmentId);
+                return null;
+            }
+        }
     }
 }

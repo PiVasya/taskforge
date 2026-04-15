@@ -231,6 +231,42 @@ public sealed partial class AiJobService : IAiJobService
         }, createdByUserId, createdByDisplayName, ct);
     }
 
+    public async Task<IReadOnlyList<AiJobDetailsDto>> QueueAssignmentOverviewBackfillAsync(AiBackfillAssignmentOverviewsRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var limit = request.Limit <= 0 ? 200 : Math.Min(request.Limit, 1000);
+        var query = _db.TaskAssignments.AsNoTracking().AsQueryable();
+        if (request.CourseId.HasValue)
+            query = query.Where(x => x.CourseId == request.CourseId.Value);
+
+        if (request.OnlyMissing)
+        {
+            query = query.Where(x => !_db.AiAssignmentInsights.Any(i => i.AssignmentId == x.Id && (i.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || i.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind)));
+        }
+
+        var ids = await query
+            .OrderBy(x => x.CourseId)
+            .ThenBy(x => x.Sort)
+            .Select(x => x.Id)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        var jobs = new List<AiJobDetailsDto>(ids.Count);
+        foreach (var id in ids)
+        {
+            var job = await QueueAnalyzeAssignmentAsync(new AiAnalyzeAssignmentRequestDto
+            {
+                AssignmentId = id,
+                IncludeStats = false,
+                IncludeAttempts = false,
+                Priority = request.Priority,
+            }, createdByUserId, createdByDisplayName, ct);
+            if (job != null)
+                jobs.Add(job);
+        }
+
+        return jobs;
+    }
+
     public async Task<AiJobDetailsDto?> QueueReviewSubmissionAsync(AiReviewSubmissionRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
     {
         var payload = await BuildSubmissionReviewInputAsync(request, ct);
@@ -1311,19 +1347,51 @@ public sealed partial class AiJobService : IAiJobService
             {
                 var assignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId;
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+                var kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? "quality-audit") : "quality-audit";
                 if (assignmentId != null && !string.IsNullOrWhiteSpace(summary))
                 {
                     Console.WriteLine($"[AiJobService] persist-artifacts assignment-insight add jobId={job.Id} assignmentId='{assignmentId}' summary.len={summary?.Length ?? 0}");
-                    _db.AiAssignmentInsights.Add(new AiAssignmentInsight
+                    var storedJson = root.TryGetProperty("overview", out var ov) && ov.ValueKind == JsonValueKind.Object
+                        ? AiAssignmentOverviewHelper.BuildStoredPayloadJson(root)
+                        : (root.TryGetProperty("suggestions", out var sug) ? sug.GetRawText() : null);
+
+                    if (AiAssignmentOverviewHelper.IsOverviewKind(kind))
                     {
-                        Id = Guid.NewGuid(),
-                        JobId = job.Id,
-                        AssignmentId = assignmentId.Value,
-                        Kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? "quality-audit") : "quality-audit",
-                        Summary = summary,
-                        SuggestionsJson = root.TryGetProperty("suggestions", out var sug) ? sug.GetRawText() : null,
-                        CreatedAtUtc = DateTime.UtcNow,
-                    });
+                        var existing = await _db.AiAssignmentInsights.FirstOrDefaultAsync(x => x.AssignmentId == assignmentId.Value && x.Kind == AiAssignmentOverviewHelper.CourseOverviewKind, ct);
+                        if (existing != null)
+                        {
+                            existing.JobId = job.Id;
+                            existing.Summary = summary!;
+                            existing.SuggestionsJson = storedJson;
+                            existing.CreatedAtUtc = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            _db.AiAssignmentInsights.Add(new AiAssignmentInsight
+                            {
+                                Id = Guid.NewGuid(),
+                                JobId = job.Id,
+                                AssignmentId = assignmentId.Value,
+                                Kind = AiAssignmentOverviewHelper.CourseOverviewKind,
+                                Summary = summary!,
+                                SuggestionsJson = storedJson,
+                                CreatedAtUtc = DateTime.UtcNow,
+                            });
+                        }
+                    }
+                    else
+                    {
+                        _db.AiAssignmentInsights.Add(new AiAssignmentInsight
+                        {
+                            Id = Guid.NewGuid(),
+                            JobId = job.Id,
+                            AssignmentId = assignmentId.Value,
+                            Kind = kind,
+                            Summary = summary!,
+                            SuggestionsJson = storedJson,
+                            CreatedAtUtc = DateTime.UtcNow,
+                        });
+                    }
                 }
             }
 
@@ -1581,17 +1649,19 @@ public sealed partial class AiJobService : IAiJobService
         if (assignments.Count < maxDesired)
             await LoadChunkAsync(_db.TaskAssignments, maxDesired - assignments.Count);
 
+        var overviewMap = await LoadLatestAssignmentOverviewMapAsync(assignments.Select(x => x.Id), ct);
         var result = new List<object>(assignments.Count);
         foreach (var assignment in assignments.Take(maxDesired))
         {
-            result.Add(await BuildReferenceAssignmentSummaryAsync(assignment, ct));
+            overviewMap.TryGetValue(assignment.Id, out var overview);
+            result.Add(await BuildReferenceAssignmentSummaryAsync(assignment, overview, ct));
         }
 
         Console.WriteLine($"[AiJobService] built reference assignments type='{normalizedType}' requestedCourseId='{courseId}' count={result.Count}");
         return result;
     }
 
-    private async Task<object> BuildReferenceAssignmentSummaryAsync(taskforge.Data.Models.Entities.TaskAssignment assignment, CancellationToken ct)
+    private async Task<object> BuildReferenceAssignmentSummaryAsync(taskforge.Data.Models.Entities.TaskAssignment assignment, AiAssignmentOverviewDto? overview, CancellationToken ct)
     {
         var description = (assignment.Description ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
         if (description.Length > 500) description = description[..500] + "...";
@@ -1639,7 +1709,32 @@ public sealed partial class AiJobService : IAiJobService
             questionsCount,
             forbiddenCalls = ParseJsonStringArray(assignment.CodeForbiddenCallsJson),
             requiredCalls = ParseJsonStringArray(assignment.CodeRequiredCallsJson),
+            aiOverview = overview,
         };
+    }
+
+    private async Task<Dictionary<Guid, AiAssignmentOverviewDto>> LoadLatestAssignmentOverviewMapAsync(IEnumerable<Guid> assignmentIds, CancellationToken ct)
+    {
+        var ids = assignmentIds.Distinct().Where(x => x != Guid.Empty).ToList();
+        var map = new Dictionary<Guid, AiAssignmentOverviewDto>();
+        if (ids.Count == 0)
+            return map;
+
+        var insights = await _db.AiAssignmentInsights.AsNoTracking()
+            .Where(x => ids.Contains(x.AssignmentId) && (x.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || x.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        foreach (var insight in insights)
+        {
+            if (map.ContainsKey(insight.AssignmentId))
+                continue;
+            var overview = AiAssignmentOverviewHelper.ParseOverview(insight.SuggestionsJson, insight.Summary, insight.CreatedAtUtc);
+            if (overview != null)
+                map[insight.AssignmentId] = overview;
+        }
+
+        return map;
     }
 
     private static IReadOnlyList<string> BuildSupportedLanguages(string? assignmentType, IEnumerable<object>? referenceAssignments = null, string? prompt = null)
