@@ -467,6 +467,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "recentAssignments": payload.get("recentAssignments")[:12] if isinstance(payload.get("recentAssignments"), list) else [],
         "courseOverviewCoverage": payload.get("courseOverviewCoverage") if isinstance(payload.get("courseOverviewCoverage"), dict) else None,
         "landmarkAssignments": payload.get("landmarkAssignments")[:8] if isinstance(payload.get("landmarkAssignments"), list) else [],
+        "autoOverviewBootstrap": payload.get("autoOverviewBootstrap") if isinstance(payload.get("autoOverviewBootstrap"), dict) else None,
         "recentDrafts": payload.get("recentDrafts")[:12] if isinstance(payload.get("recentDrafts"), list) else [],
         "recentBatches": payload.get("recentBatches")[:8] if isinstance(payload.get("recentBatches"), list) else [],
         "recentJobs": payload.get("recentJobs")[:12] if isinstance(payload.get("recentJobs"), list) else [],
@@ -497,6 +498,12 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         _dynamic.append(
             "У тебя УЖЕ есть и аудит курса, и готовый план мостиков в memory. "
             "Но это не означает, что нужно автоматически генерировать. Если пользователь просит показать существующие задания, обсудить проблему или просто уточняет мысль — отвечай по текущему запросу, а не по старому плану."
+        )
+    _bootstrap = compact_payload.get("autoOverviewBootstrap") if isinstance(compact_payload.get("autoOverviewBootstrap"), dict) else None
+    if _bootstrap and int(_bootstrap.get("queuedJobsCount") or 0) > 0:
+        _dynamic.append(
+            "Для текущего курса уже автоматически поставлены AI-job на assignment overview. "
+            "Учитывай это в ответе: можно коротко сказать, что система сама подтягивает обзоры по заданиям в фоне, и не нужно просить пользователя запускать анализ каждого задания вручную."
         )
     _dynamic_section = ""
     if _dynamic:

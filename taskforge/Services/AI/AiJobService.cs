@@ -220,6 +220,16 @@ public sealed partial class AiJobService : IAiJobService
         var payload = await BuildAssignmentAnalysisInputAsync(request, ct);
         if (payload == null) return null;
 
+        var activeJob = await _db.AiJobs.AsNoTracking()
+            .Where(x => x.Type == "assignment_analyze_existing"
+                && x.TargetEntityId == request.AssignmentId
+                && x.CompletedAtUtc == null
+                && (x.Status == "queued" || x.Status == "processing" || x.Status == "retry" || x.Status == "running"))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        if (activeJob != null)
+            return MapDetails(activeJob);
+
         return await EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = "assignment_analyze_existing",
@@ -265,6 +275,81 @@ public sealed partial class AiJobService : IAiJobService
         }
 
         return jobs;
+    }
+
+    public async Task<AiEnsureCourseAssignmentOverviewsResultDto> EnsureCourseAssignmentOverviewsAsync(AiEnsureCourseAssignmentOverviewsRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)
+    {
+        var limit = request.Limit <= 0 ? 60 : Math.Min(request.Limit, 1000);
+        var totalAssignments = await _db.TaskAssignments.AsNoTracking()
+            .CountAsync(x => x.CourseId == request.CourseId, ct);
+
+        var assignmentsWithOverview = await _db.AiAssignmentInsights.AsNoTracking()
+            .Where(x => x.Assignment != null
+                && x.Assignment.CourseId == request.CourseId
+                && (x.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || x.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind))
+            .Select(x => x.AssignmentId)
+            .Distinct()
+            .CountAsync(ct);
+
+        var query = _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == request.CourseId);
+
+        if (request.OnlyMissing)
+        {
+            query = query.Where(x => !_db.AiAssignmentInsights.Any(i => i.AssignmentId == x.Id
+                && (i.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || i.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind)));
+        }
+
+        var candidateIds = await query
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.CreatedAt)
+            .Select(x => x.Id)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        var activeAssignmentIds = candidateIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await _db.AiJobs.AsNoTracking()
+                .Where(x => x.Type == "assignment_analyze_existing"
+                    && x.TargetEntityId.HasValue
+                    && candidateIds.Contains(x.TargetEntityId.Value)
+                    && x.CompletedAtUtc == null
+                    && (x.Status == "queued" || x.Status == "processing" || x.Status == "retry" || x.Status == "running"))
+                .Select(x => x.TargetEntityId!.Value)
+                .Distinct()
+                .ToListAsync(ct))
+                .ToHashSet();
+
+        var jobs = new List<AiJobDetailsDto>();
+        foreach (var assignmentId in candidateIds)
+        {
+            if (activeAssignmentIds.Contains(assignmentId))
+                continue;
+
+            var job = await QueueAnalyzeAssignmentAsync(new AiAnalyzeAssignmentRequestDto
+            {
+                AssignmentId = assignmentId,
+                IncludeStats = false,
+                IncludeAttempts = false,
+                Priority = request.Priority,
+            }, createdByUserId, createdByDisplayName, ct);
+            if (job != null)
+                jobs.Add(job);
+        }
+
+        return new AiEnsureCourseAssignmentOverviewsResultDto
+        {
+            CourseId = request.CourseId,
+            TotalAssignments = totalAssignments,
+            AssignmentsWithOverview = assignmentsWithOverview,
+            AssignmentsMissingOverview = Math.Max(0, totalAssignments - assignmentsWithOverview),
+            ConsideredAssignments = candidateIds.Count,
+            QueuedJobsCount = jobs.Count,
+            ActiveJobSkips = activeAssignmentIds.Count,
+            AutoTriggered = request.AutoTriggered,
+            TriggeredAtUtc = DateTime.UtcNow,
+            Jobs = jobs,
+        };
     }
 
     public async Task<AiJobDetailsDto?> QueueReviewSubmissionAsync(AiReviewSubmissionRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default)

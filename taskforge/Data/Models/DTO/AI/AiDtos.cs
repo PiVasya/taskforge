@@ -146,6 +146,34 @@ public sealed class AiBackfillAssignmentOverviewsRequestDto
     public int Priority { get; set; } = 5;
 }
 
+public sealed class AiEnsureCourseAssignmentOverviewsRequestDto
+{
+    [Required]
+    public Guid CourseId { get; set; }
+
+    public bool OnlyMissing { get; set; } = true;
+
+    public int Limit { get; set; } = 60;
+
+    public int Priority { get; set; } = 4;
+
+    public bool AutoTriggered { get; set; }
+}
+
+public sealed class AiEnsureCourseAssignmentOverviewsResultDto
+{
+    public Guid CourseId { get; set; }
+    public int TotalAssignments { get; set; }
+    public int AssignmentsWithOverview { get; set; }
+    public int AssignmentsMissingOverview { get; set; }
+    public int ConsideredAssignments { get; set; }
+    public int QueuedJobsCount { get; set; }
+    public int ActiveJobSkips { get; set; }
+    public bool AutoTriggered { get; set; }
+    public DateTime TriggeredAtUtc { get; set; } = DateTime.UtcNow;
+    public List<AiJobDetailsDto> Jobs { get; set; } = new();
+}
+
 public sealed class AiReviewSubmissionRequestDto
 {
     [Required, MaxLength(32)]

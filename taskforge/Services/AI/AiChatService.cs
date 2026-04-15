@@ -100,6 +100,8 @@ public sealed class AiChatService
         _db.AiFoundryChatSessions.Add(session);
         await _db.SaveChangesAsync(ct);
 
+        await TryAutoEnsureCourseOverviewsAsync(session.CourseId, null, DeserializeMemory(session.PlanJson), userId, null, ct);
+
         var courseMap = await LoadCourseTitleMapAsync(session.CourseId.HasValue ? new[] { session.CourseId.Value } : Array.Empty<Guid>(), ct);
         return MapSession(session, courseMap, null, BuildMemory(DeserializeMessages(session.MessagesJson), session.PlanJson));
     }
@@ -122,6 +124,8 @@ public sealed class AiChatService
         }
         session.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+
+        await TryAutoEnsureCourseOverviewsAsync(session.CourseId, null, DeserializeMemory(session.PlanJson), userId, null, ct);
 
         var courseMap = await LoadCourseTitleMapAsync(session.CourseId.HasValue ? new[] { session.CourseId.Value } : Array.Empty<Guid>(), ct);
         return MapSession(session, courseMap);
@@ -199,9 +203,11 @@ public sealed class AiChatService
             session.Title = BuildSessionTitle(messages);
 
         var instructionStrictness = ClampInstructionStrictness(request.InstructionStrictness, DeserializeMemory(session.PlanJson).InstructionStrictness);
-        session.PlanJson = SerializeMemory(BuildMemory(messages, session.PlanJson, instructionStrictness));
+        var refreshedMemory = BuildMemory(messages, session.PlanJson, instructionStrictness);
+        session.PlanJson = SerializeMemory(refreshedMemory);
         var actionMode = string.IsNullOrWhiteSpace(request.ActionMode) ? "multi" : request.ActionMode.Trim().ToLowerInvariant();
-        var payload = await BuildChatPayloadAsync(session, messages, actionMode, instructionStrictness, ct);
+        var autoOverviewBootstrap = await TryAutoEnsureCourseOverviewsAsync(session.CourseId, userMessage.Content, refreshedMemory, userId, userDisplayName, ct);
+        var payload = await BuildChatPayloadAsync(session, messages, actionMode, instructionStrictness, autoOverviewBootstrap, ct);
         var job = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
         {
             Type = AiFoundryJobTypes.ChatTurn,
@@ -243,6 +249,63 @@ public sealed class AiChatService
             PendingJobId = job.Id,
             Session = MapSession(session, resultCourseMap, messages, BuildMemory(messages, session.PlanJson, instructionStrictness)),
         };
+    }
+
+    private async Task<AiEnsureCourseAssignmentOverviewsResultDto?> TryAutoEnsureCourseOverviewsAsync(
+        Guid? courseId,
+        string? latestUserContent,
+        AiFoundryChatMemoryDto? memory,
+        Guid? userId,
+        string? userDisplayName,
+        CancellationToken ct)
+    {
+        if (!courseId.HasValue)
+            return null;
+        if (!ShouldAutoEnsureCourseOverviews(latestUserContent, memory))
+            return null;
+
+        try
+        {
+            return await _jobs.EnsureCourseAssignmentOverviewsAsync(new AiEnsureCourseAssignmentOverviewsRequestDto
+            {
+                CourseId = courseId.Value,
+                OnlyMissing = true,
+                Limit = 80,
+                Priority = 4,
+                AutoTriggered = true,
+            }, userId, userDisplayName, ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to auto-ensure course assignment overviews for course {CourseId}", courseId.Value);
+            return null;
+        }
+    }
+
+    private static bool ShouldAutoEnsureCourseOverviews(string? latestUserContent, AiFoundryChatMemoryDto? memory)
+    {
+        if (memory?.AgentState != null)
+        {
+            var objectiveKind = (memory.AgentState.ObjectiveKind ?? string.Empty).Trim();
+            if (objectiveKind.Equals("course-gap-remediation", StringComparison.OrdinalIgnoreCase)
+                || objectiveKind.Equals("course-diagnostics", StringComparison.OrdinalIgnoreCase)
+                || objectiveKind.Equals("course-inspection", StringComparison.OrdinalIgnoreCase)
+                || objectiveKind.Equals("bridge-planning", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        var text = (latestUserContent ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        string[] markers =
+        {
+            "курс", "задани", "проанализ", "анализ", "пробел", "новые функции", "обуч",
+            "мостик", "подвод", "посмотри точнее", "точно ли", "покажи задания"
+        };
+        return markers.Any(text.Contains);
     }
 
     public async Task<AiFoundryChatSendMessageResponseDto?> ConfirmToolCallAsync(
@@ -1530,7 +1593,7 @@ public sealed class AiChatService
         }
     }
 
-    private async Task<object> BuildChatPayloadAsync(AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, string actionMode, int? instructionStrictness, CancellationToken ct)
+    private async Task<object> BuildChatPayloadAsync(AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages, string actionMode, int? instructionStrictness, AiEnsureCourseAssignmentOverviewsResultDto? autoOverviewBootstrap, CancellationToken ct)
     {
         var courses = await _db.Courses.AsNoTracking()
             .OrderBy(x => x.Title)
@@ -1809,6 +1872,7 @@ public sealed class AiChatService
             recentAssignments,
             courseOverviewCoverage,
             landmarkAssignments,
+            autoOverviewBootstrap,
             recentDrafts,
             recentBatches,
             recentJobs,

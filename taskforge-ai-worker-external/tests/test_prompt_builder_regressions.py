@@ -123,6 +123,26 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("persisted AI overview", prompt)
         self.assertIn("guided-intro/bridge/milestone", prompt)
 
+    def test_build_chat_turn_prompt_mentions_auto_overview_bootstrap(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "autoOverviewBootstrap": {
+                "courseId": "c1",
+                "queuedJobsCount": 12,
+                "assignmentsMissingOverview": 24,
+                "autoTriggered": True,
+            },
+            "conversation": [{"role": "user", "content": "Проанализируй курс и найди пробелы"}],
+            "availableActions": [
+                {"name": "analyze_course_progression"},
+                {"name": "inspect_course_assignments"},
+            ],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("autoOverviewBootstrap", prompt)
+        self.assertIn("система сама подтягивает обзоры", prompt)
+
 
     def test_build_draft_generate_prompt_accepts_dict_payload(self):
         payload = {

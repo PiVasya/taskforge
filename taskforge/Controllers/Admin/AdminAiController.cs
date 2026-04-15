@@ -102,6 +102,15 @@ public sealed class AdminAiController : ControllerBase
         return Ok(new { count = data.Count, jobs = data });
     }
 
+    [HttpPost("assignment-overviews/ensure-course")]
+    public async Task<IActionResult> EnsureCourseAssignmentOverviews([FromBody] AiEnsureCourseAssignmentOverviewsRequestDto request, CancellationToken ct = default)
+    {
+        var userId = _current.GetUserId();
+        var name = User?.Identity?.Name;
+        var data = await _jobs.EnsureCourseAssignmentOverviewsAsync(request, userId, name, ct);
+        return Ok(data);
+    }
+
     [HttpPost("review-submission")]
     public async Task<IActionResult> ReviewSubmission([FromBody] AiReviewSubmissionRequestDto request, CancellationToken ct = default)
     {

@@ -14,6 +14,7 @@ public interface IAiJobService
     Task<AiJobDetailsDto> QueueGenerateAssignmentFromFileAsync(AiGenerateAssignmentFromFileRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<AiJobDetailsDto?> QueueAnalyzeAssignmentAsync(AiAnalyzeAssignmentRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<IReadOnlyList<AiJobDetailsDto>> QueueAssignmentOverviewBackfillAsync(AiBackfillAssignmentOverviewsRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
+    Task<AiEnsureCourseAssignmentOverviewsResultDto> EnsureCourseAssignmentOverviewsAsync(AiEnsureCourseAssignmentOverviewsRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<AiJobDetailsDto?> QueueReviewSubmissionAsync(AiReviewSubmissionRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<AiJobDetailsDto?> QueueReviewUserAsync(AiReviewUserRequestDto request, Guid? createdByUserId, string? createdByDisplayName, CancellationToken ct = default);
     Task<IReadOnlyList<AiSubmissionReviewListItemDto>> GetSubmissionReviewsAsync(Guid? userId, Guid? assignmentId, CancellationToken ct = default);

@@ -30,6 +30,11 @@ export async function analyzeAiAssignment(payload) {
   return data;
 }
 
+export async function ensureCourseAssignmentOverviews(payload) {
+  const { data } = await api.post('/api/admin/ai/assignment-overviews/ensure-course', payload);
+  return data;
+}
+
 export async function reviewAiSubmission(payload) {
   const { data } = await api.post('/api/admin/ai/review-submission', payload);
   return data;
