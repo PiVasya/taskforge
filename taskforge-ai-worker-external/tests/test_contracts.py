@@ -168,6 +168,30 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(review["status"], "passed")
 
 
+    def test_self_check_flags_missing_echo_value_in_outputs(self):
+        draft = valid_code_test_draft(
+            title="Echo with prefix",
+            description=LONG_DESC + " Считайте одно целое число. Вывод: Строка 'Вы ввели: ' и само число.",
+            publicTests=[
+                {"input": "1\n", "expectedOutput": "Вы ввели:"},
+                {"input": "10\n", "expectedOutput": "Вы ввели:"},
+            ],
+            hiddenTests=[],
+            referenceSolutionPython=(
+                "import sys\n"
+                "def solve():\n"
+                "    data = sys.stdin.read().strip()\n"
+                "    if data:\n"
+                "        print(f'Вы ввели: {data}')\n"
+                "if __name__ == '__main__':\n"
+                "    solve()\n"
+            ),
+        )
+        result = validators.run_self_check(draft)
+        checks = {c["name"]: c for c in result["checks"]}
+        self.assertEqual(checks["input-value-preserved-in-output"]["status"], "failed")
+        self.assertNotEqual(result["status"], "passed")
+
 
 if __name__ == "__main__":
     unittest.main()

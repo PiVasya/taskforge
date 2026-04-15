@@ -5915,8 +5915,22 @@ public sealed class AiChatService
         if (ordered.Count == 0)
             return new List<AiCourseLandmarkAssignmentDto>();
 
-        return ordered
+        var candidates = ordered
             .Where(x => x.AiOverview != null && x.AiOverview.IsMeaningful())
+            .ToList();
+        if (candidates.Count == 0)
+            return new List<AiCourseLandmarkAssignmentDto>();
+
+        var strongCandidates = candidates
+            .Where(x => x.AiOverview!.IsImportant
+                || (x.AiOverview!.ImportanceScore ?? 0d) >= 0.70d
+                || string.Equals(x.AiOverview!.PedagogicalRole, "guided-intro", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.AiOverview!.PedagogicalRole, "bridge", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.AiOverview!.PedagogicalRole, "milestone", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.AiOverview!.PedagogicalRole, "assessment", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var selected = (strongCandidates.Count >= Math.Min(3, maxItems) ? strongCandidates : candidates)
             .OrderByDescending(GetAssignmentLandmarkScore)
             .ThenBy(x => x.Sort)
             .Take(maxItems)
@@ -5930,6 +5944,8 @@ public sealed class AiChatService
                 AiOverview = x.AiOverview,
             })
             .ToList();
+
+        return selected;
     }
 
     private static double GetAssignmentLandmarkScore(CourseAuditAssignmentSnapshot snapshot)

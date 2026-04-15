@@ -232,6 +232,35 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("циклы", prompt)
         self.assertIn("agentState", prompt)
 
+    def test_build_chat_turn_prompt_compacts_huge_payload(self):
+        huge_text = "Очень длинный фрагмент контекста. " * 4000
+        payload = {
+            "sessionId": "s1",
+            "sessionTitle": huge_text,
+            "courseId": "c1",
+            "memory": {
+                "summary": huge_text,
+                "latestExplicitInstruction": huge_text,
+                "facts": [huge_text] * 10,
+                "recentGoals": [huge_text] * 10,
+                "recentActions": ["inspect_course_assignments"] * 10,
+                "agentState": {
+                    "objectiveSummary": huge_text,
+                    "evidenceLedger": [huge_text] * 10,
+                    "decisionCandidates": [{"name": "inspect_course_assignments", "why": huge_text, "status": "preferred"}] * 10,
+                },
+            },
+            "conversation": [{"role": "user", "content": huge_text, "toolResults": [{"status": "done", "summary": huge_text}]}] * 12,
+            "recentAssignments": [{"id": f"a{i}", "title": huge_text, "latestAiOverview": {"summary": huge_text, "importanceReasons": [huge_text, huge_text], "conceptsIntroduced": [huge_text] * 5}} for i in range(20)],
+            "landmarkAssignments": [{"id": f"l{i}", "title": huge_text, "aiOverview": {"summary": huge_text, "importanceReasons": [huge_text, huge_text], "conceptsIntroduced": [huge_text] * 5}} for i in range(20)],
+            "availableActions": [{"name": "inspect_course_assignments", "description": huge_text, "requiredArguments": ["courseId"] * 10, "optionalArguments": ["focus"] * 10}],
+            "availableCourses": [{"id": f"c{i}", "title": huge_text} for i in range(30)],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertLess(len(prompt), 120000)
+        self.assertIn("recentAssignments", prompt)
+        self.assertIn("conversation", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

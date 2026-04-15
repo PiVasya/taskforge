@@ -403,25 +403,12 @@ def build_job_specific_instructions(job_type: str, payload: Dict[str, Any]) -> s
         )
 
     if t == "assignment_analyze_existing":
-        return (
-            "Проанализируй существующее задание как важную единицу курса. "
-            "Верни JSON вида: "
-            "{\"assignmentId\":\"...\",\"kind\":\"course-overview\","
-            "\"summary\":\"...\","
-            "\"overview\":{"
-            "\"isImportant\":true,"
-            "\"importanceScore\":0.0,"
-            "\"importanceReasons\":[\"...\"],"
-            "\"pedagogicalRole\":\"guided-intro|bridge|skill-drill|milestone|assessment|reference\","
-            "\"teachingStyle\":\"step-by-step|theory-first|practice-first|mixed\","
-            "\"studentStage\":\"absolute-beginner|beginner|intermediate|advanced\","
-            "\"conceptsIntroduced\":[\"...\"],"
-            "\"conceptsReinforced\":[\"...\"],"
-            "\"prerequisites\":[\"...\"],"
-            "\"surfaceSignals\":[\"cout\",\"cin\"],"
-            "\"courseValue\":\"...\"},"
-            "\"suggestions\":[\"...\",\"...\"]}"
-        )
+        return """Проанализируй существующее задание как единицу курса и верни ПОЛЕЗНЫЙ persisted overview для будущего course-agent. 
+Пиши ТОЛЬКО по-русски: summary, importanceReasons, courseValue и suggestions должны быть на русском языке без английских вставок. 
+Калибруй важность относительно ВСЕГО курса, а не в вакууме: isImportant=true ставь только если задание действительно вводит новую тему, является guided-intro, bridge, milestone, assessment или ключевой опорной точкой. Обычным drill/reference не завышай важность. 
+importanceScore используй осознанно: 0.2-0.45 = слабая опорная ценность, 0.5-0.69 = полезное, но не ключевое, 0.7-0.84 = заметно важное, 0.85-0.95 = реально опорное задание курса. Не ставь почти всем заданиям 0.75+ и isImportant=true. 
+Если задание уже само является пошаговой обучалкой для новичка, это guided-intro, а не 'пробел' курса. Если это просто вариация уже введённого паттерна, чаще всего это skill-drill или reference. 
+Верни JSON вида: {"assignmentId":"...","kind":"course-overview","summary":"...","overview":{"isImportant":true,"importanceScore":0.0,"importanceReasons":["..."],"pedagogicalRole":"guided-intro|bridge|skill-drill|milestone|assessment|reference","teachingStyle":"step-by-step|theory-first|practice-first|mixed","studentStage":"absolute-beginner|beginner|intermediate|advanced","conceptsIntroduced":["..."],"conceptsReinforced":["..."],"prerequisites":["..."],"surfaceSignals":["cout","cin"],"courseValue":"..."},"suggestions":["...","..."]}"""
 
     if t == "assignment_repair":
         route_directive = _repair_route_directive(payload)
@@ -453,28 +440,335 @@ def build_job_specific_instructions(job_type: str, payload: Dict[str, Any]) -> s
     return "Верни только валидный JSON по задаче."
 
 
+def _compact_overview_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    reasons = value.get("importanceReasons") if isinstance(value.get("importanceReasons"), list) else []
+    concepts_intro = value.get("conceptsIntroduced") if isinstance(value.get("conceptsIntroduced"), list) else []
+    concepts_reinf = value.get("conceptsReinforced") if isinstance(value.get("conceptsReinforced"), list) else []
+    signals = value.get("signals") if isinstance(value.get("signals"), list) else (value.get("surfaceSignals") if isinstance(value.get("surfaceSignals"), list) else [])
+    return {
+        "isImportant": bool(value.get("isImportant")),
+        "importanceScore": value.get("importanceScore"),
+        "pedagogicalRole": truncate_text(value.get("pedagogicalRole"), 40),
+        "teachingStyle": truncate_text(value.get("teachingStyle"), 40),
+        "studentStage": truncate_text(value.get("studentStage"), 40),
+        "importanceReasons": [truncate_text(x, 90) for x in reasons[:2] if normalize_text(x)],
+        "conceptsIntroduced": [truncate_text(x, 48) for x in concepts_intro[:4] if normalize_text(x)],
+        "conceptsReinforced": [truncate_text(x, 48) for x in concepts_reinf[:3] if normalize_text(x)],
+        "signals": [truncate_text(x, 32) for x in signals[:4] if normalize_text(x)],
+        "courseValue": truncate_text(value.get("courseValue"), 120),
+        "summary": truncate_text(value.get("summary"), 140),
+    }
+
+
+def _compact_assignment_like_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    item = {
+        "id": value.get("id"),
+        "courseId": value.get("courseId"),
+        "sort": value.get("sort"),
+        "title": truncate_text(value.get("title"), 100),
+        "type": truncate_text(value.get("type"), 32),
+        "difficulty": value.get("difficulty"),
+        "rating": value.get("rating"),
+        "updatedAtUtc": value.get("updatedAtUtc"),
+    }
+    overview = _compact_overview_for_chat(value.get("latestAiOverview") if isinstance(value.get("latestAiOverview"), dict) else value.get("aiOverview") if isinstance(value.get("aiOverview"), dict) else value.get("AiOverview") if isinstance(value.get("AiOverview"), dict) else None)
+    if overview:
+        item["overview"] = overview
+    return item
+
+
+def _compact_draft_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "id": value.get("id"),
+        "courseId": value.get("courseId"),
+        "batchId": value.get("batchId"),
+        "title": truncate_text(value.get("title"), 100),
+        "assignmentType": truncate_text(value.get("assignmentType"), 32),
+        "status": truncate_text(value.get("status"), 32),
+        "updatedAtUtc": value.get("updatedAtUtc"),
+    }
+
+
+def _compact_job_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "id": value.get("id"),
+        "type": truncate_text(value.get("type"), 48),
+        "status": truncate_text(value.get("status"), 24),
+        "stageCode": truncate_text(value.get("stageCode"), 40),
+        "priority": value.get("priority"),
+        "targetEntityType": truncate_text(value.get("targetEntityType"), 32),
+        "targetEntityId": value.get("targetEntityId"),
+        "createdAtUtc": value.get("createdAtUtc"),
+        "completedAtUtc": value.get("completedAtUtc"),
+        "errorText": truncate_text(value.get("errorText"), 120),
+    }
+
+
+def _compact_tool_result_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    item = {
+        "status": truncate_text(value.get("status"), 18),
+        "summary": truncate_text(value.get("summary"), 220),
+        "batchId": value.get("batchId"),
+        "draftId": value.get("draftId"),
+        "assignmentId": value.get("assignmentId"),
+        "courseId": value.get("courseId"),
+    }
+    if value.get("requiresConfirmation"):
+        item["requiresConfirmation"] = True
+    return item
+
+
+def _compact_conversation_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "role": truncate_text(value.get("role"), 12),
+        "content": truncate_text(value.get("content"), 700),
+        "status": truncate_text(value.get("status"), 24),
+        "createdAtUtc": value.get("createdAtUtc"),
+        "toolCalls": [
+            {
+                "name": truncate_text(x.get("name"), 48),
+                "reason": truncate_text(x.get("reason"), 160),
+            }
+            for x in ((value.get("toolCalls") if isinstance(value.get("toolCalls"), list) else [])[:2]) if isinstance(x, dict)
+        ],
+        "toolResults": [
+            _compact_tool_result_for_chat(x)
+            for x in ((value.get("toolResults") if isinstance(value.get("toolResults"), list) else [])[:2]) if isinstance(x, dict)
+        ],
+    }
+
+
+def _compact_blueprint_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    proposals = value.get("proposals") if isinstance(value.get("proposals"), list) else []
+    compact_props = []
+    for item in proposals[:4]:
+        if not isinstance(item, dict):
+            continue
+        public_tests = item.get("publicTests") if isinstance(item.get("publicTests"), list) else []
+        hidden_tests = item.get("hiddenTests") if isinstance(item.get("hiddenTests"), list) else []
+        compact_props.append({
+            "id": item.get("id"),
+            "title": truncate_text(item.get("title"), 90),
+            "conditionPreview": truncate_text(item.get("conditionPreview"), 220),
+            "fullCondition": truncate_text(item.get("fullCondition"), 420),
+            "assignmentType": truncate_text(item.get("assignmentType"), 24),
+            "difficulty": item.get("difficulty"),
+            "placementAfterTitle": truncate_text(item.get("placementAfterTitle"), 80),
+            "placementReason": truncate_text(item.get("placementReason"), 140),
+            "publicTests": [{"input": truncate_text(x.get("input"), 60), "expectedOutput": truncate_text(x.get("expectedOutput"), 80)} for x in public_tests[:3] if isinstance(x, dict)],
+            "hiddenTests": [{"input": truncate_text(x.get("input"), 40), "expectedOutput": truncate_text(x.get("expectedOutput"), 60)} for x in hidden_tests[:2] if isinstance(x, dict)],
+        })
+    return {
+        "revision": value.get("revision"),
+        "approvedForDraft": bool(value.get("approvedForDraft")),
+        "proposalCount": len(proposals),
+        "proposals": compact_props,
+    }
+
+
+def _compact_agent_state_for_chat(value: Any) -> Dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    evidence = value.get("evidenceLedger") if isinstance(value.get("evidenceLedger"), list) else []
+    risks = value.get("riskFlags") if isinstance(value.get("riskFlags"), list) else []
+    open_questions = value.get("openQuestions") if isinstance(value.get("openQuestions"), list) else []
+    decision_candidates = value.get("decisionCandidates") if isinstance(value.get("decisionCandidates"), list) else []
+    plan_steps = value.get("planSteps") if isinstance(value.get("planSteps"), list) else []
+    placement = value.get("placementCandidates") if isinstance(value.get("placementCandidates"), list) else []
+    return {
+        "objectiveKind": truncate_text(value.get("objectiveKind"), 40),
+        "objectiveSummary": truncate_text(value.get("objectiveSummary"), 180),
+        "currentStage": truncate_text(value.get("currentStage"), 40),
+        "stageSummary": truncate_text(value.get("stageSummary"), 180),
+        "latestIntentKind": truncate_text(value.get("latestIntentKind"), 32),
+        "nextSuggestedAction": truncate_text(value.get("nextSuggestedAction"), 48),
+        "confidencePercent": value.get("confidencePercent"),
+        "confidenceReason": truncate_text(value.get("confidenceReason"), 120),
+        "blockerSummary": truncate_text(value.get("blockerSummary"), 120),
+        "needsClarification": bool(value.get("needsClarification")),
+        "autonomyMode": truncate_text(value.get("autonomyMode"), 24),
+        "evidenceLedger": [truncate_text(x, 120) for x in evidence[:6] if normalize_text(x)],
+        "riskFlags": [truncate_text(x, 100) for x in risks[:4] if normalize_text(x)],
+        "openQuestions": [truncate_text(x, 100) for x in open_questions[:4] if normalize_text(x)],
+        "decisionCandidates": [
+            {
+                "name": truncate_text(x.get("name"), 48),
+                "status": truncate_text(x.get("status"), 16),
+                "why": truncate_text(x.get("why"), 120),
+            }
+            for x in decision_candidates[:5] if isinstance(x, dict)
+        ],
+        "planSteps": [
+            {
+                "key": truncate_text(x.get("key"), 24),
+                "status": truncate_text(x.get("status"), 16),
+                "title": truncate_text(x.get("title"), 70),
+                "recommendedAction": truncate_text(x.get("recommendedAction"), 48),
+                "successSignal": truncate_text(x.get("successSignal"), 100),
+            }
+            for x in plan_steps[:5] if isinstance(x, dict)
+        ],
+        "placementCandidates": [
+            {
+                "afterAssignmentId": x.get("afterAssignmentId"),
+                "afterAssignmentTitle": truncate_text(x.get("afterAssignmentTitle"), 80),
+                "why": truncate_text(x.get("why"), 100),
+            }
+            for x in placement[:4] if isinstance(x, dict)
+        ],
+    }
+
+
+def _compact_memory_for_chat(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    facts = value.get("facts") if isinstance(value.get("facts"), list) else []
+    goals = value.get("recentGoals") if isinstance(value.get("recentGoals"), list) else []
+    actions = value.get("recentActions") if isinstance(value.get("recentActions"), list) else []
+    memory = {
+        "summary": truncate_text(value.get("summary"), 260),
+        "latestIntentKind": truncate_text(value.get("latestIntentKind"), 32),
+        "latestExplicitInstruction": truncate_text(value.get("latestExplicitInstruction"), 220),
+        "latestTeachingScript": truncate_text(value.get("latestTeachingScript"), 260),
+        "suppressBridgePlanLoop": bool(value.get("suppressBridgePlanLoop")),
+        "facts": [truncate_text(x, 120) for x in facts[:6] if normalize_text(x)],
+        "recentGoals": [truncate_text(x, 120) for x in goals[-5:] if normalize_text(x)],
+        "recentActions": [truncate_text(x, 48) for x in actions[-6:] if normalize_text(x)],
+    }
+    if isinstance(value.get("lastCourseAudit"), dict):
+        audit = value.get("lastCourseAudit")
+        memory["lastCourseAudit"] = {
+            "summary": truncate_text(audit.get("summary"), 220),
+            "courseId": audit.get("courseId"),
+            "findingsCount": len(audit.get("findings") or []) if isinstance(audit.get("findings"), list) else None,
+            "styleHints": [truncate_text(x, 60) for x in (audit.get("styleHints") if isinstance(audit.get("styleHints"), list) else [])[:4] if normalize_text(x)],
+        }
+    if isinstance(value.get("lastCourseInspection"), dict):
+        inspection = value.get("lastCourseInspection")
+        observations = inspection.get("observations") if isinstance(inspection.get("observations"), list) else []
+        inspected = inspection.get("inspectedAssignments") if isinstance(inspection.get("inspectedAssignments"), list) else []
+        memory["lastCourseInspection"] = {
+            "summary": truncate_text(inspection.get("summary"), 220),
+            "courseId": inspection.get("courseId"),
+            "observations": [truncate_text(x, 120) for x in observations[:5] if normalize_text(x)],
+            "inspectedAssignments": [_compact_assignment_like_for_chat(x) for x in inspected[:6] if isinstance(x, dict)],
+        }
+    if isinstance(value.get("lastBridgePlan"), dict):
+        plan = value.get("lastBridgePlan")
+        items = plan.get("items") if isinstance(plan.get("items"), list) else []
+        memory["lastBridgePlan"] = {
+            "summary": truncate_text(plan.get("summary"), 220),
+            "status": truncate_text(plan.get("status"), 24),
+            "itemCount": len(items),
+            "items": [
+                {
+                    "index": x.get("index"),
+                    "titleHint": truncate_text(x.get("titleHint"), 80),
+                    "afterAssignmentTitle": truncate_text(x.get("afterAssignmentTitle"), 80),
+                    "why": truncate_text(x.get("why"), 120),
+                    "confirmed": bool(x.get("confirmed")),
+                    "rejected": bool(x.get("rejected")),
+                }
+                for x in items[:4] if isinstance(x, dict)
+            ],
+        }
+    return memory
+
+
 def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    raw_memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+    raw_blueprint = payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else (raw_memory.get("currentDraftBlueprint") if isinstance(raw_memory.get("currentDraftBlueprint"), dict) else None)
     compact_payload = {
         "sessionId": payload.get("sessionId"),
-        "sessionTitle": payload.get("sessionTitle"),
+        "sessionTitle": truncate_text(payload.get("sessionTitle"), 120),
         "courseId": payload.get("courseId"),
-        "selectedCourse": payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else None,
-        "memory": payload.get("memory") if isinstance(payload.get("memory"), dict) else {},
-        "currentDraftBlueprint": payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else (((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("currentDraftBlueprint") if isinstance((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("currentDraftBlueprint"), dict) else None)),
-        "agentState": ((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("agentState") if isinstance((payload.get("memory") if isinstance(payload.get("memory"), dict) else {}).get("agentState"), dict) else {}),
-        "conversation": payload.get("conversation")[-16:] if isinstance(payload.get("conversation"), list) else [],
-        "recentAttachments": payload.get("recentAttachments")[-10:] if isinstance(payload.get("recentAttachments"), list) else [],
-        "recentAssignments": payload.get("recentAssignments")[:12] if isinstance(payload.get("recentAssignments"), list) else [],
+        "selectedCourse": {
+            "id": payload.get("selectedCourse", {}).get("id"),
+            "title": truncate_text(payload.get("selectedCourse", {}).get("title"), 100),
+            "assignmentCount": payload.get("selectedCourse", {}).get("assignmentCount"),
+        } if isinstance(payload.get("selectedCourse"), dict) else None,
+        "memory": _compact_memory_for_chat(raw_memory),
+        "currentDraftBlueprint": _compact_blueprint_for_chat(raw_blueprint),
+        "agentState": _compact_agent_state_for_chat(raw_memory.get("agentState") if isinstance(raw_memory.get("agentState"), dict) else {}),
+        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-8:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
+        "recentAttachments": [
+            {
+                "originalName": truncate_text(x.get("originalName"), 80),
+                "mimeType": truncate_text(x.get("mimeType"), 40),
+                "sizeBytes": x.get("sizeBytes"),
+                "hasTextExcerpt": bool(x.get("hasTextExcerpt")),
+            }
+            for x in ((payload.get("recentAttachments")[-6:] if isinstance(payload.get("recentAttachments"), list) else [])) if isinstance(x, dict)
+        ],
+        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:6] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
         "courseOverviewCoverage": payload.get("courseOverviewCoverage") if isinstance(payload.get("courseOverviewCoverage"), dict) else None,
-        "landmarkAssignments": payload.get("landmarkAssignments")[:8] if isinstance(payload.get("landmarkAssignments"), list) else [],
+        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:6] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
         "autoOverviewBootstrap": payload.get("autoOverviewBootstrap") if isinstance(payload.get("autoOverviewBootstrap"), dict) else None,
-        "recentDrafts": payload.get("recentDrafts")[:12] if isinstance(payload.get("recentDrafts"), list) else [],
-        "recentBatches": payload.get("recentBatches")[:8] if isinstance(payload.get("recentBatches"), list) else [],
-        "recentJobs": payload.get("recentJobs")[:12] if isinstance(payload.get("recentJobs"), list) else [],
-        "recentUsers": payload.get("recentUsers")[:16] if isinstance(payload.get("recentUsers"), list) else [],
-        "recentAttempts": payload.get("recentAttempts")[:16] if isinstance(payload.get("recentAttempts"), list) else [],
-        "availableCourses": payload.get("availableCourses")[:40] if isinstance(payload.get("availableCourses"), list) else [],
-        "availableActions": payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [],
+        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:6] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
+        "recentBatches": [
+            {
+                "id": x.get("id"),
+                "courseId": x.get("courseId"),
+                "assignmentType": truncate_text(x.get("assignmentType"), 24),
+                "mode": truncate_text(x.get("mode"), 24),
+                "requestedCount": x.get("requestedCount"),
+                "status": truncate_text(x.get("status"), 24),
+                "currentStage": truncate_text(x.get("currentStage"), 48),
+                "updatedAtUtc": x.get("updatedAtUtc"),
+                "prompt": truncate_text(x.get("prompt"), 160),
+            }
+            for x in ((payload.get("recentBatches")[:4] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
+        ],
+        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:8] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
+        "recentUsers": [
+            {
+                "id": x.get("id"),
+                "displayName": truncate_text(x.get("displayName") or x.get("email"), 60),
+                "role": truncate_text(x.get("role"), 24),
+                "lastLoginAtUtc": x.get("lastLoginAtUtc"),
+            }
+            for x in ((payload.get("recentUsers")[:8] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
+        ],
+        "recentAttempts": [
+            {
+                "sourceType": truncate_text(x.get("sourceType"), 16),
+                "assignmentId": x.get("assignmentId"),
+                "assignmentTitle": truncate_text(x.get("assignmentTitle"), 90),
+                "scorePercent": x.get("scorePercent"),
+                "passed": x.get("passed"),
+                "submittedAtUtc": x.get("submittedAtUtc"),
+            }
+            for x in ((payload.get("recentAttempts")[:8] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
+        ],
+        "availableCourses": [
+            {
+                "id": x.get("id"),
+                "title": truncate_text(x.get("title"), 80),
+            }
+            for x in ((payload.get("availableCourses")[:12] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
+        ],
+        "availableActions": [
+            {
+                "name": truncate_text(x.get("name"), 48),
+                "requiredArguments": x.get("requiredArguments")[:4] if isinstance(x.get("requiredArguments"), list) else [],
+                "optionalArguments": x.get("optionalArguments")[:5] if isinstance(x.get("optionalArguments"), list) else [],
+            }
+            for x in ((payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [])) if isinstance(x, dict)
+        ],
         "defaults": payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {},
     }
     # Dynamic directives based on conversation state to prevent planning loops

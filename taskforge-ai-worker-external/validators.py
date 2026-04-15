@@ -17,6 +17,65 @@ from text_utils import (
 from runners import run_python_solution
 
 
+def _tokenize_input_value(value: Any) -> List[str]:
+    text = normalize_text(value or "")
+    if not text:
+        return []
+    cleaned = text.replace(chr(13), " ").replace(chr(10), " ")
+    return [token for token in cleaned.split() if token]
+
+
+def _description_requires_echo_of_input(description: str) -> bool:
+    text = normalize_text(description).lower()
+    if not text:
+        return False
+    patterns = [
+        "то же самое число",
+        "то же число",
+        "это же число",
+        "само число",
+        "и число",
+        "и само число",
+        "введенное число",
+        "введённое число",
+        "считанное число",
+        "прочитанное число",
+        "выведите его",
+        "выведи его",
+        "выведите её",
+        "выведи её",
+        "echo",
+        "эхо",
+    ]
+    if any(pattern in text for pattern in patterns):
+        return True
+    return ("считай" in text or "считайте" in text or "введ" in text) and ("вывед" in text and "число" in text)
+
+
+def _expected_mentions_input_value(stdin_text: str, expected_output: str) -> bool:
+    input_tokens = _tokenize_input_value(stdin_text)
+    if not input_tokens:
+        return True
+    expected = normalize_text(expected_output or "")
+    if not expected:
+        return False
+    return any(token in expected for token in input_tokens[:3])
+
+
+def _tests_have_constant_output_with_varying_input(tests: List[Dict[str, Any]]) -> bool:
+    pairs = []
+    for test in tests:
+        if not isinstance(test, dict):
+            continue
+        inp = normalize_text(test.get("input") or "")
+        out = normalize_text(test.get("expectedOutput") or "")
+        if inp:
+            pairs.append((inp, out))
+    unique_inputs = {inp for inp, _ in pairs if inp}
+    unique_outputs = {out for _, out in pairs}
+    return len(unique_inputs) >= 2 and len(unique_outputs) == 1
+
+
 # ── Shared helpers ───────────────────────────────────
 
 def _is_site_incompatible_test_input(value: Any) -> bool:
@@ -159,6 +218,30 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
             "status": "passed" if not overlap else "failed",
             "details": "hiddenTests не дублируют publicTests" if not overlap else f"Есть пересечения hidden/public: {len(overlap)}"
         })
+        description = str(draft.get("description") or "")
+        echo_required = _description_requires_echo_of_input(description)
+        if _tests_have_constant_output_with_varying_input([t for t in tests if isinstance(t, dict)]):
+            checks.append({
+                "name": "tests-output-variance",
+                "status": "failed" if echo_required else "warning",
+                "details": "У разных входов одинаковый expectedOutput. Для этой задачи вывод, похоже, должен зависеть от ввода." if echo_required else "У разных входов одинаковый expectedOutput — проверь, не потерялась ли зависимость вывода от входа."
+            })
+        else:
+            checks.append({
+                "name": "tests-output-variance",
+                "status": "passed",
+                "details": "expectedOutput меняется осмысленно или задача константная"
+            })
+        if echo_required:
+            mismatches = []
+            for idx, test in enumerate((t for t in tests if isinstance(t, dict)), start=1):
+                if not _expected_mentions_input_value(str(test.get("input") or ""), str(test.get("expectedOutput") or "")):
+                    mismatches.append(idx)
+            checks.append({
+                "name": "input-value-preserved-in-output",
+                "status": "passed" if not mismatches else "failed",
+                "details": "expectedOutput содержит введённое значение" if not mismatches else f"В expectedOutput, похоже, потеряно введённое значение в тестах: {mismatches[:5]}"
+            })
         actual_langs = [normalize_text(x).lower() for x in list(draft.get("allowedLanguages") or []) if normalize_text(x)]
         if expected_langs:
             checks.append({
