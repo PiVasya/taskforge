@@ -53,12 +53,19 @@ public sealed partial class AiJobService
         var description = NormalizeDraftDescription(draftRoot);
         if (string.IsNullOrWhiteSpace(description)) throw new ValidationException("У черновика нет условия (description). AI не сгенерировал описание.");
 
-        var difficulty = Clamp(ReadInt(draftRoot, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
-        var rating = Math.Max(0, request.Rating ?? ReadInt(draftRoot, "rating") ?? 1);
+        var inferredDifficulty = InferDraftDifficulty(draftRoot, description, assignmentType);
+        var difficulty = Clamp(ReadInt(draftRoot, "difficulty") ?? request.Difficulty ?? inferredDifficulty, 1, 3);
+        var inferredRating = InferDraftRating(draftRoot, description, difficulty);
+        var rating = Math.Max(0, request.Rating ?? ReadInt(draftRoot, "rating") ?? inferredRating);
         var tags = request.Tags ?? ReadString(draftRoot, "tags");
         var desiredSort = request.Sort;
         var suggestedAfterAssignmentId = request.AfterAssignmentId ?? ExtractPlacementAfterAssignmentId(draftRoot);
         var suggestedAfterTitle = ExtractPlacementAfterTitle(draftRoot);
+        suggestedAfterAssignmentId = await ResolvePlacementAfterAssignmentIdAsync(courseId.Value, suggestedAfterAssignmentId, suggestedAfterTitle, title, ct);
+        if (suggestedAfterAssignmentId.HasValue && string.IsNullOrWhiteSpace(suggestedAfterTitle))
+        {
+            suggestedAfterTitle = await _db.TaskAssignments.AsNoTracking().Where(x => x.Id == suggestedAfterAssignmentId.Value).Select(x => x.Title).FirstOrDefaultAsync(ct);
+        }
         var publishingActorUserId = await ResolvePublishingActorUserIdAsync(courseId.Value, reviewedByUserId, ct);
 
         var canonicalOnly = string.Equals(ReadString(root, "schemaVersion") ?? ReadString(draftRoot, "schemaVersion") ?? string.Empty, "draft-v2", StringComparison.OrdinalIgnoreCase);
@@ -161,6 +168,98 @@ public sealed partial class AiJobService
             await _assignmentService.UpdateSortAsync(assignmentId, actorUserId, desiredSort.Value);
 
         return (assignmentId, placementApplied);
+    }
+
+    private static int InferDraftDifficulty(JsonElement draftRoot, string description, string assignmentType)
+    {
+        var text = (description ?? string.Empty).ToLowerInvariant();
+        var publicCount = ReadCreateTestCases(draftRoot, false, "publicTests", "tests").Count;
+        var hiddenCount = ReadCreateTestCases(draftRoot, true, "hiddenTests").Count;
+        if (assignmentType != "code-test")
+            return 2;
+        if (text.Contains("следуй шагам") || text.Contains("твой первый") || text.Contains("давай "))
+            return 1;
+        var advancedSignals = new[] { "цикл", "for", "while", "ветв", "услов", "if", "getline", "string", "массив", "sqrt", "pow", "format", "setprecision", "fixed" };
+        var score = advancedSignals.Count(x => text.Contains(x, StringComparison.OrdinalIgnoreCase));
+        if (publicCount + hiddenCount >= 6)
+            score += 1;
+        return score >= 3 ? 3 : score >= 1 ? 2 : 1;
+    }
+
+    private static int InferDraftRating(JsonElement draftRoot, string description, int difficulty)
+    {
+        var text = (description ?? string.Empty).ToLowerInvariant();
+        var rating = difficulty switch
+        {
+            <= 1 => 1,
+            2 => 2,
+            _ => 3,
+        };
+        if (text.Contains("следуй шагам") || text.Contains("ввод") || text.Contains("вывод"))
+            rating = Math.Max(rating, 2);
+        if (text.Contains("услов") || text.Contains("ветв") || text.Contains("цикл"))
+            rating = Math.Max(rating, 3);
+        return Math.Clamp(rating, 1, 5);
+    }
+
+    private async Task<Guid?> ResolvePlacementAfterAssignmentIdAsync(Guid courseId, Guid? suggestedAfterAssignmentId, string? suggestedAfterTitle, string? title, CancellationToken ct)
+    {
+        var anchors = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == courseId)
+            .OrderBy(x => x.Sort)
+            .Select(x => new { x.Id, x.Title })
+            .ToListAsync(ct);
+        if (anchors.Count == 0)
+            return suggestedAfterAssignmentId;
+        if (suggestedAfterAssignmentId.HasValue && anchors.Any(x => x.Id == suggestedAfterAssignmentId.Value))
+            return suggestedAfterAssignmentId;
+        if (!string.IsNullOrWhiteSpace(suggestedAfterTitle))
+        {
+            var byTitle = anchors.FirstOrDefault(x => string.Equals(x.Title.Trim(), suggestedAfterTitle.Trim(), StringComparison.OrdinalIgnoreCase)
+                || x.Title.Contains(suggestedAfterTitle.Trim(), StringComparison.OrdinalIgnoreCase)
+                || suggestedAfterTitle.Trim().Contains(x.Title, StringComparison.OrdinalIgnoreCase));
+            if (byTitle != null)
+                return byTitle.Id;
+        }
+        var numbering = ParseAssignmentNumbering(title);
+        if (numbering.Main.HasValue)
+        {
+            if (numbering.Sub.HasValue)
+            {
+                var mainAnchor = anchors.FirstOrDefault(x => MatchesAssignmentNumber(x.Title, numbering.Main.Value, null));
+                if (mainAnchor != null)
+                    return mainAnchor.Id;
+            }
+            else if (numbering.Main.Value > 1)
+            {
+                var prevAnchor = anchors.FirstOrDefault(x => MatchesAssignmentNumber(x.Title, numbering.Main.Value - 1, null));
+                if (prevAnchor != null)
+                    return prevAnchor.Id;
+            }
+        }
+        return suggestedAfterAssignmentId;
+    }
+
+    private static (int? Main, int? Sub) ParseAssignmentNumbering(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return (null, null);
+        var match = Regex.Match(title, @"(\d+)(?:\.(\d+))?");
+        if (!match.Success)
+            return (null, null);
+        var main = int.TryParse(match.Groups[1].Value, out var parsedMain) ? parsedMain : (int?)null;
+        var sub = match.Groups[2].Success && int.TryParse(match.Groups[2].Value, out var parsedSub) ? parsedSub : (int?)null;
+        return (main, sub);
+    }
+
+    private static bool MatchesAssignmentNumber(string? title, int main, int? sub)
+    {
+        var numbering = ParseAssignmentNumbering(title);
+        if (!numbering.Main.HasValue || numbering.Main.Value != main)
+            return false;
+        if (!sub.HasValue)
+            return !numbering.Sub.HasValue;
+        return numbering.Sub == sub;
     }
 
     private async Task<Guid> ResolvePublishingActorUserIdAsync(Guid courseId, Guid reviewedByUserId, CancellationToken ct)

@@ -868,9 +868,8 @@ public sealed class AiChatService
                             proposal.PlacementAfterAssignmentId = defaultAfterAssignmentId;
                         if (string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle) && !string.IsNullOrWhiteSpace(defaultAfterAssignmentTitle))
                             proposal.PlacementAfterTitle = defaultAfterAssignmentTitle;
-                        if (string.IsNullOrWhiteSpace(proposal.PlacementReason) && (!string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle) || proposal.PlacementAfterAssignmentId.HasValue))
-                            proposal.PlacementReason = $"Поставить после «{proposal.PlacementAfterTitle ?? "выбранного задания"}», чтобы новая задача логично продолжала текущую лестницу курса.";
                     }
+                    await NormalizeBlueprintPlacementsAsync(courseId.Value, proposals, ct);
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? ((memory.CurrentDraftBlueprint?.Revision ?? 0) + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
                     {
@@ -906,6 +905,7 @@ public sealed class AiChatService
                     if (proposals.Count == 0)
                         return FailTool("Не удалось обновить примерные условия: proposals пустой или сломан.");
 
+                    await NormalizeBlueprintPlacementsAsync(courseId.Value, proposals, ct);
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? (current.Revision + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
                     {
@@ -4953,6 +4953,99 @@ public sealed class AiChatService
             TaskFormat = "guided-walkthrough",
             TitleHint = anchor.Title,
         };
+    }
+
+    private sealed record ChatPlacementAnchor(Guid Id, string Title, int Sort);
+
+    private async Task NormalizeBlueprintPlacementsAsync(Guid courseId, List<AiFoundryChatDraftProposalDto> proposals, CancellationToken ct)
+    {
+        if (proposals == null || proposals.Count == 0)
+            return;
+
+        var anchors = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == courseId)
+            .OrderBy(x => x.Sort)
+            .Select(x => new ChatPlacementAnchor(x.Id, x.Title, x.Sort))
+            .ToListAsync(ct);
+        if (anchors.Count == 0)
+            return;
+
+        foreach (var proposal in proposals)
+        {
+            var resolved = ResolveBlueprintPlacementAnchor(anchors, proposal);
+            if (resolved != null)
+            {
+                proposal.PlacementAfterAssignmentId = resolved.Id;
+                proposal.PlacementAfterTitle = resolved.Title;
+            }
+            if (string.IsNullOrWhiteSpace(proposal.PlacementReason) && (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle)))
+                proposal.PlacementReason = $"Поставить после «{proposal.PlacementAfterTitle ?? "выбранного задания"}», чтобы новая задача логично продолжала текущую лестницу курса.";
+        }
+    }
+
+    private static ChatPlacementAnchor? ResolveBlueprintPlacementAnchor(IReadOnlyList<ChatPlacementAnchor> anchors, AiFoundryChatDraftProposalDto proposal)
+    {
+        if (anchors.Count == 0)
+            return null;
+
+        if (proposal.PlacementAfterAssignmentId.HasValue)
+        {
+            var byId = anchors.FirstOrDefault(x => x.Id == proposal.PlacementAfterAssignmentId.Value);
+            if (byId != null)
+                return byId;
+        }
+
+        var requestedTitle = (proposal.PlacementAfterTitle ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(requestedTitle))
+        {
+            var byExactTitle = anchors.FirstOrDefault(x => string.Equals(x.Title.Trim(), requestedTitle, StringComparison.OrdinalIgnoreCase));
+            if (byExactTitle != null)
+                return byExactTitle;
+            var byContains = anchors.FirstOrDefault(x => x.Title.Contains(requestedTitle, StringComparison.OrdinalIgnoreCase) || requestedTitle.Contains(x.Title, StringComparison.OrdinalIgnoreCase));
+            if (byContains != null)
+                return byContains;
+        }
+
+        var numbering = ParseAssignmentNumbering(proposal.Title);
+        if (numbering.Main.HasValue)
+        {
+            if (numbering.Sub.HasValue)
+            {
+                var mainAnchor = anchors.FirstOrDefault(x => MatchesAssignmentNumber(x.Title, numbering.Main.Value, null));
+                if (mainAnchor != null)
+                    return mainAnchor;
+            }
+            else if (numbering.Main.Value > 1)
+            {
+                var previousAnchor = anchors.FirstOrDefault(x => MatchesAssignmentNumber(x.Title, numbering.Main.Value - 1, null));
+                if (previousAnchor != null)
+                    return previousAnchor;
+            }
+        }
+
+        return null;
+    }
+
+    private static (int? Main, int? Sub) ParseAssignmentNumbering(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return (null, null);
+        var match = Regex.Match(title, @"(\d+)(?:\.(\d+))?");
+        if (!match.Success)
+            return (null, null);
+        var main = int.TryParse(match.Groups[1].Value, out var parsedMain) ? parsedMain : (int?)null;
+        var sub = match.Groups[2].Success && int.TryParse(match.Groups[2].Value, out var parsedSub) ? parsedSub : (int?)null;
+        return (main, sub);
+    }
+
+    private static bool MatchesAssignmentNumber(string? title, int main, int? sub)
+    {
+        var numbering = ParseAssignmentNumbering(title);
+        if (!numbering.Main.HasValue || numbering.Main.Value != main)
+            return false;
+        if (!sub.HasValue)
+            return !numbering.Sub.HasValue;
+        return numbering.Sub == sub;
     }
 
     private static AiFoundryCourseAuditDto EnsureBridgeAudit(

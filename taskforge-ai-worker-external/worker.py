@@ -1683,6 +1683,18 @@ def _set_compact_mode(payload: Dict[str, Any], job_type: str, retry_count: int) 
             payload["__compactMode"] = "ultra"
         elif retry_count >= 1:
             payload["__compactMode"] = "compact"
+    elif job_type == "assistant_chat_turn":
+        if retry_count >= 1:
+            payload["__compactMode"] = "ultra"
+        else:
+            conversation_items = len(payload.get("conversation") or []) if isinstance(payload.get("conversation"), list) else 0
+            recent_assignments = len(payload.get("recentAssignments") or []) if isinstance(payload.get("recentAssignments"), list) else 0
+            landmark_assignments = len(payload.get("landmarkAssignments") or []) if isinstance(payload.get("landmarkAssignments"), list) else 0
+            payload_bytes = len(json.dumps(payload, ensure_ascii=False, default=str))
+            if payload_bytes >= 65000 or conversation_items >= 10 or recent_assignments >= 10 or landmark_assignments >= 8:
+                payload["__compactMode"] = "ultra"
+            elif payload_bytes >= 28000 or conversation_items >= 7 or recent_assignments >= 7:
+                payload["__compactMode"] = "compact"
 
 
 def _stage_retry_limit(job_type: str) -> int:

@@ -2070,6 +2070,60 @@ def sanitize_result_payload(
         _sanitize_policy_dict(pp, "requiredCalls", "forbiddenCalls")
         _sanitize_policy_dict(pp, "enforcedMethods", "forbiddenFunctions")
 
+    if job_type == "assignment_analyze_existing":
+        assignment = payload.get("assignment") if isinstance(payload.get("assignment"), dict) else {}
+        overview = sanitized.get("overview") if isinstance(sanitized.get("overview"), dict) else {}
+        for key in ("isImportant", "importanceScore", "importanceReasons", "pedagogicalRole", "teachingStyle", "studentStage", "conceptsIntroduced", "conceptsReinforced", "prerequisites", "surfaceSignals", "courseValue"):
+            if key in sanitized and key not in overview:
+                overview[key] = sanitized.get(key)
+        overview["importanceReasons"] = unique_string_list(overview.get("importanceReasons"), 4)
+        overview["conceptsIntroduced"] = unique_string_list(overview.get("conceptsIntroduced"), 6)
+        overview["conceptsReinforced"] = unique_string_list(overview.get("conceptsReinforced"), 6)
+        overview["prerequisites"] = unique_string_list(overview.get("prerequisites"), 6)
+        overview["surfaceSignals"] = unique_string_list(overview.get("surfaceSignals"), 8)
+        score_raw = overview.get("importanceScore")
+        try:
+            score_val = float(score_raw) if score_raw is not None else None
+        except Exception:
+            score_val = None
+        role = normalize_text(overview.get("pedagogicalRole")) or "skill-drill"
+        title = normalize_text(assignment.get("Title") or assignment.get("title") or sanitized.get("title") or sanitized.get("assignmentTitle")) or "задание"
+        if not sanitized.get("assignmentId"):
+            sanitized["assignmentId"] = assignment.get("Id") or assignment.get("id") or payload.get("assignmentId") or payload.get("targetEntityId")
+        sanitized["kind"] = normalize_text(sanitized.get("kind")) or "course-overview"
+        if overview:
+            sanitized["overview"] = overview
+        summary = normalize_text(sanitized.get("summary"))
+        if not summary:
+            intro = unique_string_list(overview.get("conceptsIntroduced"), 3)
+            reinforced = unique_string_list(overview.get("conceptsReinforced"), 3)
+            if role in {"guided-intro", "bridge", "milestone", "assessment", "reference"} or (score_val is not None and score_val >= 0.7):
+                base = f"«{title}» — заметное опорное задание курса ({role})."
+            else:
+                base = f"«{title}» — в основном тренировочное задание курса ({role})."
+            if intro:
+                base += f" Вводит: {', '.join(intro[:3])}."
+            elif reinforced:
+                base += f" Закрепляет: {', '.join(reinforced[:3])}."
+            course_value = normalize_text(overview.get("courseValue"))
+            if course_value:
+                base += f" {truncate_text(course_value, 180)}"
+            summary = truncate_text(base, 320)
+        sanitized["summary"] = summary
+        if not isinstance(sanitized.get("suggestions"), list) or not sanitized.get("suggestions"):
+            suggestions = []
+            if role == "guided-intro":
+                suggestions.append("Использовать как ориентир для следующих вводных задач того же стиля.")
+            elif role == "bridge":
+                suggestions.append("Ставить рядом с резким вводом новой темы как смягчающий мостик.")
+            elif role == "milestone":
+                suggestions.append("Считать контрольной точкой и не дублировать её слишком близко по курсу.")
+            else:
+                suggestions.append("Не считать это задание главной опорной точкой курса без дополнительных оснований.")
+            if unique_string_list(overview.get("conceptsIntroduced"), 1):
+                suggestions.append(f"Учитывать, что задание вводит тему: {unique_string_list(overview.get('conceptsIntroduced'), 1)[0]}.")
+            sanitized["suggestions"] = suggestions[:3]
+
     if job_type.startswith("assignment_generate"):
         sanitized = _synthesize_generation_result(payload, sanitized)
 

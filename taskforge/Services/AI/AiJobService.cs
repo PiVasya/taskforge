@@ -1433,6 +1433,42 @@ public sealed partial class AiJobService : IAiJobService
                 var assignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId;
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
                 var kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? "quality-audit") : "quality-audit";
+                if (string.IsNullOrWhiteSpace(kind) && root.TryGetProperty("overview", out _))
+                    kind = AiAssignmentOverviewHelper.CourseOverviewKind;
+                if (string.IsNullOrWhiteSpace(summary) && root.TryGetProperty("overview", out var overviewNode) && overviewNode.ValueKind == JsonValueKind.Object)
+                {
+                    var role = overviewNode.TryGetProperty("pedagogicalRole", out var roleNode) ? roleNode.GetString() : null;
+                    var courseValue = overviewNode.TryGetProperty("courseValue", out var valueNode) ? valueNode.GetString() : null;
+                    string? introConcept = null;
+                    if (overviewNode.TryGetProperty("conceptsIntroduced", out var introNode) && introNode.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var introItem in introNode.EnumerateArray())
+                        {
+                            if (introItem.ValueKind == JsonValueKind.String)
+                            {
+                                introConcept = introItem.GetString();
+                                if (!string.IsNullOrWhiteSpace(introConcept))
+                                    break;
+                            }
+                        }
+                    }
+                    var title = string.Empty;
+                    try
+                    {
+                        using var inputDoc = string.IsNullOrWhiteSpace(job.InputJson) ? null : JsonDocument.Parse(job.InputJson);
+                        if (inputDoc != null && inputDoc.RootElement.TryGetProperty("assignment", out var assignmentNode) && assignmentNode.ValueKind == JsonValueKind.Object && assignmentNode.TryGetProperty("title", out var titleNode))
+                            title = titleNode.GetString() ?? string.Empty;
+                    }
+                    catch
+                    {
+                        // ignore malformed input snapshot
+                    }
+                    summary = $"«{(string.IsNullOrWhiteSpace(title) ? "задание" : title)}» — {(string.Equals((role ?? string.Empty).Trim(), "guided-intro", StringComparison.OrdinalIgnoreCase) ? "вводное" : "проанализированное")} задание курса.";
+                    if (!string.IsNullOrWhiteSpace(introConcept))
+                        summary += $" Вводит: {introConcept}.";
+                    else if (!string.IsNullOrWhiteSpace(courseValue))
+                        summary += " " + courseValue;
+                }
                 if (assignmentId != null && !string.IsNullOrWhiteSpace(summary))
                 {
                     Console.WriteLine($"[AiJobService] persist-artifacts assignment-insight add jobId={job.Id} assignmentId='{assignmentId}' summary.len={summary?.Length ?? 0}");

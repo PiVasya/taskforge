@@ -689,9 +689,33 @@ def _compact_memory_for_chat(value: Any) -> Dict[str, Any]:
     return memory
 
 
+def _compact_defaults_for_chat(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "assignmentType": truncate_text(value.get("assignmentType"), 24),
+        "difficulty": value.get("difficulty"),
+        "count": value.get("count"),
+        "mode": truncate_text(value.get("mode"), 24),
+    }
+
+
 def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     raw_memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
     raw_blueprint = payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else (raw_memory.get("currentDraftBlueprint") if isinstance(raw_memory.get("currentDraftBlueprint"), dict) else None)
+    compact_mode = normalize_text(payload.get("__compactMode")).lower()
+    ultra_compact = compact_mode == "ultra"
+    compactish = compact_mode in {"compact", "ultra"}
+    conversation_limit = 3 if ultra_compact else (5 if compactish else 8)
+    recent_assignment_limit = 3 if ultra_compact else (4 if compactish else 6)
+    landmark_limit = 3 if ultra_compact else (4 if compactish else 6)
+    recent_draft_limit = 3 if ultra_compact else (4 if compactish else 6)
+    recent_batch_limit = 1 if ultra_compact else (2 if compactish else 4)
+    recent_job_limit = 2 if ultra_compact else (4 if compactish else 8)
+    recent_user_limit = 0 if compactish else 8
+    recent_attempt_limit = 0 if compactish else 8
+    available_course_limit = 6 if ultra_compact else (8 if compactish else 12)
+    attachment_limit = 3 if ultra_compact else (4 if compactish else 6)
     compact_payload = {
         "sessionId": payload.get("sessionId"),
         "sessionTitle": truncate_text(payload.get("sessionTitle"), 120),
@@ -704,7 +728,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "memory": _compact_memory_for_chat(raw_memory),
         "currentDraftBlueprint": _compact_blueprint_for_chat(raw_blueprint),
         "agentState": _compact_agent_state_for_chat(raw_memory.get("agentState") if isinstance(raw_memory.get("agentState"), dict) else {}),
-        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-8:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
+        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-conversation_limit:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
         "recentAttachments": [
             {
                 "originalName": truncate_text(x.get("originalName"), 80),
@@ -712,13 +736,13 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "sizeBytes": x.get("sizeBytes"),
                 "hasTextExcerpt": bool(x.get("hasTextExcerpt")),
             }
-            for x in ((payload.get("recentAttachments")[-6:] if isinstance(payload.get("recentAttachments"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentAttachments")[-attachment_limit:] if isinstance(payload.get("recentAttachments"), list) else [])) if isinstance(x, dict)
         ],
-        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:6] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
+        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:recent_assignment_limit] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
         "courseOverviewCoverage": payload.get("courseOverviewCoverage") if isinstance(payload.get("courseOverviewCoverage"), dict) else None,
-        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:6] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
+        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:landmark_limit] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
         "autoOverviewBootstrap": payload.get("autoOverviewBootstrap") if isinstance(payload.get("autoOverviewBootstrap"), dict) else None,
-        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:6] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
+        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:recent_draft_limit] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
         "recentBatches": [
             {
                 "id": x.get("id"),
@@ -731,9 +755,9 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "updatedAtUtc": x.get("updatedAtUtc"),
                 "prompt": truncate_text(x.get("prompt"), 160),
             }
-            for x in ((payload.get("recentBatches")[:4] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentBatches")[:recent_batch_limit] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
         ],
-        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:8] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
+        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:recent_job_limit] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
         "recentUsers": [
             {
                 "id": x.get("id"),
@@ -741,7 +765,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "role": truncate_text(x.get("role"), 24),
                 "lastLoginAtUtc": x.get("lastLoginAtUtc"),
             }
-            for x in ((payload.get("recentUsers")[:8] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentUsers")[:recent_user_limit] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
         ],
         "recentAttempts": [
             {
@@ -752,14 +776,14 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "passed": x.get("passed"),
                 "submittedAtUtc": x.get("submittedAtUtc"),
             }
-            for x in ((payload.get("recentAttempts")[:8] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentAttempts")[:recent_attempt_limit] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
         ],
         "availableCourses": [
             {
                 "id": x.get("id"),
                 "title": truncate_text(x.get("title"), 80),
             }
-            for x in ((payload.get("availableCourses")[:12] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("availableCourses")[:available_course_limit] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
         ],
         "availableActions": [
             {
@@ -769,7 +793,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             }
             for x in ((payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [])) if isinstance(x, dict)
         ],
-        "defaults": payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {},
+        "defaults": _compact_defaults_for_chat(payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}),
     }
     # Dynamic directives based on conversation state to prevent planning loops
     _dynamic = []
@@ -818,7 +842,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Никогда не дублируй один и тот же action. Максимум 2 actions за ход. "
         )
 
-    return (
+    prompt = (
         "Ты — TaskForge AI chat orchestrator. Верни только один валидный JSON-объект без markdown и без пояснений вокруг JSON.\\n\\n"
         "Твоя задача: вести ЖИВОЙ диалог с пользователем по-русски и использовать действия TaskForge только там, где они действительно помогают ответить на текущий запрос. "
         "Сначала пойми интент текущего сообщения: это может быть обычный разговор, просьба показать существующие задания, просьба найти пробелы, просьба собрать план или просьба сгенерировать новое. Не превращай каждый запрос про курс в bridge-plan workflow. "
@@ -908,6 +932,13 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         f"Payload:\\n{_prompt_json(compact_payload)}\\n\\n"
         f"Files:\\n{files_text(job)}"
     )
+    if len(prompt) > 85000 and compact_mode != "ultra":
+        retry_payload = dict(payload)
+        retry_payload["__compactMode"] = "ultra"
+        return build_chat_turn_prompt(job, retry_payload)
+    return prompt
+
+
 
 
 
@@ -932,7 +963,6 @@ def build_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         f"Payload:\n{prompt_payload}\n\n"
         f"Files:\n{files_text(job)}"
     )
-
 
 def _repair_route_directive(payload: Dict[str, Any]) -> str:
     repair_plan = payload.get("repairPlan") if isinstance(payload.get("repairPlan"), dict) else {}
