@@ -533,7 +533,7 @@ def _compact_conversation_for_chat(value: Any) -> Dict[str, Any] | None:
         return None
     return {
         "role": truncate_text(value.get("role"), 12),
-        "content": truncate_text(value.get("content"), 240 if normalize_text((value or {}).get("__compactMode")).lower() == "ultra" else 420),
+        "content": truncate_text(value.get("content"), 700),
         "status": truncate_text(value.get("status"), 24),
         "createdAtUtc": value.get("createdAtUtc"),
         "toolCalls": [
@@ -692,21 +692,9 @@ def _compact_memory_for_chat(value: Any) -> Dict[str, Any]:
 def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     raw_memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
     raw_blueprint = payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else (raw_memory.get("currentDraftBlueprint") if isinstance(raw_memory.get("currentDraftBlueprint"), dict) else None)
-    compact_mode = normalize_text(payload.get("__compactMode")).lower()
-    ultra = compact_mode == "ultra"
-    compact = compact_mode in {"compact", "ultra"}
-    conversation_limit = 4 if ultra else (6 if compact else 8)
-    recent_assignments_limit = 3 if ultra else (4 if compact else 6)
-    landmarks_limit = 3 if ultra else (4 if compact else 6)
-    drafts_limit = 3 if ultra else (4 if compact else 6)
-    jobs_limit = 4 if ultra else (6 if compact else 8)
-    users_limit = 5 if ultra else (6 if compact else 8)
-    attempts_limit = 5 if ultra else (6 if compact else 8)
-    courses_limit = 8 if ultra else 12
-    actions_limit = 10 if ultra else 16
     compact_payload = {
         "sessionId": payload.get("sessionId"),
-        "sessionTitle": truncate_text(payload.get("sessionTitle"), 90 if compact else 120),
+        "sessionTitle": truncate_text(payload.get("sessionTitle"), 120),
         "courseId": payload.get("courseId"),
         "selectedCourse": {
             "id": payload.get("selectedCourse", {}).get("id"),
@@ -716,7 +704,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "memory": _compact_memory_for_chat(raw_memory),
         "currentDraftBlueprint": _compact_blueprint_for_chat(raw_blueprint),
         "agentState": _compact_agent_state_for_chat(raw_memory.get("agentState") if isinstance(raw_memory.get("agentState"), dict) else {}),
-        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-conversation_limit:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
+        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-8:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
         "recentAttachments": [
             {
                 "originalName": truncate_text(x.get("originalName"), 80),
@@ -726,11 +714,11 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             }
             for x in ((payload.get("recentAttachments")[-6:] if isinstance(payload.get("recentAttachments"), list) else [])) if isinstance(x, dict)
         ],
-        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:recent_assignments_limit] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
+        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:6] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
         "courseOverviewCoverage": payload.get("courseOverviewCoverage") if isinstance(payload.get("courseOverviewCoverage"), dict) else None,
-        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:landmarks_limit] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
+        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:6] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
         "autoOverviewBootstrap": payload.get("autoOverviewBootstrap") if isinstance(payload.get("autoOverviewBootstrap"), dict) else None,
-        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:drafts_limit] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
+        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:6] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
         "recentBatches": [
             {
                 "id": x.get("id"),
@@ -743,9 +731,9 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "updatedAtUtc": x.get("updatedAtUtc"),
                 "prompt": truncate_text(x.get("prompt"), 160),
             }
-            for x in ((payload.get("recentBatches")[:(3 if compact else 4)] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentBatches")[:4] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
         ],
-        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:jobs_limit] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
+        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:8] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
         "recentUsers": [
             {
                 "id": x.get("id"),
@@ -753,7 +741,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "role": truncate_text(x.get("role"), 24),
                 "lastLoginAtUtc": x.get("lastLoginAtUtc"),
             }
-            for x in ((payload.get("recentUsers")[:users_limit] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentUsers")[:8] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
         ],
         "recentAttempts": [
             {
@@ -764,14 +752,14 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "passed": x.get("passed"),
                 "submittedAtUtc": x.get("submittedAtUtc"),
             }
-            for x in ((payload.get("recentAttempts")[:attempts_limit] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentAttempts")[:8] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
         ],
         "availableCourses": [
             {
                 "id": x.get("id"),
                 "title": truncate_text(x.get("title"), 80),
             }
-            for x in ((payload.get("availableCourses")[:courses_limit] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("availableCourses")[:12] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
         ],
         "availableActions": [
             {
@@ -779,7 +767,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "requiredArguments": x.get("requiredArguments")[:4] if isinstance(x.get("requiredArguments"), list) else [],
                 "optionalArguments": x.get("optionalArguments")[:5] if isinstance(x.get("optionalArguments"), list) else [],
             }
-            for x in (((payload.get("availableActions")[:actions_limit] if isinstance(payload.get("availableActions"), list) else []))) if isinstance(x, dict)
+            for x in ((payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [])) if isinstance(x, dict)
         ],
         "defaults": payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {},
     }

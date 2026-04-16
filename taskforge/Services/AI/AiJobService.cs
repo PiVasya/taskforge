@@ -1431,20 +1431,14 @@ public sealed partial class AiJobService : IAiJobService
             if (job.Type.Equals("assignment_analyze_existing", StringComparison.OrdinalIgnoreCase))
             {
                 var assignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId;
-                var kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? AiAssignmentOverviewHelper.CourseOverviewKind) : AiAssignmentOverviewHelper.CourseOverviewKind;
-                var assignmentTitle = root.TryGetProperty("title", out var titleNode) && titleNode.ValueKind == JsonValueKind.String
-                    ? titleNode.GetString()
-                    : null;
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
-                summary = string.IsNullOrWhiteSpace(summary)
-                    ? AiAssignmentOverviewHelper.BuildFallbackSummary(root, assignmentTitle)
-                    : summary;
-                var storedJson = AiAssignmentOverviewHelper.BuildStoredPayloadJson(root);
-
-                if (assignmentId != null && (!string.IsNullOrWhiteSpace(summary) || !string.IsNullOrWhiteSpace(storedJson)))
+                var kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? "quality-audit") : "quality-audit";
+                if (assignmentId != null && !string.IsNullOrWhiteSpace(summary))
                 {
-                    summary ??= "AI overview сформирован автоматически.";
                     Console.WriteLine($"[AiJobService] persist-artifacts assignment-insight add jobId={job.Id} assignmentId='{assignmentId}' summary.len={summary?.Length ?? 0}");
+                    var storedJson = root.TryGetProperty("overview", out var ov) && ov.ValueKind == JsonValueKind.Object
+                        ? AiAssignmentOverviewHelper.BuildStoredPayloadJson(root)
+                        : (root.TryGetProperty("suggestions", out var sug) ? sug.GetRawText() : null);
 
                     if (AiAssignmentOverviewHelper.IsOverviewKind(kind))
                     {
