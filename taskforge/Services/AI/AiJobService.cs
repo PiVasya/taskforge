@@ -1431,50 +1431,20 @@ public sealed partial class AiJobService : IAiJobService
             if (job.Type.Equals("assignment_analyze_existing", StringComparison.OrdinalIgnoreCase))
             {
                 var assignmentId = ExtractGuid(root, "assignmentId") ?? job.TargetEntityId;
+                var kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? AiAssignmentOverviewHelper.CourseOverviewKind) : AiAssignmentOverviewHelper.CourseOverviewKind;
+                var assignmentTitle = root.TryGetProperty("title", out var titleNode) && titleNode.ValueKind == JsonValueKind.String
+                    ? titleNode.GetString()
+                    : null;
                 var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
-                var kind = root.TryGetProperty("kind", out var k) ? (k.GetString() ?? "quality-audit") : "quality-audit";
-                if (string.IsNullOrWhiteSpace(kind) && root.TryGetProperty("overview", out _))
-                    kind = AiAssignmentOverviewHelper.CourseOverviewKind;
-                if (string.IsNullOrWhiteSpace(summary) && root.TryGetProperty("overview", out var overviewNode) && overviewNode.ValueKind == JsonValueKind.Object)
+                summary = string.IsNullOrWhiteSpace(summary)
+                    ? AiAssignmentOverviewHelper.BuildFallbackSummary(root, assignmentTitle)
+                    : summary;
+                var storedJson = AiAssignmentOverviewHelper.BuildStoredPayloadJson(root);
+
+                if (assignmentId != null && (!string.IsNullOrWhiteSpace(summary) || !string.IsNullOrWhiteSpace(storedJson)))
                 {
-                    var role = overviewNode.TryGetProperty("pedagogicalRole", out var roleNode) ? roleNode.GetString() : null;
-                    var courseValue = overviewNode.TryGetProperty("courseValue", out var valueNode) ? valueNode.GetString() : null;
-                    string? introConcept = null;
-                    if (overviewNode.TryGetProperty("conceptsIntroduced", out var introNode) && introNode.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var introItem in introNode.EnumerateArray())
-                        {
-                            if (introItem.ValueKind == JsonValueKind.String)
-                            {
-                                introConcept = introItem.GetString();
-                                if (!string.IsNullOrWhiteSpace(introConcept))
-                                    break;
-                            }
-                        }
-                    }
-                    var title = string.Empty;
-                    try
-                    {
-                        using var inputDoc = string.IsNullOrWhiteSpace(job.InputJson) ? null : JsonDocument.Parse(job.InputJson);
-                        if (inputDoc != null && inputDoc.RootElement.TryGetProperty("assignment", out var assignmentNode) && assignmentNode.ValueKind == JsonValueKind.Object && assignmentNode.TryGetProperty("title", out var titleNode))
-                            title = titleNode.GetString() ?? string.Empty;
-                    }
-                    catch
-                    {
-                        // ignore malformed input snapshot
-                    }
-                    summary = $"«{(string.IsNullOrWhiteSpace(title) ? "задание" : title)}» — {(string.Equals((role ?? string.Empty).Trim(), "guided-intro", StringComparison.OrdinalIgnoreCase) ? "вводное" : "проанализированное")} задание курса.";
-                    if (!string.IsNullOrWhiteSpace(introConcept))
-                        summary += $" Вводит: {introConcept}.";
-                    else if (!string.IsNullOrWhiteSpace(courseValue))
-                        summary += " " + courseValue;
-                }
-                if (assignmentId != null && !string.IsNullOrWhiteSpace(summary))
-                {
+                    summary ??= "AI overview сформирован автоматически.";
                     Console.WriteLine($"[AiJobService] persist-artifacts assignment-insight add jobId={job.Id} assignmentId='{assignmentId}' summary.len={summary?.Length ?? 0}");
-                    var storedJson = root.TryGetProperty("overview", out var ov) && ov.ValueKind == JsonValueKind.Object
-                        ? AiAssignmentOverviewHelper.BuildStoredPayloadJson(root)
-                        : (root.TryGetProperty("suggestions", out var sug) ? sug.GetRawText() : null);
 
                     if (AiAssignmentOverviewHelper.IsOverviewKind(kind))
                     {

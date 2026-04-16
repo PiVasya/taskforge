@@ -1971,6 +1971,59 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
     return result
 
 
+
+def _synthesize_assignment_overview(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    assignment = payload.get("assignment") if isinstance(payload.get("assignment"), dict) else {}
+    assignment_id = normalize_text(result.get("assignmentId") or assignment.get("id") or assignment.get("assignmentId") or payload.get("assignmentId"))
+    overview = result.get("overview") if isinstance(result.get("overview"), dict) else {}
+    merged = dict(overview)
+    for key in (
+        "isImportant", "importanceScore", "importanceReasons", "pedagogicalRole", "teachingStyle",
+        "studentStage", "conceptsIntroduced", "conceptsReinforced", "prerequisites", "surfaceSignals", "courseValue",
+    ):
+        if key in result and key not in merged:
+            merged[key] = result.get(key)
+
+    if not isinstance(merged.get("isImportant"), bool):
+        try:
+            merged["isImportant"] = float(merged.get("importanceScore") or 0) >= 0.7
+        except Exception:
+            merged["isImportant"] = False
+    try:
+        if not isinstance(merged.get("importanceScore"), (int, float)):
+            merged["importanceScore"] = float(merged.get("importanceScore")) if normalize_text(merged.get("importanceScore")) else None
+    except Exception:
+        merged["importanceScore"] = None
+    if merged.get("importanceScore") is None:
+        merged["importanceScore"] = 0.35
+    if not normalize_text(merged.get("pedagogicalRole")):
+        merged["pedagogicalRole"] = "skill-drill"
+    if not normalize_text(merged.get("teachingStyle")):
+        merged["teachingStyle"] = "practice-first"
+    if not normalize_text(merged.get("studentStage")):
+        merged["studentStage"] = "beginner"
+    for list_key, limit in (("importanceReasons", 8), ("conceptsIntroduced", 6), ("conceptsReinforced", 6), ("prerequisites", 6), ("surfaceSignals", 6)):
+        merged[list_key] = unique_string_list(merged.get(list_key), limit)
+
+    title = normalize_text(assignment.get("title") or payload.get("titleHint") or "Задание")
+    if not normalize_text(merged.get("courseValue")):
+        merged["courseValue"] = f"{title} помогает курсу как {normalize_text(merged.get('pedagogicalRole')) or 'skill-drill'}."
+
+    summary = normalize_text(result.get("summary"))
+    if not summary:
+        reasons = merged.get("importanceReasons") if isinstance(merged.get("importanceReasons"), list) else []
+        lead = normalize_text(reasons[0]) if reasons else normalize_text(merged.get("courseValue"))
+        summary = truncate_text(f"{title}: {lead}", 220)
+
+    suggestions = unique_string_list(result.get("suggestions"), 6)
+    return {
+        "assignmentId": assignment_id or None,
+        "kind": normalize_text(result.get("kind") or "course-overview") or "course-overview",
+        "summary": summary,
+        "overview": merged,
+        "suggestions": suggestions,
+    }
+
 def sanitize_result_payload(
     job_type: str, payload: Dict[str, Any], result: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2070,60 +2123,6 @@ def sanitize_result_payload(
         _sanitize_policy_dict(pp, "requiredCalls", "forbiddenCalls")
         _sanitize_policy_dict(pp, "enforcedMethods", "forbiddenFunctions")
 
-    if job_type == "assignment_analyze_existing":
-        assignment = payload.get("assignment") if isinstance(payload.get("assignment"), dict) else {}
-        overview = sanitized.get("overview") if isinstance(sanitized.get("overview"), dict) else {}
-        for key in ("isImportant", "importanceScore", "importanceReasons", "pedagogicalRole", "teachingStyle", "studentStage", "conceptsIntroduced", "conceptsReinforced", "prerequisites", "surfaceSignals", "courseValue"):
-            if key in sanitized and key not in overview:
-                overview[key] = sanitized.get(key)
-        overview["importanceReasons"] = unique_string_list(overview.get("importanceReasons"), 4)
-        overview["conceptsIntroduced"] = unique_string_list(overview.get("conceptsIntroduced"), 6)
-        overview["conceptsReinforced"] = unique_string_list(overview.get("conceptsReinforced"), 6)
-        overview["prerequisites"] = unique_string_list(overview.get("prerequisites"), 6)
-        overview["surfaceSignals"] = unique_string_list(overview.get("surfaceSignals"), 8)
-        score_raw = overview.get("importanceScore")
-        try:
-            score_val = float(score_raw) if score_raw is not None else None
-        except Exception:
-            score_val = None
-        role = normalize_text(overview.get("pedagogicalRole")) or "skill-drill"
-        title = normalize_text(assignment.get("Title") or assignment.get("title") or sanitized.get("title") or sanitized.get("assignmentTitle")) or "задание"
-        if not sanitized.get("assignmentId"):
-            sanitized["assignmentId"] = assignment.get("Id") or assignment.get("id") or payload.get("assignmentId") or payload.get("targetEntityId")
-        sanitized["kind"] = normalize_text(sanitized.get("kind")) or "course-overview"
-        if overview:
-            sanitized["overview"] = overview
-        summary = normalize_text(sanitized.get("summary"))
-        if not summary:
-            intro = unique_string_list(overview.get("conceptsIntroduced"), 3)
-            reinforced = unique_string_list(overview.get("conceptsReinforced"), 3)
-            if role in {"guided-intro", "bridge", "milestone", "assessment", "reference"} or (score_val is not None and score_val >= 0.7):
-                base = f"«{title}» — заметное опорное задание курса ({role})."
-            else:
-                base = f"«{title}» — в основном тренировочное задание курса ({role})."
-            if intro:
-                base += f" Вводит: {', '.join(intro[:3])}."
-            elif reinforced:
-                base += f" Закрепляет: {', '.join(reinforced[:3])}."
-            course_value = normalize_text(overview.get("courseValue"))
-            if course_value:
-                base += f" {truncate_text(course_value, 180)}"
-            summary = truncate_text(base, 320)
-        sanitized["summary"] = summary
-        if not isinstance(sanitized.get("suggestions"), list) or not sanitized.get("suggestions"):
-            suggestions = []
-            if role == "guided-intro":
-                suggestions.append("Использовать как ориентир для следующих вводных задач того же стиля.")
-            elif role == "bridge":
-                suggestions.append("Ставить рядом с резким вводом новой темы как смягчающий мостик.")
-            elif role == "milestone":
-                suggestions.append("Считать контрольной точкой и не дублировать её слишком близко по курсу.")
-            else:
-                suggestions.append("Не считать это задание главной опорной точкой курса без дополнительных оснований.")
-            if unique_string_list(overview.get("conceptsIntroduced"), 1):
-                suggestions.append(f"Учитывать, что задание вводит тему: {unique_string_list(overview.get('conceptsIntroduced'), 1)[0]}.")
-            sanitized["suggestions"] = suggestions[:3]
-
     if job_type.startswith("assignment_generate"):
         sanitized = _synthesize_generation_result(payload, sanitized)
 
@@ -2148,5 +2147,8 @@ def sanitize_result_payload(
 
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
         sanitized.update(_synthesize_batch_plan(payload, sanitized))
+
+    if job_type == "assignment_analyze_existing":
+        sanitized = _synthesize_assignment_overview(payload, sanitized)
 
     return sanitized

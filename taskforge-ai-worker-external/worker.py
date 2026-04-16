@@ -8,6 +8,7 @@ All business logic lives in dedicated modules:
 This file contains only the job-routing dispatcher and the main poll loop.
 """
 
+import json
 import re
 import time
 from typing import Any, Dict
@@ -1668,33 +1669,42 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     return sanitize_result_payload(job_type, enriched_payload, result)
 
 def _set_compact_mode(payload: Dict[str, Any], job_type: str, retry_count: int) -> None:
+    if not isinstance(payload, dict):
+        return
+
+    def _payload_size_bytes() -> int:
+        try:
+            return len(json.dumps(payload, ensure_ascii=False, default=str))
+        except Exception:
+            return 0
+
+    payload_size = _payload_size_bytes()
+    existing = str(payload.get("__compactMode") or "").strip().lower()
+    mode = existing
+
     if job_type == "assignment_course_profile_build":
         if retry_count >= 2:
-            payload["__compactMode"] = "ultra"
+            mode = "ultra"
         elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
+            mode = mode or "compact"
     elif job_type == "assignment_gap_analysis":
         if retry_count >= 2:
-            payload["__compactMode"] = "ultra"
+            mode = "ultra"
         elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
+            mode = mode or "compact"
     elif job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
         if retry_count >= 2:
-            payload["__compactMode"] = "ultra"
+            mode = "ultra"
         elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
+            mode = mode or "compact"
     elif job_type == "assistant_chat_turn":
-        if retry_count >= 1:
-            payload["__compactMode"] = "ultra"
-        else:
-            conversation_items = len(payload.get("conversation") or []) if isinstance(payload.get("conversation"), list) else 0
-            recent_assignments = len(payload.get("recentAssignments") or []) if isinstance(payload.get("recentAssignments"), list) else 0
-            landmark_assignments = len(payload.get("landmarkAssignments") or []) if isinstance(payload.get("landmarkAssignments"), list) else 0
-            payload_bytes = len(json.dumps(payload, ensure_ascii=False, default=str))
-            if payload_bytes >= 65000 or conversation_items >= 10 or recent_assignments >= 10 or landmark_assignments >= 8:
-                payload["__compactMode"] = "ultra"
-            elif payload_bytes >= 28000 or conversation_items >= 7 or recent_assignments >= 7:
-                payload["__compactMode"] = "compact"
+        if retry_count >= 2 or payload_size >= 220_000:
+            mode = "ultra"
+        elif retry_count >= 1 or payload_size >= 110_000:
+            mode = mode or "compact"
+
+    if mode:
+        payload["__compactMode"] = mode
 
 
 def _stage_retry_limit(job_type: str) -> int:
