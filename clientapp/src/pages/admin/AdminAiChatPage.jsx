@@ -553,7 +553,12 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
   const visibleToolCalls = showTechnical ? toolCalls : [];
   const visibleToolResults = showTechnical
     ? toolResults
-    : toolResults.filter((result) => result?.requiresConfirmation || ['failed', 'error', 'cancelled'].includes(String(result?.status || '').toLowerCase()));
+    : toolResults.filter((result) => result?.requiresConfirmation
+      || result?.draftId
+      || result?.assignmentId
+      || result?.jobId
+      || result?.batchId
+      || ['failed', 'error', 'cancelled', 'partial'].includes(String(result?.status || '').toLowerCase()));
   const quickReplies = isAssistant && visibleToolCalls.length === 0 && visibleToolResults.length === 0 ? getAssistantQuickReplies(message) : [];
 
   // System/batch-update messages rendered as compact notifications

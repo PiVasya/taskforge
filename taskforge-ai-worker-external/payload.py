@@ -112,7 +112,6 @@ def compact_reference_assignments(
                 max_desc_len,
             ),
             "difficulty": item.get("difficulty"),
-            "rating": item.get("rating"),
             "sort": item.get("sort"),
             "tags": truncate_text(item.get("tags"), 120),
             "allowedLanguagesCsv": truncate_text(item.get("allowedLanguagesCsv"), 80),
@@ -148,6 +147,104 @@ def _desired_anchor_id(payload: Dict[str, Any]) -> str:
         if norm:
             return norm
     return ""
+
+
+def _instruction_text_payload(payload: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for value in [
+        payload.get("prompt"),
+        payload.get("titleHint"),
+        payload.get("sourceText"),
+        payload.get("notes"),
+        payload.get("userInstructionSnapshot"),
+        payload.get("teachingScript"),
+    ]:
+        norm = normalize_text(value)
+        if norm:
+            parts.append(norm)
+    structured = payload.get("structuredContext") if isinstance(payload.get("structuredContext"), dict) else {}
+    for key in ["title", "goal", "conditionPreview", "fullCondition", "placementAfterTitle"]:
+        norm = normalize_text(structured.get(key))
+        if norm:
+            parts.append(norm)
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    for key in ["titleHint", "targetSkill", "microGoal"]:
+        norm = normalize_text(task.get(key) or task.get(key[:1].upper() + key[1:]) or brief.get(key))
+        if norm:
+            parts.append(norm)
+    return "\n".join(parts)
+
+
+def _explicit_reference_hints(payload: Dict[str, Any]) -> Dict[str, Any]:
+    text = _instruction_text_payload(payload)
+    low = text.lower()
+    exact_style = any(marker in low for marker in [
+        "1 в 1",
+        "один в один",
+        "как первое задание",
+        "как первая задача",
+        "в стиле первого задания",
+        "стиль первого задания",
+        "повтори стиль",
+        "открой первую зада",
+        "открой задание 1",
+    ])
+    number_hints: List[str] = []
+    for match in re.findall(r"задани[ея]\s+(\d+(?:\.\d+)*)", low):
+        if match not in number_hints:
+            number_hints.append(match)
+    for match in re.findall(r"(\d+(?:\.\d+)*)", low):
+        if any(ch.isalpha() for ch in match):
+            continue
+        if match not in number_hints and (match.startswith("1") or match.startswith("8") or match.startswith("14")):
+            number_hints.append(match)
+    title_hints: List[str] = []
+    if exact_style:
+        title_hints.extend(["твой первый вывод", "задание 1", "первый вывод"])
+    if "char" in low and "перв" in low:
+        title_hints.append("твой первый вывод")
+    return {"exactStyle": exact_style, "numberHints": number_hints[:6], "titleHints": title_hints[:6]}
+
+
+def _matches_assignment_number(ref: Dict[str, Any], number: str) -> bool:
+    title = normalize_text(ref.get("title")).lower()
+    if not title or not number:
+        return False
+    patterns = [
+        f"задание {number}.",
+        f"задание {number} ",
+        f"задание {number}",
+    ]
+    return any(pattern in title for pattern in patterns)
+
+
+def _style_exemplar_candidates(payload: Dict[str, Any], refs_sorted: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    hints = _explicit_reference_hints(payload)
+    result: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _push(ref: Dict[str, Any]) -> None:
+        ref_id = normalize_text(ref.get("id")) or normalize_text(ref.get("title"))
+        if not ref_id or ref_id in seen:
+            return
+        seen.add(ref_id)
+        result.append(ref)
+
+    for number in hints.get("numberHints") or []:
+        for ref in refs_sorted:
+            if _matches_assignment_number(ref, str(number)):
+                _push(ref)
+    for token in hints.get("titleHints") or []:
+        token_low = normalize_text(token).lower()
+        for ref in refs_sorted:
+            title = normalize_text(ref.get("title")).lower()
+            if token_low and token_low in title:
+                _push(ref)
+    if hints.get("exactStyle") and not result:
+        for ref in refs_sorted[:2]:
+            _push(ref)
+    return result[:4]
 
 
 def _reference_seed_tokens(payload: Dict[str, Any]) -> List[str]:
@@ -186,6 +283,10 @@ def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int,
             return
         seen.add(ref_id)
         selected.append(ref)
+
+    exemplar_refs = _style_exemplar_candidates(payload, refs_sorted)
+    for ref in exemplar_refs:
+        _add(ref)
 
     if anchor_id:
         anchor_idx = next((idx for idx, ref in enumerate(refs_sorted) if normalize_text(ref.get("id")) == anchor_id), None)
@@ -226,7 +327,7 @@ def _select_reference_assignments_for_stage(payload: Dict[str, Any], limit: int,
     result = selected[:limit]
     if not return_telemetry:
         return result
-    telemetry = {"anchorId": anchor_id, "seedTokens": seed_tokens[:8], "selectedIds": [normalize_text(ref.get("id")) for ref in result if normalize_text(ref.get("id"))], "selectedTitles": [truncate_text(ref.get("title"), 90) for ref in result[:6]], "topCandidates": top_candidates, "limit": limit}
+    telemetry = {"anchorId": anchor_id, "seedTokens": seed_tokens[:8], "selectedIds": [normalize_text(ref.get("id")) for ref in result if normalize_text(ref.get("id"))], "selectedTitles": [truncate_text(ref.get("title"), 90) for ref in result[:6]], "styleExemplarTitles": [truncate_text(ref.get("title"), 90) for ref in exemplar_refs[:4]], "topCandidates": top_candidates, "limit": limit}
     return result, telemetry
 
 
@@ -313,6 +414,15 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
                 "sort": ref.get("sort"),
                 "descriptionSummary": truncate_text(ref.get("descriptionSummary"), 160),
             })
+    style_exemplars = [
+        {
+            "id": ref.get("id"),
+            "title": truncate_text(ref.get("title"), 120),
+            "sort": ref.get("sort"),
+            "descriptionSummary": truncate_text(ref.get("descriptionSummary"), 160),
+        }
+        for ref in _style_exemplar_candidates(payload, refs_sorted)[:4]
+    ]
     duplicate_clusters_preview = []
     if DUPLICATE_CLUSTERING:
         cluster_items = []
@@ -331,6 +441,8 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
         "possibleDuplicates": possible_duplicates,
         "duplicateSignatureHints": signature_hints,
         "duplicateClustersPreview": duplicate_clusters_preview[:3],
+        "styleExemplarAssignments": style_exemplars,
+        "exactStyleRequested": bool((_explicit_reference_hints(payload) or {}).get("exactStyle")),
     }
 
 
@@ -1963,6 +2075,15 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
                     for key in ["minPublicTests", "minHiddenTests", "minTotalTests", "preferPublicTestsMoreThanHidden"]
                     if payload["qualityGates"].get(key) is not None
                 }
+            anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
+            style_exemplars = anchor_context.get("styleExemplarAssignments") if isinstance(anchor_context.get("styleExemplarAssignments"), list) else []
+            if anchor_context.get("exactStyleRequested") or style_exemplars:
+                meta["styleContract"] = {
+                    "exactStyleRequested": bool(anchor_context.get("exactStyleRequested")),
+                    "preferGuidedIntroScaffold": bool(anchor_context.get("exactStyleRequested")),
+                    "avoidGenericCommentary": True,
+                    "exemplarTitles": [truncate_text((item or {}).get("title"), 80) for item in style_exemplars[:4] if isinstance(item, dict) and truncate_text((item or {}).get("title"), 80)],
+                }
         else:
             result["draft"].pop("allowedLanguages", None)
         meta.setdefault("generationSource", "llm")
@@ -1970,6 +2091,59 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
     result.setdefault("schemaVersion", normalize_text(payload.get("schemaVersion")) or "draft-v2")
     return result
 
+
+
+def _synthesize_assignment_overview(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    assignment = payload.get("assignment") if isinstance(payload.get("assignment"), dict) else {}
+    assignment_id = normalize_text(result.get("assignmentId") or assignment.get("id") or assignment.get("assignmentId") or payload.get("assignmentId"))
+    overview = result.get("overview") if isinstance(result.get("overview"), dict) else {}
+    merged = dict(overview)
+    for key in (
+        "isImportant", "importanceScore", "importanceReasons", "pedagogicalRole", "teachingStyle",
+        "studentStage", "conceptsIntroduced", "conceptsReinforced", "prerequisites", "surfaceSignals", "courseValue",
+    ):
+        if key in result and key not in merged:
+            merged[key] = result.get(key)
+
+    if not isinstance(merged.get("isImportant"), bool):
+        try:
+            merged["isImportant"] = float(merged.get("importanceScore") or 0) >= 0.7
+        except Exception:
+            merged["isImportant"] = False
+    try:
+        if not isinstance(merged.get("importanceScore"), (int, float)):
+            merged["importanceScore"] = float(merged.get("importanceScore")) if normalize_text(merged.get("importanceScore")) else None
+    except Exception:
+        merged["importanceScore"] = None
+    if merged.get("importanceScore") is None:
+        merged["importanceScore"] = 0.35
+    if not normalize_text(merged.get("pedagogicalRole")):
+        merged["pedagogicalRole"] = "skill-drill"
+    if not normalize_text(merged.get("teachingStyle")):
+        merged["teachingStyle"] = "practice-first"
+    if not normalize_text(merged.get("studentStage")):
+        merged["studentStage"] = "beginner"
+    for list_key, limit in (("importanceReasons", 8), ("conceptsIntroduced", 6), ("conceptsReinforced", 6), ("prerequisites", 6), ("surfaceSignals", 6)):
+        merged[list_key] = unique_string_list(merged.get(list_key), limit)
+
+    title = normalize_text(assignment.get("title") or payload.get("titleHint") or "Задание")
+    if not normalize_text(merged.get("courseValue")):
+        merged["courseValue"] = f"{title} помогает курсу как {normalize_text(merged.get('pedagogicalRole')) or 'skill-drill'}."
+
+    summary = normalize_text(result.get("summary"))
+    if not summary:
+        reasons = merged.get("importanceReasons") if isinstance(merged.get("importanceReasons"), list) else []
+        lead = normalize_text(reasons[0]) if reasons else normalize_text(merged.get("courseValue"))
+        summary = truncate_text(f"{title}: {lead}", 220)
+
+    suggestions = unique_string_list(result.get("suggestions"), 6)
+    return {
+        "assignmentId": assignment_id or None,
+        "kind": normalize_text(result.get("kind") or "course-overview") or "course-overview",
+        "summary": summary,
+        "overview": merged,
+        "suggestions": suggestions,
+    }
 
 def sanitize_result_payload(
     job_type: str, payload: Dict[str, Any], result: Dict[str, Any]
@@ -2094,5 +2268,8 @@ def sanitize_result_payload(
 
     if job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
         sanitized.update(_synthesize_batch_plan(payload, sanitized))
+
+    if job_type == "assignment_analyze_existing":
+        sanitized = _synthesize_assignment_overview(payload, sanitized)
 
     return sanitized

@@ -304,7 +304,6 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 ),
                 "courseId": job.get("courseId"),
                 "difficulty": 2,
-                "rating": 1,
                 "tags": "ai,fallback,code",
                 "allowedLanguages": _supported_code_languages(payload),
                 "publicTests": [
@@ -337,7 +336,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
                 "title": "AI fallback: базовый тест",
                 "description": "<p>Ответьте на вопросы по теме.</p><p>Внимательно прочитайте формулировки и выберите правильные варианты.</p>",
                 "courseId": job.get("courseId"),
-                "difficulty": 2, "rating": 1, "tags": "ai,fallback,test",
+                "difficulty": 2, "tags": "ai,fallback,test",
                 "settings": {"maxAttempts": 3, "passPercent": 60, "shuffleQuestions": True, "shuffleAnswers": True, "allowReview": True},
                 "questions": [
                     {"type": "text", "prompt": "Введите ok", "acceptedAnswers": ["ok"], "trim": True, "caseSensitive": False},
@@ -355,7 +354,7 @@ def fallback_result(job: Dict[str, Any]) -> Dict[str, Any]:
             "title": "AI fallback: простая математическая задача",
             "description": "<p>Решите предложенную задачу и введите ответы в блоки.</p>",
             "courseId": job.get("courseId"),
-            "difficulty": 2, "rating": 1, "tags": "ai,fallback,math",
+            "difficulty": 2, "tags": "ai,fallback,math",
             "settings": {"maxAttempts": 3, "passPercent": 60, "shuffleBlocks": False, "allowReview": True},
             "blocks": [
                 {"kind": "info", "prompt": "Найдите значение выражения 2 + 2.", "score": 0, "isRequired": True},

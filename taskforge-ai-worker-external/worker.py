@@ -8,6 +8,7 @@ All business logic lives in dedicated modules:
 This file contains only the job-routing dispatcher and the main poll loop.
 """
 
+import json
 import re
 import time
 from typing import Any, Dict
@@ -912,6 +913,50 @@ def _chat_is_precision_check_request(text: str) -> bool:
         "она врет",
     ])
 
+def _chat_requests_style_exemplar_inspection(text: str) -> bool:
+    low = (text or "").lower()
+    if not low:
+        return False
+    style_markers = [
+        "1 в 1",
+        "один в один",
+        "как первое задание",
+        "как первая задача",
+        "в стиле первого задания",
+        "стиль первого задания",
+        "стиле как первое",
+        "повтори стиль",
+        "повтори первое",
+        "открой первую зада",
+        "открой первое за",
+        "открой задание 1",
+        "посмотри её стиль",
+        "посмотри ее стиль",
+        "сохрани стиль",
+    ]
+    return any(marker in low for marker in style_markers)
+
+
+def _chat_has_matching_style_inspection(payload: Dict[str, Any], text: str) -> bool:
+    memory = _chat_memory(payload)
+    inspection = memory.get("lastCourseInspection") if isinstance(memory.get("lastCourseInspection"), dict) else {}
+    assignments = inspection.get("assignments") if isinstance(inspection.get("assignments"), list) else []
+    if not assignments:
+        return False
+    low = (text or "").lower()
+    wants_first = any(token in low for token in ["перв", "задание 1", "1 в 1"])
+    wants_eight = any(token in low for token in [" 8 ", "8 задан", "задание 8", "8.1", "8.2", "8.3", "8.4"])
+    for item in assignments:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").lower()
+        sort = item.get("sort")
+        if wants_first and ("задание 1" in title or "перв" in title or sort in {0, 1}):
+            return True
+        if wants_eight and ("задание 8" in title or (isinstance(sort, int) and 8 <= sort <= 12)):
+            return True
+    return False
+
 
 def _chat_latest_teaching_script(payload: Dict[str, Any], last_user: str) -> str:
     memory = _chat_memory(payload)
@@ -1148,6 +1193,26 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     blueprint = _chat_blueprint(payload)
     blueprint_proposals = _chat_blueprint_proposals(payload)
+
+    if _chat_requests_style_exemplar_inspection(last_user) and not _chat_has_matching_style_inspection(payload, last_user):
+        exemplar_query = last_user
+        if "пер" in (last_user or "").lower() and "Задание 1" not in exemplar_query:
+            exemplar_query = f"{last_user} Задание 1. Твой первый вывод".strip()
+        return {
+            "assistantMessage": "Сначала открою эталонные задания и посмотрю их реальные условия, чтобы повторить стиль ближе к оригиналу, а не по памяти.",
+            "sessionTitle": _chat_build_session_title(payload),
+            "actions": [{
+                "name": "inspect_course_assignments",
+                "reason": "Пользователь просит повторить стиль 1-в-1 и явно посмотреть соседние/эталонные задания. Сначала нужен живой inspection по реальным условиям.",
+                "arguments": {
+                    "courseId": course_id,
+                    "query": exemplar_query,
+                    **({"aroundAssignmentId": remembered_after_assignment_id} if remembered_after_assignment_id else {}),
+                    "window": 4 if remembered_after_assignment_id else 0,
+                    "limitAssignments": 14,
+                },
+            }],
+        }
 
     if latest_intent_kind == "generate" and blueprint_proposals and (_chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_approved_blueprint(payload)):
         selected = blueprint_proposals[0]
@@ -1668,21 +1733,42 @@ def _generate_draft_via_substages(job: Dict[str, Any], payload: Dict[str, Any], 
     return sanitize_result_payload(job_type, enriched_payload, result)
 
 def _set_compact_mode(payload: Dict[str, Any], job_type: str, retry_count: int) -> None:
+    if not isinstance(payload, dict):
+        return
+
+    def _payload_size_bytes() -> int:
+        try:
+            return len(json.dumps(payload, ensure_ascii=False, default=str))
+        except Exception:
+            return 0
+
+    payload_size = _payload_size_bytes()
+    existing = str(payload.get("__compactMode") or "").strip().lower()
+    mode = existing
+
     if job_type == "assignment_course_profile_build":
         if retry_count >= 2:
-            payload["__compactMode"] = "ultra"
+            mode = "ultra"
         elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
+            mode = mode or "compact"
     elif job_type == "assignment_gap_analysis":
         if retry_count >= 2:
-            payload["__compactMode"] = "ultra"
+            mode = "ultra"
         elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
+            mode = mode or "compact"
     elif job_type in {"assignment_batch_plan", "assignment_batch_replan"}:
         if retry_count >= 2:
-            payload["__compactMode"] = "ultra"
+            mode = "ultra"
         elif retry_count >= 1:
-            payload["__compactMode"] = "compact"
+            mode = mode or "compact"
+    elif job_type == "assistant_chat_turn":
+        if retry_count >= 2 or payload_size >= 220_000:
+            mode = "ultra"
+        elif retry_count >= 1 or payload_size >= 110_000:
+            mode = mode or "compact"
+
+    if mode:
+        payload["__compactMode"] = mode
 
 
 def _stage_retry_limit(job_type: str) -> int:

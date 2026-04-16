@@ -76,6 +76,33 @@ def _tests_have_constant_output_with_varying_input(tests: List[Dict[str, Any]]) 
     return len(unique_inputs) >= 2 and len(unique_outputs) == 1
 
 
+def _contains_generic_beginner_commentary(description: str) -> bool:
+    text = normalize_text(description).lower()
+    if not text:
+        return False
+    patterns = [
+        "это самый простой способ",
+        "это база для",
+        "цель — показать",
+        "цель - показать",
+        "покажи, что",
+        "объясни, что",
+        "компьютер не знает",
+        "на низком уровне",
+    ]
+    return any(pattern in text for pattern in patterns)
+
+
+def _looks_like_missing_guided_scaffold(description: str) -> bool:
+    text = normalize_text(description)
+    if not text:
+        return False
+    low = text.lower()
+    has_steps = ("следуй шагам" in low) or bool(__import__('re').search(r"(^|\n)1\.", text))
+    has_intro = low.startswith("давай ") or low.startswith("теперь ") or low.startswith("в этой задаче") or low.startswith("мы ")
+    return not (has_steps and has_intro)
+
+
 # ── Shared helpers ───────────────────────────────────
 
 def _is_site_incompatible_test_input(value: Any) -> bool:
@@ -158,6 +185,20 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
     prefer_public_more = bool(qg.get("preferPublicTestsMoreThanHidden", True))
     expected_langs = [normalize_text(x).lower() for x in list(meta.get("expectedAllowedLanguages") or []) if normalize_text(x)]
     checks: List[Dict[str, Any]] = collect_quality_checks_common(draft)
+    description = str(draft.get("description") or "")
+    style_contract = meta.get("styleContract") if isinstance(meta.get("styleContract"), dict) else {}
+    if style_contract.get("avoidGenericCommentary"):
+        checks.append({
+            "name": "style-generic-commentary",
+            "status": "failed" if _contains_generic_beginner_commentary(description) else "passed",
+            "details": "В description нет лишних авторских комментариев" if not _contains_generic_beginner_commentary(description) else "Убери фразы вроде «это самый простой способ / покажи, что / объясни, что» и держи тон ближе к эталону."
+        })
+    if style_contract.get("preferGuidedIntroScaffold"):
+        checks.append({
+            "name": "style-guided-scaffold",
+            "status": "failed" if _looks_like_missing_guided_scaffold(description) else "passed",
+            "details": "Сохранён scaffold пошаговой обучалки" if not _looks_like_missing_guided_scaffold(description) else "Для exact-style обучалки нужен дружелюбный intro + «Следуй шагам» + нумерованные шаги."
+        })
 
     if "codePolicy" in draft:
         checks.append({"name": "code-policy-shape", "status": "failed", "details": "Используй root-level requiredCalls/forbiddenCalls, а не nested codePolicy"})

@@ -274,6 +274,29 @@ def _instruction_fidelity_appendix(payload: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _style_exemplar_appendix(payload: Dict[str, Any]) -> str:
+    anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
+    exemplars = anchor_context.get("styleExemplarAssignments") if isinstance(anchor_context.get("styleExemplarAssignments"), list) else []
+    exact_requested = bool(anchor_context.get("exactStyleRequested"))
+    if not exemplars and not exact_requested:
+        return ""
+    lines: List[str] = []
+    if exact_requested:
+        lines.append("- Пользователь просит максимально близко повторить стиль уже существующего задания. Не усредняй стиль по всему курсу, а ориентируйся на конкретный эталон.")
+    if exemplars:
+        titles = [truncate_text((item or {}).get("title"), 80) for item in exemplars if isinstance(item, dict) and truncate_text((item or {}).get("title"), 80)]
+        if titles:
+            lines.append("- Стилевые эталоны из курса: " + "; ".join(titles[:4]) + ".")
+        lines.append("- Сохрани у эталона тон, порядок подачи, формат коротких шагов и уровень подробности. Меняй только учебную сущность, которую попросил пользователь.")
+        lines.append("- Если эталон выглядит как пошаговая обучалка, повтори scaffold почти дословно: короткое вступление, затем «Следуй шагам», затем простые пояснения без лишней теории.")
+    if exact_requested:
+        lines.append("- Запрещены авторские комментарии-паразиты вроде «это самый простой способ», «это база для», «цель — показать», «покажи, что», если их нет в эталоне.")
+        lines.append("- Не превращай шаги в сухой конспект. Для beginner-style заданий держи дружелюбное вступление, отдельную строку «Следуй шагам:» и нумерованные короткие шаги.")
+        lines.append("- Не пиши мета-команды вида «объясни, что ...» внутри условия. Вместо этого само условие должно уже содержать короткое человеческое пояснение, как в эталоне.")
+        lines.append("- Не используй фразы «компьютер не знает», «на низком уровне», «самый простой способ», если пользователь не просил такого тона отдельно.")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 # ── Generation requirements (code-test / test / math) ────────
 
 def build_generation_requirements(payload: Dict[str, Any]) -> str:
@@ -472,7 +495,6 @@ def _compact_assignment_like_for_chat(value: Any) -> Dict[str, Any] | None:
         "title": truncate_text(value.get("title"), 100),
         "type": truncate_text(value.get("type"), 32),
         "difficulty": value.get("difficulty"),
-        "rating": value.get("rating"),
         "updatedAtUtc": value.get("updatedAtUtc"),
     }
     overview = _compact_overview_for_chat(value.get("latestAiOverview") if isinstance(value.get("latestAiOverview"), dict) else value.get("aiOverview") if isinstance(value.get("aiOverview"), dict) else value.get("AiOverview") if isinstance(value.get("AiOverview"), dict) else None)
@@ -533,7 +555,7 @@ def _compact_conversation_for_chat(value: Any) -> Dict[str, Any] | None:
         return None
     return {
         "role": truncate_text(value.get("role"), 12),
-        "content": truncate_text(value.get("content"), 700),
+        "content": truncate_text(value.get("content"), 240 if normalize_text((value or {}).get("__compactMode")).lower() == "ultra" else 420),
         "status": truncate_text(value.get("status"), 24),
         "createdAtUtc": value.get("createdAtUtc"),
         "toolCalls": [
@@ -692,9 +714,21 @@ def _compact_memory_for_chat(value: Any) -> Dict[str, Any]:
 def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     raw_memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
     raw_blueprint = payload.get("currentDraftBlueprint") if isinstance(payload.get("currentDraftBlueprint"), dict) else (raw_memory.get("currentDraftBlueprint") if isinstance(raw_memory.get("currentDraftBlueprint"), dict) else None)
+    compact_mode = normalize_text(payload.get("__compactMode")).lower()
+    ultra = compact_mode == "ultra"
+    compact = compact_mode in {"compact", "ultra"}
+    conversation_limit = 4 if ultra else (6 if compact else 8)
+    recent_assignments_limit = 3 if ultra else (4 if compact else 6)
+    landmarks_limit = 3 if ultra else (4 if compact else 6)
+    drafts_limit = 3 if ultra else (4 if compact else 6)
+    jobs_limit = 4 if ultra else (6 if compact else 8)
+    users_limit = 5 if ultra else (6 if compact else 8)
+    attempts_limit = 5 if ultra else (6 if compact else 8)
+    courses_limit = 8 if ultra else 12
+    actions_limit = 10 if ultra else 16
     compact_payload = {
         "sessionId": payload.get("sessionId"),
-        "sessionTitle": truncate_text(payload.get("sessionTitle"), 120),
+        "sessionTitle": truncate_text(payload.get("sessionTitle"), 90 if compact else 120),
         "courseId": payload.get("courseId"),
         "selectedCourse": {
             "id": payload.get("selectedCourse", {}).get("id"),
@@ -704,7 +738,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "memory": _compact_memory_for_chat(raw_memory),
         "currentDraftBlueprint": _compact_blueprint_for_chat(raw_blueprint),
         "agentState": _compact_agent_state_for_chat(raw_memory.get("agentState") if isinstance(raw_memory.get("agentState"), dict) else {}),
-        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-8:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
+        "conversation": [_compact_conversation_for_chat(x) for x in (payload.get("conversation")[-conversation_limit:] if isinstance(payload.get("conversation"), list) else []) if isinstance(x, dict)],
         "recentAttachments": [
             {
                 "originalName": truncate_text(x.get("originalName"), 80),
@@ -714,11 +748,12 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             }
             for x in ((payload.get("recentAttachments")[-6:] if isinstance(payload.get("recentAttachments"), list) else [])) if isinstance(x, dict)
         ],
-        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:6] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
+        "recentAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("recentAssignments")[:recent_assignments_limit] if isinstance(payload.get("recentAssignments"), list) else [])) if isinstance(x, dict)],
         "courseOverviewCoverage": payload.get("courseOverviewCoverage") if isinstance(payload.get("courseOverviewCoverage"), dict) else None,
-        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:6] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
+        "landmarkAssignments": [_compact_assignment_like_for_chat(x) for x in ((payload.get("landmarkAssignments")[:landmarks_limit] if isinstance(payload.get("landmarkAssignments"), list) else [])) if isinstance(x, dict)],
         "autoOverviewBootstrap": payload.get("autoOverviewBootstrap") if isinstance(payload.get("autoOverviewBootstrap"), dict) else None,
-        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:6] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
+        "recentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("recentDrafts")[:drafts_limit] if isinstance(payload.get("recentDrafts"), list) else [])) if isinstance(x, dict)],
+        "sessionRecentDrafts": [_compact_draft_for_chat(x) for x in ((payload.get("sessionRecentDrafts")[:drafts_limit] if isinstance(payload.get("sessionRecentDrafts"), list) else [])) if isinstance(x, dict)],
         "recentBatches": [
             {
                 "id": x.get("id"),
@@ -731,9 +766,10 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "updatedAtUtc": x.get("updatedAtUtc"),
                 "prompt": truncate_text(x.get("prompt"), 160),
             }
-            for x in ((payload.get("recentBatches")[:4] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentBatches")[:(3 if compact else 4)] if isinstance(payload.get("recentBatches"), list) else [])) if isinstance(x, dict)
         ],
-        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:8] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
+        "recentJobs": [_compact_job_for_chat(x) for x in ((payload.get("recentJobs")[:jobs_limit] if isinstance(payload.get("recentJobs"), list) else [])) if isinstance(x, dict)],
+        "sessionRecentJobs": [_compact_job_for_chat(x) for x in ((payload.get("sessionRecentJobs")[:jobs_limit] if isinstance(payload.get("sessionRecentJobs"), list) else [])) if isinstance(x, dict)],
         "recentUsers": [
             {
                 "id": x.get("id"),
@@ -741,7 +777,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "role": truncate_text(x.get("role"), 24),
                 "lastLoginAtUtc": x.get("lastLoginAtUtc"),
             }
-            for x in ((payload.get("recentUsers")[:8] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentUsers")[:users_limit] if isinstance(payload.get("recentUsers"), list) else [])) if isinstance(x, dict)
         ],
         "recentAttempts": [
             {
@@ -752,14 +788,14 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "passed": x.get("passed"),
                 "submittedAtUtc": x.get("submittedAtUtc"),
             }
-            for x in ((payload.get("recentAttempts")[:8] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("recentAttempts")[:attempts_limit] if isinstance(payload.get("recentAttempts"), list) else [])) if isinstance(x, dict)
         ],
         "availableCourses": [
             {
                 "id": x.get("id"),
                 "title": truncate_text(x.get("title"), 80),
             }
-            for x in ((payload.get("availableCourses")[:12] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
+            for x in ((payload.get("availableCourses")[:courses_limit] if isinstance(payload.get("availableCourses"), list) else [])) if isinstance(x, dict)
         ],
         "availableActions": [
             {
@@ -767,7 +803,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
                 "requiredArguments": x.get("requiredArguments")[:4] if isinstance(x.get("requiredArguments"), list) else [],
                 "optionalArguments": x.get("optionalArguments")[:5] if isinstance(x.get("optionalArguments"), list) else [],
             }
-            for x in ((payload.get("availableActions") if isinstance(payload.get("availableActions"), list) else [])) if isinstance(x, dict)
+            for x in (((payload.get("availableActions")[:actions_limit] if isinstance(payload.get("availableActions"), list) else []))) if isinstance(x, dict)
         ],
         "defaults": payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {},
     }
@@ -865,15 +901,15 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "show_chat_blueprint — показать уже сохранённые примерные условия. "
         "drop_chat_blueprint — сбросить старые варианты, если пользователь просит начать заново. "
         "finalize_chat_blueprint — только после явного одобрения пользователя превратить согласованные условия в полноценные draft-черновики. "
-        "Когда пользователь сознательно просит пропустить этап обсуждения и сразу финализировать задачу из текста — queue_generate_from_text. Если пользователь просит поправить уже созданный AI-черновик по новому сообщению — revise_draft_from_chat. "
+        "Когда пользователь сознательно просит пропустить этап обсуждения и сразу финализировать задачу из текста — queue_generate_from_text. Если пользователь просит поправить уже созданный AI-черновик по новому сообщению — revise_draft_from_chat. Если в payload есть sessionRecentDrafts и пользователь говорит про 'первую/вторую/третью задачу', считай именно эти sessionRecentDrafts главным набором кандидатов для revise_draft_from_chat. "
         "Когда пользователь явно просит использовать прикреплённый файл — queue_generate_from_file. "
         "Когда пользователь просит проверить/провалидировать draft — queue_validate_draft. "
         "Когда пользователь просит анализ уже существующего задания — queue_analyze_assignment. "
         "Когда пользователь просит review попытки — queue_review_submission. "
         "Когда пользователь просит review пользователя — queue_review_user.\\n\\n"
         "==== ПРОСМОТР И УПРАВЛЕНИЕ ПРЯМО В ЧАТЕ ====\\n"
-        "show_draft — показать содержимое черновика (условие, решение, тесты) прямо в чате. Используй после генерации или когда пользователь просит 'покажи что получилось', 'покажи задание', 'что сгенерировалось'. "
-        "show_draft_reviews — показать оценки качества (scorecard) черновика: band, общая оценка, измерения. Используй когда пользователь спрашивает 'какая оценка', 'качество', 'как прошла проверка'. "
+        "show_draft — показать содержимое черновика (условие, решение, тесты) прямо в чате. Используй после генерации или когда пользователь просит 'покажи что получилось', 'покажи задание', 'что сгенерировалось'. monitor_generation_jobs — проверить именно generation/revise jobs этой чат-сессии и подтянуть появившиеся draft-черновики прямо в чат. Используй, когда пользователь ждёт результат генерации или спрашивает, что уже готово. "
+        "show_draft_reviews — показать результаты self-check и quality scorecard черновика, если пользователь отдельно просит детали проверки. "
         "cancel_batch — отменить и удалить batch. Используй если пользователь явно просит 'отмени', 'удали batch', 'стоп'. "
         "publish_batch — массово опубликовать все готовые черновики из batch. Используй если пользователь просит 'опубликуй всё', 'публикуй batch'. "
         "ВАЖНО: после завершения генерации batch автоматически покажи содержимое первого черновика через show_draft, чтобы пользователю не приходилось просить об этом.\\n\\n"
@@ -1362,6 +1398,7 @@ def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[
         "courseExamples": _compact_course_style_examples(payload, limit=8),
         "titleExamples": _compact_title_examples(payload, limit=14),
         "approvedBlueprint": _compact_approved_blueprint(payload),
+        "anchorContext": payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else None,
     }
     return (
         "Ты — TaskForge AI course style analyst. Верни только JSON без markdown.\n\n"
@@ -1369,7 +1406,8 @@ def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[
         "Определи: как обычно формулируется условие, какие секции обязательны, насколько подробны ограничения, как выглядят тесты и как обычно называются задания.\n"
         "Не придумывай новую задачу и не копируй готовые title/description дословно.\n"
         "Верни JSON формата: {\"courseStyle\":{...},\"titleStyle\":{...},\"antiPatterns\":[...],\"positivePatterns\":[...],\"summary\":\"...\"}.\n\n"
-        "Требования к полям:\n"
+        + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
+        + "Требования к полям:\n"
         "- courseStyle.descriptionSections: массив строк.\n"
         "- courseStyle.descriptionTone: коротко опиши стиль формулировок курса.\n"
         "- courseStyle.testStyle: коротко опиши типичный набор тестов.\n"
@@ -1405,6 +1443,7 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         "coursePhraseBank": _extract_course_phrase_bank(payload, limit=8),
         "anchorBuckets": _collect_reference_buckets(payload),
         "approvedBlueprint": _compact_approved_blueprint(payload),
+        "anchorContext": payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else None,
     }
     return (
         "Ты — TaskForge AI generation planner. Верни только JSON без markdown.\n\n"
@@ -1421,7 +1460,8 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         "- avoid: 3-6 коротких ошибок, которые нельзя допустить.\n"
         "- noveltyPlan: чем задача будет отличаться от ближайших topic/negative anchors.\n"
         "- titleDos/titleDonts: короткие правила для названия.\n\n"
-        f"Generation spec payload:\n{_prompt_json(compact_payload)}"
+        + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
+        + f"Generation spec payload:\n{_prompt_json(compact_payload)}"
     )
 
 
@@ -1450,6 +1490,7 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         "styleContract": (reference_pack.get("generationHints") or {}).get("styleContract") if isinstance(reference_pack.get("generationHints"), dict) else None,
         "peerItems": _compact_peer_context(payload, limit=6),
         "approvedBlueprint": _compact_approved_blueprint(payload),
+        "anchorContext": payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else None,
     }
     return (
         "Ты — TaskForge AI draft content planner. Верни только JSON без markdown.\n\n"
@@ -1457,7 +1498,8 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         "План должен удерживать стиль курса, уникальность относительно соседних items и конкретную учебную цель.\n"
         "Верни JSON: {\"contentPlan\":{...},\"summary\":\"...\"}.\n"
         "В contentPlan должны быть поля: pedagogicalGoal, noveltyHook, inputModel, outputModel, constraintsPlan, sectionPlan, publicTestPlan, hiddenTestPlan, titleShape, bannedOverlaps, coursePhrasingRules.\n\n"
-        f"Draft content plan payload:\n{_prompt_json(compact_payload)}"
+        + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
+        + f"Draft content plan payload:\n{_prompt_json(compact_payload)}"
     )
 
 
@@ -1621,7 +1663,7 @@ def _build_test_body_prompt(compact_payload: Dict[str, Any], response_format: st
 - Это не code-test. Не добавляй поля из программирования, языки или тест-кейсы.
 - description должен быть только обычным текстом, без HTML, без TipTap JSON, без markdown.
 - Каждый вопрос должен быть педагогически осмысленным, без дублей и без пустых заглушек.
-{rules}{_instruction_fidelity_appendix(compact_payload)}- Сохраняй course-native терминологию и уровень сложности.
+{rules}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Сохраняй course-native терминологию и уровень сложности.
 - Настройки settings должны быть полными и каноническими.
 
 Draft body payload:
@@ -1658,7 +1700,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
-{rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+{rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
 - Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
 - Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.
 - Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.
@@ -1743,6 +1785,8 @@ def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, An
         "targetSkill": payload.get("targetSkill") or (payload.get("brief") or {}).get("targetSkill") if isinstance(payload.get("brief"), dict) else payload.get("targetSkill"),
         "microGoal": payload.get("microGoal") or (payload.get("brief") or {}).get("summary") if isinstance(payload.get("brief"), dict) else payload.get("microGoal"),
     }
+    if not isinstance(compact_payload.get("anchorContext"), dict) and isinstance(payload.get("anchorContext"), dict):
+        compact_payload["anchorContext"] = payload.get("anchorContext")
     title_style = compact_payload.get("titleStyle") if isinstance(compact_payload.get("titleStyle"), dict) else {}
     pattern = truncate_text(title_style.get("pattern") or "Короткое course-native название", 160)
     examples = [truncate_text(x, 64) for x in list(title_style.get("examples") or []) if truncate_text(x, 64)][:6]
@@ -1755,8 +1799,10 @@ def build_draft_title_generate_prompt(job: Dict[str, Any], payload: Dict[str, An
         "не пиши слишком общие названия вроде 'Новая задача' или 'Задание по теме', "
         "избегай хвостов вроде 'с префиксом', 'с фиксированным форматом', 'статистика', 'версия', 'draft'.\n\n"
         f"Style pattern: {pattern}\n"
-        f"Style examples: {examples_block}\n\n"
-        f"Payload:\n{_prompt_json(compact_payload)}\n\n"
+        f"Style examples: {examples_block}\n"
+        + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
+        + "\n"
+        + f"Payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Draft summary:\n{_prompt_json(draft_brief)}"
     )
 
@@ -1776,8 +1822,10 @@ def build_draft_title_repair_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         'Текущий title плохой: слишком общий, служебный, пустой или не в стиле курса. '
         'Исправь title так, чтобы он был коротким, естественным и отражал суть задания. '
         "Цель: 2-4 слова, нейтрально, без 'задача на', 'с префиксом', 'фиксированный формат', 'статистика', 'draft'.\n\n"
-        f"Style examples: {examples_block}\n\n"
-        f"Payload:\n{_prompt_json(compact_payload)}\n\n"
+        f"Style examples: {examples_block}\n"
+        + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
+        + "\n"
+        + f"Payload:\n{_prompt_json(compact_payload)}\n\n"
         f"Draft summary:\n{_prompt_json(draft_brief)}"
     )
 

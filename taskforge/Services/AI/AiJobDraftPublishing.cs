@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data.Models.DTO;
@@ -54,11 +55,12 @@ public sealed partial class AiJobService
         if (string.IsNullOrWhiteSpace(description)) throw new ValidationException("У черновика нет условия (description). AI не сгенерировал описание.");
 
         var difficulty = Clamp(ReadInt(draftRoot, "difficulty") ?? request.Difficulty ?? 2, 1, 3);
-        var rating = Math.Max(0, request.Rating ?? ReadInt(draftRoot, "rating") ?? 1);
+        var rating = 1;
         var tags = request.Tags ?? ReadString(draftRoot, "tags");
         var desiredSort = request.Sort;
         var suggestedAfterAssignmentId = request.AfterAssignmentId ?? ExtractPlacementAfterAssignmentId(draftRoot);
         var suggestedAfterTitle = ExtractPlacementAfterTitle(draftRoot);
+        var resolvedAfterAssignmentId = await ResolvePlacementAfterAssignmentIdAsync(draft, draftRoot, courseId.Value, suggestedAfterAssignmentId, ct);
         var publishingActorUserId = await ResolvePublishingActorUserIdAsync(courseId.Value, reviewedByUserId, ct);
 
         var canonicalOnly = string.Equals(ReadString(root, "schemaVersion") ?? ReadString(draftRoot, "schemaVersion") ?? string.Empty, "draft-v2", StringComparison.OrdinalIgnoreCase);
@@ -74,7 +76,7 @@ public sealed partial class AiJobService
             rating,
             tags,
             desiredSort,
-            suggestedAfterAssignmentId,
+            resolvedAfterAssignmentId,
             canonicalOnly,
             ct);
 
@@ -82,6 +84,7 @@ public sealed partial class AiJobService
         draft.ReviewedByUserId = reviewedByUserId;
         draft.ReviewedAtUtc = DateTime.UtcNow;
         draft.UpdatedAtUtc = DateTime.UtcNow;
+        draft.DraftJson = MergePublishedAssignmentIdIntoDraftJson(draft.DraftJson, publishResult.AssignmentId);
 
         await _db.SaveChangesAsync(ct);
         try
@@ -106,7 +109,7 @@ public sealed partial class AiJobService
             CourseId = courseId.Value,
             AssignmentType = assignmentType,
             Title = title,
-            PlacementAfterAssignmentId = suggestedAfterAssignmentId,
+            PlacementAfterAssignmentId = resolvedAfterAssignmentId,
             PlacementAfterTitle = suggestedAfterTitle,
             PlacementApplied = publishResult.PlacementApplied,
         };
@@ -161,6 +164,146 @@ public sealed partial class AiJobService
             await _assignmentService.UpdateSortAsync(assignmentId, actorUserId, desiredSort.Value);
 
         return (assignmentId, placementApplied);
+    }
+
+    private async Task<Guid?> ResolvePlacementAfterAssignmentIdAsync(
+        AiGeneratedAssignmentDraft draft,
+        JsonElement draftRoot,
+        Guid courseId,
+        Guid? requestedAfterAssignmentId,
+        CancellationToken ct)
+    {
+        if (requestedAfterAssignmentId.HasValue)
+            return requestedAfterAssignmentId;
+
+        var sessionId = await TryExtractChatSessionIdForDraftAsync(draft, ct);
+        if (sessionId.HasValue)
+        {
+            var sibling = await FindLatestPublishedSiblingAssignmentAsync(courseId, sessionId.Value, draft.Id, ct);
+            if (sibling.HasValue)
+                return sibling;
+        }
+
+        var hintedTitle = await TryExtractTitleHintForDraftAsync(draft, ct)
+            ?? ReadString(draftRoot, "title")
+            ?? draft.Title;
+        var previousTitle = DerivePreviousSiblingTitle(hintedTitle);
+        if (!string.IsNullOrWhiteSpace(previousTitle))
+        {
+            var candidates = await _db.TaskAssignments.AsNoTracking()
+                .Where(x => x.CourseId == courseId)
+                .OrderByDescending(x => x.UpdatedAt)
+                .Select(x => new { x.Id, x.Title })
+                .Take(200)
+                .ToListAsync(ct);
+            var match = candidates.FirstOrDefault(x => string.Equals((x.Title ?? string.Empty).Trim(), previousTitle, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                return match.Id;
+        }
+
+        return null;
+    }
+
+    private async Task<Guid?> TryExtractChatSessionIdForDraftAsync(AiGeneratedAssignmentDraft draft, CancellationToken ct)
+    {
+        var inputJson = await _db.AiJobs.AsNoTracking().Where(x => x.Id == draft.JobId).Select(x => x.InputJson).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(inputJson))
+            return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(inputJson);
+            var root = doc.RootElement;
+            var additional = GetPropertyOrNull(root, "additional");
+            return ExtractGuid(additional, "chatSessionId") ?? ExtractGuid(root, "chatSessionId");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> TryExtractTitleHintForDraftAsync(AiGeneratedAssignmentDraft draft, CancellationToken ct)
+    {
+        var inputJson = await _db.AiJobs.AsNoTracking().Where(x => x.Id == draft.JobId).Select(x => x.InputJson).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(inputJson))
+            return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(inputJson);
+            var root = doc.RootElement;
+            return ReadString(root, "titleHint")
+                ?? ReadString(GetPropertyOrNull(root, "structuredContext"), "title")
+                ?? ReadString(GetPropertyOrNull(GetPropertyOrNull(root, "additional"), "structuredContext"), "title");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<Guid?> FindLatestPublishedSiblingAssignmentAsync(Guid courseId, Guid sessionId, Guid currentDraftId, CancellationToken ct)
+    {
+        var sessionToken = sessionId.ToString();
+        var siblingDrafts = await (
+            from d in _db.AiGeneratedAssignmentDrafts.AsNoTracking()
+            join j in _db.AiJobs.AsNoTracking() on d.JobId equals j.Id
+            where d.CourseId == courseId && d.Id != currentDraftId && j.InputJson != null && j.InputJson.Contains(sessionToken)
+            orderby d.UpdatedAtUtc descending
+            select new { d.DraftJson }
+        ).Take(20).ToListAsync(ct);
+
+        foreach (var row in siblingDrafts)
+        {
+            var publishedId = ExtractPublishedAssignmentId(row.DraftJson);
+            if (publishedId.HasValue)
+                return publishedId;
+        }
+        return null;
+    }
+
+    private static Guid? ExtractPublishedAssignmentId(string? draftJson)
+    {
+        if (string.IsNullOrWhiteSpace(draftJson))
+            return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(draftJson);
+            return ExtractGuid(doc.RootElement, "publishedAssignmentId")
+                ?? ExtractGuid(GetPropertyOrNull(doc.RootElement, "meta"), "publishedAssignmentId");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string MergePublishedAssignmentIdIntoDraftJson(string draftJson, Guid assignmentId)
+    {
+        if (string.IsNullOrWhiteSpace(draftJson))
+            return draftJson;
+        try
+        {
+            var node = JsonNode.Parse(draftJson) as JsonObject;
+            if (node == null)
+                return draftJson;
+            node["publishedAssignmentId"] = assignmentId.ToString();
+            return node.ToJsonString(JsonOptions);
+        }
+        catch
+        {
+            return draftJson;
+        }
+    }
+
+    private static string? DerivePreviousSiblingTitle(string? title)
+    {
+        var value = (title ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        var m = Regex.Match(value, @"^(?<prefix>.*?)(?<num1>\d+)(?:\.(?<num2>\d+))(?<suffix>\..*)$");
+        if (m.Success && int.TryParse(m.Groups["num2"].Value, out var minor) && minor > 1)
+            return $"{m.Groups["prefix"].Value}{m.Groups["num1"].Value}.{minor - 1}{m.Groups["suffix"].Value}".Trim();
+        return null;
     }
 
     private async Task<Guid> ResolvePublishingActorUserIdAsync(Guid courseId, Guid reviewedByUserId, CancellationToken ct)

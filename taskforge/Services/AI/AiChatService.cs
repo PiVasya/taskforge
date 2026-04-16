@@ -72,6 +72,7 @@ public sealed class AiChatService
             return null;
 
         await TryFinalizePendingAsync(session, ct);
+        await TryAppendGenerationUpdatesAsync(session, ct);
         var parsedMessages = DeserializeMessages(session.MessagesJson);
         var memory = BuildMemory(parsedMessages, session.PlanJson);
         var courseMap = await LoadCourseTitleMapAsync(session.CourseId.HasValue ? new[] { session.CourseId.Value } : Array.Empty<Guid>(), ct);
@@ -172,6 +173,7 @@ public sealed class AiChatService
             return null;
 
         await TryFinalizePendingAsync(session, ct);
+        await TryAppendGenerationUpdatesAsync(session, ct);
 
         var messages = DeserializeMessages(session.MessagesJson);
         var pendingAssistant = messages.LastOrDefault(IsPendingAssistant);
@@ -320,6 +322,7 @@ public sealed class AiChatService
             return null;
 
         await TryFinalizePendingAsync(session, ct);
+        await TryAppendGenerationUpdatesAsync(session, ct);
 
         var messages = DeserializeMessages(session.MessagesJson);
         if (messages.LastOrDefault(IsPendingAssistant) != null)
@@ -383,6 +386,134 @@ public sealed class AiChatService
             PendingJobId = null,
             Session = MapSession(session, courseMap, messages, BuildMemory(messages, session.PlanJson)),
         };
+    }
+
+    private async Task<bool> TryAppendGenerationUpdatesAsync(AiFoundryChatSession session, CancellationToken ct)
+    {
+        var result = await BuildGenerationUpdateToolResultAsync(session, ct, force: false, limit: 4);
+        if (result == null)
+            return false;
+
+        var messages = DeserializeMessages(session.MessagesJson);
+        messages.Add(new AiFoundryChatMessageDto
+        {
+            Id = Guid.NewGuid(),
+            Role = "assistant",
+            Content = result.Summary ?? "Появились новые результаты генерации.",
+            CreatedAtUtc = DateTime.UtcNow,
+            Status = "done",
+            ToolResults = new List<AiFoundryChatToolResultDto> { result },
+            ToolResult = result,
+        });
+
+        session.MessagesJson = SerializeMessages(messages);
+        session.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    private async Task<AiFoundryChatToolResultDto?> BuildGenerationUpdateToolResultAsync(AiFoundryChatSession session, CancellationToken ct, bool force, int limit)
+    {
+        var memory = DeserializeMemory(session.PlanJson);
+        var announced = new HashSet<Guid>((memory.AnnouncedGenerationJobIds ?? new List<Guid>()));
+        var courseId = session.CourseId;
+
+        var jobs = await _db.AiJobs.AsNoTracking()
+            .Where(x => x.CompletedAtUtc != null
+                && (x.Type == "assignment_generate_from_text" || x.Type == "assignment_generate_from_file" || x.Type == "assignment_repair" || x.Type == "assignment_validate_draft")
+                && (!courseId.HasValue || x.CourseId == courseId.Value))
+            .OrderByDescending(x => x.CompletedAtUtc)
+            .Take(120)
+            .Select(x => new { x.Id, x.Type, x.Status, x.TargetEntityType, x.TargetEntityId, x.CompletedAtUtc, x.InputJson })
+            .ToListAsync(ct);
+
+        var sessionLinkedJobIds = jobs
+            .Where(x => !announced.Contains(x.Id) && IsChatSessionLinkedJob(x.InputJson, session.Id))
+            .Select(x => x.Id)
+            .ToHashSet();
+
+        if (sessionLinkedJobIds.Count == 0 && !force)
+            return null;
+
+        var drafts = await _db.AiGeneratedAssignmentDrafts.AsNoTracking()
+            .Where(x => x.CourseId == courseId && (sessionLinkedJobIds.Contains(x.JobId) || (x.ParentJobId.HasValue && sessionLinkedJobIds.Contains(x.ParentJobId.Value))))
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .Take(Math.Max(limit, 8))
+            .Select(x => new { x.Id, x.JobId, x.ParentJobId, x.Title, x.Status, x.AssignmentType, x.DraftJson, x.UpdatedAtUtc })
+            .ToListAsync(ct);
+
+        if (drafts.Count == 0 && !force)
+            return null;
+
+        var targetDrafts = drafts.Take(limit).ToList();
+        foreach (var d in targetDrafts)
+        {
+            announced.Add(d.JobId);
+            if (d.ParentJobId.HasValue) announced.Add(d.ParentJobId.Value);
+        }
+        memory.AnnouncedGenerationJobIds = announced.TakeLast(200).ToList();
+        session.PlanJson = SerializeMemory(memory);
+
+        var sb = new StringBuilder();
+        if (targetDrafts.Count == 0)
+        {
+            sb.Append("Пока не появилось новых завершённых черновиков по этой чат-сессии.");
+        }
+        else
+        {
+            sb.AppendLine(targetDrafts.Count == 1
+                ? "Готов новый черновик. Я уже подтянула его в контекст чата — можешь сразу написать, что в нём поправить."
+                : $"Готовы новые черновики ({targetDrafts.Count}). Я уже подтянула их в контекст чата — можешь сразу написать, что и где поправить.");
+            sb.AppendLine();
+            var idx = 1;
+            foreach (var draft in targetDrafts)
+            {
+                var snippet = BuildDraftChatSnippet(draft.DraftJson);
+                sb.Append(idx++).Append(") ").Append(draft.Title).Append(" — статус: ").Append(draft.Status);
+                if (!string.IsNullOrWhiteSpace(snippet))
+                    sb.Append(". ").Append(snippet);
+                sb.AppendLine();
+            }
+            sb.AppendLine();
+            sb.Append("Напиши обычным сообщением, например: «во второй задаче убери эту фразу», «в первой поменяй тесты», «третью сделай ближе к стилю первой задачи». ");
+        }
+
+        return new AiFoundryChatToolResultDto
+        {
+            Status = "done",
+            Summary = sb.ToString().Trim(),
+            CourseId = courseId,
+            DraftId = targetDrafts.Count == 1 ? targetDrafts[0].Id : null,
+            JobId = targetDrafts.Count == 1 ? targetDrafts[0].JobId : null,
+            NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+        };
+    }
+
+    private static bool IsChatSessionLinkedJob(string? inputJson, Guid sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(inputJson))
+            return false;
+        return inputJson.Contains(sessionId.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildDraftChatSnippet(string? draftJson)
+    {
+        if (string.IsNullOrWhiteSpace(draftJson))
+            return string.Empty;
+        try
+        {
+            using var doc = JsonDocument.Parse(draftJson);
+            var root = doc.RootElement;
+            var description = ReadString(root, "description");
+            if (string.IsNullOrWhiteSpace(description) && root.TryGetProperty("draft", out var nested) && nested.ValueKind == JsonValueKind.Object)
+                description = ReadString(nested, "description");
+            description = ShortenSingleLine(description ?? string.Empty, 220);
+            return description ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private async Task WaitForJobCompletionAsync(Guid jobId, TimeSpan timeout, CancellationToken ct)
@@ -997,6 +1128,7 @@ public sealed class AiChatService
                             InstructionStrictness = strictness,
                             UserInstructionSnapshot = memory.LatestExplicitInstruction,
                             TeachingScript = memory.LatestTeachingScript,
+                            ChatSessionId = session.Id,
                         }, createdByUserId, createdByDisplayName, ct);
                         createdJobs.Add(job);
                         proposal.Status = "queued";
@@ -1067,6 +1199,7 @@ public sealed class AiChatService
                         InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness),
                         UserInstructionSnapshot = memory.LatestExplicitInstruction,
                         TeachingScript = memory.LatestTeachingScript,
+                        ChatSessionId = session.Id,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     if (selectedProposal != null && blueprint != null)
@@ -1104,6 +1237,7 @@ public sealed class AiChatService
                         InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness),
                         UserInstructionSnapshot = memory.LatestExplicitInstruction,
                         TeachingScript = memory.LatestTeachingScript,
+                        ChatSessionId = session.Id,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     if (job == null)
@@ -1146,6 +1280,7 @@ public sealed class AiChatService
                         InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), DeserializeMemory(session.PlanJson).InstructionStrictness),
                         UserInstructionSnapshot = DeserializeMemory(session.PlanJson).LatestExplicitInstruction,
                         TeachingScript = DeserializeMemory(session.PlanJson).LatestTeachingScript,
+                        ChatSessionId = session.Id,
                     }, createdByUserId, createdByDisplayName, ct);
 
                     return new AiFoundryChatToolResultDto
@@ -1218,7 +1353,7 @@ public sealed class AiChatService
                         CourseId = ReadGuid(args, "courseId") ?? session.CourseId,
                         TitleOverride = ReadString(args, "titleOverride"),
                         Difficulty = ReadInt(args, "difficulty"),
-                        Rating = ReadInt(args, "rating"),
+                        Rating = null,
                         Tags = ReadString(args, "tags"),
                         Sort = ReadInt(args, "sort"),
                         AfterAssignmentId = ReadGuid(args, "afterAssignmentId"),
@@ -1237,6 +1372,19 @@ public sealed class AiChatService
                         AssignmentId = result.AssignmentId,
                         CourseId = result.CourseId,
                     };
+                }
+                case "monitor_generation_jobs":
+                {
+                    var result = await BuildGenerationUpdateToolResultAsync(session, ct, force: true, limit: Math.Clamp(ReadInt(args, "limit") ?? 4, 1, 8));
+                    if (result == null)
+                        return new AiFoundryChatToolResultDto
+                        {
+                            Status = "done",
+                            Summary = "Пока не появилось новых завершённых черновиков по этой чат-сессии. Можно немного подождать или попросить показать уже существующие draft-черновики.",
+                            CourseId = session.CourseId,
+                            NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                        };
+                    return result;
                 }
                 case "queue_analyze_assignment":
                 {
@@ -1635,7 +1783,6 @@ public sealed class AiChatService
                 title = x.Title,
                 type = x.Type,
                 difficulty = x.Difficulty,
-                rating = x.Rating,
                 updatedAtUtc = x.UpdatedAt,
             })
             .ToListAsync(ct);
@@ -1648,7 +1795,6 @@ public sealed class AiChatService
                 x.title,
                 x.type,
                 x.difficulty,
-                x.rating,
                 x.updatedAtUtc,
                 latestAiOverview = recentAssignmentOverviewMap.TryGetValue(x.id, out var overview) ? overview : null,
             })
@@ -1681,6 +1827,8 @@ public sealed class AiChatService
                 updatedAtUtc = x.UpdatedAtUtc,
             })
             .ToListAsync(ct);
+
+        var sessionRecentDrafts = await LoadSessionRecentDraftsAsync(session, ct);
 
         var recentBatchesQuery = _db.AiBatches.AsNoTracking().AsQueryable();
         if (session.CourseId.HasValue)
@@ -1728,6 +1876,8 @@ public sealed class AiChatService
                 errorText = x.ErrorText,
             })
             .ToListAsync(ct);
+
+        var sessionRecentJobs = await LoadSessionRecentJobsAsync(session, ct);
 
         var recentUsers = await _db.Users.AsNoTracking()
             .OrderByDescending(x => x.LastLoginAt ?? x.UpdatedAt)
@@ -1874,8 +2024,10 @@ public sealed class AiChatService
             landmarkAssignments,
             autoOverviewBootstrap,
             recentDrafts,
+            sessionRecentDrafts,
             recentBatches,
             recentJobs,
+            sessionRecentJobs,
             recentUsers,
             recentAttempts,
             availableCourses = courses,
@@ -2019,7 +2171,14 @@ public sealed class AiChatService
                     name = "publish_draft",
                     description = "Опубликовать AI-черновик как реальное задание. Использовать только если пользователь явно подтвердил публикацию.",
                     requiredArguments = new[] { "draftId", "confirmed" },
-                    optionalArguments = new[] { "courseId", "titleOverride", "difficulty", "rating", "tags", "sort", "afterAssignmentId", "forceWithoutPassedSelfCheck" },
+                    optionalArguments = new[] { "courseId", "titleOverride", "difficulty", "tags", "sort", "afterAssignmentId", "forceWithoutPassedSelfCheck" },
+                },
+                new
+                {
+                    name = "monitor_generation_jobs",
+                    description = "Проверить, завершились ли generation/revise jobs этой чат-сессии, и показать появившиеся draft-черновики прямо в чате.",
+                    requiredArguments = Array.Empty<string>(),
+                    optionalArguments = new[] { "jobId", "batchId", "courseId", "limit" },
                 },
                 new
                 {
@@ -2080,6 +2239,76 @@ public sealed class AiChatService
             },
             actionMode,
         };
+    }
+
+    private async Task<List<object>> LoadSessionRecentDraftsAsync(AiFoundryChatSession session, CancellationToken ct)
+    {
+        if (!session.CourseId.HasValue)
+            return new List<object>();
+
+        var sessionToken = session.Id.ToString();
+        var jobRows = await _db.AiJobs.AsNoTracking()
+            .Where(x => x.CourseId == session.CourseId.Value
+                && (x.Type == "assignment_generate_from_text" || x.Type == "assignment_generate_from_file" || x.Type == "assignment_repair" || x.Type == "assignment_validate_draft"))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(160)
+            .Select(x => new { x.Id, x.InputJson })
+            .ToListAsync(ct);
+
+        var jobIds = jobRows
+            .Where(x => !string.IsNullOrWhiteSpace(x.InputJson) && x.InputJson!.Contains(sessionToken, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Id)
+            .ToHashSet();
+
+        if (jobIds.Count == 0)
+            return new List<object>();
+
+        return await _db.AiGeneratedAssignmentDrafts.AsNoTracking()
+            .Where(x => x.CourseId == session.CourseId.Value && (jobIds.Contains(x.JobId) || (x.ParentJobId.HasValue && jobIds.Contains(x.ParentJobId.Value))))
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .Take(12)
+            .Select(x => (object)new
+            {
+                id = x.Id,
+                courseId = x.CourseId,
+                batchId = x.BatchId,
+                jobId = x.JobId,
+                title = x.Title,
+                assignmentType = x.AssignmentType,
+                status = x.Status,
+                updatedAtUtc = x.UpdatedAtUtc,
+            })
+            .ToListAsync(ct);
+    }
+
+    private async Task<List<object>> LoadSessionRecentJobsAsync(AiFoundryChatSession session, CancellationToken ct)
+    {
+        if (!session.CourseId.HasValue)
+            return new List<object>();
+
+        var sessionToken = session.Id.ToString();
+        return await _db.AiJobs.AsNoTracking()
+            .Where(x => x.CourseId == session.CourseId.Value
+                && !string.IsNullOrWhiteSpace(x.InputJson)
+                && x.InputJson!.Contains(sessionToken))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(12)
+            .Select(x => (object)new
+            {
+                id = x.Id,
+                type = x.Type,
+                status = x.Status,
+                targetEntityType = x.TargetEntityType,
+                targetEntityId = x.TargetEntityId,
+                courseId = x.CourseId,
+                stageCode = x.StageCode,
+                stageLabel = x.StageLabel,
+                priority = x.Priority,
+                createdAtUtc = x.CreatedAtUtc,
+                completedAtUtc = x.CompletedAtUtc,
+                errorText = x.ErrorText,
+            })
+            .ToListAsync(ct);
     }
 
     private static IReadOnlyList<AiFoundryChatToolCallDto> ParseToolCalls(JsonNode? root)
@@ -3861,6 +4090,8 @@ public sealed class AiChatService
             LastBridgePlan = previous.LastBridgePlan,
             AgentState = agentState,
             CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
+            AnnouncedGenerationJobIds = previous.AnnouncedGenerationJobIds ?? new List<Guid>(),
+            AnnouncedAssignmentIds = previous.AnnouncedAssignmentIds ?? new List<Guid>(),
         };
     }
 
@@ -4786,6 +5017,28 @@ public sealed class AiChatService
     private static string BuildPromptFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatMemoryDto memory)
     {
         var sb = new StringBuilder();
+        var latestInstruction = string.Join(" ", new[] { memory.LatestExplicitInstruction, memory.LatestTeachingScript }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var latestInstructionLower = latestInstruction.ToLowerInvariant();
+        var exactStyleRequested = latestInstructionLower.Contains("1 в 1")
+            || latestInstructionLower.Contains("один в один")
+            || latestInstructionLower.Contains("как первое задание")
+            || latestInstructionLower.Contains("как первая задача")
+            || latestInstructionLower.Contains("в стиле первого задания")
+            || latestInstructionLower.Contains("стиль первого задания")
+            || latestInstructionLower.Contains("повтори стиль");
+
+        AiFoundryCourseInspectionAssignmentDto? exemplar = null;
+        if (memory.LastCourseInspection?.Assignments != null && memory.LastCourseInspection.Assignments.Count > 0)
+        {
+            exemplar = memory.LastCourseInspection.Assignments
+                .OrderBy(x => x.Sort)
+                .FirstOrDefault(x =>
+                    x.Title.Contains("Задание 1", StringComparison.OrdinalIgnoreCase)
+                    || x.Title.Contains("Твой первый вывод", StringComparison.OrdinalIgnoreCase)
+                    || x.Sort <= 1)
+                ?? memory.LastCourseInspection.Assignments.OrderBy(x => x.Sort).FirstOrDefault();
+        }
+
         sb.AppendLine("Нужно превратить уже согласованное примерное условие из чата в полноценный AI draft без смены учебной мысли.");
         if (!string.IsNullOrWhiteSpace(proposal.Goal))
             sb.AppendLine($"Цель: {proposal.Goal}");
@@ -4796,6 +5049,17 @@ public sealed class AiChatService
             sb.AppendLine($"Запрещено добавлять: {string.Join(", ", proposal.Avoid)}");
         if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
             sb.AppendLine("Следуй teaching-script из чата максимально близко. Не теряй порядок шагов, если он был явно задан.");
+        if (exactStyleRequested)
+        {
+            sb.AppendLine("Пользователь просит повторить стиль почти 1-в-1. Не усредняй стиль по курсу и не перепридумывай подачу.");
+            sb.AppendLine("Если в эталоне есть дружелюбное вступление, формат «Следуй шагам», короткие команды и пояснения в скобках — сохрани тот же scaffold и уровень подробности.");
+            if (exemplar != null)
+            {
+                sb.AppendLine($"Стилевой эталон в курсе: «{exemplar.Title}» (sort {exemplar.Sort}). Используй именно его как главный ориентир по тону, структуре и порядку шагов.");
+                if (!string.IsNullOrWhiteSpace(exemplar.DescriptionExcerpt))
+                    sb.AppendLine($"Короткая выжимка эталона: {ShortenSingleLine(exemplar.DescriptionExcerpt, 220)}");
+            }
+        }
         if (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle))
             sb.AppendLine($"Позиция в курсе должна быть после задания «{proposal.PlacementAfterTitle ?? "выбранный anchor"}»{(proposal.PlacementAfterAssignmentId.HasValue ? $" [{proposal.PlacementAfterAssignmentId}]" : string.Empty)}.");
         if (!string.IsNullOrWhiteSpace(proposal.PlacementReason))

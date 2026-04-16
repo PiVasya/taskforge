@@ -79,6 +79,8 @@ public sealed class AiGenerateAssignmentFromTextRequestDto
     public int Priority { get; set; } = 20;
 
     public bool EnableSelfCheck { get; set; } = true;
+
+    public Guid? ChatSessionId { get; set; }
 }
 
 public sealed class AiGenerateAssignmentFromFileRequestDto
@@ -122,6 +124,8 @@ public sealed class AiGenerateAssignmentFromFileRequestDto
     public int Priority { get; set; } = 20;
 
     public bool EnableSelfCheck { get; set; } = true;
+
+    public Guid? ChatSessionId { get; set; }
 }
 
 public sealed class AiAnalyzeAssignmentRequestDto
@@ -419,6 +423,8 @@ public sealed class ValidateAiDraftRequestDto
     public string? Prompt { get; set; }
 
     public int Priority { get; set; } = 15;
+
+    public Guid? ChatSessionId { get; set; }
 }
 
 public sealed class AiReviseDraftFromChatRequestDto
@@ -436,6 +442,8 @@ public sealed class AiReviseDraftFromChatRequestDto
     public string? TeachingScript { get; set; }
 
     public int Priority { get; set; } = 20;
+
+    public Guid? ChatSessionId { get; set; }
 }
 
 public sealed class PublishAiDraftRequestDto
@@ -938,6 +946,8 @@ public sealed class AiFoundryChatMemoryDto
     public AiFoundryBridgePlanDto? LastBridgePlan { get; set; }
     public AiFoundryAgentStateDto AgentState { get; set; } = new();
     public AiFoundryChatDraftBlueprintDto? CurrentDraftBlueprint { get; set; }
+    public List<Guid> AnnouncedGenerationJobIds { get; set; } = new();
+    public List<Guid> AnnouncedAssignmentIds { get; set; } = new();
 }
 
 public sealed class AiFoundryChatSessionListItemDto
