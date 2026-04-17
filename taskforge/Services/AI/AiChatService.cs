@@ -2287,11 +2287,30 @@ public sealed class AiChatService
             return new List<object>();
 
         var sessionToken = session.Id.ToString();
-        return await _db.AiJobs.AsNoTracking()
-            .Where(x => x.CourseId == session.CourseId.Value
-                && !string.IsNullOrWhiteSpace(x.InputJson)
-                && x.InputJson!.Contains(sessionToken))
+        var rows = await _db.AiJobs.AsNoTracking()
+            .Where(x => x.CourseId == session.CourseId.Value)
             .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(160)
+            .Select(x => new
+            {
+                x.Id,
+                x.Type,
+                x.Status,
+                x.TargetEntityType,
+                x.TargetEntityId,
+                x.CourseId,
+                x.StageCode,
+                x.StageLabel,
+                x.Priority,
+                x.CreatedAtUtc,
+                x.CompletedAtUtc,
+                x.ErrorText,
+                x.InputJson,
+            })
+            .ToListAsync(ct);
+
+        return rows
+            .Where(x => !string.IsNullOrWhiteSpace(x.InputJson) && x.InputJson!.Contains(sessionToken, StringComparison.OrdinalIgnoreCase))
             .Take(12)
             .Select(x => (object)new
             {
@@ -2308,7 +2327,7 @@ public sealed class AiChatService
                 completedAtUtc = x.CompletedAtUtc,
                 errorText = x.ErrorText,
             })
-            .ToListAsync(ct);
+            .ToList();
     }
 
     private static IReadOnlyList<AiFoundryChatToolCallDto> ParseToolCalls(JsonNode? root)

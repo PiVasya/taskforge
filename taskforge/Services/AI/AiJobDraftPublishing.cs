@@ -247,13 +247,16 @@ public sealed partial class AiJobService
         var siblingDrafts = await (
             from d in _db.AiGeneratedAssignmentDrafts.AsNoTracking()
             join j in _db.AiJobs.AsNoTracking() on d.JobId equals j.Id
-            where d.CourseId == courseId && d.Id != currentDraftId && j.InputJson != null && j.InputJson.Contains(sessionToken)
+            where d.CourseId == courseId && d.Id != currentDraftId
             orderby d.UpdatedAtUtc descending
-            select new { d.DraftJson }
-        ).Take(20).ToListAsync(ct);
+            select new { d.DraftJson, j.InputJson }
+        ).Take(80).ToListAsync(ct);
 
         foreach (var row in siblingDrafts)
         {
+            if (string.IsNullOrWhiteSpace(row.InputJson) || !row.InputJson.Contains(sessionToken, StringComparison.OrdinalIgnoreCase))
+                continue;
+
             var publishedId = ExtractPublishedAssignmentId(row.DraftJson);
             if (publishedId.HasValue)
                 return publishedId;
