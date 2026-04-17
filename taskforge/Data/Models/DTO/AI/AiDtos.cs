@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace taskforge.Data.Models.DTO.AI;
 
@@ -670,7 +670,7 @@ public sealed class AiFoundryChatSendMessageRequestDto
 
     /// <summary>
     /// "multi" = AI may return several actions per turn (default);
-    /// "single" = strictly one action per turn.
+    /// "mono" or "single" = strictly one action per turn.
     /// </summary>
     public string? ActionMode { get; set; }
 
@@ -930,6 +930,7 @@ public sealed class AiFoundryChatMemoryDto
 {
     public string Summary { get; set; } = string.Empty;
     public int InstructionStrictness { get; set; } = 55;
+    public string LastActionMode { get; set; } = "multi";
     public List<string> Facts { get; set; } = new();
     public List<string> RecentGoals { get; set; } = new();
     public List<string> RecentFiles { get; set; } = new();

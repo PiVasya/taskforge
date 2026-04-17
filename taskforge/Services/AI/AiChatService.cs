@@ -30,6 +30,34 @@ public sealed class AiChatService
         "advance_agent_stage",
     };
 
+    private static readonly HashSet<string> AutonomousGroundworkActionNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "analyze_course_progression",
+        "inspect_course_assignments",
+        "prepare_bridge_plan",
+        "advance_agent_stage",
+    };
+
+    private static readonly HashSet<string> AutonomousTerminalActionNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "show_bridge_plan",
+        "revise_bridge_plan",
+        "show_chat_blueprint",
+        "save_chat_blueprint",
+        "revise_chat_blueprint",
+        "finalize_chat_blueprint",
+        "drop_chat_blueprint",
+        "queue_generate_bridge_batch",
+        "queue_generate_batch",
+        "queue_generate_from_text",
+        "revise_draft_from_chat",
+        "queue_generate_from_file",
+        "queue_validate_draft",
+        "queue_analyze_assignment",
+        "queue_review_submission",
+        "queue_review_user",
+    };
+
     private const int DefaultInstructionStrictness = 55;
 
     private readonly ApplicationDbContext _db;
@@ -205,9 +233,10 @@ public sealed class AiChatService
             session.Title = BuildSessionTitle(messages);
 
         var instructionStrictness = ClampInstructionStrictness(request.InstructionStrictness, DeserializeMemory(session.PlanJson).InstructionStrictness);
+        var actionMode = NormalizeActionMode(request.ActionMode);
         var refreshedMemory = BuildMemory(messages, session.PlanJson, instructionStrictness);
+        refreshedMemory.LastActionMode = actionMode;
         session.PlanJson = SerializeMemory(refreshedMemory);
-        var actionMode = string.IsNullOrWhiteSpace(request.ActionMode) ? "multi" : request.ActionMode.Trim().ToLowerInvariant();
         var autoOverviewBootstrap = await TryAutoEnsureCourseOverviewsAsync(session.CourseId, userMessage.Content, refreshedMemory, userId, userDisplayName, ct);
         var payload = await BuildChatPayloadAsync(session, messages, actionMode, instructionStrictness, autoOverviewBootstrap, ct);
         var job = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
@@ -356,7 +385,8 @@ public sealed class AiChatService
             Status = "done",
         });
 
-        var execution = await ExecuteToolCallsAsync(session, messages, new List<AiFoundryChatToolCallDto> { toolCall }, userId, userDisplayName, ct);
+        var actionMode = NormalizeActionMode(BuildMemory(messages, session.PlanJson).LastActionMode);
+        var execution = await ExecuteToolCallsAsync(session, messages, new List<AiFoundryChatToolCallDto> { toolCall }, actionMode, userId, userDisplayName, ct);
         var toolResults = execution.ToolResults;
         var primaryResult = toolResults.FirstOrDefault();
         var assistantIntro = "Подтверждение получено. Выполняю действие.";
@@ -575,16 +605,49 @@ public sealed class AiChatService
 
         var root = ParseJson(job.ResultJson);
         var (assistantText, toolCalls) = InterpretChatTurn(root, session, messages);
-        var execution = await ExecuteToolCallsAsync(session, messages, toolCalls, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
+        var actionMode = NormalizeActionMode(BuildMemory(messages, session.PlanJson).LastActionMode);
+        var execution = await ExecuteToolCallsAsync(session, messages, toolCalls, actionMode, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
+        var accumulatedToolCalls = assistantMessage.ToolCalls.Concat(execution.ToolCalls).ToList();
+        var accumulatedToolResults = assistantMessage.ToolResults.Concat(execution.ToolResults).ToList();
+        var memoryAfterTools = BuildMemory(messages, session.PlanJson);
+
+        if (ShouldContinueInternalReasoningPass(actionMode, session, messages, memoryAfterTools, accumulatedToolCalls, execution.ToolResults, toolCalls))
+        {
+            var followupPayload = await BuildChatPayloadAsync(session, messages, actionMode, memoryAfterTools.InstructionStrictness, null, ct);
+            var followupJob = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
+            {
+                Type = AiFoundryJobTypes.ChatTurn,
+                TargetEntityType = "chat-session",
+                TargetEntityId = session.Id,
+                CourseId = session.CourseId,
+                Priority = 30,
+                InputJson = JsonSerializer.Serialize(followupPayload, JsonOptions),
+            }, job.CreatedByUserId ?? session.CreatedByUserId, job.CreatedByDisplayName, ct);
+
+            assistantMessage.Status = "processing";
+            assistantMessage.PendingJobId = followupJob.Id;
+            assistantMessage.ToolCalls = accumulatedToolCalls;
+            assistantMessage.ToolCall = assistantMessage.ToolCalls.FirstOrDefault();
+            assistantMessage.ToolResults = accumulatedToolResults;
+            assistantMessage.ToolResult = assistantMessage.ToolResults.LastOrDefault() ?? assistantMessage.ToolResults.FirstOrDefault();
+            assistantMessage.Content = BuildContinuationProcessingMessage(accumulatedToolCalls, accumulatedToolResults, memoryAfterTools);
+
+            session.PlanJson = SerializeMemory(memoryAfterTools);
+            session.MessagesJson = SerializeMessages(messages);
+            session.UpdatedAtUtc = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            return true;
+        }
+
         var assistantIntro = assistantText;
 
         assistantMessage.Status = "done";
         assistantMessage.PendingJobId = null;
-        assistantMessage.ToolCalls = execution.ToolCalls;
+        assistantMessage.ToolCalls = accumulatedToolCalls;
         assistantMessage.ToolCall = assistantMessage.ToolCalls.FirstOrDefault();
-        assistantMessage.ToolResults = execution.ToolResults;
-        assistantMessage.ToolResult = assistantMessage.ToolResults.FirstOrDefault();
-        assistantMessage.Content = BuildAssistantContent(assistantIntro, execution.ToolResults);
+        assistantMessage.ToolResults = accumulatedToolResults;
+        assistantMessage.ToolResult = assistantMessage.ToolResults.LastOrDefault() ?? assistantMessage.ToolResults.FirstOrDefault();
+        assistantMessage.Content = BuildAssistantContent(assistantIntro, assistantMessage.ToolResults);
 
         var titleSuggestion = root?["sessionTitle"]?.ToString()?.Trim();
         if (!string.IsNullOrWhiteSpace(titleSuggestion))
@@ -603,6 +666,7 @@ public sealed class AiChatService
         AiFoundryChatSession session,
         List<AiFoundryChatMessageDto> messages,
         IReadOnlyList<AiFoundryChatToolCallDto> toolCalls,
+        string actionMode,
         Guid? createdByUserId,
         string? createdByDisplayName,
         CancellationToken ct)
@@ -628,7 +692,7 @@ public sealed class AiChatService
                 return execution;
         }
 
-        if (!ShouldAutoContinueAgent(toolCalls, execution.ToolResults))
+        if (!ShouldAutoContinueAgent(actionMode, toolCalls, execution.ToolResults))
             return execution;
 
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -636,7 +700,7 @@ public sealed class AiChatService
             visited.Add(BuildToolCallLoopSignature(executedCall));
 
         var autoNames = new List<string>();
-        for (var step = 0; step < 4; step++)
+        for (var step = 0; step < 5; step++)
         {
             var courseId = ReadGuid(lastArgs, "courseId") ?? session.CourseId;
             if (!courseId.HasValue)
@@ -658,7 +722,7 @@ public sealed class AiChatService
             if (lastResult != null)
                 execution.ToolResults.Add(lastResult);
 
-            if (ShouldStopAutoAgentLoop(nextToolCall.Name, lastResult) || string.Equals(nextToolCall.Name, "show_bridge_plan", StringComparison.OrdinalIgnoreCase))
+            if (ShouldStopAutoAgentLoop(nextToolCall.Name, lastResult) || AutonomousTerminalActionNames.Contains(nextToolCall.Name.Trim()))
                 break;
         }
 
@@ -1002,6 +1066,10 @@ public sealed class AiChatService
                         if (string.IsNullOrWhiteSpace(proposal.PlacementReason) && (!string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle) || proposal.PlacementAfterAssignmentId.HasValue))
                             proposal.PlacementReason = $"Поставить после «{proposal.PlacementAfterTitle ?? "выбранного задания"}», чтобы новая задача логично продолжала текущую лестницу курса.";
                     }
+                    var blueprintValidation = ValidateChatBlueprintProposals(memory, proposals, args);
+                    if (blueprintValidation != null)
+                        return blueprintValidation;
+
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? ((memory.CurrentDraftBlueprint?.Revision ?? 0) + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
                     {
@@ -1036,6 +1104,10 @@ public sealed class AiChatService
                     var proposals = ReadChatBlueprintProposals(args, current);
                     if (proposals.Count == 0)
                         return FailTool("Не удалось обновить примерные условия: proposals пустой или сломан.");
+
+                    var blueprintValidation = ValidateChatBlueprintProposals(memory, proposals, args);
+                    if (blueprintValidation != null)
+                        return blueprintValidation;
 
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? (current.Revision + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
@@ -2390,6 +2462,12 @@ public sealed class AiChatService
         Summary = summary,
     };
 
+    private static AiFoundryChatToolResultDto NeedsRevisionTool(string summary) => new()
+    {
+        Status = "needs-revision",
+        Summary = summary,
+    };
+
     private static AiFoundryChatToolResultDto ConfirmationRequired(AiFoundryChatToolCallDto toolCall, string summary) => new()
     {
         Status = "confirmation_required",
@@ -2692,15 +2770,106 @@ public sealed class AiChatService
         }
     }
 
-    private static bool ShouldAutoContinueAgent(IReadOnlyList<AiFoundryChatToolCallDto> toolCalls, IReadOnlyList<AiFoundryChatToolResultDto> toolResults)
+    private static bool ShouldAutoContinueAgent(string actionMode, IReadOnlyList<AiFoundryChatToolCallDto> toolCalls, IReadOnlyList<AiFoundryChatToolResultDto> toolResults)
     {
+        if (!string.Equals(actionMode, "multi", StringComparison.OrdinalIgnoreCase))
+            return false;
         if (toolCalls == null || toolCalls.Count == 0)
             return false;
-        if (toolResults.Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase)))
+        if (toolResults.Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "error", StringComparison.OrdinalIgnoreCase)))
             return false;
         if (toolCalls.Count != 1)
             return false;
-        return string.Equals(toolCalls[0].Name, "advance_agent_stage", StringComparison.OrdinalIgnoreCase);
+
+        var firstName = (toolCalls[0].Name ?? string.Empty).Trim();
+        return string.Equals(firstName, "advance_agent_stage", StringComparison.OrdinalIgnoreCase)
+            || AutonomousGroundworkActionNames.Contains(firstName);
+    }
+
+    private bool ShouldContinueInternalReasoningPass(
+        string actionMode,
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        AiFoundryChatMemoryDto memory,
+        IReadOnlyList<AiFoundryChatToolCallDto> accumulatedToolCalls,
+        IReadOnlyList<AiFoundryChatToolResultDto> recentToolResults,
+        IReadOnlyList<AiFoundryChatToolCallDto> lastToolCalls)
+    {
+        if (!string.Equals(actionMode, "multi", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (lastToolCalls == null || lastToolCalls.Count == 0)
+            return false;
+        if (accumulatedToolCalls.Count >= 12)
+            return false;
+        if (recentToolResults.Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "error", StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (recentToolResults.Any(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        var latestToolCall = lastToolCalls.LastOrDefault(x => x != null && !string.IsNullOrWhiteSpace(x.Name));
+        if (latestToolCall == null)
+            return false;
+
+        var latestToolName = latestToolCall.Name.Trim();
+        if (AutonomousTerminalActionNames.Contains(latestToolName))
+            return false;
+
+        var latestIntent = (memory.LatestIntentKind ?? string.Empty).Trim();
+        var objectiveKind = (memory.AgentState?.ObjectiveKind ?? string.Empty).Trim();
+        var blueprintIntent = objectiveKind.Equals("chat-blueprint", StringComparison.OrdinalIgnoreCase)
+            || latestIntent.Equals("generate", StringComparison.OrdinalIgnoreCase)
+            || latestIntent.Equals("show-blueprint", StringComparison.OrdinalIgnoreCase)
+            || latestIntent.Equals("revise-blueprint", StringComparison.OrdinalIgnoreCase)
+            || latestIntent.Equals("finalize-blueprint", StringComparison.OrdinalIgnoreCase);
+        var hasBlueprint = memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0;
+
+        if (blueprintIntent && !hasBlueprint && lastToolCalls.Any(x => x != null && AutonomousGroundworkActionNames.Contains((x.Name ?? string.Empty).Trim())))
+            return true;
+
+        var latestArgs = ParseArgumentsObject(latestToolCall.ArgumentsJson);
+        var courseId = ReadGuid(latestArgs, "courseId") ?? session.CourseId;
+        if (!courseId.HasValue)
+            return false;
+
+        var nextToolCall = BuildNextAgentToolCall(courseId.Value, session, messages, latestArgs);
+        if (nextToolCall == null || string.IsNullOrWhiteSpace(nextToolCall.Name))
+            return false;
+
+        var nextSignature = BuildToolCallLoopSignature(nextToolCall);
+        var alreadyVisited = accumulatedToolCalls.Any(x => string.Equals(BuildToolCallLoopSignature(x), nextSignature, StringComparison.OrdinalIgnoreCase));
+        return !alreadyVisited;
+    }
+
+    private static string NormalizeActionMode(string? actionMode)
+    {
+        var normalized = (actionMode ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized is "single" or "mono" or "step" or "manual" ? "single" : "multi";
+    }
+
+    private static string BuildContinuationProcessingMessage(
+        IReadOnlyList<AiFoundryChatToolCallDto> toolCalls,
+        IReadOnlyList<AiFoundryChatToolResultDto> toolResults,
+        AiFoundryChatMemoryDto memory)
+    {
+        var flow = toolCalls
+            .Select(x => DescribeToolName(x.Name))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToList();
+        var validationSummary = toolResults
+            .Where(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Summary))
+            .Select(x => ShortenSingleLine(x.Summary, 180))
+            .LastOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(validationSummary))
+            return $"Уточняю ответ по результатам самопроверки: {validationSummary}";
+        if (flow.Count > 0)
+            return $"Продолжаю внутреннюю проверку: уже выполнила {string.Join(" → ", flow)} и сейчас добираю недостающий шаг, чтобы не отвечать вслепую.";
+        return !string.IsNullOrWhiteSpace(memory.AgentState?.ObjectiveSummary)
+            ? $"Продолжаю внутреннюю проверку под цель: {ShortenSingleLine(memory.AgentState.ObjectiveSummary, 160)}"
+            : "Продолжаю внутреннюю проверку и собираю недостающий контекст перед финальным ответом.";
     }
 
     private static bool ShouldStopAutoAgentLoop(string? actionName, AiFoundryChatToolResultDto? result)
@@ -4093,6 +4262,7 @@ public sealed class AiChatService
         {
             Summary = summary,
             InstructionStrictness = instructionStrictness,
+            LastActionMode = NormalizeActionMode(previous.LastActionMode),
             Facts = facts.Take(6).ToList(),
             RecentGoals = recentGoals,
             RecentFiles = recentFiles,
@@ -4575,6 +4745,40 @@ public sealed class AiChatService
             };
         }
 
+        var blueprintIntent = string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "show-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "revise-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "finalize-blueprint", StringComparison.OrdinalIgnoreCase);
+        if (blueprintIntent && !hasBlueprint)
+        {
+            var strictPlacement = ResolveStrictRequestedPlacement(memory, args);
+            var needsFirstTaskEvidence = RequiresFirstTaskStyleEvidence(memory) && !InspectionContainsFirstTask(memory.LastCourseInspection);
+            var needsAnchorNeighborhood = strictPlacement.AfterAssignmentId.HasValue && !InspectionContainsAssignment(memory.LastCourseInspection, strictPlacement.AfterAssignmentId.Value);
+
+            if (!hasInspection || needsFirstTaskEvidence || needsAnchorNeighborhood)
+            {
+                var anchorForInspection = strictPlacement.AfterAssignmentId ?? placementAfterAssignmentId;
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "inspect_course_assignments",
+                    Reason = needsFirstTaskEvidence
+                        ? "Перед сборкой условий нужно одновременно открыть эталон первой задачи и соседние задания вокруг точки вставки, иначе стиль и anchor будут взяты из догадок."
+                        : "Перед сборкой условий нужно открыть реальные соседние задания вокруг точки вставки, чтобы не промахнуться по anchor и учебной лестнице.",
+                    ArgumentsJson = JsonSerializer.Serialize(new
+                    {
+                        courseId,
+                        query = needsFirstTaskEvidence ? "Задание 1" : focus,
+                        aroundAssignmentId = anchorForInspection,
+                        window = anchorForInspection.HasValue ? 5 : 2,
+                        limitAssignments = needsFirstTaskEvidence ? 28 : 24,
+                    }, JsonOptions),
+                };
+            }
+
+            return null;
+        }
+
         if (remediationIntent)
         {
             if (!hasAudit)
@@ -4874,6 +5078,175 @@ public sealed class AiChatService
                 result.Add(value);
         }
         return result.Distinct().ToList();
+    }
+
+    private static AiFoundryChatToolResultDto? ValidateChatBlueprintProposals(AiFoundryChatMemoryDto memory, List<AiFoundryChatDraftProposalDto> proposals, JsonObject args)
+    {
+        var issues = new List<string>();
+        var requestedCount = ExtractRequestedProposalCount(memory, args);
+        if (requestedCount.HasValue && proposals.Count != requestedCount.Value)
+            issues.Add($"Пользователь просил {requestedCount.Value} задач(и), а в blueprint сейчас {proposals.Count}.");
+
+        var strictAnchor = ResolveStrictRequestedPlacement(memory, args);
+        if (strictAnchor.AfterAssignmentId.HasValue)
+        {
+            var mismatch = proposals
+                .Where(x => x.PlacementAfterAssignmentId != strictAnchor.AfterAssignmentId || !string.Equals((x.PlacementAfterTitle ?? string.Empty).Trim(), (strictAnchor.AfterAssignmentTitle ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Title)
+                .Take(3)
+                .ToList();
+            if (mismatch.Count > 0)
+                issues.Add($"Пользователь явно задал точку вставки: {strictAnchor.HumanSummary}. Нельзя переносить варианты в другое место курса.");
+        }
+
+        if (RequiresFirstTaskStyleEvidence(memory) && !InspectionContainsFirstTask(memory.LastCourseInspection))
+            issues.Add("Пользователь просил стиль 'как первая задача', но в текущем просмотре нет самой первой задачи или раннего эталона. Сначала открой первое задание курса и только потом сохраняй blueprint.");
+
+        if (ShouldAvoidExplicitIfBeforeAnchor(memory))
+        {
+            var explicitIfTitles = proposals
+                .Where(ProposalUsesExplicitIf)
+                .Select(x => x.Title)
+                .Take(3)
+                .ToList();
+            if (explicitIfTitles.Count > 0)
+                issues.Add($"Это подготовка ДО темы if, поэтому в промежуточных задачах нельзя уже вводить if/else. Убери явное ветвление из: {string.Join(", ", explicitIfTitles)}.");
+        }
+
+        if (issues.Count == 0)
+            return null;
+
+        return NeedsRevisionTool("Blueprint пока не удовлетворяет явной инструкции пользователя. " + string.Join(" ", issues));
+    }
+
+    private static int? ExtractRequestedProposalCount(AiFoundryChatMemoryDto memory, JsonObject args)
+    {
+        var explicitCount = ReadInt(args, "count");
+        if (explicitCount.HasValue && explicitCount.Value > 0)
+            return Math.Clamp(explicitCount.Value, 1, 12);
+
+        var hay = string.Join(" ", new[]
+        {
+            memory.LatestExplicitInstruction,
+            memory.LatestTeachingScript,
+            string.Join(" ", memory.RecentGoals ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+
+        var match = Regex.Match(hay, @"\b(\d{1,2})\s*(?:задач|обучал|мостик|вариант)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var numeric))
+            return Math.Clamp(numeric, 1, 12);
+
+        if (hay.Contains("пять задач") || hay.Contains("5 задач") || hay.Contains("5 обучал"))
+            return 5;
+
+        return null;
+    }
+
+    private static (Guid? AfterAssignmentId, string? AfterAssignmentTitle, string? HumanSummary) ResolveStrictRequestedPlacement(AiFoundryChatMemoryDto memory, JsonObject args)
+    {
+        var explicitAfterId = ReadGuid(args, "afterAssignmentId");
+        if (explicitAfterId.HasValue)
+        {
+            var explicitTitle = ReadString(args, "afterAssignmentTitle") ?? ResolveRequestedAfterAssignmentTitle(memory, explicitAfterId);
+            return (explicitAfterId, explicitTitle, $"после «{explicitTitle ?? "выбранного задания"}»");
+        }
+
+        var inspection = memory.LastCourseInspection;
+        if (inspection == null || inspection.Assignments.Count == 0)
+            return (null, null, null);
+
+        var hay = string.Join(" ", new[]
+        {
+            memory.LatestExplicitInstruction,
+            memory.LatestTeachingScript,
+            string.Join(" ", memory.RecentGoals ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+
+        var beforeMatch = Regex.Match(hay, @"перед\s+(?:задани(?:ем|я)?\s*)?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (beforeMatch.Success)
+        {
+            var target = FindAssignmentByNumberToken(inspection, beforeMatch.Groups[1].Value);
+            if (target != null)
+            {
+                var ordered = inspection.Assignments.OrderBy(x => x.Sort).ToList();
+                var index = ordered.FindIndex(x => x.Id == target.Id);
+                if (index > 0)
+                {
+                    var previous = ordered[index - 1];
+                    return (previous.Id, previous.Title, $"между «{previous.Title}» и «{target.Title}»");
+                }
+            }
+        }
+
+        var afterMatch = Regex.Match(hay, @"после\s+(?:задани(?:я|ем)?\s*)?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (afterMatch.Success)
+        {
+            var anchor = FindAssignmentByNumberToken(inspection, afterMatch.Groups[1].Value);
+            if (anchor != null)
+                return (anchor.Id, anchor.Title, $"после «{anchor.Title}»");
+        }
+
+        return (null, null, null);
+    }
+
+    private static AiFoundryCourseInspectionAssignmentDto? FindAssignmentByNumberToken(AiFoundryCourseInspectionDto inspection, string numberToken)
+    {
+        if (inspection.Assignments.Count == 0 || string.IsNullOrWhiteSpace(numberToken))
+            return null;
+
+        var normalized = numberToken.Trim();
+        return inspection.Assignments
+            .OrderBy(x => x.Sort)
+            .FirstOrDefault(x => Regex.IsMatch(x.Title ?? string.Empty, $@"\b{Regex.Escape(normalized)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+    }
+
+    private static bool RequiresFirstTaskStyleEvidence(AiFoundryChatMemoryDto memory)
+    {
+        var hay = string.Join(" ", new[]
+        {
+            memory.LatestExplicitInstruction,
+            memory.LatestTeachingScript,
+            string.Join(" ", memory.RecentGoals ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        return hay.Contains("как первая задача")
+            || hay.Contains("как первая")
+            || hay.Contains("1 в 1")
+            || hay.Contains("один в один");
+    }
+
+    private static bool InspectionContainsFirstTask(AiFoundryCourseInspectionDto? inspection)
+    {
+        if (inspection == null)
+            return false;
+        return inspection.Assignments.Any(x => x.Sort <= 2 || Regex.IsMatch(x.Title ?? string.Empty, @"\bзадание\s*1(?!\d)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+    }
+
+    private static bool InspectionContainsAssignment(AiFoundryCourseInspectionDto? inspection, Guid assignmentId)
+    {
+        if (inspection == null)
+            return false;
+        return inspection.Assignments.Any(x => x.Id == assignmentId);
+    }
+
+    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
+    {
+        var hay = string.Join(" ", new[]
+        {
+            memory.LatestExplicitInstruction,
+            memory.LatestTeachingScript,
+            string.Join(" ", memory.RecentGoals ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        var mentionsIf = hay.Contains(" if") || hay.Contains("if ") || hay.Contains(" if ") || hay.Contains("if") || hay.Contains("ветвлен");
+        var bridgeBefore = hay.Contains("перед") || hay.Contains("до") || hay.Contains("обучал");
+        return mentionsIf && bridgeBefore;
+    }
+
+    private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
+    {
+        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        return Regex.IsMatch(hay, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || Regex.IsMatch(hay, @"\belse\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || hay.Contains("иначе");
     }
 
     private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args, AiFoundryChatDraftBlueprintDto? previous = null)

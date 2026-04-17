@@ -222,6 +222,7 @@ public sealed partial class AiJobService : IAiJobService
         var payload = await BuildAssignmentAnalysisInputAsync(request, ct);
         if (payload == null) return null;
 
+        var dedupeSinceUtc = DateTime.UtcNow.AddHours(-24);
         var activeJob = await _db.AiJobs.AsNoTracking()
             .Where(x => x.Type == "assignment_analyze_existing"
                 && x.TargetEntityId == request.AssignmentId
@@ -231,6 +232,28 @@ public sealed partial class AiJobService : IAiJobService
             .FirstOrDefaultAsync(ct);
         if (activeJob != null)
             return MapDetails(activeJob);
+
+        var recentReusableJob = await _db.AiJobs.AsNoTracking()
+            .Where(x => x.Type == "assignment_analyze_existing"
+                && x.TargetEntityId == request.AssignmentId
+                && x.CreatedAtUtc >= dedupeSinceUtc
+                && (
+                    (x.CompletedAtUtc != null && (x.Status == "done" || x.Status == "completed"))
+                    || (x.ResultJson != null && x.ResultJson != "" && x.Status != "failed" && x.Status != "error" && x.Status != "cancelled")
+                ))
+            .OrderByDescending(x => x.CompletedAtUtc ?? x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        if (recentReusableJob != null)
+            return MapDetails(recentReusableJob);
+
+        var hasFreshOverviewInsight = !request.IncludeAttempts
+            && !request.IncludeStats
+            && await _db.AiAssignmentInsights.AsNoTracking()
+                .AnyAsync(x => x.AssignmentId == request.AssignmentId
+                    && (x.Kind == AiAssignmentOverviewHelper.CourseOverviewKind || x.Kind == AiAssignmentOverviewHelper.LegacyOverviewKind)
+                    && x.CreatedAtUtc >= dedupeSinceUtc, ct);
+        if (hasFreshOverviewInsight)
+            return null;
 
         return await EnqueueAsync(new CreateAiJobRequestDto
         {
@@ -322,10 +345,24 @@ public sealed partial class AiJobService : IAiJobService
                 .ToListAsync(ct))
                 .ToHashSet();
 
+        var recentlyCompletedAssignmentIds = candidateIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await _db.AiJobs.AsNoTracking()
+                .Where(x => x.Type == "assignment_analyze_existing"
+                    && x.TargetEntityId.HasValue
+                    && candidateIds.Contains(x.TargetEntityId.Value)
+                    && x.CompletedAtUtc != null
+                    && x.CompletedAtUtc >= DateTime.UtcNow.AddHours(-12)
+                    && (x.Status == "done" || x.Status == "completed"))
+                .Select(x => x.TargetEntityId!.Value)
+                .Distinct()
+                .ToListAsync(ct))
+                .ToHashSet();
+
         var jobs = new List<AiJobDetailsDto>();
         foreach (var assignmentId in candidateIds)
         {
-            if (activeAssignmentIds.Contains(assignmentId))
+            if (activeAssignmentIds.Contains(assignmentId) || recentlyCompletedAssignmentIds.Contains(assignmentId))
                 continue;
 
             var job = await QueueAnalyzeAssignmentAsync(new AiAnalyzeAssignmentRequestDto

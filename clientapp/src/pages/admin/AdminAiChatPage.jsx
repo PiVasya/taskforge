@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Select, Textarea } from '../../components/ui';
@@ -654,6 +654,62 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
   );
 }
 
+
+function ActionModeToggle({ actionMode, onChange, disabled = false, compact = false }) {
+  const options = [
+    {
+      value: 'mono',
+      title: 'Пошагово',
+      subtitle: 'Один осознанный шаг за ход',
+      hint: 'AI чаще останавливается после одного шага и ждёт следующего сообщения.',
+    },
+    {
+      value: 'multi',
+      title: 'Самостоятельно',
+      subtitle: 'Несколько внутренних проходов подряд',
+      hint: 'AI сама ищет anchor, открывает соседние задания, проверяет себя и только потом отвечает.',
+    },
+  ];
+
+  return (
+    <div className={`rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 ${compact ? 'px-2 py-2' : 'px-3 py-3'} bg-white/70 dark:bg-neutral-950/40`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] opacity-55">Режим агента</div>
+          <div className="mt-1 text-sm font-medium">{actionMode === 'multi' ? 'Самостоятельно' : 'Пошагово'}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900/80">
+          {options.map((option) => {
+            const active = actionMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onChange(option.value)}
+                disabled={disabled}
+                title={option.hint}
+                className={`rounded-xl px-3 py-2 text-left transition-colors ${
+                  active
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-neutral-700 hover:bg-white dark:text-neutral-200 dark:hover:bg-neutral-800'
+                } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+              >
+                <div className="text-xs font-semibold">{option.title}</div>
+                <div className={`mt-0.5 text-[11px] leading-4 ${active ? 'text-primary-foreground/85' : 'opacity-70'}`}>{option.subtitle}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {!compact && (
+        <div className="mt-2 text-xs opacity-70">
+          {options.find((option) => option.value === actionMode)?.hint}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminAiChatPage() {
   const [searchParams] = useSearchParams();
   const isFullscreen = searchParams.get('fullscreen') === '1';
@@ -675,7 +731,12 @@ export default function AdminAiChatPage() {
   const [showMemory, setShowMemory] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
   const [actionMode, setActionMode] = useState(() => {
-    try { return localStorage.getItem('aiChat_actionMode') || 'multi'; } catch { return 'multi'; }
+    try {
+      const raw = String(localStorage.getItem('aiChat_actionMode') || 'multi').toLowerCase();
+      return raw === 'multi' ? 'multi' : 'mono';
+    } catch {
+      return 'multi';
+    }
   });
   const [instructionStrictness, setInstructionStrictness] = useState(() => {
     try {
@@ -688,12 +749,10 @@ export default function AdminAiChatPage() {
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
 
-  const toggleActionMode = useCallback(() => {
-    setActionMode((prev) => {
-      const next = prev === 'multi' ? 'single' : 'multi';
-      try { localStorage.setItem('aiChat_actionMode', next); } catch { /* ignore */ }
-      return next;
-    });
+  const applyActionMode = useCallback((nextMode) => {
+    const normalized = nextMode === 'multi' ? 'multi' : 'mono';
+    setActionMode(normalized);
+    try { localStorage.setItem('aiChat_actionMode', normalized); } catch { /* ignore */ }
   }, []);
   const previousPendingRef = useRef(false);
 
@@ -1205,18 +1264,14 @@ export default function AdminAiChatPage() {
                 />
                 <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
               </div>
-            <button
-              type="button"
-              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                actionMode === 'multi'
-                  ? 'bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:text-primary-foreground'
-                  : 'opacity-50 hover:opacity-80 border-neutral-300 dark:border-neutral-700'
-              }`}
-              onClick={toggleActionMode}
-              title={actionMode === 'multi' ? 'Мульти-режим: AI делает несколько действий за ход' : 'Одиночный режим: AI делает одно действие за ход'}
-            >
-              {actionMode === 'multi' ? '⚡ Мульти' : '1️⃣ Одно'}
-            </button>
+            <div className="w-[22rem] max-w-full">
+              <ActionModeToggle
+                actionMode={actionMode}
+                onChange={applyActionMode}
+                disabled={sending || pending || actionBusy}
+                compact
+              />
+            </div>
             </div>
           </div>
         </div>
@@ -1494,18 +1549,13 @@ export default function AdminAiChatPage() {
                 />
                 <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
               </div>
-              <button
-                type="button"
-                className={`text-xs px-2 py-1 rounded-full border transition-colors ${
-                  actionMode === 'multi'
-                    ? 'bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:text-primary-foreground'
-                    : 'opacity-50 hover:opacity-80 border-neutral-300 dark:border-neutral-700'
-                }`}
-                onClick={toggleActionMode}
-                title={actionMode === 'multi' ? 'Мульти-режим: AI делает несколько действий за ход' : 'Одиночный режим: AI делает одно действие за ход'}
-              >
-                {actionMode === 'multi' ? '⚡ Мульти' : '1️⃣ Одно'}
-              </button>
+              <div className="min-w-[19rem] max-w-full">
+                <ActionModeToggle
+                  actionMode={actionMode}
+                  onChange={applyActionMode}
+                  disabled={sending || pending || actionBusy}
+                />
+              </div>
             </div>
 
             <Field label="Сообщение для AI" hint="Enter — новая строка, Ctrl/Cmd+Enter — отправить. AI видит память сессии и может продолжать прошлую линию диалога без повторного описания контекста.">

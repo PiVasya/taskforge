@@ -143,6 +143,26 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("autoOverviewBootstrap", prompt)
         self.assertIn("система сама подтягивает обзоры", prompt)
 
+    def test_build_chat_turn_prompt_mentions_anchor_and_count_rules_for_multi_mode(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "actionMode": "multi",
+            "conversation": [{"role": "user", "content": "Сделай 5 задач перед 20 заданием как первая задача"}],
+            "availableActions": [
+                {"name": "inspect_course_assignments"},
+                {"name": "save_chat_blueprint"},
+                {"name": "revise_chat_blueprint"},
+            ],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("multi-режим", prompt)
+        self.assertIn("перед 20 заданием", prompt)
+        self.assertIn("должны совпадать по количеству", prompt)
+        self.assertIn("как первая задача", prompt)
+        self.assertIn("if/else", prompt)
+
+
 
     def test_build_draft_generate_prompt_accepts_dict_payload(self):
         payload = {
