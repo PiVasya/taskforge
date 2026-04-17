@@ -6493,6 +6493,15 @@ public sealed class AiChatService
     private static string? ReadString(JsonObject args, string propertyName)
         => args[propertyName]?.ToString()?.Trim();
 
+    private static string? ReadString(JsonElement args, string propertyName)
+    {
+        if (!args.TryGetProperty(propertyName, out var value))
+            return null;
+        if (value.ValueKind == JsonValueKind.String)
+            return value.GetString()?.Trim();
+        return value.ToString()?.Trim();
+    }
+
     private static string Truncate(string? text, int maxLen)
     {
         if (string.IsNullOrEmpty(text)) return "—";
@@ -6511,6 +6520,26 @@ public sealed class AiChatService
         {
             if (int.TryParse(args[propertyName]?.ToString(), out var value))
                 return value;
+            return null;
+        }
+    }
+
+    private static int? ReadInt(JsonElement args, string propertyName)
+    {
+        if (!args.TryGetProperty(propertyName, out var value))
+            return null;
+        try
+        {
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+                return number;
+            if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out var parsed))
+                return parsed;
+            if (int.TryParse(value.ToString(), out var fallback))
+                return fallback;
+            return null;
+        }
+        catch
+        {
             return null;
         }
     }
@@ -6557,6 +6586,12 @@ public sealed class AiChatService
     }
 
     private static Guid? ReadGuid(JsonObject args, string propertyName)
+    {
+        var raw = ReadString(args, propertyName);
+        return Guid.TryParse(raw, out var value) ? value : null;
+    }
+
+    private static Guid? ReadGuid(JsonElement args, string propertyName)
     {
         var raw = ReadString(args, propertyName);
         return Guid.TryParse(raw, out var value) ? value : null;
