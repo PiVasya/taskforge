@@ -555,6 +555,23 @@ def _chat_is_drop_blueprint_request(text: str) -> bool:
     return any(marker in low for marker in ["начни заново", "сбрось варианты", "удали варианты", "выбрось варианты", "заново варианты", "очисти условия"]) 
 
 
+def _chat_is_autonomous_rework_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(marker in low for marker in [
+        "повтори решение заново",
+        "сам раскритикуй",
+        "раскритикуй свой предыдущий результат",
+        "сразу исправь результат полностью",
+        "не останавливайся на промежуточном ответе",
+        "без промежуточного согласования",
+        "не просить у меня одобрение",
+        "не просить у меня подтверждение",
+        "если ты не уверен",
+    ])
+
+
 def _chat_instruction_contract(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         from prompt_builder import _extract_instruction_contract  # type: ignore
@@ -872,6 +889,8 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "drop-blueprint"
     if _chat_is_show_blueprint_request(low):
         return "show-blueprint"
+    if _chat_is_autonomous_rework_request(low):
+        return "revise-blueprint" if _chat_has_blueprint(payload) else "generate"
     if _chat_is_edit_blueprint_request(payload, low) or _chat_has_strong_blueprint_revision_signal(payload, low):
         return "revise-blueprint"
     if _chat_is_edit_draft_request(low):

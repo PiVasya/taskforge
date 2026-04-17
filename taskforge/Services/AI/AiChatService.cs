@@ -3333,7 +3333,32 @@ public sealed class AiChatService
             || low.Contains("пока не выполн")
             || low.Contains("пока не убед")
             || low.Contains("сама не удовлетворишься")
-            || low.Contains("сам не удовлетворишься");
+            || low.Contains("сам не удовлетворишься")
+            || low.Contains("без промежуточного согласования")
+            || low.Contains("без промежуточных остановок")
+            || low.Contains("не просить у меня одобрение")
+            || low.Contains("не просить у меня подтверждение")
+            || low.Contains("если ты не уверен — продолжай")
+            || low.Contains("если ты не уверен - продолжай")
+            || low.Contains("повтори решение заново")
+            || low.Contains("раскритикуй свой предыдущий результат")
+            || low.Contains("сразу исправь результат полностью");
+    }
+
+    private static bool IsAutonomousReworkIntent(string? latestGoal)
+    {
+        if (string.IsNullOrWhiteSpace(latestGoal))
+            return false;
+
+        var low = latestGoal.ToLowerInvariant();
+        return low.Contains("повтори решение заново")
+            || low.Contains("сам раскритикуй")
+            || low.Contains("раскритикуй свой предыдущий результат")
+            || low.Contains("сразу исправь результат полностью")
+            || low.Contains("если найдёшь хотя бы одну проблему")
+            || low.Contains("если найдешь хотя бы одну проблему")
+            || low.Contains("не останавливайся на промежуточном ответе")
+            || low.Contains("без промежуточного согласования");
     }
 
     private static List<int> InferPlanItemIndexesFromText(string? text)
@@ -3460,10 +3485,16 @@ public sealed class AiChatService
         var workflowKind = "conversation";
         var currentStage = "idle";
         var preferDirectGeneration = string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(latestTeachingScript);
-        if (hasBlueprint)
+        var autonomousRework = IsAutonomousReworkIntent(latestGoal);
+        if (hasBlueprint && !autonomousRework)
         {
             workflowKind = "chat-blueprint";
             currentStage = previous.CurrentDraftBlueprint!.ApprovedForDraft ? "blueprint-finalized" : "blueprint-review";
+        }
+        else if (hasBlueprint && autonomousRework)
+        {
+            workflowKind = "generation";
+            currentStage = previous.CurrentDraftBlueprint!.ApprovedForDraft ? "blueprint-finalized" : "blueprint-rework";
         }
         else if (remediationIntent)
         {
@@ -3534,15 +3565,15 @@ public sealed class AiChatService
             ?? subtasks.FirstOrDefault(x => string.Equals(x.Status, "pending", StringComparison.OrdinalIgnoreCase))?.Summary
             ?? nextAgentStep;
         var evidenceLedger = BuildAgentEvidenceLedger(previous, objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint);
-        var openQuestions = BuildAgentOpenQuestions(previous, objectiveKind, latestIntentKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, intentSummary ?? string.Empty);
+        var openQuestions = BuildAgentOpenQuestions(previous, objectiveKind, latestIntentKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, intentSummary ?? string.Empty, previous.PreferAutonomousCompletion);
         var riskFlags = BuildAgentRiskFlags(previous, objectiveKind, latestIntentKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration);
-        var completionCriteria = BuildAgentCompletionCriteria(objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true);
+        var completionCriteria = BuildAgentCompletionCriteria(objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, previous.PreferAutonomousCompletion);
         var decisionCandidates = BuildAgentDecisionCandidates(objectiveKind, currentStage, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, nextAgentStep);
         var confidencePercent = EstimateAgentConfidencePercent(objectiveKind, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, openQuestions.Count, riskFlags.Count);
         var confidenceReason = BuildAgentConfidenceReason(objectiveKind, confidencePercent, openQuestions, riskFlags);
         var blockerSummary = BuildAgentBlockerSummary(openQuestions, riskFlags, confidencePercent, objectiveKind);
-        var needsClarification = ShouldAgentAskClarifyingQuestion(confidencePercent, openQuestions, riskFlags, currentStage, objectiveKind);
-        var autonomyMode = DetermineAgentAutonomyMode(needsClarification, confidencePercent, openQuestions, readyForGeneration, hasBlueprint);
+        var needsClarification = ShouldAgentAskClarifyingQuestion(confidencePercent, openQuestions, riskFlags, currentStage, objectiveKind, previous.PreferAutonomousCompletion);
+        var autonomyMode = DetermineAgentAutonomyMode(needsClarification, confidencePercent, openQuestions, readyForGeneration, hasBlueprint, previous.PreferAutonomousCompletion);
         var planSteps = BuildAgentPlanSteps(objectiveKind, currentStage, hasAudit, hasInspection, hasBridgePlan, hasBlueprint, readyForGeneration, previous.CurrentDraftBlueprint?.ApprovedForDraft == true, blockerSummary, decisionCandidates);
         var selfCritique = BuildAgentSelfCritique(objectiveKind, openQuestions, riskFlags, decisionCandidates, hasBlueprint, readyForGeneration);
 
@@ -3591,7 +3622,8 @@ public sealed class AiChatService
 
     private static string DetermineAgentObjectiveKind(string? latestGoal, string? latestIntentKind, bool hasBlueprint)
     {
-        if (hasBlueprint)
+        var autonomousRework = IsAutonomousReworkIntent(latestGoal);
+        if (hasBlueprint && !autonomousRework && !string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase))
             return "chat-blueprint";
         if (string.Equals(latestIntentKind, "remediation", StringComparison.OrdinalIgnoreCase) || IsCourseGapRemediationIntent(latestGoal))
             return "course-gap-remediation";
@@ -3603,7 +3635,7 @@ public sealed class AiChatService
             || string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase)
             || string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase))
             return "bridge-planning";
-        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) || autonomousRework)
             return "generation";
         return "conversation";
     }
@@ -3705,7 +3737,8 @@ public sealed class AiChatService
         bool hasBridgePlan,
         bool hasBlueprint,
         bool readyForGeneration,
-        string intentSummary)
+        string intentSummary,
+        bool preferAutonomousCompletion)
     {
         var items = new List<string>();
         if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
@@ -3723,7 +3756,7 @@ public sealed class AiChatService
         {
             if (!hasBlueprint)
                 items.Add("Нужно собрать хотя бы один осмысленный вариант условия прямо в чате.");
-            else if (previous.CurrentDraftBlueprint?.ApprovedForDraft != true)
+            else if (previous.CurrentDraftBlueprint?.ApprovedForDraft != true && !preferAutonomousCompletion)
                 items.Add("Нужно явное одобрение пользователя перед финализацией в draft.");
         }
         else if (string.Equals(objectiveKind, "generation", StringComparison.OrdinalIgnoreCase) && !readyForGeneration)
@@ -3768,7 +3801,8 @@ public sealed class AiChatService
         bool hasBridgePlan,
         bool hasBlueprint,
         bool readyForGeneration,
-        bool blueprintApproved)
+        bool blueprintApproved,
+        bool preferAutonomousCompletion)
     {
         var items = new List<string>();
         if (string.Equals(objectiveKind, "course-gap-remediation", StringComparison.OrdinalIgnoreCase))
@@ -3782,7 +3816,9 @@ public sealed class AiChatService
         if (string.Equals(objectiveKind, "chat-blueprint", StringComparison.OrdinalIgnoreCase))
         {
             items.Add(hasBlueprint ? "Варианты условий сохранены." : "Нужно сохранить варианты условий.");
-            items.Add(blueprintApproved ? "Blueprint одобрен и готов к финализации." : "Нужно явное одобрение перед финализацией.");
+            items.Add(blueprintApproved || preferAutonomousCompletion
+                ? "Blueprint можно доводить до финального результата без отдельного UX-одобрения."
+                : "Нужно явное одобрение перед финализацией.");
             return items;
         }
         items.Add(readyForGeneration ? "Контекст достаточен для следующего шага." : "Контекст ещё не дотянут до следующего шага.");
@@ -3811,8 +3847,17 @@ public sealed class AiChatService
         IReadOnlyList<string> openQuestions,
         IReadOnlyList<string> riskFlags,
         string currentStage,
-        string objectiveKind)
+        string objectiveKind,
+        bool preferAutonomousCompletion)
     {
+        if (preferAutonomousCompletion)
+        {
+            if (confidencePercent < 18)
+                return true;
+            if (openQuestions.Count > 0 && confidencePercent < 42)
+                return true;
+            return riskFlags.Count >= 3 && confidencePercent < 45;
+        }
         if (openQuestions.Count > 0 && confidencePercent < 65)
             return true;
         if (confidencePercent < 25)
@@ -3829,8 +3874,19 @@ public sealed class AiChatService
         int confidencePercent,
         IReadOnlyList<string> openQuestions,
         bool readyForGeneration,
-        bool hasBlueprint)
+        bool hasBlueprint,
+        bool preferAutonomousCompletion)
     {
+        if (preferAutonomousCompletion)
+        {
+            if (readyForGeneration)
+                return "execute-ready";
+            if (confidencePercent >= 45 || hasBlueprint)
+                return "self-directed";
+            if (needsClarification && confidencePercent < 18)
+                return "ask-first";
+            return openQuestions.Count > 0 ? "cautious-self-directed" : "self-directed";
+        }
         if (needsClarification)
             return "ask-first";
         if (readyForGeneration)
@@ -4820,8 +4876,41 @@ public sealed class AiChatService
         if (blueprintIntent && hasBlueprint && memory.CurrentDraftBlueprint != null)
         {
             var blueprint = memory.CurrentDraftBlueprint;
+            var strictPlacement = ResolveStrictRequestedPlacement(memory, args);
+            var validationArgs = new JsonObject();
+            validationArgs["courseId"] = courseId.ToString();
+            if (strictPlacement.AfterAssignmentId.HasValue)
+            {
+                validationArgs["afterAssignmentId"] = strictPlacement.AfterAssignmentId.Value.ToString();
+                if (!string.IsNullOrWhiteSpace(strictPlacement.AfterAssignmentTitle))
+                    validationArgs["afterAssignmentTitle"] = strictPlacement.AfterAssignmentTitle;
+            }
+            var blueprintValidation = ValidateChatBlueprintProposals(memory, blueprint.Proposals.ToList(), validationArgs);
+            if (blueprintValidation != null)
+            {
+                var needsFirstTaskEvidence = RequiresFirstTaskStyleEvidence(memory) && !InspectionContainsFirstTask(memory.LastCourseInspection);
+                var needsAnchorNeighborhood = strictPlacement.AfterAssignmentId.HasValue && !InspectionContainsAssignment(memory.LastCourseInspection, strictPlacement.AfterAssignmentId.Value);
+                if (!hasInspection || needsFirstTaskEvidence || needsAnchorNeighborhood)
+                {
+                    var anchorForInspection = strictPlacement.AfterAssignmentId ?? placementAfterAssignmentId;
+                    return new AiFoundryChatToolCallDto
+                    {
+                        Name = "inspect_course_assignments",
+                        Reason = "Текущий blueprint конфликтует с последней инструкцией пользователя. Нужно открыть эталон и соседние задания заново, прежде чем его править или финализировать.",
+                        ArgumentsJson = JsonSerializer.Serialize(new
+                        {
+                            courseId,
+                            query = needsFirstTaskEvidence ? "Задание 1" : focus,
+                            aroundAssignmentId = anchorForInspection,
+                            window = anchorForInspection.HasValue ? 5 : 2,
+                            limitAssignments = needsFirstTaskEvidence ? 28 : 24,
+                        }, JsonOptions),
+                    };
+                }
+                return null;
+            }
             var wantsImmediateDraft = string.Equals(latestIntentKind, "finalize-blueprint", StringComparison.OrdinalIgnoreCase)
-                || (preferAutonomousCompletion && string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase));
+                || (preferAutonomousCompletion && (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) || IsAutonomousReworkIntent(memory.LatestExplicitInstruction)));
             if (wantsImmediateDraft && blueprint.ApprovedForDraft != true)
             {
                 return new AiFoundryChatToolCallDto
@@ -5069,7 +5158,11 @@ public sealed class AiChatService
         }
 
         if (memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0)
+        {
+            if (memory.PreferAutonomousCompletion && memory.CurrentDraftBlueprint.ApprovedForDraft != true)
+                return "самостоятельно исправить blueprint под последнюю инструкцию и только затем финализировать его";
             return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия из чата, а потом вызвать finalize_chat_blueprint";
+        }
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "сгенерировать мостики через queue_generate_bridge_batch";
         if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)

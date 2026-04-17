@@ -192,6 +192,36 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         intent = worker._chat_latest_intent_kind(payload, payload["conversation"][0]["content"], "")
         self.assertEqual(intent, "revise-blueprint")
 
+    def test_autonomous_rework_with_blueprint_routes_to_revise_blueprint(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Повтори решение заново, не останавливайся на промежуточном ответе и если найдёшь проблему — сразу исправь результат полностью"}],
+            "memory": {
+                "currentDraftBlueprint": {
+                    "summary": "Есть варианты",
+                    "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант 1", "conditionPreview": "..."}]
+                }
+            },
+        }
+        intent = worker._chat_latest_intent_kind(payload, payload["conversation"][0]["content"], "")
+        self.assertEqual(intent, "revise-blueprint")
+
+    def test_prompt_autonomy_mentions_stale_blueprint_must_not_dominate(self):
+        payload = {
+            "sessionId": "s1",
+            "courseId": "c1",
+            "memory": {
+                "preferAutonomousCompletion": True,
+                "currentDraftBlueprint": {"summary": "Есть варианты", "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант 1", "conditionPreview": "..."}]},
+            },
+            "conversation": [{"role": "user", "content": "Повтори решение заново и исправь полностью"}],
+            "availableActions": [{"name": "inspect_course_assignments"}, {"name": "revise_chat_blueprint"}, {"name": "finalize_chat_blueprint"}],
+        }
+        prompt = prompt_builder.build_chat_turn_prompt({"type": "assistant_chat_turn"}, payload)
+        self.assertIn("не считай старый blueprint священным", prompt)
+        self.assertIn("исправь или пересобери blueprint", prompt)
+
     def test_short_followup_uses_plan_steps_to_continue(self):
         payload = {
             "courseId": "c1",
