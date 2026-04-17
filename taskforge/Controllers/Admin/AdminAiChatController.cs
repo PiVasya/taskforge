@@ -99,11 +99,14 @@ public sealed class AdminAiChatController : ControllerBase
         var fileNameBase = SanitizeFileName(session.Title);
         if (normalizedFormat == "json")
         {
-            var json = JsonSerializer.Serialize(session, new JsonSerializerOptions(JsonSerializerDefaults.Web)
-            {
-                WriteIndented = true,
-            });
+            var json = SerializePrettyJson(session);
             return File(Encoding.UTF8.GetBytes(json), "application/json; charset=utf-8", $"{fileNameBase}.json");
+        }
+
+        if (normalizedFormat is "debug" or "zip")
+        {
+            var archive = BuildDebugExportArchive(session);
+            return File(archive, "application/zip", $"{fileNameBase}-debug.zip");
         }
 
         var markdown = BuildMarkdownExport(session);
@@ -164,15 +167,88 @@ public sealed class AdminAiChatController : ControllerBase
                 sb.AppendLine($"- {fact}");
             if ((session.Memory.Facts?.Count ?? 0) > 0)
                 sb.AppendLine();
+
+            sb.AppendLine("### Snapshot");
+            sb.AppendLine();
+            sb.AppendLine($"- ActionMode: `{session.Memory.LastActionMode}`");
+            sb.AppendLine($"- InstructionStrictness: `{session.Memory.InstructionStrictness}`");
+            sb.AppendLine($"- PreferAutonomousCompletion: `{session.Memory.PreferAutonomousCompletion}`");
+            sb.AppendLine($"- LatestIntentKind: `{session.Memory.LatestIntentKind ?? "—"}`");
+            if (!string.IsNullOrWhiteSpace(session.Memory.LatestExplicitInstruction))
+                sb.AppendLine($"- LatestExplicitInstruction: {session.Memory.LatestExplicitInstruction}");
+            if (!string.IsNullOrWhiteSpace(session.Memory.LatestTeachingScript))
+                sb.AppendLine($"- LatestTeachingScript: {session.Memory.LatestTeachingScript}");
+            sb.AppendLine();
+
+            if (session.Memory.AgentState != null)
+            {
+                sb.AppendLine("### AgentState");
+                sb.AppendLine();
+                sb.AppendLine($"- ObjectiveKind: `{session.Memory.AgentState.ObjectiveKind}`");
+                sb.AppendLine($"- CurrentStage: `{session.Memory.AgentState.CurrentStage}`");
+                sb.AppendLine($"- AutonomyMode: `{session.Memory.AgentState.AutonomyMode}`");
+                sb.AppendLine($"- ConfidencePercent: `{session.Memory.AgentState.ConfidencePercent}`");
+                if (!string.IsNullOrWhiteSpace(session.Memory.AgentState.ObjectiveSummary))
+                    sb.AppendLine($"- ObjectiveSummary: {session.Memory.AgentState.ObjectiveSummary}");
+                if (!string.IsNullOrWhiteSpace(session.Memory.AgentState.StageSummary))
+                    sb.AppendLine($"- StageSummary: {session.Memory.AgentState.StageSummary}");
+                if (!string.IsNullOrWhiteSpace(session.Memory.AgentState.NextSuggestedAction))
+                    sb.AppendLine($"- NextSuggestedAction: `{session.Memory.AgentState.NextSuggestedAction}`");
+                if ((session.Memory.AgentState.OpenQuestions?.Count ?? 0) > 0)
+                    foreach (var question in session.Memory.AgentState.OpenQuestions)
+                        sb.AppendLine($"- OpenQuestion: {question}");
+                if ((session.Memory.AgentState.RiskFlags?.Count ?? 0) > 0)
+                    foreach (var risk in session.Memory.AgentState.RiskFlags)
+                        sb.AppendLine($"- RiskFlag: {risk}");
+                sb.AppendLine();
+            }
+
+            if (session.Memory.CurrentDraftBlueprint != null && (session.Memory.CurrentDraftBlueprint.Proposals?.Count ?? 0) > 0)
+            {
+                sb.AppendLine("### CurrentDraftBlueprint");
+                sb.AppendLine();
+                sb.AppendLine($"- Revision: `{session.Memory.CurrentDraftBlueprint.Revision}`");
+                sb.AppendLine($"- ApprovedForDraft: `{session.Memory.CurrentDraftBlueprint.ApprovedForDraft}`");
+                sb.AppendLine($"- Summary: {session.Memory.CurrentDraftBlueprint.Summary}");
+                sb.AppendLine();
+                foreach (var proposal in session.Memory.CurrentDraftBlueprint.Proposals)
+                {
+                    sb.AppendLine($"#### {proposal.Title}");
+                    sb.AppendLine();
+                    sb.AppendLine($"- Difficulty: `{proposal.Difficulty}`");
+                    sb.AppendLine($"- Placement: `{proposal.PlacementAfterTitle ?? "—"}`");
+                    if (!string.IsNullOrWhiteSpace(proposal.Goal))
+                        sb.AppendLine($"- Goal: {proposal.Goal}");
+                    if (!string.IsNullOrWhiteSpace(proposal.ConditionPreview))
+                        sb.AppendLine($"- ConditionPreview: {proposal.ConditionPreview}");
+                    if (!string.IsNullOrWhiteSpace(proposal.FullCondition))
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("```text");
+                        sb.AppendLine(proposal.FullCondition);
+                        sb.AppendLine("```");
+                    }
+                    sb.AppendLine();
+                }
+            }
         }
 
         sb.AppendLine("## Transcript");
         sb.AppendLine();
+        var turn = 0;
         foreach (var message in session.Messages ?? new List<AiFoundryChatMessageDto>())
         {
+            turn++;
             var role = string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) ? "AI" : "User";
-            sb.AppendLine($"### {role} · {message.CreatedAtUtc:O}");
+            sb.AppendLine($"### {turn}. {role} · {message.CreatedAtUtc:O}");
             sb.AppendLine();
+            if (!string.IsNullOrWhiteSpace(message.Status) || message.PendingJobId.HasValue)
+            {
+                sb.AppendLine($"- Status: `{message.Status ?? "—"}`");
+                if (message.PendingJobId.HasValue)
+                    sb.AppendLine($"- PendingJobId: `{message.PendingJobId}`");
+                sb.AppendLine();
+            }
             sb.AppendLine(string.IsNullOrWhiteSpace(message.Content) ? "_empty_" : message.Content);
             sb.AppendLine();
 
@@ -183,18 +259,105 @@ public sealed class AdminAiChatController : ControllerBase
 
             var toolCalls = (message.ToolCalls?.Count ?? 0) > 0 ? message.ToolCalls : (message.ToolCall == null ? new List<AiFoundryChatToolCallDto>() : new List<AiFoundryChatToolCallDto> { message.ToolCall });
             foreach (var tool in toolCalls)
+            {
                 sb.AppendLine($"- ToolCall: {tool.Name} :: {tool.Reason}");
+                if (!string.IsNullOrWhiteSpace(tool.ArgumentsJson))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("```json");
+                    sb.AppendLine(TryPrettyJson(tool.ArgumentsJson));
+                    sb.AppendLine("```");
+                }
+            }
             if (toolCalls.Count > 0)
                 sb.AppendLine();
 
             var toolResults = (message.ToolResults?.Count ?? 0) > 0 ? message.ToolResults : (message.ToolResult == null ? new List<AiFoundryChatToolResultDto>() : new List<AiFoundryChatToolResultDto> { message.ToolResult });
             foreach (var result in toolResults)
+            {
                 sb.AppendLine($"- ToolResult: {result.Status} :: {result.Summary}");
+                if (!string.IsNullOrWhiteSpace(result.NavigateTo))
+                    sb.AppendLine($"  - NavigateTo: {result.NavigateTo}");
+                if (result.JobId.HasValue)
+                    sb.AppendLine($"  - JobId: `{result.JobId}`");
+                if (result.BatchId.HasValue)
+                    sb.AppendLine($"  - BatchId: `{result.BatchId}`");
+                if (result.DraftId.HasValue)
+                    sb.AppendLine($"  - DraftId: `{result.DraftId}`");
+                if (result.AssignmentId.HasValue)
+                    sb.AppendLine($"  - AssignmentId: `{result.AssignmentId}`");
+                if (result.CourseId.HasValue)
+                    sb.AppendLine($"  - CourseId: `{result.CourseId}`");
+                if (result.RequiresConfirmation && result.ConfirmationToolCall != null)
+                    sb.AppendLine($"  - RequiresConfirmation: `{result.ConfirmationToolCall.Name}`");
+            }
             if (toolResults.Count > 0)
                 sb.AppendLine();
         }
 
         return sb.ToString();
+    }
+
+    private static byte[] BuildDebugExportArchive(AiFoundryChatSessionDto session)
+    {
+        using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, true))
+        {
+            AddZipEntry(archive, "transcript.md", BuildMarkdownExport(session));
+            AddZipEntry(archive, "session.json", SerializePrettyJson(session));
+            AddZipEntry(archive, "memory.json", SerializePrettyJson(session.Memory));
+
+            var timeline = (session.Messages ?? new List<AiFoundryChatMessageDto>())
+                .Select((message, index) => new
+                {
+                    turn = index + 1,
+                    message.Id,
+                    message.Role,
+                    message.CreatedAtUtc,
+                    message.Status,
+                    message.PendingJobId,
+                    message.Content,
+                    attachments = message.Attachments,
+                    toolCalls = (message.ToolCalls?.Count ?? 0) > 0 ? message.ToolCalls : (message.ToolCall == null ? new List<AiFoundryChatToolCallDto>() : new List<AiFoundryChatToolCallDto> { message.ToolCall }),
+                    toolResults = (message.ToolResults?.Count ?? 0) > 0 ? message.ToolResults : (message.ToolResult == null ? new List<AiFoundryChatToolResultDto>() : new List<AiFoundryChatToolResultDto> { message.ToolResult }),
+                })
+                .ToList();
+            AddZipEntry(archive, "timeline.json", SerializePrettyJson(timeline));
+        }
+
+        return ms.ToArray();
+    }
+
+    private static void AddZipEntry(ZipArchive archive, string path, string content)
+    {
+        var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+        writer.Write(content ?? string.Empty);
+    }
+
+    private static string SerializePrettyJson(object? value)
+        => JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+        });
+
+    private static string TryPrettyJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return "{}";
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                WriteIndented = true,
+            });
+        }
+        catch
+        {
+            return json.Trim();
+        }
     }
 
     private static string SanitizeFileName(string? raw)

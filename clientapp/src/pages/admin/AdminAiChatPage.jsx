@@ -1375,8 +1375,8 @@ export default function AdminAiChatPage() {
               <Button type="button" variant="outline" onClick={createSession} disabled={pending || actionBusy}>
                 <Plus size={16} /> Новый чат
               </Button>
-              <Button type="button" variant="outline" onClick={() => exportCurrent('md')} disabled={!sessionId || pending || actionBusy || exporting}>
-                {exporting ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />} Экспорт
+              <Button type="button" variant="outline" onClick={() => exportCurrent('debug')} disabled={!sessionId || pending || actionBusy || exporting} title="Скачать расширенный debug-архив: transcript.md + session.json + memory.json + timeline.json">
+                {exporting ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />} Экспорт debug
               </Button>
               <Button type="button" variant="outline" onClick={renameCurrent} disabled={!sessionId || pending || actionBusy}>
                 <Pencil size={16} />

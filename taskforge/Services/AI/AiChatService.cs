@@ -3306,6 +3306,36 @@ public sealed class AiChatService
             || low.Contains("все, делай");
     }
 
+    private static bool ShouldPreferAutonomousCompletion(string? latestGoal, string? latestIntentKind)
+    {
+        if (string.IsNullOrWhiteSpace(latestGoal))
+            return false;
+
+        if (string.Equals(latestIntentKind, "remediation", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var low = latestGoal.ToLowerInvariant();
+        return low.Contains("не один шаг")
+            || low.Contains("несколько раз")
+            || low.Contains("пока сама не удовлетвор")
+            || low.Contains("пока сам не удовлетвор")
+            || low.Contains("самостоятельност")
+            || low.Contains("не спрашивай")
+            || low.Contains("без согласования")
+            || low.Contains("без моего дополнительного сообщения")
+            || low.Contains("сделай всё за один")
+            || low.Contains("сделай все за один")
+            || low.Contains("за один мой запрос")
+            || low.Contains("плевать если долго")
+            || low.Contains("сама добери")
+            || low.Contains("сам добери")
+            || low.Contains("не останавливайся")
+            || low.Contains("пока не выполн")
+            || low.Contains("пока не убед")
+            || low.Contains("сама не удовлетворишься")
+            || low.Contains("сам не удовлетворишься");
+    }
+
     private static List<int> InferPlanItemIndexesFromText(string? text)
     {
         var low = (text ?? string.Empty).ToLowerInvariant();
@@ -4148,6 +4178,7 @@ public sealed class AiChatService
         var latestIntentKind = DetectLatestIntentKind(latestGoal) ?? previous.LatestIntentKind;
         var latestTeachingScript = ExtractLatestTeachingScript(latestGoal) ?? previous.LatestTeachingScript;
         var latestExplicitInstruction = ShortenMultiline(latestGoal, 900);
+        var preferAutonomousCompletion = ShouldPreferAutonomousCompletion(latestGoal, latestIntentKind) || previous.PreferAutonomousCompletion;
         var hasBlueprint = previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0;
         var blueprintIntent = string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
             || string.Equals(latestIntentKind, "finalize-blueprint", StringComparison.OrdinalIgnoreCase)
@@ -4161,6 +4192,8 @@ public sealed class AiChatService
             facts.Add($"Последняя цель пользователя: {recentGoals[^1]}");
         if (!string.IsNullOrWhiteSpace(latestTeachingScript) && facts.Count < 6)
             facts.Add($"Последний пользовательский teaching-script: {ShortenSingleLine(latestTeachingScript, 160)}");
+        if (preferAutonomousCompletion && facts.Count < 6)
+            facts.Add("Пользователь просит автономный проход: не останавливаться после первого шага и не требовать лишнего согласования.");
         if (recentFiles.Count > 0)
             facts.Add($"В сессии уже использовались файлы: {string.Join(", ", recentFiles.Take(3))}");
         if (recentActions.Count > 0)
@@ -4191,6 +4224,8 @@ public sealed class AiChatService
             summaryParts.Add($"Последний ответ AI: {lastAssistantOutcome}.");
         if (!string.IsNullOrWhiteSpace(latestTeachingScript))
             summaryParts.Add("Пользователь уже дал явный teaching-script/эталон, который нужно сохранять при следующей генерации.");
+        if (preferAutonomousCompletion)
+            summaryParts.Add("Пользователь ждёт, что агент сам дойдёт до удовлетворяющего результата без лишних пауз на согласование.");
         if (previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0)
             summaryParts.Add($"В памяти уже есть {previous.CurrentDraftBlueprint.Proposals.Count} согласуемых услов{(previous.CurrentDraftBlueprint.Proposals.Count == 1 ? "ие" : "ий")} из чата, которые можно показать, поправить или превратить в draft.");
         if (hasBlueprint)
@@ -4246,6 +4281,7 @@ public sealed class AiChatService
             CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
             LatestIntentKind = latestIntentKind,
             LatestTeachingScript = latestTeachingScript,
+            PreferAutonomousCompletion = preferAutonomousCompletion,
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
         };
         var agentState = BuildChatAgentState(memoryContextForAgent, recentGoals, recentActions, nextAgentStep, latestIntentKind, latestTeachingScript);
@@ -4263,6 +4299,7 @@ public sealed class AiChatService
             Summary = summary,
             InstructionStrictness = instructionStrictness,
             LastActionMode = NormalizeActionMode(previous.LastActionMode),
+            PreferAutonomousCompletion = preferAutonomousCompletion,
             Facts = facts.Take(6).ToList(),
             RecentGoals = recentGoals,
             RecentFiles = recentFiles,
@@ -4724,6 +4761,7 @@ public sealed class AiChatService
             ?? memory.LastCourseAudit?.Findings.FirstOrDefault()?.AfterAssignmentId
             ?? memory.AgentState?.PlacementAfterAssignmentId;
         var preferDirectGeneration = memory.SuppressBridgePlanLoop || memory.AgentState?.PreferDirectGeneration == true || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase);
+        var preferAutonomousCompletion = memory.PreferAutonomousCompletion;
 
         if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
         {
@@ -4777,6 +4815,28 @@ public sealed class AiChatService
             }
 
             return null;
+        }
+
+        if (blueprintIntent && hasBlueprint && memory.CurrentDraftBlueprint != null)
+        {
+            var blueprint = memory.CurrentDraftBlueprint;
+            var wantsImmediateDraft = string.Equals(latestIntentKind, "finalize-blueprint", StringComparison.OrdinalIgnoreCase)
+                || (preferAutonomousCompletion && string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase));
+            if (wantsImmediateDraft && blueprint.ApprovedForDraft != true)
+            {
+                return new AiFoundryChatToolCallDto
+                {
+                    Name = "finalize_chat_blueprint",
+                    Reason = "Пользователь просит не зависать на ручном одобрении: blueprint уже собран и теперь его нужно сразу перевести в полноценные draft-черновики.",
+                    ArgumentsJson = JsonSerializer.Serialize(new
+                    {
+                        courseId,
+                        proposalIds = blueprint.Proposals.Select(x => x.Id).ToList(),
+                        instructionStrictness = memory.InstructionStrictness,
+                        enableSelfCheck = true,
+                    }, JsonOptions),
+                };
+            }
         }
 
         if (remediationIntent)

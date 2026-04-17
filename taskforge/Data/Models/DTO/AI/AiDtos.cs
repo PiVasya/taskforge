@@ -931,6 +931,7 @@ public sealed class AiFoundryChatMemoryDto
     public string Summary { get; set; } = string.Empty;
     public int InstructionStrictness { get; set; } = 55;
     public string LastActionMode { get; set; } = "multi";
+    public bool PreferAutonomousCompletion { get; set; }
     public List<string> Facts { get; set; } = new();
     public List<string> RecentGoals { get; set; } = new();
     public List<string> RecentFiles { get; set; } = new();

@@ -666,6 +666,7 @@ def _compact_memory_for_chat(value: Any) -> Dict[str, Any]:
         "latestIntentKind": truncate_text(value.get("latestIntentKind"), 32),
         "latestExplicitInstruction": truncate_text(value.get("latestExplicitInstruction"), 220),
         "latestTeachingScript": truncate_text(value.get("latestTeachingScript"), 260),
+        "preferAutonomousCompletion": bool(value.get("preferAutonomousCompletion")),
         "suppressBridgePlanLoop": bool(value.get("suppressBridgePlanLoop")),
         "facts": [truncate_text(x, 120) for x in facts[:6] if normalize_text(x)],
         "recentGoals": [truncate_text(x, 120) for x in goals[-5:] if normalize_text(x)],
@@ -811,6 +812,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     _dynamic = []
     _conv = compact_payload.get("conversation") or []
     _mem = compact_payload.get("memory") or {}
+    _prefer_autonomy = bool(_mem.get("preferAutonomousCompletion"))
     _plan_action_names = {"analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan"}
     _recent_plan_count = 0
     for _msg in _conv[-8:]:
@@ -835,6 +837,12 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Для текущего курса уже автоматически поставлены AI-job на assignment overview. "
             "Учитывай это в ответе: можно коротко сказать, что система сама подтягивает обзоры по заданиям в фоне, и не нужно просить пользователя запускать анализ каждого задания вручную."
         )
+    if _prefer_autonomy:
+        _dynamic.append(
+            "КРИТИЧНО: пользователь явно просит автономный проход до удовлетворяющего результата. "
+            "Не останавливайся на первом удобном промежуточном ответе, не проси лишнего одобрения и не говори 'посмотри, подходит ли'. "
+            "Blueprint можно использовать как внутреннюю опору, но итоговый assistantMessage должен уже содержать выполненный результат или честное объяснение, чего всё ещё не хватает."
+        )
     _dynamic_section = ""
     if _dynamic:
         _dynamic_section = "\n\nДинамические директивы (ПРИОРИТЕТНЫЕ):\n" + "\n".join(f"- {d}" for d in _dynamic) + "\n\n"
@@ -857,6 +865,11 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Если запрос звучит как подготовка ДО темы if/else, не вводи явные if/else в ранних bridge-задачах, пока пользователь не попросил обратное. "
             "Никогда не дублируй один и тот же action. Не считай задачу завершённой, если после inspection всё ещё не открыты нужные соседи, не подтверждён эталон или blueprint не прошёл самопроверку. "
         )
+        if _prefer_autonomy:
+            _action_mode_instruction += (
+                "Поскольку пользователь специально просит самостоятельности, не зависай на UX-этапе 'жду одобрения'. "
+                "Если запрос не требует отдельного согласования, сам дойди до финального содержательного ответа в этом же автономном проходе. "
+            )
 
     return (
         "Ты — TaskForge AI chat orchestrator. Верни только один валидный JSON-объект без markdown и без пояснений вокруг JSON.\\n\\n"
@@ -864,7 +877,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Сначала пойми интент текущего сообщения: это может быть обычный разговор, просьба показать существующие задания, просьба найти пробелы, просьба собрать план или просьба сгенерировать новое. Не превращай каждый запрос про курс в bridge-plan workflow. "
         "Если пользователь просит показать, перечислить, вывести или изучить уже существующие задания курса — приоритет у inspect_course_assignments, а не у prepare_bridge_plan/show_bridge_plan. После такого запроса не перескакивай к мостикам без новой явной просьбы пользователя. Если inspect_course_assignments уже вернул AiOverview или в payload есть landmarkAssignments, используй эти поля в reasoning и в итоговом ответе: называй роль задания (guided-intro/bridge/milestone), важность и why-it-matters вместо голых догадок по title. "
         "Если пользователь просто комментирует, сомневается, ругается или формулирует мысль вслух — нормально ответить по-человечески с actions=[] и задать один точный вопрос. "
-        "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Если пользователь присылает правки к уже сохранённым вариантам, обновляй их через revise_chat_blueprint новой revision, а не начинай workflow заново. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. Если пользователь уже явно просит сразу запускать создание задачи ('всё генерируй', 'не черновик', 'запускай создание задачи') и в памяти есть согласованный blueprint, можно идти в queue_generate_from_text по этому blueprint. "
+        "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Если пользователь присылает правки к уже сохранённым вариантам, обновляй их через revise_chat_blueprint новой revision, а не начинай workflow заново. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. Если пользователь уже явно просит сразу запускать создание задачи ('всё генерируй', 'не черновик', 'запускай создание задачи') и в памяти есть согласованный blueprint, можно идти в queue_generate_from_text по этому blueprint. Но если пользователь специально требует автономности, не проси декоративного одобрения ради самого одобрения: используй blueprint как внутренний черновик и продолжай сам, пока не соберёшь полноценный ответ. "
         "Когда сохраняешь blueprint, не ограничивайся абстрактным summary. Внутри blueprint proposals дай читаемый черновик условия: title, conditionPreview и по возможности fullCondition с реальным текстом будущего задания, чтобы пользователь мог править именно условие, а не только идею. "
         "Если пользователь просит несколько задач, всё равно сначала покажи несколько примерных условий и сохрани их в chat blueprint. batch и прямая генерация — запасной вариант, а не default UX. "
         "Если в memory уже есть currentDraftBlueprint, не придумывай новый workflow с нуля: либо покажи текущие варианты, либо обнови их через revise_chat_blueprint новой revision, либо финализируй их после явного одобрения. При правке по возможности сохраняй id вариантов и меняй только то, о чём попросил пользователь. "
