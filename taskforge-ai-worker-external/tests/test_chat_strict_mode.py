@@ -67,6 +67,35 @@ class ChatStrictModeTests(unittest.TestCase):
         self.assertEqual(result["actions"], [])
         self.assertTrue(any("course audit" in issue for issue in issues))
 
+    def test_finalize_blueprint_allowed_after_same_turn_save_in_autonomy(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "Сделай всё за одно сообщение, без промежуточного согласования"}]
+        payload["memory"] = {"preferAutonomousCompletion": True}
+        result, issues = worker._apply_chat_strict_mode(payload, {
+            "assistantMessage": "ok",
+            "actions": [
+                {"name": "save_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1", "summary": "s", "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант", "conditionPreview": "test"}]}},
+                {"name": "finalize_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
+            ],
+        })
+        self.assertEqual([x["name"] for x in result["actions"]], ["save_chat_blueprint", "finalize_chat_blueprint"])
+        self.assertEqual(issues, [])
+
+    def test_pascal_case_memory_fields_enable_autonomous_finalize(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "Покажи только итог и не проси одобрение"}]
+        payload["memory"] = {
+            "PreferAutonomousCompletion": True,
+            "CurrentDraftBlueprint": {
+                "ApprovedForDraft": False,
+                "Proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант"}],
+            },
+        }
+        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "finalize_chat_blueprint", "reason": "x", "arguments": {}}]})
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertEqual(result["actions"][0]["arguments"]["courseId"], "c1")
+        self.assertEqual(issues, [])
+
 
 if __name__ == "__main__":
     unittest.main()
