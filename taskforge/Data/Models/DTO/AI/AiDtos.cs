@@ -943,6 +943,8 @@ public sealed class AiFoundryChatMemoryDto
     public string? LatestExplicitInstruction { get; set; }
     public string? LatestTeachingScript { get; set; }
     public bool SuppressBridgePlanLoop { get; set; }
+    public string? ExecutionContractSummary { get; set; }
+    public List<string> ExecutionHardRules { get; set; } = new();
     public int MessageCount { get; set; }
     public DateTime? LastUserMessageAtUtc { get; set; }
     public DateTime? LastAssistantMessageAtUtc { get; set; }

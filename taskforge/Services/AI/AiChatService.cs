@@ -4625,7 +4625,6 @@ public sealed class AiChatService
             LatestIntentKind = latestIntentKind,
             LatestTeachingScript = latestTeachingScript,
             LatestExplicitInstruction = latestExplicitInstruction,
-            RecentGoals = recentGoals.ToList(),
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
             CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
         });
