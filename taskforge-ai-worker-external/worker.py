@@ -356,6 +356,73 @@ def _chat_pick_course_id(payload: Dict[str, Any], result: Dict[str, Any]) -> Any
     return result.get("courseId") or payload.get("courseId")
 
 
+def _chat_last_course_audit(payload: Dict[str, Any]) -> Dict[str, Any]:
+    memory = _chat_memory(payload)
+    audit = memory.get("lastCourseAudit") if isinstance(memory.get("lastCourseAudit"), dict) else {}
+    return audit if isinstance(audit, dict) else {}
+
+
+def _chat_last_course_inspection(payload: Dict[str, Any]) -> Dict[str, Any]:
+    memory = _chat_memory(payload)
+    inspection = memory.get("lastCourseInspection") if isinstance(memory.get("lastCourseInspection"), dict) else {}
+    return inspection if isinstance(inspection, dict) else {}
+
+
+def _chat_has_audit(payload: Dict[str, Any]) -> bool:
+    audit = _chat_last_course_audit(payload)
+    course_id = str(_chat_pick_course_id(payload, {}) or "").strip()
+    audit_course_id = str(audit.get("courseId") or "").strip()
+    if course_id and audit_course_id and audit_course_id != course_id:
+        return False
+    return bool(audit)
+
+
+def _chat_has_inspection(payload: Dict[str, Any]) -> bool:
+    inspection = _chat_last_course_inspection(payload)
+    course_id = str(_chat_pick_course_id(payload, {}) or "").strip()
+    inspection_course_id = str(inspection.get("courseId") or "").strip()
+    if course_id and inspection_course_id and inspection_course_id != course_id:
+        return False
+    assignments = inspection.get("assignments") if isinstance(inspection.get("assignments"), list) else []
+    return len(assignments) > 0
+
+
+def _chat_is_autonomous_mode(payload: Dict[str, Any]) -> bool:
+    memory = _chat_memory(payload)
+    if bool(memory.get("preferAutonomousCompletion")):
+        return True
+    last_user = _chat_last_user_text(payload)
+    return _chat_is_autonomous_rework_request(last_user)
+
+
+def _chat_fill_required_chat_args(payload: Dict[str, Any], action: Dict[str, Any]) -> None:
+    args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+    action["arguments"] = args
+    course_id = _chat_pick_course_id(payload, action if isinstance(action, dict) else {})
+    if course_id and not str(args.get("courseId") or "").strip() and str(action.get("name") or "").strip() in {
+        "analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan",
+        "save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint", "queue_generate_from_text", "queue_generate_batch",
+        "queue_generate_from_file", "queue_generate_bridge_batch", "advance_agent_stage", "drop_chat_blueprint", "show_chat_blueprint",
+        "revise_draft_from_chat"
+    }:
+        args["courseId"] = course_id
+
+
+def _chat_dependency_issue(payload: Dict[str, Any], action: Dict[str, Any]) -> str | None:
+    name = str(action.get("name") or "").strip()
+    if not name:
+        return None
+    if name == "prepare_bridge_plan" and not _chat_has_audit(payload):
+        return "prepare_bridge_plan requires fresh course audit first"
+    if name == "show_bridge_plan" and not (_chat_memory(payload).get("lastBridgePlan") if isinstance(_chat_memory(payload).get("lastBridgePlan"), dict) else {}):
+        return "show_bridge_plan requires existing bridge plan"
+    if name in {"save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint"} and not str((action.get("arguments") or {}).get("courseId") or "").strip() and not str(_chat_pick_course_id(payload, {}) or "").strip():
+        return f"{name} requires courseId"
+    if name == "finalize_chat_blueprint" and not _chat_has_blueprint(payload):
+        return "finalize_chat_blueprint requires existing chat blueprint"
+    return None
+
+
 def _chat_build_session_title(payload: Dict[str, Any]) -> str | None:
     selected = payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else {}
     title = str(selected.get("title") or payload.get("sessionTitle") or "").strip()
@@ -435,6 +502,7 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
             continue
         if not isinstance(action.get("arguments"), dict):
             action["arguments"] = {}
+        _chat_fill_required_chat_args(payload, action)
         last_user = _chat_last_user_text(payload)
         latest_intent_kind = _chat_latest_intent_kind(payload, last_user, str(result.get("assistantMessage") or ""))
         explicit_generate_ok = _chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_approved_blueprint(payload)
@@ -443,6 +511,10 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
             continue
         if name == "finalize_chat_blueprint" and not (_chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_blueprint(payload)):
             issues.append("finalize_chat_blueprint requires explicit approval")
+            continue
+        dependency_issue = _chat_dependency_issue(payload, action)
+        if dependency_issue:
+            issues.append(dependency_issue)
             continue
         ok, reason = _validate_chat_action_arguments(payload, action)
         if not ok:
@@ -459,6 +531,28 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
     return result, issues
 
 
+
+
+def _chat_is_recoverable_tool_failure(result: Dict[str, Any] | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+    status = str(result.get("status") or "").strip().lower()
+    summary = str(result.get("summary") or result.get("message") or "").strip().lower()
+    if status == "needs-revision":
+        return True
+    if status not in {"failed", "error"}:
+        return False
+    recoverable_markers = [
+        "нужно выбрать courseid",
+        "сначала вызови",
+        "requires fresh course audit",
+        "requires courseid",
+        "requires existing chat blueprint",
+        "пока не удовлетвор",
+        "убери явное ветвление",
+        "нельзя переносить варианты",
+    ]
+    return any(marker in summary for marker in recoverable_markers)
 
 
 def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -569,6 +663,12 @@ def _chat_is_autonomous_rework_request(text: str) -> bool:
         "не просить у меня одобрение",
         "не просить у меня подтверждение",
         "если ты не уверен",
+        "не продолжай старый план",
+        "с нуля",
+        "все предыдущие черновики недействительны",
+        "все предыдущие черновики не действительны",
+        "не сохраняй промежуточный мусор",
+        "покажи только итог",
     ])
 
 
@@ -1006,7 +1106,11 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     if latest_intent_kind in {"generate", "revise-blueprint"} and isinstance(result.get("draftBlueprint"), dict):
         proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), max(1, len(_chat_blueprint_proposals(payload)) or 1)), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
         action_name = "revise_chat_blueprint" if latest_intent_kind == "revise-blueprint" and _chat_has_blueprint(payload) else "save_chat_blueprint"
-        assistant_fallback = "Я обновила примерные условия в чате. Посмотри, всё ли теперь совпадает, и скажи, когда уже закидывать в черновик." if action_name == "revise_chat_blueprint" else "Я набросала примерные условия. Посмотри, что поправить, и потом скажи, когда закидывать в черновик."
+        autonomous = _chat_is_autonomous_mode(payload)
+        if autonomous:
+            assistant_fallback = "Я обновила внутренний blueprint под новые требования и продолжаю автономный проход без лишнего согласования." if action_name == "revise_chat_blueprint" else "Я собрала внутренний blueprint и продолжаю автономный проход без лишнего согласования."
+        else:
+            assistant_fallback = "Я обновила примерные условия в чате. Посмотри, всё ли теперь совпадает, и скажи, когда уже закидывать в черновик." if action_name == "revise_chat_blueprint" else "Я набросала примерные условия. Посмотри, что поправить, и потом скажи, когда закидывать в черновик."
         result["actions"] = [{
             "name": action_name,
             "reason": "Обновляю уже сохранённые примерные условия по новым замечаниям пользователя." if action_name == "revise_chat_blueprint" else "Сначала сохраняю примерные условия из чата, чтобы пользователь мог их поправить и утвердить перед финализацией в draft.",
@@ -1373,7 +1477,11 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
 
     if latest_intent_kind == "generate":
         proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, final_count, assignment_type, difficulty)
-        assistant = str(result.get("assistantMessage") or "").strip() or ("Я набросала примерные условия для обсуждения. Посмотри, что менять, и потом скажи, когда уже закидывать в черновик." if final_count <= 1 else f"Я набросала {len(proposals)} примерных условий. Посмотри, что менять, и потом скажи, когда уже закидывать их в черновики.")
+        autonomous = _chat_is_autonomous_mode(payload)
+        if autonomous:
+            assistant = str(result.get("assistantMessage") or "").strip() or ("Собираю внутренний blueprint и продолжаю автономный проход без лишней паузы." if final_count <= 1 else f"Собираю {len(proposals)} внутренних условий и продолжаю автономный проход без лишней паузы.")
+        else:
+            assistant = str(result.get("assistantMessage") or "").strip() or ("Я набросала примерные условия для обсуждения. Посмотри, что менять, и потом скажи, когда уже закидывать в черновик." if final_count <= 1 else f"Я набросала {len(proposals)} примерных условий. Посмотри, что менять, и потом скажи, когда уже закидывать их в черновики.")
         return {
             "assistantMessage": assistant,
             "sessionTitle": _chat_build_session_title(payload),

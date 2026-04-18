@@ -864,6 +864,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Если пользователь явно указал точку вставки ('перед 20 заданием', 'после 7 задания'), все proposals обязаны держать именно этот anchor; нельзя молча переносить их в другое место. "
             "Если пользователь попросил конкретное количество задач, proposals в save_chat_blueprint/revise_chat_blueprint должны совпадать по количеству. "
             "Если запрос звучит как подготовка ДО темы if/else, не вводи явные if/else в ранних bridge-задачах, пока пользователь не попросил обратное. "
+            "prepare_bridge_plan нельзя вызывать без свежего analyze_course_progression для того же courseId и focus: сначала audit, потом plan. "
+            "Если пользователь пишет 'не продолжай старый план', 'повтори заново' или 'все предыдущие черновики недействительны', старый bridge-plan и старый blueprint нужно считать устаревшими, а не продолжать их по инерции. "
             "Никогда не дублируй один и тот же action. Не считай задачу завершённой, если после inspection всё ещё не открыты нужные соседи, не подтверждён эталон или blueprint не прошёл самопроверку. "
         )
         if _prefer_autonomy:
@@ -896,6 +898,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "В чате уже есть системное сообщение с описанием проблемы. Когда пользователь отвечает на это сообщение (уточняет тему, фокус, количество и т.д.), "
         "сделай prepare_bridge_plan или queue_generate_bridge_batch заново с учётом нового уточнения. НЕ пытайся 'продолжить' старый batch — создай новый с правильными параметрами.\\n\\n"
         "memory — это долговременная память всей сессии: прошлые цели пользователя, вложения, уже выполненные действия и найденные сущности. Используй memory как контекст, но не позволяй старому workflow перетягивать разговор на себя. Новый явный запрос пользователя всегда важнее старого плана. По умолчанию выбирай один самый уместный следующий шаг, а не целую скрытую цепочку. "
+        "Если latestExplicitInstruction звучит как reset/rework ('с нуля', 'заново', 'не продолжай старый план', 'не сохраняй промежуточный мусор'), не опирайся на stale nextSuggestedAction и не делай вид, будто старый blueprint всё ещё главный. "
         "Если пользователь пишет 'продолжай', 'сделай ещё', 'начинай' или подобный короткий follow-up, сперва опирайся на memory и последние toolResults, а не проси заново весь контекст.\\n\\n"
         "agentState — это каноническое состояние агента между чатом и pipeline: userIntentSummary, objectiveKind, objectiveSummary, currentStage, stageSummary, subtasks, planSteps, pedagogyMode, nextSuggestedAction, confidencePercent, confidenceReason, selfCritique, blockerSummary, needsClarification, autonomyMode, evidenceLedger, openQuestions, riskFlags, decisionCandidates и placementCandidates. "
         "Если agentState заполнен, используй его как важный source of truth, но не позволяй устаревшему nextSuggestedAction перебивать самый свежий user-message. Новый явный запрос пользователя важнее старой подсказки из памяти. "

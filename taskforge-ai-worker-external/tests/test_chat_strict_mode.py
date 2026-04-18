@@ -51,6 +51,22 @@ class ChatStrictModeTests(unittest.TestCase):
         self.assertEqual(len(result["actions"]), 1)
         self.assertEqual(issues, [])
 
+    def test_finalize_blueprint_autofills_course_id(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "одобряю, закидывай в черновик"}]
+        payload["memory"] = {"currentDraftBlueprint": {"proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант"}]}}
+        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "finalize_chat_blueprint", "reason": "x", "arguments": {}}]})
+        self.assertEqual(issues, [])
+        self.assertEqual(result["actions"][0]["arguments"]["courseId"], "c1")
+
+    def test_prepare_bridge_plan_without_audit_is_blocked(self):
+        payload = dict(self.payload)
+        payload["availableActions"] = payload["availableActions"] + [{"name": "prepare_bridge_plan"}]
+        payload["conversation"] = [{"role": "user", "content": "собери план мостиков"}]
+        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "prepare_bridge_plan", "reason": "x", "arguments": {}}]})
+        self.assertEqual(result["actions"], [])
+        self.assertTrue(any("course audit" in issue for issue in issues))
+
 
 if __name__ == "__main__":
     unittest.main()

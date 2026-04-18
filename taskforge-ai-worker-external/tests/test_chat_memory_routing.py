@@ -277,6 +277,27 @@ class ChatMemoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["actions"], [])
         self.assertIn("не хватает опоры", result["assistantMessage"])
 
+    def test_reset_from_scratch_is_not_misclassified_as_plan(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Теперь не продолжай старый план и повтори решение заново с нуля. Все предыдущие черновики недействительны."}],
+            "memory": {},
+        }
+        intent = worker._chat_latest_intent_kind(payload, payload["conversation"][0]["content"], "")
+        self.assertEqual(intent, "generate")
+
+    def test_autonomous_generate_fallback_does_not_ask_for_approval(self):
+        payload = {
+            "courseId": "c1",
+            "selectedCourse": {"id": "c1"},
+            "conversation": [{"role": "user", "content": "Сделай всё за одно сообщение, не проси одобрение и сгенерируй 2 задачи сам."}],
+            "memory": {"preferAutonomousCompletion": True},
+        }
+        result = worker._normalize_chat_turn_result(payload, {"assistantMessage": "", "count": 2})
+        self.assertEqual(result["actions"][0]["name"], "save_chat_blueprint")
+        self.assertNotIn("одоб", result["assistantMessage"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()
