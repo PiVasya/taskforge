@@ -3438,7 +3438,7 @@ public sealed class AiChatService
             previous.AgentState.OpenQuestions = new List<string>();
             previous.AgentState.EvidenceLedger = new List<string>();
             previous.AgentState.RiskFlags = new List<string>();
-            previous.AgentState.DecisionCandidates = new List<AiFoundryAgentDecisionCandidateDto>();
+            previous.AgentState.DecisionCandidates = new List<AiFoundryAgentActionHintDto>();
             previous.AgentState.PlanSteps = new List<AiFoundryAgentPlanStepDto>();
         }
 
@@ -5653,10 +5653,7 @@ public sealed class AiChatService
             }
         }
         sb.AppendLine();
-        if (memory.PreferAutonomousCompletion)
-            sb.AppendLine("Если найдёшь проблему — напиши, что менять. Если правок нет, можно сразу переходить к следующему шагу без отдельного UX-одобрения.");
-        else
-            sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
+        sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
         return sb.ToString().Trim();
     }
 
