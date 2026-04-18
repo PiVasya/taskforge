@@ -907,6 +907,9 @@ public sealed class AiFoundryAgentStateDto
     public bool NeedsClarification { get; set; }
     public string AutonomyMode { get; set; } = "guided";
     public bool PreferDirectGeneration { get; set; }
+    public string? DirectorSummary { get; set; }
+    public string? DirectorNextRequiredAction { get; set; }
+    public List<string> DirectorHardRules { get; set; } = new();
     public Guid? PlacementAfterAssignmentId { get; set; }
     public string? PlacementAfterAssignmentTitle { get; set; }
     public bool HasCourseAudit { get; set; }

@@ -1085,7 +1085,7 @@ public sealed class AiChatService
                     return new AiFoundryChatToolResultDto
                     {
                         Status = "done",
-                        Summary = BuildChatBlueprintSummary(blueprint),
+                        Summary = BuildChatBlueprintSummary(blueprint, memory),
                         CourseId = courseId,
                         NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
                     };
@@ -1124,7 +1124,7 @@ public sealed class AiChatService
                     return new AiFoundryChatToolResultDto
                     {
                         Status = "done",
-                        Summary = BuildChatBlueprintSummary(blueprint),
+                        Summary = BuildChatBlueprintSummary(blueprint, memory),
                         CourseId = courseId,
                         NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
                     };
@@ -1143,7 +1143,7 @@ public sealed class AiChatService
                     return new AiFoundryChatToolResultDto
                     {
                         Status = "done",
-                        Summary = BuildChatBlueprintSummary(blueprint),
+                        Summary = BuildChatBlueprintSummary(blueprint, memory),
                         CourseId = courseId,
                         NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
                     };
@@ -2543,16 +2543,18 @@ public sealed class AiChatService
         var memory = DeserializeMemory(session.PlanJson);
         var latestGoal = messages.LastOrDefault(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Content))?.Content;
         var latestIntentKind = memory.LatestIntentKind ?? memory.AgentState?.LatestIntentKind ?? DetectLatestIntentKind(latestGoal);
+        var directorOverride = ApplyDirectorToolCallOverride(session, messages, assistantText, toolCalls, memory, latestGoal, latestIntentKind);
+        var normalizedToolCalls = directorOverride?.ToList() ?? toolCalls;
         var preferDirectGeneration = memory.SuppressBridgePlanLoop || memory.AgentState?.PreferDirectGeneration == true || string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase);
         var planOnlyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan" };
-        var allPlanOnly = toolCalls.All(x => !string.IsNullOrWhiteSpace(x.Name) && planOnlyNames.Contains(x.Name.Trim()));
+        var allPlanOnly = normalizedToolCalls.All(x => !string.IsNullOrWhiteSpace(x.Name) && planOnlyNames.Contains(x.Name.Trim()));
         if (!preferDirectGeneration || !allPlanOnly)
-            return toolCalls;
+            return normalizedToolCalls;
 
         var courseId = session.CourseId
             ?? toolCalls.Select(x => ReadGuid(ParseArgumentsObject(x.ArgumentsJson), "courseId")).FirstOrDefault(x => x.HasValue);
         if (!courseId.HasValue)
-            return toolCalls;
+            return normalizedToolCalls;
 
         if (memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId.Value && memory.LastBridgePlan.Items.Count > 0)
         {
@@ -2900,7 +2902,8 @@ public sealed class AiChatService
     {
         if (result?.RequiresConfirmation == true)
             return true;
-        if (string.Equals(result?.Status, "failed", StringComparison.OrdinalIgnoreCase))
+        if ((string.Equals(result?.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(result?.Status, "error", StringComparison.OrdinalIgnoreCase))
+            && !IsRecoverableAgentToolFailure(result))
             return true;
         return string.Equals(actionName, "show_bridge_plan", StringComparison.OrdinalIgnoreCase)
             || string.Equals(actionName, "revise_bridge_plan", StringComparison.OrdinalIgnoreCase)
@@ -3234,7 +3237,7 @@ public sealed class AiChatService
             return "remediation";
         if (IsDiagnosticGapAuditIntent(low))
             return "audit";
-        if (IsAutonomousReworkIntent(low))
+        if (IsAutonomousReworkIntent(low) || IsDirectFinalResultIntent(low))
             return "generate";
         if (low.Contains("покажи план") || low.Contains("какой план") || low.Contains("что в плане") || low.Contains("show_bridge_plan"))
             return "show-plan";
@@ -3330,7 +3333,11 @@ public sealed class AiChatService
             || low.Contains("делай всё сразу")
             || low.Contains("делай все сразу")
             || low.Contains("всё, делай")
-            || low.Contains("все, делай");
+            || low.Contains("все, делай")
+            || low.Contains("покажи только итог")
+            || low.Contains("не дорабатывай старые условия")
+            || low.Contains("предыдущие черновики недействительны")
+            || low.Contains("уже можно принимать в работу");
     }
 
     private static bool ShouldPreferAutonomousCompletion(string? latestGoal, string? latestIntentKind)
@@ -3374,7 +3381,11 @@ public sealed class AiChatService
             || low.Contains("сразу исправь результат полностью")
             || low.Contains("не продолжай старый план")
             || low.Contains("не сохраняй промежуточный мусор")
-            || low.Contains("покажи только итог");
+            || low.Contains("покажи только итог")
+            || low.Contains("не дорабатывай старые условия")
+            || low.Contains("все предыдущие черновики недействительны")
+            || low.Contains("готовый результат")
+            || low.Contains("уже можно принимать в работу");
     }
 
     private static bool IsAutonomousReworkIntent(string? latestGoal)
@@ -3393,7 +3404,11 @@ public sealed class AiChatService
             || low.Contains("без промежуточного согласования")
             || low.Contains("не продолжай старый план")
             || low.Contains("не сохраняй промежуточный мусор")
-            || low.Contains("покажи только итог");
+            || low.Contains("покажи только итог")
+            || low.Contains("не дорабатывай старые условия")
+            || low.Contains("все предыдущие черновики недействительны")
+            || low.Contains("готовый результат")
+            || low.Contains("уже можно принимать в работу");
     }
 
     private static bool IsStartOverFromScratchIntent(string? latestGoal)
@@ -3408,7 +3423,188 @@ public sealed class AiChatService
             || low.Contains("заново проверь")
             || low.Contains("все предыдущие черновики недействительны")
             || low.Contains("все предыдущие черновики не действительны")
-            || low.Contains("не продолжай старый план");
+            || low.Contains("не продолжай старый план")
+            || low.Contains("не дорабатывай старые условия");
+    }
+
+
+    private static bool IsDirectFinalResultIntent(string? latestGoal)
+    {
+        if (string.IsNullOrWhiteSpace(latestGoal))
+            return false;
+
+        var low = latestGoal.ToLowerInvariant();
+        return low.Contains("покажи только итог")
+            || low.Contains("только итог")
+            || low.Contains("только готовый результат")
+            || low.Contains("готовый результат")
+            || low.Contains("готовый итог")
+            || low.Contains("готовый ответ")
+            || low.Contains("уже можно принимать в работу")
+            || low.Contains("уже можно брать в работу")
+            || low.Contains("без промежуточного согласования")
+            || low.Contains("без промежуточных остановок")
+            || low.Contains("без моего дополнительного сообщения")
+            || low.Contains("без одобрения")
+            || low.Contains("не проси у меня одобрение")
+            || low.Contains("не проси у меня подтверждение")
+            || low.Contains("не просить у меня одобрение")
+            || low.Contains("не просить у меня подтверждение")
+            || low.Contains("сделай всю работу за одно")
+            || low.Contains("за одно моё сообщение")
+            || low.Contains("за один мой запрос")
+            || low.Contains("покажи только итог, который уже можно принимать")
+            || low.Contains("не дорабатывай старые условия")
+            || low.Contains("все предыдущие черновики недействительны");
+    }
+
+    private static List<string> BuildDirectorHardRules(AiFoundryChatMemoryDto memory)
+    {
+        var items = new List<string>();
+        if (memory.PreferAutonomousCompletion)
+            items.Add("Не останавливаться на промежуточных шагах и не просить лишнее одобрение пользователя.");
+        if (IsDirectFinalResultIntent(memory.LatestExplicitInstruction))
+            items.Add("Нельзя откатывать запрос обратно в plan-loop, если пользователь просит уже готовый результат.");
+        if (IsStartOverFromScratchIntent(memory.LatestExplicitInstruction))
+            items.Add("Старые blueprint/bridge-plan нужно отбросить, если пользователь просит повторить с нуля.");
+        if (RequiresFirstTaskStyleEvidence(memory))
+            items.Add("Перед генерацией нужно открыть первое задание курса как эталон стиля.");
+        var requestedCount = ExtractRequestedProposalCount(memory, new JsonObject());
+        if (requestedCount.HasValue)
+            items.Add($"Количество новых задач должно быть ровно {requestedCount.Value}.");
+        var strictPlacement = ResolveStrictRequestedPlacement(memory, new JsonObject());
+        if (!string.IsNullOrWhiteSpace(strictPlacement.HumanSummary))
+            items.Add($"Точку вставки нельзя сдвигать: {strictPlacement.HumanSummary}.");
+        if (ShouldAvoidExplicitIfBeforeAnchor(memory))
+            items.Add("В промежуточных задачах до темы if нельзя преждевременно вводить if/else/switch.");
+        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList();
+    }
+
+    private static string? BuildDirectorSummary(AiFoundryChatMemoryDto memory)
+    {
+        var hardRules = BuildDirectorHardRules(memory);
+        if (hardRules.Count == 0)
+            return null;
+        return "Дирижёр следит за выполнением запроса: " + string.Join(" ", hardRules.Take(4));
+    }
+
+    private static AiFoundryChatToolCallDto EnsureToolCallCourseId(AiFoundryChatToolCallDto toolCall, Guid courseId)
+    {
+        var args = ParseArgumentsObject(toolCall.ArgumentsJson);
+        if (!ReadGuid(args, "courseId").HasValue)
+            args["courseId"] = courseId.ToString();
+        return new AiFoundryChatToolCallDto
+        {
+            Name = toolCall.Name,
+            Reason = toolCall.Reason,
+            ArgumentsJson = args.ToJsonString(),
+        };
+    }
+
+    private static AiFoundryChatToolCallDto? BuildDirectorEnforcedToolCall(
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        string? assistantText,
+        AiFoundryChatMemoryDto memory,
+        string? latestGoal,
+        string? latestIntentKind)
+    {
+        var courseId = session.CourseId;
+        if (!courseId.HasValue)
+            return null;
+
+        var focus = ShortenSingleLine(latestGoal ?? assistantText ?? memory.LatestExplicitInstruction ?? string.Empty, 240);
+        var strictPlacement = ResolveStrictRequestedPlacement(memory, new JsonObject());
+        var needsFirstTaskEvidence = RequiresFirstTaskStyleEvidence(memory) && !InspectionContainsFirstTask(memory.LastCourseInspection);
+        var needsAnchorNeighborhood = strictPlacement.AfterAssignmentId.HasValue && !InspectionContainsAssignment(memory.LastCourseInspection, strictPlacement.AfterAssignmentId.Value);
+        var needsInspection = memory.LastCourseInspection == null || memory.LastCourseInspection.CourseId != courseId.Value || needsFirstTaskEvidence || needsAnchorNeighborhood;
+
+        if (needsInspection)
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "inspect_course_assignments",
+                Reason = needsFirstTaskEvidence
+                    ? "Дирижёр: сначала нужно открыть первое задание как эталон и соседние задания вокруг anchor, иначе дальнейшие шаги будут основаны на догадках."
+                    : "Дирижёр: сначала нужно подтвердить anchor и соседние задания по реальным условиям, а не тащить старый план по памяти.",
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    courseId = courseId.Value,
+                    query = needsFirstTaskEvidence ? "Задание 1" : focus,
+                    aroundAssignmentId = strictPlacement.AfterAssignmentId,
+                    window = strictPlacement.AfterAssignmentId.HasValue ? 5 : 2,
+                    limitAssignments = needsFirstTaskEvidence ? 28 : 24,
+                }, JsonOptions),
+            };
+        }
+
+        if ((memory.PreferAutonomousCompletion || IsDirectFinalResultIntent(memory.LatestExplicitInstruction))
+            && memory.CurrentDraftBlueprint != null
+            && memory.CurrentDraftBlueprint.Proposals.Count > 0)
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "finalize_chat_blueprint",
+                Reason = "Дирижёр: blueprint уже собран, а пользователь просит конечный результат без approval-loop, значит нужно идти в финализацию.",
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    courseId = courseId.Value,
+                    proposalIds = memory.CurrentDraftBlueprint.Proposals.Select(x => x.Id).ToList(),
+                    instructionStrictness = memory.InstructionStrictness,
+                    enableSelfCheck = true,
+                }, JsonOptions),
+            };
+        }
+
+        if (memory.LastCourseAudit == null && string.Equals(latestIntentKind, "plan", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "analyze_course_progression",
+                Reason = "Дирижёр: plan/action зависит от свежего аудита. Нельзя строить plan-loop без discovery по текущему фокусу.",
+                ArgumentsJson = JsonSerializer.Serialize(new { courseId = courseId.Value, focus }, JsonOptions),
+            };
+        }
+
+        return new AiFoundryChatToolCallDto
+        {
+            Name = "advance_agent_stage",
+            Reason = "Дирижёр: текущий ответ не выполнил пользовательский план целиком, поэтому нужен ещё один внутренний проход вместо остановки на промежуточном шаге.",
+            ArgumentsJson = JsonSerializer.Serialize(new { courseId = courseId.Value, focus }, JsonOptions),
+        };
+    }
+
+    private static IReadOnlyList<AiFoundryChatToolCallDto>? ApplyDirectorToolCallOverride(
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        string? assistantText,
+        List<AiFoundryChatToolCallDto> toolCalls,
+        AiFoundryChatMemoryDto memory,
+        string? latestGoal,
+        string? latestIntentKind)
+    {
+        var courseId = session.CourseId;
+        var patched = toolCalls
+            .Select(x => courseId.HasValue ? EnsureToolCallCourseId(x, courseId.Value) : x)
+            .ToList();
+
+        var directFinal = IsDirectFinalResultIntent(latestGoal) || memory.PreferAutonomousCompletion;
+        var hardReset = IsStartOverFromScratchIntent(latestGoal) || IsAutonomousReworkIntent(latestGoal);
+        var planOnlyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan" };
+        var approvalLoopNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "show_chat_blueprint", "revise_chat_blueprint" };
+        var allPlanOnly = patched.Count > 0 && patched.All(x => !string.IsNullOrWhiteSpace(x.Name) && planOnlyNames.Contains(x.Name.Trim()));
+        var asksForApproval = !string.IsNullOrWhiteSpace(assistantText) && assistantText.Contains("одобря", StringComparison.OrdinalIgnoreCase);
+        var violatesReset = hardReset && patched.Any(x => !string.IsNullOrWhiteSpace(x.Name) && (planOnlyNames.Contains(x.Name.Trim()) || approvalLoopNames.Contains(x.Name.Trim())));
+        var violatesDirectFinal = directFinal && (allPlanOnly || asksForApproval || patched.Any(x => !string.IsNullOrWhiteSpace(x.Name) && approvalLoopNames.Contains(x.Name.Trim())));
+
+        if (!violatesReset && !violatesDirectFinal)
+            return patched;
+
+        var enforced = BuildDirectorEnforcedToolCall(session, messages, assistantText, memory, latestGoal, latestIntentKind);
+        if (enforced == null)
+            return patched;
+
+        return new List<AiFoundryChatToolCallDto> { enforced };
     }
 
     private static AiFoundryChatMemoryDto ApplyInstructionDrivenStateReset(AiFoundryChatMemoryDto previous, string? latestGoal, string? latestIntentKind)
@@ -3680,6 +3876,9 @@ public sealed class AiChatService
             NeedsClarification = needsClarification,
             AutonomyMode = autonomyMode,
             PreferDirectGeneration = preferDirectGeneration,
+            DirectorSummary = BuildDirectorSummary(previous),
+            DirectorNextRequiredAction = string.IsNullOrWhiteSpace(nextAgentStep) ? null : ShortenSingleLine(nextAgentStep, 120),
+            DirectorHardRules = BuildDirectorHardRules(previous),
             PlacementAfterAssignmentId = firstPlacement?.AfterAssignmentId,
             PlacementAfterAssignmentTitle = firstPlacement?.AfterAssignmentTitle,
             HasCourseAudit = hasAudit,
@@ -3715,7 +3914,7 @@ public sealed class AiChatService
             return "course-diagnostics";
         if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
             return "course-inspection";
-        if (autonomousRework)
+        if (autonomousRework || IsDirectFinalResultIntent(latestGoal))
             return "generation";
         if (string.Equals(latestIntentKind, "plan", StringComparison.OrdinalIgnoreCase)
             || string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase)
@@ -4329,6 +4528,22 @@ public sealed class AiChatService
             || string.Equals(latestIntentKind, "drop-blueprint", StringComparison.OrdinalIgnoreCase);
         var suppressBridgePlanLoop = ShouldSuppressBridgePlanLoop(latestGoal, latestIntentKind, latestTeachingScript) || hasBlueprint || blueprintIntent;
         var instructionStrictness = ClampInstructionStrictness(instructionStrictnessOverride, previous.InstructionStrictness);
+        var directorMemorySnapshot = new AiFoundryChatMemoryDto
+        {
+            LastCourseAudit = previous.LastCourseAudit,
+            LastCourseInspection = previous.LastCourseInspection,
+            LastBridgePlan = previous.LastBridgePlan,
+            CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
+            LatestIntentKind = latestIntentKind,
+            LatestTeachingScript = latestTeachingScript,
+            LatestExplicitInstruction = latestExplicitInstruction,
+            PreferAutonomousCompletion = preferAutonomousCompletion,
+            SuppressBridgePlanLoop = suppressBridgePlanLoop,
+            RecentGoals = recentGoals,
+            AgentState = previous.AgentState,
+        };
+        var directorSummary = BuildDirectorSummary(directorMemorySnapshot);
+        var directorHardRules = BuildDirectorHardRules(directorMemorySnapshot);
 
         var facts = new List<string>();
         if (recentGoals.Count > 0)
@@ -4337,6 +4552,8 @@ public sealed class AiChatService
             facts.Add($"Последний пользовательский teaching-script: {ShortenSingleLine(latestTeachingScript, 160)}");
         if (preferAutonomousCompletion && facts.Count < 6)
             facts.Add("Пользователь просит автономный проход: не останавливаться после первого шага и не требовать лишнего согласования.");
+        if (!string.IsNullOrWhiteSpace(directorSummary) && facts.Count < 6)
+            facts.Add(ShortenSingleLine(directorSummary, 160));
         if (recentFiles.Count > 0)
             facts.Add($"В сессии уже использовались файлы: {string.Join(", ", recentFiles.Take(3))}");
         if (recentActions.Count > 0)
@@ -4369,6 +4586,8 @@ public sealed class AiChatService
             summaryParts.Add("Пользователь уже дал явный teaching-script/эталон, который нужно сохранять при следующей генерации.");
         if (preferAutonomousCompletion)
             summaryParts.Add("Пользователь ждёт, что агент сам дойдёт до удовлетворяющего результата без лишних пауз на согласование.");
+        if (!string.IsNullOrWhiteSpace(directorSummary))
+            summaryParts.Add(directorSummary);
         if (previous.CurrentDraftBlueprint != null && previous.CurrentDraftBlueprint.Proposals.Count > 0)
             summaryParts.Add($"В памяти уже есть {previous.CurrentDraftBlueprint.Proposals.Count} согласуемых услов{(previous.CurrentDraftBlueprint.Proposals.Count == 1 ? "ие" : "ий")} из чата, которые можно показать, поправить или превратить в draft.");
         if (hasBlueprint)
@@ -4405,6 +4624,8 @@ public sealed class AiChatService
             LastBridgePlan = previous.LastBridgePlan,
             LatestIntentKind = latestIntentKind,
             LatestTeachingScript = latestTeachingScript,
+            LatestExplicitInstruction = latestExplicitInstruction,
+            RecentGoals = recentGoals.ToList(),
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
             CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
         });
@@ -4424,6 +4645,8 @@ public sealed class AiChatService
             CurrentDraftBlueprint = previous.CurrentDraftBlueprint,
             LatestIntentKind = latestIntentKind,
             LatestTeachingScript = latestTeachingScript,
+            LatestExplicitInstruction = latestExplicitInstruction,
+            RecentGoals = recentGoals.ToList(),
             PreferAutonomousCompletion = preferAutonomousCompletion,
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
         };
@@ -4451,6 +4674,8 @@ public sealed class AiChatService
             LatestExplicitInstruction = latestExplicitInstruction,
             LatestTeachingScript = latestTeachingScript,
             SuppressBridgePlanLoop = suppressBridgePlanLoop,
+            ExecutionContractSummary = directorSummary,
+            ExecutionHardRules = directorHardRules,
             MessageCount = messages.Count,
             LastUserMessageAtUtc = userMessages.LastOrDefault()?.CreatedAtUtc,
             LastAssistantMessageAtUtc = assistantMessages.LastOrDefault()?.CreatedAtUtc,
@@ -5607,7 +5832,7 @@ public sealed class AiChatService
         return $"Сохранила {proposals.Count} примерных условий для обсуждения и правок.";
     }
 
-    private static string BuildChatBlueprintSummary(AiFoundryChatDraftBlueprintDto blueprint)
+    private static string BuildChatBlueprintSummary(AiFoundryChatDraftBlueprintDto blueprint, AiFoundryChatMemoryDto? memory = null)
     {
         if (blueprint == null || blueprint.Proposals.Count == 0)
             return "Примерных условий пока нет.";
@@ -5653,7 +5878,10 @@ public sealed class AiChatService
             }
         }
         sb.AppendLine();
-        sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
+        if (memory?.PreferAutonomousCompletion == true || IsDirectFinalResultIntent(memory?.LatestExplicitInstruction))
+            sb.AppendLine("Если самопроверка находит проблему — исправь её сразу. Если проблем нет, переходи к следующему шагу без отдельного UX-одобрения.");
+        else
+            sb.AppendLine("Напиши, что менять. Когда всё ок, скажи: 'одобряю, закидывай в черновик'.");
         return sb.ToString().Trim();
     }
 
