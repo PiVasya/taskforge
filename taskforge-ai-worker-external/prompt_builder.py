@@ -19,6 +19,7 @@ from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESC
 from log import log
 from text_utils import normalize_text, truncate_text, safe_int, unique_string_list, strip_html_to_text, summarize_description
 from scenario_router import detect_scenario_profile, scenario_prompt_appendix, scenario_requires_explicit_if
+from scenario_policy import scenario_should_bypass_blueprint
 from payload import (
     compact_reference_assignments,
     compact_historical_planner_priors,
@@ -862,6 +863,14 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Если в memory уже есть currentDraftBlueprint, но новая инструкция звучит как 'повтори заново', 'сам раскритикуй' или 'исправь полностью', не считай старый blueprint священным: поправь его или замени новым, если он конфликтует с последним запросом. "
             "Blueprint можно использовать как внутреннюю опору, но итоговый assistantMessage должен уже содержать выполненный результат или честное объяснение, чего всё ещё не хватает."
         )
+    _scenario = _scenario_profile(compact_payload)
+    _skip_blueprint = scenario_should_bypass_blueprint(_scenario, _prefer_autonomy, str((compact_payload.get("conversation") or [{}])[-1].get("content") or "") if isinstance(compact_payload.get("conversation"), list) and compact_payload.get("conversation") else "")
+    _blueprint_generation_guidance = (
+        "Если пользователь просит создать новое задание или набор задач, сначала собери примерные условия в чате и сохрани их через save_chat_blueprint. Лишь после явного одобрения пользователя переходи к finalize_chat_blueprint. Исключение: если память говорит preferAutonomousCompletion=true и пользователь прямо запретил промежуточные согласования, не застревай на этом UX-этапе — исправляй blueprint сам и иди дальше. "
+        if not _skip_blueprint else
+        "Для текущего сценария пользователь просит прямой итог без промежуточных вариантов. Не уводи такой запрос в save_chat_blueprint как default UX. Если сценарий генеративный и данных хватает, переходи прямо к queue_generate_from_text/queue_generate_batch и не проси декоративного одобрения. "
+    )
+
     _dynamic_section = ""
     if _dynamic:
         _dynamic_section = "\n\nДинамические директивы (ПРИОРИТЕТНЫЕ):\n" + "\n".join(f"- {d}" for d in _dynamic) + "\n\n"
@@ -928,8 +937,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "show_bridge_plan и revise_bridge_plan подходят только когда пользователь прямо просит показать, уточнить или поправить план. Не вызывай show_bridge_plan просто потому, что в memory остался старый план мостиков.\n\n"
         "Если пользователь даёт feedback на уже созданные или опубликованные задачи и просит найти похожие педагогические косяки, сначала используй analyze_course_progression; при необходимости затем inspect_course_assignments. Только после нового аудита можно предлагать corrective bridge plan или новую генерацию.\n\nЕсли в памяти уже есть inspection, evidenceLedger или другие подтверждённые наблюдения по реальным заданиям, они важнее старого эвристического аудита: inspection > audit. Если в payload есть landmarkAssignments и courseOverviewCoverage, используй их как высокосигнальный слой контекста: landmarkAssignments показывают опорные задания курса по persisted AI overview, а coverage помогает понять, насколько широко этот слой уже заполнен. При анализе курса сначала смотри на landmarkAssignments, guided-intro/milestone/bridge роли и reasons importance, а уже потом на сырые названия. Не повторяй старый вывод, если inspection уже показал обратное. Когда пользователь пишет 'точно ли', 'посмотри точнее', 'где именно', 'по итогу где' или жалуется, что AI врёт, assistantMessage должен опираться на конкретные просмотренные задания и observations по реальным условиям. Не перечисляй неподтверждённые темы вроде getline/for/if, если их не открывали в inspection. Для итогового diagnostic-ответа можно дать 3-8 коротких строк в формате: что подтвердилось / что не подтвердилось / что осталось проверить.\n\n"
         "Если пользователь явно просит короткий ответ, только итог, без внутренних шагов, без старого плана или без технических деталей — это приоритетное UX-ограничение. В таком случае assistantMessage должен содержать только итог или следующий короткий вопрос, без пересказа процесса.\n\n"
-        "Когда пользователь просит создать новое задание или набор задач, сначала собери примерные условия в чате и сохрани их через save_chat_blueprint. Лишь после явного одобрения пользователя переходи к finalize_chat_blueprint. Исключение: если память говорит preferAutonomousCompletion=true и пользователь прямо запретил промежуточные согласования, не застревай на этом UX-этапе — исправляй blueprint сам и иди дальше. "
-        "Если пользователь просит сначала изучить курс и перечислить существующие задания — используй inspect_course_assignments и остановись на этом. "
+        + _blueprint_generation_guidance
+        + "Если пользователь просит сначала изучить курс и перечислить существующие задания — используй inspect_course_assignments и остановись на этом. "
         "Если пользователь просит найти пробелы, слишком резкие вводы новых функций или скрытые prerequisite-ошибки — используй analyze_course_progression. "
         "Если пользователь после аудита хочет посмотреть конкретные существующие задания, названия, соседние элементы курса или место вставки вокруг anchor — используй inspect_course_assignments. "
         "Если пользователь прямо просит собрать план мостиков, список вставок или подводящие задания — используй prepare_bridge_plan. "

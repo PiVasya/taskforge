@@ -3314,6 +3314,8 @@ public sealed class AiChatService
             return "remediation";
         if (IsDiagnosticGapAuditIntent(low))
             return "audit";
+        if (AiGenerationScenarioPolicy.LooksLikeScenarioGenerationIntent(low))
+            return "generate";
         if (IsDirectorWorkflowIntent(low) || IsAutonomousReworkIntent(low) || IsDirectFinalResultIntent(low))
             return "generate";
         if (IsInspectCourseIntent(low))
@@ -3386,9 +3388,12 @@ public sealed class AiChatService
             || hay.Contains("какие")
             || hay.Contains("изучи задачи курса");
         var avoidsPlanning = !hay.Contains("мостик") && !hay.Contains("подводящ") && !hay.Contains("план");
-        var asksToGenerate = hay.Contains("сгенер")
+        var asksToGenerate = AiGenerationScenarioPolicy.LooksLikeScenarioGenerationIntent(hay)
+            || hay.Contains("сгенер")
             || hay.Contains("придум")
             || hay.Contains("создай")
+            || hay.Contains("сделай сери")
+            || hay.Contains("новых задач")
             || hay.Contains("встав")
             || hay.Contains("перед первым if")
             || hay.Contains("перед первым появлением if")
@@ -3448,6 +3453,8 @@ public sealed class AiChatService
         if (string.Equals(latestIntentKind, "remediation", StringComparison.OrdinalIgnoreCase))
             return true;
         if (IsDirectorWorkflowIntent(latestGoal))
+            return true;
+        if (AiGenerationScenarioPolicy.RequestsDirectResultWithoutProgress(latestGoal))
             return true;
 
         var low = latestGoal.ToLowerInvariant();
@@ -4015,10 +4022,10 @@ public sealed class AiChatService
             return "course-gap-remediation";
         if (string.Equals(latestIntentKind, "audit", StringComparison.OrdinalIgnoreCase) || IsDiagnosticGapAuditIntent(latestGoal))
             return "course-diagnostics";
+        if (autonomousRework || IsDirectFinalResultIntent(latestGoal) || AiGenerationScenarioPolicy.LooksLikeScenarioGenerationIntent(latestGoal))
+            return "generation";
         if (string.Equals(latestIntentKind, "inspect", StringComparison.OrdinalIgnoreCase))
             return "course-inspection";
-        if (autonomousRework || IsDirectFinalResultIntent(latestGoal))
-            return "generation";
         if (string.Equals(latestIntentKind, "plan", StringComparison.OrdinalIgnoreCase)
             || string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase)
             || string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase))
@@ -5258,6 +5265,32 @@ public sealed class AiChatService
                     aroundAssignmentId = placementAfterAssignmentId,
                     window = placementAfterAssignmentId.HasValue ? 4 : 0,
                     limitAssignments = 30,
+                }, JsonOptions),
+            };
+        }
+
+        var requestedCount = TryExtractRequestedCount(focus) ?? 1;
+        var scenarioProfile = AiGenerationScenarioRouter.Resolve(memory, focus, focus, requestedCount);
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
+            && AiGenerationScenarioPolicy.ShouldBypassBlueprint(scenarioProfile, preferAutonomousCompletion || autonomousRework, latestGoal))
+        {
+            var prompt = RewritePromptForIfStepByStepSeries(focus ?? BuildFallbackPrompt(messages), memory, requestedCount);
+            var sourceText = RewriteSourceTextForIfStepByStepSeries(focus, memory, requestedCount);
+            var titleHint = AiGenerationScenarioPromptAdapter.SuggestTitleHint(memory, prompt, sourceText, requestedCount, null);
+            return new AiFoundryChatToolCallDto
+            {
+                Name = "queue_generate_from_text",
+                Reason = "Пользователь явно просит готовый результат без промежуточного согласования, а выбранный сценарий допускает прямую генерацию.",
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    courseId,
+                    assignmentType = "code-test",
+                    prompt,
+                    sourceText,
+                    count = requestedCount,
+                    difficulty = 2,
+                    titleHint,
+                    enableSelfCheck = true,
                 }, JsonOptions),
             };
         }

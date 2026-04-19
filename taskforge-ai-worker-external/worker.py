@@ -88,6 +88,8 @@ from reviews import (
     run_brief_review,
     run_batch_context_review,
 )
+from scenario_router import detect_scenario_profile, scenario_generation_mode
+from scenario_policy import looks_like_task_generation_intent, scenario_should_bypass_blueprint
 from batch_pipeline import (
     run_batch_review,
     run_student_journey_review,
@@ -678,6 +680,8 @@ def _chat_is_direct_generate_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
         return False
+    if looks_like_task_generation_intent(low) and any(token in low for token in ["покажи итог", "итоговый набор", "без промежуточ", "не проси", "сразу"]):
+        return True
     markers = [
         "всё генерируй", "все генерируй", "генерируй задачу", "генерируй уже", "запускай создание",
         "запускай генерацию", "не черновик", "без черновика", "делай уже фул", "делай фул", "делай уже полную",
@@ -917,6 +921,8 @@ def _chat_is_listing_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
         return False
+    if looks_like_task_generation_intent(low):
+        return False
     mentions_assignments = any(token in low for token in ["задан", "assignment", "урок", "курс"])
     asks_to_show = any(token in low for token in ["выведи", "выводи", "покажи", "показывай", "список", "перечисли", "какие", "изучи задачи курса"])
     mentions_plan = any(token in low for token in ["план", "мостик", "подводящ"])
@@ -1071,12 +1077,14 @@ def _chat_pick_agent_candidate_action(payload: Dict[str, Any]) -> str:
 
 def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: str) -> str:
     low = (last_user or prompt or "").strip().lower()
-    if _chat_is_listing_request(low):
-        return "inspect"
     if _chat_is_gap_remediation_request(low):
         return "remediation"
     if _chat_is_audit_request(low):
         return "audit"
+    if looks_like_task_generation_intent(low):
+        return "generate"
+    if _chat_is_listing_request(low):
+        return "inspect"
     if _chat_is_drop_blueprint_request(low):
         return "drop-blueprint"
     if _chat_is_show_blueprint_request(low):
@@ -1211,6 +1219,32 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), max(1, len(_chat_blueprint_proposals(payload)) or 1)), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
         action_name = "revise_chat_blueprint" if latest_intent_kind == "revise-blueprint" and _chat_has_blueprint(payload) else "save_chat_blueprint"
         autonomous = _chat_is_autonomous_mode(payload)
+        scenario_profile = detect_scenario_profile({**payload, "prompt": prompt, "sourceText": prompt}, requested_count=_chat_safe_count(result.get("count"), max(1, len(proposals) or 1)))
+        if scenario_should_bypass_blueprint(scenario_profile, autonomous, last_user):
+            primary = proposals[0] if proposals else {}
+            count = _chat_safe_count(result.get("count"), max(1, len(proposals) or 1))
+            result["actions"] = [{
+                "name": "queue_generate_from_text",
+                "reason": "Пользователь просит прямой итог без промежуточных согласований, а выбранный сценарий поддерживает прямую генерацию.",
+                "arguments": {
+                    "courseId": _chat_pick_course_id(payload, result),
+                    "assignmentType": primary.get("assignmentType") or _chat_pick_assignment_type(payload, result),
+                    "prompt": last_user or prompt,
+                    "sourceText": primary.get("fullCondition") or primary.get("conditionPreview") or prompt,
+                    "titleHint": primary.get("title") or result.get("title") or result.get("titleHint"),
+                    "difficulty": primary.get("difficulty") or _chat_pick_difficulty(payload, result),
+                    "count": count,
+                    "enableSelfCheck": True,
+                },
+            }]
+            assistant_msg = str(result.get("assistantMessage") or "").strip()
+            if not assistant_msg or _looks_like_progress_message(assistant_msg):
+                assistant_msg = "Принято. Запускаю прямую генерацию без промежуточного согласования."
+            return {
+                "assistantMessage": assistant_msg,
+                "actions": result.get("actions") or [],
+                "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
+            }
         if autonomous:
             assistant_fallback = "Я обновила внутренний blueprint под новые требования и продолжаю автономный проход без лишнего согласования." if action_name == "revise_chat_blueprint" else "Я собрала внутренний blueprint и продолжаю автономный проход без лишнего согласования."
         else:
@@ -1251,7 +1285,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 deduped_actions.append(action)
             result["actions"] = deduped_actions
             if _looks_like_progress_message(assistant_msg):
-                result["assistantMessage"] = "Принято. Продолжаю автономный проход."
+                result["assistantMessage"] = "Принято. Выполняю запрос без лишних промежуточных сообщений."
         return result
 
     llm_msg = str(result.get("assistantMessage") or "").strip()
