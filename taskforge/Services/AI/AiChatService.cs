@@ -840,6 +840,7 @@ public sealed class AiChatService
                         ReadGuid(args, "aroundAssignmentId"),
                         ReadInt(args, "window"),
                         ReadInt(args, "limitAssignments"),
+                        ReadBool(args, "includeFirstTaskStyleAnchor") ?? false,
                         ct);
                     if (inspection == null || inspection.Assignments.Count == 0)
                         return FailTool("Не нашла подходящие задания курса для просмотра. Попробуй сузить query или выбрать другой courseId.");
@@ -2827,10 +2828,11 @@ public sealed class AiChatService
             || latestIntent.Equals("finalize-blueprint", StringComparison.OrdinalIgnoreCase);
         var hasBlueprint = memory.CurrentDraftBlueprint != null && memory.CurrentDraftBlueprint.Proposals.Count > 0;
         var autonomousRework = IsAutonomousReworkIntent(memory.LatestExplicitInstruction);
+        var hardDirectorMode = memory.PreferAutonomousCompletion || autonomousRework || IsDirectorWorkflowIntent(memory.LatestExplicitInstruction);
 
         if (blueprintIntent && !hasBlueprint && lastToolCalls.Any(x => x != null && AutonomousGroundworkActionNames.Contains((x.Name ?? string.Empty).Trim())))
         {
-            if (memory.PreferAutonomousCompletion || autonomousRework)
+            if (hardDirectorMode)
                 return true;
         }
 
@@ -3231,14 +3233,14 @@ public sealed class AiChatService
         var low = (text ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(low))
             return "chat";
-        if (IsInspectCourseIntent(low))
-            return "inspect";
         if (IsCourseGapRemediationIntent(low))
             return "remediation";
         if (IsDiagnosticGapAuditIntent(low))
             return "audit";
-        if (IsAutonomousReworkIntent(low) || IsDirectFinalResultIntent(low))
+        if (IsDirectorWorkflowIntent(low) || IsAutonomousReworkIntent(low) || IsDirectFinalResultIntent(low))
             return "generate";
+        if (IsInspectCourseIntent(low))
+            return "inspect";
         if (low.Contains("покажи план") || low.Contains("какой план") || low.Contains("что в плане") || low.Contains("show_bridge_plan"))
             return "show-plan";
         if ((low.Contains("поправь план") || low.Contains("измени план") || low.Contains("исправь план") || low.Contains("поставь её второй") || low.Contains("поставь ее второй") || low.Contains("вторым") || low.Contains("сделай задачку") || low.Contains("добавь вторым"))
@@ -3258,6 +3260,19 @@ public sealed class AiChatService
         if ((low.Contains("план") || low.Contains("мостик") || low.Contains("подводящ")) && !low.Contains("не продолжай старый план"))
             return "plan";
         return "chat";
+    }
+
+    private static bool IsDirectorWorkflowIntent(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var hay = text.ToLowerInvariant();
+        var mentionsDirector = hay.Contains("дириж") || hay.Contains("не как обычный текстоген") || hay.Contains("execution contract");
+        var mentionsOrderedFlow = hay.Contains("обязательный порядок действий")
+            || (hay.Contains("сначала") && hay.Contains("затем") && hay.Contains("после этого"));
+        var mentionsGenerationGoal = hay.Contains("сгенер") || hay.Contains("придум") || hay.Contains("новых задач") || hay.Contains("обучающих задач");
+        return mentionsDirector || (mentionsOrderedFlow && mentionsGenerationGoal);
     }
 
     private static bool IsCourseGapRemediationIntent(string? text)
@@ -3294,7 +3309,15 @@ public sealed class AiChatService
             || hay.Contains("какие")
             || hay.Contains("изучи задачи курса");
         var avoidsPlanning = !hay.Contains("мостик") && !hay.Contains("подводящ") && !hay.Contains("план");
-        return mentionsAssignments && asksToShow && avoidsPlanning;
+        var asksToGenerate = hay.Contains("сгенер")
+            || hay.Contains("придум")
+            || hay.Contains("создай")
+            || hay.Contains("встав")
+            || hay.Contains("перед первым if")
+            || hay.Contains("перед первым появлением if")
+            || hay.Contains("обязательный порядок действий")
+            || hay.Contains("готовый результат");
+        return mentionsAssignments && asksToShow && avoidsPlanning && !asksToGenerate && !IsDirectorWorkflowIntent(hay);
     }
 
     private static string? ExtractLatestTeachingScript(string? text)
@@ -3346,6 +3369,8 @@ public sealed class AiChatService
             return false;
 
         if (string.Equals(latestIntentKind, "remediation", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (IsDirectorWorkflowIntent(latestGoal))
             return true;
 
         var low = latestGoal.ToLowerInvariant();
@@ -3530,10 +3555,11 @@ public sealed class AiChatService
                 ArgumentsJson = JsonSerializer.Serialize(new
                 {
                     courseId = courseId.Value,
-                    query = needsFirstTaskEvidence ? "Задание 1" : focus,
+                    query = focus,
                     aroundAssignmentId = strictPlacement.AfterAssignmentId,
-                    window = strictPlacement.AfterAssignmentId.HasValue ? 5 : 2,
+                    window = strictPlacement.AfterAssignmentId.HasValue ? 5 : 3,
                     limitAssignments = needsFirstTaskEvidence ? 28 : 24,
+                    includeFirstTaskStyleAnchor = needsFirstTaskEvidence,
                 }, JsonOptions),
             };
         }
@@ -4964,7 +4990,7 @@ public sealed class AiChatService
         };
     }
 
-    private async Task<AiFoundryCourseInspectionDto?> InspectCourseAssignmentsAsync(Guid courseId, string? query, Guid? aroundAssignmentId, int? window, int? limitAssignments, CancellationToken ct)
+    private async Task<AiFoundryCourseInspectionDto?> InspectCourseAssignmentsAsync(Guid courseId, string? query, Guid? aroundAssignmentId, int? window, int? limitAssignments, bool includeFirstTaskStyleAnchor, CancellationToken ct)
     {
         var course = await _db.Courses.AsNoTracking()
             .Where(x => x.Id == courseId)
@@ -4981,10 +5007,15 @@ public sealed class AiChatService
         var normalizedQuery = (query ?? string.Empty).Trim();
         var radius = Math.Clamp(window ?? 2, 0, 5);
         var maxItems = Math.Clamp(limitAssignments ?? 18, 6, 30);
+        var resolvedAroundAssignmentId = aroundAssignmentId;
+        var shouldIncludeFirstTaskStyleAnchor = includeFirstTaskStyleAnchor || RequestsFirstTaskStyleEvidence(normalizedQuery);
 
-        if (aroundAssignmentId.HasValue)
+        if (!resolvedAroundAssignmentId.HasValue && QueryMentionsFirstIfAnchor(normalizedQuery))
+            resolvedAroundAssignmentId = FindFirstExplicitIfAssignment(ordered)?.Id;
+
+        if (resolvedAroundAssignmentId.HasValue)
         {
-            var index = ordered.FindIndex(x => x.Id == aroundAssignmentId.Value);
+            var index = ordered.FindIndex(x => x.Id == resolvedAroundAssignmentId.Value);
             if (index >= 0)
             {
                 var from = Math.Max(0, index - radius);
@@ -4992,6 +5023,9 @@ public sealed class AiChatService
                 selected.AddRange(ordered.Skip(from).Take(take));
             }
         }
+
+        if (shouldIncludeFirstTaskStyleAnchor)
+            selected.AddRange(ordered.Take(Math.Min(3, maxItems)));
 
         if (!string.IsNullOrWhiteSpace(normalizedQuery))
         {
@@ -5066,7 +5100,7 @@ public sealed class AiChatService
             CourseId = course.Id,
             CourseTitle = course.Title,
             Query = string.IsNullOrWhiteSpace(normalizedQuery) ? null : normalizedQuery,
-            AroundAssignmentId = aroundAssignmentId,
+            AroundAssignmentId = resolvedAroundAssignmentId,
             GeneratedAtUtc = DateTime.UtcNow,
             Summary = assignments.Count == 0
                 ? "Подходящих заданий для просмотра не найдено."
@@ -5174,10 +5208,11 @@ public sealed class AiChatService
                     ArgumentsJson = JsonSerializer.Serialize(new
                     {
                         courseId,
-                        query = needsFirstTaskEvidence ? "Задание 1" : focus,
+                        query = focus,
                         aroundAssignmentId = anchorForInspection,
-                        window = anchorForInspection.HasValue ? 5 : 2,
+                        window = anchorForInspection.HasValue ? 5 : 3,
                         limitAssignments = needsFirstTaskEvidence ? 28 : 24,
+                        includeFirstTaskStyleAnchor = needsFirstTaskEvidence,
                     }, JsonOptions),
                 };
             }
@@ -5212,10 +5247,11 @@ public sealed class AiChatService
                         ArgumentsJson = JsonSerializer.Serialize(new
                         {
                             courseId,
-                            query = needsFirstTaskEvidence ? "Задание 1" : focus,
+                            query = focus,
                             aroundAssignmentId = anchorForInspection,
-                            window = anchorForInspection.HasValue ? 5 : 2,
+                            window = anchorForInspection.HasValue ? 5 : 3,
                             limitAssignments = needsFirstTaskEvidence ? 28 : 24,
+                            includeFirstTaskStyleAnchor = needsFirstTaskEvidence,
                         }, JsonOptions),
                     };
                 }
@@ -5661,7 +5697,83 @@ public sealed class AiChatService
                 return (anchor.Id, anchor.Title, $"после «{anchor.Title}»");
         }
 
+        if (QueryMentionsFirstIfAnchor(hay))
+        {
+            var ordered = inspection.Assignments.OrderBy(x => x.Sort).ToList();
+            var anchor = inspection.AroundAssignmentId.HasValue
+                ? ordered.FirstOrDefault(x => x.Id == inspection.AroundAssignmentId.Value)
+                : null;
+            anchor ??= FindFirstExplicitIfAssignment(inspection);
+            if (anchor != null)
+            {
+                var index = ordered.FindIndex(x => x.Id == anchor.Id);
+                if (index > 0)
+                {
+                    var previous = ordered[index - 1];
+                    return (previous.Id, previous.Title, $"между «{previous.Title}» и «{anchor.Title}» (строго перед первым заданием с if)");
+                }
+            }
+        }
+
         return (null, null, null);
+    }
+
+    private static bool RequestsFirstTaskStyleEvidence(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var hay = text.ToLowerInvariant();
+        return hay.Contains("как первая задача")
+            || hay.Contains("как первая")
+            || hay.Contains("первая задача")
+            || hay.Contains("эталон стиля")
+            || hay.Contains("1 в 1")
+            || hay.Contains("один в один");
+    }
+
+    private static bool QueryMentionsFirstIfAnchor(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var hay = text.ToLowerInvariant();
+        return hay.Contains("первым if")
+            || hay.Contains("первое if")
+            || hay.Contains("первого if")
+            || hay.Contains("первым появлением if")
+            || hay.Contains("первое появление if")
+            || hay.Contains("первого появления if")
+            || hay.Contains("first if")
+            || Regex.IsMatch(hay, @"перв\w*\s+.*\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool ContainsExplicitIfMarker(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        return Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])if(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains("if/else", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("else if", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("ветвлен", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static CourseAuditAssignmentSnapshot? FindFirstExplicitIfAssignment(IReadOnlyList<CourseAuditAssignmentSnapshot> ordered)
+    {
+        if (ordered == null || ordered.Count == 0)
+            return null;
+
+        return ordered
+            .OrderBy(x => x.Sort)
+            .FirstOrDefault(x => ContainsExplicitIfMarker($"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}\n{x.AiOverview}"));
+    }
+
+    private static AiFoundryCourseInspectionAssignmentDto? FindFirstExplicitIfAssignment(AiFoundryCourseInspectionDto inspection)
+    {
+        if (inspection == null || inspection.Assignments.Count == 0)
+            return null;
+
+        return inspection.Assignments
+            .OrderBy(x => x.Sort)
+            .FirstOrDefault(x => ContainsExplicitIfMarker($"{x.Title}\n{x.DescriptionExcerpt}\n{x.AiOverview}"));
     }
 
     private static AiFoundryCourseInspectionAssignmentDto? FindAssignmentByNumberToken(AiFoundryCourseInspectionDto inspection, string numberToken)
@@ -5683,10 +5795,7 @@ public sealed class AiChatService
             memory.LatestTeachingScript,
             string.Join(" ", memory.RecentGoals ?? new List<string>()),
         }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        return hay.Contains("как первая задача")
-            || hay.Contains("как первая")
-            || hay.Contains("1 в 1")
-            || hay.Contains("один в один");
+        return RequestsFirstTaskStyleEvidence(hay);
     }
 
     private static bool InspectionContainsFirstTask(AiFoundryCourseInspectionDto? inspection)
