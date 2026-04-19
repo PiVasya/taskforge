@@ -783,8 +783,7 @@ public sealed class AiChatService
                     var count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50);
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5);
                     var memory = BuildMemory(messages, session.PlanJson, instructionStrictness);
-                    if (RequestsIfStepByStepSeries(memory, prompt, null))
-                        prompt = RewritePromptForIfStepByStepSeries(prompt, memory, count);
+                    prompt = RewritePromptForIfStepByStepSeries(prompt, memory, count);
                     var batchMode = ReadString(args, "mode") ?? DetermineDirectGenerationMode(memory, prompt, null, count);
                     var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, batchMode, count, difficulty);
 
@@ -1260,21 +1259,29 @@ public sealed class AiChatService
                         ? BuildStructuredContextFromChatBlueprintProposal(selectedProposal, blueprint, session.Id)
                         : null;
 
-                    if (RequestsIfStepByStepSeries(memory, prompt, sourceText))
+                    prompt = RewritePromptForIfStepByStepSeries(prompt, memory, requestedCount);
+                    sourceText = RewriteSourceTextForIfStepByStepSeries(sourceText, memory, requestedCount);
+                    titleHint = AiGenerationScenarioPromptAdapter.SuggestTitleHint(memory, prompt, sourceText, requestedCount, titleHint);
+
+                    var directBatchMode = DetermineDirectGenerationMode(memory, prompt, sourceText, requestedCount);
+                    if (string.IsNullOrWhiteSpace(structuredContextJson))
                     {
-                        prompt = RewritePromptForIfStepByStepSeries(prompt, memory, requestedCount);
-                        sourceText = RewriteSourceTextForIfStepByStepSeries(sourceText, memory, requestedCount);
-                        if (string.IsNullOrWhiteSpace(titleHint))
-                            titleHint = requestedCount > 1 ? "Первые шаги с if" : "Первый if";
+                        var directArgs = new JsonObject
+                        {
+                            ["notes"] = notes,
+                            ["mode"] = directBatchMode,
+                            ["sourceText"] = sourceText,
+                        };
+                        structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, directArgs, directBatchMode, requestedCount, difficulty);
                     }
 
                     if (requestedCount > 1)
                     {
-                        var directBatchMode = DetermineDirectGenerationMode(memory, prompt, sourceText, requestedCount);
                         var batchArgs = new JsonObject
                         {
                             ["notes"] = notes,
                             ["mode"] = directBatchMode,
+                            ["sourceText"] = sourceText,
                         };
                         var batchStructuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, batchArgs, directBatchMode, requestedCount, difficulty);
                         var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
@@ -3107,6 +3114,7 @@ public sealed class AiChatService
         var learnerProfile = BuildLearnerProfileSnapshot(chatText, prompt, notes);
         var constraints = BuildGenerationConstraintsSnapshot(chatText, prompt, notes);
         var placementPlan = BuildPlacementPlanSnapshot(audit, bridgePlan, requestedCount);
+        var scenarioProfile = AiGenerationScenarioRouter.Resolve(memory, prompt, ReadString(args, "sourceText"), requestedCount);
         var titleExamples = new List<string>();
         if (bridgePlan != null)
             titleExamples.AddRange(bridgePlan.Items.SelectMany(x => x.TitleExamples ?? new List<string>()));
@@ -3149,15 +3157,31 @@ public sealed class AiChatService
             learnerProfile,
             pedagogy = new
             {
-                preferGuidedWalkthroughs = learnerProfile["preferGuidedWalkthroughs"],
+                preferGuidedWalkthroughs = Convert.ToBoolean(learnerProfile["preferGuidedWalkthroughs"]) || scenarioProfile.PreferGuidedWalkthroughs,
                 requireSectionIntroGuides = learnerProfile["requireSectionIntroGuides"],
                 explainLikeChild = learnerProfile["explainLikeChild"],
                 tone = learnerProfile["tone"],
                 vocabularyLevel = learnerProfile["vocabularyLevel"],
                 maxNewConceptsPerTask = learnerProfile["maxNewConceptsPerTask"],
                 requireConcreteExamples = true,
-                preferTinySteps = true,
+                preferTinySteps = scenarioProfile.PreferTinySteps,
                 preferActionVerbs = true,
+            },
+            scenario = new
+            {
+                scenarioProfile.Id,
+                scenarioProfile.DisplayName,
+                scenarioProfile.Family,
+                scenarioProfile.DefaultBatchMode,
+                scenarioProfile.PreferGuidedWalkthroughs,
+                scenarioProfile.PreferTinySteps,
+                scenarioProfile.ForceSmallPrograms,
+                scenarioProfile.RequireExplicitIf,
+                scenarioProfile.PreferSingleDeepTask,
+                scenarioProfile.PreferCourseAudit,
+                scenarioProfile.DefaultCount,
+                scenarioProfile.Score,
+                matchedSignals = scenarioProfile.MatchedSignals,
             },
             titleStyle = new
             {
@@ -5883,57 +5907,18 @@ public sealed class AiChatService
 
     private static bool RequestsIfStepByStepSeries(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
     {
-        var hay = string.Join(" ", new[]
-        {
-            memory.LatestExplicitInstruction,
-            memory.LatestTeachingScript,
-            prompt,
-            sourceText,
-            string.Join(" ", memory.RecentGoals ?? new List<string>()),
-        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        if (!(Regex.IsMatch(hay, @"if", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || hay.Contains("ветвлен")))
-            return false;
-
-        var teachingMarkers = new[]
-        {
-            "пошаг", "шаг за шаг", "как использовать", "как пользоваться", "учит", "науч", "лесенк",
-            "серия", "несколько программ", "больше программ", "маленьк", "маленьких программ", "освоение if",
-            "самому if", "сам if", "with if", "if-onboarding", "guided sequence", "первые шаги"
-        };
-        return teachingMarkers.Any(x => hay.Contains(x));
+        var scenario = AiGenerationScenarioRouter.Resolve(memory, prompt, sourceText, 5);
+        return scenario.Id is "step-by-step-ladder" or "micro-program-series";
     }
 
     private static string RewritePromptForIfStepByStepSeries(string prompt, AiFoundryChatMemoryDto memory, int count)
-    {
-        if (!RequestsIfStepByStepSeries(memory, prompt, null))
-            return prompt;
-
-        var courseTitle = memory.LastCourseInspection?.CourseTitle
-            ?? memory.LastCourseAudit?.CourseTitle
-            ?? memory.LastBridgePlan?.CourseTitle
-            ?? "курс";
-        return $"Сгенерируй {count} маленьких учебных code-test задач для курса «{courseTitle}», которые пошагово учат пользоваться if. Это не абстрактные мостики до темы и не сухие булевы проверки. Нужна лесенка из простых программ: от самого первого if к if/else и дальнейшим простым проверкам. Каждая задача должна быть самостоятельной маленькой программой с явным использованием if, спокойным дружелюбным guided-intro тоном и очень маленьким шагом сложности. Не уходи в олимпиадный стиль и не подменяй тему оператором % или выводом 1/0 без if.";
-    }
+        => AiGenerationScenarioPromptAdapter.RewritePrompt(prompt, memory, count);
 
     private static string RewriteSourceTextForIfStepByStepSeries(string? sourceText, AiFoundryChatMemoryDto memory, int count)
-    {
-        if (!RequestsIfStepByStepSeries(memory, null, sourceText))
-            return sourceText ?? string.Empty;
-
-        var intro = $"Нужно не просто подготовить к теме ветвления, а сделать серию из {count} маленьких программ именно на освоение if. Пользователь хочет пошаговое обучение использованию if и больше практических мини-программ.";
-        return string.IsNullOrWhiteSpace(sourceText)
-            ? intro
-            : intro + "
-
-" + sourceText.Trim();
-    }
+        => AiGenerationScenarioPromptAdapter.RewriteSourceText(sourceText, memory, count);
 
     private static string DetermineDirectGenerationMode(AiFoundryChatMemoryDto memory, string prompt, string? sourceText, int requestedCount)
-    {
-        if (requestedCount > 1 && RequestsIfStepByStepSeries(memory, prompt, sourceText))
-            return "guided-sequence";
-        return requestedCount > 1 ? "topic-pack" : "single-draft";
-    }
+        => AiGenerationScenarioPromptAdapter.DetermineMode(memory, prompt, sourceText, requestedCount);
 
     private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
     {

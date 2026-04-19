@@ -1188,6 +1188,18 @@ def _chat_suppress_bridge_plan_loop(payload: Dict[str, Any], latest_intent_kind:
     low = (last_user or "").lower()
     return any(marker in low for marker in ["не показывай план", "не возвращайся к план", "не делай новый план", "не show_bridge_plan", "не revise_bridge_plan", "нужна сама задача", "нужен именно текст задачи", "сделай всё сразу", "сделай все сразу", "всё, делай", "все, делай"])
 
+
+
+def _looks_like_progress_message(message: str) -> bool:
+    low = (message or "").strip().lower()
+    if not low:
+        return False
+    markers = [
+        "запускаю", "открываю", "изучаю", "соберу", "сразу после", "загружаю условия",
+        "продолжаю автономно", "сверяюсь", "формирую", "запущу", "подготовлю", "сначала"
+    ]
+    return any(marker in low for marker in markers)
+
 def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return {"assistantMessage": "Я не смогла корректно разобрать ответ модели. Повтори запрос короче или уточни действие.", "actions": []}
@@ -1238,6 +1250,8 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     args["prompt"] = last_user or action_prompt
                 deduped_actions.append(action)
             result["actions"] = deduped_actions
+            if _looks_like_progress_message(assistant_msg):
+                result["assistantMessage"] = "Принято. Продолжаю автономный проход."
         return result
 
     llm_msg = str(result.get("assistantMessage") or "").strip()

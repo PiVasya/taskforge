@@ -36,6 +36,7 @@ from text_utils import (
     safe_int,
 )
 from similarity_signatures import similarity_signature_report
+from scenario_router import detect_scenario_profile, scenario_requires_explicit_if
 from duplicate_clusters import cluster_duplicate_candidates
 from validators import (
     collect_quality_checks_common,
@@ -106,11 +107,17 @@ def fallback_pedagogy_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
         checks.append({"name": "single-learning-goal", "status": "warning", "details": "Похоже, в задаче объединено несколько учебных целей"})
     else:
         checks.append({"name": "single-learning-goal", "status": "passed", "details": "Учебная цель выглядит достаточно узкой"})
-    if _review_is_if_onboarding(payload):
+    scenario = detect_scenario_profile(payload)
+    if scenario_requires_explicit_if(scenario):
         if _draft_uses_explicit_if(draft):
-            checks.append({"name": "if-onboarding-match", "status": "passed", "details": "Для пошагового обучения if задача действительно использует if"})
+            checks.append({"name": "scenario-explicit-if", "status": "passed", "details": "Сценарий требует явный if и draft действительно его использует"})
         else:
-            checks.append({"name": "if-onboarding-match", "status": "failed", "details": "Пользователь просил пошагово учить самому if, а задача ушла в подготовительные проверки без if"})
+            checks.append({"name": "scenario-explicit-if", "status": "failed", "details": "Сценарий требует учить реальному if, а draft ушёл в подготовительные проверки без if"})
+    if normalize_text(scenario.get("id")) == "single-deep-task":
+        if len(description) >= 220:
+            checks.append({"name": "scenario-deep-task-depth", "status": "passed", "details": "Для deep-task описание не выглядит слишком поверхностным"})
+        else:
+            checks.append({"name": "scenario-deep-task-depth", "status": "warning", "details": "Для deep-task задача может быть слишком короткой и упрощённой"})
     status = summarize_status(checks)
     return {
         "draftId": payload.get("draftId") or job.get("targetEntityId"),
@@ -154,18 +161,25 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
             })
             score -= 0.12
 
-    if _review_is_if_onboarding(payload):
+    scenario = detect_scenario_profile(payload)
+    if scenario_requires_explicit_if(scenario):
         if _draft_uses_explicit_if(draft):
-            checks.append({"name": "style-if-onboarding", "status": "passed", "details": "Стиль и тип задачи совпадают с режимом if-onboarding"})
+            checks.append({"name": "style-scenario-explicit-if", "status": "passed", "details": "Тип задачи совпадает со сценарием real-if learning"})
         else:
-            checks.append({"name": "style-if-onboarding", "status": "failed", "details": "Вместо первой маленькой программы с if получилась bridge-задача без if"})
+            checks.append({"name": "style-scenario-explicit-if", "status": "failed", "details": "Вместо маленькой программы с if получилась подготовительная bridge-задача без if"})
             findings.append({
-                "severity": "high", "code": "style-if-onboarding",
-                "message": "Задача не совпадает с режимом пошагового освоения if.",
+                "severity": "high", "code": "style-scenario-explicit-if",
+                "message": "Задача не совпадает со сценарием обучения реальному if.",
                 "suggestedRepair": "Пересобери задачу как маленькую программу с явным if и дружелюбным guided-intro тоном.",
                 "confidence": 0.94,
             })
             score -= 0.4
+    if normalize_text(scenario.get("id")) == "single-deep-task":
+        if len(description) >= 220:
+            checks.append({"name": "style-deep-task-fit", "status": "passed", "details": "Стиль не выглядит слишком мелким для сценария single-deep-task"})
+        else:
+            checks.append({"name": "style-deep-task-fit", "status": "warning", "details": "Сценарий single-deep-task, но описание выглядит слишком микрошаговым"})
+            score -= 0.08
 
     title = normalize_text(draft.get("title"))
     ref_titles = [normalize_text(r.get("title")) for r in refs if isinstance(r, dict) and normalize_text(r.get("title"))]

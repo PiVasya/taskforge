@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESCRIPTION_LEN, MAX_HIDDEN_TESTS
 from log import log
 from text_utils import normalize_text, truncate_text, safe_int, unique_string_list, strip_html_to_text, summarize_description
+from scenario_router import detect_scenario_profile, scenario_prompt_appendix, scenario_requires_explicit_if
 from payload import (
     compact_reference_assignments,
     compact_historical_planner_priors,
@@ -1461,41 +1462,17 @@ def build_draft_course_style_analysis_prompt(job: Dict[str, Any], payload: Dict[
 
 
 
-def _if_onboarding_haystack(payload: Dict[str, Any]) -> str:
-    parts = []
-    for key in ("prompt", "sourceText", "notes", "titleHint", "teachingScript", "userInstructionSnapshot"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
-    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
-    for value in [brief.get("summary"), brief.get("generationPrompt"), brief.get("targetSkill"), task.get("targetSkill"), task.get("microGoal"), task.get("MicroGoal")]:
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-    return " ".join(parts).lower()
+def _scenario_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return detect_scenario_profile(payload)
 
 
 def _is_if_onboarding_request(payload: Dict[str, Any]) -> bool:
-    hay = _if_onboarding_haystack(payload)
-    if not (re.search(r"\bif\b", hay) or "ветвлен" in hay):
-        return False
-    markers = [
-        "пошаг", "шаг за шаг", "как использовать", "как пользоваться", "учит", "науч", "лесенк",
-        "серия", "несколько программ", "больше программ", "маленьк", "освоение if", "самому if",
-        "guided sequence", "if-onboarding", "первые шаги"
-    ]
-    return any(marker in hay for marker in markers)
+    profile = _scenario_profile(payload)
+    return normalize_text(profile.get("id")) == "micro-program-series" and bool(profile.get("require_explicit_if"))
 
 
 def _if_onboarding_appendix(payload: Dict[str, Any]) -> str:
-    if not _is_if_onboarding_request(payload):
-        return ""
-    return (
-        "\n- Это не абстрактные мостики перед темой и не сухие логические проверки. "
-        "Нужна маленькая программа, которая явно учит пользоваться if. "
-        "В задаче и в referenceSolutionPython должен быть явный if; нельзя подменять цель оператором % или выводом 1/0 без условного оператора. "
-        "Строй обучение как very small step: одно новое действие за раз, дружелюбный guided-intro тон, без олимпиадной сухости.\n"
-    )
+    return scenario_prompt_appendix(_scenario_profile(payload))
 
 def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> str:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
@@ -1539,8 +1516,8 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         "- noveltyPlan: чем задача будет отличаться от ближайших topic/negative anchors.\n"
         "- titleDos/titleDonts: короткие правила для названия.\n\n"
         + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
-        + (_if_onboarding_appendix(compact_payload) if _is_if_onboarding_request(compact_payload) else "")
-        + ("GenerationSpec для if-onboarding обязан описывать именно маленькую программу с явным if, а не заменять её логическим выражением, оператором % или выводом 1/0 без условного оператора.\n" if _is_if_onboarding_request(compact_payload) else "")
+        + scenario_prompt_appendix(_scenario_profile(compact_payload))
+        + ("GenerationSpec для сценария с явным if обязан описывать именно маленькую программу с условным оператором, а не заменять её логическим выражением, оператором % или выводом 1/0 без if.\n" if scenario_requires_explicit_if(_scenario_profile(compact_payload)) else "")
         + f"Generation spec payload:\n{_prompt_json(compact_payload)}"
     )
 
@@ -1580,7 +1557,7 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         "В contentPlan должны быть поля: pedagogicalGoal, noveltyHook, inputModel, outputModel, constraintsPlan, sectionPlan, publicTestPlan, hiddenTestPlan, titleShape, bannedOverlaps, coursePhrasingRules.\n\n"
         + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
         + (_if_onboarding_appendix(compact_payload) if _is_if_onboarding_request(compact_payload) else "")
-        + ("Если это if-onboarding, sectionPlan обязан вести студента через явное использование if, а pedagogicalGoal не может сводиться к сравнению чисел без условного оператора.\n" if _is_if_onboarding_request(compact_payload) else "")
+        + ("Если сценарий требует явный if, sectionPlan обязан вести студента через реальное использование if, а pedagogicalGoal не может сводиться к сравнению чисел без условного оператора.\n" if scenario_requires_explicit_if(_scenario_profile(compact_payload)) else "")
         + f"Draft content plan payload:\n{_prompt_json(compact_payload)}"
     )
 
@@ -1724,7 +1701,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - При approvedBlueprint нельзя подменять cout на scanf/printf, добавлять ввод без явного запроса или менять точный вывод/каркас программы.
 - Если approvedBlueprint.fullCondition и style exemplar указывают на дружелюбное вступление и пошаговый scaffold, description обязан повторить именно такой каркас, а не уходить в сухую олимпиадную формулировку.
 - Если approvedBlueprint.mustKeep содержит указания про стиль/тон/порядок шагов, они обязательны и имеют приоритет над общими style digest правилами.
-{rules}{_pedagogy_appendix(compact_payload)}{_if_onboarding_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
+{rules}{_pedagogy_appendix(compact_payload)}{scenario_prompt_appendix(_scenario_profile(compact_payload))}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
@@ -1785,7 +1762,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
-{rules}{_pedagogy_appendix(compact_payload)}{_if_onboarding_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+{rules}{_pedagogy_appendix(compact_payload)}{scenario_prompt_appendix(_scenario_profile(compact_payload))}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
 - Если есть approvedBlueprint, сначала подчинись ему, а уже потом style digest курса. approvedBlueprint — главный источник истинного pedagogical замысла.
 - Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
 - Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.

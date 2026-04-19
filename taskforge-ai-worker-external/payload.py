@@ -26,6 +26,7 @@ from config import (
 from log import log, log_debug, logger
 from similarity_signatures import similarity_signature_report
 from duplicate_clusters import cluster_duplicate_candidates
+from scenario_router import detect_scenario_profile, scenario_generation_mode
 from text_utils import (
     normalize_text,
     truncate_text,
@@ -447,6 +448,17 @@ def _build_anchor_context(payload: Dict[str, Any], refs: List[Dict[str, Any]]) -
 
 
 def _infer_requested_domain(payload: Dict[str, Any]) -> str:
+    scenario = detect_scenario_profile(payload)
+    sid = normalize_text(scenario.get("id")).lower()
+    if sid == "russian-language-tests":
+        return "russian-language-tests"
+    if sid == "programming-quiz":
+        return "programming-quiz"
+    if sid == "pretopic-bridges":
+        return "bridge-pack"
+    if sid in {"step-by-step-ladder", "micro-program-series", "new-topic-intro", "topic-expansion"}:
+        return "cpp-basic-io"
+
     batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
     agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
     constraints = batch_memory.get("constraints") if isinstance(batch_memory.get("constraints"), dict) else {}
@@ -479,8 +491,6 @@ def _infer_requested_domain(payload: Dict[str, Any]) -> str:
     ]).lower()
     if any(tok in prompt for tok in ["матриц", "matrix", "2d array"]):
         return "matrix"
-    if any(tok in prompt for tok in ["мостик", "bridge", "подводящ", "guided", "walkthrough", "пошаг"]):
-        return "bridge-pack"
     if any(tok in prompt for tok in ["ввод", "вывод", "cin", "cout", "scanf", "printf", "getline", "строк", "тип данн", "if", "условн"]):
         return "cpp-basic-io"
     if any(tok in prompt for tok in ["нович", "с нуля", "прост", "базов", "первокласс"]):
@@ -931,10 +941,11 @@ def build_request_signals(payload: Dict[str, Any]) -> Dict[str, Any]:
         seen.add(low)
         unique_tokens.append(token)
     batch_memory = _compact_batch_memory(payload)
+    scenario = detect_scenario_profile(payload)
     return {
         "assignmentType": normalize_text(payload.get("assignmentType") or "code-test") or "code-test",
-        "mode": normalize_text(payload.get("mode") or "topic-pack") or "topic-pack",
-        "count": max(1, safe_int(payload.get("count"), 1)),
+        "mode": normalize_text(payload.get("mode") or scenario_generation_mode(scenario)) or "topic-pack",
+        "count": max(1, safe_int(payload.get("count"), scenario.get("default_count") or 1)),
         "difficulty": max(1, min(3, safe_int(payload.get("difficulty"), 2))),
         "domainHints": [
             hint for hint in [
@@ -948,7 +959,13 @@ def build_request_signals(payload: Dict[str, Any]) -> Dict[str, Any]:
         "sourcePrompt": truncate_text(prompt, 220),
         "courseAwarePlanning": bool(batch_memory.get("requireCourseAwarePlanning")),
         "mustStayBeforeConcepts": (((batch_memory.get("constraints") or {}) if isinstance(batch_memory.get("constraints"), dict) else {}).get("mustStayBeforeConcepts") or []),
-        "preferGuidedWalkthroughs": bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs"))),
+        "preferGuidedWalkthroughs": bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs"))) or bool(scenario.get("prefer_guided")),
+        "scenario": {
+            "id": normalize_text(scenario.get("id")),
+            "name": normalize_text(scenario.get("name")),
+            "family": normalize_text(scenario.get("family")),
+            "mode": normalize_text(scenario_generation_mode(scenario)),
+        },
     }
 
 
@@ -1048,6 +1065,7 @@ def compact_payload_for_stage(job_type: Any, payload: Any) -> Dict[str, Any]:
 
     compact["requestSignals"] = build_request_signals(payload)
     compact["courseDigest"] = build_course_digest(payload)
+    compact["scenarioProfile"] = detect_scenario_profile(payload)
 
     if not is_course_stage and isinstance(payload.get("courseProfile"), dict):
         cp_raw = payload["courseProfile"]
@@ -1179,6 +1197,7 @@ def _ensure_canonical_request(payload: Dict[str, Any], result: Dict[str, Any] | 
     existing = result.get("canonicalRequest") if isinstance(result.get("canonicalRequest"), dict) else {}
     existing_domain = normalize_text(existing.get("domain"))
     inferred_domain = _infer_requested_domain(payload)
+    scenario = detect_scenario_profile(payload)
     domain = inferred_domain if inferred_domain != "general" and (not existing_domain or _domain_conflicts(existing_domain, payload)) else (existing_domain or inferred_domain or "general")
     difficulty = safe_int(existing.get("difficulty"), safe_int(payload.get("difficulty"), 3))
     count = max(1, safe_int(existing.get("count"), safe_int(payload.get("count"), 1)))
@@ -1197,6 +1216,8 @@ def _ensure_canonical_request(payload: Dict[str, Any], result: Dict[str, Any] | 
         avoid = unique_string_list(["generic titles", "duplicate tasks", *ref_titles[:5]], 10)
     return {
         "domain": domain,
+        "scenarioId": normalize_text(existing.get("scenarioId") or scenario.get("id")),
+        "scenarioName": normalize_text(existing.get("scenarioName") or scenario.get("name")),
         "count": count,
         "difficulty": difficulty,
         "mustInclude": must_include,
@@ -1267,7 +1288,8 @@ def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int
         placement_plan = agent_state.get("placementCandidates") if isinstance(agent_state.get("placementCandidates"), list) else []
     if not placement_plan:
         return []
-    prefer_guides = bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")))
+    scenario = detect_scenario_profile(payload, requested_count=count)
+    prefer_guides = bool((((batch_memory.get("pedagogy") or {}) if isinstance(batch_memory.get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs"))) or bool(scenario.get("prefer_guided"))
     tasks: List[Dict[str, Any]] = []
     idx = 1
     for point in placement_plan:
@@ -1279,7 +1301,8 @@ def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int
         for local in range(task_count):
             if idx > count:
                 break
-            task_format = normalize_text(point.get("taskFormat") or ("guided-walkthrough" if prefer_guides and local == 0 else "exercise")) or "exercise"
+            default_format = "guided-walkthrough" if prefer_guides and (local == 0 or normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}) else "exercise"
+            task_format = normalize_text(point.get("taskFormat") or default_format) or "exercise"
             title_hint = normalize_text(point.get("titleHint")) or concept
             if task_format == "guided-walkthrough":
                 micro_goal = f"Пошагово ввести навык «{concept}» очень простым языком и на одном маленьком действии."
@@ -1422,7 +1445,11 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
         task["placementAfterAssignmentId"] = placement.get("placementAfterAssignmentId")
         task["placementAfterTitle"] = placement.get("placementAfterTitle")
         task["placementReason"] = placement.get("placementReason")
-        task["taskFormat"] = normalize_text(task.get("taskFormat") or task.get("learningMode") or ("exercise" if idx > 1 else "guided-walkthrough" if bool(((_compact_batch_memory(payload).get("pedagogy") or {}) if isinstance(_compact_batch_memory(payload).get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")) else "exercise")) or "exercise"
+        scenario = detect_scenario_profile(payload, requested_count=count)
+        default_format = "exercise"
+        if bool(((_compact_batch_memory(payload).get("pedagogy") or {}) if isinstance(_compact_batch_memory(payload).get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")) or bool(scenario.get("prefer_guided")):
+            default_format = "guided-walkthrough" if idx == 1 or normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"} else "exercise"
+        task["taskFormat"] = normalize_text(task.get("taskFormat") or task.get("learningMode") or default_format) or "exercise"
         task["learningMode"] = normalize_text(task.get("learningMode") or task.get("taskFormat") or task["taskFormat"]) or task["taskFormat"]
     coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
     decision_summary = result.get("decisionSummary") if isinstance(result.get("decisionSummary"), dict) else {"confidence": "medium", "source": "schema-repair-plan"}
