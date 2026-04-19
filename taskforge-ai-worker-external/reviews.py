@@ -52,6 +52,37 @@ from payload import (
 
 # ── Structural review ────────────────────────────────
 
+def _review_haystack(payload: Dict[str, Any], draft: Dict[str, Any] | None = None) -> str:
+    parts: List[str] = []
+    for key in ("prompt", "sourceText", "notes", "titleHint", "teachingScript", "userInstructionSnapshot"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    for value in [brief.get("summary"), brief.get("generationPrompt"), brief.get("targetSkill"), task.get("targetSkill"), task.get("microGoal"), task.get("MicroGoal")]:
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    if isinstance(draft, dict):
+        for value in [draft.get("title"), draft.get("description"), draft.get("referenceSolutionPython")]:
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+    return " ".join(parts).lower()
+
+
+def _review_is_if_onboarding(payload: Dict[str, Any]) -> bool:
+    hay = _review_haystack(payload)
+    if not (re.search(r"\bif\b", hay) or "ветвлен" in hay):
+        return False
+    markers = ["пошаг", "шаг за шаг", "как использовать", "как пользоваться", "учит", "науч", "лесенк", "серия", "несколько программ", "больше программ", "маленьк", "освоение if", "самому if", "guided sequence", "if-onboarding"]
+    return any(marker in hay for marker in markers)
+
+
+def _draft_uses_explicit_if(draft: Dict[str, Any]) -> bool:
+    hay = _review_haystack({}, draft)
+    return bool(re.search(r"\bif\b", hay)) or " if (" in hay or "if(" in hay or "иначе" in hay
+
+
 def run_structural_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     validation = run_self_check(draft)
@@ -75,6 +106,11 @@ def fallback_pedagogy_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
         checks.append({"name": "single-learning-goal", "status": "warning", "details": "Похоже, в задаче объединено несколько учебных целей"})
     else:
         checks.append({"name": "single-learning-goal", "status": "passed", "details": "Учебная цель выглядит достаточно узкой"})
+    if _review_is_if_onboarding(payload):
+        if _draft_uses_explicit_if(draft):
+            checks.append({"name": "if-onboarding-match", "status": "passed", "details": "Для пошагового обучения if задача действительно использует if"})
+        else:
+            checks.append({"name": "if-onboarding-match", "status": "failed", "details": "Пользователь просил пошагово учить самому if, а задача ушла в подготовительные проверки без if"})
     status = summarize_status(checks)
     return {
         "draftId": payload.get("draftId") or job.get("targetEntityId"),
@@ -117,6 +153,19 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
                 "confidence": 0.68,
             })
             score -= 0.12
+
+    if _review_is_if_onboarding(payload):
+        if _draft_uses_explicit_if(draft):
+            checks.append({"name": "style-if-onboarding", "status": "passed", "details": "Стиль и тип задачи совпадают с режимом if-onboarding"})
+        else:
+            checks.append({"name": "style-if-onboarding", "status": "failed", "details": "Вместо первой маленькой программы с if получилась bridge-задача без if"})
+            findings.append({
+                "severity": "high", "code": "style-if-onboarding",
+                "message": "Задача не совпадает с режимом пошагового освоения if.",
+                "suggestedRepair": "Пересобери задачу как маленькую программу с явным if и дружелюбным guided-intro тоном.",
+                "confidence": 0.94,
+            })
+            score -= 0.4
 
     title = normalize_text(draft.get("title"))
     ref_titles = [normalize_text(r.get("title")) for r in refs if isinstance(r, dict) and normalize_text(r.get("title"))]

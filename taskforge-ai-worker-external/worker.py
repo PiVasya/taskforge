@@ -586,11 +586,25 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
         result["assistantMessage"] = "Мне не хватает надёжных данных для запуска действия без риска ошибки. Уточни запрос или выбери сущность явно."
     elif issues and any("confirmed" in issue for issue in issues) and not strict_actions:
         result["assistantMessage"] = str(result.get("assistantMessage") or "").strip() or "Для этого действия нужно явное подтверждение публикации или одобрения."
+    assistant_message = str(result.get("assistantMessage") or "").strip()
+    if strict_actions and runtime.get("autonomous") and _chat_message_looks_like_process_narration(assistant_message):
+        result["assistantMessage"] = "Продолжаю автономно без лишних остановок."
     if issues and not result.get("sessionTitle"):
         result["sessionTitle"] = _chat_build_session_title(payload)
     return result, issues
 
 
+
+
+def _chat_message_looks_like_process_narration(message: str) -> bool:
+    low = (message or "").strip().lower()
+    if not low:
+        return False
+    markers = [
+        "запускаю автономный проход", "открываю", "изучаю", "соберу и сохраню", "сразу после",
+        "подготовлю и запущу", "запускаю генерацию", "отправлены на финализацию", "сохраняю условия"
+    ]
+    return any(marker in low for marker in markers)
 
 
 def _chat_is_recoverable_tool_failure(result: Dict[str, Any] | None) -> bool:

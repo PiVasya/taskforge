@@ -611,8 +611,7 @@ public sealed class AiChatService
         var accumulatedToolResults = assistantMessage.ToolResults.Concat(execution.ToolResults).ToList();
         var memoryAfterTools = BuildMemory(messages, session.PlanJson);
 
-        if (ShouldContinueInternalReasoningPass(actionMode, session, messages, memoryAfterTools, accumulatedToolCalls, execution.ToolResults, toolCalls)
-            || ShouldDeferProgressOnlyAutonomousResponse(actionMode, memoryAfterTools, accumulatedToolCalls, execution.ToolResults, assistantText))
+        if (ShouldContinueInternalReasoningPass(actionMode, session, messages, memoryAfterTools, accumulatedToolCalls, execution.ToolResults, toolCalls))
         {
             var followupPayload = await BuildChatPayloadAsync(session, messages, actionMode, memoryAfterTools.InstructionStrictness, null, ct);
             var followupJob = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
@@ -723,8 +722,7 @@ public sealed class AiChatService
             if (lastResult != null)
                 execution.ToolResults.Add(lastResult);
 
-            var memoryAfterStep = DeserializeMemory(session.PlanJson);
-            if (ShouldStopAutoAgentLoop(nextToolCall.Name, lastResult) || IsAutonomousTerminalAction(nextToolCall.Name.Trim(), memoryAfterStep))
+            if (ShouldStopAutoAgentLoop(nextToolCall.Name, lastResult) || AutonomousTerminalActionNames.Contains(nextToolCall.Name.Trim()))
                 break;
         }
 
@@ -785,7 +783,10 @@ public sealed class AiChatService
                     var count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50);
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5);
                     var memory = BuildMemory(messages, session.PlanJson, instructionStrictness);
-                    var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, "topic-pack", count, difficulty);
+                    if (RequestsIfStepByStepSeries(memory, prompt, null))
+                        prompt = RewritePromptForIfStepByStepSeries(prompt, memory, count);
+                    var batchMode = ReadString(args, "mode") ?? DetermineDirectGenerationMode(memory, prompt, null, count);
+                    var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, batchMode, count, difficulty);
 
                     var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
                     {
@@ -793,7 +794,7 @@ public sealed class AiChatService
                         AssignmentType = ReadString(args, "assignmentType") ?? "code-test",
                         Prompt = prompt,
                         Count = count,
-                        Mode = ReadString(args, "mode") ?? "topic-pack",
+                        Mode = batchMode,
                         Difficulty = difficulty,
                         Notes = ReadString(args, "notes"),
                         StructuredContextJson = structuredContextJson,
@@ -1197,7 +1198,7 @@ public sealed class AiChatService
                             Difficulty = Math.Clamp(proposal.Difficulty, 1, 5),
                             Count = 1,
                             Notes = $"Finalized from chat blueprint session {session.Id}. Revision {blueprint.Revision}.",
-                            StructuredContextJson = BuildStructuredContextFromChatBlueprintProposal(proposal, blueprint, session.Id, memory),
+                            StructuredContextJson = BuildStructuredContextFromChatBlueprintProposal(proposal, blueprint, session.Id),
                             Priority = priority,
                             EnableSelfCheck = enableSelfCheck,
                             InstructionStrictness = strictness,
@@ -1252,11 +1253,61 @@ public sealed class AiChatService
                         ?? BuildSourceTextFromRecentAttachments(messages);
                     var titleHint = ReadString(args, "titleHint") ?? selectedProposal?.Title;
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? selectedProposal?.Difficulty ?? 2, 1, 5);
+                    var requestedCount = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 50);
                     var notes = ReadString(args, "notes")
                         ?? (selectedProposal != null && blueprint != null ? $"Generated directly from chat blueprint session {session.Id}. Revision {blueprint.Revision}." : null);
                     var structuredContextJson = selectedProposal != null && blueprint != null
-                        ? BuildStructuredContextFromChatBlueprintProposal(selectedProposal, blueprint, session.Id, memory)
+                        ? BuildStructuredContextFromChatBlueprintProposal(selectedProposal, blueprint, session.Id)
                         : null;
+
+                    if (RequestsIfStepByStepSeries(memory, prompt, sourceText))
+                    {
+                        prompt = RewritePromptForIfStepByStepSeries(prompt, memory, requestedCount);
+                        sourceText = RewriteSourceTextForIfStepByStepSeries(sourceText, memory, requestedCount);
+                        if (string.IsNullOrWhiteSpace(titleHint))
+                            titleHint = requestedCount > 1 ? "Первые шаги с if" : "Первый if";
+                    }
+
+                    if (requestedCount > 1)
+                    {
+                        var directBatchMode = DetermineDirectGenerationMode(memory, prompt, sourceText, requestedCount);
+                        var batchArgs = new JsonObject
+                        {
+                            ["notes"] = notes,
+                            ["mode"] = directBatchMode,
+                        };
+                        var batchStructuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, batchArgs, directBatchMode, requestedCount, difficulty);
+                        var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
+                        {
+                            CourseId = courseId.Value,
+                            AssignmentType = assignmentType,
+                            Prompt = prompt,
+                            Count = requestedCount,
+                            Mode = directBatchMode,
+                            Difficulty = difficulty,
+                            Notes = notes,
+                            StructuredContextJson = batchStructuredContextJson,
+                            Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                            ChatSessionId = session.Id,
+                        }, createdByUserId, createdByDisplayName, ct);
+
+                        if (selectedProposal != null && blueprint != null)
+                        {
+                            selectedProposal.Status = "queued";
+                            blueprint.ApprovedForDraft = true;
+                            blueprint.UpdatedAtUtc = DateTime.UtcNow;
+                            session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
+                        }
+
+                        return new AiFoundryChatToolResultDto
+                        {
+                            Status = "done",
+                            Summary = $"Создал AI batch на {batch.RequestedCount} задач. Статус: {batch.Status}.",
+                            NavigateTo = "/admin/ai",
+                            BatchId = batch.Id,
+                            CourseId = batch.CourseId,
+                        };
+                    }
 
                     var job = await _jobs.QueueGenerateAssignmentFromTextAsync(new AiGenerateAssignmentFromTextRequestDto
                     {
@@ -1266,7 +1317,7 @@ public sealed class AiChatService
                         SourceText = sourceText,
                         TitleHint = titleHint,
                         Difficulty = difficulty,
-                        Count = Math.Clamp(ReadInt(args, "count") ?? 1, 1, 50),
+                        Count = requestedCount,
                         Notes = notes,
                         StructuredContextJson = structuredContextJson,
                         Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
@@ -2818,7 +2869,7 @@ public sealed class AiChatService
             return false;
 
         var latestToolName = latestToolCall.Name.Trim();
-        if (IsAutonomousTerminalAction(latestToolName, memory))
+        if (AutonomousTerminalActionNames.Contains(latestToolName))
             return false;
 
         var latestIntent = (memory.LatestIntentKind ?? string.Empty).Trim();
@@ -2902,56 +2953,6 @@ public sealed class AiChatService
             : "Продолжаю внутреннюю проверку и собираю недостающий контекст перед финальным ответом.";
     }
 
-    private static bool HasTerminalGenerationOutcome(IReadOnlyList<AiFoundryChatToolResultDto> toolResults)
-    {
-        return (toolResults ?? Array.Empty<AiFoundryChatToolResultDto>()).Any(x =>
-            x != null && (x.JobId.HasValue || x.BatchId.HasValue || x.DraftId.HasValue || x.AssignmentId.HasValue));
-    }
-
-    private static bool LooksLikeProgressOnlyAssistantText(string? assistantText)
-    {
-        if (string.IsNullOrWhiteSpace(assistantText))
-            return false;
-
-        var hay = assistantText.Trim().ToLowerInvariant();
-        var progressMarkers = new[]
-        {
-            "открываю", "изучаю", "сверяюсь", "загружаю", "начинаю с", "сначала", "затем",
-            "после этого", "подготовлю", "запущу", "запускаю", "продолжаю автономно",
-            "продолжаю внутреннюю", "автономно подготовил", "автономно подготовлю", "запустил финализацию",
-            "запускаю создание", "черновики сохранены и сразу", "сейчас добираю"
-        }.Any(hay.Contains);
-        var finalMarkers = hay.Contains("самопроверк")
-            || hay.Contains("self-check")
-            || hay.Contains("готовые задачи")
-            || hay.Contains("короткий self-check")
-            || hay.Contains("итог")
-            || Regex.IsMatch(assistantText, @"(?:^|\n)\s*(?:\d+[\.)]|[-*])\s+", RegexOptions.Multiline | RegexOptions.CultureInvariant);
-        return progressMarkers && !finalMarkers;
-    }
-
-    private static bool ShouldDeferProgressOnlyAutonomousResponse(
-        string actionMode,
-        AiFoundryChatMemoryDto memory,
-        IReadOnlyList<AiFoundryChatToolCallDto> accumulatedToolCalls,
-        IReadOnlyList<AiFoundryChatToolResultDto> toolResults,
-        string? assistantText)
-    {
-        if (!string.Equals(actionMode, "multi", StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (accumulatedToolCalls == null || accumulatedToolCalls.Count == 0 || accumulatedToolCalls.Count >= 12)
-            return false;
-        if (!(memory.PreferAutonomousCompletion || IsDirectFinalResultIntent(memory.LatestExplicitInstruction) || IsAutonomousReworkIntent(memory.LatestExplicitInstruction)))
-            return false;
-        if ((toolResults ?? Array.Empty<AiFoundryChatToolResultDto>()).Any(x => x.RequiresConfirmation || string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "error", StringComparison.OrdinalIgnoreCase)))
-            return false;
-        if (HasTerminalGenerationOutcome(toolResults))
-            return false;
-        if ((accumulatedToolCalls ?? Array.Empty<AiFoundryChatToolCallDto>()).Any(x => IsAutonomousTerminalAction(x?.Name, memory)))
-            return false;
-        return LooksLikeProgressOnlyAssistantText(assistantText);
-    }
-
     private static bool ShouldStopAutoAgentLoop(string? actionName, AiFoundryChatToolResultDto? result)
     {
         if (result?.RequiresConfirmation == true)
@@ -2966,25 +2967,6 @@ public sealed class AiChatService
             || string.Equals(actionName, "queue_generate_from_text", StringComparison.OrdinalIgnoreCase)
             || string.Equals(actionName, "revise_draft_from_chat", StringComparison.OrdinalIgnoreCase)
             || string.Equals(actionName, "queue_generate_from_file", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsAutonomousTerminalAction(string? actionName, AiFoundryChatMemoryDto? memory)
-    {
-        var normalized = (actionName ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-        if (!AutonomousTerminalActionNames.Contains(normalized))
-            return false;
-
-        var autonomous = memory?.PreferAutonomousCompletion == true
-            || IsDirectFinalResultIntent(memory?.LatestExplicitInstruction)
-            || IsAutonomousReworkIntent(memory?.LatestExplicitInstruction);
-        if (!autonomous)
-            return true;
-
-        return !string.Equals(normalized, "save_chat_blueprint", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(normalized, "revise_chat_blueprint", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(normalized, "show_chat_blueprint", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildToolCallLoopSignature(AiFoundryChatToolCallDto toolCall)
@@ -3565,23 +3547,15 @@ public sealed class AiChatService
             items.Add("Старые blueprint/bridge-plan нужно отбросить, если пользователь просит повторить с нуля.");
         if (RequiresFirstTaskStyleEvidence(memory))
             items.Add("Перед генерацией нужно открыть первое задание курса как эталон стиля.");
-        if (RequestsIfOnboardingLadder(memory))
-            items.Add("Это не абстрактные мостики до темы if: нужна серия маленьких программ, которые пошагово учат самому использованию if.");
-        if (RequestsStepByStepPrograms(memory))
-            items.Add("Каждая новая задача должна добавлять только один понятный микрошаг, без резкого скачка по сложности.");
         var requestedCount = ExtractRequestedProposalCount(memory, new JsonObject());
         if (requestedCount.HasValue)
             items.Add($"Количество новых задач должно быть ровно {requestedCount.Value}.");
-        else if (RequestsMorePrograms(memory))
-            items.Add("Не схлопывай серию в 2-3 пункта: пользователь просит побольше маленьких программ.");
         var strictPlacement = ResolveStrictRequestedPlacement(memory, new JsonObject());
         if (!string.IsNullOrWhiteSpace(strictPlacement.HumanSummary))
             items.Add($"Точку вставки нельзя сдвигать: {strictPlacement.HumanSummary}.");
         if (ShouldAvoidExplicitIfBeforeAnchor(memory))
             items.Add("В промежуточных задачах до темы if нельзя преждевременно вводить if/else/switch.");
-        else if (RequestsIfOnboardingLadder(memory))
-            items.Add("В этой серии можно и нужно постепенно вводить сам if, но без резкого прыжка в сложность и без ухода в сухую теорию.");
-        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
+        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList();
     }
 
     private static string? BuildDirectorSummary(AiFoundryChatMemoryDto memory)
@@ -5600,6 +5574,8 @@ public sealed class AiChatService
                 return "самостоятельно исправить blueprint под последнюю инструкцию и только затем финализировать его";
             return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия из чата, а потом вызвать finalize_chat_blueprint";
         }
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && RequestsIfStepByStepSeries(memory))
+            return "собрать серию маленьких программ на if через queue_generate_batch";
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "сгенерировать мостики через queue_generate_bridge_batch";
         if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
@@ -5677,9 +5653,6 @@ public sealed class AiChatService
         if (requestedCount.HasValue && proposals.Count != requestedCount.Value)
             issues.Add($"Пользователь просил {requestedCount.Value} задач(и), а в blueprint сейчас {proposals.Count}.");
 
-        if (!requestedCount.HasValue && RequestsMorePrograms(memory) && proposals.Count < 6)
-            issues.Add("Пользователь просил побольше маленьких программ, а текущий blueprint всё ещё слишком короткий. Нужна более длинная лесенка, хотя бы 6 шагов.");
-
         var strictAnchor = ResolveStrictRequestedPlacement(memory, args);
         if (strictAnchor.AfterAssignmentId.HasValue)
         {
@@ -5706,31 +5679,6 @@ public sealed class AiChatService
                 issues.Add($"Это подготовка ДО темы if, поэтому в промежуточных задачах нельзя уже вводить if/else. Убери явное ветвление из: {string.Join(", ", explicitIfTitles)}.");
         }
 
-        if (RequestsIfOnboardingLadder(memory))
-        {
-            var ifTitles = proposals.Where(ProposalUsesExplicitIf).Select(x => x.Title).Take(4).ToList();
-            if (ifTitles.Count == 0)
-                issues.Add("Пользователь просит не абстрактные мостики до if, а серию маленьких программ, которые прямо учат пользоваться if. В текущем blueprint этого пока нет.");
-
-            var abstractTitles = proposals.Where(ProposalLooksTooAbstractForIfOnboarding).Select(x => x.Title).Take(4).ToList();
-            if (abstractTitles.Count > 0)
-                issues.Add($"Эти варианты выглядят как абстрактные мостики про сравнение/логику вместо маленьких программ на if: {string.Join(", ", abstractTitles)}.");
-
-            var programLikeCount = proposals.Count(ProposalLooksLikeSmallProgram);
-            if (programLikeCount < Math.Min(proposals.Count, Math.Max(3, proposals.Count / 2)))
-                issues.Add("Нужны именно маленькие программы и пошаговые обучалки, а не короткие абстрактные темы без ощущения реальной программы.");
-
-            if (proposals.Count >= 4 && proposals.Count(ProposalUsesElseBranch) == 0)
-                issues.Add("В пошаговой серии по if должен быть хотя бы один шаг с if/else, иначе ученик не увидит полноценное ветвление.");
-        }
-
-        if (RequiresFirstTaskStyleEvidence(memory))
-        {
-            var dryTitles = proposals.Where(ProposalUsesDryOlympiadTone).Select(x => x.Title).Take(4).ToList();
-            if (dryTitles.Count > 0)
-                issues.Add($"Пользователь просил стиль первой задачи, а не сухой олимпиадный шаблон. Убери тон «Напишите программу / Дано / Ввод-Вывод» из: {string.Join(", ", dryTitles)}.");
-        }
-
         if (issues.Count == 0)
             return null;
 
@@ -5743,19 +5691,19 @@ public sealed class AiChatService
         if (explicitCount.HasValue && explicitCount.Value > 0)
             return Math.Clamp(explicitCount.Value, 1, 12);
 
-        var latestOnly = string.Join(" ", new[]
+        var hay = string.Join(" ", new[]
         {
             memory.LatestExplicitInstruction,
             memory.LatestTeachingScript,
-        }.Where(x => !string.IsNullOrWhiteSpace(x)));
-        var latestCount = ExtractRequestedProposalCountFromText(latestOnly);
-        if (latestCount.HasValue)
-            return latestCount;
+            string.Join(" ", memory.RecentGoals ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
 
-        var recentHay = string.Join(" ", memory.RecentGoals ?? new List<string>());
-        var recentCount = ExtractRequestedProposalCountFromText(recentHay);
-        if (recentCount.HasValue)
-            return recentCount;
+        var match = Regex.Match(hay, @"\b(\d{1,2})\s*(?:задач|обучал|мостик|вариант)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var numeric))
+            return Math.Clamp(numeric, 1, 12);
+
+        if (hay.Contains("пять задач") || hay.Contains("5 задач") || hay.Contains("5 обучал"))
+            return 5;
 
         return null;
     }
@@ -5919,174 +5867,80 @@ public sealed class AiChatService
         return inspection.Assignments.Any(x => x.Id == assignmentId);
     }
 
-    private static string BuildInstructionHaystack(AiFoundryChatMemoryDto memory)
+    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
     {
-        return string.Join(" ", new[]
+        var hay = string.Join(" ", new[]
         {
             memory.LatestExplicitInstruction,
             memory.LatestTeachingScript,
             string.Join(" ", memory.RecentGoals ?? new List<string>()),
-        }.Where(x => !string.IsNullOrWhiteSpace(x)));
-    }
-
-    private static int? ExtractRequestedProposalCountFromText(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return null;
-
-        var hay = text.ToLowerInvariant();
-        var match = Regex.Match(hay, @"\b(\d{1,2})\s*(?:задач|обучал|мостик|вариант|программ)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (match.Success && int.TryParse(match.Groups[1].Value, out var numeric))
-            return Math.Clamp(numeric, 1, 12);
-
-        if (hay.Contains("пять задач") || hay.Contains("5 задач") || hay.Contains("5 обучал") || hay.Contains("5 программ"))
-            return 5;
-        if (hay.Contains("шесть задач") || hay.Contains("6 задач") || hay.Contains("6 программ"))
-            return 6;
-        if (hay.Contains("семь задач") || hay.Contains("7 задач") || hay.Contains("7 программ"))
-            return 7;
-        if (RequestsMorePrograms(hay))
-            return 6;
-
-        return null;
-    }
-
-    private static bool RequestsIfOnboardingLadder(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-        var hay = text.ToLowerInvariant();
-        var mentionsIf = hay.Contains("if") || hay.Contains("ветвлен") || hay.Contains("условн");
-        var teachingMode = hay.Contains("как использовать")
-            || hay.Contains("как пользоваться")
-            || hay.Contains("освоить if")
-            || hay.Contains("учит if")
-            || hay.Contains("ввод в if")
-            || hay.Contains("введение в if")
-            || hay.Contains("пошаг")
-            || hay.Contains("по шагам")
-            || hay.Contains("шаг за шагом")
-            || hay.Contains("маленьких программ")
-            || hay.Contains("серия программ")
-            || hay.Contains("подготовка это значит")
-            || hay.Contains("таких программ было больше");
-        return mentionsIf && teachingMode;
-    }
-
-    private static bool RequestsIfOnboardingLadder(AiFoundryChatMemoryDto memory)
-        => RequestsIfOnboardingLadder(BuildInstructionHaystack(memory));
-
-    private static bool RequestsStepByStepPrograms(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-        var hay = text.ToLowerInvariant();
-        return hay.Contains("пошаг")
-            || hay.Contains("по шагам")
-            || hay.Contains("шаг за шагом")
-            || hay.Contains("лесенк")
-            || hay.Contains("серия маленьких программ")
-            || hay.Contains("маленьких программ")
-            || hay.Contains("несколько маленьких программ");
-    }
-
-    private static bool RequestsStepByStepPrograms(AiFoundryChatMemoryDto memory)
-        => RequestsStepByStepPrograms(BuildInstructionHaystack(memory));
-
-    private static bool RequestsMorePrograms(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-        var hay = text.ToLowerInvariant();
-        return hay.Contains("больше программ")
-            || hay.Contains("побольше программ")
-            || hay.Contains("таких программ было больше")
-            || hay.Contains("желательно чтобы таких программ было больше")
-            || hay.Contains("несколько программ")
-            || hay.Contains("серия программ");
-    }
-
-    private static bool RequestsMorePrograms(AiFoundryChatMemoryDto memory)
-        => RequestsMorePrograms(BuildInstructionHaystack(memory));
-
-    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
-    {
-        if (RequestsIfOnboardingLadder(memory))
-            return false;
-
-        var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
         var mentionsIf = hay.Contains(" if") || hay.Contains("if ") || hay.Contains(" if ") || hay.Contains("if") || hay.Contains("ветвлен");
         var bridgeBefore = hay.Contains("перед") || hay.Contains("до") || hay.Contains("обучал");
         return mentionsIf && bridgeBefore;
     }
 
+
+    private static bool RequestsIfStepByStepSeries(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
+    {
+        var hay = string.Join(" ", new[]
+        {
+            memory.LatestExplicitInstruction,
+            memory.LatestTeachingScript,
+            prompt,
+            sourceText,
+            string.Join(" ", memory.RecentGoals ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        if (!(Regex.IsMatch(hay, @"if", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || hay.Contains("ветвлен")))
+            return false;
+
+        var teachingMarkers = new[]
+        {
+            "пошаг", "шаг за шаг", "как использовать", "как пользоваться", "учит", "науч", "лесенк",
+            "серия", "несколько программ", "больше программ", "маленьк", "маленьких программ", "освоение if",
+            "самому if", "сам if", "with if", "if-onboarding", "guided sequence", "первые шаги"
+        };
+        return teachingMarkers.Any(x => hay.Contains(x));
+    }
+
+    private static string RewritePromptForIfStepByStepSeries(string prompt, AiFoundryChatMemoryDto memory, int count)
+    {
+        if (!RequestsIfStepByStepSeries(memory, prompt, null))
+            return prompt;
+
+        var courseTitle = memory.LastCourseInspection?.CourseTitle
+            ?? memory.LastCourseAudit?.CourseTitle
+            ?? memory.LastBridgePlan?.CourseTitle
+            ?? "курс";
+        return $"Сгенерируй {count} маленьких учебных code-test задач для курса «{courseTitle}», которые пошагово учат пользоваться if. Это не абстрактные мостики до темы и не сухие булевы проверки. Нужна лесенка из простых программ: от самого первого if к if/else и дальнейшим простым проверкам. Каждая задача должна быть самостоятельной маленькой программой с явным использованием if, спокойным дружелюбным guided-intro тоном и очень маленьким шагом сложности. Не уходи в олимпиадный стиль и не подменяй тему оператором % или выводом 1/0 без if.";
+    }
+
+    private static string RewriteSourceTextForIfStepByStepSeries(string? sourceText, AiFoundryChatMemoryDto memory, int count)
+    {
+        if (!RequestsIfStepByStepSeries(memory, null, sourceText))
+            return sourceText ?? string.Empty;
+
+        var intro = $"Нужно не просто подготовить к теме ветвления, а сделать серию из {count} маленьких программ именно на освоение if. Пользователь хочет пошаговое обучение использованию if и больше практических мини-программ.";
+        return string.IsNullOrWhiteSpace(sourceText)
+            ? intro
+            : intro + "
+
+" + sourceText.Trim();
+    }
+
+    private static string DetermineDirectGenerationMode(AiFoundryChatMemoryDto memory, string prompt, string? sourceText, int requestedCount)
+    {
+        if (requestedCount > 1 && RequestsIfStepByStepSeries(memory, prompt, sourceText))
+            return "guided-sequence";
+        return requestedCount > 1 ? "topic-pack" : "single-draft";
+    }
+
     private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
     {
-        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x)));
-        return ContainsExplicitIfMarker(hay) || hay.Contains("иначе", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool ProposalUsesElseBranch(AiFoundryChatDraftProposalDto proposal)
-    {
-        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x)));
-        return Regex.IsMatch(hay, @"\belse\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || hay.Contains("иначе", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool ProposalLooksLikeSmallProgram(AiFoundryChatDraftProposalDto proposal)
-    {
-        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        return ProposalUsesExplicitIf(proposal)
-            || hay.Contains("программ")
-            || hay.Contains("код")
-            || hay.Contains("cout")
-            || hay.Contains("cin")
-            || hay.Contains("введ")
-            || hay.Contains("вывед")
-            || hay.Contains("на экран")
-            || hay.Contains("условие");
-    }
-
-    private static bool ProposalLooksTooAbstractForIfOnboarding(AiFoundryChatDraftProposalDto proposal)
-    {
-        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        var abstractTopic = hay.Contains("сравнен")
-            || hay.Contains("логичес")
-            || hay.Contains("остат")
-            || hay.Contains("делим")
-            || hay.Contains("булев")
-            || hay.Contains("выражен");
-        return abstractTopic && !ProposalLooksLikeSmallProgram(proposal) && !ProposalUsesExplicitIf(proposal);
-    }
-
-    private static bool ProposalUsesDryOlympiadTone(AiFoundryChatDraftProposalDto proposal)
-    {
-        var hay = (proposal.FullCondition ?? proposal.ConditionPreview ?? proposal.Title ?? string.Empty).Trim();
-        return Regex.IsMatch(hay, @"(?:^|\n)\s*(?:дано|напишите программу|необходимо|требуется|ввод:|вывод:|ограничения:)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || hay.Contains("Напишите программу", StringComparison.OrdinalIgnoreCase)
-            || hay.Contains("Ввод:", StringComparison.OrdinalIgnoreCase)
-            || hay.Contains("Вывод:", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string? BuildFirstTaskStyleContract(AiFoundryChatMemoryDto memory)
-    {
-        var exemplar = memory.LastCourseInspection?.Assignments?
-            .OrderBy(x => x.Sort)
-            .FirstOrDefault(x => x.Sort <= 1 || x.Title.Contains("Задание 1", StringComparison.OrdinalIgnoreCase) || x.Title.Contains("Твой первый вывод", StringComparison.OrdinalIgnoreCase));
-        if (exemplar == null)
-            return null;
-
-        var hay = exemplar.DescriptionExcerpt ?? string.Empty;
-        var hints = new List<string>();
-        if (hay.Contains("Давай", StringComparison.OrdinalIgnoreCase))
-            hints.Add("дружелюбное приглашение начать без давления");
-        if (hay.Contains("Следуй шагам", StringComparison.OrdinalIgnoreCase))
-            hints.Add("явная пошаговая подача с короткими действиями");
-        if (hay.Contains("короткой и понятной", StringComparison.OrdinalIgnoreCase) || hay.Contains("очень короткой", StringComparison.OrdinalIgnoreCase))
-            hints.Add("успокаивающий тон для абсолютного новичка");
-        if (hints.Count == 0)
-            hints.Add("спокойный учебный стиль для новичка без сухого олимпиадного тона");
-        return string.Join("; ", hints.Distinct(StringComparer.OrdinalIgnoreCase));
+        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        return Regex.IsMatch(hay, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || Regex.IsMatch(hay, @"\belse\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || hay.Contains("иначе");
     }
 
     private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args, AiFoundryChatDraftBlueprintDto? previous = null)
@@ -6261,10 +6115,6 @@ public sealed class AiChatService
             || latestInstructionLower.Contains("в стиле первого задания")
             || latestInstructionLower.Contains("стиль первого задания")
             || latestInstructionLower.Contains("повтори стиль");
-        var ifOnboarding = RequestsIfOnboardingLadder(memory);
-        var stepByStepPrograms = RequestsStepByStepPrograms(memory);
-        var wantsMorePrograms = RequestsMorePrograms(memory);
-        var styleContract = BuildFirstTaskStyleContract(memory);
 
         AiFoundryCourseInspectionAssignmentDto? exemplar = null;
         if (memory.LastCourseInspection?.Assignments != null && memory.LastCourseInspection.Assignments.Count > 0)
@@ -6288,16 +6138,6 @@ public sealed class AiChatService
             sb.AppendLine($"Запрещено добавлять: {string.Join(", ", proposal.Avoid)}");
         if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
             sb.AppendLine("Следуй teaching-script из чата максимально близко. Не теряй порядок шагов, если он был явно задан.");
-        if (ifOnboarding)
-        {
-            sb.AppendLine("Это не абстрактный bridge-pack до темы if. Пользователь хочет серию маленьких программ, которые шаг за шагом учат самому использованию if.");
-            sb.AppendLine("Сам if можно и нужно вводить постепенно уже внутри серии: простая проверка -> ввод числа -> if/else -> более уверенное ветвление.");
-            sb.AppendLine("Не подменяй такую серию сухими микротемами про сравнение, остаток или логические выражения без ощущения реальной программы.");
-        }
-        if (stepByStepPrograms)
-            sb.AppendLine("Сохрани формат лесенки: одна задача = один понятный микрошаг и одна маленькая программа.");
-        if (wantsMorePrograms)
-            sb.AppendLine("Не сжимай серию слишком сильно: пользователь явно хочет побольше маленьких программ, а не 2-3 обобщённых пункта.");
         if (exactStyleRequested)
         {
             sb.AppendLine("Пользователь просит повторить стиль почти 1-в-1. Не усредняй стиль по курсу и не перепридумывай подачу.");
@@ -6308,9 +6148,6 @@ public sealed class AiChatService
                 if (!string.IsNullOrWhiteSpace(exemplar.DescriptionExcerpt))
                     sb.AppendLine($"Короткая выжимка эталона: {ShortenSingleLine(exemplar.DescriptionExcerpt, 220)}");
             }
-            if (!string.IsNullOrWhiteSpace(styleContract))
-                sb.AppendLine($"Стилевой контракт эталона: {styleContract}.");
-            sb.AppendLine("Избегай сухих формулировок уровня «Напишите программу», «Дано», «Ввод/Вывод» как основы текста.");
         }
         if (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle))
             sb.AppendLine($"Позиция в курсе должна быть после задания «{proposal.PlacementAfterTitle ?? "выбранный anchor"}»{(proposal.PlacementAfterAssignmentId.HasValue ? $" [{proposal.PlacementAfterAssignmentId}]" : string.Empty)}.");
@@ -6323,7 +6160,7 @@ public sealed class AiChatService
         return sb.ToString().Trim();
     }
 
-    private static string BuildStructuredContextFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatDraftBlueprintDto blueprint, Guid sessionId, AiFoundryChatMemoryDto? memory = null)
+    private static string BuildStructuredContextFromChatBlueprintProposal(AiFoundryChatDraftProposalDto proposal, AiFoundryChatDraftBlueprintDto blueprint, Guid sessionId)
     {
         return JsonSerializer.Serialize(new
         {
@@ -6341,13 +6178,6 @@ public sealed class AiChatService
             placementAfterAssignmentId = proposal.PlacementAfterAssignmentId,
             placementAfterTitle = proposal.PlacementAfterTitle,
             placementReason = proposal.PlacementReason,
-            pedagogyMode = memory == null
-                ? null
-                : (RequestsIfOnboardingLadder(memory)
-                    ? "if-onboarding-ladder"
-                    : (RequestsStepByStepPrograms(memory) ? "guided-program-ladder" : null)),
-            preferManySmallPrograms = memory != null && RequestsMorePrograms(memory),
-            firstTaskStyleContract = memory == null ? null : BuildFirstTaskStyleContract(memory),
             publicTests = proposal.PublicTests.Select(x => new { input = x.Input, expectedOutput = x.ExpectedOutput }).ToList(),
             hiddenTests = proposal.HiddenTests.Select(x => new { input = x.Input, expectedOutput = x.ExpectedOutput }).ToList(),
         }, JsonOptions);
@@ -6375,13 +6205,6 @@ public sealed class AiChatService
             if (!string.IsNullOrWhiteSpace(proposal.PlacementReason))
                 sb.AppendLine($"Почему именно туда: {proposal.PlacementReason}");
         }
-        if (RequestsIfOnboardingLadder(memory))
-            sb.AppendLine("Педагогический режим: серия маленьких программ, которые пошагово учат самому if, а не абстрактные мостики до if.");
-        if (RequestsMorePrograms(memory))
-            sb.AppendLine("Количество: не схлопывать серию, пользователь просит побольше маленьких программ.");
-        var styleContract = BuildFirstTaskStyleContract(memory);
-        if (!string.IsNullOrWhiteSpace(styleContract))
-            sb.AppendLine($"Стилевой контракт первой задачи: {styleContract}");
         if (!string.IsNullOrWhiteSpace(memory.LatestExplicitInstruction))
         {
             sb.AppendLine();
@@ -6391,8 +6214,26 @@ public sealed class AiChatService
         if (!string.IsNullOrWhiteSpace(memory.LatestTeachingScript))
         {
             sb.AppendLine();
-            sb.AppendLine("Teaching-script / эталон из чата:");
+            sb.AppendLine("Teaching-script пользователя:");
             sb.AppendLine(memory.LatestTeachingScript);
+        }
+        sb.AppendLine();
+        sb.AppendLine("Важно: это уже одобренный blueprint из чата. Нельзя менять тему, ключевые литералы, итоговый вывод и порядок шагов без прямого запроса пользователя.");
+        if (proposal.MustKeep.Count > 0)
+            sb.AppendLine($"Сохранить обязательно: {string.Join(", ", proposal.MustKeep)}");
+        if (proposal.Avoid.Count > 0)
+            sb.AppendLine($"Не добавлять: {string.Join(", ", proposal.Avoid)}");
+        if (proposal.PublicTests.Count > 0)
+        {
+            sb.AppendLine("Примерные публичные тесты:");
+            foreach (var test in proposal.PublicTests.Take(6))
+                sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
+        }
+        if (proposal.HiddenTests.Count > 0)
+        {
+            sb.AppendLine("Примерные скрытые тесты:");
+            foreach (var test in proposal.HiddenTests.Take(6))
+                sb.AppendLine($"- input: {test.Input} | expected: {test.ExpectedOutput}");
         }
         return sb.ToString().Trim();
     }
