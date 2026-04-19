@@ -358,13 +358,13 @@ def _chat_pick_course_id(payload: Dict[str, Any], result: Dict[str, Any]) -> Any
 
 def _chat_last_course_audit(payload: Dict[str, Any]) -> Dict[str, Any]:
     memory = _chat_memory(payload)
-    audit = _dict_get_ci(memory, "lastCourseAudit")
+    audit = memory.get("lastCourseAudit") if isinstance(memory.get("lastCourseAudit"), dict) else {}
     return audit if isinstance(audit, dict) else {}
 
 
 def _chat_last_course_inspection(payload: Dict[str, Any]) -> Dict[str, Any]:
     memory = _chat_memory(payload)
-    inspection = _dict_get_ci(memory, "lastCourseInspection")
+    inspection = memory.get("lastCourseInspection") if isinstance(memory.get("lastCourseInspection"), dict) else {}
     return inspection if isinstance(inspection, dict) else {}
 
 
@@ -389,18 +389,19 @@ def _chat_has_inspection(payload: Dict[str, Any]) -> bool:
 
 def _chat_is_autonomous_mode(payload: Dict[str, Any]) -> bool:
     memory = _chat_memory(payload)
-    if bool(_dict_get_ci(memory, "preferAutonomousCompletion")):
+    if bool(_dict_ci_get(memory, "preferAutonomousCompletion")):
         return True
-    agent_state = _dict_get_ci(memory, "agentState")
-    if isinstance(agent_state, dict):
-        autonomy = str(_dict_get_ci(agent_state, "autonomyMode") or "").strip().lower()
-        if autonomy in {"self-directed", "autonomous", "auto"}:
-            return True
-    hard_rules = _dict_get_ci(memory, "executionHardRules")
+    agent_state = _chat_agent_state(payload)
+    if str(_dict_ci_get(agent_state, "autonomyMode") or "").strip().lower() in {"self-directed", "autonomous", "auto"}:
+        return True
+    hard_rules = _dict_ci_get(memory, "executionHardRules")
     if isinstance(hard_rules, list):
-        joined = " ".join(str(x or "") for x in hard_rules).lower()
-        if any(token in joined for token in ["не проси", "без промежуточн", "только итог", "сам добери"]):
+        joined = " ".join(str(item or "") for item in hard_rules).lower()
+        if any(token in joined for token in ["не проси", "без промежуточ", "без согласован", "покажи только итог"]):
             return True
+    contract_summary = str(_dict_ci_get(memory, "executionContractSummary") or "").lower()
+    if any(token in contract_summary for token in ["без промежуточ", "только итог", "автоном", "без согласован"]):
+        return True
     last_user = _chat_last_user_text(payload)
     return _chat_is_autonomous_rework_request(last_user)
 
@@ -418,21 +419,17 @@ def _chat_fill_required_chat_args(payload: Dict[str, Any], action: Dict[str, Any
         args["courseId"] = course_id
 
 
-def _chat_dependency_issue(payload: Dict[str, Any], action: Dict[str, Any], runtime_state: Dict[str, Any] | None = None) -> str | None:
+def _chat_dependency_issue(payload: Dict[str, Any], action: Dict[str, Any]) -> str | None:
     name = str(action.get("name") or "").strip()
     if not name:
         return None
-    state = runtime_state or {}
-    has_audit = bool(state.get("has_audit")) if "has_audit" in state else _chat_has_audit(payload)
-    has_blueprint = bool(state.get("has_blueprint")) if "has_blueprint" in state else _chat_has_blueprint(payload)
-    bridge_plan = _dict_get_ci(_chat_memory(payload), "lastBridgePlan")
-    if name == "prepare_bridge_plan" and not has_audit:
+    if name == "prepare_bridge_plan" and not _chat_has_audit(payload):
         return "prepare_bridge_plan requires fresh course audit first"
-    if name == "show_bridge_plan" and not (bridge_plan if isinstance(bridge_plan, dict) else {}):
+    if name == "show_bridge_plan" and not (_chat_memory(payload).get("lastBridgePlan") if isinstance(_chat_memory(payload).get("lastBridgePlan"), dict) else {}):
         return "show_bridge_plan requires existing bridge plan"
     if name in {"save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint"} and not str((action.get("arguments") or {}).get("courseId") or "").strip() and not str(_chat_pick_course_id(payload, {}) or "").strip():
         return f"{name} requires courseId"
-    if name == "finalize_chat_blueprint" and not has_blueprint:
+    if name == "finalize_chat_blueprint" and not _chat_has_blueprint(payload):
         return "finalize_chat_blueprint requires existing chat blueprint"
     return None
 
@@ -473,6 +470,55 @@ def _action_is_destructive(name: str) -> bool:
     return name in {"approve_draft", "reject_draft", "publish_draft"}
 
 
+def _chat_runtime_state(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    last_user = _chat_last_user_text(payload)
+    assistant_message = str(result.get("assistantMessage") or "")
+    latest_intent_kind = _chat_latest_intent_kind(payload, last_user, assistant_message)
+    return {
+        "last_user": last_user,
+        "latest_intent_kind": latest_intent_kind,
+        "autonomous": _chat_is_autonomous_mode(payload),
+        "has_blueprint": _chat_has_blueprint(payload),
+        "blueprint_approved": _chat_has_approved_blueprint(payload),
+        "direct_generate": _chat_is_direct_generate_request(last_user),
+        "finalize_request": _chat_is_finalize_request(last_user),
+    }
+
+
+def _chat_runtime_allows_generation(runtime: Dict[str, Any]) -> bool:
+    if runtime.get("direct_generate") or runtime.get("finalize_request"):
+        return True
+    if runtime.get("blueprint_approved"):
+        return True
+    if runtime.get("autonomous") and (runtime.get("has_blueprint") or runtime.get("latest_intent_kind") == "generate"):
+        return True
+    return False
+
+
+def _chat_dependency_issue_runtime(payload: Dict[str, Any], action: Dict[str, Any], runtime: Dict[str, Any]) -> str | None:
+    name = str(action.get("name") or "").strip()
+    if not name:
+        return None
+    if name == "prepare_bridge_plan" and not _chat_has_audit(payload):
+        return "prepare_bridge_plan requires fresh course audit first"
+    if name == "show_bridge_plan" and not (_chat_memory(payload).get("lastBridgePlan") if isinstance(_chat_memory(payload).get("lastBridgePlan"), dict) else {}):
+        return "show_bridge_plan requires existing bridge plan"
+    if name in {"save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint"} and not str((action.get("arguments") or {}).get("courseId") or "").strip() and not str(_chat_pick_course_id(payload, {}) or "").strip():
+        return f"{name} requires courseId"
+    if name == "finalize_chat_blueprint" and not runtime.get("has_blueprint"):
+        return "finalize_chat_blueprint requires existing chat blueprint"
+    return None
+
+
+def _chat_apply_runtime_effect(runtime: Dict[str, Any], action: Dict[str, Any]) -> None:
+    name = str(action.get("name") or "").strip()
+    if name in {"save_chat_blueprint", "revise_chat_blueprint"}:
+        runtime["has_blueprint"] = True
+    if name == "finalize_chat_blueprint":
+        runtime["has_blueprint"] = True
+        runtime["blueprint_approved"] = True
+
+
 def _validate_chat_action_arguments(payload: Dict[str, Any], action: Dict[str, Any]) -> tuple[bool, str | None]:
     args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
     action["arguments"] = args
@@ -506,16 +552,8 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
     actions = result.get("actions") if isinstance(result.get("actions"), list) else []
     strict_actions: list[Dict[str, Any]] = []
     issues: list[str] = []
-    last_user = _chat_last_user_text(payload)
-    latest_intent_kind = _chat_latest_intent_kind(payload, last_user, str(result.get("assistantMessage") or ""))
-    autonomous = _chat_is_autonomous_mode(payload)
-    direct_generate_request = _chat_is_direct_generate_request(last_user)
-    finalize_request = _chat_is_finalize_request(last_user)
-    has_audit_state = _chat_has_audit(payload)
-    has_blueprint_state = _chat_has_blueprint(payload)
-    approved_blueprint_state = _chat_has_approved_blueprint(payload)
-
-    for action in actions[:3]:
+    runtime = _chat_runtime_state(payload, result)
+    for action in actions[:4]:
         if not isinstance(action, dict):
             issues.append("action is not object")
             continue
@@ -526,24 +564,13 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
         if not isinstance(action.get("arguments"), dict):
             action["arguments"] = {}
         _chat_fill_required_chat_args(payload, action)
-
-        if name in {"queue_generate_from_text", "queue_generate_batch", "queue_generate_from_file"} and latest_intent_kind == "generate":
-            explicit_generate_ok = direct_generate_request or finalize_request or approved_blueprint_state or (autonomous and has_blueprint_state)
-            if not explicit_generate_ok:
-                issues.append("generation requires chat blueprint approval first")
-                continue
-
-        if name == "finalize_chat_blueprint":
-            finalize_ok = finalize_request or direct_generate_request or has_blueprint_state or (autonomous and has_blueprint_state)
-            if not finalize_ok:
-                issues.append("finalize_chat_blueprint requires explicit approval")
-                continue
-
-        dependency_issue = _chat_dependency_issue(payload, action, runtime_state={
-            "has_audit": has_audit_state,
-            "has_blueprint": has_blueprint_state,
-            "has_approved_blueprint": approved_blueprint_state,
-        })
+        if name in {"queue_generate_from_text", "queue_generate_batch", "queue_generate_from_file"} and runtime.get("latest_intent_kind") == "generate" and not _chat_runtime_allows_generation(runtime):
+            issues.append("generation requires chat blueprint approval first")
+            continue
+        if name == "finalize_chat_blueprint" and not (runtime.get("finalize_request") or runtime.get("direct_generate") or runtime.get("has_blueprint") or runtime.get("autonomous")):
+            issues.append("finalize_chat_blueprint requires explicit approval")
+            continue
+        dependency_issue = _chat_dependency_issue_runtime(payload, action, runtime)
         if dependency_issue:
             issues.append(dependency_issue)
             continue
@@ -551,22 +578,9 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
         if not ok:
             issues.append(reason or f"invalid action args: {name}")
             continue
-
-        strict_actions.append({
-            "name": name,
-            "reason": str(action.get("reason") or "").strip() or "Выбрано по текущему контексту чата.",
-            "arguments": action.get("arguments") if isinstance(action.get("arguments"), dict) else {},
-        })
-
-        if name in {"save_chat_blueprint", "revise_chat_blueprint"}:
-            has_blueprint_state = True
-            approved_blueprint_state = bool((action.get("arguments") or {}).get("approvedForDraft"))
-        elif name == "finalize_chat_blueprint":
-            has_blueprint_state = True
-            approved_blueprint_state = True
-        elif name == "analyze_course_progression":
-            has_audit_state = True
-
+        sanitized = {"name": name, "reason": str(action.get("reason") or "").strip() or "Выбрано по текущему контексту чата.", "arguments": action.get("arguments") if isinstance(action.get("arguments"), dict) else {}}
+        strict_actions.append(sanitized)
+        _chat_apply_runtime_effect(runtime, sanitized)
     result["actions"] = strict_actions
     if issues and not strict_actions and not str(result.get("assistantMessage") or "").strip():
         result["assistantMessage"] = "Мне не хватает надёжных данных для запуска действия без риска ошибки. Уточни запрос или выбери сущность явно."
@@ -601,38 +615,37 @@ def _chat_is_recoverable_tool_failure(result: Dict[str, Any] | None) -> bool:
     return any(marker in summary for marker in recoverable_markers)
 
 
-def _dict_get_ci(data: Dict[str, Any] | None, *keys: str, default: Any = None) -> Any:
-    if not isinstance(data, dict):
-        return default
-    normalized = {str(k).replace('_', '').casefold(): v for k, v in data.items()}
+def _dict_ci_get(obj: Any, *keys: str) -> Any:
+    if not isinstance(obj, dict):
+        return None
+    normalized = {str(k).strip().lower(): v for k, v in obj.items()}
     for key in keys:
-        if key in data:
-            return data.get(key)
-        probe = str(key).replace('_', '').casefold()
-        if probe in normalized:
-            return normalized[probe]
-    return default
+        value = normalized.get(str(key).strip().lower())
+        if value is not None:
+            return value
+    return None
 
 
 def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
-    raw = _dict_get_ci(payload, "memory")
-    return raw if isinstance(raw, dict) else {}
+    direct = payload.get("memory") if isinstance(payload.get("memory"), dict) else None
+    if isinstance(direct, dict):
+        return direct
+    pascal = payload.get("Memory") if isinstance(payload.get("Memory"), dict) else None
+    return pascal if isinstance(pascal, dict) else {}
 
 
 def _chat_blueprint(payload: Dict[str, Any]) -> Dict[str, Any]:
-    direct = _dict_get_ci(payload, "currentDraftBlueprint")
-    if isinstance(direct, dict):
-        return direct
-    memory = _chat_memory(payload)
-    raw = _dict_get_ci(memory, "currentDraftBlueprint")
-    return raw if isinstance(raw, dict) else {}
+    for container in (payload, _chat_memory(payload)):
+        direct = _dict_ci_get(container, "currentDraftBlueprint")
+        if isinstance(direct, dict):
+            return direct
+    return {}
 
 
 def _chat_blueprint_proposals(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
     blueprint = _chat_blueprint(payload)
-    proposals = _dict_get_ci(blueprint, "proposals")
-    proposals = proposals if isinstance(proposals, list) else []
-    return [item for item in proposals if isinstance(item, dict)]
+    proposals = _dict_ci_get(blueprint, "proposals") if isinstance(blueprint, dict) else None
+    return [item for item in proposals if isinstance(item, dict)] if isinstance(proposals, list) else []
 
 
 def _chat_has_blueprint(payload: Dict[str, Any]) -> bool:
@@ -643,7 +656,8 @@ def _chat_has_approved_blueprint(payload: Dict[str, Any]) -> bool:
     blueprint = _chat_blueprint(payload)
     if not isinstance(blueprint, dict):
         return False
-    return bool(blueprint.get("approvedForDraft") or blueprint.get("ApprovedForDraft")) and _chat_has_blueprint(payload)
+    approved = _dict_ci_get(blueprint, "approvedForDraft", "approved")
+    return bool(approved) and _chat_has_blueprint(payload)
 
 
 def _chat_is_direct_generate_request(text: str) -> bool:
@@ -654,7 +668,9 @@ def _chat_is_direct_generate_request(text: str) -> bool:
         "всё генерируй", "все генерируй", "генерируй задачу", "генерируй уже", "запускай создание",
         "запускай генерацию", "не черновик", "без черновика", "делай уже фул", "делай фул", "делай уже полную",
         "сразу создавай задачу", "сразу запускай задачу", "создавай задачу", "запускай создание задачи",
-        "я её опубликую", "я ее опубликую", "готовое задание", "готовую задачу", "делай задачу уже"
+        "я её опубликую", "я ее опубликую", "готовое задание", "готовую задачу", "делай задачу уже",
+        "покажи только итог", "покажи только финал", "готовый результат", "уже можно принимать в работу",
+        "без промежуточного согласования", "не проси одобрение", "не проси у меня одобрение"
     ]
     return any(marker in low for marker in markers)
 
@@ -1070,8 +1086,8 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
     if any(marker in low for marker in ["не план", "саму задачу", "готовую задачу", "готовый текст", "создай черновик", "создай draft", "сразу генерац", "сгенерируй", "создай зада", "сделай зада", "всё, делай", "все, делай", "делай всё", "делай все", "сделай всё сразу", "сделай все сразу"]):
         return "generate"
     memory = _chat_memory(payload)
-    agent_state = _dict_get_ci(memory, "agentState") if isinstance(_dict_get_ci(memory, "agentState"), dict) else {}
-    for raw in (_dict_get_ci(memory, "latestIntentKind"), _dict_get_ci(agent_state, "latestIntentKind")):
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    for raw in (memory.get("latestIntentKind"), agent_state.get("latestIntentKind")):
         value = str(raw or "").strip()
         if value:
             return value
@@ -1141,7 +1157,7 @@ def _chat_has_matching_style_inspection(payload: Dict[str, Any], text: str) -> b
 
 def _chat_latest_teaching_script(payload: Dict[str, Any], last_user: str) -> str:
     memory = _chat_memory(payload)
-    for raw in (_dict_get_ci(memory, "latestTeachingScript"), _dict_get_ci(memory, "latestExplicitInstruction")):
+    for raw in (memory.get("latestTeachingScript"), memory.get("latestExplicitInstruction")):
         value = str(raw or "").strip()
         if value:
             return value
@@ -1151,7 +1167,7 @@ def _chat_latest_teaching_script(payload: Dict[str, Any], last_user: str) -> str
 
 def _chat_suppress_bridge_plan_loop(payload: Dict[str, Any], latest_intent_kind: str, teaching_script: str, last_user: str) -> bool:
     memory = _chat_memory(payload)
-    if bool(_dict_get_ci(memory, "suppressBridgePlanLoop")):
+    if bool(memory.get("suppressBridgePlanLoop")):
         return True
     if latest_intent_kind == "generate" or bool(teaching_script.strip()):
         return True
@@ -1739,20 +1755,48 @@ def _coerce_course_style_analysis(payload: Dict[str, Any], result: Any) -> Dict[
     }
 
 
+def _approved_blueprint_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    structured = payload.get("structuredContext") if isinstance(payload.get("structuredContext"), dict) else {}
+    if str(structured.get("kind") or "").strip().lower() == "approved-chat-blueprint":
+        return structured
+    approved = payload.get("approvedBlueprint") if isinstance(payload.get("approvedBlueprint"), dict) else {}
+    return approved if isinstance(approved, dict) else {}
+
+
+def _exact_style_requested(payload: Dict[str, Any]) -> bool:
+    anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
+    if bool(anchor_context.get("exactStyleRequested")):
+        return True
+    approved = _approved_blueprint_payload(payload)
+    must_keep = approved.get("mustKeep") if isinstance(approved.get("mustKeep"), list) else []
+    joined = " ".join(str(item or "") for item in must_keep).lower()
+    return any(token in joined for token in ["как первая", "первое задание", "1 в 1", "следуй шагам"]) 
+
+
 def _fallback_generation_spec(payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> Dict[str, Any]:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
-    target_skill = str(task.get("targetSkill") or task.get("TargetSkill") or brief.get("targetSkill") or "").strip()
-    micro_goal = str(task.get("microGoal") or task.get("MicroGoal") or brief.get("summary") or "").strip()
+    approved = _approved_blueprint_payload(payload)
+    target_skill = str(task.get("targetSkill") or task.get("TargetSkill") or brief.get("targetSkill") or approved.get("goal") or "").strip()
+    micro_goal = str(task.get("microGoal") or task.get("MicroGoal") or brief.get("summary") or approved.get("conditionPreview") or approved.get("goal") or "").strip()
+    keep_style = (style_analysis.get("positivePatterns") if isinstance(style_analysis, dict) else [])[:5]
+    avoid = (style_analysis.get("antiPatterns") if isinstance(style_analysis, dict) else [])[:5]
+    if isinstance(approved.get("mustKeep"), list):
+        keep_style = [*approved.get("mustKeep")[:6], *keep_style][:6]
+    if isinstance(approved.get("avoid"), list):
+        avoid = [*approved.get("avoid")[:6], *avoid][:6]
+    io_contract = "Явно описать входные и выходные данные простыми секциями."
+    if _exact_style_requested(payload):
+        io_contract = "Сохранить дружелюбный scaffold эталона: короткое вступление, затем шаги, без сухой замены на обезличенные секции."
     return {
         "generationSpec": {
             "exactTask": micro_goal or target_skill or "Сделать отдельную задачу в стиле курса",
-            "ioContract": "Явно описать входные и выходные данные простыми секциями.",
+            "ioContract": io_contract,
             "constraintsFocus": "Указать только нужные ограничения без перегруза деталями.",
-            "titleDirection": brief.get("titleHint") or target_skill or "Короткое название в стиле курса",
-            "distinctFromPeers": "Сфокусироваться на своей микроцели и не повторять соседние slot-ы.",
-            "keepStyle": (style_analysis.get("positivePatterns") if isinstance(style_analysis, dict) else [])[:5],
-            "avoid": (style_analysis.get("antiPatterns") if isinstance(style_analysis, dict) else [])[:5],
+            "titleDirection": approved.get("title") or brief.get("titleHint") or target_skill or "Короткое название в стиле курса",
+            "distinctFromPeers": approved.get("placementReason") or "Сфокусироваться на своей микроцели и не повторять соседние slot-ы.",
+            "keepStyle": keep_style,
+            "avoid": avoid,
         },
         "summary": "Fallback generation spec built from brief and task context.",
     }
@@ -1778,17 +1822,21 @@ def _fallback_content_plan(payload: Dict[str, Any], style_analysis: Dict[str, An
     generation_spec = spec.get("generationSpec") if isinstance(spec, dict) else {}
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    approved = _approved_blueprint_payload(payload)
+    section_plan = (style_analysis.get("courseStyle") or {}).get("descriptionSections") if isinstance(style_analysis.get("courseStyle"), dict) else ["Суть", "Входные данные", "Выходные данные", "Ограничения", "Примечания"]
+    if _exact_style_requested(payload):
+        section_plan = ["Короткое вступление", "Следуй шагам", "Короткое пояснение"]
     return {
         "contentPlan": {
-            "pedagogicalGoal": str(task.get("microGoal") or task.get("MicroGoal") or brief.get("summary") or generation_spec.get("exactTask") or "Сделать отдельную задачу в стиле курса").strip(),
-            "noveltyHook": str(generation_spec.get("distinctFromPeers") or "Сделать задачу отличимой от соседних items.").strip(),
+            "pedagogicalGoal": str(task.get("microGoal") or task.get("MicroGoal") or brief.get("summary") or approved.get("goal") or generation_spec.get("exactTask") or "Сделать отдельную задачу в стиле курса").strip(),
+            "noveltyHook": str(generation_spec.get("distinctFromPeers") or approved.get("placementReason") or "Сделать задачу отличимой от соседних items.").strip(),
             "inputModel": str(generation_spec.get("ioContract") or "Явно описать входные данные.").strip(),
-            "outputModel": "Явно описать ожидаемый вывод без лишнего шума.",
+            "outputModel": "Повтори модель вывода из approved blueprint и не добавляй лишний шум.",
             "constraintsPlan": str(generation_spec.get("constraintsFocus") or "Сфокусироваться на минимально нужных ограничениях.").strip(),
-            "sectionPlan": (style_analysis.get("courseStyle") or {}).get("descriptionSections") if isinstance(style_analysis.get("courseStyle"), dict) else ["Суть", "Входные данные", "Выходные данные", "Ограничения", "Примечания"],
+            "sectionPlan": section_plan,
             "publicTestPlan": ["Базовый пример", "Пограничный компактный пример"],
             "hiddenTestPlan": ["Минимальный кейс", "Типичный кейс", "Пограничный кейс"],
-            "titleShape": str(generation_spec.get("titleDirection") or brief.get("titleHint") or "Короткое course-native название").strip(),
+            "titleShape": str(generation_spec.get("titleDirection") or approved.get("title") or brief.get("titleHint") or "Короткое course-native название").strip(),
             "bannedOverlaps": generation_spec.get("avoid") or [],
             "coursePhrasingRules": generation_spec.get("keepStyle") or [],
         },

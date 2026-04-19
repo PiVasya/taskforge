@@ -278,20 +278,37 @@ def _style_exemplar_appendix(payload: Dict[str, Any]) -> str:
     anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
     exemplars = anchor_context.get("styleExemplarAssignments") if isinstance(anchor_context.get("styleExemplarAssignments"), list) else []
     exact_requested = bool(anchor_context.get("exactStyleRequested"))
-    if not exemplars and not exact_requested:
+    approved = payload.get("approvedBlueprint") if isinstance(payload.get("approvedBlueprint"), dict) else {}
+    if not exemplars and not exact_requested and not approved:
         return ""
     lines: List[str] = []
     if exact_requested:
         lines.append("- Пользователь просит максимально близко повторить стиль уже существующего задания. Не усредняй стиль по всему курсу, а ориентируйся на конкретный эталон.")
+    if approved:
+        blueprint_title = truncate_text(approved.get("title"), 80)
+        if blueprint_title:
+            lines.append(f"- Одобренный blueprint «{blueprint_title}» — это жёсткий контракт. Нельзя превращать его в более абстрактное или более взрослое условие.")
+        if truncate_text(approved.get("fullCondition"), 260):
+            lines.append("- approvedBlueprint.fullCondition — это канонический skeleton будущего условия. Сохрани его ритм, scaffold и ключевые фразы, а не пересказывай своими словами в общем виде.")
+        must_keep = approved.get("mustKeep") if isinstance(approved.get("mustKeep"), list) else []
+        avoid = approved.get("avoid") if isinstance(approved.get("avoid"), list) else []
+        if must_keep:
+            lines.append("- Обязательно сохранить: " + "; ".join(str(item) for item in must_keep[:6]) + ".")
+        if avoid:
+            lines.append("- Нельзя добавлять: " + "; ".join(str(item) for item in avoid[:6]) + ".")
     if exemplars:
         titles = [truncate_text((item or {}).get("title"), 80) for item in exemplars if isinstance(item, dict) and truncate_text((item or {}).get("title"), 80)]
         if titles:
             lines.append("- Стилевые эталоны из курса: " + "; ".join(titles[:4]) + ".")
+        snippets = [truncate_text((item or {}).get("descriptionSummary"), 120) for item in exemplars if isinstance(item, dict) and truncate_text((item or {}).get("descriptionSummary"), 120)]
+        if snippets:
+            lines.append("- По этим эталонам видно, как выглядит подача: " + " | ".join(snippets[:2]) + ".")
         lines.append("- Сохрани у эталона тон, порядок подачи, формат коротких шагов и уровень подробности. Меняй только учебную сущность, которую попросил пользователь.")
         lines.append("- Если эталон выглядит как пошаговая обучалка, повтори scaffold почти дословно: короткое вступление, затем «Следуй шагам», затем простые пояснения без лишней теории.")
-    if exact_requested:
+    if exact_requested or approved:
         lines.append("- Запрещены авторские комментарии-паразиты вроде «это самый простой способ», «это база для», «цель — показать», «покажи, что», если их нет в эталоне.")
         lines.append("- Не превращай шаги в сухой конспект. Для beginner-style заданий держи дружелюбное вступление, отдельную строку «Следуй шагам:» и нумерованные короткие шаги.")
+        lines.append("- Не заменяй конкретный scaffold на обезличенные секции «Условие / Входные данные / Выходные данные», если эталон и approved blueprint построены иначе.")
         lines.append("- Не пиши мета-команды вида «объясни, что ...» внутри условия. Вместо этого само условие должно уже содержать короткое человеческое пояснение, как в эталоне.")
         lines.append("- Не используй фразы «компьютер не знает», «на низком уровне», «самый простой способ», если пользователь не просил такого тона отдельно.")
     return "\n".join(lines) + ("\n" if lines else "")
@@ -1660,6 +1677,8 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - Сначала выполни generationSpec.distinctFromPeers и contentPlan.noveltyHook: новая задача должна заметно отличаться от соседних slot-ов и negative anchors.
 - Если в payload есть approvedBlueprint, он важнее noveltyHook, anti-duplicate и style-экспериментов: approvedBlueprint — это канон, а не вдохновение.
 - При approvedBlueprint нельзя подменять cout на scanf/printf, добавлять ввод без явного запроса или менять точный вывод/каркас программы.
+- Если approvedBlueprint.fullCondition и style exemplar указывают на дружелюбное вступление и пошаговый scaffold, description обязан повторить именно такой каркас, а не уходить в сухую олимпиадную формулировку.
+- Если approvedBlueprint.mustKeep содержит указания про стиль/тон/порядок шагов, они обязательны и имеют приоритет над общими style digest правилами.
 {rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
@@ -1722,6 +1741,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
 {rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+- Если есть approvedBlueprint, сначала подчинись ему, а уже потом style digest курса. approvedBlueprint — главный источник истинного pedagogical замысла.
 - Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
 - Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.
 - Особенно внимательно изучи anchorContext.nearbyAssignments и anchorContext.possibleDuplicates перед генерацией.

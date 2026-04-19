@@ -51,6 +51,41 @@ class ChatStrictModeTests(unittest.TestCase):
         self.assertEqual(len(result["actions"]), 1)
         self.assertEqual(issues, [])
 
+    def test_autonomous_mode_allows_generation_with_existing_blueprint_without_explicit_approval_phrase(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "Покажи только итог и не проси одобрение"}]
+        payload["memory"] = {
+            "preferAutonomousCompletion": True,
+            "currentDraftBlueprint": {"approvedForDraft": False, "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант"}]},
+        }
+        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "queue_generate_from_text", "reason": "x", "arguments": {"courseId": "c1", "useCurrentBlueprint": True}}]})
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertFalse(any("blueprint approval" in issue for issue in issues))
+
+    def test_same_turn_save_then_finalize_is_allowed(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "Сделай всё сам без согласования"}]
+        result, issues = worker._apply_chat_strict_mode(payload, {
+            "assistantMessage": "ok",
+            "actions": [
+                {"name": "save_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
+                {"name": "finalize_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
+            ],
+        })
+        self.assertEqual([a["name"] for a in result["actions"]], ["save_chat_blueprint", "finalize_chat_blueprint"])
+        self.assertFalse(any("explicit approval" in issue for issue in issues))
+
+    def test_pascal_case_memory_fields_are_understood(self):
+        payload = dict(self.payload)
+        payload["conversation"] = [{"role": "user", "content": "Покажи только итог"}]
+        payload["memory"] = {
+            "PreferAutonomousCompletion": True,
+            "CurrentDraftBlueprint": {"ApprovedForDraft": True, "Proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант"}]},
+        }
+        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "queue_generate_from_text", "reason": "x", "arguments": {"courseId": "c1"}}]})
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertEqual(issues, [])
+
     def test_finalize_blueprint_autofills_course_id(self):
         payload = dict(self.payload)
         payload["conversation"] = [{"role": "user", "content": "одобряю, закидывай в черновик"}]
@@ -66,35 +101,6 @@ class ChatStrictModeTests(unittest.TestCase):
         result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "prepare_bridge_plan", "reason": "x", "arguments": {}}]})
         self.assertEqual(result["actions"], [])
         self.assertTrue(any("course audit" in issue for issue in issues))
-
-    def test_finalize_blueprint_allowed_after_same_turn_save_in_autonomy(self):
-        payload = dict(self.payload)
-        payload["conversation"] = [{"role": "user", "content": "Сделай всё за одно сообщение, без промежуточного согласования"}]
-        payload["memory"] = {"preferAutonomousCompletion": True}
-        result, issues = worker._apply_chat_strict_mode(payload, {
-            "assistantMessage": "ok",
-            "actions": [
-                {"name": "save_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1", "summary": "s", "proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант", "conditionPreview": "test"}]}},
-                {"name": "finalize_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
-            ],
-        })
-        self.assertEqual([x["name"] for x in result["actions"]], ["save_chat_blueprint", "finalize_chat_blueprint"])
-        self.assertEqual(issues, [])
-
-    def test_pascal_case_memory_fields_enable_autonomous_finalize(self):
-        payload = dict(self.payload)
-        payload["conversation"] = [{"role": "user", "content": "Покажи только итог и не проси одобрение"}]
-        payload["memory"] = {
-            "PreferAutonomousCompletion": True,
-            "CurrentDraftBlueprint": {
-                "ApprovedForDraft": False,
-                "Proposals": [{"id": "11111111-1111-1111-1111-111111111111", "title": "Вариант"}],
-            },
-        }
-        result, issues = worker._apply_chat_strict_mode(payload, {"assistantMessage": "ok", "actions": [{"name": "finalize_chat_blueprint", "reason": "x", "arguments": {}}]})
-        self.assertEqual(len(result["actions"]), 1)
-        self.assertEqual(result["actions"][0]["arguments"]["courseId"], "c1")
-        self.assertEqual(issues, [])
 
 
 if __name__ == "__main__":
