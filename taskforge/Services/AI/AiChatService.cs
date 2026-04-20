@@ -5272,7 +5272,7 @@ public sealed class AiChatService
         var requestedCount = TryExtractRequestedCount(focus) ?? 1;
         var scenarioProfile = AiGenerationScenarioRouter.Resolve(memory, focus, focus, requestedCount);
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
-            && AiGenerationScenarioPolicy.ShouldBypassBlueprint(scenarioProfile, preferAutonomousCompletion || autonomousRework, latestGoal))
+            && AiGenerationScenarioPolicy.ShouldBypassBlueprint(scenarioProfile, preferAutonomousCompletion || autonomousRework, focus))
         {
             var prompt = RewritePromptForIfStepByStepSeries(focus ?? BuildFallbackPrompt(messages), memory, requestedCount);
             var sourceText = RewriteSourceTextForIfStepByStepSeries(focus, memory, requestedCount);
