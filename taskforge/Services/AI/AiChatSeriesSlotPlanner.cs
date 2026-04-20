@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace taskforge.Services.AI;
 
 internal sealed record AiChatSeriesSlotPlan(int Index, int TotalCount, string Prompt, string? SourceText, string? TitleHint, int Difficulty);
@@ -10,58 +8,32 @@ internal static class AiChatSeriesSlotPlanner
     {
         count = Math.Clamp(count, 1, 12);
         var concept = AiLadderScenarioSupport.ExtractLearningConcept(null, prompt, sourceText);
-        var styleContract = AiLadderScenarioSupport.BuildStyleContract(concept, count);
         var slots = new List<AiChatSeriesSlotPlan>();
         for (var i = 1; i <= count; i++)
         {
-            var contract = AiLadderScenarioSupport.BuildSlotContract(i, count);
-            var slotPrompt = BuildSlotPrompt(prompt, concept, contract, styleContract);
-            var slotSourceText = BuildSlotSourceText(sourceText, concept, contract, styleContract);
+            var descriptor = AiLadderScenarioSupport.DescribeSlotRole(i, count);
+            var slotPrompt = BuildSlotPrompt(prompt, concept, i, count, descriptor);
+            var slotSourceText = BuildSlotSourceText(sourceText, concept, i, count, descriptor);
             var slotTitleHint = AiLadderScenarioSupport.BuildTitleHint(concept, titleHint, i, count);
-            var slotDifficulty = ComputeDifficulty(baseDifficulty, contract, count);
+            var slotDifficulty = Math.Clamp(baseDifficulty + ((i >= Math.Max(3, count)) ? 1 : 0), 1, 5);
             slots.Add(new AiChatSeriesSlotPlan(i, count, slotPrompt, slotSourceText, slotTitleHint, slotDifficulty));
         }
         return slots;
     }
 
-    private static int ComputeDifficulty(int baseDifficulty, AiLadderSlotContract contract, int totalCount)
-    {
-        var extra = contract.Index <= 2 ? 0 : contract.Index <= Math.Max(3, totalCount - 1) ? 1 : 2;
-        return Math.Clamp(baseDifficulty + extra, 1, 5);
-    }
-
-    private static string BuildSlotPrompt(string prompt, string? concept, AiLadderSlotContract contract, string styleContract)
+    private static string BuildSlotPrompt(string prompt, string? concept, int index, int totalCount, string descriptor)
     {
         var basePrompt = string.IsNullOrWhiteSpace(prompt) ? "Сгенерируй учебную задачу." : prompt.Trim();
         var conceptLine = string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Тема этого шага: {concept}.";
-        return $@"{basePrompt}
-
-Это отдельная задача из серии {contract.Index}/{contract.TotalCount}. Сфокусируйся только на этом шаге прогрессии: {contract.StepRole}.{conceptLine}
-Сделай задачу самостоятельной и завершённой. Не описывай серию целиком, не ссылайся на соседние шаги и не повторяй соседние слоты почти дословно.
-У этой задачи бюджет новых идей: {contract.NewIdeaBudget}. Резкий скачок сложности запрещён.
-
-{styleContract}
-{AiLadderScenarioSupport.BuildSlotContractBlock(contract, concept)}";
+        return $"{basePrompt}\n\nЭто отдельная задача из серии {index}/{totalCount}. Сфокусируйся только на этом шаге прогрессии: {descriptor}.{conceptLine} Следуй стилю дружелюбного первого учебного задания: короткое вступление, блок «Следуй шагам:», нумерованные шаги, простые пояснения в скобках, финальная фраза о том, что ученик увидит после запуска. Не делай batch, не описывай серию целиком, не ссылайся на другие элементы серии и не дублируй соседние шаги.";
     }
 
-    private static string? BuildSlotSourceText(string? sourceText, string? concept, AiLadderSlotContract contract, string styleContract)
+    private static string? BuildSlotSourceText(string? sourceText, string? concept, int index, int totalCount, string descriptor)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine($"Это шаг {contract.Index} из {contract.TotalCount}. Нужна только одна самостоятельная задача.");
-        sb.AppendLine($"Роль шага: {contract.StepRole}.");
-        sb.AppendLine($"Сложность шага: {contract.ComplexityBand}. Бюджет новых идей: {contract.NewIdeaBudget}.");
-        if (!string.IsNullOrWhiteSpace(concept))
-            sb.AppendLine($"Точная тема шага: «{concept}».");
-        sb.AppendLine("Задача должна выглядеть как очень понятное первое учебное задание: дружелюбное вступление, блок «Следуй шагам:», конкретные шаги, короткие пояснения в скобках, спокойный финал о результате запуска.");
-        sb.AppendLine("Не делай сухой олимпиадный statement. Не упоминай другие задачи серии. Не делай вид, что это batch.");
-        sb.AppendLine();
-        sb.AppendLine(styleContract);
-        sb.AppendLine(AiLadderScenarioSupport.BuildSlotContractBlock(contract, concept));
-        if (!string.IsNullOrWhiteSpace(sourceText))
-        {
-            sb.AppendLine();
-            sb.AppendLine(sourceText.Trim());
-        }
-        return sb.ToString().Trim();
+        var conceptLine = string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Точная тема шага: «{concept}».";
+        var intro = $"Это шаг {index} из {totalCount}. Нужна только одна самостоятельная задача. Точная роль шага: {descriptor}.{conceptLine} Сохраняй стиль очень понятного учебного walkthrough: дружелюбное вступление, «Следуй шагам:», конкретные шаги, маленькие пояснения в скобках, без сухого олимпиадного тона.";
+        if (string.IsNullOrWhiteSpace(sourceText))
+            return intro;
+        return intro + "\n\n" + sourceText.Trim();
     }
 }

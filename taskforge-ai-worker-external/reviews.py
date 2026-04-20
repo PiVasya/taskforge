@@ -37,7 +37,7 @@ from text_utils import (
 )
 from similarity_signatures import similarity_signature_report
 from scenario_router import detect_scenario_profile, scenario_requires_explicit_if
-from ladder_style import looks_like_ladder_style, looks_too_dry_for_ladder, ladder_structure_findings, ladder_style_score
+from ladder_style import looks_like_ladder_style, looks_too_dry_for_ladder
 from duplicate_clusters import cluster_duplicate_candidates
 from validators import (
     collect_quality_checks_common,
@@ -106,8 +106,7 @@ def fallback_pedagogy_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
         checks.append({"name": "single-learning-goal", "status": "passed", "details": "Учебная цель выглядит достаточно узкой"})
     scenario = detect_scenario_profile(payload)
     if normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}:
-        ladder_score, ladder_reasons = ladder_style_score(draft)
-        checks.append({"name": "ladder-guided-structure", "status": "passed" if ladder_score >= 0.72 else "failed", "details": "Есть структура friendly walkthrough" if ladder_score >= 0.72 else f"Для лесенки не хватает структуры friendly walkthrough: {"; ".join(ladder_reasons[:3])}"})
+        checks.append({"name": "ladder-guided-structure", "status": "passed" if looks_like_ladder_style(draft) else "failed", "details": "Есть структура friendly walkthrough" if looks_like_ladder_style(draft) else "Для лесенки не хватает дружелюбного вступления, блока «Следуй шагам:» или коротких пояснений"})
         checks.append({"name": "ladder-not-dry", "status": "passed" if not looks_too_dry_for_ladder(draft) else "warning", "details": "Формулировка не выглядит сухой" if not looks_too_dry_for_ladder(draft) else "Описание стартует слишком сухо для лесенки"})
     if normalize_text(scenario.get("id")) == "single-deep-task":
         if len(description) >= 220:
@@ -159,19 +158,16 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
 
     scenario = detect_scenario_profile(payload)
     if normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}:
-        ladder_score, ladder_reasons = ladder_style_score(draft)
-        if ladder_score >= 0.72:
-            checks.append({"name": "style-ladder-guided", "status": "passed", "details": f"Draft похож на friendly walkthrough в стиле первого задания (score={ladder_score:.2f})"})
+        if looks_like_ladder_style(draft):
+            checks.append({"name": "style-ladder-guided", "status": "passed", "details": "Draft похож на friendly walkthrough в стиле первого задания"})
         else:
-            checks.append({"name": "style-ladder-guided", "status": "failed", "details": f"Для лесенки draft не похож на пошаговое понятное обучение (score={ladder_score:.2f})"})
-            for finding in ladder_structure_findings(draft)[:4]:
-                findings.append({
-                    "severity": "high", "code": "style-ladder-guided",
-                    "message": f"Лесенка просела по структуре: {finding['reason']}.",
-                    "suggestedRepair": finding["repair"],
-                    "confidence": 0.92,
-                })
-            score -= 0.28
+            checks.append({"name": "style-ladder-guided", "status": "failed", "details": "Для лесенки draft не похож на пошаговое понятное обучение"})
+            findings.append({
+                "severity": "high", "code": "style-ladder-guided",
+                "message": "Лесенка должна выглядеть как дружелюбное пошаговое обучение, а не как сухой task statement.",
+                "suggestedRepair": "Добавь короткое вступление, блок «Следуй шагам:», нумерованные шаги и маленькие пояснения в скобках.",
+                "confidence": 0.94,
+            })
         if looks_too_dry_for_ladder(draft):
             checks.append({"name": "style-ladder-not-dry", "status": "warning", "details": "Для лесенки описание начинается слишком сухо"})
             findings.append({
@@ -180,7 +176,7 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
                 "suggestedRepair": "Начни описание с дружелюбного вступления и затем переведи ученика к шагам.",
                 "confidence": 0.82,
             })
-            score -= 0.12
+            score -= 0.4
     if normalize_text(scenario.get("id")) == "single-deep-task":
         if len(description) >= 220:
             checks.append({"name": "style-deep-task-fit", "status": "passed", "details": "Стиль не выглядит слишком мелким для сценария single-deep-task"})

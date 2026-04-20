@@ -7,25 +7,35 @@ internal static class AiGenerationScenarioPromptAdapter
     public static string RewritePrompt(string prompt, AiFoundryChatMemoryDto memory, int count)
     {
         var profile = AiGenerationScenarioRouter.Resolve(memory, prompt, null, count);
-        var courseTitle = memory.LastCourseInspection?.CourseTitle
-            ?? memory.LastCourseAudit?.CourseTitle
-            ?? memory.LastBridgePlan?.CourseTitle
-            ?? "курс";
-
+        var courseTitle = ResolveCourseTitle(memory);
         var concept = AiLadderScenarioSupport.ExtractLearningConcept(memory, prompt, null);
-        var styleContract = AiLadderScenarioSupport.BuildStyleContract(concept, count);
+        var conceptClause = BuildConceptClause(concept, "Тема лесенки: ", ".");
+        var seriesConceptClause = BuildConceptClause(concept, " Серия должна учить теме: ", ".");
+
         return profile.Id switch
         {
-            "step-by-step-ladder" => $"Сгенерируй {count} задач для курса «{courseTitle}» в формате очень понятной пошаговой лесенки.{(string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Тема лесенки: {concept}.")} Каждое следующее задание должно быть лишь немного сложнее предыдущего, без резких скачков, а подача должна быть дружелюбной и обучающей.
+            "step-by-step-ladder" =>
+                $"Сгенерируй {count} задач для курса «{courseTitle}» в формате очень понятной пошаговой лесенки." +
+                conceptClause +
+                " Каждое следующее задание должно быть лишь немного сложнее предыдущего, без резких скачков, а подача должна быть дружелюбной и обучающей.",
 
-{styleContract}",
-            "micro-program-series" => $"Сгенерируй {count} маленьких учебных задач для курса «{courseTitle}».{(string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Серия должна учить теме: {concept}.")} Нужна серия самостоятельных мини-программ с очень маленьким шагом сложности, дружелюбным guided-intro тоном и без олимпиадной сухости.
+            "micro-program-series" =>
+                $"Сгенерируй {count} маленьких учебных задач для курса «{courseTitle}»." +
+                seriesConceptClause +
+                " Нужна серия самостоятельных мини-программ с очень маленьким шагом сложности, дружелюбным guided-intro тоном и без олимпиадной сухости.",
 
-{styleContract}",
-            "single-deep-task" => $"Сгенерируй одну сильную цельную задачу для курса «{courseTitle}». Не дроби её в лесенку и не разжёвывай лишние шаги: нужен осмысленный challenge в стиле курса.",
-            "course-gap-audit" => $"Сгенерируй задачи для курса «{courseTitle}» так, чтобы они закрывали реальные пробелы курса, а не дублировали уже покрытые шаги.",
-            "pretopic-bridges" => $"Сгенерируй {count} подводящих задач для курса «{courseTitle}», которые мягко ведут к следующей теме без резкого скачка сложности.",
-            "russian-language-tests" => $"Сгенерируй {count} тестовых заданий по русскому языку с понятной формулировкой, однозначной проверкой и аккуратным уровнем сложности.",
+            "single-deep-task" =>
+                $"Сгенерируй одну сильную цельную задачу для курса «{courseTitle}». Не дроби её в лесенку и не разжёвывай лишние шаги: нужен осмысленный challenge в стиле курса.",
+
+            "course-gap-audit" =>
+                $"Сгенерируй задачи для курса «{courseTitle}» так, чтобы они закрывали реальные пробелы курса, а не дублировали уже покрытые шаги.",
+
+            "pretopic-bridges" =>
+                $"Сгенерируй {count} подводящих задач для курса «{courseTitle}», которые мягко ведут к следующей теме без резкого скачка сложности.",
+
+            "russian-language-tests" =>
+                $"Сгенерируй {count} тестовых заданий по русскому языку с понятной формулировкой, однозначной проверкой и аккуратным уровнем сложности.",
+
             _ => prompt,
         };
     }
@@ -34,15 +44,16 @@ internal static class AiGenerationScenarioPromptAdapter
     {
         var profile = AiGenerationScenarioRouter.Resolve(memory, null, sourceText, count);
         var concept = AiLadderScenarioSupport.ExtractLearningConcept(memory, null, sourceText);
-        var styleContract = AiLadderScenarioSupport.BuildStyleContract(concept, count);
         var intro = profile.Id switch
         {
-            "micro-program-series" => $"Пользователь просит серию из {count} маленьких самостоятельных учебных задач.{(string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Они должны учить теме «{concept}».")}
+            "micro-program-series" =>
+                $"Пользователь просит серию из {count} маленьких самостоятельных учебных задач." +
+                BuildConceptClause(concept, " Они должны учить теме «", "»."),
 
-{styleContract}",
-            "step-by-step-ladder" => $"Пользователь хочет лесенку из {count} шагов с очень плавным ростом сложности.{(string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Тема лесенки: «{concept}».")}
+            "step-by-step-ladder" =>
+                $"Пользователь хочет лесенку из {count} шагов с очень плавным ростом сложности." +
+                BuildConceptClause(concept, " Тема лесенки: «", "»."),
 
-{styleContract}",
             "single-deep-task" => "Пользователь хочет одну более сложную задачу вместо набора микрошагов.",
             _ => string.Empty,
         };
@@ -51,6 +62,7 @@ internal static class AiGenerationScenarioPromptAdapter
             return sourceText ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sourceText))
             return intro;
+
         return intro + "\n\n" + sourceText.Trim();
     }
 
@@ -59,7 +71,10 @@ internal static class AiGenerationScenarioPromptAdapter
         var profile = AiGenerationScenarioRouter.Resolve(memory, prompt, sourceText, requestedCount);
         if (requestedCount <= 1 || profile.PreferSingleDeepTask)
             return "single-draft";
-        return string.IsNullOrWhiteSpace(profile.DefaultBatchMode) ? "topic-pack" : profile.DefaultBatchMode;
+
+        return string.IsNullOrWhiteSpace(profile.DefaultBatchMode)
+            ? "topic-pack"
+            : profile.DefaultBatchMode;
     }
 
     public static string SuggestTitleHint(AiFoundryChatMemoryDto memory, string prompt, string? sourceText, int requestedCount, string? currentTitleHint)
@@ -69,6 +84,7 @@ internal static class AiGenerationScenarioPromptAdapter
 
         var profile = AiGenerationScenarioRouter.Resolve(memory, prompt, sourceText, requestedCount);
         var concept = AiLadderScenarioSupport.ExtractLearningConcept(memory, prompt, sourceText);
+
         return profile.Id switch
         {
             "micro-program-series" => AiLadderScenarioSupport.BuildTitleHint(concept, currentTitleHint, 1, requestedCount),
@@ -77,5 +93,20 @@ internal static class AiGenerationScenarioPromptAdapter
             "russian-language-tests" => "Тест по русскому языку",
             _ => currentTitleHint ?? string.Empty,
         };
+    }
+
+    private static string ResolveCourseTitle(AiFoundryChatMemoryDto memory)
+    {
+        return memory.LastCourseInspection?.CourseTitle
+            ?? memory.LastCourseAudit?.CourseTitle
+            ?? memory.LastBridgePlan?.CourseTitle
+            ?? "курс";
+    }
+
+    private static string BuildConceptClause(string? concept, string prefix, string suffix)
+    {
+        return string.IsNullOrWhiteSpace(concept)
+            ? string.Empty
+            : prefix + concept.Trim() + suffix;
     }
 }

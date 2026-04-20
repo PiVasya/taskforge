@@ -3,18 +3,6 @@ using taskforge.Data.Models.DTO.AI;
 
 namespace taskforge.Services.AI;
 
-internal sealed record AiLadderSlotContract(
-    int Index,
-    int TotalCount,
-    string StepRole,
-    string ComplexityBand,
-    int NewIdeaBudget,
-    bool RequiresFriendlyIntro,
-    bool RequiresStepsBlock,
-    bool RequiresRunOutcome,
-    IReadOnlyList<string> RequiredSections,
-    IReadOnlyList<string> AntiPatterns);
-
 internal static class AiLadderScenarioSupport
 {
     private static readonly Regex[] ConceptPatterns =
@@ -37,10 +25,10 @@ internal static class AiLadderScenarioSupport
     private static readonly string[] SlotDescriptors =
     {
         "самый первый микрошаг: одно понятное действие и мгновенный видимый результат",
-        "тот же навык, но уже с чуть более живым использованием или с пользовательским вводом",
-        "первое аккуратное усложнение: добавляется ровно одна новая маленькая идея поверх базы",
-        "спокойная комбинированная практика: два связанных действия, но без резкого скачка сложности",
-        "чуть более взрослая практика на тот же навык в понятной реальной формулировке",
+        "тот же навык, но уже с пользовательским вводом или с чуть более живым вариантом использования",
+        "первое аккуратное усложнение: добавляется одна новая маленькая идея поверх базы",
+        "спокойная комбинированная практика: два связанных шага, но без резкого скачка сложности",
+        "чуть более взрослая задача на тот же навык в реалистичной формулировке",
         "итоговое закрепление всей лесенки без смешивания слишком многих новых идей"
     };
 
@@ -75,82 +63,21 @@ internal static class AiLadderScenarioSupport
     public static string BuildStyleContract(string? concept, int count)
     {
         var conceptLine = string.IsNullOrWhiteSpace(concept)
-            ? "Сохраняй точную тему пользователя и не подменяй её соседней идеей."
+            ? "Сохраняй тему пользователя и не подменяй её другой идеей."
             : $"Точная учебная цель серии: «{concept}». Не подменяй её соседней темой и не уезжай в другую конструкцию.";
 
-        return $@"TF_LADDER_STYLE
-STYLE_KIND=friendly_walkthrough
-SERIES_COUNT={count}
-CONCEPT={(string.IsNullOrWhiteSpace(concept) ? "<same-as-user-request>" : concept)}
-REQUIRED_SECTIONS=title|intro|steps|run-outcome
-REQUIRED_PATTERNS=short-friendly-intro|follow-the-steps|numbered-steps|parentheses-explanations|gentle-finish
-ANTI_PATTERNS=dry-olympiad-tone|bare-task-statement|jump-in-difficulty|references-to-other-slots|multiple-new-ideas
-END_TF_LADDER_STYLE
-
-Стиль лесенки должен быть как у очень понятного первого учебного задания.
+        return $@"Стиль лесенки должен быть как у очень понятного первого учебного задания.
 - Это не олимпиадная формулировка и не сухой code-test.
 - Каждая задача должна ощущаться как маленькое обучение, а не как голая проверка.
-- Сначала короткое дружелюбное вступление на 1-3 предложения.
-- Затем отдельный блок «Следуй шагам:».
-- Внутри — нумерованные шаги с конкретными действиями.
+- Начинай с короткого дружелюбного вступления.
+- Дальше веди ученика через блок «Следуй шагам:».
+- Шаги должны быть нумерованными и конкретными.
 - После важных шагов давай короткие пояснения в скобках простым языком.
-- Завершай фразой о том, что именно ученик увидит после запуска.
+- Финал должен говорить, что именно ученик увидит после запуска.
 - Каждая задача должна быть самостоятельной и завершённой.
 - В серии из {count} задач рост сложности должен быть очень плавным.
-- Не начинай описание сухим шаблоном «Напиши программу...» без живого входа.
-- Не смешивай несколько новых идей в одной задаче.
+- Не начинай описание с сухого шаблона «Напиши программу...» без живого объяснения.
 {conceptLine}";
-    }
-
-    public static AiLadderSlotContract BuildSlotContract(int index, int totalCount)
-    {
-        index = Math.Clamp(index, 1, Math.Max(1, totalCount));
-        totalCount = Math.Max(1, totalCount);
-        var descriptor = DescribeSlotRole(index, totalCount);
-        var band = index switch
-        {
-            1 => "very-gentle",
-            2 => "gentle",
-            3 => "light-growth",
-            4 => "combined-practice",
-            5 => "confident-practice",
-            _ => "wrap-up"
-        };
-        var newIdeaBudget = index switch
-        {
-            1 => 1,
-            2 => 1,
-            3 => 1,
-            4 => 2,
-            5 => 2,
-            _ => 2
-        };
-        return new AiLadderSlotContract(
-            index,
-            totalCount,
-            descriptor,
-            band,
-            newIdeaBudget,
-            true,
-            true,
-            true,
-            new[] { "title", "intro", "steps", "run-outcome" },
-            new[] { "dry-olympiad-tone", "jump-in-difficulty", "references-to-other-slots", "multiple-new-ideas" });
-    }
-
-    public static string BuildSlotContractBlock(AiLadderSlotContract contract, string? concept)
-    {
-        var conceptValue = string.IsNullOrWhiteSpace(concept) ? "<same-as-user-request>" : concept;
-        return $@"TF_LADDER_SLOT
-INDEX={contract.Index}
-TOTAL={contract.TotalCount}
-STEP_ROLE={contract.StepRole}
-COMPLEXITY={contract.ComplexityBand}
-NEW_IDEA_BUDGET={contract.NewIdeaBudget}
-CONCEPT={conceptValue}
-REQUIRED_SECTIONS={string.Join('|', contract.RequiredSections)}
-ANTI_PATTERNS={string.Join('|', contract.AntiPatterns)}
-END_TF_LADDER_SLOT";
     }
 
     public static string DescribeSlotRole(int index, int totalCount)
@@ -164,21 +91,12 @@ END_TF_LADDER_SLOT";
 
     public static string BuildTitleHint(string? concept, string? currentTitleHint, int index, int totalCount)
     {
-        if (!string.IsNullOrWhiteSpace(currentTitleHint))
-            return currentTitleHint!.Trim();
-
-        var conceptPart = string.IsNullOrWhiteSpace(concept)
-            ? string.Empty
-            : $": {concept}";
-
-        return index switch
-        {
-            1 => $"Первые шаги{conceptPart}",
-            2 => $"Новый шаг{conceptPart}",
-            3 => $"Спокойная практика{conceptPart}",
-            4 => $"Ещё один шаг{conceptPart}",
-            _ => totalCount <= 1 ? $"Пошаговое обучение{conceptPart}" : $"Практика{conceptPart}"
-        };
+        var baseTitle = !string.IsNullOrWhiteSpace(currentTitleHint)
+            ? currentTitleHint!.Trim()
+            : !string.IsNullOrWhiteSpace(concept)
+                ? $"Первые шаги: {concept}"
+                : "Пошаговое обучение";
+        return totalCount <= 1 ? baseTitle : $"{baseTitle} · шаг {index}";
     }
 
     private static string NormalizeConcept(string raw)
