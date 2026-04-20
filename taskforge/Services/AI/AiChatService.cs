@@ -2713,8 +2713,8 @@ public sealed class AiChatService
         Guid? createdByUserId,
         string? createdByDisplayName,
         CancellationToken ct,
-        AiFoundryChatBlueprintProposalDto? selectedProposal,
-        AiFoundryChatBlueprintDto? blueprint,
+        AiFoundryChatDraftProposalDto? selectedProposal,
+        AiFoundryChatDraftBlueprintDto? blueprint,
         string successSummarySingle,
         string successSummaryMultiTemplate)
     {
@@ -2792,7 +2792,7 @@ public sealed class AiChatService
         };
     }
 
-    private void MarkQueuedBlueprintProposal(AiFoundryChatSession session, AiFoundryChatBlueprintProposalDto? selectedProposal, AiFoundryChatBlueprintDto? blueprint)
+    private void MarkQueuedBlueprintProposal(AiFoundryChatSession session, AiFoundryChatDraftProposalDto? selectedProposal, AiFoundryChatDraftBlueprintDto? blueprint)
     {
         if (selectedProposal == null || blueprint == null)
             return;
