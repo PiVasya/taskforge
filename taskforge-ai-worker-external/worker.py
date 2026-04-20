@@ -405,8 +405,6 @@ def _chat_is_autonomous_mode(payload: Dict[str, Any]) -> bool:
     if any(token in contract_summary for token in ["без промежуточ", "только итог", "автоном", "без согласован"]):
         return True
     last_user = _chat_last_user_text(payload)
-    if isinstance(result.get("actions"), list):
-        result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
     return _chat_is_autonomous_rework_request(last_user)
 
 
