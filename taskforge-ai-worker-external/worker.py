@@ -698,6 +698,21 @@ def _chat_is_direct_generate_request(text: str) -> bool:
     return any(marker in low for marker in markers)
 
 
+def _chat_is_visual_preview_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    no_create = any(marker in low for marker in [
+        "не создавай", "не создавать", "без создания", "не генерируй", "не делай задач",
+        "задачи не создавай", "не надо создавать", "без черновика", "не сохраняй"
+    ])
+    preview = any(marker in low for marker in [
+        "просто наглядно", "просто покажи", "покажи схему", "покажи лесенку", "схему",
+        "концепт", "наброс", "как это должно", "как бы это шло", "визуально"
+    ])
+    return no_create and preview
+
+
 def _chat_is_edit_draft_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
@@ -938,8 +953,8 @@ def _chat_is_audit_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
         return False
-    asks_audit = any(token in low for token in ["косяк", "косяки", "пробел", "пробелы", "найди", "найти", "проверь", "аудит", "слишком рано", "до объясн", "прежде чем", "ещё такие", "еще такие", "опубликован"])
-    mentions_pedagogy = any(token in low for token in ["переменн", "cout", "cin", "ввод", "вывод", "include", "namespace", "main", "синтакс", "объясн", "подвод", "лесенк", "новая функция", "новые функции"])
+    asks_audit = any(token in low for token in ["косяк", "косяки", "пробел", "пробелы", "найди", "найти", "проверь", "аудит", "проанализ", "резко", "слишком рано", "до объясн", "прежде чем", "ещё такие", "еще такие", "опубликован"])
+    mentions_pedagogy = any(token in low for token in ["переменн", "cout", "cin", "ввод", "вывод", "include", "namespace", "main", "синтакс", "объясн", "подвод", "лесенк", "новая функция", "новые функции", "if", "else", "ветвл", "условн", "switch"])
     if asks_audit and mentions_pedagogy:
         return True
     return _chat_is_precision_check_request(low) and mentions_pedagogy
@@ -1086,6 +1101,8 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "remediation"
     if _chat_is_audit_request(low):
         return "audit"
+    if _chat_is_visual_preview_request(low):
+        return "concept-preview"
     if looks_like_task_generation_intent(low):
         return "generate"
     if _chat_is_listing_request(low):
@@ -1199,7 +1216,7 @@ def _chat_suppress_bridge_plan_loop(payload: Dict[str, Any], latest_intent_kind:
     if latest_intent_kind == "generate" or bool(teaching_script.strip()):
         return True
     low = (last_user or "").lower()
-    return any(marker in low for marker in ["не показывай план", "не возвращайся к план", "не делай новый план", "не show_bridge_plan", "не revise_bridge_plan", "нужна сама задача", "нужен именно текст задачи", "сделай всё сразу", "сделай все сразу", "всё, делай", "все, делай"])
+    return latest_intent_kind == "concept-preview" or _chat_is_visual_preview_request(low) or any(marker in low for marker in ["не показывай план", "не возвращайся к план", "не делай новый план", "не show_bridge_plan", "не revise_bridge_plan", "нужна сама задача", "нужен именно текст задачи", "сделай всё сразу", "сделай все сразу", "всё, делай", "все, делай"])
 
 
 
@@ -1508,6 +1525,16 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     "limitAssignments": 14,
                 },
             }],
+        }
+
+    if latest_intent_kind == "concept-preview":
+        assistant = str(result.get("assistantMessage") or "").strip()
+        if not assistant or _looks_like_progress_message(assistant):
+            assistant = "Набросаю это прямо в чате, без сохранения задач и без черновиков: только сама лесенка и её логика."
+        return {
+            "assistantMessage": assistant,
+            "actions": [],
+            "sessionTitle": _chat_build_session_title(payload),
         }
 
     if latest_intent_kind == "generate" and blueprint_proposals and (_chat_is_finalize_request(last_user) or _chat_is_direct_generate_request(last_user) or _chat_has_approved_blueprint(payload)):

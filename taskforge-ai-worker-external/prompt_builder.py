@@ -309,6 +309,7 @@ def _style_exemplar_appendix(payload: Dict[str, Any]) -> str:
             lines.append("- По этим эталонам видно, как выглядит подача: " + " | ".join(snippets[:2]) + ".")
         lines.append("- Сохрани у эталона тон, порядок подачи, формат коротких шагов и уровень подробности. Меняй только учебную сущность, которую попросил пользователь.")
         lines.append("- Если эталон выглядит как пошаговая обучалка, повтори scaffold почти дословно: короткое вступление, затем «Следуй шагам», затем простые пояснения без лишней теории.")
+        lines.append("- Для такого эталона обычно нужен warm title, затем дружелюбная первая фраза, отдельная строка «Следуй шагам:», 3-6 коротких шагов, маленькие пояснения в скобках и финальная фраза про запуск/видимый результат.")
     if exact_requested or approved:
         lines.append("- Запрещены авторские комментарии-паразиты вроде «это самый простой способ», «это база для», «цель — показать», «покажи, что», если их нет в эталоне.")
         lines.append("- Не превращай шаги в сухой конспект. Для beginner-style заданий держи дружелюбное вступление, отдельную строку «Следуй шагам:» и нумерованные короткие шаги.")
@@ -869,6 +870,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     _skip_blueprint = scenario_should_bypass_blueprint(_scenario, _prefer_autonomy, str((compact_payload.get("conversation") or [{}])[-1].get("content") or "") if isinstance(compact_payload.get("conversation"), list) and compact_payload.get("conversation") else "")
     _blueprint_generation_guidance = (
         "Если пользователь просит создать новое задание или набор задач, сначала собери примерные условия в чате и сохрани их через save_chat_blueprint. Лишь после явного одобрения пользователя переходи к finalize_chat_blueprint. Исключение: если память говорит preferAutonomousCompletion=true и пользователь прямо запретил промежуточные согласования, не застревай на этом UX-этапе — исправляй blueprint сам и иди дальше. "
+        "Если пользователь явно говорит «задачи не создавай», «просто наглядно», «сначала покажи схему/лесенку» или просит только концепт без сохранения — не вызывай save_chat_blueprint, finalize_chat_blueprint и prepare_bridge_plan. В таком случае дай короткий человеческий ответ прямо в assistantMessage и оставь actions=[]. "
         if not _skip_blueprint else
         "Для текущего сценария пользователь просит прямой итог без промежуточных вариантов. Не уводи такой запрос в save_chat_blueprint как default UX. Если сценарий генеративный и данных хватает, переходи прямо к queue_generate_from_text и не проси декоративного одобрения. "
     )

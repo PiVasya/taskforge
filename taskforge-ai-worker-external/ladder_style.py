@@ -19,11 +19,11 @@ _NOISE = {
     "серия задач", "серия программ", "лесенка", "задач", "программ", "программа", "задачи", "тема", "темы",
 }
 _SLOT_DESCRIPTORS = [
-    "самый первый микрошаг: одно понятное действие и мгновенный видимый результат",
-    "тот же навык, но уже с пользовательским вводом или с чуть более живым вариантом использования",
-    "первое аккуратное усложнение: добавляется одна новая маленькая идея поверх базы",
+    "самый первый микрошаг: один мгновенно видимый результат после запуска и минимум новых сущностей",
+    "тот же навык, но уже с ещё одним маленьким действием или чуть более живым вариантом использования",
+    "первое аккуратное усложнение: добавляется ровно одна новая маленькая идея поверх базы",
     "спокойная комбинированная практика: два связанных шага, но без резкого скачка сложности",
-    "чуть более взрослая задача на тот же навык в реалистичной формулировке",
+    "чуть более взрослая задача на тот же навык в реалистичной формулировке, но всё ещё без перегруза",
     "итоговое закрепление всей лесенки без смешивания слишком многих новых идей",
 ]
 
@@ -38,7 +38,10 @@ def extract_learning_concept(payload: Dict[str, Any]) -> str:
     agent_state = batch_memory.get("agentState") if isinstance(batch_memory.get("agentState"), dict) else {}
     for holder in (payload.get("brief"), payload.get("task"), batch_memory, agent_state):
         if isinstance(holder, dict):
-            for key in ("summary", "generationPrompt", "targetSkill", "microGoal", "MicroGoal", "userIntentSummary", "latestExplicitInstruction", "latestTeachingScript", "objectiveSummary"):
+            for key in (
+                "summary", "generationPrompt", "targetSkill", "microGoal", "MicroGoal", "userIntentSummary",
+                "latestExplicitInstruction", "latestTeachingScript", "objectiveSummary"
+            ):
                 value = holder.get(key)
                 if isinstance(value, str) and value.strip():
                     parts.append(value.strip())
@@ -68,34 +71,40 @@ def ladder_style_appendix(profile: Dict[str, Any], payload: Dict[str, Any]) -> s
     return (
         "\n- Сценарий: лесенка. Здесь захардкожен только стиль very-friendly guided walkthrough, а не конкретная тема.\n"
         "- Каждая задача должна ощущаться как маленькое обучение, а не как сухая проверка.\n"
-        "- Начинай с короткого дружелюбного вступления.\n"
-        "- Дальше веди ученика через блок «Следуй шагам:».\n"
-        "- Шаги должны быть нумерованными, конкретными и короткими.\n"
-        "- После важных шагов давай маленькие пояснения в скобках простым языком.\n"
-        "- В финале скажи, что именно ученик увидит после запуска.\n"
-        "- Не начинай описание с сухого шаблона «Напиши программу...» без живого объяснения.\n"
+        "- Заголовок и первая фраза должны быть дружелюбными и человеческими, а не абстрактно-олимпиадными.\n"
+        "- Начинай с короткого дружелюбного вступления в духе «Давай...» или «Сейчас...».\n"
+        "- Дальше веди ученика через отдельный блок «Следуй шагам:».\n"
+        "- Обычно держи 3-6 нумерованных шагов: каждый шаг — одно маленькое действие без перегруза.\n"
+        "- После важных шагов давай маленькие пояснения в скобках простым языком и по возможности на отдельной строке.\n"
+        "- Для ранних шагов лесенки предпочитай мгновенно видимый эффект после запуска, а не сухую формальную историю.\n"
+        "- В финале нужна живая фраза о запуске и том, что ученик увидит на экране.\n"
+        "- Не начинай описание с сухого шаблона «Напиши программу...», «Вам нужно...» или «Даны...».\n"
+        "- Не раскладывай такие задания на безличные секции «Вход / Выход / Ограничения», если пользователь просит стиль первого дружелюбного задания.\n"
         f"{concept_line}"
     )
 
 
 def looks_like_ladder_style(draft: Dict[str, Any]) -> bool:
-    text = " ".join([
+    text = "\n".join([
         normalize_text(draft.get("title")),
         normalize_text(draft.get("description")),
         normalize_text(draft.get("explanation")),
     ])
     low = text.lower()
-    has_intro = any(token in low for token in ["давай", "сейчас", "эта программа", "это задание", "она будет", "он будет"])
-    has_steps = "следуй шагам" in low or bool(re.search(r"(?:^|\n)\s*1\.", text))
+    has_intro = any(token in low for token in ["давай", "сейчас", "это задание", "эта программа", "она будет", "он будет", "начн", "попробуем"])
+    has_steps_header = "следуй шагам" in low
+    step_count = len(re.findall(r"(?:^|\n)\s*\d+\.", text))
+    has_step_list = step_count >= 3
     has_explanations = "(" in text and ")" in text
-    return has_intro and has_steps and has_explanations
+    has_finish = any(token in low for token in ["запусти", "посмотри", "увид", "появ"])
+    return has_intro and (has_steps_header or has_step_list) and has_step_list and has_explanations and has_finish
 
 
 def looks_too_dry_for_ladder(draft: Dict[str, Any]) -> bool:
     desc = normalize_text(draft.get("description")).strip().lower()
     if not desc:
         return True
-    return desc.startswith("напиши программу") or desc.startswith("в единственной строке") or desc.startswith("даны")
+    return any(desc.startswith(prefix) for prefix in ["напиши программу", "в единственной строке", "даны", "вам нужно", "требуется", "считайте"])
 
 
 def _normalize_concept(raw: str) -> str:

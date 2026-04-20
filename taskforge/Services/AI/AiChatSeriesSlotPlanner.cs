@@ -25,13 +25,13 @@ internal static class AiChatSeriesSlotPlanner
     {
         var basePrompt = string.IsNullOrWhiteSpace(prompt) ? "Сгенерируй учебную задачу." : prompt.Trim();
         var conceptLine = string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Тема этого шага: {concept}.";
-        return $"{basePrompt}\n\nЭто отдельная задача из серии {index}/{totalCount}. Сфокусируйся только на этом шаге прогрессии: {descriptor}.{conceptLine} Следуй стилю дружелюбного первого учебного задания: короткое вступление, блок «Следуй шагам:», нумерованные шаги, простые пояснения в скобках, финальная фраза о том, что ученик увидит после запуска. Не делай batch, не описывай серию целиком, не ссылайся на другие элементы серии и не дублируй соседние шаги.";
+        return $"{basePrompt}\n\nЭто отдельная задача из серии {index}/{totalCount}. Сфокусируйся только на этом шаге прогрессии: {descriptor}.{conceptLine} Следуй стилю дружелюбного первого учебного задания: короткое вступление, отдельный блок «Следуй шагам:», обычно 3-6 нумерованных шагов, маленькие пояснения в скобках, финальная фраза о том, что ученик увидит после запуска. Заголовок и первая фраза должны звучать тепло и по-человечески. Не делай batch, не описывай серию целиком, не ссылайся на другие элементы серии и не дублируй соседние шаги.";
     }
 
     private static string? BuildSlotSourceText(string? sourceText, string? concept, int index, int totalCount, string descriptor)
     {
         var conceptLine = string.IsNullOrWhiteSpace(concept) ? string.Empty : $" Точная тема шага: «{concept}».";
-        var intro = $"Это шаг {index} из {totalCount}. Нужна только одна самостоятельная задача. Точная роль шага: {descriptor}.{conceptLine} Сохраняй стиль очень понятного учебного walkthrough: дружелюбное вступление, «Следуй шагам:», конкретные шаги, маленькие пояснения в скобках, без сухого олимпиадного тона.";
+        var intro = $"Это шаг {index} из {totalCount}. Нужна только одна самостоятельная задача. Точная роль шага: {descriptor}.{conceptLine} Сохраняй стиль очень понятного учебного walkthrough: дружелюбное вступление, отдельную строку «Следуй шагам:», обычно 3-6 конкретных шагов, маленькие пояснения в скобках и финальную строку про запуск/видимый результат, без сухого олимпиадного тона.";
         if (string.IsNullOrWhiteSpace(sourceText))
             return intro;
         return intro + "\n\n" + sourceText.Trim();

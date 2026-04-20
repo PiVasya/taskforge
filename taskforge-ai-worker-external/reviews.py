@@ -165,7 +165,7 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
             findings.append({
                 "severity": "high", "code": "style-ladder-guided",
                 "message": "Лесенка должна выглядеть как дружелюбное пошаговое обучение, а не как сухой task statement.",
-                "suggestedRepair": "Добавь короткое вступление, блок «Следуй шагам:», нумерованные шаги и маленькие пояснения в скобках.",
+                "suggestedRepair": "Добавь короткое дружелюбное вступление, отдельную строку «Следуй шагам:», 3-6 нумерованных шагов, маленькие пояснения в скобках и финальную фразу про запуск/видимый результат.",
                 "confidence": 0.94,
             })
         if looks_too_dry_for_ladder(draft):

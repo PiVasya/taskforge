@@ -98,9 +98,12 @@ def _looks_like_missing_guided_scaffold(description: str) -> bool:
     if not text:
         return False
     low = text.lower()
-    has_steps = ("следуй шагам" in low) or bool(__import__('re').search(r"(^|\n)1\.", text))
+    step_count = len(__import__('re').findall(r"(?:^|\n)\s*\d+\.", text))
     has_intro = low.startswith("давай ") or low.startswith("теперь ") or low.startswith("в этой задаче") or low.startswith("мы ")
-    return not (has_steps and has_intro)
+    has_steps_header = "следуй шагам" in low
+    has_explanations = "(" in text and ")" in text
+    has_finish = any(token in low for token in ["запусти", "посмотри", "увид", "появ"])
+    return not (has_intro and (has_steps_header or step_count >= 3) and step_count >= 3 and has_explanations and has_finish)
 
 
 # ── Shared helpers ───────────────────────────────────
@@ -197,7 +200,7 @@ def validate_code_test_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
         checks.append({
             "name": "style-guided-scaffold",
             "status": "failed" if _looks_like_missing_guided_scaffold(description) else "passed",
-            "details": "Сохранён scaffold пошаговой обучалки" if not _looks_like_missing_guided_scaffold(description) else "Для exact-style обучалки нужен дружелюбный intro + «Следуй шагам» + нумерованные шаги."
+            "details": "Сохранён scaffold пошаговой обучалки" if not _looks_like_missing_guided_scaffold(description) else "Для exact-style обучалки нужен дружелюбный intro + «Следуй шагам» + минимум 3 нумерованных шага + короткие пояснения в скобках + финальная фраза про запуск/результат."
         })
 
     if "codePolicy" in draft:

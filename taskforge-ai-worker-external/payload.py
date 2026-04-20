@@ -457,6 +457,16 @@ def _infer_requested_domain(payload: Dict[str, Any]) -> str:
     if sid == "pretopic-bridges":
         return "bridge-pack"
     if sid in {"step-by-step-ladder", "micro-program-series", "new-topic-intro", "topic-expansion"}:
+        early_batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
+        early_agent_state = early_batch_memory.get("agentState") if isinstance(early_batch_memory.get("agentState"), dict) else {}
+        early_text = " ".join([
+            normalize_text(payload.get("prompt")),
+            normalize_text(payload.get("sourceText")),
+            normalize_text(early_batch_memory.get("userIntentSummary")),
+            normalize_text(early_agent_state.get("userIntentSummary")),
+        ]).lower()
+        if any(tok in early_text for tok in ["мостик", "мостики", "подводящ", "bridge", "перед цик", "до цик", "перед тем", "до темы"]):
+            return "bridge-pack"
         return "cpp-basic-io"
 
     batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
@@ -491,6 +501,8 @@ def _infer_requested_domain(payload: Dict[str, Any]) -> str:
     ]).lower()
     if any(tok in prompt for tok in ["матриц", "matrix", "2d array"]):
         return "matrix"
+    if any(tok in prompt for tok in ["мостик", "мостики", "подводящ", "bridge", "перед цик", "до цик", "перед тем", "до темы"]):
+        return "bridge-pack"
     if any(tok in prompt for tok in ["ввод", "вывод", "cin", "cout", "scanf", "printf", "getline", "строк", "тип данн", "if", "условн"]):
         return "cpp-basic-io"
     if any(tok in prompt for tok in ["нович", "с нуля", "прост", "базов", "первокласс"]):
