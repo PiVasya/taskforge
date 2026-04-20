@@ -37,6 +37,7 @@ from text_utils import (
 )
 from similarity_signatures import similarity_signature_report
 from scenario_router import detect_scenario_profile, scenario_requires_explicit_if
+from ladder_style import looks_like_ladder_style, looks_too_dry_for_ladder, ladder_structure_findings, ladder_style_score
 from duplicate_clusters import cluster_duplicate_candidates
 from validators import (
     collect_quality_checks_common,
@@ -72,11 +73,7 @@ def _review_haystack(payload: Dict[str, Any], draft: Dict[str, Any] | None = Non
 
 
 def _review_is_if_onboarding(payload: Dict[str, Any]) -> bool:
-    hay = _review_haystack(payload)
-    if not (re.search(r"\bif\b", hay) or "ветвлен" in hay):
-        return False
-    markers = ["пошаг", "шаг за шаг", "как использовать", "как пользоваться", "учит", "науч", "лесенк", "серия", "несколько программ", "больше программ", "маленьк", "освоение if", "самому if", "guided sequence", "if-onboarding"]
-    return any(marker in hay for marker in markers)
+    return False
 
 
 def _draft_uses_explicit_if(draft: Dict[str, Any]) -> bool:
@@ -108,11 +105,10 @@ def fallback_pedagogy_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
     else:
         checks.append({"name": "single-learning-goal", "status": "passed", "details": "Учебная цель выглядит достаточно узкой"})
     scenario = detect_scenario_profile(payload)
-    if scenario_requires_explicit_if(scenario):
-        if _draft_uses_explicit_if(draft):
-            checks.append({"name": "scenario-explicit-if", "status": "passed", "details": "Сценарий требует явный if и draft действительно его использует"})
-        else:
-            checks.append({"name": "scenario-explicit-if", "status": "failed", "details": "Сценарий требует учить реальному if, а draft ушёл в подготовительные проверки без if"})
+    if normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}:
+        ladder_score, ladder_reasons = ladder_style_score(draft)
+        checks.append({"name": "ladder-guided-structure", "status": "passed" if ladder_score >= 0.72 else "failed", "details": "Есть структура friendly walkthrough" if ladder_score >= 0.72 else f"Для лесенки не хватает структуры friendly walkthrough: {"; ".join(ladder_reasons[:3])}"})
+        checks.append({"name": "ladder-not-dry", "status": "passed" if not looks_too_dry_for_ladder(draft) else "warning", "details": "Формулировка не выглядит сухой" if not looks_too_dry_for_ladder(draft) else "Описание стартует слишком сухо для лесенки"})
     if normalize_text(scenario.get("id")) == "single-deep-task":
         if len(description) >= 220:
             checks.append({"name": "scenario-deep-task-depth", "status": "passed", "details": "Для deep-task описание не выглядит слишком поверхностным"})
@@ -162,18 +158,29 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
             score -= 0.12
 
     scenario = detect_scenario_profile(payload)
-    if scenario_requires_explicit_if(scenario):
-        if _draft_uses_explicit_if(draft):
-            checks.append({"name": "style-scenario-explicit-if", "status": "passed", "details": "Тип задачи совпадает со сценарием real-if learning"})
+    if normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}:
+        ladder_score, ladder_reasons = ladder_style_score(draft)
+        if ladder_score >= 0.72:
+            checks.append({"name": "style-ladder-guided", "status": "passed", "details": f"Draft похож на friendly walkthrough в стиле первого задания (score={ladder_score:.2f})"})
         else:
-            checks.append({"name": "style-scenario-explicit-if", "status": "failed", "details": "Вместо маленькой программы с if получилась подготовительная bridge-задача без if"})
+            checks.append({"name": "style-ladder-guided", "status": "failed", "details": f"Для лесенки draft не похож на пошаговое понятное обучение (score={ladder_score:.2f})"})
+            for finding in ladder_structure_findings(draft)[:4]:
+                findings.append({
+                    "severity": "high", "code": "style-ladder-guided",
+                    "message": f"Лесенка просела по структуре: {finding['reason']}.",
+                    "suggestedRepair": finding["repair"],
+                    "confidence": 0.92,
+                })
+            score -= 0.28
+        if looks_too_dry_for_ladder(draft):
+            checks.append({"name": "style-ladder-not-dry", "status": "warning", "details": "Для лесенки описание начинается слишком сухо"})
             findings.append({
-                "severity": "high", "code": "style-scenario-explicit-if",
-                "message": "Задача не совпадает со сценарием обучения реальному if.",
-                "suggestedRepair": "Пересобери задачу как маленькую программу с явным if и дружелюбным guided-intro тоном.",
-                "confidence": 0.94,
+                "severity": "warning", "code": "style-ladder-not-dry",
+                "message": "Лесенка не должна начинаться сухим шаблоном вроде «Напиши программу...». ",
+                "suggestedRepair": "Начни описание с дружелюбного вступления и затем переведи ученика к шагам.",
+                "confidence": 0.82,
             })
-            score -= 0.4
+            score -= 0.12
     if normalize_text(scenario.get("id")) == "single-deep-task":
         if len(description) >= 220:
             checks.append({"name": "style-deep-task-fit", "status": "passed", "details": "Стиль не выглядит слишком мелким для сценария single-deep-task"})

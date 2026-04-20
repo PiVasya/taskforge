@@ -777,38 +777,44 @@ public sealed class AiChatService
                 {
                     var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
                     if (!courseId.HasValue)
-                        return FailTool("Нужно выбрать courseId, прежде чем создавать batch.");
+                        return FailTool("Нужно выбрать courseId, прежде чем запускать генерацию.");
 
                     var prompt = ReadString(args, "prompt") ?? BuildFallbackPrompt(messages);
-                    var count = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 50);
+                    var requestedCount = Math.Clamp(ReadInt(args, "count") ?? 5, 1, 12);
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5);
                     var memory = BuildMemory(messages, session.PlanJson, instructionStrictness);
-                    prompt = RewritePromptForIfStepByStepSeries(prompt, memory, count);
-                    var batchMode = ReadString(args, "mode") ?? DetermineDirectGenerationMode(memory, prompt, null, count);
-                    var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, batchMode, count, difficulty);
+                    var assignmentType = ReadString(args, "assignmentType") ?? "code-test";
+                    var sourceText = ReadString(args, "sourceText") ?? RewriteSourceTextForIfStepByStepSeries(prompt, memory, requestedCount);
+                    prompt = RewritePromptForIfStepByStepSeries(prompt, memory, requestedCount);
+                    var titleHint = AiGenerationScenarioPromptAdapter.SuggestTitleHint(memory, prompt, sourceText, requestedCount, ReadString(args, "titleHint"));
+                    var notes = ReadString(args, "notes");
+                    var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, DetermineDirectGenerationMode(memory, prompt, sourceText, requestedCount), requestedCount, difficulty);
 
-                    var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
-                    {
-                        CourseId = courseId.Value,
-                        AssignmentType = ReadString(args, "assignmentType") ?? "code-test",
-                        Prompt = prompt,
-                        Count = count,
-                        Mode = batchMode,
-                        Difficulty = difficulty,
-                        Notes = ReadString(args, "notes"),
-                        StructuredContextJson = structuredContextJson,
-                        Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
-                        ChatSessionId = session.Id,
-                    }, createdByUserId, createdByDisplayName, ct);
-
-                    return new AiFoundryChatToolResultDto
-                    {
-                        Status = "done",
-                        Summary = $"Создал AI batch на {batch.RequestedCount} заданий. Статус: {batch.Status}.",
-                        NavigateTo = "/admin/ai",
-                        BatchId = batch.Id,
-                        CourseId = batch.CourseId,
-                    };
+                    return await EnqueueDirectTextGenerationAsync(
+                        session,
+                        messages,
+                        courseId.Value,
+                        assignmentType,
+                        prompt,
+                        sourceText,
+                        titleHint,
+                        difficulty,
+                        requestedCount,
+                        notes,
+                        structuredContextJson,
+                        Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                        ReadBool(args, "enableSelfCheck") ?? true,
+                        instructionStrictness,
+                        memory.LatestExplicitInstruction,
+                        memory.LatestTeachingScript,
+                        createdByUserId,
+                        createdByDisplayName,
+                        ct,
+                        selectedProposal: null,
+                        blueprint: null,
+                        successSummarySingle: "Поставил в очередь генерацию задания из текста.",
+                        successSummaryMultiTemplate: "Поставил в очередь прямую генерацию {0} задач отдельными job без batch."
+                    );
                 }
                 case "analyze_course_progression":
                 {
@@ -994,12 +1000,10 @@ public sealed class AiChatService
                 {
                     var courseId = ReadGuid(args, "courseId") ?? session.CourseId;
                     if (!courseId.HasValue)
-                        return FailTool("Нужно выбрать courseId, прежде чем создавать bridge-batch.");
+                        return FailTool("Нужно выбрать courseId, прежде чем запускать генерацию мостиков.");
 
                     var memory = DeserializeMemory(session.PlanJson);
                     var audit = EnsureBridgeAudit(courseId.Value, memory.LastCourseAudit, memory.LastCourseInspection, memory.LastBridgePlan);
-
-                    // ── Strict: require a pre-existing plan. No on-the-fly plan building. ──
                     var bridgePlan = memory.LastBridgePlan != null && memory.LastBridgePlan.CourseId == courseId.Value
                         ? memory.LastBridgePlan
                         : null;
@@ -1012,11 +1016,11 @@ public sealed class AiChatService
 
                     var selectedItems = SelectBridgePlanItems(bridgePlan, args);
                     if (selectedItems.Count == 0)
-                        return FailTool("Не удалось выбрать plan items для bridge-batch. Проверь itemIndexes или сначала обнови план мостиков.");
+                        return FailTool("Не удалось выбрать plan items для генерации. Проверь itemIndexes или сначала обнови план мостиков.");
 
                     session.PlanJson = SerializeMemory(WithLastBridgePlan(BuildMemory(messages, session.PlanJson), bridgePlan));
 
-                    var requestedCount = Math.Clamp(ReadInt(args, "count") ?? selectedItems.Sum(x => Math.Max(1, x.TaskCount)), 1, 50);
+                    var requestedCount = Math.Clamp(ReadInt(args, "count") ?? selectedItems.Sum(x => Math.Max(1, x.TaskCount)), 1, 12);
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? Math.Max(1, Math.Min(3, selectedItems.Max(x => x.Difficulty))), 1, 3);
                     var prompt = BuildBridgeBatchPrompt(audit, bridgePlan, selectedItems, memory, ReadString(args, "prompt"), ReadString(args, "focus"));
                     var notes = BuildBridgeBatchNotes(audit, bridgePlan, selectedItems);
@@ -1024,28 +1028,31 @@ public sealed class AiChatService
                     var memoryForBatch = BuildMemory(messages, session.PlanJson);
                     var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memoryForBatch, courseId.Value, prompt, args, "bridge-pack", requestedCount, difficulty);
 
-                    var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
-                    {
-                        CourseId = courseId.Value,
-                        AssignmentType = "code-test",
-                        Prompt = prompt,
-                        Count = requestedCount,
-                        Mode = "bridge-pack",
-                        Difficulty = difficulty,
-                        Notes = notes,
-                        StructuredContextJson = structuredContextJson,
-                        Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
-                        ChatSessionId = session.Id,
-                    }, createdByUserId, createdByDisplayName, ct);
-
-                    return new AiFoundryChatToolResultDto
-                    {
-                        Status = "done",
-                        Summary = $"Создала bridge-batch на {batch.RequestedCount} задач по плану мостиков. AI будет опираться на afterAssignmentId и title hints из согласованного плана.",
-                        NavigateTo = "/admin/ai",
-                        BatchId = batch.Id,
-                        CourseId = batch.CourseId,
-                    };
+                    return await EnqueueDirectTextGenerationAsync(
+                        session,
+                        messages,
+                        courseId.Value,
+                        "code-test",
+                        prompt,
+                        prompt,
+                        "Мостик",
+                        difficulty,
+                        requestedCount,
+                        notes,
+                        structuredContextJson,
+                        Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                        true,
+                        instructionStrictness,
+                        memory.LatestExplicitInstruction,
+                        memory.LatestTeachingScript,
+                        createdByUserId,
+                        createdByDisplayName,
+                        ct,
+                        selectedProposal: null,
+                        blueprint: null,
+                        successSummarySingle: "Поставил в очередь генерацию мостика по текущему плану.",
+                        successSummaryMultiTemplate: "Поставил в очередь прямую генерацию {0} мостиков отдельными job без batch."
+                    );
                 }
                 case "save_chat_blueprint":
                 {
@@ -1275,84 +1282,33 @@ public sealed class AiChatService
                         structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, directArgs, directBatchMode, requestedCount, difficulty);
                     }
 
-                    if (requestedCount > 1)
-                    {
-                        var batchArgs = new JsonObject
-                        {
-                            ["notes"] = notes,
-                            ["mode"] = directBatchMode,
-                            ["sourceText"] = sourceText,
-                        };
-                        var batchStructuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, batchArgs, directBatchMode, requestedCount, difficulty);
-                        var batch = await _jobs.QueueGenerateAssignmentBatchAsync(new AiGenerateAssignmentBatchRequestDto
-                        {
-                            CourseId = courseId.Value,
-                            AssignmentType = assignmentType,
-                            Prompt = prompt,
-                            Count = requestedCount,
-                            Mode = directBatchMode,
-                            Difficulty = difficulty,
-                            Notes = notes,
-                            StructuredContextJson = batchStructuredContextJson,
-                            Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
-                            ChatSessionId = session.Id,
-                        }, createdByUserId, createdByDisplayName, ct);
-
-                        if (selectedProposal != null && blueprint != null)
-                        {
-                            selectedProposal.Status = "queued";
-                            blueprint.ApprovedForDraft = true;
-                            blueprint.UpdatedAtUtc = DateTime.UtcNow;
-                            session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
-                        }
-
-                        return new AiFoundryChatToolResultDto
-                        {
-                            Status = "done",
-                            Summary = $"Создал AI batch на {batch.RequestedCount} задач. Статус: {batch.Status}.",
-                            NavigateTo = "/admin/ai",
-                            BatchId = batch.Id,
-                            CourseId = batch.CourseId,
-                        };
-                    }
-
-                    var job = await _jobs.QueueGenerateAssignmentFromTextAsync(new AiGenerateAssignmentFromTextRequestDto
-                    {
-                        CourseId = courseId.Value,
-                        AssignmentType = assignmentType,
-                        Prompt = prompt,
-                        SourceText = sourceText,
-                        TitleHint = titleHint,
-                        Difficulty = difficulty,
-                        Count = requestedCount,
-                        Notes = notes,
-                        StructuredContextJson = structuredContextJson,
-                        Priority = Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
-                        EnableSelfCheck = ReadBool(args, "enableSelfCheck") ?? true,
-                        InstructionStrictness = ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness),
-                        UserInstructionSnapshot = memory.LatestExplicitInstruction,
-                        TeachingScript = memory.LatestTeachingScript,
-                        ChatSessionId = session.Id,
-                    }, createdByUserId, createdByDisplayName, ct);
-
-                    if (selectedProposal != null && blueprint != null)
-                    {
-                        selectedProposal.Status = "queued";
-                        blueprint.ApprovedForDraft = true;
-                        blueprint.UpdatedAtUtc = DateTime.UtcNow;
-                        session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
-                    }
-
-                    return new AiFoundryChatToolResultDto
-                    {
-                        Status = "done",
-                        Summary = selectedProposal != null
+                    return await EnqueueDirectTextGenerationAsync(
+                        session,
+                        messages,
+                        courseId.Value,
+                        assignmentType,
+                        prompt,
+                        sourceText,
+                        titleHint,
+                        difficulty,
+                        requestedCount,
+                        notes,
+                        structuredContextJson,
+                        Math.Clamp(ReadInt(args, "priority") ?? 20, 1, 100),
+                        ReadBool(args, "enableSelfCheck") ?? true,
+                        ClampInstructionStrictness(ReadInt(args, "instructionStrictness"), memory.InstructionStrictness),
+                        memory.LatestExplicitInstruction,
+                        memory.LatestTeachingScript,
+                        createdByUserId,
+                        createdByDisplayName,
+                        ct,
+                        selectedProposal,
+                        blueprint,
+                        selectedProposal != null
                             ? "Поставил в очередь генерацию задания по уже согласованному условию из чата."
-                            : "Поставил в очередь генерацию заданий из текста.",
-                        NavigateTo = "/admin/ai",
-                        JobId = job.Id,
-                        CourseId = courseId,
-                    };
+                            : "Поставил в очередь генерацию задания из текста.",
+                        "Поставил в очередь прямую генерацию {0} задач отдельными job без batch."
+                    );
                 }
                 case "revise_draft_from_chat":
                 {
@@ -2168,13 +2124,6 @@ public sealed class AiChatService
             {
                 new
                 {
-                    name = "queue_generate_batch",
-                    description = "Создать batch из нескольких заданий через Foundry pipeline с опорой на память чата, аудит курса, стиль названий и педагогические подсказки вроде «первоклассники» или «нужны пошаговые путеводители».",
-                    requiredArguments = new[] { "courseId", "prompt" },
-                    optionalArguments = new[] { "assignmentType", "count", "difficulty", "mode", "notes", "priority" },
-                },
-                new
-                {
                     name = "analyze_course_progression",
                     description = "Изучить текущий курс, найти резкие вводы новых функций/конструкций и предложить мостики с afterAssignmentId.",
                     requiredArguments = new[] { "courseId" },
@@ -2211,16 +2160,9 @@ public sealed class AiChatService
                 new
                 {
                     name = "advance_agent_stage",
-                    description = "Продолжить агента по памяти и текущему состоянию: выбрать следующий логичный шаг между аудитом, просмотром заданий, планом мостиков и bridge-batch.",
+                    description = "Продолжить агента по памяти и текущему состоянию: выбрать следующий логичный шаг между аудитом, просмотром заданий, планом мостиков и прямую серию мостиков.",
                     requiredArguments = new[] { "courseId" },
                     optionalArguments = new[] { "focus", "priority" },
-                },
-                new
-                {
-                    name = "queue_generate_bridge_batch",
-                    description = "На основе последнего плана мостиков создать batch мостиковых задач перед резким вводом новых функций/тем, сохранив afterAssignmentId, стиль курса и при необходимости guided walkthrough-формат.",
-                    requiredArguments = new[] { "courseId" },
-                    optionalArguments = new[] { "count", "difficulty", "prompt", "focus", "findingIndexes", "itemIndexes", "priority" },
                 },
                 new
                 {
@@ -2636,8 +2578,8 @@ public sealed class AiChatService
             {
                 new()
                 {
-                    Name = "queue_generate_bridge_batch",
-                    Reason = "Новый явный запрос пользователя важнее старого plan-loop: переходим сразу к генерации по уже собранному плану.",
+                    Name = "queue_generate_from_text",
+                    Reason = "Новый явный запрос пользователя важнее старого plan-loop: переходим сразу к прямой генерации по уже собранному плану без batch.",
                     ArgumentsJson = args.ToJsonString(),
                 },
             };
@@ -2702,11 +2644,11 @@ public sealed class AiChatService
         return (
             new AiFoundryChatToolCallDto
             {
-                Name = "queue_generate_batch",
-                Reason = "Синтезировано на backend: worker вернул batch-план без actions, поэтому чат восстановил ожидаемое действие.",
+                Name = "queue_generate_from_text",
+                Reason = "Синтезировано на backend: worker вернул план прямой серии без actions, поэтому чат восстановил ожидаемое действие без batch.",
                 ArgumentsJson = args.ToJsonString(),
             },
-            $"Поняла. Запускаю batch на {finalCount} задач по текущему контексту курса.");
+            $"Поняла. Запускаю прямую серию из {finalCount} задач по текущему контексту курса без batch.");
     }
 
     private static string? BuildLegacyPlanMessage(JsonObject root, AiFoundryChatSession session, List<AiFoundryChatMessageDto> messages)
@@ -2751,6 +2693,117 @@ public sealed class AiChatService
         });
     }
 
+    private async Task<AiFoundryChatToolResultDto> EnqueueDirectTextGenerationAsync(
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        Guid courseId,
+        string assignmentType,
+        string prompt,
+        string? sourceText,
+        string? titleHint,
+        int difficulty,
+        int requestedCount,
+        string? notes,
+        string? structuredContextJson,
+        int priority,
+        bool enableSelfCheck,
+        int instructionStrictness,
+        string? userInstructionSnapshot,
+        string? teachingScript,
+        Guid? createdByUserId,
+        string? createdByDisplayName,
+        CancellationToken ct,
+        AiFoundryChatBlueprintProposalDto? selectedProposal,
+        AiFoundryChatBlueprintDto? blueprint,
+        string successSummarySingle,
+        string successSummaryMultiTemplate)
+    {
+        if (requestedCount <= 1)
+        {
+            var job = await _jobs.QueueGenerateAssignmentFromTextAsync(new AiGenerateAssignmentFromTextRequestDto
+            {
+                CourseId = courseId,
+                AssignmentType = assignmentType,
+                Prompt = prompt,
+                SourceText = sourceText,
+                TitleHint = titleHint,
+                Difficulty = difficulty,
+                Count = 1,
+                Notes = notes,
+                StructuredContextJson = structuredContextJson,
+                Priority = priority,
+                EnableSelfCheck = enableSelfCheck,
+                InstructionStrictness = instructionStrictness,
+                UserInstructionSnapshot = userInstructionSnapshot,
+                TeachingScript = teachingScript,
+                ChatSessionId = session.Id,
+            }, createdByUserId, createdByDisplayName, ct);
+
+            MarkQueuedBlueprintProposal(session, selectedProposal, blueprint);
+
+            return new AiFoundryChatToolResultDto
+            {
+                Status = "done",
+                Summary = successSummarySingle,
+                NavigateTo = "/admin/ai",
+                JobId = job.Id,
+                CourseId = courseId,
+            };
+        }
+
+        var slots = AiChatSeriesSlotPlanner.Build(prompt, sourceText, titleHint, requestedCount, difficulty);
+        var createdJobs = new List<AiJobDetailsDto>();
+        foreach (var slot in slots)
+        {
+            var slotNotes = string.IsNullOrWhiteSpace(notes)
+                ? $"Direct series generation slot {slot.Index}/{slot.TotalCount} from chat session {session.Id}."
+                : $"{notes} [slot {slot.Index}/{slot.TotalCount}]";
+
+            var job = await _jobs.QueueGenerateAssignmentFromTextAsync(new AiGenerateAssignmentFromTextRequestDto
+            {
+                CourseId = courseId,
+                AssignmentType = assignmentType,
+                Prompt = slot.Prompt,
+                SourceText = slot.SourceText,
+                TitleHint = slot.TitleHint,
+                Difficulty = slot.Difficulty,
+                Count = 1,
+                Notes = slotNotes,
+                StructuredContextJson = structuredContextJson,
+                Priority = priority,
+                EnableSelfCheck = enableSelfCheck,
+                InstructionStrictness = instructionStrictness,
+                UserInstructionSnapshot = userInstructionSnapshot,
+                TeachingScript = teachingScript,
+                ChatSessionId = session.Id,
+            }, createdByUserId, createdByDisplayName, ct);
+            createdJobs.Add(job);
+        }
+
+        MarkQueuedBlueprintProposal(session, selectedProposal, blueprint);
+
+        return new AiFoundryChatToolResultDto
+        {
+            Status = "done",
+            Summary = string.Format(successSummaryMultiTemplate, createdJobs.Count),
+            NavigateTo = "/admin/ai",
+            JobId = createdJobs.FirstOrDefault()?.Id,
+            CourseId = courseId,
+        };
+    }
+
+    private void MarkQueuedBlueprintProposal(AiFoundryChatSession session, AiFoundryChatBlueprintProposalDto? selectedProposal, AiFoundryChatBlueprintDto? blueprint)
+    {
+        if (selectedProposal == null || blueprint == null)
+            return;
+
+        selectedProposal.Status = "queued";
+        blueprint.ApprovedForDraft = true;
+        blueprint.UpdatedAtUtc = DateTime.UtcNow;
+        var memory = DeserializeMemory(session.PlanJson);
+        session.PlanJson = SerializeMemory(WithCurrentDraftBlueprint(memory, blueprint));
+    }
+
     private static int? TryExtractRequestedCount(List<AiFoundryChatMessageDto> messages)
     {
         foreach (var content in messages
@@ -2789,14 +2842,14 @@ public sealed class AiChatService
         {
             return (names[0] ?? string.Empty).ToLowerInvariant() switch
             {
-                "queue_generate_batch" => "Запускаю batch по текущему контексту.",
+                "queue_generate_batch" => "Запускаю прямую серию генерации по текущему контексту.",
                 "analyze_course_progression" => "Открываю курс и собираю аудит по пробелам и резким вводам новых тем.",
                 "inspect_course_assignments" => "Открываю конкретные задания курса, чтобы сверить стиль и последовательность.",
                 "prepare_bridge_plan" => "Собираю подробный план вставок и точек afterAssignmentId по курсу.",
                 "show_bridge_plan" => "Показываю текущий план мостиков без пересборки.",
                 "revise_bridge_plan" => "Точечно правлю уже собранный план мостиков по твоим замечаниям.",
                 "advance_agent_stage" => "Продолжаю агента по памяти и выбираю следующий логичный шаг без повторного объяснения контекста.",
-                "queue_generate_bridge_batch" => "Запускаю bridge-batch по последнему плану мостиков.",
+                "queue_generate_bridge_batch" => "Запускаю прямую генерацию мостиков по последнему плану.",
                 "save_chat_blueprint" => "Собираю примерные условия прямо в чате.",
             "revise_chat_blueprint" => "Обновляю уже сохранённые примерные условия по новым замечаниям.",
             "show_chat_blueprint" => "Показываю текущие примерные условия из памяти чата.",
@@ -3932,7 +3985,7 @@ public sealed class AiChatService
         }
         else if (recentActions.Any(x => x.Contains("batch", StringComparison.OrdinalIgnoreCase)))
         {
-            workflowKind = "batch-generation";
+            workflowKind = "direct-series-generation";
             currentStage = "batch-queued";
         }
 
@@ -4836,14 +4889,14 @@ public sealed class AiChatService
     private static string DescribeToolName(string? rawName)
         => (rawName ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            "queue_generate_batch" => "создание batch",
+            "queue_generate_batch" => "прямая серия генерации",
             "analyze_course_progression" => "аудит курса",
             "inspect_course_assignments" => "просмотр заданий курса",
             "prepare_bridge_plan" => "план мостиков по курсу",
             "show_bridge_plan" => "показ плана мостиков",
             "revise_bridge_plan" => "точечная правка плана мостиков",
             "advance_agent_stage" => "автопродолжение агента",
-            "queue_generate_bridge_batch" => "bridge-batch по плану мостиков",
+            "queue_generate_bridge_batch" => "прямая генерация мостиков",
             "save_chat_blueprint" => "примерные условия из чата",
             "revise_chat_blueprint" => "правка примерных условий",
             "show_chat_blueprint" => "просмотр примерных условий",
@@ -5430,7 +5483,7 @@ public sealed class AiChatService
             {
                 return new AiFoundryChatToolCallDto
                 {
-                    Name = "queue_generate_bridge_batch",
+                    Name = "queue_generate_from_text",
                     Reason = "Remediation-агент уже собрал и подтвердил решения, поэтому теперь можно переходить к генерации по плану.",
                     ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus, itemIndexes = confirmedForRemediation }, JsonOptions),
                 };
@@ -5485,7 +5538,7 @@ public sealed class AiChatService
                 .ToList();
             return new AiFoundryChatToolCallDto
             {
-                Name = "queue_generate_bridge_batch",
+                Name = "queue_generate_from_text",
                 Reason = "Последний явный запрос пользователя — не обсуждать план дальше, а перейти к генерации по уже собранным plan items и teaching-script.",
                 ArgumentsJson = JsonSerializer.Serialize(new
                 {
@@ -5558,7 +5611,7 @@ public sealed class AiChatService
         {
             return new AiFoundryChatToolCallDto
             {
-                Name = "queue_generate_bridge_batch",
+                Name = "queue_generate_from_text",
                 Reason = "В плане уже есть подтверждённые точки вставки, поэтому можно переходить к bridge-generation.",
                 ArgumentsJson = JsonSerializer.Serialize(new { courseId, focus, itemIndexes = confirmedItems }, JsonOptions),
             };
@@ -5632,9 +5685,9 @@ public sealed class AiChatService
             return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия из чата, а потом вызвать finalize_chat_blueprint";
         }
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && RequestsIfStepByStepSeries(memory))
-            return "собрать серию маленьких программ на if через queue_generate_batch";
+            return "собрать серию маленьких программ на if через queue_generate_from_text";
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
-            return "сгенерировать мостики через queue_generate_bridge_batch";
+            return "сгенерировать мостики через queue_generate_from_text";
         if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "точечно поправить bridge-plan через revise_bridge_plan";
         if (string.Equals(latestIntentKind, "show-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
@@ -5650,8 +5703,8 @@ public sealed class AiChatService
             return "собрать план мостиков через prepare_bridge_plan";
         var confirmed = memory.LastBridgePlan.Items.Count(x => x.Confirmed && !x.Rejected);
         if (string.Equals(memory.LastBridgePlan.Status, "confirmed", StringComparison.OrdinalIgnoreCase) || confirmed > 0)
-            return "сгенерировать мостики через queue_generate_bridge_batch";
-        return memory.SuppressBridgePlanLoop ? "сгенерировать мостики через queue_generate_bridge_batch" : "показать и уточнить план мостиков через show_bridge_plan / revise_bridge_plan";
+            return "сгенерировать мостики через queue_generate_from_text";
+        return memory.SuppressBridgePlanLoop ? "сгенерировать мостики через queue_generate_from_text" : "показать и уточнить план мостиков через show_bridge_plan / revise_bridge_plan";
     }
 
     private static string? _chatFallbackFocus(List<AiFoundryChatMessageDto> messages)
@@ -6861,7 +6914,7 @@ public sealed class AiChatService
             }
             if (plan.RevisionNotes.Count > 0)
                 sb.Append($"\n\nПоследние правки: {string.Join(" | ", plan.RevisionNotes.TakeLast(3))}.");
-            sb.Append("\n\nЕсли хочешь, я могу точечно поправить этот план по замечаниям, подтвердить нужные пункты или сразу сгенерировать bridge-batch только по подтверждённым точкам.");
+            sb.Append("\n\nЕсли хочешь, я могу точечно поправить этот план по замечаниям, подтвердить нужные пункты или сразу сгенерировать прямую серию мостиков только по подтверждённым точкам.");
         }
 
         var result = sb.ToString().Trim();

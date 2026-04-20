@@ -135,7 +135,7 @@ SCENARIO_DEFINITIONS = [
         "id": "micro-program-series", "name": "Серия маленьких программ", "family": "pedagogy", "default_mode": "guided-sequence", "default_count": 5,
         "prefer_guided": True, "prefer_tiny_steps": True, "force_small_programs": True, "require_explicit_if": False,
         "prefer_single_deep_task": False, "prefer_course_audit": False, "assistant_silence_priority": True,
-        "aliases": ["несколько программ", "маленькие программы", "мини программы", "series of programs", "практических мини", "как использовать if", "как пользоваться if", "освоение if", "самому if"],
+        "aliases": ["несколько программ", "маленькие программы", "мини программы", "series of programs", "практических мини"],
         "anti": ["одну сложную"],
     },
     {

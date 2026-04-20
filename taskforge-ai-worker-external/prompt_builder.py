@@ -19,6 +19,8 @@ from config import MIN_PUBLIC_TESTS, MIN_HIDDEN_TESTS, MIN_TOTAL_TESTS, MIN_DESC
 from log import log
 from text_utils import normalize_text, truncate_text, safe_int, unique_string_list, strip_html_to_text, summarize_description
 from scenario_router import detect_scenario_profile, scenario_prompt_appendix, scenario_requires_explicit_if
+from ladder_style import ladder_style_appendix
+from ladder_style import ladder_style_appendix
 from scenario_policy import scenario_should_bypass_blueprint
 from payload import (
     compact_reference_assignments,
@@ -868,7 +870,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
     _blueprint_generation_guidance = (
         "Если пользователь просит создать новое задание или набор задач, сначала собери примерные условия в чате и сохрани их через save_chat_blueprint. Лишь после явного одобрения пользователя переходи к finalize_chat_blueprint. Исключение: если память говорит preferAutonomousCompletion=true и пользователь прямо запретил промежуточные согласования, не застревай на этом UX-этапе — исправляй blueprint сам и иди дальше. "
         if not _skip_blueprint else
-        "Для текущего сценария пользователь просит прямой итог без промежуточных вариантов. Не уводи такой запрос в save_chat_blueprint как default UX. Если сценарий генеративный и данных хватает, переходи прямо к queue_generate_from_text/queue_generate_batch и не проси декоративного одобрения. "
+        "Для текущего сценария пользователь просит прямой итог без промежуточных вариантов. Не уводи такой запрос в save_chat_blueprint как default UX. Если сценарий генеративный и данных хватает, переходи прямо к queue_generate_from_text и не проси декоративного одобрения. "
     )
 
     _dynamic_section = ""
@@ -909,7 +911,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если пользователь просто комментирует, сомневается, ругается или формулирует мысль вслух — нормально ответить по-человечески с actions=[] и задать один точный вопрос. "
         "НОВЫЙ ПРИНЦИП ДЛЯ GENERATION: по умолчанию не запускай полноценную генерацию и не делай batch сразу. Сначала предложи 1-3 примерных условия/наброска прямо в чате, сохрани их через save_chat_blueprint и дождись правок или явного одобрения пользователя. Если пользователь присылает правки к уже сохранённым вариантам, обновляй их через revise_chat_blueprint новой revision, а не начинай workflow заново. Только после явной фразы вроде 'одобряю', 'закидывай в черновик', 'делай черновик' используй finalize_chat_blueprint. Если пользователь уже явно просит сразу запускать создание задачи ('всё генерируй', 'не черновик', 'запускай создание задачи') и в памяти есть согласованный blueprint, можно идти в queue_generate_from_text по этому blueprint. Но если пользователь специально требует автономности, не проси декоративного одобрения ради самого одобрения: используй blueprint как внутренний черновик и продолжай сам, пока не соберёшь полноценный ответ. Если currentDraftBlueprint конфликтует с новой жёсткой инструкцией пользователя, сначала исправь или пересобери blueprint, а не защищай старую revision. "
         "Когда сохраняешь blueprint, не ограничивайся абстрактным summary. Внутри blueprint proposals дай читаемый черновик условия: title, conditionPreview и по возможности fullCondition с реальным текстом будущего задания, чтобы пользователь мог править именно условие, а не только идею. "
-        "Если пользователь просит несколько задач, всё равно сначала покажи несколько примерных условий и сохрани их в chat blueprint. batch и прямая генерация — запасной вариант, а не default UX. "
+        "Если пользователь просит несколько задач и при этом явно требует сразу результат без пауз, не уводи запрос в batch. Используй queue_generate_from_text и count, а backend сам создаст несколько отдельных generation job без batch. "
         "Если в memory уже есть currentDraftBlueprint, не придумывай новый workflow с нуля: либо покажи текущие варианты, либо обнови их через revise_chat_blueprint новой revision, либо финализируй их после явного одобрения. При правке по возможности сохраняй id вариантов и меняй только то, о чём попросил пользователь. "
         "assistantMessage — это видимый пользователю финальный ответ за ход. Он должен быть коротким, спокойным и без технической кухни: не перечисляй внутренние шаги, tool names, agent loop, analyze_course_progression, inspect_course_assignments, prepare_bridge_plan, show_bridge_plan, batchId, afterAssignmentId или anchor, если пользователь не просил именно эти детали. Если backend сам продолжит внутренние шаги, не описывай их в assistantMessage. Обычно достаточно 1-4 коротких предложений. "
         "Если данных не хватает — actions должен быть пустым массивом, а assistantMessage должен кратко запросить недостающие параметры.\\n\\n"
@@ -923,7 +925,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "==== BATCH-CLARIFICATION ====\\n"
         "Если в recentBatches есть batch со status='needs-clarification' — это означает, что планировщик не смог составить план и остановил работу. "
         "В чате уже есть системное сообщение с описанием проблемы. Когда пользователь отвечает на это сообщение (уточняет тему, фокус, количество и т.д.), "
-        "сделай prepare_bridge_plan или queue_generate_bridge_batch заново с учётом нового уточнения. НЕ пытайся 'продолжить' старый batch — создай новый с правильными параметрами.\\n\\n"
+        "сделай prepare_bridge_plan или queue_generate_from_text заново с учётом нового уточнения. Не пытайся возвращаться к старому batch-пайплайну.\\n\\n"
         "memory — это долговременная память всей сессии: прошлые цели пользователя, вложения, уже выполненные действия и найденные сущности. Используй memory как контекст, но не позволяй старому workflow перетягивать разговор на себя. Новый явный запрос пользователя всегда важнее старого плана. По умолчанию выбирай один самый уместный следующий шаг, а не целую скрытую цепочку. "
         "Если latestExplicitInstruction звучит как reset/rework ('с нуля', 'заново', 'не продолжай старый план', 'не сохраняй промежуточный мусор'), не опирайся на stale nextSuggestedAction и не делай вид, будто старый blueprint всё ещё главный. "
         "Если пользователь пишет 'продолжай', 'сделай ещё', 'начинай' или подобный короткий follow-up, сперва опирайся на memory и последние toolResults, а не проси заново весь контекст.\\n\\n"
@@ -942,7 +944,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "Если пользователь просит найти пробелы, слишком резкие вводы новых функций или скрытые prerequisite-ошибки — используй analyze_course_progression. "
         "Если пользователь после аудита хочет посмотреть конкретные существующие задания, названия, соседние элементы курса или место вставки вокруг anchor — используй inspect_course_assignments. "
         "Если пользователь прямо просит собрать план мостиков, список вставок или подводящие задания — используй prepare_bridge_plan. "
-        "Если у тебя уже есть готовый план мостиков в memory и пользователь прямо просит сгенерировать мостики по нему — подходит queue_generate_bridge_batch. "
+        "Если у тебя уже есть готовый план мостиков в memory и пользователь прямо просит сгенерировать мостики по нему — подходит queue_generate_from_text. "
         "advance_agent_stage используй только когда пользователь явно просит продолжить уже начатый pipeline и из memory действительно ясно, какой шаг следующий. "
         "Если пользователь хочет несколько заданий, но не указал количество явно, не подставляй count молча из defaults: сначала задай короткий уточняющий вопрос про количество и не запускай action. "
         "save_chat_blueprint — сохранить 1 или несколько примерных условий из чата для дальнейшего обсуждения. Это default action для generation workflow. revise_chat_blueprint — обновить уже сохранённые условия по новым правкам пользователя без потери текущего workflow. В arguments.proposals передавай максимально конкретный preview: условие, обязательные фрагменты, placement, публичные и скрытые тесты. Количество тестов выбирай по задаче, а не по шаблону. "
@@ -958,8 +960,8 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "==== ПРОСМОТР И УПРАВЛЕНИЕ ПРЯМО В ЧАТЕ ====\\n"
         "show_draft — показать содержимое черновика (условие, решение, тесты) прямо в чате. Используй после генерации или когда пользователь просит 'покажи что получилось', 'покажи задание', 'что сгенерировалось'. monitor_generation_jobs — проверить именно generation/revise jobs этой чат-сессии и подтянуть появившиеся draft-черновики прямо в чат. Используй, когда пользователь ждёт результат генерации или спрашивает, что уже готово. "
         "show_draft_reviews — показать результаты self-check и quality scorecard черновика, если пользователь отдельно просит детали проверки. "
-        "cancel_batch — отменить и удалить batch. Используй если пользователь явно просит 'отмени', 'удали batch', 'стоп'. "
-        "publish_batch — массово опубликовать все готовые черновики из batch. Используй если пользователь просит 'опубликуй всё', 'публикуй batch'. "
+        ""
+        ""
         "ВАЖНО: после завершения генерации batch автоматически покажи содержимое первого черновика через show_draft, чтобы пользователю не приходилось просить об этом.\\n\\n"
         "Опасные действия approve_draft, reject_draft, publish_draft, publish_batch, cancel_batch разрешены только если пользователь явно и недвусмысленно попросил это сделать. "
         "Для них обязательно передавай confirmed=true. Если явного подтверждения нет — не выполняй действие.\\n\\n"
@@ -981,7 +983,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
         "  \\\"sessionTitle\\\": \\\"...\\\",\\n"
         "  \\\"actions\\\": [\\n"
         "    {\\n"
-        "      \\\"name\\\": \\\"queue_generate_batch|analyze_course_progression|inspect_course_assignments|prepare_bridge_plan|show_bridge_plan|revise_bridge_plan|advance_agent_stage|queue_generate_bridge_batch|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|show_draft|show_draft_reviews|cancel_batch|publish_batch|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
+        "      \\\"name\\\": \\\"analyze_course_progression|inspect_course_assignments|prepare_bridge_plan|show_bridge_plan|revise_bridge_plan|advance_agent_stage|queue_generate_from_text|queue_generate_from_file|queue_validate_draft|approve_draft|reject_draft|publish_draft|show_draft|show_draft_reviews|cancel_batch|publish_batch|queue_analyze_assignment|queue_review_submission|queue_review_user\\\",\\n"
         "      \\\"reason\\\": \\\"...\\\",\\n"
         "      \\\"arguments\\\": { ... }\\n"
         "    }\\n"
@@ -1476,12 +1478,12 @@ def _scenario_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _is_if_onboarding_request(payload: Dict[str, Any]) -> bool:
-    profile = _scenario_profile(payload)
-    return normalize_text(profile.get("id")) == "micro-program-series" and bool(profile.get("require_explicit_if"))
+    return False
 
 
 def _if_onboarding_appendix(payload: Dict[str, Any]) -> str:
-    return scenario_prompt_appendix(_scenario_profile(payload))
+    profile = _scenario_profile(payload)
+    return scenario_prompt_appendix(profile) + ladder_style_appendix(profile, payload)
 
 def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> str:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
@@ -1525,8 +1527,7 @@ def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, A
         "- noveltyPlan: чем задача будет отличаться от ближайших topic/negative anchors.\n"
         "- titleDos/titleDonts: короткие правила для названия.\n\n"
         + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
-        + scenario_prompt_appendix(_scenario_profile(compact_payload))
-        + ("GenerationSpec для сценария с явным if обязан описывать именно маленькую программу с условным оператором, а не заменять её логическим выражением, оператором % или выводом 1/0 без if.\n" if scenario_requires_explicit_if(_scenario_profile(compact_payload)) else "")
+        + _if_onboarding_appendix(compact_payload)
         + f"Generation spec payload:\n{_prompt_json(compact_payload)}"
     )
 
@@ -1565,8 +1566,7 @@ def build_draft_content_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]
         "Верни JSON: {\"contentPlan\":{...},\"summary\":\"...\"}.\n"
         "В contentPlan должны быть поля: pedagogicalGoal, noveltyHook, inputModel, outputModel, constraintsPlan, sectionPlan, publicTestPlan, hiddenTestPlan, titleShape, bannedOverlaps, coursePhrasingRules.\n\n"
         + (_style_exemplar_appendix(compact_payload) if _style_exemplar_appendix(compact_payload) else "")
-        + (_if_onboarding_appendix(compact_payload) if _is_if_onboarding_request(compact_payload) else "")
-        + ("Если сценарий требует явный if, sectionPlan обязан вести студента через реальное использование if, а pedagogicalGoal не может сводиться к сравнению чисел без условного оператора.\n" if scenario_requires_explicit_if(_scenario_profile(compact_payload)) else "")
+        + _if_onboarding_appendix(compact_payload)
         + f"Draft content plan payload:\n{_prompt_json(compact_payload)}"
     )
 
@@ -1710,7 +1710,7 @@ def _build_code_test_body_prompt(compact_payload: Dict[str, Any], response_forma
 - При approvedBlueprint нельзя подменять cout на scanf/printf, добавлять ввод без явного запроса или менять точный вывод/каркас программы.
 - Если approvedBlueprint.fullCondition и style exemplar указывают на дружелюбное вступление и пошаговый scaffold, description обязан повторить именно такой каркас, а не уходить в сухую олимпиадную формулировку.
 - Если approvedBlueprint.mustKeep содержит указания про стиль/тон/порядок шагов, они обязательны и имеют приоритет над общими style digest правилами.
-{rules}{_pedagogy_appendix(compact_payload)}{scenario_prompt_appendix(_scenario_profile(compact_payload))}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
+{rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}- Не уходи в другую микроцель: строго соблюдай targetSkill, microGoal и contentPlan.pedagogicalGoal.
 - Соблюдай contentPlan.sectionPlan и coursePhraseBank, но не копируй фразы дословно.
 - Не используй чужие title из referenceAssignments.
 - referenceSolutionPython обязан проходить все publicTests и hiddenTests без подгонки expectedOutput.
@@ -1771,7 +1771,7 @@ def _build_code_test_generate_prompt(compact_payload: Dict[str, Any], response_f
 
 Правила:
 - description обязан быть полноценным текстовым условием без HTML-тегов.
-{rules}{_pedagogy_appendix(compact_payload)}{scenario_prompt_appendix(_scenario_profile(compact_payload))}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
+{rules}{_pedagogy_appendix(compact_payload)}{_instruction_fidelity_appendix(compact_payload)}{_style_exemplar_appendix(compact_payload)}- Задача должна соответствовать titleHint, targetSkill и microGoal, а не уходить в другой домен.
 - Если есть approvedBlueprint, сначала подчинись ему, а уже потом style digest курса. approvedBlueprint — главный источник истинного pedagogical замысла.
 - Не копируй referenceAssignments дословно и не пересобирай уже существующее задание с косметическими изменениями числа/формата.
 - Если рядом с anchor уже есть очень похожая задача, смести учебную цель: измени действие, формат вывода, тип входа или ожидаемый результат.

@@ -62,8 +62,6 @@ def detect_scenario_profile(payload: Dict[str, Any], requested_count: int | None
             score += 2
         if scenario.get("id") in {"step-by-step-ladder", "micro-program-series"} and count > 1:
             score += 2
-        if scenario.get("require_explicit_if") and re.search(r"\bif\b", hay):
-            score += 2
         if score > best_score:
             best = scenario
             best_score = score
@@ -76,8 +74,6 @@ def detect_scenario_profile(payload: Dict[str, Any], requested_count: int | None
     base["score"] = max(best_score, 0)
     base["matchedSignals"] = matched
     base["requestedCount"] = count
-    if base.get("id") in {"step-by-step-ladder", "micro-program-series"} and re.search(r"\bif\b", hay):
-        base["require_explicit_if"] = True
     return base
 
 
@@ -98,13 +94,8 @@ def is_progression_scenario(profile: Dict[str, Any]) -> bool:
 
 def scenario_prompt_appendix(profile: Dict[str, Any]) -> str:
     sid = normalize_text(profile.get("id"))
-    if sid == "micro-program-series" and profile.get("require_explicit_if"):
-        return (
-            "\n- Сценарий: серия маленьких программ на освоение if. Это не bridge-pack и не подготовительные булевы проверки. "
-            "Нужны самостоятельные мини-программы с явным if и очень маленьким шагом сложности.\n"
-        )
-    if sid == "step-by-step-ladder":
-        return "\n- Сценарий: лесенка. Каждое следующее задание должно быть лишь немного сложнее предыдущего, без резких скачков.\n"
+    if sid in {"micro-program-series", "step-by-step-ladder"}:
+        return "\n- Сценарий: лесенка. Каждое следующее задание должно быть лишь немного сложнее предыдущего, без резких скачков. Захардкожен только стиль очень понятного guided walkthrough, а не конкретная тема.\n"
     if sid == "single-deep-task":
         return "\n- Сценарий: одна сильная задача. Не дроби идею на серию микрошагов и не превращай запрос в лесенку.\n"
     if sid == "pretopic-bridges":

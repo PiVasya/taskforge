@@ -405,6 +405,8 @@ def _chat_is_autonomous_mode(payload: Dict[str, Any]) -> bool:
     if any(token in contract_summary for token in ["без промежуточ", "только итог", "автоном", "без согласован"]):
         return True
     last_user = _chat_last_user_text(payload)
+    if isinstance(result.get("actions"), list):
+        result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
     return _chat_is_autonomous_rework_request(last_user)
 
 
@@ -414,7 +416,7 @@ def _chat_fill_required_chat_args(payload: Dict[str, Any], action: Dict[str, Any
     course_id = _chat_pick_course_id(payload, action if isinstance(action, dict) else {})
     if course_id and not str(args.get("courseId") or "").strip() and str(action.get("name") or "").strip() in {
         "analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "revise_bridge_plan",
-        "save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint", "queue_generate_from_text", "queue_generate_batch",
+        "save_chat_blueprint", "revise_chat_blueprint", "finalize_chat_blueprint", "queue_generate_from_text",
         "queue_generate_from_file", "queue_generate_bridge_batch", "advance_agent_stage", "drop_chat_blueprint", "show_chat_blueprint",
         "revise_draft_from_chat"
     }:
@@ -474,6 +476,8 @@ def _action_is_destructive(name: str) -> bool:
 
 def _chat_runtime_state(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     last_user = _chat_last_user_text(payload)
+    if isinstance(result.get("actions"), list):
+        result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
     assistant_message = str(result.get("assistantMessage") or "")
     latest_intent_kind = _chat_latest_intent_kind(payload, last_user, assistant_message)
     return {
@@ -566,7 +570,10 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
         if not isinstance(action.get("arguments"), dict):
             action["arguments"] = {}
         _chat_fill_required_chat_args(payload, action)
-        if name in {"queue_generate_from_text", "queue_generate_batch", "queue_generate_from_file"} and runtime.get("latest_intent_kind") == "generate" and not _chat_runtime_allows_generation(runtime):
+        if name == "queue_generate_batch":
+            action["name"] = "queue_generate_from_text"
+            name = "queue_generate_from_text"
+        if name in {"queue_generate_from_text", "queue_generate_from_file"} and runtime.get("latest_intent_kind") == "generate" and not _chat_runtime_allows_generation(runtime):
             issues.append("generation requires chat blueprint approval first")
             continue
         if name == "finalize_chat_blueprint" and not (runtime.get("finalize_request") or runtime.get("direct_generate") or runtime.get("has_blueprint") or runtime.get("autonomous")):
@@ -1208,11 +1215,36 @@ def _looks_like_progress_message(message: str) -> bool:
     ]
     return any(marker in low for marker in markers)
 
+def _coerce_batch_chat_action(action: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(action, dict):
+        return action
+    name = str(action.get("name") or "").strip()
+    if name != "queue_generate_batch":
+        return action
+    args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+    action["name"] = "queue_generate_from_text"
+    action["reason"] = str(action.get("reason") or "").strip() or "Перекидываю устаревший batch-вызов в прямую генерацию из текста без batch."
+    action["arguments"] = {
+        "courseId": args.get("courseId"),
+        "assignmentType": args.get("assignmentType") or "code-test",
+        "prompt": args.get("prompt"),
+        "sourceText": args.get("sourceText") or args.get("prompt"),
+        "count": args.get("count") or 1,
+        "difficulty": args.get("difficulty") or 2,
+        "titleHint": args.get("titleHint"),
+        "notes": args.get("notes"),
+        "enableSelfCheck": True,
+    }
+    return action
+
+
 def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return {"assistantMessage": "Я не смогла корректно разобрать ответ модели. Повтори запрос короче или уточни действие.", "actions": []}
 
     last_user = _chat_last_user_text(payload)
+    if isinstance(result.get("actions"), list):
+        result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
     prompt = str(result.get("prompt") or result.get("summary") or result.get("assistantMessage") or "").strip()
     latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
     if latest_intent_kind in {"generate", "revise-blueprint"} and isinstance(result.get("draftBlueprint"), dict):
@@ -1268,6 +1300,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         if result.get("actions"):
             assistant_msg = str(result.get("assistantMessage") or "").strip()
             last_user = _chat_last_user_text(payload)
+            result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
             seen_action_names = set()
             deduped_actions = []
             for action in result["actions"]:
@@ -1307,6 +1340,8 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         }
 
     last_user = _chat_last_user_text(payload)
+    if isinstance(result.get("actions"), list):
+        result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
     course_id = _chat_pick_course_id(payload, result)
     raw_count = result.get("count")
     model_count = (_chat_extract_requested_count(str(raw_count or "")) or _chat_safe_count(raw_count, 1)) if str(raw_count or "").strip() else 1
@@ -1589,7 +1624,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     "arguments": {"courseId": course_id, "focus": focus_text},
                 }],
             }
-        if next_suggested in {"analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "queue_generate_bridge_batch", "queue_generate_batch", "queue_generate_from_text"}:
+        if next_suggested in {"analyze_course_progression", "inspect_course_assignments", "prepare_bridge_plan", "show_bridge_plan", "queue_generate_bridge_batch", "queue_generate_from_text"}:
             return {
                 "assistantMessage": "Продолжаю от текущего состояния сессии.",
                 "sessionTitle": _chat_build_session_title(payload),

@@ -24,9 +24,7 @@ internal static class AiGenerationScenarioRouter
             .Take(6)
             .ToList();
 
-        var requireExplicitIf = selected.RequireExplicitIf
-            || ((selected.Id is "step-by-step-ladder" or "micro-program-series")
-                && Regex.IsMatch(haystack, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+        var requireExplicitIf = selected.RequireExplicitIf;
 
         return new AiGenerationScenarioProfile
         {

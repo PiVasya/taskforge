@@ -43,8 +43,6 @@ internal sealed record AiGenerationScenarioDefinition(
             score += 2;
         if ((Id is "step-by-step-ladder" or "micro-program-series") && requestedCount > 1)
             score += 2;
-        if (RequireExplicitIf && Regex.IsMatch(haystack, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            score += 2;
         return score;
     }
 }
