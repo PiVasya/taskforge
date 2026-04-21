@@ -1571,13 +1571,16 @@ def _requests_explicit_anchor_from_start(text: str, concept: str | None = None) 
     )
 
 
-def _is_pre_anchor_scaffolding_request(payload: Dict[str, Any]) -> bool:
+def _anchor_routing_diagnostics(payload: Dict[str, Any]) -> Dict[str, Any]:
     low = _payload_request_text(payload)
     concept = _extract_anchor_concept(low)
-    if not low or not concept or _requests_explicit_anchor_from_start(low, concept):
-        return False
-    if not _text_mentions_anchor(low, concept):
-        return False
+    if not low or not concept:
+        return {"concept": concept, "mode": "neutral", "mentionsAnchor": False, "explicitLatest": False, "explicitHaystack": False, "preAnchor": False, "preReason": "no-concept"}
+    memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+    latest_text = " ".join([str(memory.get("latestExplicitInstruction") or "").strip(), str(memory.get("latestTeachingScript") or "").strip()]).strip().lower()
+    explicit_latest = _requests_explicit_anchor_from_start(latest_text, concept)
+    explicit_haystack = _requests_explicit_anchor_from_start(low, concept)
+    mentions_anchor = _text_mentions_anchor(low, concept)
     explicit_before_markers = [
         f"перед первым {concept}",
         f"перед первым появлением {concept}",
@@ -1594,21 +1597,44 @@ def _is_pre_anchor_scaffolding_request(payload: Dict[str, Any]) -> bool:
     ]
     if concept == "if":
         explicit_before_markers.extend(["до ветвлен", "до условн"])
-    if any(marker in low for marker in explicit_before_markers):
-        return True
+    matched_before = [marker for marker in explicit_before_markers if marker in low]
     mentions_course = any(token in low for token in ["курс", "задан", "assignment"])
-    abrupt_markers = ["без введен", "без обучал", "без объяснен", "резко", "слишком рано", "появля"]
-    prep_markers = ["подводящ", "подготов", "обучал", "лесенк", "пошаг", "перед темой"]
-    return mentions_course and any(marker in low for marker in abrupt_markers) and any(marker in low for marker in prep_markers)
+    abrupt_markers = [marker for marker in ["без введен", "без обучал", "без объяснен", "резко", "слишком рано", "появля"] if marker in low]
+    prep_markers = [marker for marker in ["подводящ", "подготов", "обучал", "лесенк", "пошаг", "перед темой"] if marker in low]
+    pre_anchor = False
+    pre_reason = "none"
+    if not explicit_latest and not explicit_haystack and mentions_anchor:
+        if matched_before:
+            pre_anchor = True
+            pre_reason = "explicit-before-marker"
+        elif mentions_course and abrupt_markers and prep_markers:
+            pre_anchor = True
+            pre_reason = "abrupt-course-gap-fallback"
+    asks_for_ladder = any(token in low for token in ["лесенк", "пошаг", "маленьких программ", "серия", "шаг за шаг", "с нуля"])
+    onboarding = mentions_anchor and asks_for_ladder and not pre_anchor
+    mode = "pre-anchor" if pre_anchor else ("anchor-onboarding" if onboarding else "neutral")
+    return {
+        "concept": concept,
+        "mode": mode,
+        "mentionsAnchor": mentions_anchor,
+        "explicitLatest": explicit_latest,
+        "explicitHaystack": explicit_haystack,
+        "preAnchor": pre_anchor,
+        "preReason": pre_reason,
+        "matchedBefore": matched_before,
+        "abruptMarkers": abrupt_markers,
+        "prepMarkers": prep_markers,
+        "asksForLadder": asks_for_ladder,
+    }
+
+
+def _is_pre_anchor_scaffolding_request(payload: Dict[str, Any]) -> bool:
+    return bool(_anchor_routing_diagnostics(payload).get("preAnchor"))
 
 
 def _is_anchor_onboarding_request(payload: Dict[str, Any]) -> bool:
-    low = _payload_request_text(payload)
-    concept = _extract_anchor_concept(low)
-    if not low or not concept or _is_pre_anchor_scaffolding_request(payload):
-        return False
-    asks_for_ladder = any(token in low for token in ["лесенк", "пошаг", "маленьких программ", "серия", "шаг за шаг", "с нуля"])
-    return _text_mentions_anchor(low, concept) and asks_for_ladder
+    diag = _anchor_routing_diagnostics(payload)
+    return bool(diag.get("concept")) and bool(diag.get("mentionsAnchor")) and bool(diag.get("asksForLadder")) and not bool(diag.get("preAnchor"))
 
 
 def _is_pre_if_scaffolding_request(payload: Dict[str, Any]) -> bool:

@@ -79,7 +79,123 @@ function uniqueStrings(values = []) {
   return Array.from(new Set((values || []).filter(Boolean)));
 }
 
+function truncateText(value, max = 320) {
+  const text = String(value || '');
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function debugArray(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function ToolDebugPanel({ debugInfo }) {
+  if (!debugInfo || typeof debugInfo !== 'object') return null;
+  const routing = debugInfo.routing || {};
+  const memory = debugInfo.memory || {};
+  const proposals = debugInfo.proposals || {};
+  const validationIssues = debugArray(debugInfo.validationIssues);
+  const latestMarkers = debugArray(routing.latestExplicitMarkers);
+  const haystackMarkers = debugArray(routing.haystackExplicitMarkers);
+  const preMarkers = debugArray(routing.preAnchorMarkers);
+  const recentGoals = debugArray(memory.recentGoalsTail);
+  const proposalTitles = debugArray(proposals.titles);
+  const explicitTitles = debugArray(proposals.explicitAnchorTitles);
+  const agentLoop = debugInfo.agentLoop || {};
+  const requestedActions = debugArray(agentLoop.requestedActions);
+  const autoActions = debugArray(agentLoop.autoActions);
+
+  return (
+    <details className="mt-3 rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] px-3 py-3 text-xs bg-white/40 dark:bg-neutral-950/30" open>
+      <summary className="cursor-pointer font-medium">Диагностика маршрутизации</summary>
+      <div className="mt-3 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {debugInfo.actionName ? <Badge variant="outline">action: {debugInfo.actionName}</Badge> : null}
+          {debugInfo.anchorConcept ? <Badge variant="outline">anchor: {debugInfo.anchorConcept}</Badge> : null}
+          {routing.mode ? <Badge variant={routing.mode === 'pre-anchor' ? 'danger' : routing.mode === 'anchor-onboarding' ? 'success' : 'outline'}>mode: {routing.mode}</Badge> : null}
+          {typeof routing.explicitStartLatest === 'boolean' ? <Badge variant={routing.explicitStartLatest ? 'success' : 'outline'}>latest explicit: {routing.explicitStartLatest ? 'yes' : 'no'}</Badge> : null}
+          {typeof routing.explicitStartHaystack === 'boolean' ? <Badge variant={routing.explicitStartHaystack ? 'success' : 'outline'}>haystack explicit: {routing.explicitStartHaystack ? 'yes' : 'no'}</Badge> : null}
+          {typeof routing.preAnchorDetected === 'boolean' ? <Badge variant={routing.preAnchorDetected ? 'danger' : 'outline'}>pre-anchor: {routing.preAnchorDetected ? 'yes' : 'no'}</Badge> : null}
+          {typeof routing.allowsExplicitOnboarding === 'boolean' ? <Badge variant={routing.allowsExplicitOnboarding ? 'success' : 'outline'}>onboarding: {routing.allowsExplicitOnboarding ? 'yes' : 'no'}</Badge> : null}
+        </div>
+
+        {routing.preAnchorReason ? <div className="opacity-80">Причина pre-anchor: <span className="font-medium">{routing.preAnchorReason}</span></div> : null}
+        {validationIssues.length > 0 ? (
+          <div>
+            <div className="font-medium opacity-85">Почему validation упал</div>
+            <ul className="mt-1 list-disc pl-5 space-y-1 opacity-80">
+              {validationIssues.map((item, index) => <li key={`issue-${index}`}>{item}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Latest explicit instruction</div>
+            <div className="mt-1 whitespace-pre-wrap opacity-75">{memory.latestExplicitInstruction || '—'}</div>
+          </div>
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Recent goals tail</div>
+            <div className="mt-1 space-y-1 opacity-75">
+              {recentGoals.length === 0 ? <div>—</div> : recentGoals.map((item, index) => <div key={`goal-${index}`}>• {truncateText(item, 220)}</div>)}
+            </div>
+          </div>
+        </div>
+
+        {memory.instructionHaystack ? (
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Haystack</div>
+            <div className="mt-1 whitespace-pre-wrap opacity-75">{memory.instructionHaystack}</div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Latest explicit markers</div>
+            <div className="mt-1 opacity-75">{latestMarkers.length === 0 ? '—' : latestMarkers.join(', ')}</div>
+          </div>
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Haystack explicit markers</div>
+            <div className="mt-1 opacity-75">{haystackMarkers.length === 0 ? '—' : haystackMarkers.join(', ')}</div>
+          </div>
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Pre-anchor markers</div>
+            <div className="mt-1 opacity-75">{preMarkers.length === 0 ? '—' : preMarkers.join(', ')}</div>
+          </div>
+        </div>
+
+        {(proposalTitles.length > 0 || explicitTitles.length > 0) ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+              <div className="font-medium opacity-85">Proposal titles</div>
+              <div className="mt-1 space-y-1 opacity-75">
+                {proposalTitles.length === 0 ? <div>—</div> : proposalTitles.map((item, index) => <div key={`pt-${index}`}>• {item}</div>)}
+              </div>
+            </div>
+            <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+              <div className="font-medium opacity-85">Explicit anchor titles</div>
+              <div className="mt-1 space-y-1 opacity-75">
+                {explicitTitles.length === 0 ? <div>—</div> : explicitTitles.map((item, index) => <div key={`et-${index}`}>• {item}</div>)}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {(requestedActions.length > 0 || autoActions.length > 0 || agentLoop.traceSummary) ? (
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Agent loop</div>
+            {agentLoop.traceSummary ? <div className="mt-1 opacity-75">{agentLoop.traceSummary}</div> : null}
+            {requestedActions.length > 0 ? <div className="mt-1 opacity-75">requested: {requestedActions.join(' → ')}</div> : null}
+            {autoActions.length > 0 ? <div className="mt-1 opacity-75">auto: {autoActions.join(' → ')}</div> : null}
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 function normalizeToolCalls(message) {
+
   if (Array.isArray(message?.toolCalls) && message.toolCalls.length > 0) return message.toolCalls;
   return message?.toolCall ? [message.toolCall] : [];
 }
@@ -522,6 +638,8 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
       {result?.batchId ? <LiveBatchCard batchId={result.batchId} /> : null}
       {result?.jobId && !result?.batchId ? <LiveJobCard jobId={result.jobId} /> : null}
 
+      {result?.debugInfo ? <ToolDebugPanel debugInfo={result.debugInfo} /> : null}
+
       <div className="mt-3 flex flex-wrap gap-2">
         {result?.navigateTo ? (
           <Link to={result.navigateTo} className="btn-outline inline-flex">Открыть связанную страницу</Link>
@@ -558,7 +676,8 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
       || result?.assignmentId
       || result?.jobId
       || result?.batchId
-      || ['failed', 'error', 'cancelled', 'partial'].includes(String(result?.status || '').toLowerCase()));
+      || result?.debugInfo
+      || ['failed', 'error', 'cancelled', 'partial', 'needs-revision'].includes(String(result?.status || '').toLowerCase()));
   const quickReplies = isAssistant && visibleToolCalls.length === 0 && visibleToolResults.length === 0 ? getAssistantQuickReplies(message) : [];
 
   // System/batch-update messages rendered as compact notifications

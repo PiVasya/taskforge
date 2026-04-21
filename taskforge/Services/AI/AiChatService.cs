@@ -71,6 +71,31 @@ public sealed class AiChatService
         public string? AgentTrace { get; set; }
     }
 
+    private sealed class AnchorStartDetection
+    {
+        public bool Detected { get; init; }
+        public bool RegexMatched { get; init; }
+        public List<string> MatchedMarkers { get; init; } = new();
+    }
+
+    private sealed class AnchorRoutingDiagnostics
+    {
+        public string Concept { get; init; } = string.Empty;
+        public string Haystack { get; init; } = string.Empty;
+        public string LatestText { get; init; } = string.Empty;
+        public string LatestTeachingScript { get; init; } = string.Empty;
+        public List<string> RecentGoalsTail { get; init; } = new();
+        public bool MentionsAnchor { get; init; }
+        public AnchorStartDetection LatestExplicitStart { get; init; } = new();
+        public AnchorStartDetection HaystackExplicitStart { get; init; } = new();
+        public bool PreAnchorDetected { get; init; }
+        public string PreAnchorReason { get; init; } = "none";
+        public List<string> PreAnchorMarkers { get; init; } = new();
+        public bool StepByStepSeries { get; init; }
+        public bool AllowsExplicitOnboarding { get; init; }
+        public string Mode { get; init; } = "neutral";
+    }
+
     public AiChatService(ApplicationDbContext db, IAiJobService jobs, ILogger<AiChatService> log)
     {
         _db = db;
@@ -686,7 +711,10 @@ public sealed class AiChatService
             lastArgs = ParseArgumentsObject(toolCall.ArgumentsJson);
             lastResult = await ExecuteToolCallAsync(session, messages, toolCall, createdByUserId, createdByDisplayName, ct);
             if (lastResult != null)
+            {
+                lastResult.ActionName ??= toolCall.Name.Trim();
                 execution.ToolResults.Add(lastResult);
+            }
 
             if (ShouldStopAutoAgentLoop(toolCall.Name, lastResult))
                 return execution;
@@ -720,7 +748,10 @@ public sealed class AiChatService
             lastArgs = ParseArgumentsObject(nextToolCall.ArgumentsJson);
             lastResult = await ExecuteToolCallAsync(session, messages, nextToolCall, createdByUserId, createdByDisplayName, ct);
             if (lastResult != null)
+            {
+                lastResult.ActionName ??= nextToolCall.Name.Trim();
                 execution.ToolResults.Add(lastResult);
+            }
 
             if (ShouldStopAutoAgentLoop(nextToolCall.Name, lastResult) || AutonomousTerminalActionNames.Contains(nextToolCall.Name.Trim()))
                 break;
@@ -734,6 +765,20 @@ public sealed class AiChatService
         execution.AgentTrace = traceSummary;
         if (finalResult != null)
         {
+            var requestedNodes = new JsonArray();
+            foreach (var item in requestedNames)
+                requestedNodes.Add(item);
+            var autoNodes = new JsonArray();
+            foreach (var item in autoNames)
+                autoNodes.Add(item);
+            AttachToolResultDebugInfo(finalResult, "agentLoop", new JsonObject
+            {
+                ["requestedActions"] = requestedNodes,
+                ["autoActions"] = autoNodes,
+                ["traceSummary"] = traceSummary,
+                ["toolCallsExecuted"] = execution.ToolCalls.Count,
+                ["toolResultsSeen"] = execution.ToolResults.Count,
+            });
             execution.ToolResults.Clear();
             execution.ToolResults.Add(finalResult);
         }
@@ -1078,7 +1123,13 @@ public sealed class AiChatService
                     }
                     var blueprintValidation = ValidateChatBlueprintProposals(memory, proposals, args);
                     if (blueprintValidation != null)
+                    {
+                        _log.LogWarning("[AiChatBlueprintValidation] session={SessionId} action=save_chat_blueprint status={Status} debug={Debug}",
+                            session.Id,
+                            blueprintValidation.Status,
+                            blueprintValidation.DebugInfo?.ToJsonString(JsonOptions) ?? "{}");
                         return blueprintValidation;
+                    }
 
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? ((memory.CurrentDraftBlueprint?.Revision ?? 0) + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
@@ -1098,6 +1149,7 @@ public sealed class AiChatService
                         Summary = BuildChatBlueprintSummary(blueprint, memory),
                         CourseId = courseId,
                         NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                        DebugInfo = BuildBlueprintRoutingDebugInfo("save_chat_blueprint", memory, args, proposals),
                     };
                 }
                 case "revise_chat_blueprint":
@@ -1117,7 +1169,13 @@ public sealed class AiChatService
 
                     var blueprintValidation = ValidateChatBlueprintProposals(memory, proposals, args);
                     if (blueprintValidation != null)
+                    {
+                        _log.LogWarning("[AiChatBlueprintValidation] session={SessionId} action=revise_chat_blueprint status={Status} debug={Debug}",
+                            session.Id,
+                            blueprintValidation.Status,
+                            blueprintValidation.DebugInfo?.ToJsonString(JsonOptions) ?? "{}");
                         return blueprintValidation;
+                    }
 
                     var nextRevision = Math.Max(ReadInt(args, "revision") ?? (current.Revision + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
@@ -1137,6 +1195,7 @@ public sealed class AiChatService
                         Summary = BuildChatBlueprintSummary(blueprint, memory),
                         CourseId = courseId,
                         NavigateTo = "/admin/ai/chat?sessionId=" + session.Id,
+                        DebugInfo = BuildBlueprintRoutingDebugInfo("revise_chat_blueprint", memory, args, proposals),
                     };
                 }
                 case "show_chat_blueprint":
@@ -5857,7 +5916,82 @@ public sealed class AiChatService
         if (issues.Count == 0)
             return null;
 
-        return NeedsRevisionTool("Blueprint пока не удовлетворяет явной инструкции пользователя. " + string.Join(" ", issues));
+        var result = NeedsRevisionTool("Blueprint пока не удовлетворяет явной инструкции пользователя. " + string.Join(" ", issues));
+        result.DebugInfo = BuildBlueprintRoutingDebugInfo("validate_chat_blueprint", memory, args, proposals, issues);
+        return result;
+    }
+
+    private static JsonObject BuildBlueprintRoutingDebugInfo(
+        string actionName,
+        AiFoundryChatMemoryDto memory,
+        JsonObject args,
+        IReadOnlyList<AiFoundryChatDraftProposalDto> proposals,
+        IReadOnlyList<string>? issues = null)
+    {
+        var diagnostics = AnalyzeAnchorRouting(memory);
+        var requestedCount = ExtractRequestedProposalCount(memory, args);
+        var anchorLabel = AnchorConceptLabel(diagnostics.Concept);
+        var explicitAnchorTitles = proposals
+            .Where(x => ProposalUsesExplicitAnchor(x, diagnostics.Concept))
+            .Select(x => x.Title ?? string.Empty)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Take(6)
+            .ToList();
+
+        static JsonArray ToJsonArray(IEnumerable<string> values)
+        {
+            var arr = new JsonArray();
+            foreach (var value in values.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+                arr.Add(value);
+            return arr;
+        }
+
+        return new JsonObject
+        {
+            ["kind"] = "blueprint-routing",
+            ["actionName"] = actionName,
+            ["anchorConcept"] = diagnostics.Concept,
+            ["anchorLabel"] = anchorLabel,
+            ["requestedCount"] = requestedCount,
+            ["proposalCount"] = proposals.Count,
+            ["routing"] = new JsonObject
+            {
+                ["mode"] = diagnostics.Mode,
+                ["mentionsAnchor"] = diagnostics.MentionsAnchor,
+                ["explicitStartLatest"] = diagnostics.LatestExplicitStart.Detected,
+                ["explicitStartHaystack"] = diagnostics.HaystackExplicitStart.Detected,
+                ["explicitStartLatestRegexMatched"] = diagnostics.LatestExplicitStart.RegexMatched,
+                ["explicitStartHaystackRegexMatched"] = diagnostics.HaystackExplicitStart.RegexMatched,
+                ["preAnchorDetected"] = diagnostics.PreAnchorDetected,
+                ["preAnchorReason"] = diagnostics.PreAnchorReason,
+                ["stepByStepSeries"] = diagnostics.StepByStepSeries,
+                ["allowsExplicitOnboarding"] = diagnostics.AllowsExplicitOnboarding,
+                ["latestExplicitMarkers"] = ToJsonArray(diagnostics.LatestExplicitStart.MatchedMarkers),
+                ["haystackExplicitMarkers"] = ToJsonArray(diagnostics.HaystackExplicitStart.MatchedMarkers),
+                ["preAnchorMarkers"] = ToJsonArray(diagnostics.PreAnchorMarkers),
+            },
+            ["memory"] = new JsonObject
+            {
+                ["latestExplicitInstruction"] = memory.LatestExplicitInstruction,
+                ["latestTeachingScript"] = memory.LatestTeachingScript,
+                ["recentGoalsTail"] = ToJsonArray(diagnostics.RecentGoalsTail),
+                ["instructionHaystack"] = ShortenSingleLine(diagnostics.Haystack, 900),
+            },
+            ["proposals"] = new JsonObject
+            {
+                ["titles"] = ToJsonArray(proposals.Select(x => x.Title ?? string.Empty)),
+                ["explicitAnchorTitles"] = ToJsonArray(explicitAnchorTitles),
+            },
+            ["validationIssues"] = ToJsonArray(issues ?? Array.Empty<string>()),
+        };
+    }
+
+    private static void AttachToolResultDebugInfo(AiFoundryChatToolResultDto? result, string key, JsonNode? value)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(key) || value == null)
+            return;
+        result.DebugInfo ??= new JsonObject();
+        result.DebugInfo[key] = value;
     }
 
     private static int? ExtractRequestedProposalCount(AiFoundryChatMemoryDto memory, JsonObject args)
@@ -6161,13 +6295,14 @@ public sealed class AiChatService
     private static bool RequestsMorePrograms(AiFoundryChatMemoryDto memory)
         => RequestsMorePrograms(BuildInstructionHaystack(memory));
 
-    private static bool RequestsExplicitAnchorFromStart(AiFoundryChatMemoryDto memory, string? concept = null)
+    private static AnchorStartDetection DetectExplicitAnchorFromStartText(string? text, string? concept = null)
     {
-        var latest = string.Join(" ", new[] { memory.LatestExplicitInstruction, memory.LatestTeachingScript }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        concept ??= DetectAnchorConceptFromText(latest) ?? DetectAnchorConcept(memory);
-        if (string.IsNullOrWhiteSpace(latest) || string.IsNullOrWhiteSpace(concept))
-            return false;
+        var low = (text ?? string.Empty).ToLowerInvariant();
+        concept = (concept ?? DetectAnchorConceptFromText(low))?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(low) || string.IsNullOrWhiteSpace(concept))
+            return new AnchorStartDetection();
 
+        var escaped = Regex.Escape(concept);
         var markers = new[]
         {
             $"на сам {concept}",
@@ -6181,68 +6316,136 @@ public sealed class AiChatService
             $"можно {concept}",
             $"разрешаю {concept}",
         };
-        if (markers.Any(marker => latest.Contains(marker)))
-            return true;
+        var matched = markers.Where(low.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var regexMatched = Regex.IsMatch(low, $@"сначала\s+(?:просто\s+)?{escaped}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || Regex.IsMatch(low, $@"первый\s+шаг[^\n]{{0,40}}(?<![A-Za-zА-Яа-я0-9_]){escaped}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return new AnchorStartDetection
+        {
+            Detected = matched.Count > 0 || regexMatched,
+            RegexMatched = regexMatched,
+            MatchedMarkers = matched,
+        };
+    }
 
-        return Regex.IsMatch(latest, $@"сначала\s+(?:просто\s+)?{Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || Regex.IsMatch(latest, $@"первый\s+шаг[^\n]{{0,40}}(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static AnchorRoutingDiagnostics AnalyzeAnchorRouting(AiFoundryChatMemoryDto memory, string? concept = null, string? prompt = null, string? sourceText = null)
+    {
+        concept ??= DetectAnchorConcept(memory) ?? DetectAnchorConceptFromText(prompt) ?? DetectAnchorConceptFromText(sourceText);
+        concept = (concept ?? string.Empty).Trim().ToLowerInvariant();
+        var haystack = BuildInstructionHaystack(memory);
+        var latestText = string.Join(" ", new[] { memory.LatestExplicitInstruction, memory.LatestTeachingScript }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var recentGoalsTail = (memory.RecentGoals ?? new List<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).TakeLast(4).ToList();
+        var stepByStepSeries = RequestsIfStepByStepSeries(memory, prompt, sourceText);
+        if (string.IsNullOrWhiteSpace(concept))
+        {
+            return new AnchorRoutingDiagnostics
+            {
+                Haystack = haystack,
+                LatestText = latestText,
+                LatestTeachingScript = memory.LatestTeachingScript ?? string.Empty,
+                RecentGoalsTail = recentGoalsTail,
+                StepByStepSeries = stepByStepSeries,
+            };
+        }
+
+        var latestExplicit = DetectExplicitAnchorFromStartText(latestText, concept);
+        var haystackExplicit = DetectExplicitAnchorFromStartText(haystack, concept);
+        var mentionsAnchor = TextMentionsAnchorConcept(haystack, concept);
+        var preAnchorDetected = false;
+        var preAnchorReason = "none";
+        var preMarkers = new List<string>();
+
+        if (!latestExplicit.Detected && !haystackExplicit.Detected && mentionsAnchor)
+        {
+            var low = haystack.ToLowerInvariant();
+            var explicitBeforeMarkers = new List<string>
+            {
+                $"перед первым {concept}",
+                $"перед первым появлением {concept}",
+                $"до первого {concept}",
+                $"до темы {concept}",
+                $"до {concept}",
+                $"перед темой {concept}",
+                $"без самого {concept}",
+                $"без {concept} в условиях",
+                $"в задачках до {concept} не может быть {concept}",
+                $"в задачах до {concept} не может быть {concept}",
+                $"прежде чем вводить {concept}",
+                $"до того как вводить {concept}",
+            };
+            if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+                explicitBeforeMarkers.AddRange(new[] { "до ветвлен", "до условн" });
+            preMarkers = explicitBeforeMarkers.Where(low.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (preMarkers.Count > 0)
+            {
+                preAnchorDetected = true;
+                preAnchorReason = "explicit-before-marker";
+            }
+            else
+            {
+                var mentionsCourse = low.Contains("курс") || low.Contains("задан") || low.Contains("assignment");
+                var abruptMatches = new[] { "без введен", "без обучал", "без объяснен", "резко", "слишком рано", "появля" }.Where(low.Contains).ToList();
+                var prepMatches = new[] { "подводящ", "подготов", "обучал", "лесенк", "пошаг", "перед темой" }.Where(low.Contains).ToList();
+                if (mentionsCourse && abruptMatches.Count > 0 && prepMatches.Count > 0)
+                {
+                    preAnchorDetected = true;
+                    preAnchorReason = "abrupt-course-gap-fallback";
+                    preMarkers = new[] { mentionsCourse ? "курс/задания" : null }
+                        .Concat(abruptMatches)
+                        .Concat(prepMatches)
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList()!;
+                }
+            }
+        }
+
+        var allowsExplicitOnboarding = !preAnchorDetected && stepByStepSeries && mentionsAnchor;
+        return new AnchorRoutingDiagnostics
+        {
+            Concept = concept,
+            Haystack = haystack,
+            LatestText = latestText,
+            LatestTeachingScript = memory.LatestTeachingScript ?? string.Empty,
+            RecentGoalsTail = recentGoalsTail,
+            MentionsAnchor = mentionsAnchor,
+            LatestExplicitStart = latestExplicit,
+            HaystackExplicitStart = haystackExplicit,
+            PreAnchorDetected = preAnchorDetected,
+            PreAnchorReason = preAnchorReason,
+            PreAnchorMarkers = preMarkers,
+            StepByStepSeries = stepByStepSeries,
+            AllowsExplicitOnboarding = allowsExplicitOnboarding,
+            Mode = preAnchorDetected ? "pre-anchor" : (allowsExplicitOnboarding ? "anchor-onboarding" : "neutral"),
+        };
+    }
+
+    private static bool RequestsExplicitAnchorFromStart(AiFoundryChatMemoryDto memory, string? concept = null)
+    {
+        var diagnostics = AnalyzeAnchorRouting(memory, concept);
+        return diagnostics.LatestExplicitStart.Detected || diagnostics.HaystackExplicitStart.Detected;
     }
 
     private static bool RequestsExplicitIfFromStart(AiFoundryChatMemoryDto memory)
         => RequestsExplicitAnchorFromStart(memory, "if");
 
     private static bool RequestsPreAnchorScaffolding(AiFoundryChatMemoryDto memory, string? concept = null)
-    {
-        concept ??= DetectAnchorConcept(memory);
-        if (string.IsNullOrWhiteSpace(concept) || RequestsExplicitAnchorFromStart(memory, concept))
-            return false;
-
-        var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(hay) || !TextMentionsAnchorConcept(hay, concept))
-            return false;
-
-        var explicitBeforeMarkers = new List<string>
-        {
-            $"перед первым {concept}",
-            $"перед первым появлением {concept}",
-            $"до первого {concept}",
-            $"до темы {concept}",
-            $"до {concept}",
-            $"перед темой {concept}",
-            $"без самого {concept}",
-            $"без {concept} в условиях",
-            $"в задачках до {concept} не может быть {concept}",
-            $"в задачах до {concept} не может быть {concept}",
-            $"прежде чем вводить {concept}",
-            $"до того как вводить {concept}",
-        };
-        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
-            explicitBeforeMarkers.AddRange(new[] { "до ветвлен", "до условн" });
-        if (explicitBeforeMarkers.Any(marker => hay.Contains(marker)))
-            return true;
-
-        var mentionsCourse = hay.Contains("курс") || hay.Contains("задан") || hay.Contains("assignment");
-        var abruptMarkers = new[] { "без введен", "без обучал", "без объяснен", "резко", "слишком рано", "появля" };
-        var prepMarkers = new[] { "подводящ", "подготов", "обучал", "лесенк", "пошаг", "перед темой" };
-        return mentionsCourse
-            && abruptMarkers.Any(marker => hay.Contains(marker))
-            && prepMarkers.Any(marker => hay.Contains(marker));
-    }
+        => AnalyzeAnchorRouting(memory, concept).PreAnchorDetected;
 
     private static bool RequestsPreIfScaffolding(AiFoundryChatMemoryDto memory)
         => RequestsPreAnchorScaffolding(memory, "if");
 
     private static bool ShouldAvoidExplicitAnchorBeforeAnchor(AiFoundryChatMemoryDto memory, string? concept = null)
     {
-        concept ??= DetectAnchorConcept(memory);
-        if (string.IsNullOrWhiteSpace(concept))
+        var diagnostics = AnalyzeAnchorRouting(memory, concept);
+        if (string.IsNullOrWhiteSpace(diagnostics.Concept))
             return false;
-        if (RequestsPreAnchorScaffolding(memory, concept))
+        if (diagnostics.PreAnchorDetected)
             return true;
 
-        var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
-        var bridgeBefore = hay.Contains("перед") || hay.Contains("до") || hay.Contains("обучал");
-        return TextMentionsAnchorConcept(hay, concept) && bridgeBefore && !RequestsExplicitAnchorFromStart(memory, concept);
+        var low = diagnostics.Haystack.ToLowerInvariant();
+        var bridgeBefore = low.Contains("перед") || low.Contains("до") || low.Contains("обучал");
+        var explicitFromStart = diagnostics.LatestExplicitStart.Detected || diagnostics.HaystackExplicitStart.Detected;
+        return diagnostics.MentionsAnchor && bridgeBefore && !explicitFromStart;
     }
 
     private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
@@ -6255,12 +6458,7 @@ public sealed class AiChatService
     }
 
     private static bool AllowsExplicitAnchorOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null, string? concept = null)
-    {
-        concept ??= DetectAnchorConcept(memory) ?? DetectAnchorConceptFromText(prompt) ?? DetectAnchorConceptFromText(sourceText);
-        return !string.IsNullOrWhiteSpace(concept)
-            && !RequestsPreAnchorScaffolding(memory, concept)
-            && RequestsIfStepByStepSeries(memory, prompt, sourceText);
-    }
+        => AnalyzeAnchorRouting(memory, concept, prompt, sourceText).AllowsExplicitOnboarding;
 
     private static bool AllowsExplicitIfOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
         => AllowsExplicitAnchorOnboarding(memory, prompt, sourceText, "if");

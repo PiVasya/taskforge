@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using System.Text.Json.Nodes;
+using System.ComponentModel.DataAnnotations;
 
 namespace taskforge.Data.Models.DTO.AI;
 
@@ -586,6 +587,9 @@ public sealed class AiFoundryChatToolCallDto
 
 public sealed class AiFoundryChatToolResultDto
 {
+    [MaxLength(80)]
+    public string? ActionName { get; set; }
+
     [MaxLength(32)]
     public string Status { get; set; } = "done";
 
@@ -594,6 +598,8 @@ public sealed class AiFoundryChatToolResultDto
 
     [MaxLength(512)]
     public string? NavigateTo { get; set; }
+
+    public JsonObject? DebugInfo { get; set; }
 
     public Guid? JobId { get; set; }
 

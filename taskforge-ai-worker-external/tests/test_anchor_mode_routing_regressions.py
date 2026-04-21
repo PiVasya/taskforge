@@ -63,6 +63,23 @@ class AnchorModeRoutingRegressionTests(unittest.TestCase):
         self.assertIn("обучающую лесенку по for", prompt)
         self.assertNotIn("ДО первого for", prompt)
 
+    def test_diagnostics_explain_haystack_explicit_beats_pre(self):
+        payload = {
+            "prompt": "Проанализируй C++ курс: if появляется резко и без обучалки.",
+            "conversation": [{"role": "user", "content": "Сначала просто if, потом if else"}],
+            "memory": {
+                "latestExplicitInstruction": "Напиши черновики к этим задачам",
+                "recentGoals": [
+                    "if появляется резко и без обучалки",
+                    "надо сделать задачки, которые пошагово расскажут как if работает, сначала просто if, потом if else",
+                ],
+            },
+        }
+        diag = prompt_builder._anchor_routing_diagnostics(payload)
+        self.assertEqual(diag.get("mode"), "anchor-onboarding")
+        self.assertFalse(diag.get("explicitLatest"))
+        self.assertTrue(diag.get("explicitHaystack"))
+        self.assertFalse(diag.get("preAnchor"))
 
 if __name__ == "__main__":
     unittest.main()
