@@ -999,6 +999,16 @@ def _chat_should_apply_ladder_style(profile: Dict[str, Any], proposal: Dict[str,
     return looks_too_dry_for_ladder(draft) or not looks_like_ladder_style(draft)
 
 
+def _chat_should_force_ladder_style(payload: Dict[str, Any], last_user: str, prompt: str, proposals: list[Dict[str, Any]], scenario_profile: Dict[str, Any]) -> bool:
+    sid = str((scenario_profile or {}).get("id") or "").strip().lower()
+    if sid in {"step-by-step-ladder", "micro-program-series"}:
+        return True
+    routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, prompt, proposals)
+    if str(routing_hint.get("mode") or "").strip().lower() == "anchor-onboarding":
+        return True
+    return False
+
+
 def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, Any], last_user: str, prompt: str, count: int, assignment_type: str, difficulty: int) -> list[Dict[str, Any]]:
     raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
     proposals = raw.get("proposals") if isinstance(raw.get("proposals"), list) else []
@@ -1060,10 +1070,15 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
                 for t in (((item.get("hiddenTests") if isinstance(item.get("hiddenTests"), list) else existing_item.get("hiddenTests") if isinstance(existing_item.get("hiddenTests"), list) else [])[:8])) if isinstance(t, dict)
             ],
         }
-        if _chat_should_apply_ladder_style(scenario_profile, proposal):
-            proposal = beautify_ladder_proposal(proposal, concept, index, max(1, min(5, count)))
         clean.append(proposal)
     if clean:
+        if _chat_should_force_ladder_style(payload, last_user, prompt, clean, scenario_profile):
+            styled: list[Dict[str, Any]] = []
+            for index, proposal in enumerate(clean, start=1):
+                if _chat_should_apply_ladder_style({"id": "step-by-step-ladder"}, proposal):
+                    proposal = beautify_ladder_proposal(proposal, concept, index, max(1, min(5, count)))
+                styled.append(proposal)
+            return styled
         return clean
     base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
     base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()

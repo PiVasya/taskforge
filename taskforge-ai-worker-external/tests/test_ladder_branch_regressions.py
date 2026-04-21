@@ -101,6 +101,40 @@ class LadderBranchRegressionsTests(unittest.TestCase):
         self.assertFalse(ladder_style.looks_too_dry_for_ladder({"description": styled["fullCondition"]}))
         self.assertTrue(ladder_style.looks_like_ladder_style({"title": styled["title"], "description": styled["fullCondition"]}))
 
+    def test_chat_blueprint_proposals_force_ladder_style_from_anchor_onboarding_hint(self):
+        payload = {
+            "conversation": [{"role": "user", "content": "Согласен, давай конкретные черновики"}],
+            "memory": {
+                "latestExplicitInstruction": "Согласен, давай конкретные черновики",
+                "recentGoals": [
+                    "Проанализируй C++ курс, там есть задачки на if, но они появляются без введения, тоесть резко и без обучалки, поэтому надо сделать задачки которые пошагово расскажут как if работает, сначала просто if, потом if else, и т.п.",
+                ],
+            },
+        }
+        result = {
+            "draftBlueprint": {
+                "proposals": [
+                    {
+                        "title": "Вариант 1. Проверка знака числа",
+                        "conditionPreview": "Напишите программу, которая считывает одно целое число. Если введённое число строго больше нуля, программа должна вывести на экран слово 'Положительное'. В остальных случаях ничего выводить не нужно. Используйте только оператор if.",
+                    },
+                    {
+                        "title": "Вариант 2. if или нечёт",
+                        "conditionPreview": "Напишите программу, которая принимает целое число. Если число делится на 2 без остатка, выведите 'Чётное'. В противном случае выведите 'Нечётное'. Используйте конструкцию if-else.",
+                    },
+                ]
+            },
+            "assistantMessage": "Подготовил конкретные черновики.",
+        }
+
+        proposals = worker._chat_build_blueprint_proposals(payload, result, payload["conversation"][0]["content"], "Подготовил конкретные черновики.", 2, "code-test", 2)
+
+        self.assertEqual(len(proposals), 2)
+        self.assertIn("Следуй шагам", proposals[0]["fullCondition"])
+        self.assertIn("Следуй шагам", proposals[1]["fullCondition"])
+        self.assertTrue(proposals[0]["title"].startswith("Задание 1."))
+        self.assertTrue(proposals[1]["title"].startswith("Задание 2."))
+
     def test_chat_blueprint_proposals_get_ladder_beautifier_for_dry_drafts(self):
         payload = {
             "conversation": [{"role": "user", "content": "Сделай лесенку по if: сначала простой if, потом if else, потом else if"}],
