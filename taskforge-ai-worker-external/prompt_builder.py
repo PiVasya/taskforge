@@ -894,7 +894,7 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Если пользователь просит 'как первая задача', но у тебя нет подтверждённого эталона первой задачи, сначала открой ранние задания курса и только потом сохраняй blueprint. "
             "Если пользователь явно указал точку вставки ('перед 20 заданием', 'после 7 задания'), все proposals обязаны держать именно этот anchor; нельзя молча переносить их в другое место. "
             "Если пользователь попросил конкретное количество задач, proposals в save_chat_blueprint/revise_chat_blueprint должны совпадать по количеству. "
-            "Если запрос звучит как подготовка ДО темы if/else, не вводи явные if/else в ранних bridge-задачах, пока пользователь не попросил обратное. "
+            "Если запрос звучит как подготовка ДО новой конструкции (например if/else), не вводи целевую конструкцию преждевременно в ранних bridge-задачах, пока пользователь явно не попросил уже начинать с неё. "
             "prepare_bridge_plan нельзя вызывать без свежего analyze_course_progression для того же courseId и focus: сначала audit, потом plan. "
             "Если пользователь пишет 'не продолжай старый план', 'повтори заново' или 'все предыдущие черновики недействительны', старый bridge-plan и старый blueprint нужно считать устаревшими, а не продолжать их по инерции. "
             "Никогда не дублируй один и тот же action. Не считай задачу завершённой, если после inspection всё ещё не открыты нужные соседи, не подтверждён эталон или blueprint не прошёл самопроверку. "
@@ -1238,10 +1238,10 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         + (domain_lock_note + "\n" if domain_lock_note else "")
         + (placement_note + "\n" if placement_note else "")
         + (walkthrough_note + "\n" if walkthrough_note else "")
-        + (_pre_if_scaffolding_appendix(compact_payload) if _is_pre_if_scaffolding_request(compact_payload) else "")
-        + (_if_onboarding_appendix(compact_payload) if _is_if_onboarding_request(compact_payload) else "")
-        + ("Для такого запроса tasks должны образовывать подготовительную лесенку ДО первого if: через сравнения, понятные выборы и видимый результат, но без явного if/else в самих условиях. Не перепрыгивай сразу к ветвлению.\n" if _is_pre_if_scaffolding_request(compact_payload) else "")
-        + ("Для такого запроса tasks должны образовывать именно обучающую лесенку по if: первый if, затем if/else, затем ещё 1-2 маленьких шага усложнения. Не планируй абстрактные мостики вроде остатка от деления без if.\n" if _is_if_onboarding_request(compact_payload) else "")
+        + (_pre_if_scaffolding_appendix(compact_payload) if _is_pre_anchor_scaffolding_request(compact_payload) else "")
+        + (_if_onboarding_appendix(compact_payload) if _is_anchor_onboarding_request(compact_payload) else "")
+        + (_pre_anchor_notice(compact_payload) if _is_pre_anchor_scaffolding_request(compact_payload) else "")
+        + (_anchor_onboarding_notice(compact_payload) if _is_anchor_onboarding_request(compact_payload) else "")
         + (retry_note + "\n" if retry_note else "")
         + "\n"
         + f"Batch payload:\n{_prompt_json(compact_payload)}"
@@ -1508,44 +1508,92 @@ def _payload_request_text(payload: Dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
-def _requests_explicit_if_from_start(text: str) -> bool:
-    low = (text or "").lower()
+_ANCHOR_KEYWORD_ALIASES = {
+    "if": ["if", "ветвл", "условн"],
+    "for": ["for", "цикл for", "for loop"],
+    "while": ["while", "цикл while", "while loop"],
+    "switch": ["switch", "case", "switch/case"],
+    "foreach": ["foreach", "for each"],
+}
+
+
+def _extract_anchor_concept(text: str) -> str:
+    low = (text or "").lower().strip()
     if not low:
+        return ""
+    for concept in ("foreach", "switch", "while", "for", "if"):
+        if re.search(rf"(?<![a-zа-я0-9_]){re.escape(concept)}(?![a-zа-я0-9_])", low, flags=re.IGNORECASE):
+            return concept
+    if "ветвл" in low or "условн" in low:
+        return "if"
+    if "case" in low:
+        return "switch"
+    return ""
+
+
+def _anchor_label(payload: Dict[str, Any]) -> str:
+    concept = _extract_anchor_concept(_payload_request_text(payload))
+    return concept or "новой конструкции"
+
+
+def _text_mentions_anchor(low: str, concept: str) -> bool:
+    if not low or not concept:
         return False
+    aliases = _ANCHOR_KEYWORD_ALIASES.get(concept, [concept])
+    if any(alias in low for alias in aliases if alias):
+        return True
+    return re.search(rf"(?<![a-zа-я0-9_]){re.escape(concept)}(?![a-zа-я0-9_])", low, flags=re.IGNORECASE) is not None
+
+
+def _requests_explicit_anchor_from_start(text: str, concept: str | None = None) -> bool:
+    low = (text or "").lower()
+    concept = (concept or _extract_anchor_concept(low)).strip().lower()
+    if not low or not concept:
+        return False
+    escaped = re.escape(concept)
     markers = [
-        "на сам if",
-        "именно if",
-        "уже с if",
-        "сразу if",
-        "первый шаг if",
-        "первый шаг — if",
-        "первый шаг - if",
-        "первым должен быть if",
-        "можно if",
-        "разрешаю if",
+        f"на сам {concept}",
+        f"именно {concept}",
+        f"уже с {concept}",
+        f"сразу {concept}",
+        f"первый шаг {concept}",
+        f"первый шаг — {concept}",
+        f"первый шаг - {concept}",
+        f"первым должен быть {concept}",
+        f"можно {concept}",
+        f"разрешаю {concept}",
     ]
-    return any(marker in low for marker in markers)
+    if any(marker in low for marker in markers):
+        return True
+    return bool(
+        re.search(rf"сначала\s+(?:просто\s+)?{escaped}(?![a-zа-я0-9_])", low, flags=re.IGNORECASE)
+        or re.search(rf"первый\s+шаг[^\n]{{0,40}}(?<![a-zа-я0-9_]){escaped}(?![a-zа-я0-9_])", low, flags=re.IGNORECASE)
+    )
 
 
-def _is_pre_if_scaffolding_request(payload: Dict[str, Any]) -> bool:
+def _is_pre_anchor_scaffolding_request(payload: Dict[str, Any]) -> bool:
     low = _payload_request_text(payload)
-    if not low or _requests_explicit_if_from_start(low):
+    concept = _extract_anchor_concept(low)
+    if not low or not concept or _requests_explicit_anchor_from_start(low, concept):
         return False
-    mentions_if_topic = any(token in low for token in ["if", "ветвл", "условн"])
-    if not mentions_if_topic:
+    if not _text_mentions_anchor(low, concept):
         return False
     explicit_before_markers = [
-        "перед первым if",
-        "перед первым появлением if",
-        "до первого if",
-        "до темы if",
-        "до if",
-        "до ветвлен",
-        "до условн",
-        "прежде чем объясн",
-        "прежде чем вводить if",
-        "до того как вводить if",
+        f"перед первым {concept}",
+        f"перед первым появлением {concept}",
+        f"до первого {concept}",
+        f"до темы {concept}",
+        f"до {concept}",
+        f"перед темой {concept}",
+        f"без самого {concept}",
+        f"без {concept} в условиях",
+        f"в задачках до {concept} не может быть {concept}",
+        f"в задачах до {concept} не может быть {concept}",
+        f"прежде чем вводить {concept}",
+        f"до того как вводить {concept}",
     ]
+    if concept == "if":
+        explicit_before_markers.extend(["до ветвлен", "до условн"])
     if any(marker in low for marker in explicit_before_markers):
         return True
     mentions_course = any(token in low for token in ["курс", "задан", "assignment"])
@@ -1554,13 +1602,21 @@ def _is_pre_if_scaffolding_request(payload: Dict[str, Any]) -> bool:
     return mentions_course and any(marker in low for marker in abrupt_markers) and any(marker in low for marker in prep_markers)
 
 
-def _is_if_onboarding_request(payload: Dict[str, Any]) -> bool:
+def _is_anchor_onboarding_request(payload: Dict[str, Any]) -> bool:
     low = _payload_request_text(payload)
-    if not low or _is_pre_if_scaffolding_request(payload):
+    concept = _extract_anchor_concept(low)
+    if not low or not concept or _is_pre_anchor_scaffolding_request(payload):
         return False
-    mentions_if_topic = any(token in low for token in ["if", "ветвл", "условн"])
     asks_for_ladder = any(token in low for token in ["лесенк", "пошаг", "маленьких программ", "серия", "шаг за шаг", "с нуля"])
-    return mentions_if_topic and asks_for_ladder
+    return _text_mentions_anchor(low, concept) and asks_for_ladder
+
+
+def _is_pre_if_scaffolding_request(payload: Dict[str, Any]) -> bool:
+    return _is_pre_anchor_scaffolding_request(payload)
+
+
+def _is_if_onboarding_request(payload: Dict[str, Any]) -> bool:
+    return _is_anchor_onboarding_request(payload)
 
 
 def _pre_if_scaffolding_appendix(payload: Dict[str, Any]) -> str:
@@ -1571,6 +1627,20 @@ def _pre_if_scaffolding_appendix(payload: Dict[str, Any]) -> str:
 def _if_onboarding_appendix(payload: Dict[str, Any]) -> str:
     profile = _scenario_profile(payload)
     return scenario_prompt_appendix(profile) + ladder_style_appendix(profile, payload)
+
+
+def _pre_anchor_notice(payload: Dict[str, Any]) -> str:
+    concept = _anchor_label(payload)
+    if concept == "if":
+        return "Для такого запроса tasks должны образовывать подготовительную лесенку ДО первого if: через понятные маленькие шаги и видимый результат, но без явного if/else в самих условиях. Не перепрыгивай сразу к новой конструкции.\n"
+    return f"Для такого запроса tasks должны образовывать подготовительную лесенку ДО первого {concept}: через понятные маленькие шаги и видимый результат, но без явного {concept} в самих условиях. Не перепрыгивай сразу к новой конструкции.\n"
+
+
+def _anchor_onboarding_notice(payload: Dict[str, Any]) -> str:
+    concept = _anchor_label(payload)
+    if concept == "if":
+        return "Для такого запроса tasks должны образовывать именно обучающую лесенку по if: первый if, затем if/else, затем ещё 1-2 маленьких шага усложнения. Не планируй абстрактные мостики вместо самой конструкции.\n"
+    return f"Для такого запроса tasks должны образовывать именно обучающую лесенку по {concept}: первый шаг уже с {concept}, затем ещё 1-2 маленьких шага усложнения. Не планируй абстрактные мостики вместо самой конструкции.\n"
 
 def build_draft_generation_spec_prompt(job: Dict[str, Any], payload: Dict[str, Any], style_analysis: Dict[str, Any]) -> str:
     brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
@@ -1775,7 +1845,7 @@ def _draft_type_rules(payload: Dict[str, Any], assignment_type: str, quality_gat
         + "- Количество publicTests и hiddenTests выбирай по задаче, не выравнивай их искусственно под один шаблон.\n"
         + "- Предпочтительно делать publicTests больше, чем hiddenTests, если это не вредит качеству покрытия.\n"
         + "- Используй только root-level requiredCalls и forbiddenCalls. Не вкладывай их в codePolicy.\n"
-        + (_if_onboarding_appendix(payload) if _is_if_onboarding_request(payload) else "")
+        + (_if_onboarding_appendix(payload) if _is_anchor_onboarding_request(payload) else "")
     )
 
 

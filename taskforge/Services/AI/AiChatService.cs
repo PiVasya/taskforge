@@ -3648,10 +3648,12 @@ public sealed class AiChatService
             items.Add("Старые blueprint/bridge-plan нужно отбросить, если пользователь просит повторить с нуля.");
         if (RequiresFirstTaskStyleEvidence(memory))
             items.Add("Перед генерацией нужно открыть первое задание курса как эталон стиля.");
-        if (RequestsPreIfScaffolding(memory))
-            items.Add("Это серия подготовительных задач ДО первого if: нужно подвести к теме через понятные маленькие шаги и видимый результат, но без явного if/else/switch в самих условиях.");
-        else if (AllowsExplicitIfOnboarding(memory))
-            items.Add("Это не абстрактные мостики до темы if: нужна серия маленьких программ, которые пошагово учат самому использованию if в стиле первого дружелюбного задания.");
+        var anchorConcept = DetectAnchorConcept(memory);
+        var anchorLabel = AnchorConceptLabel(anchorConcept);
+        if (RequestsPreAnchorScaffolding(memory, anchorConcept))
+            items.Add($"Это серия подготовительных задач ДО первого {anchorLabel}: нужно подвести к теме через понятные маленькие шаги и видимый результат, но без явного {anchorLabel} в самих условиях.");
+        else if (AllowsExplicitAnchorOnboarding(memory, concept: anchorConcept))
+            items.Add($"Это не абстрактные мостики до темы {anchorLabel}: нужна серия маленьких программ, которые пошагово учат самому использованию {anchorLabel} в стиле первого дружелюбного задания.");
         var requestedCount = ExtractRequestedProposalCount(memory, new JsonObject());
         if (requestedCount.HasValue)
             items.Add($"Количество новых задач должно быть ровно {requestedCount.Value}.");
@@ -3660,10 +3662,12 @@ public sealed class AiChatService
         var strictPlacement = ResolveStrictRequestedPlacement(memory, new JsonObject());
         if (!string.IsNullOrWhiteSpace(strictPlacement.HumanSummary))
             items.Add($"Точку вставки нельзя сдвигать: {strictPlacement.HumanSummary}.");
-        if (ShouldAvoidExplicitIfBeforeAnchor(memory))
-            items.Add("В промежуточных задачах до темы if нельзя преждевременно вводить if/else/switch.");
-        else if (AllowsExplicitIfOnboarding(memory))
-            items.Add("В этой серии можно и нужно постепенно вводить сам if, затем if/else, но без резкого прыжка в сухую теорию или олимпиадный стиль.");
+        if (ShouldAvoidExplicitAnchorBeforeAnchor(memory, anchorConcept))
+            items.Add($"В промежуточных задачах до темы {anchorLabel} нельзя преждевременно вводить {anchorLabel}.");
+        else if (AllowsExplicitAnchorOnboarding(memory, concept: anchorConcept))
+            items.Add(string.Equals(anchorConcept, "if", StringComparison.OrdinalIgnoreCase)
+                ? "В этой серии можно и нужно постепенно вводить сам if, затем if/else, но без резкого прыжка в сухую теорию или олимпиадный стиль."
+                : $"В этой серии можно и нужно постепенно вводить сам {anchorLabel}, но без резкого прыжка в сухую теорию или олимпиадный стиль.");
         return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
     }
 
@@ -5176,8 +5180,9 @@ public sealed class AiChatService
         var resolvedAroundAssignmentId = aroundAssignmentId;
         var shouldIncludeFirstTaskStyleAnchor = includeFirstTaskStyleAnchor || RequestsFirstTaskStyleEvidence(normalizedQuery);
 
-        if (!resolvedAroundAssignmentId.HasValue && QueryMentionsFirstIfAnchor(normalizedQuery))
-            resolvedAroundAssignmentId = FindFirstExplicitIfAssignment(ordered)?.Id;
+        var queryAnchorConcept = DetectAnchorConceptFromText(normalizedQuery);
+        if (!resolvedAroundAssignmentId.HasValue && QueryMentionsFirstAnchor(normalizedQuery, queryAnchorConcept))
+            resolvedAroundAssignmentId = FindFirstExplicitAnchorAssignment(ordered, queryAnchorConcept)?.Id;
 
         if (resolvedAroundAssignmentId.HasValue)
         {
@@ -5713,10 +5718,12 @@ public sealed class AiChatService
                 return "самостоятельно исправить blueprint под последнюю инструкцию и только затем финализировать его";
             return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия из чата, а потом вызвать finalize_chat_blueprint";
         }
-        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && ShouldAvoidExplicitIfBeforeAnchor(memory))
-            return "собрать серию подготовительных задач до первого if через save_chat_blueprint";
-        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && AllowsExplicitIfOnboarding(memory))
-            return "собрать серию маленьких программ по самому if через save_chat_blueprint";
+        var latestAnchorConcept = DetectAnchorConcept(memory);
+        var latestAnchorLabel = AnchorConceptLabel(latestAnchorConcept);
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && ShouldAvoidExplicitAnchorBeforeAnchor(memory, latestAnchorConcept))
+            return $"собрать серию подготовительных задач до первого {latestAnchorLabel} через save_chat_blueprint";
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && AllowsExplicitAnchorOnboarding(memory, concept: latestAnchorConcept))
+            return $"собрать серию маленьких программ по самому {latestAnchorLabel} через save_chat_blueprint";
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "сгенерировать мостики через queue_generate_from_text";
         if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
@@ -5811,28 +5818,33 @@ public sealed class AiChatService
         if (RequiresFirstTaskStyleEvidence(memory) && !InspectionContainsFirstTask(memory.LastCourseInspection))
             issues.Add("Пользователь просил стиль 'как первая задача', но в текущем просмотре нет самой первой задачи или раннего эталона. Сначала открой первое задание курса и только потом сохраняй blueprint.");
 
-        if (ShouldAvoidExplicitIfBeforeAnchor(memory))
+        var anchorConcept = DetectAnchorConcept(memory);
+        var anchorLabel = AnchorConceptLabel(anchorConcept);
+        if (ShouldAvoidExplicitAnchorBeforeAnchor(memory, anchorConcept))
         {
-            var explicitIfTitles = proposals
-                .Where(ProposalUsesExplicitIf)
+            var explicitAnchorTitles = proposals
+                .Where(x => ProposalUsesExplicitAnchor(x, anchorConcept))
                 .Select(x => x.Title)
                 .Take(3)
                 .ToList();
-            if (explicitIfTitles.Count > 0)
-                issues.Add($"Это подготовка ДО темы if, поэтому в промежуточных задачах нельзя уже вводить if/else. Убери явное ветвление из: {string.Join(", ", explicitIfTitles)}.");
+            if (explicitAnchorTitles.Count > 0)
+                issues.Add($"Это подготовка ДО темы {anchorLabel}, поэтому в промежуточных задачах нельзя уже вводить {anchorLabel}. Убери явное упоминание конструкции из: {string.Join(", ", explicitAnchorTitles)}.");
         }
-        else if (AllowsExplicitIfOnboarding(memory))
+        else if (AllowsExplicitAnchorOnboarding(memory, concept: anchorConcept))
         {
-            var explicitIfTitles = proposals.Where(ProposalUsesExplicitIf).Select(x => x.Title).Take(3).ToList();
-            if (explicitIfTitles.Count == 0)
-                issues.Add("Пользователь просит лесенку по if, поэтому blueprint не должен уезжать в сравнения/остатки/1-0 без самого if. Добавь явный if уже в первых шагах.");
+            var explicitAnchorTitles = proposals.Where(x => ProposalUsesExplicitAnchor(x, anchorConcept)).Select(x => x.Title).Take(3).ToList();
+            if (explicitAnchorTitles.Count == 0)
+                issues.Add($"Пользователь просит лесенку по {anchorLabel}, поэтому blueprint не должен уезжать в абстрактные мостики без самой конструкции. Добавь явный {anchorLabel} уже в первых шагах.");
 
-            var abstractTitles = proposals.Where(ProposalLooksTooAbstractForIfOnboarding).Select(x => x.Title).Take(4).ToList();
-            if (abstractTitles.Count > 0)
-                issues.Add($"Для лесенки по if нельзя подменять тему сухими булевыми проверками. Сделай эти шаги маленькими программами с видимым результатом: {string.Join(", ", abstractTitles)}.");
+            if (string.Equals(anchorConcept, "if", StringComparison.OrdinalIgnoreCase))
+            {
+                var abstractTitles = proposals.Where(ProposalLooksTooAbstractForIfOnboarding).Select(x => x.Title).Take(4).ToList();
+                if (abstractTitles.Count > 0)
+                    issues.Add($"Для лесенки по if нельзя подменять тему сухими булевыми проверками. Сделай эти шаги маленькими программами с видимым результатом: {string.Join(", ", abstractTitles)}.");
 
-            if (proposals.Count >= 4 && proposals.Count(ProposalUsesElseBranch) == 0)
-                issues.Add("В пошаговой серии по if должен быть хотя бы один шаг с if/else, иначе ученик не увидит полноценное ветвление.");
+                if (proposals.Count >= 4 && proposals.Count(ProposalUsesElseBranch) == 0)
+                    issues.Add("В пошаговой серии по if должен быть хотя бы один шаг с if/else, иначе ученик не увидит полноценное ветвление.");
+            }
         }
 
         if (RequiresFirstTaskStyleEvidence(memory))
@@ -5915,13 +5927,14 @@ public sealed class AiChatService
                 return (anchor.Id, anchor.Title, $"после «{anchor.Title}»");
         }
 
-        if (QueryMentionsFirstIfAnchor(hay))
+        var requestedAnchorConcept = DetectAnchorConceptFromText(hay);
+        if (QueryMentionsFirstAnchor(hay, requestedAnchorConcept))
         {
             var ordered = inspection.Assignments.OrderBy(x => x.Sort).ToList();
             var anchor = inspection.AroundAssignmentId.HasValue
                 ? ordered.FirstOrDefault(x => x.Id == inspection.AroundAssignmentId.Value)
                 : null;
-            anchor ??= FindFirstExplicitIfAssignment(inspection);
+            anchor ??= FindFirstExplicitAnchorAssignment(inspection, requestedAnchorConcept);
             if (anchor != null)
             {
                 var index = ordered.FindIndex(x => x.Id == anchor.Id);
@@ -5949,50 +5962,120 @@ public sealed class AiChatService
             || hay.Contains("один в один");
     }
 
+    private static string? DetectAnchorConceptFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        var hay = text.ToLowerInvariant();
+        foreach (var concept in new[] { "foreach", "switch", "while", "for", "if" })
+        {
+            if (Regex.IsMatch(hay, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                return concept;
+        }
+
+        if (hay.Contains("ветвлен") || hay.Contains("условн"))
+            return "if";
+        if (Regex.IsMatch(hay, @"(?<![A-Za-zА-Яа-я0-9_])case(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return "switch";
+
+        return null;
+    }
+
+    private static string? DetectAnchorConcept(AiFoundryChatMemoryDto memory)
+        => DetectAnchorConceptFromText(BuildInstructionHaystack(memory));
+
+    private static string AnchorConceptLabel(string? concept)
+        => string.IsNullOrWhiteSpace(concept) ? "новой конструкции" : concept.Trim();
+
+    private static bool TextMentionsAnchorConcept(string? text, string? concept)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(concept))
+            return false;
+
+        if (Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return true;
+
+        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+            return text.Contains("ветвлен", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("условн", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(concept, "switch", StringComparison.OrdinalIgnoreCase))
+            return Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])case(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                || text.Contains("default", StringComparison.OrdinalIgnoreCase);
+
+        return false;
+    }
+
+    private static bool QueryMentionsFirstAnchor(string? text, string? concept)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(concept))
+            return false;
+        var hay = text.ToLowerInvariant();
+        return hay.Contains($"первым {concept}")
+            || hay.Contains($"первое {concept}")
+            || hay.Contains($"первого {concept}")
+            || hay.Contains($"первым появлением {concept}")
+            || hay.Contains($"первое появление {concept}")
+            || hay.Contains($"первого появления {concept}")
+            || hay.Contains($"first {concept}")
+            || Regex.IsMatch(hay, $@"перв\w*\s+.*\b{Regex.Escape(concept)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
     private static bool QueryMentionsFirstIfAnchor(string? text)
+        => QueryMentionsFirstAnchor(text, "if");
+
+    private static bool ContainsExplicitAnchorMarker(string? text, string? concept)
     {
         if (string.IsNullOrWhiteSpace(text))
             return false;
-        var hay = text.ToLowerInvariant();
-        return hay.Contains("первым if")
-            || hay.Contains("первое if")
-            || hay.Contains("первого if")
-            || hay.Contains("первым появлением if")
-            || hay.Contains("первое появление if")
-            || hay.Contains("первого появления if")
-            || hay.Contains("first if")
-            || Regex.IsMatch(hay, @"перв\w*\s+.*\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        concept = string.IsNullOrWhiteSpace(concept) ? DetectAnchorConceptFromText(text) : concept.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(concept))
+            return false;
+
+        if (Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return true;
+
+        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+        {
+            return text.Contains("if/else", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("else if", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("ветвлен", StringComparison.OrdinalIgnoreCase);
+        }
+        if (string.Equals(concept, "switch", StringComparison.OrdinalIgnoreCase))
+            return text.Contains("case", StringComparison.OrdinalIgnoreCase) || text.Contains("default", StringComparison.OrdinalIgnoreCase);
+
+        return false;
     }
 
     private static bool ContainsExplicitIfMarker(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-        return Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])if(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || text.Contains("if/else", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("else if", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("ветвлен", StringComparison.OrdinalIgnoreCase);
-    }
+        => ContainsExplicitAnchorMarker(text, "if");
 
-    private static CourseAuditAssignmentSnapshot? FindFirstExplicitIfAssignment(IReadOnlyList<CourseAuditAssignmentSnapshot> ordered)
+    private static CourseAuditAssignmentSnapshot? FindFirstExplicitAnchorAssignment(IReadOnlyList<CourseAuditAssignmentSnapshot> ordered, string? concept)
     {
-        if (ordered == null || ordered.Count == 0)
+        if (ordered == null || ordered.Count == 0 || string.IsNullOrWhiteSpace(concept))
             return null;
 
         return ordered
             .OrderBy(x => x.Sort)
-            .FirstOrDefault(x => ContainsExplicitIfMarker($"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}\n{x.AiOverview}"));
+            .FirstOrDefault(x => ContainsExplicitAnchorMarker($"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}\n{x.AiOverview}", concept));
     }
 
-    private static AiFoundryCourseInspectionAssignmentDto? FindFirstExplicitIfAssignment(AiFoundryCourseInspectionDto inspection)
+    private static CourseAuditAssignmentSnapshot? FindFirstExplicitIfAssignment(IReadOnlyList<CourseAuditAssignmentSnapshot> ordered)
+        => FindFirstExplicitAnchorAssignment(ordered, "if");
+
+    private static AiFoundryCourseInspectionAssignmentDto? FindFirstExplicitAnchorAssignment(AiFoundryCourseInspectionDto inspection, string? concept)
     {
-        if (inspection == null || inspection.Assignments.Count == 0)
+        if (inspection == null || inspection.Assignments.Count == 0 || string.IsNullOrWhiteSpace(concept))
             return null;
 
         return inspection.Assignments
             .OrderBy(x => x.Sort)
-            .FirstOrDefault(x => ContainsExplicitIfMarker($"{x.Title}\n{x.DescriptionExcerpt}\n{x.AiOverview}"));
+            .FirstOrDefault(x => ContainsExplicitAnchorMarker($"{x.Title}\n{x.DescriptionExcerpt}\n{x.AiOverview}", concept));
     }
+
+    private static AiFoundryCourseInspectionAssignmentDto? FindFirstExplicitIfAssignment(AiFoundryCourseInspectionDto inspection)
+        => FindFirstExplicitAnchorAssignment(inspection, "if");
 
     private static AiFoundryCourseInspectionAssignmentDto? FindAssignmentByNumberToken(AiFoundryCourseInspectionDto inspection, string numberToken)
     {
@@ -6078,50 +6161,63 @@ public sealed class AiChatService
     private static bool RequestsMorePrograms(AiFoundryChatMemoryDto memory)
         => RequestsMorePrograms(BuildInstructionHaystack(memory));
 
-    private static bool RequestsExplicitIfFromStart(AiFoundryChatMemoryDto memory)
+    private static bool RequestsExplicitAnchorFromStart(AiFoundryChatMemoryDto memory, string? concept = null)
     {
         var latest = string.Join(" ", new[] { memory.LatestExplicitInstruction, memory.LatestTeachingScript }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(latest))
+        concept ??= DetectAnchorConceptFromText(latest) ?? DetectAnchorConcept(memory);
+        if (string.IsNullOrWhiteSpace(latest) || string.IsNullOrWhiteSpace(concept))
             return false;
 
-        return latest.Contains("на сам if")
-            || latest.Contains("именно if")
-            || latest.Contains("уже с if")
-            || latest.Contains("сразу if")
-            || latest.Contains("первый шаг if")
-            || latest.Contains("первый шаг — if")
-            || latest.Contains("первый шаг - if")
-            || latest.Contains("первым должен быть if")
-            || latest.Contains("можно if")
-            || latest.Contains("разрешаю if");
+        var markers = new[]
+        {
+            $"на сам {concept}",
+            $"именно {concept}",
+            $"уже с {concept}",
+            $"сразу {concept}",
+            $"первый шаг {concept}",
+            $"первый шаг — {concept}",
+            $"первый шаг - {concept}",
+            $"первым должен быть {concept}",
+            $"можно {concept}",
+            $"разрешаю {concept}",
+        };
+        if (markers.Any(marker => latest.Contains(marker)))
+            return true;
+
+        return Regex.IsMatch(latest, $@"сначала\s+(?:просто\s+)?{Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || Regex.IsMatch(latest, $@"первый\s+шаг[^\n]{{0,40}}(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
-    private static bool RequestsPreIfScaffolding(AiFoundryChatMemoryDto memory)
+    private static bool RequestsExplicitIfFromStart(AiFoundryChatMemoryDto memory)
+        => RequestsExplicitAnchorFromStart(memory, "if");
+
+    private static bool RequestsPreAnchorScaffolding(AiFoundryChatMemoryDto memory, string? concept = null)
     {
-        if (RequestsExplicitIfFromStart(memory))
+        concept ??= DetectAnchorConcept(memory);
+        if (string.IsNullOrWhiteSpace(concept) || RequestsExplicitAnchorFromStart(memory, concept))
             return false;
 
         var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(hay))
+        if (string.IsNullOrWhiteSpace(hay) || !TextMentionsAnchorConcept(hay, concept))
             return false;
 
-        var mentionsIfTopic = hay.Contains("if") || hay.Contains("ветвлен") || hay.Contains("условн");
-        if (!mentionsIfTopic)
-            return false;
-
-        var explicitBeforeMarkers = new[]
+        var explicitBeforeMarkers = new List<string>
         {
-            "перед первым if",
-            "перед первым появлением if",
-            "до первого if",
-            "до темы if",
-            "до if",
-            "до ветвлен",
-            "до условн",
-            "прежде чем объясн",
-            "прежде чем вводить if",
-            "до того как вводить if",
+            $"перед первым {concept}",
+            $"перед первым появлением {concept}",
+            $"до первого {concept}",
+            $"до темы {concept}",
+            $"до {concept}",
+            $"перед темой {concept}",
+            $"без самого {concept}",
+            $"без {concept} в условиях",
+            $"в задачках до {concept} не может быть {concept}",
+            $"в задачах до {concept} не может быть {concept}",
+            $"прежде чем вводить {concept}",
+            $"до того как вводить {concept}",
         };
+        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+            explicitBeforeMarkers.AddRange(new[] { "до ветвлен", "до условн" });
         if (explicitBeforeMarkers.Any(marker => hay.Contains(marker)))
             return true;
 
@@ -6133,17 +6229,24 @@ public sealed class AiChatService
             && prepMarkers.Any(marker => hay.Contains(marker));
     }
 
-    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
+    private static bool RequestsPreIfScaffolding(AiFoundryChatMemoryDto memory)
+        => RequestsPreAnchorScaffolding(memory, "if");
+
+    private static bool ShouldAvoidExplicitAnchorBeforeAnchor(AiFoundryChatMemoryDto memory, string? concept = null)
     {
-        if (RequestsPreIfScaffolding(memory))
+        concept ??= DetectAnchorConcept(memory);
+        if (string.IsNullOrWhiteSpace(concept))
+            return false;
+        if (RequestsPreAnchorScaffolding(memory, concept))
             return true;
 
         var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
-        var mentionsIf = hay.Contains(" if") || hay.Contains("if ") || hay.Contains(" if ") || hay.Contains("if") || hay.Contains("ветвлен");
         var bridgeBefore = hay.Contains("перед") || hay.Contains("до") || hay.Contains("обучал");
-        return mentionsIf && bridgeBefore && !RequestsExplicitIfFromStart(memory);
+        return TextMentionsAnchorConcept(hay, concept) && bridgeBefore && !RequestsExplicitAnchorFromStart(memory, concept);
     }
 
+    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
+        => ShouldAvoidExplicitAnchorBeforeAnchor(memory, "if");
 
     private static bool RequestsIfStepByStepSeries(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
     {
@@ -6151,8 +6254,16 @@ public sealed class AiChatService
         return scenario.Id is "step-by-step-ladder" or "micro-program-series";
     }
 
+    private static bool AllowsExplicitAnchorOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null, string? concept = null)
+    {
+        concept ??= DetectAnchorConcept(memory) ?? DetectAnchorConceptFromText(prompt) ?? DetectAnchorConceptFromText(sourceText);
+        return !string.IsNullOrWhiteSpace(concept)
+            && !RequestsPreAnchorScaffolding(memory, concept)
+            && RequestsIfStepByStepSeries(memory, prompt, sourceText);
+    }
+
     private static bool AllowsExplicitIfOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
-        => !RequestsPreIfScaffolding(memory) && RequestsIfStepByStepSeries(memory, prompt, sourceText);
+        => AllowsExplicitAnchorOnboarding(memory, prompt, sourceText, "if");
 
     private static string RewritePromptForIfStepByStepSeries(string prompt, AiFoundryChatMemoryDto memory, int count)
         => AiGenerationScenarioPromptAdapter.RewritePrompt(prompt, memory, count);
@@ -6163,13 +6274,14 @@ public sealed class AiChatService
     private static string DetermineDirectGenerationMode(AiFoundryChatMemoryDto memory, string prompt, string? sourceText, int requestedCount)
         => AiGenerationScenarioPromptAdapter.DetermineMode(memory, prompt, sourceText, requestedCount);
 
-    private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
+    private static bool ProposalUsesExplicitAnchor(AiFoundryChatDraftProposalDto proposal, string? concept)
     {
         var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x)));
-        return Regex.IsMatch(hay, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || Regex.IsMatch(hay, @"\belse\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || hay.Contains("иначе", StringComparison.OrdinalIgnoreCase);
+        return ContainsExplicitAnchorMarker(hay, concept);
     }
+
+    private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
+        => ProposalUsesExplicitAnchor(proposal, "if");
 
     private static bool ProposalUsesElseBranch(AiFoundryChatDraftProposalDto proposal)
     {
@@ -6178,10 +6290,10 @@ public sealed class AiChatService
             || hay.Contains("иначе", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool ProposalLooksLikeSmallProgram(AiFoundryChatDraftProposalDto proposal)
+    private static bool ProposalLooksLikeSmallProgram(AiFoundryChatDraftProposalDto proposal, string? concept = null)
     {
         var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
-        return ProposalUsesExplicitIf(proposal)
+        return ProposalUsesExplicitAnchor(proposal, concept ?? DetectAnchorConceptFromText(hay))
             || hay.Contains("программ")
             || hay.Contains("код")
             || hay.Contains("cout")
@@ -6192,8 +6304,11 @@ public sealed class AiChatService
             || hay.Contains("условие");
     }
 
-    private static bool ProposalLooksTooAbstractForIfOnboarding(AiFoundryChatDraftProposalDto proposal)
+    private static bool ProposalLooksTooAbstractForAnchorOnboarding(AiFoundryChatDraftProposalDto proposal, string? concept)
     {
+        if (!string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
         var abstractTopic = hay.Contains("сравнен")
             || hay.Contains("логичес")
@@ -6201,8 +6316,11 @@ public sealed class AiChatService
             || hay.Contains("делим")
             || hay.Contains("булев")
             || hay.Contains("выражен");
-        return abstractTopic && !ProposalLooksLikeSmallProgram(proposal) && !ProposalUsesExplicitIf(proposal);
+        return abstractTopic && !ProposalLooksLikeSmallProgram(proposal, concept) && !ProposalUsesExplicitAnchor(proposal, concept);
     }
+
+    private static bool ProposalLooksTooAbstractForIfOnboarding(AiFoundryChatDraftProposalDto proposal)
+        => ProposalLooksTooAbstractForAnchorOnboarding(proposal, "if");
 
     private static bool ProposalUsesDryOlympiadTone(AiFoundryChatDraftProposalDto proposal)
     {
