@@ -3380,6 +3380,8 @@ public sealed class AiChatService
             return "revise-plan";
         if (low.Contains("одобря") || low.Contains("закидывай в черновик") || low.Contains("в черновик") || low.Contains("финализируй") || low.Contains("сделай черновик"))
             return "finalize-blueprint";
+        if (IsChatBlueprintDraftRequest(low))
+            return "show-blueprint";
         if (low.Contains("покажи варианты") || low.Contains("какие варианты") || low.Contains("покажи услов") || low.Contains("покажи наброс"))
             return "show-blueprint";
         if ((low.Contains("поправ") || low.Contains("исправ") || low.Contains("измени") || low.Contains("доработ") || low.Contains("перепиш"))
@@ -3392,6 +3394,21 @@ public sealed class AiChatService
         if ((low.Contains("план") || low.Contains("мостик") || low.Contains("подводящ")) && !low.Contains("не продолжай старый план"))
             return "plan";
         return "chat";
+    }
+
+    private static bool IsChatBlueprintDraftRequest(string? text)
+    {
+        var low = (text ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(low))
+            return false;
+        var hasDraftMarker = low.Contains("черновик") || low.Contains("черновики") || low.Contains("вариант") || low.Contains("варианты") || low.Contains("наброс") || low.Contains("условия") || low.Contains("условие");
+        var hasAction = low.Contains("напиши") || low.Contains("покажи") || low.Contains("собери") || low.Contains("подготов") || low.Contains("накидай") || low.Contains("набросай") || low.Contains("придумай");
+        var hasTarget = low.Contains("к этим задач") || low.Contains("для этих задач") || low.Contains("по этим задач") || low.Contains("лесенк") || low.Contains("пошаг") || low.Contains("маленьких программ") || low.Contains("if") || low.Contains("ветвл") || low.Contains("условн");
+        if (!(hasDraftMarker || hasAction) || !hasTarget)
+            return false;
+        if (low.Contains("готовый draft") || low.Contains("опубликован") || low.Contains("публикац"))
+            return false;
+        return true;
     }
 
     private static bool IsDirectorWorkflowIntent(string? text)
@@ -3631,15 +3648,21 @@ public sealed class AiChatService
             items.Add("Старые blueprint/bridge-plan нужно отбросить, если пользователь просит повторить с нуля.");
         if (RequiresFirstTaskStyleEvidence(memory))
             items.Add("Перед генерацией нужно открыть первое задание курса как эталон стиля.");
+        if (RequestsIfStepByStepSeries(memory))
+            items.Add("Это не абстрактные мостики до темы if: нужна серия маленьких программ, которые пошагово учат самому использованию if в стиле первого дружелюбного задания.");
         var requestedCount = ExtractRequestedProposalCount(memory, new JsonObject());
         if (requestedCount.HasValue)
             items.Add($"Количество новых задач должно быть ровно {requestedCount.Value}.");
+        else if (RequestsMorePrograms(memory))
+            items.Add("Не схлопывай серию в 2-3 пункта: пользователь просит побольше маленьких программ.");
         var strictPlacement = ResolveStrictRequestedPlacement(memory, new JsonObject());
         if (!string.IsNullOrWhiteSpace(strictPlacement.HumanSummary))
             items.Add($"Точку вставки нельзя сдвигать: {strictPlacement.HumanSummary}.");
         if (ShouldAvoidExplicitIfBeforeAnchor(memory))
             items.Add("В промежуточных задачах до темы if нельзя преждевременно вводить if/else/switch.");
-        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList();
+        else if (RequestsIfStepByStepSeries(memory))
+            items.Add("В этой серии можно и нужно постепенно вводить сам if, затем if/else, но без резкого прыжка в сухую теорию или олимпиадный стиль.");
+        return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
     }
 
     private static string? BuildDirectorSummary(AiFoundryChatMemoryDto memory)
@@ -4070,6 +4093,10 @@ public sealed class AiChatService
     {
         var autonomousRework = IsAutonomousReworkIntent(latestGoal);
         if (hasBlueprint && !autonomousRework && !string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase))
+            return "chat-blueprint";
+        if (string.Equals(latestIntentKind, "show-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "revise-blueprint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latestIntentKind, "finalize-blueprint", StringComparison.OrdinalIgnoreCase))
             return "chat-blueprint";
         if (string.Equals(latestIntentKind, "remediation", StringComparison.OrdinalIgnoreCase) || IsCourseGapRemediationIntent(latestGoal))
             return "course-gap-remediation";
@@ -5762,6 +5789,8 @@ public sealed class AiChatService
         var requestedCount = ExtractRequestedProposalCount(memory, args);
         if (requestedCount.HasValue && proposals.Count != requestedCount.Value)
             issues.Add($"Пользователь просил {requestedCount.Value} задач(и), а в blueprint сейчас {proposals.Count}.");
+        if (!requestedCount.HasValue && RequestsMorePrograms(memory) && proposals.Count < 6)
+            issues.Add("Пользователь просил побольше маленьких программ, а текущий blueprint всё ещё слишком короткий. Нужна более длинная лесенка, хотя бы 6 шагов.");
 
         var strictAnchor = ResolveStrictRequestedPlacement(memory, args);
         if (strictAnchor.AfterAssignmentId.HasValue)
@@ -5788,6 +5817,26 @@ public sealed class AiChatService
             if (explicitIfTitles.Count > 0)
                 issues.Add($"Это подготовка ДО темы if, поэтому в промежуточных задачах нельзя уже вводить if/else. Убери явное ветвление из: {string.Join(", ", explicitIfTitles)}.");
         }
+        else if (RequestsIfStepByStepSeries(memory))
+        {
+            var explicitIfTitles = proposals.Where(ProposalUsesExplicitIf).Select(x => x.Title).Take(3).ToList();
+            if (explicitIfTitles.Count == 0)
+                issues.Add("Пользователь просит лесенку по if, поэтому blueprint не должен уезжать в сравнения/остатки/1-0 без самого if. Добавь явный if уже в первых шагах.");
+
+            var abstractTitles = proposals.Where(ProposalLooksTooAbstractForIfOnboarding).Select(x => x.Title).Take(4).ToList();
+            if (abstractTitles.Count > 0)
+                issues.Add($"Для лесенки по if нельзя подменять тему сухими булевыми проверками. Сделай эти шаги маленькими программами с видимым результатом: {string.Join(", ", abstractTitles)}.");
+
+            if (proposals.Count >= 4 && proposals.Count(ProposalUsesElseBranch) == 0)
+                issues.Add("В пошаговой серии по if должен быть хотя бы один шаг с if/else, иначе ученик не увидит полноценное ветвление.");
+        }
+
+        if (RequiresFirstTaskStyleEvidence(memory))
+        {
+            var dryTitles = proposals.Where(ProposalUsesDryOlympiadTone).Select(x => x.Title).Take(4).ToList();
+            if (dryTitles.Count > 0)
+                issues.Add($"Пользователь просил стиль первой задачи, а не сухой олимпиадный шаблон. Убери тон «Напишите программу / Дано / Ввод-Вывод» из: {string.Join(", ", dryTitles)}.");
+        }
 
         if (issues.Count == 0)
             return null;
@@ -5801,19 +5850,19 @@ public sealed class AiChatService
         if (explicitCount.HasValue && explicitCount.Value > 0)
             return Math.Clamp(explicitCount.Value, 1, 12);
 
-        var hay = string.Join(" ", new[]
+        var latestOnly = string.Join(" ", new[]
         {
             memory.LatestExplicitInstruction,
             memory.LatestTeachingScript,
-            string.Join(" ", memory.RecentGoals ?? new List<string>()),
-        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var latestCount = ExtractRequestedProposalCountFromText(latestOnly);
+        if (latestCount.HasValue)
+            return latestCount;
 
-        var match = Regex.Match(hay, @"\b(\d{1,2})\s*(?:задач|обучал|мостик|вариант)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (match.Success && int.TryParse(match.Groups[1].Value, out var numeric))
-            return Math.Clamp(numeric, 1, 12);
-
-        if (hay.Contains("пять задач") || hay.Contains("5 задач") || hay.Contains("5 обучал"))
-            return 5;
+        var recentHay = string.Join(" ", memory.RecentGoals ?? new List<string>());
+        var recentCount = ExtractRequestedProposalCountFromText(recentHay);
+        if (recentCount.HasValue)
+            return recentCount;
 
         return null;
     }
@@ -5977,14 +6026,60 @@ public sealed class AiChatService
         return inspection.Assignments.Any(x => x.Id == assignmentId);
     }
 
-    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
+    private static string BuildInstructionHaystack(AiFoundryChatMemoryDto memory)
     {
-        var hay = string.Join(" ", new[]
+        return string.Join(" ", new[]
         {
             memory.LatestExplicitInstruction,
             memory.LatestTeachingScript,
             string.Join(" ", memory.RecentGoals ?? new List<string>()),
-        }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    private static int? ExtractRequestedProposalCountFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        var hay = text.ToLowerInvariant();
+        var match = Regex.Match(hay, @"\b(\d{1,2})\s*(?:задач|обучал|мостик|вариант|программ)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var numeric))
+            return Math.Clamp(numeric, 1, 12);
+
+        if (hay.Contains("пять задач") || hay.Contains("5 задач") || hay.Contains("5 обучал") || hay.Contains("5 программ"))
+            return 5;
+        if (hay.Contains("шесть задач") || hay.Contains("6 задач") || hay.Contains("6 программ"))
+            return 6;
+        if (hay.Contains("семь задач") || hay.Contains("7 задач") || hay.Contains("7 программ"))
+            return 7;
+        if (RequestsMorePrograms(hay))
+            return 6;
+
+        return null;
+    }
+
+    private static bool RequestsMorePrograms(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var hay = text.ToLowerInvariant();
+        return hay.Contains("больше программ")
+            || hay.Contains("побольше программ")
+            || hay.Contains("таких программ было больше")
+            || hay.Contains("желательно чтобы таких программ было больше")
+            || hay.Contains("несколько программ")
+            || hay.Contains("серия программ");
+    }
+
+    private static bool RequestsMorePrograms(AiFoundryChatMemoryDto memory)
+        => RequestsMorePrograms(BuildInstructionHaystack(memory));
+
+    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
+    {
+        if (RequestsIfStepByStepSeries(memory))
+            return false;
+
+        var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
         var mentionsIf = hay.Contains(" if") || hay.Contains("if ") || hay.Contains(" if ") || hay.Contains("if") || hay.Contains("ветвлен");
         var bridgeBefore = hay.Contains("перед") || hay.Contains("до") || hay.Contains("обучал");
         return mentionsIf && bridgeBefore;
@@ -6008,10 +6103,51 @@ public sealed class AiChatService
 
     private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
     {
-        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x)));
         return Regex.IsMatch(hay, @"\bif\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
             || Regex.IsMatch(hay, @"\belse\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || hay.Contains("иначе");
+            || hay.Contains("иначе", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ProposalUsesElseBranch(AiFoundryChatDraftProposalDto proposal)
+    {
+        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        return Regex.IsMatch(hay, @"\belse\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || hay.Contains("иначе", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ProposalLooksLikeSmallProgram(AiFoundryChatDraftProposalDto proposal)
+    {
+        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        return ProposalUsesExplicitIf(proposal)
+            || hay.Contains("программ")
+            || hay.Contains("код")
+            || hay.Contains("cout")
+            || hay.Contains("cin")
+            || hay.Contains("введ")
+            || hay.Contains("вывед")
+            || hay.Contains("на экран")
+            || hay.Contains("условие");
+    }
+
+    private static bool ProposalLooksTooAbstractForIfOnboarding(AiFoundryChatDraftProposalDto proposal)
+    {
+        var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        var abstractTopic = hay.Contains("сравнен")
+            || hay.Contains("логичес")
+            || hay.Contains("остат")
+            || hay.Contains("делим")
+            || hay.Contains("булев")
+            || hay.Contains("выражен");
+        return abstractTopic && !ProposalLooksLikeSmallProgram(proposal) && !ProposalUsesExplicitIf(proposal);
+    }
+
+    private static bool ProposalUsesDryOlympiadTone(AiFoundryChatDraftProposalDto proposal)
+    {
+        var hay = (proposal.FullCondition ?? proposal.ConditionPreview ?? proposal.Title ?? string.Empty).Trim();
+        return Regex.IsMatch(hay, @"^(?:напишите программу|вам нужно|требуется|даны|вход|выход)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || hay.Contains("Вход", StringComparison.OrdinalIgnoreCase)
+            || hay.Contains("Выход", StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args, AiFoundryChatDraftBlueprintDto? previous = null)

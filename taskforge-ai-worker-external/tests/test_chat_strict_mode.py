@@ -102,6 +102,23 @@ class ChatStrictModeTests(unittest.TestCase):
         self.assertEqual(result["actions"], [])
         self.assertTrue(any("course audit" in issue for issue in issues))
 
+    def test_strict_mode_suppresses_duplicate_blueprint_actions(self):
+        payload = {
+            "availableActions": [{"name": "save_chat_blueprint"}],
+            "memory": {},
+        }
+        result = {
+            "assistantMessage": "",
+            "actions": [
+                {"name": "save_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
+                {"name": "save_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
+                {"name": "save_chat_blueprint", "reason": "x", "arguments": {"courseId": "c1"}},
+            ],
+        }
+        sanitized, issues = worker._apply_chat_strict_mode(payload, result)
+        self.assertEqual([a["name"] for a in sanitized["actions"]], ["save_chat_blueprint"])
+        self.assertTrue(any("duplicate action suppressed" in x or "extra blueprint action suppressed" in x for x in issues))
+
 
 if __name__ == "__main__":
     unittest.main()

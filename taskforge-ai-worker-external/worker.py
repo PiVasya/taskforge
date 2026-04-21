@@ -557,7 +557,9 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
     strict_actions: list[Dict[str, Any]] = []
     issues: list[str] = []
     runtime = _chat_runtime_state(payload, result)
-    for action in actions[:4]:
+    seen_signatures: set[str] = set()
+    blueprint_write_names: set[str] = set()
+    for action in actions[:6]:
         if not isinstance(action, dict):
             issues.append("action is not object")
             continue
@@ -586,6 +588,21 @@ def _apply_chat_strict_mode(payload: Dict[str, Any], result: Dict[str, Any]) -> 
             issues.append(reason or f"invalid action args: {name}")
             continue
         sanitized = {"name": name, "reason": str(action.get("reason") or "").strip() or "Выбрано по текущему контексту чата.", "arguments": action.get("arguments") if isinstance(action.get("arguments"), dict) else {}}
+        signature = json.dumps({"name": sanitized["name"], "arguments": sanitized["arguments"]}, ensure_ascii=False, sort_keys=True)
+        if signature in seen_signatures:
+            issues.append(f"duplicate action suppressed: {name}")
+            continue
+        if name in {"save_chat_blueprint", "revise_chat_blueprint"}:
+            if blueprint_write_names.intersection({"save_chat_blueprint", "revise_chat_blueprint"}):
+                issues.append(f"extra blueprint action suppressed: {name}")
+                continue
+            blueprint_write_names.add(name)
+        elif name == "finalize_chat_blueprint":
+            if name in blueprint_write_names:
+                issues.append(f"extra blueprint action suppressed: {name}")
+                continue
+            blueprint_write_names.add(name)
+        seen_signatures.add(signature)
         strict_actions.append(sanitized)
         _chat_apply_runtime_effect(runtime, sanitized)
     result["actions"] = strict_actions
@@ -737,6 +754,29 @@ def _chat_is_edit_blueprint_request(payload: Dict[str, Any], text: str) -> bool:
     if any(marker in low for marker in ["черновик", "draft", "опубликован", "что получилось"]):
         return False
     return _chat_has_blueprint(payload) and any(marker in low for marker in target_markers)
+
+
+def _chat_is_chat_blueprint_request(payload: Dict[str, Any], text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    if _chat_is_visual_preview_request(low) or _chat_is_finalize_request(low) or _chat_is_edit_draft_request(low):
+        return False
+    if _chat_has_blueprint(payload) and any(marker in low for marker in ["поправ", "исправ", "измени", "доработ", "перепиш", "замени"]):
+        return False
+    if _chat_has_blueprint(payload) and any(marker in low for marker in ["покажи", "выведи", "варианты", "услов", "наброс"]):
+        return True
+    draft_markers = ["черновик", "черновики", "вариант", "варианты", "наброс", "наброски", "условия", "условие"]
+    generation_markers = ["напиши", "покажи", "собери", "подготов", "накидай", "набросай", "придумай"]
+    target_markers = ["к этим задач", "для этих задач", "по этим задач", "лесенк", "пошаг", "маленьких программ", "if", "ветвл", "условн"]
+    has_draft = any(marker in low for marker in draft_markers)
+    has_generation = any(marker in low for marker in generation_markers)
+    has_target = any(marker in low for marker in target_markers) or looks_like_task_generation_intent(low)
+    if not ((has_draft or has_generation) and has_target):
+        return False
+    if any(marker in low for marker in ["готовый draft", "готовый черновик", "опубликован", "публикац"]):
+        return False
+    return True
 
 
 def _chat_is_finalize_request(text: str) -> bool:
@@ -1103,6 +1143,8 @@ def _chat_latest_intent_kind(payload: Dict[str, Any], last_user: str, prompt: st
         return "audit"
     if _chat_is_visual_preview_request(low):
         return "concept-preview"
+    if _chat_is_chat_blueprint_request(payload, low):
+        return "show-blueprint"
     if looks_like_task_generation_intent(low):
         return "generate"
     if _chat_is_listing_request(low):

@@ -17,6 +17,12 @@ class LadderBranchRegressionsTests(unittest.TestCase):
         self.assertTrue(worker._chat_is_visual_preview_request(text))
         self.assertEqual(worker._chat_latest_intent_kind({"memory": {}}, text, text), "concept-preview")
 
+    def test_chat_blueprint_draft_request_is_detected(self):
+        payload = {"memory": {}}
+        text = "Давай. Согласен. Напиши черновики к этим задачам по if в таком стиле"
+        self.assertTrue(worker._chat_is_chat_blueprint_request(payload, text))
+        self.assertEqual(worker._chat_latest_intent_kind(payload, text, text), "show-blueprint")
+
     def test_audit_request_detects_if_and_branching_language(self):
         text = "Проанализируй курс: if появляется резко, без объяснения ветвления и условий"
         self.assertTrue(worker._chat_is_audit_request(text))
