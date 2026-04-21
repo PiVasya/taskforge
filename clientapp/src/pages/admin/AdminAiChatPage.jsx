@@ -1105,6 +1105,7 @@ function ActionModeToggle({ actionMode, onChange, disabled = false, compact = fa
 export default function AdminAiChatPage() {
   const [searchParams] = useSearchParams();
   const isFullscreen = searchParams.get('fullscreen') === '1';
+  const standaloneMode = true;
   const notify = useNotify();
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState('');
@@ -1130,16 +1131,16 @@ export default function AdminAiChatPage() {
   const [showTechnical, setShowTechnical] = useState(false);
   const [showRouteMap, setShowRouteMap] = useState(() => {
     try {
-      return localStorage.getItem('aiChat_showRouteMap') !== '0';
+      return localStorage.getItem('aiChat_showRouteMap') === '1';
     } catch {
-      return true;
+      return false;
     }
   });
   const [developerView, setDeveloperView] = useState(() => {
     try {
-      return localStorage.getItem('aiChat_developerView') !== '0';
+      return localStorage.getItem('aiChat_developerView') === '1';
     } catch {
-      return true;
+      return false;
     }
   });
   const [actionMode, setActionMode] = useState(() => {
@@ -1212,8 +1213,8 @@ export default function AdminAiChatPage() {
 
   const pageTitle = useMemo(() => {
     const scope = session?.courseTitle || session?.title || 'AI центр';
-    return isFullscreen ? `TaskForge · AI центр — фокус · ${scope}` : `TaskForge · AI центр — ${scope}`;
-  }, [isFullscreen, session?.courseTitle, session?.title]);
+    return `TaskForge · AI чат — ${scope}`;
+  }, [session?.courseTitle, session?.title]);
 
   usePageTitle(pageTitle);
 
@@ -1587,16 +1588,16 @@ export default function AdminAiChatPage() {
 
   // In fullscreen mode, auto-select session from URL param
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!(standaloneMode || isFullscreen)) return;
     const urlSessionId = searchParams.get('session');
     if (urlSessionId && urlSessionId !== sessionId) {
       selectSession(urlSessionId, sessions.find((item) => item.id === urlSessionId) || null).catch(() => {});
     }
-  }, [isFullscreen, searchParams, selectSession, sessionId, sessions]);
+  }, [standaloneMode, isFullscreen, searchParams, selectSession, sessionId, sessions]);
 
   // In fullscreen mode (new tab), apply theme classes that Layout normally handles
   useLayoutEffect(() => {
-    if (!isFullscreen) return;
+    if (!(standaloneMode || isFullscreen)) return;
     const root = document.documentElement;
     const palettes = ['blue', 'pink', 'apple', 'red', 'honey', 'violet'];
     const readUi = () => { try { const r = localStorage.getItem('uiSettings'); return r ? JSON.parse(r) : null; } catch { return null; } };
@@ -1613,140 +1614,285 @@ export default function AdminAiChatPage() {
     const onStorage = (e) => { if (e.key && ['colorTheme', 'mode', 'uiSettings'].includes(e.key)) apply(); };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [isFullscreen]);
+  }, [standaloneMode, isFullscreen]);
 
   // Fullscreen: render without Layout, no sidebar, full viewport
-  if (isFullscreen) {
+  if (standaloneMode || isFullscreen) {
     return (
-      <div className="fixed inset-0 z-[9999] flex flex-col bg-[rgb(var(--background))] overflow-hidden">
-        {/* Compact top bar */}
-        <div className="flex-none border-b border-neutral-200/70 dark:border-neutral-800 px-4 py-2 flex items-center justify-between gap-3 bg-[rgb(var(--card))]">
-          <div className="flex items-center gap-3 min-w-0">
-            <Bot size={18} className="opacity-60 flex-none" />
-            <span className="font-semibold truncate">{session?.title || 'Новый AI-чат'}</span>
-            {session?.courseTitle ? <Badge variant="outline">{session.courseTitle}</Badge> : null}
-            {pending ? <Badge variant="outline">AI думает…</Badge> : null}
-            {trace?.summary?.routeCount ? <Badge variant="outline">routes: {trace.summary.routeCount}</Badge> : null}
-            {trace?.summary?.failedCount ? <Badge variant="danger">issues: {trace.summary.failedCount}</Badge> : null}
-          </div>
-          <div className="flex items-center gap-2 flex-none">
-            <Select
-              value={session?.courseId || ''}
-              onChange={(e) => syncCurrentCourse(e.target.value)}
-              disabled={!sessionId || pending || actionBusy}
-              className="w-[200px] text-xs"
-            >
-              <option value="">Курс не выбран</option>
-              {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-            </Select>
-            <Button type="button" variant="outline" onClick={() => setShowTechnical((v) => !v)} title="Тех. детали">
-              <Code2 size={14} />
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setDeveloperView((v) => !v)} title="Dev-вид">
-              <Package size={14} />
-            </Button>
-            <Button type="button" variant={showRouteMap ? 'primary' : 'outline'} onClick={() => setShowRouteMap((v) => !v)} title="Карта маршрутов">
-              <Workflow size={14} />
-            </Button>
-            <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
-              <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
-            </Button>
-            <Button type="button" variant="outline" onClick={() => window.close()} title="Закрыть">
-              <Shrink size={14} />
-            </Button>
-          </div>
-        </div>
-
-        {showRouteMap ? (
-          <div className="flex-none px-4 pt-4">
-            <AiRouteMap session={session} messages={currentMessages} trace={trace} traceLoading={traceLoading} />
-          </div>
-        ) : null}
-
-        {/* Messages area */}
-        <div ref={listRef} className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
-          {currentMessages.length === 0 ? (
-            <div className="h-full grid place-items-center opacity-60">Отправь сообщение чтобы начать чат</div>
-          ) : (
-            <>
-              {pending ? (
-                <div className="rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-4 py-3 text-sm">
-                  <div className="inline-flex items-center gap-2"><LoaderCircle size={16} className="animate-spin" /> AI обрабатывает запрос…</div>
+      <div className="min-h-screen bg-[rgb(var(--background))] text-[rgb(var(--foreground))]">
+        <div className="flex h-screen flex-col overflow-hidden">
+          <header className="flex-none border-b border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))] px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link to="/news" className="inline-flex items-center gap-2 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 px-3 py-1.5 text-sm hover:border-[rgba(var(--accent)/0.35)]">
+                    <Bot size={14} /> TaskForge
+                  </Link>
+                  <span className="text-lg font-semibold truncate">{session?.title || 'Новый AI-чат'}</span>
+                  {session?.courseTitle ? <Badge variant="outline">{session.courseTitle}</Badge> : null}
+                  {pending ? <Badge variant="outline">AI думает…</Badge> : null}
                 </div>
-              ) : null}
-              {currentMessages.map((item) => (
-                <MessageBubble
-                  key={item.id || `${item.role}-${item.createdAtUtc}`}
-                  sessionId={sessionId}
-                  message={item}
-                  onConfirm={onConfirmTool}
-                  onQuickReply={onQuickReply}
-                  actionBusy={actionBusy || sending}
-                  showTechnical={showTechnical}
-                  developerView={developerView}
-                />
-              ))}
-            </>
-          )}
-        </div>
-
-        {/* Compact input bar */}
-        <div className="flex-none border-t border-neutral-200/70 dark:border-neutral-800 px-4 py-3 bg-[rgb(var(--card))]">
-          {files.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {files.map((file, idx) => (
-                <FileChip key={`${file.name}-${idx}`} file={file} removable onRemove={() => setFiles((prev) => prev.filter((_, i) => i !== idx))} />
-              ))}
-            </div>
-          )}
-          <div className="flex items-end gap-2">
-            <button type="button" className="opacity-60 hover:opacity-100 p-2" onClick={() => fileInputRef.current?.click()} disabled={sending || pending}>
-              <Paperclip size={18} />
-            </button>
-            <input ref={fileInputRef} type="file" hidden multiple onChange={(e) => addFiles(e.target.files)} />
-            <Textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={2}
-              placeholder="Сообщение для AI…"
-              disabled={sending || pending || actionBusy}
-              className="flex-1 min-h-[44px] max-h-[120px] resize-none"
-              onKeyDown={(e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); onSend(); }
-              }}
-            />
-            <Button type="button" onClick={() => onSend()} disabled={sending || pending || actionBusy || (!message.trim() && files.length === 0)} className="flex-none">
-              {sending ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
-            </Button>
-          </div>
-          <div className="flex items-center gap-2 mt-2">
-            <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(CONTINUE_MESSAGE)} disabled={sending || pending}>Продолжай</button>
-            <button type="button" className="text-xs opacity-60 hover:opacity-100" onClick={() => onSend(GENERATE_MESSAGE)} disabled={sending || pending}>Генерация</button>
-            <div className="ml-auto flex items-center gap-3">
-              <div className="flex items-center gap-2 text-xs opacity-80">
-                <span>Строгость</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={instructionStrictness}
-                  onChange={(e) => setInstructionStrictness(Number(e.target.value))}
-                  disabled={sending || pending || actionBusy}
-                  className="w-28 accent-[rgb(var(--accent))]"
-                  title="0 = свободнее, 100 = максимально буквально следует пользовательской инструкции"
-                />
-                <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
+                <div className="mt-1 text-sm opacity-70">Отдельное рабочее пространство AI без панели, сайдбаров и лишнего шума.</div>
               </div>
-            <div className="w-[22rem] max-w-full">
-              <ActionModeToggle
-                actionMode={actionMode}
-                onChange={applyActionMode}
-                disabled={sending || pending || actionBusy}
-                compact
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={session?.courseId || ''}
+                  onChange={(e) => syncCurrentCourse(e.target.value)}
+                  disabled={!sessionId || pending || actionBusy}
+                  className="w-[220px] max-w-full text-sm"
+                >
+                  <option value="">Без привязки к курсу</option>
+                  {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </Select>
+                <Button type="button" variant={showTechnical ? 'primary' : 'outline'} onClick={() => setShowTechnical((v) => !v)} title="Тех. детали">
+                  <Code2 size={14} />
+                </Button>
+                <Button type="button" variant={developerView ? 'primary' : 'outline'} onClick={() => setDeveloperView((v) => !v)} title="Dev-вид">
+                  <Package size={14} />
+                </Button>
+                <Button type="button" variant={showRouteMap ? 'primary' : 'outline'} onClick={() => setShowRouteMap((v) => !v)} title="Карта маршрутов">
+                  <Workflow size={14} />
+                </Button>
+                <Button type="button" variant="outline" onClick={createSession} disabled={pending || actionBusy}>
+                  <Plus size={14} /> Новый чат
+                </Button>
+                <Button type="button" variant="outline" onClick={() => exportCurrent('debug')} disabled={!sessionId || pending || actionBusy || exporting}>
+                  {exporting ? <LoaderCircle size={14} className="animate-spin" /> : <Download size={14} />}
+                </Button>
+                <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
+                  <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
+                </Button>
+              </div>
             </div>
-            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 grid xl:grid-cols-[300px_minmax(0,1fr)]">
+            <aside className="hidden xl:flex xl:flex-col border-r border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))]/70 min-h-0">
+              <div className="p-4 border-b border-neutral-200/70 dark:border-neutral-800">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] opacity-60">AI chat</div>
+                    <div className="mt-1 text-lg font-semibold">Сессии</div>
+                  </div>
+                  <Button type="button" variant="outline" onClick={createSession}>
+                    <Plus size={16} />
+                  </Button>
+                </div>
+                <Field label="Курс для нового чата" hint="Можно заранее задать контекст курса.">
+                  <Select value={selectedCourseId} onChange={(e) => setSelectedCourseId(e.target.value)}>
+                    <option value="">Без привязки к курсу</option>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>{course.title}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <div className="mt-3 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 px-3 py-2 flex items-center gap-2">
+                  <Search size={14} className="opacity-60" />
+                  <input
+                    value={sessionSearch}
+                    onChange={(e) => setSessionSearch(e.target.value)}
+                    placeholder="Поиск по чатам"
+                    className="w-full bg-transparent outline-none text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 pt-3 space-y-2">
+                {filteredSessions.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-neutral-300/70 dark:border-neutral-700 p-4 text-sm opacity-70">
+                    Пока нет сессий. Создай новый чат и начни с короткого запроса.
+                  </div>
+                ) : filteredSessions.map((item) => (
+                  <div
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      selectSession(item.id, item).catch(() => {});
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        selectSession(item.id, item).catch(() => {});
+                      }
+                    }}
+                    className={`rounded-2xl border px-3 py-3 text-left transition cursor-pointer ${sessionId === item.id
+                      ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)]'
+                      : 'border-neutral-200/70 dark:border-neutral-800 hover:border-[rgba(var(--accent)/0.28)]'}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium line-clamp-1">{item.title || 'Новый AI-чат'}</div>
+                      <div className="flex items-center gap-1">
+                        {item.messageCount ? <Badge variant="outline">{item.messageCount}</Badge> : null}
+                        <button
+                          type="button"
+                          className="rounded-full p-1 opacity-50 hover:opacity-100 text-red-500"
+                          title="Удалить чат"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSessionFromList(item.id);
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    {item.courseTitle ? <div className="mt-1 text-xs opacity-60 line-clamp-1">{item.courseTitle}</div> : null}
+                    {item.lastMessagePreview ? <div className="mt-1 text-xs opacity-70 line-clamp-2">{item.lastMessagePreview}</div> : null}
+                    {!item.lastMessagePreview && item.memorySummary ? <div className="mt-1 text-xs opacity-60 line-clamp-2">{item.memorySummary}</div> : null}
+                    <div className="mt-2 text-[11px] opacity-45">{formatDate(item.updatedAtUtc)}</div>
+                  </div>
+                ))}
+              </div>
+            </aside>
+
+            <main className="min-h-0 flex flex-col">
+              <div className="border-b border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))]/60 px-4 py-3 space-y-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {session?.memory?.messageCount ? <Badge variant="success">{session.memory.messageCount} сообщений</Badge> : null}
+                      {trace?.summary?.routeCount ? <Badge variant="outline">routes: {trace.summary.routeCount}</Badge> : null}
+                      {trace?.summary?.overrideCount ? <Badge variant="danger">override: {trace.summary.overrideCount}</Badge> : null}
+                      {trace?.summary?.failedCount ? <Badge variant="danger">issues: {trace.summary.failedCount}</Badge> : null}
+                      <Button type="button" variant="outline" onClick={() => setShowMemory((v) => !v)}>
+                        {showMemory ? 'Скрыть память' : 'Память'}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={renameCurrent} disabled={!sessionId || pending || actionBusy}>
+                        <Pencil size={14} />
+                      </Button>
+                      <Button type="button" variant="outline" onClick={deleteCurrent} disabled={!sessionId || actionBusy} className="text-red-500">
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                    <div className="mt-2 text-sm opacity-75 leading-6">
+                      {developerView
+                        ? (lastAssistantMessage?.content || session?.memory?.summary || 'Здесь важны маршрут, инструменты и решения агента, но без перегруженного интерфейса.')
+                        : (session?.memory?.summary || 'AI помнит ход этой сессии, файлы и последние действия.') }
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(developerView ? EXPERIMENT_SUGGESTIONS : SUGGESTIONS).slice(0, 3).map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setMessage(item)}
+                        className="rounded-full border border-neutral-200/70 dark:border-neutral-800 px-3 py-1.5 text-xs hover:border-[rgba(var(--accent)/0.35)]"
+                      >
+                        {truncateText(item, 80)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {showMemory ? (
+                  <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
+                ) : null}
+
+                {showRouteMap ? (
+                  <AiRouteMap compact session={session} messages={currentMessages} trace={trace} traceLoading={traceLoading} />
+                ) : null}
+              </div>
+
+              <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-[rgba(var(--accent)/0.02)]">
+                {currentMessages.length === 0 ? (
+                  <div className="h-full grid place-items-center">
+                    <div className="max-w-xl text-center">
+                      <div className="text-2xl font-semibold">AI чат готов</div>
+                      <div className="mt-3 text-sm opacity-75 leading-6">Отдельное окно теперь не засорено админкой. Начни диалог, прикрепи файл или выбери готовую подсказку.</div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {pending ? (
+                      <div className="rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-4 py-3 text-sm">
+                        <div className="inline-flex items-center gap-2"><LoaderCircle size={16} className="animate-spin" /> AI обрабатывает последний запрос…</div>
+                      </div>
+                    ) : null}
+                    {currentMessages.map((item) => (
+                      <MessageBubble
+                        key={item.id || `${item.role}-${item.createdAtUtc}`}
+                        sessionId={sessionId}
+                        message={item}
+                        onConfirm={onConfirmTool}
+                        onQuickReply={onQuickReply}
+                        actionBusy={actionBusy || sending}
+                        showTechnical={showTechnical}
+                        developerView={developerView}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+
+              <div className="border-t border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))] px-4 py-3">
+                {files.length > 0 ? (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {files.map((file, idx) => (
+                      <FileChip
+                        key={`${file.name}-${idx}`}
+                        file={file}
+                        removable
+                        onRemove={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="flex items-end gap-2">
+                  <button type="button" className="opacity-60 hover:opacity-100 p-2" onClick={() => fileInputRef.current?.click()} disabled={sending || pending}>
+                    <Paperclip size={18} />
+                  </button>
+                  <input ref={fileInputRef} type="file" hidden multiple onChange={(e) => addFiles(e.target.files)} />
+                  <Textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={2}
+                    placeholder="Сообщение для AI…"
+                    disabled={sending || pending || actionBusy}
+                    className="flex-1 min-h-[54px] max-h-[140px] resize-none"
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); onSend(); }
+                    }}
+                  />
+                  <Button type="button" onClick={() => onSend()} disabled={sending || pending || actionBusy || (!message.trim() && files.length === 0)} className="flex-none h-[54px] px-5">
+                    {sending ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
+                  </Button>
+                </div>
+
+                <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="flex flex-wrap items-center gap-3 text-xs opacity-75">
+                    <button type="button" className="hover:opacity-100" onClick={() => onSend(CONTINUE_MESSAGE)} disabled={sending || pending}>Продолжай</button>
+                    <button type="button" className="hover:opacity-100" onClick={() => onSend(GENERATE_MESSAGE)} disabled={sending || pending}>Генерация</button>
+                    {session?.courseTitle ? <Badge variant="success"><CheckCircle2 size={12} /> Курс задан</Badge> : <Badge variant="outline">Курс не выбран</Badge>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2 text-xs opacity-80">
+                      <span>Строгость</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={instructionStrictness}
+                        onChange={(e) => setInstructionStrictness(Number(e.target.value))}
+                        disabled={sending || pending || actionBusy}
+                        className="w-28 accent-[rgb(var(--accent))]"
+                        title="0 = свободнее, 100 = максимально буквально следует пользовательской инструкции"
+                      />
+                      <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
+                    </div>
+                    <div className="w-[330px] max-w-full">
+                      <ActionModeToggle
+                        actionMode={actionMode}
+                        onChange={applyActionMode}
+                        disabled={sending || pending || actionBusy}
+                        compact
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
           </div>
         </div>
       </div>

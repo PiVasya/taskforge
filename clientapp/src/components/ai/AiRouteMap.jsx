@@ -404,7 +404,7 @@ function TraceTimeline({ events = [], filter = 'all' }) {
   }
 
   return (
-    <div className="space-y-3 max-h-[34rem] overflow-auto pr-1">
+    <div className="space-y-3 max-h-[18rem] overflow-auto pr-1">
       {filtered.map((event) => {
         const danger = ['failed', 'error', 'cancelled'].includes(String(event.status || '').toLowerCase()) || Boolean(event.overrideReason);
         const meta = getTraceKindMeta(event.kind);
@@ -437,8 +437,8 @@ function TraceTimeline({ events = [], filter = 'all' }) {
   );
 }
 
-export default function AiRouteMap({ messages = [], session = null, trace = null, traceLoading = false }) {
-  const [view, setView] = useState('live');
+export default function AiRouteMap({ messages = [], session = null, trace = null, traceLoading = false, compact = false }) {
+  const [view, setView] = useState('timeline');
   const [selectedId, setSelectedId] = useState(null);
   const [flowInstance, setFlowInstance] = useState(null);
   const [traceFilter, setTraceFilter] = useState('all');
@@ -485,13 +485,15 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
       raw: null,
     })];
   const safeEdges = activeGraph.nodes.length > 0 ? activeGraph.edges : [];
+  const hasMeaningfulGraph = safeNodes.length > 1 || safeEdges.length > 0;
+  const flowHeight = compact ? (view === 'capability' ? 300 : 360) : (view === 'capability' ? 360 : 520);
 
   const currentSummaryText = trace?.events?.length
     ? `Серверный trace уже собран: ${trace.events.length} событий, ${traceSummary.routeCount || 0} route-шагов, ${traceSummary.toolCallCount || 0} tool calls.`
     : 'Сейчас карта строится в основном из сообщений. Как только backend trace появится, схема станет богаче и точнее.';
 
   return (
-    <div className="rounded-3xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] p-4">
+    <div className={`rounded-3xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] ${compact ? 'p-3' : 'p-4'}`}>
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -510,7 +512,7 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className={`mt-4 grid gap-3 md:grid-cols-2 ${compact ? 'xl:grid-cols-5' : '2xl:grid-cols-5 xl:grid-cols-3'}`}>
         <SummaryCard title="Сообщения" value={traceSummary.messageCount ?? messages.length ?? 0} hint="ходы в сессии" />
         <SummaryCard title="Tool calls" value={traceSummary.toolCallCount ?? 0} hint="вызовов инструментов" />
         <SummaryCard title="Tool results" value={traceSummary.toolResultCount ?? 0} hint="результатов действий" />
@@ -544,9 +546,9 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
           </div>
         </div>
       ) : (
-        <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 overflow-hidden" style={{ height: view === 'capability' ? 440 : 720 }}>
-            <ReactFlow
+        <div className={`mt-4 grid gap-4 ${compact ? 'xl:grid-cols-[minmax(0,1fr)_320px]' : '2xl:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
+          <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 overflow-hidden" style={{ height: flowHeight }}>
+            {hasMeaningfulGraph ? <ReactFlow
               nodes={safeNodes}
               edges={safeEdges}
               nodeTypes={nodeTypes}
@@ -562,10 +564,17 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
               zoomOnScroll
               panOnScroll
             >
-              <MiniMap pannable zoomable />
+              <MiniMap pannable zoomable style={{ width: compact ? 120 : 160, height: compact ? 80 : 100 }} />
               <Controls showInteractive={false} />
               <Background gap={20} size={1} />
-            </ReactFlow>
+            </ReactFlow> : (
+              <div className="h-full grid place-items-center p-6">
+                <div className="max-w-md rounded-3xl border border-dashed border-neutral-300/70 dark:border-neutral-700 bg-neutral-50/70 dark:bg-neutral-900/50 p-5 text-sm leading-6 opacity-80">
+                  <div className="font-medium text-base">Живая карта появится после первого осмысленного прохода</div>
+                  <div className="mt-2">Сейчас у сессии недостаточно route snapshots, tool calls или ответов, чтобы строить большой граф. Пока удобнее смотреть timeline справа.</div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">
