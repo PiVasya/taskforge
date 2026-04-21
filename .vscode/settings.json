@@ -55,5 +55,18 @@
   "C_Cpp_Runner.useLeakSanitizer": false,
   "C_Cpp_Runner.showCompilationTime": false,
   "C_Cpp_Runner.useLinkTimeOptimization": false,
-  "C_Cpp_Runner.msvcSecureNoWarnings": false
+  "C_Cpp_Runner.msvcSecureNoWarnings": false,
+  "workbench.colorCustomizations": {
+    "titleBar.activeBackground": "#37306B",
+    "titleBar.border": "#37306B",
+    "titleBar.activeForeground": "#D27685",
+    "titleBar.inactiveBackground": "#554f81",
+    "titleBar.inactiveForeground": "#d98b97",
+    "activityBar.background": "#37306B",
+    "activityBar.foreground": "#D27685",
+    "activityBar.inactiveForeground": "#a85e6a",
+    "statusBar.background": "#37306B",
+    "statusBar.border": "#37306B",
+    "statusBar.foreground": "#D27685"
+  }
 }

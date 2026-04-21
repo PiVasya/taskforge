@@ -60,6 +60,13 @@ public sealed class AdminAiChatController : ControllerBase
         return data == null ? NotFound() : Ok(data);
     }
 
+    [HttpGet("sessions/{id:guid}/trace")]
+    public async Task<IActionResult> GetTrace(Guid id, CancellationToken ct = default)
+    {
+        var data = await _chat.GetSessionTraceAsync(_current.GetUserId(), id, ct);
+        return data == null ? NotFound() : Ok(data);
+    }
+
     [HttpPut("sessions/{id:guid}")]
     public async Task<IActionResult> UpdateSession(Guid id, [FromBody] AiFoundryChatUpdateSessionRequestDto request, CancellationToken ct = default)
     {
@@ -105,7 +112,8 @@ public sealed class AdminAiChatController : ControllerBase
 
         if (normalizedFormat is "debug" or "zip")
         {
-            var archive = BuildDebugExportArchive(session);
+            var trace = await _chat.GetSessionTraceAsync(_current.GetUserId(), id, ct);
+            var archive = BuildDebugExportArchive(session, trace);
             return File(archive, "application/zip", $"{fileNameBase}-debug.zip");
         }
 
@@ -298,7 +306,7 @@ public sealed class AdminAiChatController : ControllerBase
         return sb.ToString();
     }
 
-    private static byte[] BuildDebugExportArchive(AiFoundryChatSessionDto session)
+    private static byte[] BuildDebugExportArchive(AiFoundryChatSessionDto session, AiFoundryChatTraceResponseDto? trace = null)
     {
         using var ms = new MemoryStream();
         using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, true))
@@ -323,6 +331,8 @@ public sealed class AdminAiChatController : ControllerBase
                 })
                 .ToList();
             AddZipEntry(archive, "timeline.json", SerializePrettyJson(timeline));
+            if (trace != null)
+                AddZipEntry(archive, "trace.json", SerializePrettyJson(trace));
         }
 
         return ms.ToArray();

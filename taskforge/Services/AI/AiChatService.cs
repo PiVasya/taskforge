@@ -148,6 +148,45 @@ public sealed class AiChatService
         return MapSession(session, courseMap, parsedMessages, memory);
     }
 
+    public async Task<AiFoundryChatTraceResponseDto?> GetSessionTraceAsync(Guid userId, Guid sessionId, CancellationToken ct = default)
+    {
+        var session = await _db.AiFoundryChatSessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.CreatedByUserId == userId, ct);
+        if (session == null)
+            return null;
+
+        await TryFinalizePendingAsync(session, ct);
+        await TryAppendGenerationUpdatesAsync(session, ct);
+
+        var messages = DeserializeMessages(session.MessagesJson);
+        var memory = BuildMemory(messages, session.PlanJson);
+        var linkedJobIds = messages
+            .SelectMany(x => x.ToolResults ?? new List<AiFoundryChatToolResultDto>())
+            .Where(x => x.JobId.HasValue)
+            .Select(x => x.JobId!.Value)
+            .Distinct()
+            .ToList();
+        var linkedBatchIds = messages
+            .SelectMany(x => x.ToolResults ?? new List<AiFoundryChatToolResultDto>())
+            .Where(x => x.BatchId.HasValue)
+            .Select(x => x.BatchId!.Value)
+            .Distinct()
+            .ToList();
+
+        var jobs = await _db.AiJobs
+            .AsNoTracking()
+            .Where(x => (x.TargetEntityType == "chat-session" && x.TargetEntityId == session.Id) || linkedJobIds.Contains(x.Id) || (x.TargetEntityType == "batch" && x.TargetEntityId.HasValue && linkedBatchIds.Contains(x.TargetEntityId.Value)))
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        var batches = await _db.AiBatches
+            .AsNoTracking()
+            .Where(x => x.ChatSessionId == session.Id || linkedBatchIds.Contains(x.Id))
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        return BuildTraceResponse(session, messages, memory, jobs, batches);
+    }
+
     public async Task<AiFoundryChatSessionDto> CreateSessionAsync(Guid userId, AiFoundryChatCreateSessionRequestDto request, CancellationToken ct = default)
     {
         var title = string.IsNullOrWhiteSpace(request.Title) ? "Новый AI-чат" : request.Title.Trim();
@@ -5096,6 +5135,272 @@ public sealed class AiChatService
                 TextExcerpt = string.IsNullOrWhiteSpace(x.TextExcerpt) ? null : x.TextExcerpt.Trim(),
             })
             .ToList();
+    }
+
+    private static AiFoundryChatTraceResponseDto BuildTraceResponse(
+        AiFoundryChatSession session,
+        List<AiFoundryChatMessageDto> messages,
+        AiFoundryChatMemoryDto memory,
+        List<AiJob> jobs,
+        List<AiBatch> batches)
+    {
+        var events = new List<AiFoundryChatTraceEventDto>();
+
+        events.Add(new AiFoundryChatTraceEventDto
+        {
+            Id = $"memory-{session.Id:N}",
+            TimestampUtc = session.UpdatedAtUtc,
+            Kind = "memory",
+            Stage = "memory",
+            Title = "Session memory snapshot",
+            Status = null,
+            Summary = TrimTraceSummary(memory.Summary, 320),
+            PayloadJson = SafeSerializeTracePayload(memory),
+        });
+
+        foreach (var message in messages.OrderBy(x => x.CreatedAtUtc))
+        {
+            events.Add(new AiFoundryChatTraceEventDto
+            {
+                Id = $"msg-{message.Id:N}",
+                TimestampUtc = message.CreatedAtUtc,
+                Kind = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) ? "user-message"
+                    : string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) ? "assistant-message"
+                    : "system-message",
+                Stage = "message",
+                Title = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) ? "Сообщение пользователя"
+                    : string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) ? "Ответ модели"
+                    : "Системное сообщение",
+                Status = string.IsNullOrWhiteSpace(message.Status) ? null : message.Status,
+                Summary = TrimTraceSummary(message.Content, 420),
+                PayloadJson = SafeSerializeTracePayload(new
+                {
+                    message.Id,
+                    message.Role,
+                    message.Status,
+                    message.Content,
+                    attachmentCount = message.Attachments?.Count ?? 0,
+                    pendingJobId = message.PendingJobId,
+                }),
+            });
+
+            foreach (var toolCall in NormalizeTraceToolCalls(message).Select((value, index) => new { value, index }))
+            {
+                events.Add(new AiFoundryChatTraceEventDto
+                {
+                    Id = $"call-{message.Id:N}-{toolCall.index}",
+                    TimestampUtc = message.CreatedAtUtc,
+                    Kind = "tool-call",
+                    Stage = "tool-call",
+                    Title = string.IsNullOrWhiteSpace(toolCall.value.Name) ? "Tool call" : toolCall.value.Name,
+                    ActionName = toolCall.value.Name,
+                    Summary = TrimTraceSummary(toolCall.value.Reason, 240),
+                    PayloadJson = SafeSerializeTracePayload(new
+                    {
+                        toolCall.value.Name,
+                        toolCall.value.Reason,
+                        Arguments = ParseJsonNodeSafely(toolCall.value.ArgumentsJson),
+                    }),
+                });
+            }
+
+            foreach (var toolResult in NormalizeTraceToolResults(message).Select((value, index) => new { value, index }))
+            {
+                var debugInfo = toolResult.value.DebugInfo;
+                var routing = debugInfo?["routing"];
+                var resolution = debugInfo?["resolution"];
+                var routeMode = routing?["mode"]?.GetValue<string>();
+                var rawRouteMode = routing?["rawMode"]?.GetValue<string>();
+                var overrideReason = resolution?["overrideReason"]?.GetValue<string>();
+                var actionName = toolResult.value.ActionName ?? debugInfo?["actionName"]?.GetValue<string>();
+
+                events.Add(new AiFoundryChatTraceEventDto
+                {
+                    Id = $"result-{message.Id:N}-{toolResult.index}",
+                    TimestampUtc = message.CreatedAtUtc,
+                    Kind = "tool-result",
+                    Stage = "tool-result",
+                    Title = string.IsNullOrWhiteSpace(actionName) ? "Tool result" : actionName,
+                    Status = toolResult.value.Status,
+                    RouteMode = routeMode,
+                    RawRouteMode = rawRouteMode,
+                    ActionName = actionName,
+                    OverrideReason = string.Equals(overrideReason, "none", StringComparison.OrdinalIgnoreCase) ? null : overrideReason,
+                    RelatedEntityType = toolResult.value.JobId.HasValue ? "job"
+                        : toolResult.value.BatchId.HasValue ? "batch"
+                        : toolResult.value.DraftId.HasValue ? "draft"
+                        : toolResult.value.AssignmentId.HasValue ? "assignment"
+                        : null,
+                    RelatedEntityId = toolResult.value.JobId ?? toolResult.value.BatchId ?? toolResult.value.DraftId ?? toolResult.value.AssignmentId,
+                    Summary = TrimTraceSummary(toolResult.value.Summary, 260),
+                    PayloadJson = SafeSerializeTracePayload(new
+                    {
+                        toolResult.value.ActionName,
+                        toolResult.value.Status,
+                        toolResult.value.Summary,
+                        toolResult.value.NavigateTo,
+                        toolResult.value.JobId,
+                        toolResult.value.BatchId,
+                        toolResult.value.DraftId,
+                        toolResult.value.AssignmentId,
+                        DebugInfo = toolResult.value.DebugInfo,
+                    }),
+                });
+
+                if (!string.IsNullOrWhiteSpace(routeMode) || !string.IsNullOrWhiteSpace(rawRouteMode))
+                {
+                    events.Add(new AiFoundryChatTraceEventDto
+                    {
+                        Id = $"route-{message.Id:N}-{toolResult.index}",
+                        TimestampUtc = message.CreatedAtUtc,
+                        Kind = "routing",
+                        Stage = "routing",
+                        Title = string.IsNullOrWhiteSpace(routeMode) ? "Routing" : $"Route: {routeMode}",
+                        Status = toolResult.value.Status,
+                        RouteMode = routeMode,
+                        RawRouteMode = rawRouteMode,
+                        ActionName = actionName,
+                        OverrideReason = string.Equals(overrideReason, "none", StringComparison.OrdinalIgnoreCase) ? null : overrideReason,
+                        Summary = TrimTraceSummary(routing?["preAnchorReason"]?.GetValue<string>() ?? routing?["mode"]?.GetValue<string>(), 220),
+                        PayloadJson = SafeSerializeTracePayload(routing),
+                    });
+                }
+            }
+        }
+
+        foreach (var job in jobs)
+        {
+            events.Add(new AiFoundryChatTraceEventDto
+            {
+                Id = $"job-{job.Id:N}",
+                TimestampUtc = job.CreatedAtUtc,
+                Kind = "job",
+                Stage = string.IsNullOrWhiteSpace(job.StageCode) ? "job" : job.StageCode!,
+                Title = string.IsNullOrWhiteSpace(job.Type) ? "AI job" : job.Type,
+                Status = job.Status,
+                RelatedEntityType = "job",
+                RelatedEntityId = job.Id,
+                Summary = TrimTraceSummary(job.StageLabel ?? job.ErrorText ?? job.ResultJson, 260),
+                PayloadJson = SafeSerializeTracePayload(new
+                {
+                    job.Id,
+                    job.Type,
+                    job.Status,
+                    job.StageCode,
+                    job.StageLabel,
+                    job.ResultJson,
+                    job.ErrorText,
+                    job.TargetEntityType,
+                    job.TargetEntityId,
+                    job.CreatedAtUtc,
+                    job.CompletedAtUtc,
+                }),
+            });
+        }
+
+        foreach (var batch in batches)
+        {
+            events.Add(new AiFoundryChatTraceEventDto
+            {
+                Id = $"batch-{batch.Id:N}",
+                TimestampUtc = batch.CreatedAtUtc,
+                Kind = "batch",
+                Stage = string.IsNullOrWhiteSpace(batch.CurrentStage) ? "batch" : batch.CurrentStage!,
+                Title = string.IsNullOrWhiteSpace(batch.AssignmentType) ? "AI batch" : $"Batch · {batch.AssignmentType}",
+                Status = batch.Status,
+                RelatedEntityType = "batch",
+                RelatedEntityId = batch.Id,
+                Summary = TrimTraceSummary(batch.Prompt, 260),
+                PayloadJson = SafeSerializeTracePayload(new
+                {
+                    batch.Id,
+                    batch.Status,
+                    batch.CurrentStage,
+                    batch.AssignmentType,
+                    batch.Mode,
+                    batch.RequestedCount,
+                    batch.Prompt,
+                    batch.CreatedAtUtc,
+                    batch.UpdatedAtUtc,
+                }),
+            });
+        }
+
+        events = events
+            .OrderBy(x => x.TimestampUtc)
+            .ThenBy(x => x.Kind)
+            .ToList();
+
+        var toolResultCount = events.Count(x => x.Kind == "tool-result");
+        var failedCount = events.Count(x => string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "error", StringComparison.OrdinalIgnoreCase));
+        var pendingCount = events.Count(x => string.Equals(x.Status, "pending", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "processing", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "running", StringComparison.OrdinalIgnoreCase));
+        var routeCount = events.Count(x => x.Kind == "routing");
+        var overrideCount = events.Count(x => !string.IsNullOrWhiteSpace(x.OverrideReason));
+
+        return new AiFoundryChatTraceResponseDto
+        {
+            SessionId = session.Id,
+            SessionTitle = string.IsNullOrWhiteSpace(session.Title) ? "Новый AI-чат" : session.Title,
+            GeneratedAtUtc = DateTime.UtcNow,
+            Summary = new AiFoundryChatTraceSummaryDto
+            {
+                MessageCount = messages.Count,
+                ToolCallCount = events.Count(x => x.Kind == "tool-call"),
+                ToolResultCount = toolResultCount,
+                RouteCount = routeCount,
+                OverrideCount = overrideCount,
+                FailedCount = failedCount,
+                PendingCount = pendingCount,
+                LinkedJobCount = jobs.Count,
+                LinkedBatchCount = batches.Count,
+            },
+            Events = events,
+        };
+    }
+
+    private static List<AiFoundryChatToolCallDto> NormalizeTraceToolCalls(AiFoundryChatMessageDto message)
+        => message.ToolCalls?.Count > 0 ? message.ToolCalls : (message.ToolCall == null ? new List<AiFoundryChatToolCallDto>() : new List<AiFoundryChatToolCallDto> { message.ToolCall });
+
+    private static List<AiFoundryChatToolResultDto> NormalizeTraceToolResults(AiFoundryChatMessageDto message)
+        => message.ToolResults?.Count > 0 ? message.ToolResults : (message.ToolResult == null ? new List<AiFoundryChatToolResultDto>() : new List<AiFoundryChatToolResultDto> { message.ToolResult });
+
+    private static JsonNode? ParseJsonNodeSafely(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+        try
+        {
+            return JsonNode.Parse(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeSerializeTracePayload(object? payload)
+    {
+        if (payload == null)
+            return null;
+        try
+        {
+            return JsonSerializer.Serialize(payload, new JsonSerializerOptions(JsonOptions)
+            {
+                WriteIndented = true,
+            });
+        }
+        catch
+        {
+            return payload.ToString();
+        }
+    }
+
+    private static string? TrimTraceSummary(string? value, int max)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        var text = value.Trim();
+        return text.Length <= max ? text : text[..max] + "…";
     }
 
     private static List<AiFoundryChatMessageDto> DeserializeMessages(string? json)

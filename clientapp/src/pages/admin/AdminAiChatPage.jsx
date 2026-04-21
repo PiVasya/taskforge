@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
+import AiAdminWorkspace from '../../components/ai/AiAdminWorkspace';
+import AiRouteMap from '../../components/ai/AiRouteMap';
+import { usePageTitle } from '../../hooks/usePageTitle';
 import { Badge, Button, Card, Field, Select, Textarea } from '../../components/ui';
 import {
   confirmAiChatTool,
@@ -9,6 +12,7 @@ import {
   downloadAiChatExport,
   getAiChatSession,
   getAiChatSessions,
+  getAiChatTrace,
   sendAiChatMessage,
   updateAiChatSession,
   uploadAiChatFile,
@@ -41,6 +45,11 @@ import {
   Package,
   FileText,
   Shrink,
+  LayoutDashboard,
+  ListTodo,
+  Files,
+  Brain,
+  Workflow,
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -62,6 +71,14 @@ const EXPERIMENT_SUGGESTIONS = [
 
 const CONTINUE_MESSAGE = 'Продолжай по памяти этой сессии. Если параметров уже достаточно, не уточняй лишнее и переходи к следующему действию.';
 const GENERATE_MESSAGE = 'По памяти этой сессии начни генерацию заданий. Если уместнее batch — создай batch, если лучше одиночная генерация — используй текст или последний файл.';
+
+const CHAT_CONTROL_TABS = [
+  { key: 'overview', label: 'Обзор', icon: LayoutDashboard },
+  { key: 'queue', label: 'Очередь', icon: ListTodo },
+  { key: 'batches', label: 'Пакеты', icon: Sparkles },
+  { key: 'drafts', label: 'Черновики', icon: Files },
+  { key: 'create', label: 'Новый пакет', icon: Brain },
+];
 
 function formatDate(value) {
   if (!value) return '';
@@ -1093,8 +1110,14 @@ export default function AdminAiChatPage() {
   const [sessionSearch, setSessionSearch] = useState('');
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [adminTab, setAdminTab] = useState(() => {
+    const requested = String(searchParams.get('panel') || '').toLowerCase();
+    return CHAT_CONTROL_TABS.some((tab) => tab.key === requested) ? requested : 'overview';
+  });
   const [sessionId, setSessionId] = useState(null);
   const [session, setSession] = useState(null);
+  const [trace, setTrace] = useState(null);
+  const [traceLoading, setTraceLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1105,6 +1128,13 @@ export default function AdminAiChatPage() {
   const [dragActive, setDragActive] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
+  const [showRouteMap, setShowRouteMap] = useState(() => {
+    try {
+      return localStorage.getItem('aiChat_showRouteMap') !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [developerView, setDeveloperView] = useState(() => {
     try {
       return localStorage.getItem('aiChat_developerView') !== '0';
@@ -1138,9 +1168,30 @@ export default function AdminAiChatPage() {
   }, []);
   const previousPendingRef = useRef(false);
 
+  const loadTrace = useCallback(async (targetSessionId) => {
+    if (!targetSessionId) {
+      setTrace(null);
+      return null;
+    }
+    try {
+      setTraceLoading(true);
+      const data = await getAiChatTrace(targetSessionId);
+      setTrace(data);
+      return data;
+    } catch {
+      return null;
+    } finally {
+      setTraceLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     try { localStorage.setItem('aiChat_developerView', developerView ? '1' : '0'); } catch { /* ignore */ }
   }, [developerView]);
+
+  useEffect(() => {
+    try { localStorage.setItem('aiChat_showRouteMap', showRouteMap ? '1' : '0'); } catch { /* ignore */ }
+  }, [showRouteMap]);
 
   const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
   const pending = useMemo(
@@ -1158,6 +1209,13 @@ export default function AdminAiChatPage() {
     return true;
   }, [currentMessages]);
   const lastAssistantMessage = useMemo(() => ([...currentMessages].reverse().find((x) => x.role === 'assistant' && x.status !== 'processing') || null), [currentMessages]);
+
+  const pageTitle = useMemo(() => {
+    const scope = session?.courseTitle || session?.title || 'AI центр';
+    return isFullscreen ? `TaskForge · AI центр — фокус · ${scope}` : `TaskForge · AI центр — ${scope}`;
+  }, [isFullscreen, session?.courseTitle, session?.title]);
+
+  usePageTitle(pageTitle);
 
   const strictnessLabel = useMemo(() => {
     if (instructionStrictness <= 20) return 'Свободно';
@@ -1186,6 +1244,7 @@ export default function AdminAiChatPage() {
     if (!nextSessionId) {
       setSessionId(null);
       setSession(null);
+      setTrace(null);
       return null;
     }
     setSessionId(nextSessionId);
@@ -1193,6 +1252,7 @@ export default function AdminAiChatPage() {
       const full = await getAiChatSession(nextSessionId);
       setSession(full);
       setSessions((prev) => prev.map((item) => (item.id === full.id ? upsertSessionListItem(full) : item)));
+      loadTrace(full.id).catch(() => {});
       return full;
     } catch (e) {
       const fallback = fallbackItem ? {
@@ -1213,7 +1273,7 @@ export default function AdminAiChatPage() {
       notify.error(handleApiError(e, 'Не удалось открыть этот чат. Его можно удалить из списка.'));
       return null;
     }
-  }, [instructionStrictness, notify, upsertSessionListItem]);
+  }, [instructionStrictness, notify, upsertSessionListItem, loadTrace]);
 
   const deleteSessionFromList = useCallback(async (id) => {
     if (!id) return;
@@ -1341,6 +1401,17 @@ export default function AdminAiChatPage() {
   }, [instructionStrictness, sessionId, session, upsertSessionListItem]);
 
   useEffect(() => {
+    if (!sessionId) {
+      setTrace(null);
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      loadTrace(sessionId).catch(() => {});
+    }, pending ? 900 : 250);
+    return () => clearTimeout(timer);
+  }, [sessionId, currentMessages.length, pending, loadTrace]);
+
+  useEffect(() => {
     const node = listRef.current;
     if (!node) return;
     node.scrollTop = node.scrollHeight;
@@ -1354,9 +1425,11 @@ export default function AdminAiChatPage() {
     });
     setSessionId(created.id);
     setSession(created);
+    setTrace(null);
     setSessions((prev) => [upsertSessionListItem(created), ...prev]);
+    loadTrace(created.id).catch(() => {});
     return created;
-  }, [courses, instructionStrictness, selectedCourseId, upsertSessionListItem]);
+  }, [courses, instructionStrictness, selectedCourseId, upsertSessionListItem, loadTrace]);
 
   const refreshCurrent = useCallback(async () => {
     if (!sessionId) return;
@@ -1553,6 +1626,8 @@ export default function AdminAiChatPage() {
             <span className="font-semibold truncate">{session?.title || 'Новый AI-чат'}</span>
             {session?.courseTitle ? <Badge variant="outline">{session.courseTitle}</Badge> : null}
             {pending ? <Badge variant="outline">AI думает…</Badge> : null}
+            {trace?.summary?.routeCount ? <Badge variant="outline">routes: {trace.summary.routeCount}</Badge> : null}
+            {trace?.summary?.failedCount ? <Badge variant="danger">issues: {trace.summary.failedCount}</Badge> : null}
           </div>
           <div className="flex items-center gap-2 flex-none">
             <Select
@@ -1570,6 +1645,9 @@ export default function AdminAiChatPage() {
             <Button type="button" variant="outline" onClick={() => setDeveloperView((v) => !v)} title="Dev-вид">
               <Package size={14} />
             </Button>
+            <Button type="button" variant={showRouteMap ? 'primary' : 'outline'} onClick={() => setShowRouteMap((v) => !v)} title="Карта маршрутов">
+              <Workflow size={14} />
+            </Button>
             <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
               <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
             </Button>
@@ -1578,6 +1656,12 @@ export default function AdminAiChatPage() {
             </Button>
           </div>
         </div>
+
+        {showRouteMap ? (
+          <div className="flex-none px-4 pt-4">
+            <AiRouteMap session={session} messages={currentMessages} trace={trace} traceLoading={traceLoading} />
+          </div>
+        ) : null}
 
         {/* Messages area */}
         <div ref={listRef} className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
@@ -1671,7 +1755,7 @@ export default function AdminAiChatPage() {
 
   return (
     <Layout fullWidth>
-      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="grid gap-4 2xl:grid-cols-[340px_minmax(0,1fr)_460px] xl:grid-cols-[340px_minmax(0,1fr)]">
         <Card className="p-4 xl:sticky xl:top-24 h-fit max-h-[82vh] overflow-y-auto">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -1790,6 +1874,9 @@ export default function AdminAiChatPage() {
                   <Badge variant="outline">Память сессии</Badge>
                   {session?.memory?.messageCount ? <Badge variant="success">{session.memory.messageCount} сообщений</Badge> : null}
                   {pending ? <Badge variant="outline">AI думает…</Badge> : null}
+                  {trace?.summary?.routeCount ? <Badge variant="outline">routes: {trace.summary.routeCount}</Badge> : null}
+                  {trace?.summary?.overrideCount ? <Badge variant="danger">override: {trace.summary.overrideCount}</Badge> : null}
+                  {trace?.summary?.failedCount ? <Badge variant="danger">issues: {trace.summary.failedCount}</Badge> : null}
                   <Button type="button" variant="outline" onClick={() => setShowMemory((v) => !v)}>
                     {showMemory ? 'Скрыть память' : 'Показать память'}
                   </Button>
@@ -1798,6 +1885,9 @@ export default function AdminAiChatPage() {
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setDeveloperView((v) => !v)}>
                     <Package size={16} /> {developerView ? 'Скрыть dev-вид' : 'Показать dev-вид'}
+                  </Button>
+                  <Button type="button" variant={showRouteMap ? 'primary' : 'outline'} onClick={() => setShowRouteMap((v) => !v)}>
+                    <Workflow size={16} /> {showRouteMap ? 'Скрыть карту AI' : 'Показать карту AI'}
                   </Button>
                 </div>
                 <div className="mt-2 text-sm leading-6 opacity-75 whitespace-pre-wrap">
@@ -1816,6 +1906,23 @@ export default function AdminAiChatPage() {
                       {item}
                     </button>
                   ))}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">AI-центр</Badge>
+                  {CHAT_CONTROL_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <Button
+                        key={tab.key}
+                        type="button"
+                        variant={adminTab === tab.key ? 'primary' : 'outline'}
+                        onClick={() => setAdminTab(tab.key)}
+                        className="!rounded-full"
+                      >
+                        <Icon size={14} /> {tab.label}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="w-full lg:w-[280px]">
@@ -1837,6 +1944,10 @@ export default function AdminAiChatPage() {
               instructionStrictness={instructionStrictness}
               developerView={developerView}
             />
+
+            {showRouteMap ? (
+              <AiRouteMap session={session} messages={currentMessages} trace={trace} traceLoading={traceLoading} />
+            ) : null}
 
             {showMemory ? (
               <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
@@ -1994,6 +2105,38 @@ export default function AdminAiChatPage() {
                 {sending ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />} Отправить
               </Button>
             </div>
+          </div>
+        </Card>
+
+        <Card className="p-4 xl:col-span-2 2xl:col-span-1 2xl:sticky 2xl:top-24 h-fit max-h-[82vh] overflow-y-auto">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] opacity-60">AI control hub</div>
+              <div className="mt-1 text-lg font-semibold">Всё управление чатом — здесь</div>
+              <div className="mt-1 text-sm opacity-70">Очередь, пакеты, черновики и batch-операции перенесены прямо на страницу чата.</div>
+            </div>
+            <Badge variant="success">{sessionId ? '/chat' : '/new-chat'}</Badge>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {CHAT_CONTROL_TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <Button
+                  key={`hub-${tab.key}`}
+                  type="button"
+                  variant={adminTab === tab.key ? 'primary' : 'outline'}
+                  onClick={() => setAdminTab(tab.key)}
+                  className="!rounded-full"
+                >
+                  <Icon size={14} /> {tab.label}
+                </Button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 bg-[rgba(var(--accent)/0.03)] p-3">
+            <AiAdminWorkspace key={adminTab} embedded initialTab={adminTab} />
           </div>
         </Card>
       </div>

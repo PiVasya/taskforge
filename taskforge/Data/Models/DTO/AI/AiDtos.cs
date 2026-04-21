@@ -989,6 +989,46 @@ public sealed class AiFoundryChatSessionDto
     public List<AiFoundryChatMessageDto> Messages { get; set; } = new();
 }
 
+public sealed class AiFoundryChatTraceSummaryDto
+{
+    public int MessageCount { get; set; }
+    public int ToolCallCount { get; set; }
+    public int ToolResultCount { get; set; }
+    public int RouteCount { get; set; }
+    public int OverrideCount { get; set; }
+    public int FailedCount { get; set; }
+    public int PendingCount { get; set; }
+    public int LinkedJobCount { get; set; }
+    public int LinkedBatchCount { get; set; }
+}
+
+public sealed class AiFoundryChatTraceEventDto
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+    public string Kind { get; set; } = string.Empty;
+    public string Stage { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? Status { get; set; }
+    public string? RouteMode { get; set; }
+    public string? RawRouteMode { get; set; }
+    public string? ActionName { get; set; }
+    public string? OverrideReason { get; set; }
+    public string? RelatedEntityType { get; set; }
+    public Guid? RelatedEntityId { get; set; }
+    public string? Summary { get; set; }
+    public string? PayloadJson { get; set; }
+}
+
+public sealed class AiFoundryChatTraceResponseDto
+{
+    public Guid SessionId { get; set; }
+    public string SessionTitle { get; set; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public AiFoundryChatTraceSummaryDto Summary { get; set; } = new();
+    public List<AiFoundryChatTraceEventDto> Events { get; set; } = new();
+}
+
 public sealed class AiFoundryChatSendMessageResponseDto
 {
     public bool Pending { get; set; }

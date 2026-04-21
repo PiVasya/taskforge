@@ -263,8 +263,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         { to: '/admin/minecraft-links', label: 'Связи Minecraft', subtitle: 'Привязки игроков', icon: Link2, active: isActive('/admin/minecraft-links') },
         { to: '/admin/system-status', label: 'Статус', subtitle: 'Компоненты и раннеры', icon: Activity, active: isActive('/admin/system-status') },
         { to: '/admin/feature-roles', label: 'Доп. роли', subtitle: 'Права и фичи', icon: Shield, active: isActive('/admin/feature-roles') },
-        { to: '/admin/ai', label: 'AI', subtitle: 'Очередь и драфты', icon: Brain, active: isActive('/admin/ai') && !isActive('/admin/ai/chat') },
-        { to: '/admin/ai/chat', label: 'AI чат', subtitle: 'Чат и инструменты', icon: Brain, active: isActive('/admin/ai/chat') },
+        { to: '/admin/ai/chat', label: 'AI центр', subtitle: 'Чат, очередь, драфты и debug', icon: Brain, active: isActive('/admin/ai') },
       ]
     : [];
 

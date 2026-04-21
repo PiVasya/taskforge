@@ -15,6 +15,11 @@ export async function getAiChatSession(id) {
   return data;
 }
 
+export async function getAiChatTrace(id) {
+  const { data } = await api.get(`/api/admin/ai/chat/sessions/${id}/trace`);
+  return data;
+}
+
 export async function updateAiChatSession(id, payload = {}) {
   const { data } = await api.put(`/api/admin/ai/chat/sessions/${id}`, payload);
   return data;
