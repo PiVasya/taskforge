@@ -664,6 +664,99 @@ def _dict_ci_get(obj: Any, *keys: str) -> Any:
     return None
 
 
+
+def _chat_extract_anchor_concept(text: str) -> str:
+    low = str(text or "").strip().lower()
+    if not low:
+        return ""
+    for concept in ("foreach", "switch", "while", "for", "if"):
+        if re.search(rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE):
+            return concept
+    if "ветвлен" in low or "условн" in low:
+        return "if"
+    if re.search(r"(?<![A-Za-zА-Яа-я0-9_])case(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE) or "default" in low:
+        return "switch"
+    return ""
+
+
+def _chat_proposal_text(proposal: Dict[str, Any]) -> str:
+    return " ".join(
+        str(proposal.get(key) or "").strip()
+        for key in ("title", "conditionPreview", "fullCondition", "goal")
+        if str(proposal.get(key) or "").strip()
+    )
+
+
+def _chat_proposal_uses_explicit_anchor(proposal: Dict[str, Any], concept: str) -> bool:
+    concept = str(concept or "").strip().lower()
+    if not concept:
+        return False
+    hay = _chat_proposal_text(proposal).lower()
+    if not hay:
+        return False
+    if re.search(rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", hay, flags=re.IGNORECASE):
+        return True
+    if concept == "if":
+        return any(token in hay for token in ["if/else", "else if", "ветвлен", "условн"])
+    if concept == "switch":
+        return "case" in hay or "default" in hay
+    return False
+
+
+def _chat_proposals_support_anchor_onboarding(proposals: list[Dict[str, Any]], concept: str) -> bool:
+    concept = str(concept or "").strip().lower()
+    if not proposals or not concept:
+        return False
+    explicit_indexes = [idx for idx, proposal in enumerate(proposals) if _chat_proposal_uses_explicit_anchor(proposal, concept)]
+    if not explicit_indexes:
+        return False
+    if explicit_indexes[0] > min(1, len(proposals) - 1):
+        return False
+    if concept == "if" and len(proposals) >= 3:
+        has_else = any("else" in _chat_proposal_text(proposal).lower() for proposal in proposals)
+        if not has_else:
+            return False
+    return True
+
+
+def _chat_is_blueprint_assent_request(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(marker in low for marker in [
+        "согласен", "давай", "ок", "окей", "погнали", "напиши чернов", "наброс",
+        "черновики к этим", "к этим задач", "для этих задач", "пиши чернов",
+    ])
+
+
+def _chat_build_blueprint_routing_hint(payload: Dict[str, Any], last_user: str, prompt: str, proposals: list[Dict[str, Any]]) -> dict[str, Any]:
+    memory = _chat_memory(payload)
+    combined = " ".join(
+        part for part in [
+            last_user,
+            prompt,
+            str(memory.get("latestExplicitInstruction") or "").strip(),
+            " ".join(str(x).strip() for x in (memory.get("recentGoals") or []) if str(x).strip()),
+            " ".join(_chat_proposal_text(proposal) for proposal in proposals),
+        ]
+        if str(part or "").strip()
+    )
+    concept = _chat_extract_anchor_concept(combined)
+    if not concept:
+        return {}
+    proposal_evidence = _chat_proposals_support_anchor_onboarding(proposals, concept)
+    assent = _chat_is_blueprint_assent_request(last_user)
+    explicit_start = bool(re.search(rf"сначала\s+(?:(?:прост\w+|просто)\s+)?{re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", combined, flags=re.IGNORECASE)) or bool(re.search(rf"первый\s+шаг[\s\S]{{0,40}}(?<![A-Za-zА-Яа-я0-9_]){re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", combined, flags=re.IGNORECASE))
+    if proposal_evidence and (assent or explicit_start or _chat_is_chat_blueprint_request(payload, last_user)):
+        return {
+            "mode": "anchor-onboarding",
+            "concept": concept,
+            "source": "proposal-agreement" if assent else ("explicit-start" if explicit_start else "blueprint-request"),
+            "agreed": bool(assent),
+            "proposalEvidence": True,
+        }
+    return {}
+
 def _chat_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
     direct = payload.get("memory") if isinstance(payload.get("memory"), dict) else None
     if isinstance(direct, dict):
@@ -1338,6 +1431,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             assistant_fallback = "Я обновила внутренний blueprint под новые требования и продолжаю автономный проход без лишнего согласования." if action_name == "revise_chat_blueprint" else "Я собрала внутренний blueprint и продолжаю автономный проход без лишнего согласования."
         else:
             assistant_fallback = "Я обновила примерные условия в чате. Посмотри, всё ли теперь совпадает, и скажи, когда уже закидывать в черновик." if action_name == "revise_chat_blueprint" else "Я набросала примерные условия. Посмотри, что поправить, и потом скажи, когда закидывать в черновик."
+        routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, prompt, proposals)
         result["actions"] = [{
             "name": action_name,
             "reason": "Обновляю уже сохранённые примерные условия по новым замечаниям пользователя." if action_name == "revise_chat_blueprint" else "Сначала сохраняю примерные условия из чата, чтобы пользователь мог их поправить и утвердить перед финализацией в draft.",
@@ -1345,6 +1439,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                 "courseId": _chat_pick_course_id(payload, result),
                 "summary": str((result.get("draftBlueprint") or {}).get("summary") or result.get("assistantMessage") or "").strip()[:300],
                 "proposals": proposals,
+                **({"routingHint": routing_hint} if routing_hint else {}),
             },
         }]
         return {
@@ -1724,13 +1819,14 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             assistant = str(result.get("assistantMessage") or "").strip() or ("Собираю внутренний blueprint и продолжаю автономный проход без лишней паузы." if final_count <= 1 else f"Собираю {len(proposals)} внутренних условий и продолжаю автономный проход без лишней паузы.")
         else:
             assistant = str(result.get("assistantMessage") or "").strip() or ("Я набросала примерные условия для обсуждения. Посмотри, что менять, и потом скажи, когда уже закидывать в черновик." if final_count <= 1 else f"Я набросала {len(proposals)} примерных условий. Посмотри, что менять, и потом скажи, когда уже закидывать их в черновики.")
+        routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, prompt, proposals)
         return {
             "assistantMessage": assistant,
             "sessionTitle": _chat_build_session_title(payload),
             "actions": [{
                 "name": "save_chat_blueprint",
                 "reason": "Для нового задания сначала нужно сохранить примерные условия в памяти чата, обсудить правки и только потом финализировать в draft.",
-                "arguments": {"courseId": course_id, "summary": assistant[:300], "proposals": proposals},
+                "arguments": {"courseId": course_id, "summary": assistant[:300], "proposals": proposals, **({"routingHint": routing_hint} if routing_hint else {})},
             }],
         }
 

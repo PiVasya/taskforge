@@ -96,6 +96,22 @@ public sealed class AiChatService
         public string Mode { get; init; } = "neutral";
     }
 
+    private sealed class BlueprintRoutingDecision
+    {
+        public AnchorRoutingDiagnostics Diagnostics { get; init; } = new();
+        public string HintMode { get; init; } = "none";
+        public string HintConcept { get; init; } = string.Empty;
+        public bool HintAgreed { get; init; }
+        public bool HintProposalEvidence { get; init; }
+        public bool InferredProposalOnboarding { get; init; }
+        public bool LatestInstructionLooksLikeAssent { get; init; }
+        public bool OverrideToOnboarding { get; init; }
+        public string OverrideReason { get; init; } = "none";
+        public bool ShouldAvoidExplicitAnchor { get; init; }
+        public bool AllowsExplicitOnboarding { get; init; }
+        public string EffectiveMode { get; init; } = "neutral";
+    }
+
     public AiChatService(ApplicationDbContext db, IAiJobService jobs, ILogger<AiChatService> log)
     {
         _db = db;
@@ -636,7 +652,7 @@ public sealed class AiChatService
         var accumulatedToolResults = assistantMessage.ToolResults.Concat(execution.ToolResults).ToList();
         var memoryAfterTools = BuildMemory(messages, session.PlanJson);
 
-        if (ShouldContinueInternalReasoningPass(actionMode, session, messages, memoryAfterTools, accumulatedToolCalls, execution.ToolResults, toolCalls))
+        if (ShouldContinueInternalReasoningPass(actionMode, session, messages, memoryAfterTools, accumulatedToolCalls, accumulatedToolResults, toolCalls))
         {
             var followupPayload = await BuildChatPayloadAsync(session, messages, actionMode, memoryAfterTools.InstructionStrictness, null, ct);
             var followupJob = await _jobs.EnqueueAsync(new CreateAiJobRequestDto
@@ -2967,7 +2983,7 @@ public sealed class AiChatService
         List<AiFoundryChatMessageDto> messages,
         AiFoundryChatMemoryDto memory,
         IReadOnlyList<AiFoundryChatToolCallDto> accumulatedToolCalls,
-        IReadOnlyList<AiFoundryChatToolResultDto> recentToolResults,
+        IReadOnlyList<AiFoundryChatToolResultDto> accumulatedToolResults,
         IReadOnlyList<AiFoundryChatToolCallDto> lastToolCalls)
     {
         if (!string.Equals(actionMode, "multi", StringComparison.OrdinalIgnoreCase))
@@ -2976,12 +2992,12 @@ public sealed class AiChatService
             return false;
         if (accumulatedToolCalls.Count >= 12)
             return false;
-        var hasHardFailure = recentToolResults.Any(x => x.RequiresConfirmation || ((string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "error", StringComparison.OrdinalIgnoreCase)) && !IsRecoverableAgentToolFailure(x)));
+        var hasHardFailure = accumulatedToolResults.Any(x => x.RequiresConfirmation || ((string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "error", StringComparison.OrdinalIgnoreCase)) && !IsRecoverableAgentToolFailure(x)));
         if (hasHardFailure)
             return false;
 
-        if (recentToolResults.Any(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) || IsRecoverableAgentToolFailure(x)))
-            return true;
+        if (accumulatedToolResults.Any(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) || IsRecoverableAgentToolFailure(x)))
+            return !HasRepeatedBlueprintRevisionLoop(accumulatedToolCalls, accumulatedToolResults);
 
         var latestToolCall = lastToolCalls.LastOrDefault(x => x != null && !string.IsNullOrWhiteSpace(x.Name));
         if (latestToolCall == null)
@@ -3020,6 +3036,34 @@ public sealed class AiChatService
         var nextSignature = BuildToolCallLoopSignature(nextToolCall);
         var alreadyVisited = accumulatedToolCalls.Any(x => string.Equals(BuildToolCallLoopSignature(x), nextSignature, StringComparison.OrdinalIgnoreCase));
         return !alreadyVisited;
+    }
+
+    private static bool HasRepeatedBlueprintRevisionLoop(
+        IReadOnlyList<AiFoundryChatToolCallDto> accumulatedToolCalls,
+        IReadOnlyList<AiFoundryChatToolResultDto> recentToolResults)
+    {
+        if (accumulatedToolCalls == null || accumulatedToolCalls.Count < 2 || recentToolResults == null || recentToolResults.Count < 2)
+            return false;
+
+        var recentNames = accumulatedToolCalls
+            .TakeLast(3)
+            .Select(x => (x.Name ?? string.Empty).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+        if (recentNames.Count < 2)
+            return false;
+        if (recentNames.Any(x => !string.Equals(x, "save_chat_blueprint", StringComparison.OrdinalIgnoreCase) && !string.Equals(x, "revise_chat_blueprint", StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        var recentRevisionSummaries = recentToolResults
+            .Where(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Summary))
+            .Select(x => ShortenSingleLine(x.Summary, 260))
+            .TakeLast(2)
+            .ToList();
+        if (recentRevisionSummaries.Count < 2)
+            return false;
+
+        return string.Equals(recentRevisionSummaries[0], recentRevisionSummaries[1], StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsRecoverableAgentToolFailure(AiFoundryChatToolResultDto? result)
@@ -5879,7 +5923,8 @@ public sealed class AiChatService
 
         var anchorConcept = DetectAnchorConcept(memory);
         var anchorLabel = AnchorConceptLabel(anchorConcept);
-        if (ShouldAvoidExplicitAnchorBeforeAnchor(memory, anchorConcept))
+        var routingDecision = ResolveBlueprintRoutingDecision(memory, args, proposals, anchorConcept);
+        if (routingDecision.ShouldAvoidExplicitAnchor)
         {
             var explicitAnchorTitles = proposals
                 .Where(x => ProposalUsesExplicitAnchor(x, anchorConcept))
@@ -5889,7 +5934,7 @@ public sealed class AiChatService
             if (explicitAnchorTitles.Count > 0)
                 issues.Add($"Это подготовка ДО темы {anchorLabel}, поэтому в промежуточных задачах нельзя уже вводить {anchorLabel}. Убери явное упоминание конструкции из: {string.Join(", ", explicitAnchorTitles)}.");
         }
-        else if (AllowsExplicitAnchorOnboarding(memory, concept: anchorConcept))
+        else if (routingDecision.AllowsExplicitOnboarding)
         {
             var explicitAnchorTitles = proposals.Where(x => ProposalUsesExplicitAnchor(x, anchorConcept)).Select(x => x.Title).Take(3).ToList();
             if (explicitAnchorTitles.Count == 0)
@@ -5917,8 +5962,115 @@ public sealed class AiChatService
             return null;
 
         var result = NeedsRevisionTool("Blueprint пока не удовлетворяет явной инструкции пользователя. " + string.Join(" ", issues));
-        result.DebugInfo = BuildBlueprintRoutingDebugInfo("validate_chat_blueprint", memory, args, proposals, issues);
+        result.DebugInfo = BuildBlueprintRoutingDebugInfo("validate_chat_blueprint", memory, args, proposals, issues, routingDecision);
         return result;
+    }
+
+    private static BlueprintRoutingDecision ResolveBlueprintRoutingDecision(AiFoundryChatMemoryDto memory, JsonObject args, IReadOnlyList<AiFoundryChatDraftProposalDto> proposals, string? concept)
+    {
+        var diagnostics = AnalyzeAnchorRouting(memory, concept);
+        concept = diagnostics.Concept;
+        var hintMode = ReadRoutingHintString(args, "mode") ?? ReadString(args, "anchorRoutingMode") ?? "none";
+        var hintConcept = ReadRoutingHintString(args, "concept") ?? ReadString(args, "anchorConcept") ?? concept ?? string.Empty;
+        var hintAgreed = ReadRoutingHintBool(args, "agreed") ?? false;
+        var latestInstructionLooksLikeAssent = LooksLikeBlueprintAgreementInstruction(memory.LatestExplicitInstruction);
+        var inferredProposalOnboarding = ProposalsSuggestAnchorOnboarding(proposals, concept);
+        var hintProposalEvidence = ReadRoutingHintBool(args, "proposalEvidence") ?? inferredProposalOnboarding;
+        var hintRequestsOnboarding = string.Equals(hintMode, "anchor-onboarding", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(hintMode, "onboarding", StringComparison.OrdinalIgnoreCase);
+        var conceptMatches = string.IsNullOrWhiteSpace(hintConcept)
+            || string.IsNullOrWhiteSpace(concept)
+            || string.Equals(hintConcept, concept, StringComparison.OrdinalIgnoreCase);
+        var overrideToOnboarding = false;
+        var overrideReason = "none";
+
+        if (hintRequestsOnboarding && conceptMatches && hintProposalEvidence && (hintAgreed || latestInstructionLooksLikeAssent))
+        {
+            overrideToOnboarding = true;
+            overrideReason = "worker-onboarding-hint";
+        }
+        else if (diagnostics.PreAnchorDetected
+            && string.Equals(diagnostics.PreAnchorReason, "abrupt-course-gap-fallback", StringComparison.OrdinalIgnoreCase)
+            && inferredProposalOnboarding
+            && latestInstructionLooksLikeAssent)
+        {
+            overrideToOnboarding = true;
+            overrideReason = "proposal-agreement-override";
+        }
+
+        var shouldAvoid = !overrideToOnboarding && ShouldAvoidExplicitAnchorBeforeAnchor(memory, concept);
+        var allowsExplicit = overrideToOnboarding || diagnostics.AllowsExplicitOnboarding;
+        var effectiveMode = shouldAvoid ? "pre-anchor" : (allowsExplicit ? "anchor-onboarding" : diagnostics.Mode);
+        return new BlueprintRoutingDecision
+        {
+            Diagnostics = diagnostics,
+            HintMode = string.IsNullOrWhiteSpace(hintMode) ? "none" : hintMode,
+            HintConcept = hintConcept,
+            HintAgreed = hintAgreed,
+            HintProposalEvidence = hintProposalEvidence,
+            InferredProposalOnboarding = inferredProposalOnboarding,
+            LatestInstructionLooksLikeAssent = latestInstructionLooksLikeAssent,
+            OverrideToOnboarding = overrideToOnboarding,
+            OverrideReason = overrideReason,
+            ShouldAvoidExplicitAnchor = shouldAvoid,
+            AllowsExplicitOnboarding = allowsExplicit,
+            EffectiveMode = effectiveMode,
+        };
+    }
+
+    private static string? ReadRoutingHintString(JsonObject args, string propertyName)
+    {
+        if (args["routingHint"] is JsonObject hint)
+            return ReadString(hint, propertyName);
+        return null;
+    }
+
+    private static bool? ReadRoutingHintBool(JsonObject args, string propertyName)
+    {
+        if (args["routingHint"] is not JsonObject hint)
+            return null;
+        return ReadBool(hint, propertyName);
+    }
+
+    private static bool LooksLikeBlueprintAgreementInstruction(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var low = text.ToLowerInvariant();
+        return low.Contains("согласен")
+            || low.Contains("давай")
+            || Regex.IsMatch(low, @"\bок(?:ей)?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || low.Contains("погнали")
+            || low.Contains("напиши чернов")
+            || low.Contains("наброс")
+            || low.Contains("черновик")
+            || low.Contains("к этим задач")
+            || low.Contains("для этих задач");
+    }
+
+    private static bool ProposalsSuggestAnchorOnboarding(IReadOnlyList<AiFoundryChatDraftProposalDto> proposals, string? concept)
+    {
+        if (proposals == null || proposals.Count == 0 || string.IsNullOrWhiteSpace(concept))
+            return false;
+
+        var explicitIndexes = proposals
+            .Select((proposal, index) => new { proposal, index })
+            .Where(x => ProposalUsesExplicitAnchor(x.proposal, concept))
+            .Select(x => x.index)
+            .ToList();
+        if (explicitIndexes.Count == 0)
+            return false;
+        if (explicitIndexes[0] > Math.Min(1, proposals.Count - 1))
+            return false;
+
+        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase) && proposals.Count >= 3)
+        {
+            var hasElseBranch = proposals.Any(ProposalUsesElseBranch);
+            if (!hasElseBranch)
+                return false;
+        }
+
+        return true;
     }
 
     private static JsonObject BuildBlueprintRoutingDebugInfo(
@@ -5926,9 +6078,11 @@ public sealed class AiChatService
         AiFoundryChatMemoryDto memory,
         JsonObject args,
         IReadOnlyList<AiFoundryChatDraftProposalDto> proposals,
-        IReadOnlyList<string>? issues = null)
+        IReadOnlyList<string>? issues = null,
+        BlueprintRoutingDecision? routingDecision = null)
     {
-        var diagnostics = AnalyzeAnchorRouting(memory);
+        var decision = routingDecision ?? ResolveBlueprintRoutingDecision(memory, args, proposals, DetectAnchorConcept(memory));
+        var diagnostics = decision.Diagnostics;
         var requestedCount = ExtractRequestedProposalCount(memory, args);
         var anchorLabel = AnchorConceptLabel(diagnostics.Concept);
         var explicitAnchorTitles = proposals
@@ -5956,7 +6110,8 @@ public sealed class AiChatService
             ["proposalCount"] = proposals.Count,
             ["routing"] = new JsonObject
             {
-                ["mode"] = diagnostics.Mode,
+                ["mode"] = decision.EffectiveMode,
+                ["rawMode"] = diagnostics.Mode,
                 ["mentionsAnchor"] = diagnostics.MentionsAnchor,
                 ["explicitStartLatest"] = diagnostics.LatestExplicitStart.Detected,
                 ["explicitStartHaystack"] = diagnostics.HaystackExplicitStart.Detected,
@@ -5965,10 +6120,22 @@ public sealed class AiChatService
                 ["preAnchorDetected"] = diagnostics.PreAnchorDetected,
                 ["preAnchorReason"] = diagnostics.PreAnchorReason,
                 ["stepByStepSeries"] = diagnostics.StepByStepSeries,
-                ["allowsExplicitOnboarding"] = diagnostics.AllowsExplicitOnboarding,
+                ["allowsExplicitOnboarding"] = decision.AllowsExplicitOnboarding,
+                ["shouldAvoidExplicitAnchor"] = decision.ShouldAvoidExplicitAnchor,
                 ["latestExplicitMarkers"] = ToJsonArray(diagnostics.LatestExplicitStart.MatchedMarkers),
                 ["haystackExplicitMarkers"] = ToJsonArray(diagnostics.HaystackExplicitStart.MatchedMarkers),
                 ["preAnchorMarkers"] = ToJsonArray(diagnostics.PreAnchorMarkers),
+            },
+            ["resolution"] = new JsonObject
+            {
+                ["hintMode"] = decision.HintMode,
+                ["hintConcept"] = decision.HintConcept,
+                ["hintAgreed"] = decision.HintAgreed,
+                ["hintProposalEvidence"] = decision.HintProposalEvidence,
+                ["inferredProposalOnboarding"] = decision.InferredProposalOnboarding,
+                ["latestInstructionLooksLikeAssent"] = decision.LatestInstructionLooksLikeAssent,
+                ["overrideToOnboarding"] = decision.OverrideToOnboarding,
+                ["overrideReason"] = decision.OverrideReason,
             },
             ["memory"] = new JsonObject
             {
