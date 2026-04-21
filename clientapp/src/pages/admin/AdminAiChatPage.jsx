@@ -50,6 +50,7 @@ import {
   Files,
   Brain,
   Workflow,
+  Database,
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -1063,8 +1064,37 @@ function ActionModeToggle({ actionMode, onChange, disabled = false, compact = fa
     },
   ];
 
+  if (compact) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-white/70 dark:bg-neutral-950/40 px-2 py-2">
+        <span className="text-[11px] uppercase tracking-[0.16em] opacity-55 hidden sm:inline">режим</span>
+        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900/80">
+          {options.map((option) => {
+            const active = actionMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onChange(option.value)}
+                disabled={disabled}
+                title={option.hint}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                  active
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-neutral-700 hover:bg-white dark:text-neutral-200 dark:hover:bg-neutral-800'
+                } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+              >
+                {option.title}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 ${compact ? 'px-2 py-2' : 'px-3 py-3'} bg-white/70 dark:bg-neutral-950/40`}>
+    <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 px-3 py-3 bg-white/70 dark:bg-neutral-950/40">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-[11px] uppercase tracking-[0.18em] opacity-55">Режим агента</div>
@@ -1093,11 +1123,9 @@ function ActionModeToggle({ actionMode, onChange, disabled = false, compact = fa
           })}
         </div>
       </div>
-      {!compact && (
-        <div className="mt-2 text-xs opacity-70">
-          {options.find((option) => option.value === actionMode)?.hint}
-        </div>
-      )}
+      <div className="mt-2 text-xs opacity-70">
+        {options.find((option) => option.value === actionMode)?.hint}
+      </div>
     </div>
   );
 }
@@ -1632,7 +1660,7 @@ export default function AdminAiChatPage() {
                   {session?.courseTitle ? <Badge variant="outline">{session.courseTitle}</Badge> : null}
                   {pending ? <Badge variant="outline">AI думает…</Badge> : null}
                 </div>
-                <div className="mt-1 text-sm opacity-70">Отдельное рабочее пространство AI без панели, сайдбаров и лишнего шума.</div>
+                <div className="mt-1 text-sm opacity-70">Отдельное рабочее пространство AI.</div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Select
@@ -1644,6 +1672,9 @@ export default function AdminAiChatPage() {
                   <option value="">Без привязки к курсу</option>
                   {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
                 </Select>
+                <Button type="button" variant={showMemory ? 'primary' : 'outline'} onClick={() => setShowMemory((v) => !v)} title="Память сессии">
+                  <Database size={14} />
+                </Button>
                 <Button type="button" variant={showTechnical ? 'primary' : 'outline'} onClick={() => setShowTechnical((v) => !v)} title="Тех. детали">
                   <Code2 size={14} />
                 </Button>
@@ -1746,50 +1777,17 @@ export default function AdminAiChatPage() {
             </aside>
 
             <main className="min-h-0 flex flex-col">
-              <div className="border-b border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))]/60 px-4 py-3 space-y-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {session?.memory?.messageCount ? <Badge variant="success">{session.memory.messageCount} сообщений</Badge> : null}
-                      {trace?.summary?.routeCount ? <Badge variant="outline">routes: {trace.summary.routeCount}</Badge> : null}
-                      {trace?.summary?.overrideCount ? <Badge variant="danger">override: {trace.summary.overrideCount}</Badge> : null}
-                      {trace?.summary?.failedCount ? <Badge variant="danger">issues: {trace.summary.failedCount}</Badge> : null}
-                      <Button type="button" variant="outline" onClick={() => setShowMemory((v) => !v)}>
-                        {showMemory ? 'Скрыть память' : 'Память'}
-                      </Button>
-                      <Button type="button" variant="outline" onClick={renameCurrent} disabled={!sessionId || pending || actionBusy}>
-                        <Pencil size={14} />
-                      </Button>
-                      <Button type="button" variant="outline" onClick={deleteCurrent} disabled={!sessionId || actionBusy} className="text-red-500">
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
-                    <div className="mt-2 text-sm opacity-75 leading-6">
-                      {developerView
-                        ? (lastAssistantMessage?.content || session?.memory?.summary || 'Здесь важны маршрут, инструменты и решения агента, но без перегруженного интерфейса.')
-                        : (session?.memory?.summary || 'AI помнит ход этой сессии, файлы и последние действия.') }
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {(developerView ? EXPERIMENT_SUGGESTIONS : SUGGESTIONS).slice(0, 3).map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setMessage(item)}
-                        className="rounded-full border border-neutral-200/70 dark:border-neutral-800 px-3 py-1.5 text-xs hover:border-[rgba(var(--accent)/0.35)]"
-                      >
-                        {truncateText(item, 80)}
-                      </button>
-                    ))}
-                  </div>
+              <div className="border-b border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--card))]/60 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {session?.memory?.messageCount ? <Badge variant="success">{session.memory.messageCount} сообщений</Badge> : null}
+                  {trace?.summary?.routeCount ? <Badge variant="outline">routes: {trace.summary.routeCount}</Badge> : null}
+                  {trace?.summary?.overrideCount ? <Badge variant="danger">override: {trace.summary.overrideCount}</Badge> : null}
+                  {trace?.summary?.failedCount ? <Badge variant="danger">issues: {trace.summary.failedCount}</Badge> : null}
                 </div>
-
                 {showMemory ? (
-                  <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
-                ) : null}
-
-                {showRouteMap ? (
-                  <AiRouteMap compact session={session} messages={currentMessages} trace={trace} traceLoading={traceLoading} />
+                  <div className="mt-3">
+                    <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
+                  </div>
                 ) : null}
               </div>
 
@@ -1798,7 +1796,7 @@ export default function AdminAiChatPage() {
                   <div className="h-full grid place-items-center">
                     <div className="max-w-xl text-center">
                       <div className="text-2xl font-semibold">AI чат готов</div>
-                      <div className="mt-3 text-sm opacity-75 leading-6">Отдельное окно теперь не засорено админкой. Начни диалог, прикрепи файл или выбери готовую подсказку.</div>
+                      <div className="mt-3 text-sm opacity-75 leading-6">Отдельное окно теперь не засорено админкой. Начни диалог или прикрепи файл.</div>
                     </div>
                   </div>
                 ) : (
@@ -1859,41 +1857,51 @@ export default function AdminAiChatPage() {
                   </Button>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="flex flex-wrap items-center gap-3 text-xs opacity-75">
-                    <button type="button" className="hover:opacity-100" onClick={() => onSend(CONTINUE_MESSAGE)} disabled={sending || pending}>Продолжай</button>
-                    <button type="button" className="hover:opacity-100" onClick={() => onSend(GENERATE_MESSAGE)} disabled={sending || pending}>Генерация</button>
-                    {session?.courseTitle ? <Badge variant="success"><CheckCircle2 size={12} /> Курс задан</Badge> : <Badge variant="outline">Курс не выбран</Badge>}
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-3 border-t border-neutral-200/70 dark:border-neutral-800 pt-3">
+                  <div className="flex items-center gap-2 text-xs opacity-80">
+                    <span>Строгость</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={instructionStrictness}
+                      onChange={(e) => setInstructionStrictness(Number(e.target.value))}
+                      disabled={sending || pending || actionBusy}
+                      className="w-24 accent-[rgb(var(--accent))]"
+                      title="0 = свободнее, 100 = максимально буквально следует пользовательской инструкции"
+                    />
+                    <span className="min-w-[4.5rem] text-right">{instructionStrictness}</span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2 text-xs opacity-80">
-                      <span>Строгость</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={instructionStrictness}
-                        onChange={(e) => setInstructionStrictness(Number(e.target.value))}
-                        disabled={sending || pending || actionBusy}
-                        className="w-28 accent-[rgb(var(--accent))]"
-                        title="0 = свободнее, 100 = максимально буквально следует пользовательской инструкции"
-                      />
-                      <span className="min-w-[5.5rem] text-right">{strictnessLabel} · {instructionStrictness}</span>
-                    </div>
-                    <div className="w-[330px] max-w-full">
-                      <ActionModeToggle
-                        actionMode={actionMode}
-                        onChange={applyActionMode}
-                        disabled={sending || pending || actionBusy}
-                        compact
-                      />
-                    </div>
-                  </div>
+                  <ActionModeToggle
+                    actionMode={actionMode}
+                    onChange={applyActionMode}
+                    disabled={sending || pending || actionBusy}
+                    compact
+                  />
                 </div>
               </div>
             </main>
           </div>
+
+          {showRouteMap ? (
+            <div className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[2px] px-3 py-3 md:px-6 md:py-5" onClick={() => setShowRouteMap(false)}>
+              <div className="mx-auto flex h-full max-w-[1720px] flex-col overflow-hidden rounded-[28px] border border-neutral-200/70 dark:border-neutral-800 bg-[rgb(var(--background))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 dark:border-neutral-800 px-4 py-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] opacity-55">AI route lab</div>
+                    <div className="mt-1 text-lg font-semibold">Карта и timeline работы агента</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" onClick={() => setShowRouteMap(false)}>Закрыть</Button>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto p-4 md:p-5">
+                  <AiRouteMap session={session} messages={currentMessages} trace={trace} traceLoading={traceLoading} />
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     );

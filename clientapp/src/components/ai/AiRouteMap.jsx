@@ -404,7 +404,7 @@ function TraceTimeline({ events = [], filter = 'all' }) {
   }
 
   return (
-    <div className="space-y-3 max-h-[18rem] overflow-auto pr-1">
+    <div className="space-y-3 max-h-[24rem] overflow-auto pr-1">
       {filtered.map((event) => {
         const danger = ['failed', 'error', 'cancelled'].includes(String(event.status || '').toLowerCase()) || Boolean(event.overrideReason);
         const meta = getTraceKindMeta(event.kind);
@@ -546,7 +546,7 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
           </div>
         </div>
       ) : (
-        <div className={`mt-4 grid gap-4 ${compact ? 'xl:grid-cols-[minmax(0,1fr)_320px]' : '2xl:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
+        <div className="mt-4 space-y-4">
           <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 overflow-hidden" style={{ height: flowHeight }}>
             {hasMeaningfulGraph ? <ReactFlow
               nodes={safeNodes}
@@ -555,7 +555,7 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
               onInit={onPaneReady}
               onNodeClick={(_, node) => setSelectedId(node.id)}
               fitView
-              fitViewOptions={{ padding: 0.2 }}
+              fitViewOptions={{ padding: 0.18 }}
               defaultEdgeOptions={{ type: 'smoothstep' }}
               proOptions={{ hideAttribution: true }}
               nodesDraggable={false}
@@ -564,65 +564,49 @@ export default function AiRouteMap({ messages = [], session = null, trace = null
               zoomOnScroll
               panOnScroll
             >
-              <MiniMap pannable zoomable style={{ width: compact ? 120 : 160, height: compact ? 80 : 100 }} />
+              <MiniMap pannable zoomable style={{ width: compact ? 110 : 140, height: compact ? 72 : 90 }} />
               <Controls showInteractive={false} />
               <Background gap={20} size={1} />
             </ReactFlow> : (
               <div className="h-full grid place-items-center p-6">
                 <div className="max-w-md rounded-3xl border border-dashed border-neutral-300/70 dark:border-neutral-700 bg-neutral-50/70 dark:bg-neutral-900/50 p-5 text-sm leading-6 opacity-80">
                   <div className="font-medium text-base">Живая карта появится после первого осмысленного прохода</div>
-                  <div className="mt-2">Сейчас у сессии недостаточно route snapshots, tool calls или ответов, чтобы строить большой граф. Пока удобнее смотреть timeline справа.</div>
+                  <div className="mt-2">Сейчас у сессии недостаточно route snapshots, tool calls или ответов, чтобы строить большой граф. Пока удобнее смотреть timeline.</div>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 p-4">
-              <div className="text-xs uppercase tracking-[0.16em] opacity-55">инспектор узла</div>
-              {selectedNode ? (
-                <>
-                  <div className="mt-2 text-lg font-semibold">{selectedNode.data?.label}</div>
-                  {selectedNode.data?.subtitle ? <div className="mt-1 text-sm opacity-70">{selectedNode.data.subtitle}</div> : null}
-                  {selectedNode.data?.badges?.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {selectedNode.data.badges.map((badge) => <Badge key={`${selectedNode.id}-${badge}`} variant="outline">{badge}</Badge>)}
-                    </div>
-                  ) : null}
-                  {selectedNode.data?.body ? <div className="mt-3 text-sm whitespace-pre-wrap opacity-85 leading-6">{selectedNode.data.body}</div> : null}
-                  {selectedNode.data?.raw ? (
-                    <details className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/60 px-3 py-2 text-xs" open>
-                      <summary className="cursor-pointer font-medium opacity-80">сырой payload</summary>
-                      <pre className="mt-2 max-h-[24rem] overflow-auto whitespace-pre-wrap break-words opacity-75">{JSON.stringify(selectedNode.data.raw, null, 2)}</pre>
-                    </details>
-                  ) : null}
-                </>
-              ) : (
-                <div className="mt-3 text-sm opacity-70 leading-6">Кликни по узлу на карте, чтобы посмотреть детали шага.</div>
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 p-4">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">короткий trace</Badge>
-                {TRACE_FILTERS.map((filter) => (
-                  <button key={filter.key} type="button" className={`text-xs rounded-full border px-2 py-1 ${traceFilter === filter.key ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)]' : 'border-neutral-200/70 dark:border-neutral-800'}`} onClick={() => setTraceFilter(filter.key)}>
-                    {filter.label}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-4">
-                <TraceTimeline events={(trace?.events || []).slice(-8)} filter={traceFilter} />
-              </div>
-            </div>
-
-            {traceSummary.failedCount > 0 || traceSummary.overrideCount > 0 ? (
-              <div className="rounded-3xl border border-red-300/60 dark:border-red-700/40 bg-red-50/40 dark:bg-red-950/10 p-4 text-sm leading-6">
-                <div className="flex items-center gap-2 font-medium text-red-700 dark:text-red-300"><AlertTriangle size={16} /> Проблемные точки</div>
-                <div className="mt-2 opacity-80">В trace зафиксированы ошибки, отмены или override. Это полезно, чтобы понять, где агент сбивается, а где сервер его принудительно корректирует.</div>
-              </div>
-            ) : null}
+          <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 p-4">
+            <div className="text-xs uppercase tracking-[0.16em] opacity-55">инспектор узла</div>
+            {selectedNode ? (
+              <>
+                <div className="mt-2 text-lg font-semibold">{selectedNode.data?.label}</div>
+                {selectedNode.data?.subtitle ? <div className="mt-1 text-sm opacity-70">{selectedNode.data.subtitle}</div> : null}
+                {selectedNode.data?.badges?.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedNode.data.badges.map((badge) => <Badge key={`${selectedNode.id}-${badge}`} variant="outline">{badge}</Badge>)}
+                  </div>
+                ) : null}
+                {selectedNode.data?.body ? <div className="mt-3 text-sm whitespace-pre-wrap opacity-85 leading-6">{selectedNode.data.body}</div> : null}
+                {selectedNode.data?.raw ? (
+                  <details className="mt-4 rounded-2xl border border-neutral-200/70 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/60 px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-medium opacity-80">сырой payload</summary>
+                    <pre className="mt-2 max-h-[18rem] overflow-auto whitespace-pre-wrap break-words opacity-75">{JSON.stringify(selectedNode.data.raw, null, 2)}</pre>
+                  </details>
+                ) : null}
+              </>
+            ) : (
+              <div className="mt-3 text-sm opacity-70 leading-6">Кликни по узлу на карте, чтобы посмотреть детали шага.</div>
+            )}
           </div>
+
+          {traceSummary.failedCount > 0 || traceSummary.overrideCount > 0 ? (
+            <div className="rounded-3xl border border-red-300/60 dark:border-red-700/40 bg-red-50/40 dark:bg-red-950/10 p-4 text-sm leading-6">
+              <div className="flex items-center gap-2 font-medium text-red-700 dark:text-red-300"><AlertTriangle size={16} /> Проблемные точки</div>
+              <div className="mt-2 opacity-80">В trace зафиксированы ошибки, отмены или override. Это полезно, чтобы понять, где агент сбивается, а где сервер его принудительно корректирует.</div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
