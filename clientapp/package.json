@@ -26,6 +26,7 @@
     "@tiptap/extension-underline": "3.17.0",
     "@tiptap/react": "^3.17.0",
     "@tiptap/starter-kit": "^3.17.0",
+    "@xyflow/react": "^12.10.2",
     "axios": "^1.12.2",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.16",
@@ -37,8 +38,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.23.0",
     "react-scripts": "^5.0.1",
-    "react-simple-code-editor": "^0.13.1",
-    "reactflow": "^11.11.4"
+    "react-simple-code-editor": "^0.13.1"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
