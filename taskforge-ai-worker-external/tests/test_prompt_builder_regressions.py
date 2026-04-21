@@ -163,6 +163,32 @@ class PromptBuilderRegressionTests(unittest.TestCase):
         self.assertIn("if/else", prompt)
 
 
+    def test_batch_plan_prompt_keeps_pre_if_scaffold_without_explicit_if(self):
+        payload = {
+            "prompt": "Проанализируй C++ курс: if появляется резко и без обучалки, нужны подводящие маленькие задачи до темы if.",
+            "conversation": [{"role": "user", "content": "Нужна лесенка до первого if, без самого if в условиях"}],
+            "memory": {
+                "latestExplicitInstruction": "Нужна лесенка до первого if, без самого if в условиях",
+                "recentGoals": ["if появляется резко и без обучалки"],
+            },
+        }
+        prompt = prompt_builder.build_batch_plan_prompt({"type": "assignment_batch_plan"}, payload)
+        self.assertIn("подготовительную лесенку ДО первого if", prompt)
+        self.assertIn("без явного if/else", prompt)
+
+    def test_batch_plan_prompt_allows_real_if_onboarding_when_user_explicitly_requests_it(self):
+        payload = {
+            "prompt": "Сделай лесенку по самому if: первый шаг уже с if, потом if/else.",
+            "conversation": [{"role": "user", "content": "Нужна серия маленьких программ: первый шаг уже if"}],
+            "memory": {
+                "latestExplicitInstruction": "Нужна серия маленьких программ: первый шаг уже if",
+            },
+        }
+        prompt = prompt_builder.build_batch_plan_prompt({"type": "assignment_batch_plan"}, payload)
+        self.assertIn("обучающую лесенку по if", prompt)
+        self.assertNotIn("подготовительную лесенку ДО первого if", prompt)
+
+
 
     def test_build_draft_generate_prompt_accepts_dict_payload(self):
         payload = {

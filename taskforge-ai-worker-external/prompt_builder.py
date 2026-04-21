@@ -1238,7 +1238,9 @@ def build_batch_plan_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str
         + (domain_lock_note + "\n" if domain_lock_note else "")
         + (placement_note + "\n" if placement_note else "")
         + (walkthrough_note + "\n" if walkthrough_note else "")
+        + (_pre_if_scaffolding_appendix(compact_payload) if _is_pre_if_scaffolding_request(compact_payload) else "")
         + (_if_onboarding_appendix(compact_payload) if _is_if_onboarding_request(compact_payload) else "")
+        + ("Для такого запроса tasks должны образовывать подготовительную лесенку ДО первого if: через сравнения, понятные выборы и видимый результат, но без явного if/else в самих условиях. Не перепрыгивай сразу к ветвлению.\n" if _is_pre_if_scaffolding_request(compact_payload) else "")
         + ("Для такого запроса tasks должны образовывать именно обучающую лесенку по if: первый if, затем if/else, затем ещё 1-2 маленьких шага усложнения. Не планируй абстрактные мостики вроде остатка от деления без if.\n" if _is_if_onboarding_request(compact_payload) else "")
         + (retry_note + "\n" if retry_note else "")
         + "\n"
@@ -1479,8 +1481,91 @@ def _scenario_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
     return detect_scenario_profile(payload)
 
 
+def _payload_request_text(payload: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for key in ("prompt", "sourceText"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            parts.append(value)
+    conversation = payload.get("conversation") if isinstance(payload.get("conversation"), list) else []
+    for item in conversation[-6:]:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").strip().lower() != "user":
+            continue
+        value = str(item.get("content") or item.get("text") or "").strip()
+        if value:
+            parts.append(value)
+    memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+    for raw in (memory.get("latestExplicitInstruction"), memory.get("latestTeachingScript")):
+        value = str(raw or "").strip()
+        if value:
+            parts.append(value)
+    for raw in (memory.get("recentGoals") if isinstance(memory.get("recentGoals"), list) else []):
+        value = str(raw or "").strip()
+        if value:
+            parts.append(value)
+    return " ".join(parts).lower()
+
+
+def _requests_explicit_if_from_start(text: str) -> bool:
+    low = (text or "").lower()
+    if not low:
+        return False
+    markers = [
+        "на сам if",
+        "именно if",
+        "уже с if",
+        "сразу if",
+        "первый шаг if",
+        "первый шаг — if",
+        "первый шаг - if",
+        "первым должен быть if",
+        "можно if",
+        "разрешаю if",
+    ]
+    return any(marker in low for marker in markers)
+
+
+def _is_pre_if_scaffolding_request(payload: Dict[str, Any]) -> bool:
+    low = _payload_request_text(payload)
+    if not low or _requests_explicit_if_from_start(low):
+        return False
+    mentions_if_topic = any(token in low for token in ["if", "ветвл", "условн"])
+    if not mentions_if_topic:
+        return False
+    explicit_before_markers = [
+        "перед первым if",
+        "перед первым появлением if",
+        "до первого if",
+        "до темы if",
+        "до if",
+        "до ветвлен",
+        "до условн",
+        "прежде чем объясн",
+        "прежде чем вводить if",
+        "до того как вводить if",
+    ]
+    if any(marker in low for marker in explicit_before_markers):
+        return True
+    mentions_course = any(token in low for token in ["курс", "задан", "assignment"])
+    abrupt_markers = ["без введен", "без обучал", "без объяснен", "резко", "слишком рано", "появля"]
+    prep_markers = ["подводящ", "подготов", "обучал", "лесенк", "пошаг", "перед темой"]
+    return mentions_course and any(marker in low for marker in abrupt_markers) and any(marker in low for marker in prep_markers)
+
+
 def _is_if_onboarding_request(payload: Dict[str, Any]) -> bool:
-    return False
+    low = _payload_request_text(payload)
+    if not low or _is_pre_if_scaffolding_request(payload):
+        return False
+    mentions_if_topic = any(token in low for token in ["if", "ветвл", "условн"])
+    asks_for_ladder = any(token in low for token in ["лесенк", "пошаг", "маленьких программ", "серия", "шаг за шаг", "с нуля"])
+    return mentions_if_topic and asks_for_ladder
+
+
+def _pre_if_scaffolding_appendix(payload: Dict[str, Any]) -> str:
+    profile = _scenario_profile(payload)
+    return scenario_prompt_appendix(profile) + ladder_style_appendix(profile, payload)
 
 
 def _if_onboarding_appendix(payload: Dict[str, Any]) -> str:

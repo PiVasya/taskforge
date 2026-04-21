@@ -3648,7 +3648,9 @@ public sealed class AiChatService
             items.Add("Старые blueprint/bridge-plan нужно отбросить, если пользователь просит повторить с нуля.");
         if (RequiresFirstTaskStyleEvidence(memory))
             items.Add("Перед генерацией нужно открыть первое задание курса как эталон стиля.");
-        if (RequestsIfStepByStepSeries(memory))
+        if (RequestsPreIfScaffolding(memory))
+            items.Add("Это серия подготовительных задач ДО первого if: нужно подвести к теме через понятные маленькие шаги и видимый результат, но без явного if/else/switch в самих условиях.");
+        else if (AllowsExplicitIfOnboarding(memory))
             items.Add("Это не абстрактные мостики до темы if: нужна серия маленьких программ, которые пошагово учат самому использованию if в стиле первого дружелюбного задания.");
         var requestedCount = ExtractRequestedProposalCount(memory, new JsonObject());
         if (requestedCount.HasValue)
@@ -3660,7 +3662,7 @@ public sealed class AiChatService
             items.Add($"Точку вставки нельзя сдвигать: {strictPlacement.HumanSummary}.");
         if (ShouldAvoidExplicitIfBeforeAnchor(memory))
             items.Add("В промежуточных задачах до темы if нельзя преждевременно вводить if/else/switch.");
-        else if (RequestsIfStepByStepSeries(memory))
+        else if (AllowsExplicitIfOnboarding(memory))
             items.Add("В этой серии можно и нужно постепенно вводить сам if, затем if/else, но без резкого прыжка в сухую теорию или олимпиадный стиль.");
         return items.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
     }
@@ -5711,8 +5713,10 @@ public sealed class AiChatService
                 return "самостоятельно исправить blueprint под последнюю инструкцию и только затем финализировать его";
             return memory.CurrentDraftBlueprint.ApprovedForDraft ? "дождаться появления draft-черновиков по согласованным условиям" : "показать или поправить примерные условия из чата, а потом вызвать finalize_chat_blueprint";
         }
-        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && RequestsIfStepByStepSeries(memory))
-            return "собрать серию маленьких программ на if через queue_generate_from_text";
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && ShouldAvoidExplicitIfBeforeAnchor(memory))
+            return "собрать серию подготовительных задач до первого if через save_chat_blueprint";
+        if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && AllowsExplicitIfOnboarding(memory))
+            return "собрать серию маленьких программ по самому if через save_chat_blueprint";
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
             return "сгенерировать мостики через queue_generate_from_text";
         if (string.Equals(latestIntentKind, "revise-plan", StringComparison.OrdinalIgnoreCase) && memory.LastBridgePlan != null && memory.LastBridgePlan.Items.Count > 0)
@@ -5817,7 +5821,7 @@ public sealed class AiChatService
             if (explicitIfTitles.Count > 0)
                 issues.Add($"Это подготовка ДО темы if, поэтому в промежуточных задачах нельзя уже вводить if/else. Убери явное ветвление из: {string.Join(", ", explicitIfTitles)}.");
         }
-        else if (RequestsIfStepByStepSeries(memory))
+        else if (AllowsExplicitIfOnboarding(memory))
         {
             var explicitIfTitles = proposals.Where(ProposalUsesExplicitIf).Select(x => x.Title).Take(3).ToList();
             if (explicitIfTitles.Count == 0)
@@ -6074,15 +6078,70 @@ public sealed class AiChatService
     private static bool RequestsMorePrograms(AiFoundryChatMemoryDto memory)
         => RequestsMorePrograms(BuildInstructionHaystack(memory));
 
+    private static bool RequestsExplicitIfFromStart(AiFoundryChatMemoryDto memory)
+    {
+        var latest = string.Join(" ", new[] { memory.LatestExplicitInstruction, memory.LatestTeachingScript }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(latest))
+            return false;
+
+        return latest.Contains("на сам if")
+            || latest.Contains("именно if")
+            || latest.Contains("уже с if")
+            || latest.Contains("сразу if")
+            || latest.Contains("первый шаг if")
+            || latest.Contains("первый шаг — if")
+            || latest.Contains("первый шаг - if")
+            || latest.Contains("первым должен быть if")
+            || latest.Contains("можно if")
+            || latest.Contains("разрешаю if");
+    }
+
+    private static bool RequestsPreIfScaffolding(AiFoundryChatMemoryDto memory)
+    {
+        if (RequestsExplicitIfFromStart(memory))
+            return false;
+
+        var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(hay))
+            return false;
+
+        var mentionsIfTopic = hay.Contains("if") || hay.Contains("ветвлен") || hay.Contains("условн");
+        if (!mentionsIfTopic)
+            return false;
+
+        var explicitBeforeMarkers = new[]
+        {
+            "перед первым if",
+            "перед первым появлением if",
+            "до первого if",
+            "до темы if",
+            "до if",
+            "до ветвлен",
+            "до условн",
+            "прежде чем объясн",
+            "прежде чем вводить if",
+            "до того как вводить if",
+        };
+        if (explicitBeforeMarkers.Any(marker => hay.Contains(marker)))
+            return true;
+
+        var mentionsCourse = hay.Contains("курс") || hay.Contains("задан") || hay.Contains("assignment");
+        var abruptMarkers = new[] { "без введен", "без обучал", "без объяснен", "резко", "слишком рано", "появля" };
+        var prepMarkers = new[] { "подводящ", "подготов", "обучал", "лесенк", "пошаг", "перед темой" };
+        return mentionsCourse
+            && abruptMarkers.Any(marker => hay.Contains(marker))
+            && prepMarkers.Any(marker => hay.Contains(marker));
+    }
+
     private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
     {
-        if (RequestsIfStepByStepSeries(memory))
-            return false;
+        if (RequestsPreIfScaffolding(memory))
+            return true;
 
         var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
         var mentionsIf = hay.Contains(" if") || hay.Contains("if ") || hay.Contains(" if ") || hay.Contains("if") || hay.Contains("ветвлен");
         var bridgeBefore = hay.Contains("перед") || hay.Contains("до") || hay.Contains("обучал");
-        return mentionsIf && bridgeBefore;
+        return mentionsIf && bridgeBefore && !RequestsExplicitIfFromStart(memory);
     }
 
 
@@ -6091,6 +6150,9 @@ public sealed class AiChatService
         var scenario = AiGenerationScenarioRouter.Resolve(memory, prompt, sourceText, 5);
         return scenario.Id is "step-by-step-ladder" or "micro-program-series";
     }
+
+    private static bool AllowsExplicitIfOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
+        => !RequestsPreIfScaffolding(memory) && RequestsIfStepByStepSeries(memory, prompt, sourceText);
 
     private static string RewritePromptForIfStepByStepSeries(string prompt, AiFoundryChatMemoryDto memory, int count)
         => AiGenerationScenarioPromptAdapter.RewritePrompt(prompt, memory, count);
