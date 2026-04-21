@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Select, Textarea } from '../../components/ui';
@@ -52,6 +52,14 @@ const SUGGESTIONS = [
   'Сделай risk-review пользователя с последними попытками и support-данными.',
 ];
 
+const EXPERIMENT_SUGGESTIONS = [
+  'Покажи 3 возможных ветки маршрутизации и объясни, почему выбираешь одну из них.',
+  'Сделай один и тот же шаг в mono и multi логике, а потом сравни путь.',
+  'Перед действием перечисли возможные actions, которые ты рассматриваешь в этом ходе.',
+  'Запусти эксперимент: несколько вариантов лесенки и короткое сравнение по стилю.',
+  'Сделай dev-разбор: какой route, какие actions, какие проверки и почему.',
+];
+
 const CONTINUE_MESSAGE = 'Продолжай по памяти этой сессии. Если параметров уже достаточно, не уточняй лишнее и переходи к следующему действию.';
 const GENERATE_MESSAGE = 'По памяти этой сессии начни генерацию заданий. Если уместнее batch — создай batch, если лучше одиночная генерация — используй текст или последний файл.';
 
@@ -89,6 +97,229 @@ function debugArray(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function parseJsonSafely(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function prettyJson(value) {
+  if (value == null) return '';
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function collectRouteSnapshots(messages = []) {
+  return (messages || [])
+    .flatMap((message) => normalizeToolResults(message).map((result) => result?.debugInfo || null))
+    .filter(Boolean);
+}
+
+function buildSessionExperimentSummary(messages = []) {
+  const toolCalls = [];
+  const toolResults = [];
+  const modes = [];
+  const rawModes = [];
+  const actions = [];
+  const overrides = [];
+  const hints = [];
+
+  (messages || []).forEach((message) => {
+    normalizeToolCalls(message).forEach((tool) => {
+      if (tool?.name) toolCalls.push(tool.name);
+    });
+    normalizeToolResults(message).forEach((result) => {
+      if (result?.status) toolResults.push(result.status);
+      if (result?.debugInfo?.actionName) actions.push(result.debugInfo.actionName);
+      const routing = result?.debugInfo?.routing || {};
+      const resolution = result?.debugInfo?.resolution || {};
+      if (routing.mode) modes.push(routing.mode);
+      if (routing.rawMode) rawModes.push(routing.rawMode);
+      if (resolution.overrideReason && resolution.overrideReason !== 'none') overrides.push(resolution.overrideReason);
+      if (resolution.hintMode && resolution.hintMode !== 'none') hints.push(`${resolution.hintMode}${resolution.hintConcept ? `:${resolution.hintConcept}` : ''}`);
+    });
+  });
+
+  return {
+    toolCalls: uniqueStrings(toolCalls),
+    toolResults: uniqueStrings(toolResults),
+    modes: uniqueStrings(modes),
+    rawModes: uniqueStrings(rawModes),
+    actions: uniqueStrings(actions),
+    overrides: uniqueStrings(overrides),
+    hints: uniqueStrings(hints),
+  };
+}
+
+function buildExperimentTrace(message) {
+  const toolCalls = normalizeToolCalls(message);
+  const toolResults = normalizeToolResults(message);
+  const debugInfo = toolResults.find((item) => item?.debugInfo)?.debugInfo || {};
+  const routing = debugInfo.routing || {};
+  const resolution = debugInfo.resolution || {};
+  const agentLoop = debugInfo.agentLoop || {};
+  const parsedArgs = toolCalls.map((tool) => ({
+    name: tool?.name || 'action',
+    reason: tool?.reason || '',
+    args: parseJsonSafely(tool?.argumentsJson),
+  }));
+
+  return {
+    toolCalls,
+    toolResults,
+    debugInfo,
+    routing,
+    resolution,
+    agentLoop,
+    parsedArgs,
+  };
+}
+
+function ExperimentChip({ label, tone = 'outline' }) {
+  return <Badge variant={tone}>{label}</Badge>;
+}
+
+function JsonPreview({ title, value, defaultOpen = false }) {
+  if (value == null || value === '') return null;
+  const rendered = typeof value === 'string' ? value : prettyJson(value);
+  if (!rendered) return null;
+  return (
+    <details className="rounded-xl border border-neutral-200/70 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/50 px-3 py-2 text-xs" open={defaultOpen}>
+      <summary className="cursor-pointer font-medium opacity-80">{title}</summary>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words opacity-75">{rendered}</pre>
+    </details>
+  );
+}
+
+function ExperimentTurnPanel({ message }) {
+  const trace = buildExperimentTrace(message);
+  const routing = trace.routing || {};
+  const resolution = trace.resolution || {};
+  const routeTone = routing.mode === 'pre-anchor' ? 'danger' : routing.mode === 'anchor-onboarding' ? 'success' : 'outline';
+  const callNames = trace.toolCalls.map((tool) => tool?.name).filter(Boolean);
+  const resultStatuses = trace.toolResults.map((item) => item?.status).filter(Boolean);
+  const autoActions = debugArray(trace.agentLoop.autoActions);
+  const requestedActions = debugArray(trace.agentLoop.requestedActions);
+
+  if (callNames.length === 0 && resultStatuses.length === 0 && !routing.mode && !trace.agentLoop.traceSummary) return null;
+
+  return (
+    <div className="mb-3 rounded-2xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-3 py-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <ExperimentChip label="dev-проход" />
+        {routing.mode ? <ExperimentChip label={`route: ${routing.mode}`} tone={routeTone} /> : null}
+        {routing.rawMode ? <ExperimentChip label={`raw: ${routing.rawMode}`} /> : null}
+        {resolution.overrideReason && resolution.overrideReason !== 'none' ? <ExperimentChip label={`override: ${resolution.overrideReason}`} tone="success" /> : null}
+        {callNames.length > 0 ? <ExperimentChip label={`actions: ${callNames.length}`} /> : null}
+        {resultStatuses.length > 0 ? <ExperimentChip label={`results: ${resultStatuses.length}`} /> : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 opacity-85">
+        <span className="font-medium">Путь:</span>
+        <Badge variant="outline">prompt</Badge>
+        {requestedActions.map((name, index) => <React.Fragment key={`rq-${name}-${index}`}><span className="opacity-40">→</span><Badge variant="outline">request:{name}</Badge></React.Fragment>)}
+        {callNames.map((name, index) => <React.Fragment key={`call-${name}-${index}`}><span className="opacity-40">→</span><Badge variant="outline">exec:{name}</Badge></React.Fragment>)}
+        {autoActions.map((name, index) => <React.Fragment key={`auto-${name}-${index}`}><span className="opacity-40">→</span><Badge variant="outline">auto:{name}</Badge></React.Fragment>)}
+        {resultStatuses.map((status, index) => <React.Fragment key={`st-${status}-${index}`}><span className="opacity-40">→</span><Badge variant={String(status).toLowerCase() === 'done' ? 'success' : String(status).toLowerCase().includes('fail') ? 'danger' : 'outline'}>{status}</Badge></React.Fragment>)}
+      </div>
+
+      {trace.agentLoop.traceSummary ? <div className="mt-2 opacity-75 whitespace-pre-wrap">{trace.agentLoop.traceSummary}</div> : null}
+
+      {(trace.parsedArgs.length > 0 || trace.toolResults.length > 0) ? (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className="space-y-2">
+            {trace.parsedArgs.map((item, index) => (
+              <JsonPreview
+                key={`arg-${item.name}-${index}`}
+                title={`arguments · ${item.name}${item.reason ? ` — ${truncateText(item.reason, 90)}` : ''}`}
+                value={item.args || 'argumentsJson unavailable'}
+              />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {trace.toolResults.map((item, index) => (
+              <JsonPreview
+                key={`result-${item?.status || 'tool'}-${index}`}
+                title={`toolResult · ${item?.status || 'done'}`}
+                value={{
+                  summary: item?.summary,
+                  navigateTo: item?.navigateTo,
+                  jobId: item?.jobId,
+                  batchId: item?.batchId,
+                  draftId: item?.draftId,
+                  assignmentId: item?.assignmentId,
+                  debugInfo: item?.debugInfo || null,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExperimentWorkbenchPanel({ session, messages, actionMode, instructionStrictness, developerView }) {
+  if (!developerView) return null;
+  const summary = buildSessionExperimentSummary(messages);
+  const routeSnapshots = collectRouteSnapshots(messages);
+  const lastDebug = routeSnapshots.length > 0 ? routeSnapshots[routeSnapshots.length - 1] : null;
+  const lastRouting = lastDebug?.routing || {};
+  const lastResolution = lastDebug?.resolution || {};
+
+  return (
+    <div className="rounded-3xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-4 py-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <ExperimentChip label="dev sandbox" tone="success" />
+        <ExperimentChip label={`режим: ${actionMode === 'multi' ? 'multi' : 'mono'}`} />
+        <ExperimentChip label={`strictness: ${instructionStrictness}`} />
+        {session?.memory?.messageCount ? <ExperimentChip label={`сообщений: ${session.memory.messageCount}`} /> : null}
+        {lastRouting.mode ? <ExperimentChip label={`last route: ${lastRouting.mode}`} tone={lastRouting.mode === 'anchor-onboarding' ? 'success' : lastRouting.mode === 'pre-anchor' ? 'danger' : 'outline'} /> : null}
+        {lastResolution.overrideReason && lastResolution.overrideReason !== 'none' ? <ExperimentChip label={`override: ${lastResolution.overrideReason}`} tone="success" /> : null}
+      </div>
+      <div className="mt-3 grid gap-3 xl:grid-cols-4 md:grid-cols-2">
+        <div className="rounded-2xl bg-white/70 dark:bg-neutral-950/40 px-3 py-3">
+          <div className="text-[11px] uppercase tracking-[0.16em] opacity-50">ветки / routes</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {summary.modes.length === 0 ? <span className="opacity-55 text-xs">пока пусто</span> : summary.modes.map((item) => <Badge key={item} variant={item === 'anchor-onboarding' ? 'success' : item === 'pre-anchor' ? 'danger' : 'outline'}>{item}</Badge>)}
+          </div>
+          {summary.rawModes.length > 0 ? <div className="mt-2 text-xs opacity-65">raw: {summary.rawModes.join(', ')}</div> : null}
+        </div>
+        <div className="rounded-2xl bg-white/70 dark:bg-neutral-950/40 px-3 py-3">
+          <div className="text-[11px] uppercase tracking-[0.16em] opacity-50">actions</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {summary.toolCalls.length === 0 ? <span className="opacity-55 text-xs">ещё не ходили по tool-calls</span> : summary.toolCalls.map((item) => <Badge key={item} variant="outline">{item}</Badge>)}
+          </div>
+          {summary.actions.length > 0 ? <div className="mt-2 text-xs opacity-65">debug actions: {summary.actions.join(' → ')}</div> : null}
+        </div>
+        <div className="rounded-2xl bg-white/70 dark:bg-neutral-950/40 px-3 py-3">
+          <div className="text-[11px] uppercase tracking-[0.16em] opacity-50">resolution</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {summary.overrides.length === 0 ? <Badge variant="outline">без override</Badge> : summary.overrides.map((item) => <Badge key={item} variant="success">{item}</Badge>)}
+            {summary.hints.length > 0 ? summary.hints.map((item) => <Badge key={item} variant="outline">{item}</Badge>) : null}
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white/70 dark:bg-neutral-950/40 px-3 py-3">
+          <div className="text-[11px] uppercase tracking-[0.16em] opacity-50">статусы tool-result</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {summary.toolResults.length === 0 ? <span className="opacity-55 text-xs">нет результатов</span> : summary.toolResults.map((item) => <Badge key={item} variant={String(item).toLowerCase() === 'done' ? 'success' : String(item).toLowerCase().includes('fail') ? 'danger' : 'outline'}>{item}</Badge>)}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 text-xs opacity-70 leading-5">
+        Экспериментальный вид не меняет логику worker-а. Он просто показывает маршрут хода, tool-calls, tool-results, routing и override-решения так, чтобы чат ощущался как девелоперская лаборатория, а не как продуктовый помощник.
+      </div>
+    </div>
+  );
+}
+
 function ToolDebugPanel({ debugInfo }) {
   if (!debugInfo || typeof debugInfo !== 'object') return null;
   const routing = debugInfo.routing || {};
@@ -120,6 +351,18 @@ function ToolDebugPanel({ debugInfo }) {
         </div>
 
         {routing.preAnchorReason ? <div className="opacity-80">Причина pre-anchor: <span className="font-medium">{routing.preAnchorReason}</span></div> : null}
+        {debugInfo.resolution ? (
+          <div className="rounded-xl bg-neutral-50 dark:bg-neutral-900/60 px-3 py-2">
+            <div className="font-medium opacity-85">Resolution</div>
+            <div className="mt-1 flex flex-wrap gap-2 opacity-80">
+              {debugInfo.resolution.hintMode ? <Badge variant="outline">hint: {debugInfo.resolution.hintMode}</Badge> : null}
+              {debugInfo.resolution.hintConcept ? <Badge variant="outline">concept: {debugInfo.resolution.hintConcept}</Badge> : null}
+              {debugInfo.resolution.overrideReason && debugInfo.resolution.overrideReason !== 'none' ? <Badge variant="success">override: {debugInfo.resolution.overrideReason}</Badge> : null}
+              {typeof debugInfo.resolution.latestInstructionLooksLikeAssent === 'boolean' ? <Badge variant={debugInfo.resolution.latestInstructionLooksLikeAssent ? 'success' : 'outline'}>assent: {debugInfo.resolution.latestInstructionLooksLikeAssent ? 'yes' : 'no'}</Badge> : null}
+              {typeof debugInfo.resolution.inferredProposalOnboarding === 'boolean' ? <Badge variant={debugInfo.resolution.inferredProposalOnboarding ? 'success' : 'outline'}>proposal evidence: {debugInfo.resolution.inferredProposalOnboarding ? 'yes' : 'no'}</Badge> : null}
+            </div>
+          </div>
+        ) : null}
         {validationIssues.length > 0 ? (
           <div>
             <div className="font-medium opacity-85">Почему validation упал</div>
@@ -613,7 +856,7 @@ function LiveJobCard({ jobId }) {
   );
 }
 
-function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
+function ToolResultCard({ sessionId, result, onConfirm, actionBusy, developerView }) {
   const tone = result?.status === 'done'
     ? 'success'
     : result?.status === 'confirmation_required'
@@ -629,6 +872,7 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
         <span className="font-medium">{result?.requiresConfirmation ? 'Нужно подтверждение' : 'Результат действия'}</span>
         <Badge variant={tone}>{result?.status || 'done'}</Badge>
       </div>
+      {developerView ? <div className="mt-2 text-xs uppercase tracking-[0.16em] opacity-50">Сырой tool-result</div> : null}
       {result?.summary ? <div className="mt-2 opacity-90 whitespace-pre-wrap">{result.summary}</div> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {result?.jobId ? <Badge variant="outline">job: {String(result.jobId).slice(0, 8)}</Badge> : null}
@@ -642,6 +886,12 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
       {result?.jobId && !result?.batchId ? <LiveJobCard jobId={result.jobId} /> : null}
 
       {result?.debugInfo ? <ToolDebugPanel debugInfo={result.debugInfo} /> : null}
+      {developerView ? (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <JsonPreview title="tool-result json" value={result} />
+          {result?.confirmationToolCall ? <JsonPreview title="confirmation tool call" value={result.confirmationToolCall} /> : null}
+        </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {result?.navigateTo ? (
@@ -663,7 +913,7 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy }) {
   );
 }
 
-function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy, showTechnical }) {
+function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy, showTechnical, developerView }) {
   const isAssistant = String(message?.role || '').toLowerCase() === 'assistant';
   const isSystem = String(message?.role || '').toLowerCase() === 'system';
   const isBatchUpdate = message?.status === 'batch-update' || message?.status === 'needs-clarification';
@@ -671,8 +921,8 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
   const toolCalls = normalizeToolCalls(message);
   const toolResults = normalizeToolResults(message);
-  const visibleToolCalls = showTechnical ? toolCalls : [];
-  const visibleToolResults = showTechnical
+  const visibleToolCalls = (showTechnical || developerView) ? toolCalls : [];
+  const visibleToolResults = (showTechnical || developerView)
     ? toolResults
     : toolResults.filter((result) => result?.requiresConfirmation
       || result?.draftId
@@ -720,6 +970,8 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
           <span>{formatDate(message?.createdAtUtc)}</span>
         </div>
 
+        {developerView && isAssistant ? <ExperimentTurnPanel message={message} /> : null}
+        {developerView && isAssistant ? <div className="mb-2 text-[11px] uppercase tracking-[0.16em] opacity-45">Сырой текст ответа модели</div> : null}
         <div className="whitespace-pre-wrap break-words text-sm leading-6">{message?.content || '—'}</div>
 
         {attachments.length > 0 && (
@@ -753,6 +1005,7 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
             result={result}
             onConfirm={onConfirm}
             actionBusy={actionBusy}
+            developerView={developerView}
           />
         ))}
 
@@ -852,6 +1105,13 @@ export default function AdminAiChatPage() {
   const [dragActive, setDragActive] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
+  const [developerView, setDeveloperView] = useState(() => {
+    try {
+      return localStorage.getItem('aiChat_developerView') !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [actionMode, setActionMode] = useState(() => {
     try {
       const raw = String(localStorage.getItem('aiChat_actionMode') || 'multi').toLowerCase();
@@ -877,6 +1137,10 @@ export default function AdminAiChatPage() {
     try { localStorage.setItem('aiChat_actionMode', normalized); } catch { /* ignore */ }
   }, []);
   const previousPendingRef = useRef(false);
+
+  useEffect(() => {
+    try { localStorage.setItem('aiChat_developerView', developerView ? '1' : '0'); } catch { /* ignore */ }
+  }, [developerView]);
 
   const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
   const pending = useMemo(
@@ -1303,6 +1567,9 @@ export default function AdminAiChatPage() {
             <Button type="button" variant="outline" onClick={() => setShowTechnical((v) => !v)} title="Тех. детали">
               <Code2 size={14} />
             </Button>
+            <Button type="button" variant="outline" onClick={() => setDeveloperView((v) => !v)} title="Dev-вид">
+              <Package size={14} />
+            </Button>
             <Button type="button" variant="outline" onClick={refreshCurrent} disabled={!sessionId || refreshing}>
               <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
             </Button>
@@ -1332,6 +1599,7 @@ export default function AdminAiChatPage() {
                   onQuickReply={onQuickReply}
                   actionBusy={actionBusy || sending}
                   showTechnical={showTechnical}
+                  developerView={developerView}
                 />
               ))}
             </>
@@ -1528,12 +1796,17 @@ export default function AdminAiChatPage() {
                   <Button type="button" variant="outline" onClick={() => setShowTechnical((v) => !v)}>
                     <Code2 size={16} /> {showTechnical ? 'Скрыть тех. детали' : 'Показать тех. детали'}
                   </Button>
+                  <Button type="button" variant="outline" onClick={() => setDeveloperView((v) => !v)}>
+                    <Package size={16} /> {developerView ? 'Скрыть dev-вид' : 'Показать dev-вид'}
+                  </Button>
                 </div>
                 <div className="mt-2 text-sm leading-6 opacity-75 whitespace-pre-wrap">
-                  {lastAssistantMessage?.content || session?.memory?.summary || 'Это полноценный чат: AI помнит прошлые сообщения, файлы и действия в рамках этой сессии.'}
+                  {developerView
+                    ? (lastAssistantMessage?.content || session?.memory?.summary || 'Это девелоперская лаборатория для AI-чата: здесь важны маршрут, ветки, tool-calls, routing и debug-снимки, а не продуктовая полировка ответа.')
+                    : (lastAssistantMessage?.content || session?.memory?.summary || 'Это полноценный чат: AI помнит прошлые сообщения, файлы и действия в рамках этой сессии.')}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {SUGGESTIONS.slice(0, 3).map((item) => (
+                  {(developerView ? EXPERIMENT_SUGGESTIONS : SUGGESTIONS).slice(0, 4).map((item) => (
                     <button
                       key={item}
                       type="button"
@@ -1557,6 +1830,14 @@ export default function AdminAiChatPage() {
               </div>
             </div>
 
+            <ExperimentWorkbenchPanel
+              session={session}
+              messages={currentMessages}
+              actionMode={actionMode}
+              instructionStrictness={instructionStrictness}
+              developerView={developerView}
+            />
+
             {showMemory ? (
               <MemoryPanel memory={session?.memory} courseTitle={session?.courseTitle} />
             ) : null}
@@ -1572,7 +1853,9 @@ export default function AdminAiChatPage() {
                 <div className="max-w-2xl text-center">
                   <div className="text-2xl font-semibold">Чат с реальной AI</div>
                   <div className="mt-3 opacity-75 text-sm leading-6">
-                    Здесь можно прикреплять файлы, ставить batch в очередь, валидировать и публиковать draft’ы, запускать AI-review попыток и risk-review пользователей. Чат работает через MinIO-вложения, реальный AI worker и backend tool-calls, а память сессии сохраняет прошлые цели, файлы и действия.
+                    {developerView
+                      ? 'Здесь лучше думать как девелопер: смотреть route, tool-calls, auto-actions, debugInfo, worker-трассу и пробовать разные режимы/строгость/ветки, а не ждать красивый продуктовый текст.'
+                      : 'Здесь можно прикреплять файлы, ставить batch в очередь, валидировать и публиковать draft’ы, запускать AI-review попыток и risk-review пользователей. Чат работает через MinIO-вложения, реальный AI worker и backend tool-calls, а память сессии сохраняет прошлые цели, файлы и действия.'}
                   </div>
                 </div>
               </div>
@@ -1592,6 +1875,7 @@ export default function AdminAiChatPage() {
                     onQuickReply={onQuickReply}
                     actionBusy={actionBusy || sending}
                     showTechnical={showTechnical}
+                    developerView={developerView}
                   />
                 ))}
               </>
@@ -1699,6 +1983,7 @@ export default function AdminAiChatPage() {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 {pending ? <Badge variant="outline">Ждём реальный AI worker…</Badge> : null}
+                {developerView ? <Badge variant="success">dev sandbox</Badge> : null}
                 {session?.courseTitle ? <Badge variant="success"><CheckCircle2 size={12} /> Курс задан</Badge> : null}
                 {!session?.courseTitle ? <Badge variant="outline">Курс не выбран</Badge> : null}
                 {actionBusy ? <Badge variant="outline">Выполняю действие…</Badge> : null}
