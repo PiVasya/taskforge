@@ -6815,7 +6815,11 @@ public sealed class AiChatService
             var proposal = blueprint.Proposals[i];
             sb.AppendLine();
             sb.AppendLine($"Вариант {i + 1}. {proposal.Title}");
-            sb.AppendLine($"Тип: {proposal.AssignmentType} · сложность {proposal.Difficulty}/5 · статус {proposal.Status}");
+            var previewText = !string.IsNullOrWhiteSpace(proposal.FullCondition) ? proposal.FullCondition : proposal.ConditionPreview;
+            var looksFriendlyWalkthrough = !string.IsNullOrWhiteSpace(previewText)
+                && previewText.Contains("Следуй шагам", StringComparison.OrdinalIgnoreCase);
+            if (!looksFriendlyWalkthrough)
+                sb.AppendLine($"Тип: {proposal.AssignmentType} · сложность {proposal.Difficulty}/5 · статус {proposal.Status}");
             if (!string.IsNullOrWhiteSpace(proposal.Goal))
                 sb.AppendLine($"Цель: {ShortenSingleLine(proposal.Goal, 220)}");
             if (proposal.PlacementAfterAssignmentId.HasValue || !string.IsNullOrWhiteSpace(proposal.PlacementAfterTitle))
@@ -6823,10 +6827,9 @@ public sealed class AiChatService
             if (!string.IsNullOrWhiteSpace(proposal.PlacementReason))
                 sb.AppendLine($"Почему сюда: {ShortenSingleLine(proposal.PlacementReason, 220)}");
 
-            var previewText = !string.IsNullOrWhiteSpace(proposal.FullCondition) ? proposal.FullCondition : proposal.ConditionPreview;
             if (!string.IsNullOrWhiteSpace(previewText))
             {
-                sb.AppendLine("Черновик условия:");
+                sb.AppendLine(looksFriendlyWalkthrough ? "Текст задания:" : "Черновик условия:");
                 sb.AppendLine(ShortenMultiline(previewText, 1200));
             }
 

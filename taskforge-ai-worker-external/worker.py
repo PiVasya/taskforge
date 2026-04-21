@@ -90,6 +90,7 @@ from reviews import (
 )
 from scenario_router import detect_scenario_profile, scenario_generation_mode
 from scenario_policy import looks_like_task_generation_intent, scenario_should_bypass_blueprint
+from ladder_style import extract_learning_concept, beautify_ladder_proposal, looks_like_ladder_style, looks_too_dry_for_ladder
 from batch_pipeline import (
     run_batch_review,
     run_student_journey_review,
@@ -990,6 +991,14 @@ def _chat_build_fallback_blueprint_condition(last_user: str, assistant: str, con
     return "\n\n".join(section for section in sections if section).strip()
 
 
+def _chat_should_apply_ladder_style(profile: Dict[str, Any], proposal: Dict[str, Any]) -> bool:
+    sid = str((profile or {}).get("id") or "").strip().lower()
+    if sid not in {"step-by-step-ladder", "micro-program-series"}:
+        return False
+    draft = {"title": proposal.get("title"), "description": proposal.get("fullCondition") or proposal.get("conditionPreview")}
+    return looks_too_dry_for_ladder(draft) or not looks_like_ladder_style(draft)
+
+
 def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, Any], last_user: str, prompt: str, count: int, assignment_type: str, difficulty: int) -> list[Dict[str, Any]]:
     raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
     proposals = raw.get("proposals") if isinstance(raw.get("proposals"), list) else []
@@ -998,6 +1007,8 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     exact = [str(x).strip() for x in (contract.get("exactSnippets") if isinstance(contract.get("exactSnippets"), list) else []) if str(x).strip()]
     forbidden = [str(x).strip() for x in (contract.get("forbiddenSnippets") if isinstance(contract.get("forbiddenSnippets"), list) else []) if str(x).strip()]
     clean: list[Dict[str, Any]] = []
+    scenario_profile = detect_scenario_profile({**payload, "prompt": prompt, "sourceText": prompt}, requested_count=max(1, min(5, count)))
+    concept = extract_learning_concept({**payload, "prompt": prompt, "sourceText": prompt})
     for index, item in enumerate(proposals[: max(1, min(5, count))], start=1):
         if not isinstance(item, dict):
             continue
@@ -1049,13 +1060,15 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
                 for t in (((item.get("hiddenTests") if isinstance(item.get("hiddenTests"), list) else existing_item.get("hiddenTests") if isinstance(existing_item.get("hiddenTests"), list) else [])[:8])) if isinstance(t, dict)
             ],
         }
+        if _chat_should_apply_ladder_style(scenario_profile, proposal):
+            proposal = beautify_ladder_proposal(proposal, concept, index, max(1, min(5, count)))
         clean.append(proposal)
     if clean:
         return clean
     base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
     base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
     default_count = max(1, min(3, count or 1))
-    return [{
+    fallback_items = [{
         "id": (existing[i - 1].get("id") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else None),
         "title": str(result.get("title") or (existing[i - 1].get("title") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else f"Вариант {i}")).strip() or f"Вариант {i}",
         "assignmentType": assignment_type,
@@ -1068,6 +1081,9 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
         "publicTests": [],
         "hiddenTests": [],
     } for i in range(1, default_count + 1)]
+    if str((scenario_profile or {}).get("id") or "").strip().lower() in {"step-by-step-ladder", "micro-program-series"}:
+        fallback_items = [beautify_ladder_proposal(item, concept, idx, default_count) for idx, item in enumerate(fallback_items, start=1)]
+    return fallback_items
 
 
 def _chat_is_listing_request(text: str) -> bool:

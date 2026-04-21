@@ -314,14 +314,16 @@ function MemoryPanel({ memory, courseTitle }) {
               <div className="text-xs uppercase tracking-[0.18em] opacity-50">Черновые условия из чата</div>
               {draftBlueprint?.summary ? <div className="mt-2 text-sm opacity-85 whitespace-pre-wrap">{draftBlueprint.summary}</div> : null}
               <div className="mt-3 space-y-3">
-                {draftProposals.slice(0, 4).map((item, index) => (
+                {draftProposals.slice(0, 4).map((item, index) => {
+                  const isFriendlyWalkthrough = String(item?.fullCondition || item?.conditionPreview || '').includes('Следуй шагам:');
+                  return (
                   <div key={item?.id || index} className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800 p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">#{index + 1}</Badge>
                       <span className="font-medium">{item?.title || `Вариант ${index + 1}`}</span>
-                      {item?.assignmentType ? <Badge variant="outline">{item.assignmentType}</Badge> : null}
-                      {item?.difficulty ? <Badge variant="outline">сложность {item.difficulty}/5</Badge> : null}
-                      {item?.status ? <Badge variant={item.status === 'queued' ? 'success' : 'outline'}>{item.status}</Badge> : null}
+                      {!isFriendlyWalkthrough && item?.assignmentType ? <Badge variant="outline">{item.assignmentType}</Badge> : null}
+                      {!isFriendlyWalkthrough && item?.difficulty ? <Badge variant="outline">сложность {item.difficulty}/5</Badge> : null}
+                      {!isFriendlyWalkthrough && item?.status ? <Badge variant={item.status === 'queued' ? 'success' : 'outline'}>{item.status}</Badge> : null}
                     </div>
                     {item?.goal ? <div className="mt-2 text-sm opacity-80">Цель: {item.goal}</div> : null}
                     {item?.placementAfterTitle ? <div className="mt-2 text-xs opacity-70">После: {item.placementAfterTitle}</div> : null}
@@ -332,7 +334,8 @@ function MemoryPanel({ memory, courseTitle }) {
                     {renderTestPreviewList('Публичные тесты', item?.publicTests)}
                     {renderTestPreviewList('Скрытые тесты', item?.hiddenTests)}
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="mt-3 text-xs opacity-65">Сейчас можно продолжать обсуждение в чате, просить правки или командовать финализацию в черновик.</div>
             </div>

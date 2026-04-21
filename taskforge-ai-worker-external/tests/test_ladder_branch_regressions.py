@@ -86,6 +86,45 @@ class LadderBranchRegressionsTests(unittest.TestCase):
         failed = {c["name"] for c in validation["checks"] if c.get("status") == "failed"}
         self.assertIn("style-guided-scaffold", failed)
 
+    def test_beautify_ladder_proposal_turns_dry_statement_into_friendly_walkthrough(self):
+        proposal = {
+            "title": "Простой if: проверка условия",
+            "conditionPreview": "Считайте целое число. Если введённое число строго больше 0, выведите на экран фразу 'Число положительное'. В остальных случаях программа ничего не должна выводить. Используйте только оператор if.",
+            "fullCondition": "Считайте целое число. Если введённое число строго больше 0, выведите на экран фразу 'Число положительное'. В остальных случаях программа ничего не должна выводить. Используйте только оператор if.",
+        }
+
+        styled = ladder_style.beautify_ladder_proposal(proposal, "if", 1, 4)
+
+        self.assertIn("Следуй шагам", styled["fullCondition"])
+        self.assertIn("Запусти код", styled["fullCondition"])
+        self.assertTrue(styled["title"].startswith("Задание 1."))
+        self.assertFalse(ladder_style.looks_too_dry_for_ladder({"description": styled["fullCondition"]}))
+        self.assertTrue(ladder_style.looks_like_ladder_style({"title": styled["title"], "description": styled["fullCondition"]}))
+
+    def test_chat_blueprint_proposals_get_ladder_beautifier_for_dry_drafts(self):
+        payload = {
+            "conversation": [{"role": "user", "content": "Сделай лесенку по if: сначала простой if, потом if else, потом else if"}],
+            "memory": {"latestExplicitInstruction": "Сделай лесенку по if: сначала простой if, потом if else, потом else if"},
+        }
+        result = {
+            "draftBlueprint": {
+                "proposals": [
+                    {
+                        "title": "Простой if: проверка условия",
+                        "conditionPreview": "Считайте целое число. Если введённое число строго больше 0, выведите фразу 'Число положительное'. В остальных случаях программа ничего не должна выводить. Используйте только оператор if.",
+                    }
+                ]
+            },
+            "assistantMessage": "Собрал черновик лесенки.",
+        }
+
+        proposals = worker._chat_build_blueprint_proposals(payload, result, payload["conversation"][0]["content"], "Собрал черновик лесенки.", 1, "code-test", 2)
+
+        self.assertEqual(len(proposals), 1)
+        self.assertIn("Следуй шагам", proposals[0]["fullCondition"])
+        self.assertTrue(proposals[0]["title"].startswith("Задание 1."))
+
+
 
 if __name__ == "__main__":
     unittest.main()
