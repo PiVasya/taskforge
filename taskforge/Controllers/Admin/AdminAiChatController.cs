@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
@@ -112,9 +112,9 @@ public sealed class AdminAiChatController : ControllerBase
 
         if (normalizedFormat is "debug" or "zip")
         {
-            var trace = await _chat.GetSessionTraceAsync(_current.GetUserId(), id, ct);
-            var archive = BuildDebugExportArchive(session, trace);
-            return File(archive, "application/zip", $"{fileNameBase}-debug.zip");
+            var megaDebug = await _chat.GetSessionMegaDebugAsync(_current.GetUserId(), id, ct);
+            var archive = BuildDebugExportArchive(megaDebug ?? new AiFoundryChatMegaDebugDto { Session = session, Trace = await _chat.GetSessionTraceAsync(_current.GetUserId(), id, ct) ?? new AiFoundryChatTraceResponseDto() });
+            return File(archive, "application/zip", $"{fileNameBase}-mega-debug.zip");
         }
 
         var markdown = BuildMarkdownExport(session);
@@ -306,8 +306,9 @@ public sealed class AdminAiChatController : ControllerBase
         return sb.ToString();
     }
 
-    private static byte[] BuildDebugExportArchive(AiFoundryChatSessionDto session, AiFoundryChatTraceResponseDto? trace = null)
+    private static byte[] BuildDebugExportArchive(AiFoundryChatMegaDebugDto bundle)
     {
+        var session = bundle?.Session ?? new AiFoundryChatSessionDto();
         using var ms = new MemoryStream();
         using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, true))
         {
@@ -331,8 +332,54 @@ public sealed class AdminAiChatController : ControllerBase
                 })
                 .ToList();
             AddZipEntry(archive, "timeline.json", SerializePrettyJson(timeline));
-            if (trace != null)
-                AddZipEntry(archive, "trace.json", SerializePrettyJson(trace));
+            AddZipEntry(archive, "trace.json", SerializePrettyJson(bundle.Trace));
+            AddZipEntry(archive, "loop-diagnostics.json", SerializePrettyJson(bundle.LoopDiagnostics));
+            AddZipEntry(archive, "mega-debug.json", SerializePrettyJson(bundle));
+
+            var manifest = new
+            {
+                generatedAtUtc = DateTime.UtcNow,
+                sessionId = session.Id,
+                sessionTitle = session.Title,
+                messageCount = session.Messages?.Count ?? 0,
+                traceEvents = bundle.Trace?.Events?.Count ?? 0,
+                linkedJobs = bundle.LinkedJobs?.Count ?? 0,
+                linkedBatches = bundle.LinkedBatches?.Count ?? 0,
+                linkedDrafts = bundle.LinkedDrafts?.Count ?? 0,
+                suspectedLoop = bundle.LoopDiagnostics?.SuspectedLoop ?? false,
+                files = new[]
+                {
+                    "transcript.md",
+                    "session.json",
+                    "memory.json",
+                    "timeline.json",
+                    "trace.json",
+                    "loop-diagnostics.json",
+                    "mega-debug.json",
+                    "messages/*",
+                    "jobs/*",
+                    "batches/*",
+                    "drafts/*"
+                }
+            };
+            AddZipEntry(archive, "manifest.json", SerializePrettyJson(manifest));
+
+            foreach (var item in timeline)
+                AddZipEntry(archive, $"messages/{item.turn:D3}-{item.Role}.json", SerializePrettyJson(item));
+
+            foreach (var job in bundle.LinkedJobs ?? new List<AiFoundryChatDebugJobDto>())
+            {
+                AddZipEntry(archive, $"jobs/{job.CreatedAtUtc:yyyyMMdd-HHmmss}-{job.Id}.json", SerializePrettyJson(job));
+                AddZipEntry(archive, $"jobs/{job.Id}-input.json", TryPrettyJson(job.InputJson));
+                AddZipEntry(archive, $"jobs/{job.Id}-result.json", TryPrettyJson(job.ResultJson));
+                AddZipEntry(archive, $"jobs/{job.Id}-telemetry.json", TryPrettyJson(job.TelemetryJson));
+            }
+
+            foreach (var batch in bundle.LinkedBatches ?? new List<AiFoundryChatDebugBatchDto>())
+                AddZipEntry(archive, $"batches/{batch.CreatedAtUtc:yyyyMMdd-HHmmss}-{batch.Id}.json", SerializePrettyJson(batch));
+
+            foreach (var draft in bundle.LinkedDrafts ?? new List<AiFoundryChatDebugDraftDto>())
+                AddZipEntry(archive, $"drafts/{draft.UpdatedAtUtc:yyyyMMdd-HHmmss}-{draft.Id}.json", SerializePrettyJson(draft));
         }
 
         return ms.ToArray();

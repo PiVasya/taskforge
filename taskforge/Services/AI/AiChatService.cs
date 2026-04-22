@@ -187,6 +187,117 @@ public sealed class AiChatService
         return BuildTraceResponse(session, messages, memory, jobs, batches);
     }
 
+
+    public async Task<AiFoundryChatMegaDebugDto?> GetSessionMegaDebugAsync(Guid userId, Guid sessionId, CancellationToken ct = default)
+    {
+        var session = await _db.AiFoundryChatSessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.CreatedByUserId == userId, ct);
+        if (session == null)
+            return null;
+
+        await TryFinalizePendingAsync(session, ct);
+        await TryAppendGenerationUpdatesAsync(session, ct);
+
+        var messages = DeserializeMessages(session.MessagesJson);
+        var memory = BuildMemory(messages, session.PlanJson);
+        var linkedJobIds = messages
+            .SelectMany(x => x.ToolResults ?? new List<AiFoundryChatToolResultDto>())
+            .Where(x => x.JobId.HasValue)
+            .Select(x => x.JobId!.Value)
+            .Distinct()
+            .ToList();
+        var linkedBatchIds = messages
+            .SelectMany(x => x.ToolResults ?? new List<AiFoundryChatToolResultDto>())
+            .Where(x => x.BatchId.HasValue)
+            .Select(x => x.BatchId!.Value)
+            .Distinct()
+            .ToList();
+
+        var jobs = await _db.AiJobs
+            .AsNoTracking()
+            .Where(x => (x.TargetEntityType == "chat-session" && x.TargetEntityId == session.Id) || linkedJobIds.Contains(x.Id) || (x.TargetEntityType == "batch" && x.TargetEntityId.HasValue && linkedBatchIds.Contains(x.TargetEntityId.Value)))
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        var batches = await _db.AiBatches
+            .AsNoTracking()
+            .Where(x => x.ChatSessionId == session.Id || linkedBatchIds.Contains(x.Id))
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        var draftJobIds = jobs.Select(x => x.Id)
+            .Concat(jobs.Where(x => x.ParentJobId.HasValue).Select(x => x.ParentJobId!.Value))
+            .Distinct()
+            .ToList();
+
+        var drafts = await _db.AiGeneratedDrafts
+            .AsNoTracking()
+            .Where(x => draftJobIds.Contains(x.JobId) || (x.BatchId.HasValue && linkedBatchIds.Contains(x.BatchId.Value)))
+            .OrderBy(x => x.UpdatedAtUtc)
+            .ToListAsync(ct);
+
+        var trace = BuildTraceResponse(session, messages, memory, jobs, batches);
+        var courseMap = await LoadCourseTitleMapAsync(session.CourseId.HasValue ? new[] { session.CourseId.Value } : Array.Empty<Guid>(), ct);
+
+        return new AiFoundryChatMegaDebugDto
+        {
+            Session = MapSession(session, courseMap, messages, memory),
+            Trace = trace,
+            LinkedJobs = jobs.Select(x => new AiFoundryChatDebugJobDto
+            {
+                Id = x.Id,
+                Type = x.Type,
+                Status = x.Status,
+                Priority = x.Priority,
+                RetryCount = x.RetryCount,
+                ParentJobId = x.ParentJobId,
+                CourseId = x.CourseId,
+                StageCode = x.StageCode,
+                StageLabel = x.StageLabel,
+                ErrorText = x.ErrorText,
+                WorkerId = x.WorkerId,
+                ModelName = x.ModelName,
+                CreatedAtUtc = x.CreatedAtUtc,
+                StartedAtUtc = x.StartedAtUtc,
+                CompletedAtUtc = x.CompletedAtUtc,
+                InputJson = x.InputJson,
+                ResultJson = x.ResultJson,
+                TelemetryJson = x.TelemetryJson,
+            }).ToList(),
+            LinkedBatches = batches.Select(x => new AiFoundryChatDebugBatchDto
+            {
+                Id = x.Id,
+                Status = x.Status,
+                CurrentStage = x.CurrentStage,
+                AssignmentType = x.AssignmentType,
+                Mode = x.Mode,
+                RequestedCount = x.RequestedCount,
+                Prompt = x.Prompt,
+                PlanJson = x.PlanJson,
+                SummaryJson = x.SummaryJson,
+                DecisionSummaryJson = x.DecisionSummaryJson,
+                ReviewLedgerJson = x.ReviewLedgerJson,
+                ExportManifestJson = x.ExportManifestJson,
+                CreatedAtUtc = x.CreatedAtUtc,
+                UpdatedAtUtc = x.UpdatedAtUtc,
+            }).ToList(),
+            LinkedDrafts = drafts.Select(x => new AiFoundryChatDebugDraftDto
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                BatchId = x.BatchId,
+                BatchItemId = x.BatchItemId,
+                CourseId = x.CourseId,
+                AssignmentType = x.AssignmentType,
+                Title = x.Title,
+                Status = x.Status,
+                DraftJson = x.DraftJson,
+                CreatedAtUtc = x.CreatedAtUtc,
+                UpdatedAtUtc = x.UpdatedAtUtc,
+            }).ToList(),
+            LoopDiagnostics = BuildLoopDiagnostics(trace),
+        };
+    }
+
     public async Task<AiFoundryChatSessionDto> CreateSessionAsync(Guid userId, AiFoundryChatCreateSessionRequestDto request, CancellationToken ct = default)
     {
         var title = string.IsNullOrWhiteSpace(request.Title) ? "Новый AI-чат" : request.Title.Trim();
@@ -719,7 +830,10 @@ public sealed class AiChatService
             return true;
         }
 
-        var assistantIntro = assistantText;
+        var loopGuardTriggered = HasRepeatedBlueprintRevisionLoop(accumulatedToolCalls, accumulatedToolResults);
+        var assistantIntro = loopGuardTriggered
+            ? BuildLoopGuardAssistantMessage(accumulatedToolResults, memoryAfterTools)
+            : assistantText;
 
         assistantMessage.Status = "done";
         assistantMessage.PendingJobId = null;
@@ -3036,7 +3150,17 @@ public sealed class AiChatService
             return false;
 
         if (accumulatedToolResults.Any(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) || IsRecoverableAgentToolFailure(x)))
-            return !HasRepeatedBlueprintRevisionLoop(accumulatedToolCalls, accumulatedToolResults);
+        {
+            var revisionLoopTriggered = HasRepeatedBlueprintRevisionLoop(accumulatedToolCalls, accumulatedToolResults);
+            if (revisionLoopTriggered)
+                _log.LogWarning("[AiChatLoopGuard] session={SessionId} actionMode={ActionMode} objective={ObjectiveKind} reason=blueprint-revision-loop toolCalls={ToolCallCount} toolResults={ToolResultCount}",
+                    session.Id,
+                    actionMode,
+                    memory.AgentState?.ObjectiveKind,
+                    accumulatedToolCalls.Count,
+                    accumulatedToolResults.Count);
+            return !revisionLoopTriggered;
+        }
 
         var latestToolCall = lastToolCalls.LastOrDefault(x => x != null && !string.IsNullOrWhiteSpace(x.Name));
         if (latestToolCall == null)
@@ -3085,24 +3209,31 @@ public sealed class AiChatService
             return false;
 
         var recentNames = accumulatedToolCalls
-            .TakeLast(3)
+            .TakeLast(6)
             .Select(x => (x.Name ?? string.Empty).Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToList();
-        if (recentNames.Count < 2)
+        var blueprintNames = recentNames
+            .Where(x => string.Equals(x, "save_chat_blueprint", StringComparison.OrdinalIgnoreCase) || string.Equals(x, "revise_chat_blueprint", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (blueprintNames.Count < 2)
             return false;
         if (recentNames.Any(x => !string.Equals(x, "save_chat_blueprint", StringComparison.OrdinalIgnoreCase) && !string.Equals(x, "revise_chat_blueprint", StringComparison.OrdinalIgnoreCase)))
             return false;
 
-        var recentRevisionSummaries = recentToolResults
+        var recentRevisionFingerprints = recentToolResults
             .Where(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Summary))
-            .Select(x => ShortenSingleLine(x.Summary, 260))
-            .TakeLast(2)
+            .Select(BuildRevisionFingerprint)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .TakeLast(4)
             .ToList();
-        if (recentRevisionSummaries.Count < 2)
+        if (recentRevisionFingerprints.Count < 2)
             return false;
 
-        return string.Equals(recentRevisionSummaries[0], recentRevisionSummaries[1], StringComparison.OrdinalIgnoreCase);
+        if (recentRevisionFingerprints.Count >= 3)
+            return true;
+
+        return string.Equals(recentRevisionFingerprints[^1], recentRevisionFingerprints[^2], StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsRecoverableAgentToolFailure(AiFoundryChatToolResultDto? result)
@@ -3153,6 +3284,23 @@ public sealed class AiChatService
         return !string.IsNullOrWhiteSpace(memory.AgentState?.ObjectiveSummary)
             ? $"Продолжаю внутреннюю проверку под цель: {ShortenSingleLine(memory.AgentState.ObjectiveSummary, 160)}"
             : "Продолжаю внутреннюю проверку и собираю недостающий контекст перед финальным ответом.";
+    }
+
+
+    private static string BuildLoopGuardAssistantMessage(
+        IReadOnlyList<AiFoundryChatToolResultDto> toolResults,
+        AiFoundryChatMemoryDto memory)
+    {
+        var latestRevision = toolResults
+            .Where(x => string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Summary))
+            .Select(x => ShortenSingleLine(x.Summary, 220))
+            .LastOrDefault();
+        var objective = ShortenSingleLine(memory.AgentState?.ObjectiveSummary ?? memory.LatestExplicitInstruction ?? string.Empty, 180);
+        if (!string.IsNullOrWhiteSpace(latestRevision))
+            return $"Остановила авто-цикл самопроверки, потому что замечание повторяется. Нужна явная правка направления от пользователя. Последний стоп-фактор: {latestRevision}";
+        return !string.IsNullOrWhiteSpace(objective)
+            ? $"Остановила авто-цикл по цели «{objective}». Нужна явная корректировка от пользователя, иначе агент будет повторять одни и те же шаги." 
+            : "Остановила авто-цикл: дальнейшее автопродолжение дублирует предыдущие шаги и не даёт нового результата.";
     }
 
     private static bool ShouldStopAutoAgentLoop(string? actionName, AiFoundryChatToolResultDto? result)
@@ -3227,7 +3375,8 @@ public sealed class AiChatService
         var status = (result.Status ?? string.Empty).Trim();
         if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(status, "error", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "needs-revision", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return string.IsNullOrWhiteSpace(result.Summary) && !string.IsNullOrWhiteSpace(result.NavigateTo);
@@ -5356,6 +5505,82 @@ public sealed class AiChatService
             },
             Events = events,
         };
+    }
+
+    private static AiFoundryChatLoopDiagnosticsDto BuildLoopDiagnostics(AiFoundryChatTraceResponseDto trace)
+    {
+        var result = new AiFoundryChatLoopDiagnosticsDto();
+        if (trace == null)
+            return result;
+
+        result.LinkedAssistantTurnJobs = trace.Events.Count(x => string.Equals(x.Kind, "job", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.Title, AiFoundryJobTypes.ChatTurn, StringComparison.OrdinalIgnoreCase));
+        result.NeedsRevisionCount = trace.Events.Count(x => string.Equals(x.Kind, "tool-result", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase));
+        result.BlueprintSaveAttempts = trace.Events.Count(x => string.Equals(x.Kind, "tool-call", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(x.ActionName, "save_chat_blueprint", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.ActionName, "revise_chat_blueprint", StringComparison.OrdinalIgnoreCase)));
+
+        var fingerprints = trace.Events
+            .Where(x => string.Equals(x.Kind, "tool-result", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(x.Status, "needs-revision", StringComparison.OrdinalIgnoreCase))
+            .Select(BuildRevisionFingerprint)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+        result.LastFingerprint = fingerprints.LastOrDefault();
+
+        if (result.NeedsRevisionCount >= 2)
+            result.Findings.Add($"В trace уже {result.NeedsRevisionCount} шагов needs-revision подряд.");
+        if (result.BlueprintSaveAttempts >= 2)
+            result.Findings.Add($"В этой сессии уже {result.BlueprintSaveAttempts} повторных попыток save/revise_chat_blueprint.");
+        if (result.LinkedAssistantTurnJobs >= 4)
+            result.Findings.Add($"Сессия породила {result.LinkedAssistantTurnJobs} assistant_chat_turn job — это похоже на авто-цикл.");
+        if (fingerprints.Count >= 2 && string.Equals(fingerprints[^1], fingerprints[^2], StringComparison.OrdinalIgnoreCase))
+            result.Findings.Add($"Последние validation-ошибки совпадают по категории: {fingerprints[^1]}.");
+
+        result.SuspectedLoop = result.NeedsRevisionCount >= 2
+            || result.BlueprintSaveAttempts >= 3
+            || result.LinkedAssistantTurnJobs >= 5
+            || result.Findings.Count > 0;
+        return result;
+    }
+
+    private static string BuildRevisionFingerprint(AiFoundryChatToolResultDto? result)
+    {
+        var summary = (result?.Summary ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(summary))
+            return string.Empty;
+        if (summary.Contains("подготовка до темы"))
+            return "pre-anchor-before-topic";
+        if (summary.Contains("точку вставки"))
+            return "placement-mismatch";
+        if (summary.Contains("стиль первой задачи"))
+            return "first-task-style";
+        if (summary.Contains("слишком коротк"))
+            return "ladder-too-short";
+        if (summary.Contains("нельзя уже вводить"))
+            return "anchor-mentioned-too-early";
+        summary = Regex.Replace(summary, @"из:\s*.*$", string.Empty).Trim();
+        return summary.Length <= 96 ? summary : summary[..96];
+    }
+
+    private static string BuildRevisionFingerprint(AiFoundryChatTraceEventDto? traceEvent)
+    {
+        var summary = (traceEvent?.Summary ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(summary))
+            return string.Empty;
+        if (summary.Contains("подготовка до темы"))
+            return "pre-anchor-before-topic";
+        if (summary.Contains("точку вставки"))
+            return "placement-mismatch";
+        if (summary.Contains("стиль первой задачи"))
+            return "first-task-style";
+        if (summary.Contains("слишком коротк"))
+            return "ladder-too-short";
+        if (summary.Contains("нельзя уже вводить"))
+            return "anchor-mentioned-too-early";
+        summary = Regex.Replace(summary, @"из:\s*.*$", string.Empty).Trim();
+        return summary.Length <= 96 ? summary : summary[..96];
     }
 
     private static List<AiFoundryChatToolCallDto> NormalizeTraceToolCalls(AiFoundryChatMessageDto message)

@@ -1592,7 +1592,9 @@ export default function AdminAiChatPage() {
       setExporting(true);
       const { blob, fileName } = await downloadAiChatExport(sessionId, format);
       triggerDownload(blob, fileName);
-      notify.success('История чата экспортирована');
+      notify.success(format === 'debug'
+        ? `Скачан mega-debug архив: ${fileName}`
+        : `Скачан экспорт чата: ${fileName}`);
     } catch (e) {
       notify.error(handleApiError(e, 'Не удалось экспортировать историю чата'));
     } finally {
@@ -2003,8 +2005,8 @@ export default function AdminAiChatPage() {
               <Button type="button" variant="outline" onClick={createSession} disabled={pending || actionBusy}>
                 <Plus size={16} /> Новый чат
               </Button>
-              <Button type="button" variant="outline" onClick={() => exportCurrent('debug')} disabled={!sessionId || pending || actionBusy || exporting} title="Скачать расширенный debug-архив: transcript.md + session.json + memory.json + timeline.json">
-                {exporting ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />} Экспорт debug
+              <Button type="button" variant="outline" onClick={() => exportCurrent('debug')} disabled={!sessionId || pending || actionBusy || exporting} title="Скачать mega-debug архив: transcript, trace, loop diagnostics, linked jobs, batches, drafts и сырой JSON">
+                {exporting ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />} Мега debug
               </Button>
               <Button type="button" variant="outline" onClick={renameCurrent} disabled={!sessionId || pending || actionBusy}>
                 <Pencil size={16} />

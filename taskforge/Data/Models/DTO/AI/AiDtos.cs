@@ -1029,6 +1029,81 @@ public sealed class AiFoundryChatTraceResponseDto
     public List<AiFoundryChatTraceEventDto> Events { get; set; } = new();
 }
 
+public sealed class AiFoundryChatDebugJobDto
+{
+    public Guid Id { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public int Priority { get; set; }
+    public int RetryCount { get; set; }
+    public Guid? ParentJobId { get; set; }
+    public Guid? CourseId { get; set; }
+    public string? StageCode { get; set; }
+    public string? StageLabel { get; set; }
+    public string? ErrorText { get; set; }
+    public string? WorkerId { get; set; }
+    public string? ModelName { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public string? InputJson { get; set; }
+    public string? ResultJson { get; set; }
+    public string? TelemetryJson { get; set; }
+}
+
+public sealed class AiFoundryChatDebugBatchDto
+{
+    public Guid Id { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? CurrentStage { get; set; }
+    public string AssignmentType { get; set; } = string.Empty;
+    public string Mode { get; set; } = string.Empty;
+    public int RequestedCount { get; set; }
+    public string? Prompt { get; set; }
+    public string? PlanJson { get; set; }
+    public string? SummaryJson { get; set; }
+    public string? DecisionSummaryJson { get; set; }
+    public string? ReviewLedgerJson { get; set; }
+    public string? ExportManifestJson { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+public sealed class AiFoundryChatDebugDraftDto
+{
+    public Guid Id { get; set; }
+    public Guid JobId { get; set; }
+    public Guid? BatchId { get; set; }
+    public Guid? BatchItemId { get; set; }
+    public Guid? CourseId { get; set; }
+    public string AssignmentType { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string DraftJson { get; set; } = "{}";
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+public sealed class AiFoundryChatLoopDiagnosticsDto
+{
+    public bool SuspectedLoop { get; set; }
+    public int LinkedAssistantTurnJobs { get; set; }
+    public int NeedsRevisionCount { get; set; }
+    public int BlueprintSaveAttempts { get; set; }
+    public string? LastFingerprint { get; set; }
+    public List<string> Findings { get; set; } = new();
+}
+
+public sealed class AiFoundryChatMegaDebugDto
+{
+    public AiFoundryChatSessionDto Session { get; set; } = new();
+    public AiFoundryChatTraceResponseDto Trace { get; set; } = new();
+    public List<AiFoundryChatDebugJobDto> LinkedJobs { get; set; } = new();
+    public List<AiFoundryChatDebugBatchDto> LinkedBatches { get; set; } = new();
+    public List<AiFoundryChatDebugDraftDto> LinkedDrafts { get; set; } = new();
+    public AiFoundryChatLoopDiagnosticsDto LoopDiagnostics { get; set; } = new();
+}
+
 public sealed class AiFoundryChatSendMessageResponseDto
 {
     public bool Pending { get; set; }
