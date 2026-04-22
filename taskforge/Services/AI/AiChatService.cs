@@ -3666,6 +3666,8 @@ public sealed class AiChatService
         var low = (text ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(low))
             return "chat";
+        if (IsAnchorLocationLookupIntent(low))
+            return "inspect";
         if (IsCourseGapRemediationIntent(low))
             return "remediation";
         if (IsDiagnosticGapAuditIntent(low))
@@ -3727,6 +3729,37 @@ public sealed class AiChatService
         return mentionsDirector || (mentionsOrderedFlow && mentionsGenerationGoal);
     }
 
+    private static bool IsAnchorLocationLookupIntent(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var hay = text.ToLowerInvariant();
+        var concept = DetectAnchorConceptFromText(hay);
+        if (string.IsNullOrWhiteSpace(concept))
+            return false;
+
+        var asksWhere = hay.Contains("где появ")
+            || hay.Contains("где ввод")
+            || hay.Contains("где встреч")
+            || hay.Contains("найди именно")
+            || hay.Contains("первое задание")
+            || hay.Contains("первое появление")
+            || hay.Contains("где в курсе")
+            || hay.Contains("в каком задан")
+            || hay.Contains("посмотри где")
+            || hay.Contains("изучи где");
+        var wantsPreview = hay.Contains("перед этим")
+            || hay.Contains("до этого")
+            || hay.Contains("перед тем")
+            || hay.Contains("до темы")
+            || hay.Contains("обучал")
+            || hay.Contains("научат")
+            || hay.Contains("пользоваться")
+            || hay.Contains("работать с");
+        return asksWhere || (wantsPreview && QueryMentionsFirstAnchor(hay, concept));
+    }
+
     private static bool IsCourseGapRemediationIntent(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -3759,7 +3792,11 @@ public sealed class AiChatService
             || hay.Contains("список")
             || hay.Contains("перечисли")
             || hay.Contains("какие")
-            || hay.Contains("изучи задачи курса");
+            || hay.Contains("изучи задачи курса")
+            || hay.Contains("где появ")
+            || hay.Contains("где ввод")
+            || hay.Contains("найди именно")
+            || hay.Contains("в каком задан");
         var avoidsPlanning = !hay.Contains("мостик") && !hay.Contains("подводящ") && !hay.Contains("план");
         var asksToGenerate = AiGenerationScenarioPolicy.LooksLikeScenarioGenerationIntent(hay)
             || hay.Contains("сгенер")
@@ -5909,6 +5946,11 @@ public sealed class AiChatService
             })
             .ToList();
         var observations = BuildInspectionObservations(selectedSnapshots);
+        var explicitAnchor = FindFirstExplicitAnchorAssignment(selectedSnapshots, queryAnchorConcept);
+        if (explicitAnchor != null && !string.IsNullOrWhiteSpace(queryAnchorConcept))
+        {
+            observations.Insert(0, $"Первое задание, где явно появляется {queryAnchorConcept}, — «{explicitAnchor.Title}» (sort={explicitAnchor.Sort}, assignmentId={explicitAnchor.Id}). Именно перед ним и нужно ставить обучалки.");
+        }
 
         var rangeText = assignments.Count == 0 ? null : $"sort {assignments.Min(x => x.Sort)}–{assignments.Max(x => x.Sort)}";
         return new AiFoundryCourseInspectionDto
@@ -5920,7 +5962,9 @@ public sealed class AiChatService
             GeneratedAtUtc = DateTime.UtcNow,
             Summary = assignments.Count == 0
                 ? "Подходящих заданий для просмотра не найдено."
-                : $"Открыла {assignments.Count} реальных заданий курса ({rangeText}), чтобы проверить условия без догадок и снять ложные срабатывания аудита.",
+                : explicitAnchor != null && !string.IsNullOrWhiteSpace(queryAnchorConcept)
+                    ? $"Открыла {assignments.Count} реальных заданий курса ({rangeText}) и нашла первое явное {queryAnchorConcept} в «{explicitAnchor.Title}» (sort={explicitAnchor.Sort}). Теперь можно строить обучалки строго перед этой точкой, а не гадать по аудиту."
+                    : $"Открыла {assignments.Count} реальных заданий курса ({rangeText}), чтобы проверить условия без догадок и снять ложные срабатывания аудита.",
             Observations = observations,
             Assignments = assignments,
         };
@@ -6447,6 +6491,18 @@ public sealed class AiChatService
             issues.Add($"Пользователь просил {requestedCount.Value} задач(и), а в blueprint сейчас {proposals.Count}.");
         if (!requestedCount.HasValue && RequestsMorePrograms(memory) && proposals.Count < 6)
             issues.Add("Пользователь просил побольше маленьких программ, а текущий blueprint всё ещё слишком короткий. Нужна более длинная лесенка, хотя бы 6 шагов.");
+        if (RequestsTutorialLadder(memory) && proposals.Count < 5)
+            issues.Add("Пользователь просил именно обучающую лесенку, а не пару разрозненных примеров. Нужна серия минимум из 5 маленьких шагов.");
+        if (RequestsTutorialLadder(memory))
+        {
+            var dryTitles = proposals.Where(ProposalUsesDryOlympiadTone).Select(x => x.Title).Take(4).ToList();
+            if (dryTitles.Count >= Math.Max(1, proposals.Count / 2))
+                issues.Add($"Пользователь просил задачки-обучалки, а не сухие code-test формулировки. Перепиши в дружелюбный пошаговый формат со scaffold вроде «Давай...» и «Следуй шагам:»: {string.Join(", ", dryTitles)}.");
+
+            var walkthroughCount = proposals.Count(ProposalLooksLikeFriendlyWalkthrough);
+            if (walkthroughCount == 0)
+                issues.Add("В текущем blueprint вообще не видно формата лесенки: нет дружелюбного вступления и пошагового scaffold. Нужны именно задачки-обучалки, а не короткие голые условия.");
+        }
 
         var strictAnchor = ResolveStrictRequestedPlacement(memory, args);
         if (strictAnchor.AfterAssignmentId.HasValue)
@@ -6703,6 +6759,49 @@ public sealed class AiChatService
         result.DebugInfo[key] = value;
     }
 
+    private static bool RequestsTutorialLadder(AiFoundryChatMemoryDto memory)
+    {
+        var hay = BuildInstructionHaystack(memory).ToLowerInvariant();
+        return RequestsTutorialLadder(hay);
+    }
+
+    private static bool RequestsTutorialLadder(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var hay = text.ToLowerInvariant();
+        var asksTraining = hay.Contains("обучал")
+            || hay.Contains("пошаг")
+            || hay.Contains("лесенк")
+            || hay.Contains("научат")
+            || hay.Contains("маленьких программ")
+            || hay.Contains("серия задач")
+            || hay.Contains("серия программ")
+            || hay.Contains("задачки")
+            || hay.Contains("шаг за шаг");
+        var asksSeveral = hay.Contains("задачи")
+            || hay.Contains("задачк")
+            || hay.Contains("несколько")
+            || hay.Contains("5-")
+            || hay.Contains("5–")
+            || hay.Contains("6-")
+            || hay.Contains("6–")
+            || RequestsMorePrograms(hay);
+        return asksTraining && asksSeveral;
+    }
+
+    private static bool ProposalLooksLikeFriendlyWalkthrough(AiFoundryChatDraftProposalDto proposal)
+    {
+        var hay = string.Join(" ", new[] { proposal.FullCondition, proposal.ConditionPreview, proposal.Title, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        if (string.IsNullOrWhiteSpace(hay))
+            return false;
+        return hay.Contains("Следуй шагам", StringComparison.OrdinalIgnoreCase)
+            || hay.Contains("шаг 1", StringComparison.OrdinalIgnoreCase)
+            || hay.Contains("Шаг 1", StringComparison.OrdinalIgnoreCase)
+            || hay.Contains("Давай", StringComparison.OrdinalIgnoreCase)
+            || hay.Contains("Сейчас", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static int? ExtractRequestedProposalCount(AiFoundryChatMemoryDto memory, JsonObject args)
     {
         var explicitCount = ReadInt(args, "count");
@@ -6722,6 +6821,9 @@ public sealed class AiChatService
         var recentCount = ExtractRequestedProposalCountFromText(recentHay);
         if (recentCount.HasValue)
             return recentCount;
+
+        if (RequestsTutorialLadder(memory))
+            return 5;
 
         return null;
     }
@@ -7024,6 +7126,10 @@ public sealed class AiChatService
             $"первым должен быть {concept}",
             $"можно {concept}",
             $"разрешаю {concept}",
+            $"научат пользоваться {concept}",
+            $"научат работать с {concept}",
+            $"обучалки по {concept}",
+            $"задачи по {concept}",
         };
         var matched = markers.Where(low.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var regexMatched = Regex.IsMatch(low, $@"сначала\s+(?:просто\s+)?{escaped}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
@@ -7059,11 +7165,12 @@ public sealed class AiChatService
         var latestExplicit = DetectExplicitAnchorFromStartText(latestText, concept);
         var haystackExplicit = DetectExplicitAnchorFromStartText(haystack, concept);
         var mentionsAnchor = TextMentionsAnchorConcept(haystack, concept);
+        var anchorLearningSeries = RequestsAnchorLearningSeries(haystack, concept) || RequestsAnchorLearningSeries(latestText, concept);
         var preAnchorDetected = false;
         var preAnchorReason = "none";
         var preMarkers = new List<string>();
 
-        if (!latestExplicit.Detected && !haystackExplicit.Detected && mentionsAnchor)
+        if (!latestExplicit.Detected && !haystackExplicit.Detected && mentionsAnchor && !anchorLearningSeries)
         {
             var low = haystack.ToLowerInvariant();
             var explicitBeforeMarkers = new List<string>
@@ -7108,7 +7215,7 @@ public sealed class AiChatService
             }
         }
 
-        var allowsExplicitOnboarding = !preAnchorDetected && stepByStepSeries && mentionsAnchor;
+        var allowsExplicitOnboarding = !preAnchorDetected && ((stepByStepSeries && mentionsAnchor) || anchorLearningSeries);
         return new AnchorRoutingDiagnostics
         {
             Concept = concept,
@@ -7126,6 +7233,26 @@ public sealed class AiChatService
             AllowsExplicitOnboarding = allowsExplicitOnboarding,
             Mode = preAnchorDetected ? "pre-anchor" : (allowsExplicitOnboarding ? "anchor-onboarding" : "neutral"),
         };
+    }
+
+    private static bool RequestsAnchorLearningSeries(string? text, string? concept)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(concept))
+            return false;
+        var hay = text.ToLowerInvariant();
+        if (!TextMentionsAnchorConcept(hay, concept))
+            return false;
+        var onboardingMarkers = hay.Contains("обучал")
+            || hay.Contains("научат")
+            || hay.Contains("пользоваться")
+            || hay.Contains("работать с")
+            || hay.Contains("перед этим")
+            || hay.Contains("до этого")
+            || hay.Contains("перед тем")
+            || hay.Contains("подготов")
+            || hay.Contains("пошаг")
+            || hay.Contains("лесенк");
+        return onboardingMarkers;
     }
 
     private static bool RequestsExplicitAnchorFromStart(AiFoundryChatMemoryDto memory, string? concept = null)
