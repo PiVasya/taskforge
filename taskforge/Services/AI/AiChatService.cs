@@ -229,11 +229,23 @@ public sealed class AiChatService
             .Distinct()
             .ToList();
 
-        var drafts = await _db.AiGeneratedDrafts
+        var drafts = await _db.AiGeneratedAssignmentDrafts
             .AsNoTracking()
             .Where(x => draftJobIds.Contains(x.JobId) || (x.BatchId.HasValue && linkedBatchIds.Contains(x.BatchId.Value)))
             .OrderBy(x => x.UpdatedAtUtc)
             .ToListAsync(ct);
+
+        var jobIds = jobs.Select(x => x.Id).Distinct().ToList();
+        var telemetryArtifacts = jobIds.Count == 0
+            ? new List<AiArtifact>()
+            : await _db.AiArtifacts
+                .AsNoTracking()
+                .Where(x => jobIds.Contains(x.JobId) && x.ArtifactType == "worker-telemetry")
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .ToListAsync(ct);
+        var telemetryByJobId = telemetryArtifacts
+            .GroupBy(x => x.JobId)
+            .ToDictionary(x => x.Key, x => x.FirstOrDefault()?.PayloadJson);
 
         var trace = BuildTraceResponse(session, messages, memory, jobs, batches);
         var courseMap = await LoadCourseTitleMapAsync(session.CourseId.HasValue ? new[] { session.CourseId.Value } : Array.Empty<Guid>(), ct);
@@ -261,7 +273,7 @@ public sealed class AiChatService
                 CompletedAtUtc = x.CompletedAtUtc,
                 InputJson = x.InputJson,
                 ResultJson = x.ResultJson,
-                TelemetryJson = x.TelemetryJson,
+                TelemetryJson = telemetryByJobId.TryGetValue(x.Id, out var telemetryJson) ? telemetryJson : null,
             }).ToList(),
             LinkedBatches = batches.Select(x => new AiFoundryChatDebugBatchDto
             {

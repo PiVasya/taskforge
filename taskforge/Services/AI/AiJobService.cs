@@ -664,8 +664,7 @@ public sealed partial class AiJobService : IAiJobService
         try
         {
             await PersistWorkerTelemetryArtifactsAsync(job, request.TelemetryJson, ct);
-            await PersistWorkerTelemetryArtifactsAsync(job, request.TelemetryJson, ct);
-        await PersistDerivedArtifactsAsync(job, ct);
+            await PersistDerivedArtifactsAsync(job, ct);
             await _db.SaveChangesAsync(ct);
         }
         catch (DbUpdateException ex) when (IsDraftSaveConflict(ex))
