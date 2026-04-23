@@ -619,6 +619,26 @@ public sealed class AiFoundryChatToolResultDto
     public string? SuggestedConfirmationMessage { get; set; }
 }
 
+public sealed class AiFoundryChatExperimentalCandidateDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string? PromptStyle { get; set; }
+    public string AssistantMessage { get; set; } = string.Empty;
+    public double Score { get; set; }
+    public string? ScoreReason { get; set; }
+    public bool Recommended { get; set; }
+    public List<AiFoundryChatToolCallDto> ToolCalls { get; set; } = new();
+}
+
+public sealed class AiFoundryChatExperimentalTraceDto
+{
+    public string Mode { get; set; } = "standard";
+    public string? Summary { get; set; }
+    public string? RecommendedKey { get; set; }
+    public List<AiFoundryChatExperimentalCandidateDto> Candidates { get; set; } = new();
+}
+
 public sealed class AiFoundryChatMessageDto
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -645,6 +665,8 @@ public sealed class AiFoundryChatMessageDto
     public AiFoundryChatToolResultDto? ToolResult { get; set; }
 
     public List<AiFoundryChatToolResultDto> ToolResults { get; set; } = new();
+
+    public AiFoundryChatExperimentalTraceDto? Experimental { get; set; }
 }
 
 public sealed class AiFoundryChatCreateSessionRequestDto
@@ -676,7 +698,8 @@ public sealed class AiFoundryChatSendMessageRequestDto
 
     /// <summary>
     /// "multi" = AI may return several actions per turn (default);
-    /// "mono" or "single" = strictly one action per turn.
+    /// "mono" or "single" = strictly one action per turn;
+    /// "experimental" = AI runs several prompt variants and returns a lab-style comparison.
     /// </summary>
     public string? ActionMode { get; set; }
 

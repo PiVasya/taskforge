@@ -670,8 +670,17 @@ def _chat_extract_anchor_concept(text: str) -> str:
     low = str(text or "").strip().lower()
     if not low:
         return ""
-    for concept in ("foreach", "switch", "while", "for", "if"):
-        if re.search(rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE):
+    learned = extract_learning_concept({"prompt": low, "sourceText": low})
+    if learned:
+        return learned.strip().lower()
+    explicit = re.findall(r"(?<![A-Za-zА-Яа-я0-9_])([A-Za-z_][A-Za-z0-9_]{1,31})(?![A-Za-zА-Яа-я0-9_])", low)
+    ranked = [token for token in explicit if token not in {"taskforge", "chat", "course", "draft", "batch", "json", "user", "assistant"}]
+    if ranked:
+        for concept in ranked:
+            if concept in {"switch", "case", "default"}:
+                return "switch"
+            if concept in {"if", "else", "elseif"}:
+                return "if"
             return concept
     if "ветвлен" in low or "условн" in low:
         return "if"
@@ -688,6 +697,24 @@ def _chat_proposal_text(proposal: Dict[str, Any]) -> str:
     )
 
 
+def _chat_anchor_aliases(concept: str) -> list[str]:
+    concept = str(concept or "").strip().lower()
+    if not concept:
+        return []
+    aliases = [concept]
+    if concept == "if":
+        aliases.extend(["if/else", "else if", "ветвлен", "условн"])
+    elif concept == "switch":
+        aliases.extend(["case", "default", "ветвление по вариантам"])
+    elif concept == "for":
+        aliases.extend(["цикл for", "счётчик", "итерац"])
+    elif concept == "while":
+        aliases.extend(["цикл while", "пока", "итерац"])
+    elif concept == "foreach":
+        aliases.extend(["for each", "for-each", "перебор элементов"])
+    return aliases
+
+
 def _chat_proposal_uses_explicit_anchor(proposal: Dict[str, Any], concept: str) -> bool:
     concept = str(concept or "").strip().lower()
     if not concept:
@@ -695,12 +722,9 @@ def _chat_proposal_uses_explicit_anchor(proposal: Dict[str, Any], concept: str) 
     hay = _chat_proposal_text(proposal).lower()
     if not hay:
         return False
-    if re.search(rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", hay, flags=re.IGNORECASE):
-        return True
-    if concept == "if":
-        return any(token in hay for token in ["if/else", "else if", "ветвлен", "условн"])
-    if concept == "switch":
-        return "case" in hay or "default" in hay
+    for alias in _chat_anchor_aliases(concept):
+        if re.search(rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(alias)}(?![A-Za-zА-Яа-я0-9_])", hay, flags=re.IGNORECASE) or alias in hay:
+            return True
     return False
 
 
@@ -713,11 +737,7 @@ def _chat_proposals_support_anchor_onboarding(proposals: list[Dict[str, Any]], c
         return False
     if explicit_indexes[0] > min(1, len(proposals) - 1):
         return False
-    if concept == "if" and len(proposals) >= 3:
-        has_else = any("else" in _chat_proposal_text(proposal).lower() for proposal in proposals)
-        if not has_else:
-            return False
-    return True
+    return len(explicit_indexes) >= 1
 
 
 def _chat_is_blueprint_assent_request(text: str) -> bool:
@@ -2432,6 +2452,194 @@ def _stage_llm_config(job_type: str, payload: Dict[str, Any], retry_count: int) 
 
 
 
+def _experimental_chat_enabled(payload: Dict[str, Any]) -> bool:
+    mode = str(payload.get("actionMode") or "").strip().lower()
+    if mode == "experimental":
+        return True
+    experimental = payload.get("experimental") if isinstance(payload.get("experimental"), dict) else {}
+    return bool(experimental.get("enabled"))
+
+
+def _experimental_chat_profiles(payload: Dict[str, Any]) -> list[dict[str, Any]]:
+    configured = payload.get("experimental") if isinstance(payload.get("experimental"), dict) else {}
+    requested = configured.get("profiles") if isinstance(configured.get("profiles"), list) else []
+    raw_profiles = [str(x).strip().lower() for x in requested if str(x).strip()]
+    if not raw_profiles:
+        raw_profiles = ["inspect-first", "ladder-first", "validator-skeptic", "direct-executor"]
+    catalog = {
+        "inspect-first": {
+            "key": "inspect-first",
+            "label": "Inspect first",
+            "promptStyle": "Сначала найди реальные задания и anchor",
+            "directive": "ЭКСПЕРИМЕНТАЛЬНЫЙ ПРОФИЛЬ: сначала найди подтверждённую точку входа темы в реальных заданиях, затем только предлагай действия. При запросах 'где', 'найди', 'изучи' предпочитай inspect_course_assignments.",
+            "temperatureDelta": -0.02,
+        },
+        "ladder-first": {
+            "key": "ladder-first",
+            "label": "Ladder first",
+            "promptStyle": "Думай как методист и собери лесенку",
+            "directive": "ЭКСПЕРИМЕНТАЛЬНЫЙ ПРОФИЛЬ: думай как методист. Если пользователь просит обучалки, лесенку или мягкое введение темы, предлагай серию из 5-6 шагов с нарастающей сложностью, дружелюбным scaffold и без сухих олимпиадных формулировок.",
+            "temperatureDelta": 0.04,
+        },
+        "validator-skeptic": {
+            "key": "validator-skeptic",
+            "label": "Validator skeptic",
+            "promptStyle": "Сначала найди, на чём упадёт self-check",
+            "directive": "ЭКСПЕРИМЕНТАЛЬНЫЙ ПРОФИЛЬ: думай как жёсткий валидатор. Перед ответом проверь, не противоречит ли proposal явной инструкции пользователя, нет ли преждевременного ввода целевой темы и хватает ли количества шагов. Лучше один раз честно остановиться, чем закрутить цикл.",
+            "temperatureDelta": -0.03,
+        },
+        "direct-executor": {
+            "key": "direct-executor",
+            "label": "Direct executor",
+            "promptStyle": "Сразу дай полезный вариант без воды",
+            "directive": "ЭКСПЕРИМЕНТАЛЬНЫЙ ПРОФИЛЬ: не размазывайся. Если данных хватает, дай максимально полезный прямой ответ. Не задавай декоративных вопросов, не пересказывай процесс, не повторяй уже сказанное.",
+            "temperatureDelta": 0.01,
+        },
+    }
+    profiles = [catalog[item] for item in raw_profiles if item in catalog]
+    limit = max(2, min(6, int(configured.get("variantCount") or 4)))
+    return profiles[:limit]
+
+
+def _experimental_last_user_message(payload: Dict[str, Any]) -> str:
+    conversation = payload.get("conversation") if isinstance(payload.get("conversation"), list) else []
+    for item in reversed(conversation):
+        if isinstance(item, dict) and str(item.get("role") or "").strip().lower() == "user":
+            return str(item.get("content") or "").strip()
+    return ""
+
+
+def _score_experimental_chat_candidate(payload: Dict[str, Any], result: Dict[str, Any], profile: Dict[str, Any]) -> tuple[float, str]:
+    assistant = str(result.get("assistantMessage") or "").strip()
+    actions = result.get("actions") if isinstance(result.get("actions"), list) else []
+    action_names = [str(item.get("name") or "").strip().lower() for item in actions if isinstance(item, dict)]
+    last_user = _experimental_last_user_message(payload).lower()
+    concept = extract_learning_concept({**payload, "prompt": last_user, "sourceText": last_user}) or _chat_extract_anchor_concept(last_user)
+    score = 0.0
+    reasons: list[str] = []
+
+    if assistant:
+        score += 1.0
+        reasons.append("есть содержательный ответ")
+    else:
+        score -= 4.0
+        reasons.append("нет assistantMessage")
+
+    if any(token in last_user for token in ["где", "найди", "изучи", "посмотри"]):
+        if "inspect_course_assignments" in action_names:
+            score += 5.0
+            reasons.append("умеет начать с inspect")
+        elif "analyze_course_progression" in action_names:
+            score += 2.0
+            reasons.append("хотя бы запускает audit")
+
+    if any(token in last_user for token in ["обучал", "лесен", "пошаг", "5-6", "5 6"]):
+        if any(token in assistant.lower() for token in ["шаг 1", "шаг 2", "обучалка 1", "обучалка 2"]):
+            score += 3.0
+            reasons.append("видна лесенка")
+        if concept and concept.lower() in assistant.lower():
+            score += 0.8
+            reasons.append("держит тему пользователя")
+        numeric_hits = sum(1 for token in ["1.", "2.", "3.", "4.", "5.", "6."] if token in assistant)
+        score += min(3.0, numeric_hits * 0.5)
+        if numeric_hits >= 5:
+            reasons.append("есть 5+ шагов")
+
+    if "что именно нужно" in assistant.lower() and len(last_user) > 24:
+        score -= 2.0
+        reasons.append("уходит в лишнее уточнение")
+
+    if len(action_names) > 3:
+        score -= 1.0
+        reasons.append("слишком много action")
+
+    if profile.get("key") == "validator-skeptic" and not action_names:
+        score += 0.3
+    if profile.get("key") == "inspect-first" and "inspect_course_assignments" in action_names:
+        score += 0.7
+    if profile.get("key") == "ladder-first" and any(token in assistant.lower() for token in ["шаг", "обучалк", "лесен"]):
+        score += 0.8
+
+    return score, "; ".join(reasons[:6]) or "эвристика без яркого сигнала"
+
+
+def _build_experimental_summary(candidates: list[dict[str, Any]], winner: dict[str, Any]) -> str:
+    if not candidates:
+        return "Экспериментальный прогон пуст."
+    labels = ", ".join(str(item.get("label") or item.get("key") or "вариант") for item in candidates[:4])
+    return f"Экспериментальный прогон завершён: проверила {len(candidates)} варианта ({labels}). Рекомендую {winner.get('label') or winner.get('key') or 'лучший вариант'}."
+
+
+def _run_experimental_chat_turn(job: Dict[str, Any], payload: Dict[str, Any], retry_count: int) -> Dict[str, Any]:
+    base_prompt = build_chat_turn_prompt(job, payload)
+    profiles = _experimental_chat_profiles(payload)
+    candidates: list[dict[str, Any]] = []
+    winner: dict[str, Any] | None = None
+    winner_result: Dict[str, Any] | None = None
+
+    for idx, profile in enumerate(profiles):
+        cfg = _stage_llm_config("assistant_chat_turn", payload, retry_count)
+        cfg.temperature = max(0.01, min(0.32, float(cfg.temperature or 0.12) + float(profile.get("temperatureDelta") or 0.0)))
+        prompt = f"{base_prompt}\n\n=== EXPERIMENT PROFILE {idx + 1}: {profile.get('label')} ===\n{profile.get('directive')}\n"
+        _log_stage("stage-experimental-prompt", job, payload, profile=profile.get("key"), prompt_len=len(prompt), temperature=cfg.temperature)
+        try:
+            raw = call_llm(prompt, cfg)
+        except Exception as ex:
+            raw = {
+                "assistantMessage": f"Экспериментальный профиль {profile.get('label')} не дал корректный ответ: {ex}",
+                "actions": [],
+            }
+            _log_stage("stage-experimental-fallback", job, payload, profile=profile.get("key"), error=ex)
+        normalized = _normalize_chat_turn_result(payload, raw)
+        normalized, chat_issues = _apply_chat_strict_mode(payload, normalized)
+        score, reason = _score_experimental_chat_candidate(payload, normalized, profile)
+        candidate = {
+            "key": profile.get("key"),
+            "label": profile.get("label"),
+            "promptStyle": profile.get("promptStyle"),
+            "assistantMessage": str(normalized.get("assistantMessage") or "").strip(),
+            "score": round(score, 2),
+            "scoreReason": reason,
+            "recommended": False,
+            "toolCalls": [
+                {
+                    "name": str(item.get("name") or "").strip(),
+                    "reason": str(item.get("reason") or "").strip(),
+                    "arguments": item.get("arguments") if isinstance(item, dict) else {},
+                }
+                for item in (normalized.get("actions") if isinstance(normalized.get("actions"), list) else [])
+                if isinstance(item, dict)
+            ],
+        }
+        if chat_issues:
+            suffix = " | ".join(chat_issues[:3])
+            candidate["scoreReason"] = f"{candidate['scoreReason']}; strict-mode: {suffix}" if candidate.get("scoreReason") else f"strict-mode: {suffix}"
+        candidates.append(candidate)
+        if winner is None or float(candidate.get("score") or 0) > float(winner.get("score") or 0):
+            winner = candidate
+            winner_result = normalized
+
+    if winner is None or winner_result is None:
+        return {"assistantMessage": "Экспериментальный прогон не смог собрать ни одного внятного варианта.", "actions": []}
+
+    winner["recommended"] = True
+    experimental = {
+        "mode": "candidate-lab",
+        "summary": _build_experimental_summary(candidates, winner),
+        "recommendedKey": winner.get("key"),
+        "candidates": candidates,
+    }
+    experimental_cfg = payload.get("experimental") if isinstance(payload.get("experimental"), dict) else {}
+    auto_execute = bool(experimental_cfg.get("autoExecuteWinner"))
+    result = {
+        "assistantMessage": str(winner_result.get("assistantMessage") or "").strip() or str(winner.get("assistantMessage") or "").strip(),
+        "sessionTitle": winner_result.get("sessionTitle") or _chat_build_session_title(payload),
+        "actions": winner_result.get("actions") if auto_execute else [],
+        "experimental": experimental,
+    }
+    return result
+
+
 # ── Job dispatcher ────────────────────────────────────
 
 def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -2602,6 +2810,9 @@ def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── AI chat orchestrator ───────────────────────────
     if job_type == "assistant_chat_turn":
+        if _experimental_chat_enabled(payload):
+            _log_stage("stage-experimental-chat", job, payload, variant_count=len(_experimental_chat_profiles(payload)))
+            return _finish(_run_experimental_chat_turn(job, payload, retry_count))
         prompt = build_chat_turn_prompt(job, payload)
         _log_stage("stage-prompt-ready", job, payload, builder="build_chat_turn_prompt", prompt_len=len(prompt))
         try:

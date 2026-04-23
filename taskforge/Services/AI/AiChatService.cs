@@ -849,6 +849,7 @@ public sealed class AiChatService
 
         assistantMessage.Status = "done";
         assistantMessage.PendingJobId = null;
+        assistantMessage.Experimental = ParseExperimentalTrace(root);
         assistantMessage.ToolCalls = accumulatedToolCalls;
         assistantMessage.ToolCall = assistantMessage.ToolCalls.FirstOrDefault();
         assistantMessage.ToolResults = accumulatedToolResults;
@@ -1010,8 +1011,8 @@ public sealed class AiChatService
                     var difficulty = Math.Clamp(ReadInt(args, "difficulty") ?? 2, 1, 5);
                     var memory = BuildMemory(messages, session.PlanJson, instructionStrictness);
                     var assignmentType = ReadString(args, "assignmentType") ?? "code-test";
-                    var sourceText = ReadString(args, "sourceText") ?? RewriteSourceTextForIfStepByStepSeries(prompt, memory, requestedCount);
-                    prompt = RewritePromptForIfStepByStepSeries(prompt, memory, requestedCount);
+                    var sourceText = ReadString(args, "sourceText") ?? RewriteSourceTextForStepByStepSeries(prompt, memory, requestedCount);
+                    prompt = RewritePromptForStepByStepSeries(prompt, memory, requestedCount);
                     var titleHint = AiGenerationScenarioPromptAdapter.SuggestTitleHint(memory, prompt, sourceText, requestedCount, ReadString(args, "titleHint"));
                     var notes = ReadString(args, "notes");
                     var structuredContextJson = BuildStructuredBatchContextJson(session, messages, memory, courseId.Value, prompt, args, DetermineDirectGenerationMode(memory, prompt, sourceText, requestedCount), requestedCount, difficulty);
@@ -1506,8 +1507,8 @@ public sealed class AiChatService
                         ? BuildStructuredContextFromChatBlueprintProposal(selectedProposal, blueprint, session.Id)
                         : null;
 
-                    prompt = RewritePromptForIfStepByStepSeries(prompt, memory, requestedCount);
-                    sourceText = RewriteSourceTextForIfStepByStepSeries(sourceText, memory, requestedCount);
+                    prompt = RewritePromptForStepByStepSeries(prompt, memory, requestedCount);
+                    sourceText = RewriteSourceTextForStepByStepSeries(sourceText, memory, requestedCount);
                     titleHint = AiGenerationScenarioPromptAdapter.SuggestTitleHint(memory, prompt, sourceText, requestedCount, titleHint);
 
                     var directBatchMode = DetermineDirectGenerationMode(memory, prompt, sourceText, requestedCount);
@@ -2334,6 +2335,28 @@ public sealed class AiChatService
                         argumentsJson = tr.ConfirmationToolCall.ArgumentsJson,
                     },
                 }).ToList(),
+            experimental = x.Experimental == null ? null : new
+            {
+                mode = x.Experimental.Mode,
+                summary = x.Experimental.Summary,
+                recommendedKey = x.Experimental.RecommendedKey,
+                candidates = x.Experimental.Candidates.Select(c => new
+                {
+                    key = c.Key,
+                    label = c.Label,
+                    promptStyle = c.PromptStyle,
+                    assistantMessage = c.AssistantMessage,
+                    score = c.Score,
+                    scoreReason = c.ScoreReason,
+                    recommended = c.Recommended,
+                    toolCalls = c.ToolCalls.Select(tc => new
+                    {
+                        name = tc.Name,
+                        reason = tc.Reason,
+                        argumentsJson = tc.ArgumentsJson,
+                    }).ToList(),
+                }).ToList(),
+            },
         }).ToList();
 
         return new
@@ -2552,6 +2575,14 @@ public sealed class AiChatService
                 count = 5,
                 mode = "topic-pack",
             },
+            experimental = new
+            {
+                enabled = string.Equals(actionMode, "experimental", StringComparison.OrdinalIgnoreCase),
+                variantCount = 4,
+                mode = "candidate-lab",
+                autoExecuteWinner = false,
+                profiles = new[] { "inspect-first", "ladder-first", "validator-skeptic", "direct-executor" },
+            },
             actionMode,
         };
     }
@@ -2683,6 +2714,51 @@ public sealed class AiChatService
             Reason = obj["reason"]?.ToString()?.Trim(),
             ArgumentsJson = obj["arguments"]?.ToJsonString() ?? "{}",
         };
+    }
+
+    private static AiFoundryChatExperimentalTraceDto? ParseExperimentalTrace(JsonNode? root)
+    {
+        if (root is not JsonObject obj || obj["experimental"] is not JsonObject exp)
+            return null;
+
+        var trace = new AiFoundryChatExperimentalTraceDto
+        {
+            Mode = exp["mode"]?.ToString()?.Trim() ?? "standard",
+            Summary = exp["summary"]?.ToString()?.Trim(),
+            RecommendedKey = exp["recommendedKey"]?.ToString()?.Trim(),
+        };
+
+        if (exp["candidates"] is JsonArray arr)
+        {
+            foreach (var item in arr.OfType<JsonObject>())
+            {
+                var candidate = new AiFoundryChatExperimentalCandidateDto
+                {
+                    Key = item["key"]?.ToString()?.Trim() ?? string.Empty,
+                    Label = item["label"]?.ToString()?.Trim() ?? string.Empty,
+                    PromptStyle = item["promptStyle"]?.ToString()?.Trim(),
+                    AssistantMessage = item["assistantMessage"]?.ToString()?.Trim() ?? string.Empty,
+                    Score = item["score"]?.GetValue<double?>() ?? 0,
+                    ScoreReason = item["scoreReason"]?.ToString()?.Trim(),
+                    Recommended = item["recommended"]?.GetValue<bool?>() ?? false,
+                };
+
+                if (item["toolCalls"] is JsonArray toolCalls)
+                {
+                    foreach (var toolNode in toolCalls.OfType<JsonObject>())
+                    {
+                        var parsedTool = ParseToolCall(toolNode);
+                        if (parsedTool != null)
+                            candidate.ToolCalls.Add(parsedTool);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(candidate.AssistantMessage))
+                    trace.Candidates.Add(candidate);
+            }
+        }
+
+        return trace.Candidates.Count > 0 || !string.IsNullOrWhiteSpace(trace.Summary) ? trace : null;
     }
 
     private static JsonNode? ParseJson(string? json)
@@ -3270,6 +3346,8 @@ public sealed class AiChatService
     private static string NormalizeActionMode(string? actionMode)
     {
         var normalized = (actionMode ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is "experimental" or "lab" or "variants" or "multi-variant")
+            return "experimental";
         return normalized is "single" or "mono" or "step" or "manual" ? "single" : "multi";
     }
 
@@ -6050,8 +6128,8 @@ public sealed class AiChatService
         if (string.Equals(latestIntentKind, "generate", StringComparison.OrdinalIgnoreCase)
             && AiGenerationScenarioPolicy.ShouldBypassBlueprint(scenarioProfile, preferAutonomousCompletion || autonomousRework, focus))
         {
-            var prompt = RewritePromptForIfStepByStepSeries(focus ?? BuildFallbackPrompt(messages), memory, requestedCount);
-            var sourceText = RewriteSourceTextForIfStepByStepSeries(focus, memory, requestedCount);
+            var prompt = RewritePromptForStepByStepSeries(focus ?? BuildFallbackPrompt(messages), memory, requestedCount);
+            var sourceText = RewriteSourceTextForStepByStepSeries(focus, memory, requestedCount);
             var titleHint = AiGenerationScenarioPromptAdapter.SuggestTitleHint(memory, prompt, sourceText, requestedCount, null);
             return new AiFoundryChatToolCallDto
             {
@@ -6536,17 +6614,11 @@ public sealed class AiChatService
         {
             var explicitAnchorTitles = proposals.Where(x => ProposalUsesExplicitAnchor(x, anchorConcept)).Select(x => x.Title).Take(3).ToList();
             if (explicitAnchorTitles.Count == 0)
-                issues.Add($"Пользователь просит лесенку по {anchorLabel}, поэтому blueprint не должен уезжать в абстрактные мостики без самой конструкции. Добавь явный {anchorLabel} уже в первых шагах.");
+                issues.Add($"Пользователь просит лесенку по {anchorLabel}, поэтому blueprint не должен уезжать в абстрактные мостики без самой темы. Добавь явный {anchorLabel} уже в первых шагах.");
 
-            if (string.Equals(anchorConcept, "if", StringComparison.OrdinalIgnoreCase))
-            {
-                var abstractTitles = proposals.Where(ProposalLooksTooAbstractForIfOnboarding).Select(x => x.Title).Take(4).ToList();
-                if (abstractTitles.Count > 0)
-                    issues.Add($"Для лесенки по if нельзя подменять тему сухими булевыми проверками. Сделай эти шаги маленькими программами с видимым результатом: {string.Join(", ", abstractTitles)}.");
-
-                if (proposals.Count >= 4 && proposals.Count(ProposalUsesElseBranch) == 0)
-                    issues.Add("В пошаговой серии по if должен быть хотя бы один шаг с if/else, иначе ученик не увидит полноценное ветвление.");
-            }
+            var abstractTitles = proposals.Where(x => ProposalLooksTooAbstractForAnchorOnboarding(x, anchorConcept)).Select(x => x.Title).Take(4).ToList();
+            if (abstractTitles.Count > 0)
+                issues.Add($"Для лесенки по {anchorLabel} нельзя подменять тему соседней абстракцией. Сделай эти шаги маленькими программами или упражнениями с видимым результатом: {string.Join(", ", abstractTitles)}.");
         }
 
         if (RequiresFirstTaskStyleEvidence(memory))
@@ -6907,49 +6979,96 @@ public sealed class AiChatService
             || hay.Contains("один в один");
     }
 
-    private static string? DetectAnchorConceptFromText(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return null;
-
-        var hay = text.ToLowerInvariant();
-        foreach (var concept in new[] { "foreach", "switch", "while", "for", "if" })
-        {
-            if (Regex.IsMatch(hay, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-                return concept;
-        }
-
-        if (hay.Contains("ветвлен") || hay.Contains("условн"))
-            return "if";
-        if (Regex.IsMatch(hay, @"(?<![A-Za-zА-Яа-я0-9_])case(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            return "switch";
-
+private static string? DetectAnchorConceptFromText(string? text)
+{
+    if (string.IsNullOrWhiteSpace(text))
         return null;
+
+    var hay = text.ToLowerInvariant();
+    foreach (var concept in new[] { "foreach", "switch", "while", "for", "if" })
+    {
+        if (Regex.IsMatch(hay, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return concept;
     }
+
+    foreach (var pattern in new[]
+    {
+        @"(?:по|на)\s+теме\s+([^\n\r\.,;:!?]{2,80})",
+        @"тему\s+([^\n\r\.,;:!?]{2,80})",
+        @"освоени[ея]\s+([^\n\r\.,;:!?]{2,80})",
+        @"использовать\s+([^\n\r\.,;:!?]{2,80})",
+        @"пользоваться\s+([^\n\r\.,;:!?]{2,80})",
+        @"работ[аы]\s+с\s+([^\n\r\.,;:!?]{2,80})",
+        @"уч[иа]т[ья]?\s+([^\n\r\.,;:!?]{2,80})",
+    })
+    {
+        var match = Regex.Match(hay, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+            continue;
+        var candidate = match.Groups[1].Value.Trim().Trim('"', '\'', '«', '»');
+        if (candidate.Length >= 2)
+            return candidate;
+    }
+
+    if (hay.Contains("ветвлен") || hay.Contains("условн"))
+        return "if";
+    if (Regex.IsMatch(hay, @"(?<![A-Za-zА-Яа-я0-9_])case(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        return "switch";
+
+    return null;
+}
 
     private static string? DetectAnchorConcept(AiFoundryChatMemoryDto memory)
-        => DetectAnchorConceptFromText(BuildInstructionHaystack(memory));
+    => DetectAnchorConceptFromText(BuildInstructionHaystack(memory));
 
     private static string AnchorConceptLabel(string? concept)
-        => string.IsNullOrWhiteSpace(concept) ? "новой конструкции" : concept.Trim();
+    => string.IsNullOrWhiteSpace(concept) ? "новой конструкции" : concept.Trim().Trim('"', '\'', '«', '»');
+
+    private static IEnumerable<string> AnchorConceptAliases(string? concept)
+{
+    concept = concept?.Trim().ToLowerInvariant();
+    if (string.IsNullOrWhiteSpace(concept))
+        yield break;
+
+    yield return concept;
+    if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+    {
+        yield return "if/else";
+        yield return "else if";
+        yield return "ветвлен";
+        yield return "условн";
+    }
+    else if (string.Equals(concept, "switch", StringComparison.OrdinalIgnoreCase))
+    {
+        yield return "case";
+        yield return "default";
+    }
+    else if (string.Equals(concept, "for", StringComparison.OrdinalIgnoreCase))
+    {
+        yield return "цикл for";
+        yield return "итерац";
+    }
+    else if (string.Equals(concept, "while", StringComparison.OrdinalIgnoreCase))
+    {
+        yield return "цикл while";
+        yield return "пока";
+    }
+}
 
     private static bool TextMentionsAnchorConcept(string? text, string? concept)
-    {
-        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(concept))
-            return false;
-
-        if (Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            return true;
-
-        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
-            return text.Contains("ветвлен", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("условн", StringComparison.OrdinalIgnoreCase);
-        if (string.Equals(concept, "switch", StringComparison.OrdinalIgnoreCase))
-            return Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])case(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-                || text.Contains("default", StringComparison.OrdinalIgnoreCase);
-
+{
+    if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(concept))
         return false;
+
+    foreach (var alias in AnchorConceptAliases(concept))
+    {
+        if (Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(alias)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains(alias, StringComparison.OrdinalIgnoreCase))
+            return true;
     }
+
+    return false;
+}
 
     private static bool QueryMentionsFirstAnchor(string? text, string? concept)
     {
@@ -6978,19 +7097,9 @@ public sealed class AiChatService
         if (string.IsNullOrWhiteSpace(concept))
             return false;
 
-        if (Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            return true;
-
-        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
-        {
-            return text.Contains("if/else", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("else if", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("ветвлен", StringComparison.OrdinalIgnoreCase);
-        }
-        if (string.Equals(concept, "switch", StringComparison.OrdinalIgnoreCase))
-            return text.Contains("case", StringComparison.OrdinalIgnoreCase) || text.Contains("default", StringComparison.OrdinalIgnoreCase);
-
-        return false;
+        return AnchorConceptAliases(concept).Any(alias =>
+            Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(alias)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || text.Contains(alias, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ContainsExplicitIfMarker(string? text)
@@ -7149,7 +7258,7 @@ public sealed class AiChatService
         var haystack = BuildInstructionHaystack(memory);
         var latestText = string.Join(" ", new[] { memory.LatestExplicitInstruction, memory.LatestTeachingScript }.Where(x => !string.IsNullOrWhiteSpace(x)));
         var recentGoalsTail = (memory.RecentGoals ?? new List<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).TakeLast(4).ToList();
-        var stepByStepSeries = RequestsIfStepByStepSeries(memory, prompt, sourceText);
+        var stepByStepSeries = RequestsStepByStepSeries(memory, prompt, sourceText);
         if (string.IsNullOrWhiteSpace(concept))
         {
             return new AnchorRoutingDiagnostics
@@ -7261,13 +7370,13 @@ public sealed class AiChatService
         return diagnostics.LatestExplicitStart.Detected || diagnostics.HaystackExplicitStart.Detected;
     }
 
-    private static bool RequestsExplicitIfFromStart(AiFoundryChatMemoryDto memory)
+    private static bool RequestsExplicitConceptFromStart(AiFoundryChatMemoryDto memory)
         => RequestsExplicitAnchorFromStart(memory, "if");
 
     private static bool RequestsPreAnchorScaffolding(AiFoundryChatMemoryDto memory, string? concept = null)
         => AnalyzeAnchorRouting(memory, concept).PreAnchorDetected;
 
-    private static bool RequestsPreIfScaffolding(AiFoundryChatMemoryDto memory)
+    private static bool RequestsPreConceptScaffolding(AiFoundryChatMemoryDto memory)
         => RequestsPreAnchorScaffolding(memory, "if");
 
     private static bool ShouldAvoidExplicitAnchorBeforeAnchor(AiFoundryChatMemoryDto memory, string? concept = null)
@@ -7284,10 +7393,10 @@ public sealed class AiChatService
         return diagnostics.MentionsAnchor && bridgeBefore && !explicitFromStart;
     }
 
-    private static bool ShouldAvoidExplicitIfBeforeAnchor(AiFoundryChatMemoryDto memory)
+    private static bool ShouldAvoidExplicitConceptBeforeAnchor(AiFoundryChatMemoryDto memory)
         => ShouldAvoidExplicitAnchorBeforeAnchor(memory, "if");
 
-    private static bool RequestsIfStepByStepSeries(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
+    private static bool RequestsStepByStepSeries(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
     {
         var scenario = AiGenerationScenarioRouter.Resolve(memory, prompt, sourceText, 5);
         return scenario.Id is "step-by-step-ladder" or "micro-program-series";
@@ -7296,13 +7405,13 @@ public sealed class AiChatService
     private static bool AllowsExplicitAnchorOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null, string? concept = null)
         => AnalyzeAnchorRouting(memory, concept, prompt, sourceText).AllowsExplicitOnboarding;
 
-    private static bool AllowsExplicitIfOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
+    private static bool AllowsExplicitConceptOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
         => AllowsExplicitAnchorOnboarding(memory, prompt, sourceText, "if");
 
-    private static string RewritePromptForIfStepByStepSeries(string prompt, AiFoundryChatMemoryDto memory, int count)
+    private static string RewritePromptForStepByStepSeries(string prompt, AiFoundryChatMemoryDto memory, int count)
         => AiGenerationScenarioPromptAdapter.RewritePrompt(prompt, memory, count);
 
-    private static string RewriteSourceTextForIfStepByStepSeries(string? sourceText, AiFoundryChatMemoryDto memory, int count)
+    private static string RewriteSourceTextForStepByStepSeries(string? sourceText, AiFoundryChatMemoryDto memory, int count)
         => AiGenerationScenarioPromptAdapter.RewriteSourceText(sourceText, memory, count);
 
     private static string DetermineDirectGenerationMode(AiFoundryChatMemoryDto memory, string prompt, string? sourceText, int requestedCount)
@@ -7314,7 +7423,7 @@ public sealed class AiChatService
         return ContainsExplicitAnchorMarker(hay, concept);
     }
 
-    private static bool ProposalUsesExplicitIf(AiFoundryChatDraftProposalDto proposal)
+    private static bool ProposalUsesExplicitConcept(AiFoundryChatDraftProposalDto proposal)
         => ProposalUsesExplicitAnchor(proposal, "if");
 
     private static bool ProposalUsesElseBranch(AiFoundryChatDraftProposalDto proposal)
@@ -7340,7 +7449,7 @@ public sealed class AiChatService
 
     private static bool ProposalLooksTooAbstractForAnchorOnboarding(AiFoundryChatDraftProposalDto proposal, string? concept)
     {
-        if (!string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(concept))
             return false;
 
         var hay = string.Join(" ", new[] { proposal.Title, proposal.ConditionPreview, proposal.FullCondition, proposal.Goal }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
@@ -7349,11 +7458,14 @@ public sealed class AiChatService
             || hay.Contains("остат")
             || hay.Contains("делим")
             || hay.Contains("булев")
-            || hay.Contains("выражен");
+            || hay.Contains("выражен")
+            || hay.Contains("подготов")
+            || hay.Contains("теори")
+            || hay.Contains("абстрак");
         return abstractTopic && !ProposalLooksLikeSmallProgram(proposal, concept) && !ProposalUsesExplicitAnchor(proposal, concept);
     }
 
-    private static bool ProposalLooksTooAbstractForIfOnboarding(AiFoundryChatDraftProposalDto proposal)
+    private static bool ProposalLooksTooAbstractForConceptOnboarding(AiFoundryChatDraftProposalDto proposal)
         => ProposalLooksTooAbstractForAnchorOnboarding(proposal, "if");
 
     private static bool ProposalUsesDryOlympiadTone(AiFoundryChatDraftProposalDto proposal)

@@ -251,7 +251,7 @@ function ExperimentTurnPanel({ message }) {
       {trace.agentLoop.traceSummary ? <div className="mt-2 opacity-75 whitespace-pre-wrap">{trace.agentLoop.traceSummary}</div> : null}
 
       {(trace.parsedArgs.length > 0 || trace.toolResults.length > 0) ? (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
           <div className="space-y-2">
             {trace.parsedArgs.map((item, index) => (
               <JsonPreview
@@ -296,13 +296,13 @@ function ExperimentWorkbenchPanel({ session, messages, actionMode, instructionSt
     <div className="rounded-3xl border border-dashed border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.05)] px-4 py-4">
       <div className="flex flex-wrap items-center gap-2">
         <ExperimentChip label="dev sandbox" tone="success" />
-        <ExperimentChip label={`режим: ${actionMode === 'multi' ? 'multi' : 'mono'}`} />
+        <ExperimentChip label={`режим: ${actionMode === 'experimental' ? 'experimental' : actionMode === 'multi' ? 'multi' : 'mono'}`} />
         <ExperimentChip label={`strictness: ${instructionStrictness}`} />
         {session?.memory?.messageCount ? <ExperimentChip label={`сообщений: ${session.memory.messageCount}`} /> : null}
         {lastRouting.mode ? <ExperimentChip label={`last route: ${lastRouting.mode}`} tone={lastRouting.mode === 'anchor-onboarding' ? 'success' : lastRouting.mode === 'pre-anchor' ? 'danger' : 'outline'} /> : null}
         {lastResolution.overrideReason && lastResolution.overrideReason !== 'none' ? <ExperimentChip label={`override: ${lastResolution.overrideReason}`} tone="success" /> : null}
       </div>
-      <div className="mt-3 grid gap-3 xl:grid-cols-4 md:grid-cols-2">
+      <div className="mt-3 grid gap-3 xl:grid-cols-4 md:grid-cols-3">
         <div className="rounded-2xl bg-white/70 dark:bg-neutral-950/40 px-3 py-3">
           <div className="text-[11px] uppercase tracking-[0.16em] opacity-50">ветки / routes</div>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -931,6 +931,42 @@ function ToolResultCard({ sessionId, result, onConfirm, actionBusy, developerVie
   );
 }
 
+function ExperimentalCandidatesPanel({ experimental, developerView }) {
+  if (!experimental || !Array.isArray(experimental.candidates) || experimental.candidates.length === 0) return null;
+  const recommendedKey = experimental.recommendedKey || experimental.candidates.find((item) => item?.recommended)?.key || '';
+  return (
+    <div className="mt-3 rounded-2xl border border-dashed border-[rgba(var(--accent)/0.32)] bg-[rgba(var(--accent)/0.04)] px-3 py-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Badge variant="success">эксперимент</Badge>
+        {experimental.summary ? <span className="opacity-70">{experimental.summary}</span> : null}
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {experimental.candidates.map((item, index) => {
+          const active = item?.key && item.key === recommendedKey;
+          const toolCalls = Array.isArray(item?.toolCalls) ? item.toolCalls : [];
+          return (
+            <div key={item?.key || index} className={`rounded-2xl border px-3 py-3 text-sm ${active ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.08)]' : 'border-neutral-200/70 dark:border-neutral-800 bg-white/60 dark:bg-neutral-950/30'}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={active ? 'success' : 'outline'}>{item?.label || `Вариант ${index + 1}`}</Badge>
+                {item?.promptStyle ? <Badge variant="outline">{item.promptStyle}</Badge> : null}
+                {typeof item?.score === 'number' ? <Badge variant="outline">score {Number(item.score).toFixed(1)}</Badge> : null}
+              </div>
+              <div className="mt-2 whitespace-pre-wrap break-words leading-6">{item?.assistantMessage || '—'}</div>
+              {item?.scoreReason ? <div className="mt-2 text-xs opacity-70">{item.scoreReason}</div> : null}
+              {toolCalls.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {toolCalls.slice(0, 4).map((tool, toolIndex) => <Badge key={`${item?.key || index}-tool-${toolIndex}`} variant="outline">{tool?.name || 'action'}</Badge>)}
+                </div>
+              ) : null}
+              {developerView && toolCalls.length > 0 ? <JsonPreview title="candidate actions" value={toolCalls} /> : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy, showTechnical, developerView }) {
   const isAssistant = String(message?.role || '').toLowerCase() === 'assistant';
   const isSystem = String(message?.role || '').toLowerCase() === 'system';
@@ -991,6 +1027,8 @@ function MessageBubble({ sessionId, message, onConfirm, onQuickReply, actionBusy
         {developerView && isAssistant ? <ExperimentTurnPanel message={message} /> : null}
         {developerView && isAssistant ? <div className="mb-2 text-[11px] uppercase tracking-[0.16em] opacity-45">Сырой текст ответа модели</div> : null}
         <div className="whitespace-pre-wrap break-words text-sm leading-6">{message?.content || '—'}</div>
+
+        {isAssistant ? <ExperimentalCandidatesPanel experimental={message?.experimental} developerView={developerView} /> : null}
 
         {attachments.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1062,13 +1100,19 @@ function ActionModeToggle({ actionMode, onChange, disabled = false, compact = fa
       subtitle: 'Несколько внутренних проходов подряд',
       hint: 'AI сама ищет anchor, открывает соседние задания, проверяет себя и только потом отвечает.',
     },
+    {
+      value: 'experimental',
+      title: 'Лаборатория',
+      subtitle: 'Сразу несколько prompt-вариантов',
+      hint: 'AI прогоняет несколько стилевых вариантов и показывает пачку ответов за один запрос.',
+    },
   ];
 
   if (compact) {
     return (
       <div className="inline-flex items-center gap-2 rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-white/70 dark:bg-neutral-950/40 px-2 py-2">
         <span className="text-[11px] uppercase tracking-[0.16em] opacity-55 hidden sm:inline">режим</span>
-        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900/80">
+        <div className="grid grid-cols-3 gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900/80">
           {options.map((option) => {
             const active = actionMode === option.value;
             return (
@@ -1098,9 +1142,9 @@ function ActionModeToggle({ actionMode, onChange, disabled = false, compact = fa
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-[11px] uppercase tracking-[0.18em] opacity-55">Режим агента</div>
-          <div className="mt-1 text-sm font-medium">{actionMode === 'multi' ? 'Самостоятельно' : 'Пошагово'}</div>
+          <div className="mt-1 text-sm font-medium">{options.find((option) => option.value === actionMode)?.title || 'Пошагово'}</div>
         </div>
-        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900/80">
+        <div className="grid grid-cols-3 gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900/80">
           {options.map((option) => {
             const active = actionMode === option.value;
             return (
@@ -1173,10 +1217,10 @@ export default function AdminAiChatPage() {
   });
   const [actionMode, setActionMode] = useState(() => {
     try {
-      const raw = String(localStorage.getItem('aiChat_actionMode') || 'multi').toLowerCase();
-      return raw === 'multi' ? 'multi' : 'mono';
+      const raw = String(localStorage.getItem('aiChat_actionMode') || 'experimental').toLowerCase();
+      return raw === 'multi' ? 'multi' : raw === 'experimental' ? 'experimental' : 'mono';
     } catch {
-      return 'multi';
+      return 'experimental';
     }
   });
   const [instructionStrictness, setInstructionStrictness] = useState(() => {
@@ -1191,7 +1235,7 @@ export default function AdminAiChatPage() {
   const listRef = useRef(null);
 
   const applyActionMode = useCallback((nextMode) => {
-    const normalized = nextMode === 'multi' ? 'multi' : 'mono';
+    const normalized = nextMode === 'multi' ? 'multi' : nextMode === 'experimental' ? 'experimental' : 'mono';
     setActionMode(normalized);
     try { localStorage.setItem('aiChat_actionMode', normalized); } catch { /* ignore */ }
   }, []);
