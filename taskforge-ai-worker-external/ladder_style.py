@@ -108,6 +108,90 @@ def looks_too_dry_for_ladder(draft: Dict[str, Any]) -> bool:
     return any(desc.startswith(prefix) for prefix in ["напиши программу", "в единственной строке", "даны", "вам нужно", "требуется", "считайте"])
 
 
+_META_TASK_FILLER_MARKERS = [
+    "я подготовил",
+    "я подготовила",
+    "подготовил три",
+    "подготовила три",
+    "сохранил их как черновики",
+    "сохранила их как черновики",
+    "сохранил как черновики",
+    "сохранила как черновики",
+    "посмотри условия",
+    "нужно что-то упростить",
+    "нужно что то упростить",
+    "сразу одобряю",
+    "варианта подготовительных задач",
+    "варианты подготовительных задач",
+    "черновой набор условий",
+    "пользователь просил",
+    "явной инструкции пользователя",
+    "blueprint",
+    "save_chat_blueprint",
+    "revise_chat_blueprint",
+    "needs-revision",
+    "validator",
+    "валидатор",
+    "tool-call",
+]
+
+
+def looks_like_meta_task_filler(value: Any) -> bool:
+    """Detect text about the orchestration process, not about the student program.
+
+    Count repair may need to synthesize missing proposals. The dangerous source is
+    assistant/meta text such as "I prepared three variants, saved drafts, approve?".
+    If that leaks into beautify_ladder_proposal, it becomes a fake assignment.
+    """
+    low = normalize_text(value).lower()
+    if not low:
+        return False
+    if any(marker in low for marker in _META_TASK_FILLER_MARKERS):
+        return True
+    if re.search(r"\bя\s+(?:подготовил[аи]?|собрал[аи]?|сохранил[аи]?|набросал[аи]?)\b", low) and any(
+        token in low for token in ["чернов", "вариант", "услов", "задач"]
+    ):
+        return True
+    if any(token in low for token in ["одобряю для генерации", "закидывать в черновик", "утвердить перед финализацией"]):
+        return True
+    return False
+
+
+def ladder_seed_condition(concept: str, index: int, total_count: int) -> str:
+    """Return a real student-facing seed condition for a missing ladder slot."""
+    concept_low = normalize_text(concept).lower()
+    if concept_low in {"if", "if/else", "условный оператор", "условия", "ветвление"} or "ветв" in concept_low:
+        seeds = [
+            "Считай целое число x. Вычисли выражение x > 0 и выведи на экран результат проверки как 1 или 0. Условный оператор if пока не используй: сначала нужно увидеть саму проверку. Запусти программу для положительного, отрицательного числа и нуля.",
+            "Считай целое число x. Используй if: если x больше 0, выведи строку 'Положительное'. После проверки выведи строку 'Проверка завершена'. Запусти программу для положительного числа и для нуля.",
+            "Считай целое число n. Найди остаток от деления n на 2. Используй if/else: если остаток равен 0, выведи 'Чётное', иначе выведи 'Нечётное'. Запусти программу для двух разных чисел.",
+            "Считай балл score. Используй if/else: если score не меньше 60, выведи 'Зачёт', иначе выведи 'Нужно повторить'. Выведи только одну итоговую строку. Запусти программу для score = 60 и score = 59.",
+            "Считай целое число x. Используй цепочку if/else if/else. Если x меньше 0, выведи 'Отрицательное'; если x равно 0 — 'Ноль'; иначе выведи 'Положительное'. Запусти программу для отрицательного числа, нуля и положительного числа.",
+            "Считай температуру t. Используй цепочку if/else if/else. Если t ниже 0, выведи 'Мороз'; если t от 0 до 25, выведи 'Нормально'; иначе выведи 'Жарко'. Запусти программу для трёх разных температур.",
+        ]
+        return seeds[max(0, min(len(seeds) - 1, index - 1))]
+    if concept_low in {"for", "цикл for"}:
+        seeds = [
+            "Считай число n и выведи числа от 1 до n, чтобы увидеть работу счётчика цикла.",
+            "Считай число n и с помощью for посчитай сумму чисел от 1 до n.",
+            "Считай число n и с помощью for выведи только чётные числа от 1 до n.",
+        ]
+        return seeds[max(0, min(len(seeds) - 1, index - 1))]
+    if concept_low in {"while", "цикл while"}:
+        seeds = [
+            "Считай число n и с помощью while уменьши его до нуля, выводя каждое значение.",
+            "Считывай числа, пока не встретится 0, и считай количество введённых чисел.",
+            "С помощью while найди первую степень двойки, которая не меньше заданного числа n.",
+        ]
+        return seeds[max(0, min(len(seeds) - 1, index - 1))]
+    topic = f"теме «{concept}»" if concept_low else "новой теме"
+    slot = _SLOT_DESCRIPTORS[max(0, min(len(_SLOT_DESCRIPTORS) - 1, index - 1))]
+    return (
+        f"Сделай маленькую программу по {topic}. Это {slot}. "
+        "Считай входные данные, выполни одно понятное действие по теме и выведи результат на экран."
+    )
+
+
 def beautify_ladder_proposal(proposal: Dict[str, Any], concept: str, index: int, total_count: int) -> Dict[str, Any]:
     if not isinstance(proposal, dict):
         return proposal

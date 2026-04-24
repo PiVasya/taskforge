@@ -1,7 +1,9 @@
 import os
 import sys
+from unittest.mock import patch
 import unittest
 
+os.environ.setdefault("TASKFORGE_DISABLE_LLM_SLOT_EXPANSION", "1")
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, ROOT)
 
@@ -150,6 +152,81 @@ class GuidedOnboardingRealExecutionPathTests(unittest.TestCase):
         self.assertEqual(len(proposals), 5)
         self.assertTrue(all("Следуй шагам" in proposal.get("fullCondition", "") for proposal in proposals))
 
+    def test_count_repair_does_not_turn_meta_assistant_text_into_missing_tasks(self):
+        user = "Мне нужны задачи обучалки к if\n\nсделай набор черновиков обучалок перед if"
+        meta_message = (
+            "Я подготовил три варианта подготовительных задач, которые плавно подводят к теме if. "
+            "Они отрабатывают сравнения, логические выражения и работу с остатком от деления. "
+            "Сохранил их как черновики. Посмотри условия: нужно что-то упростить, усложнить или сразу одобряю для генерации?"
+        )
+        data = {
+            "courseId": "c1",
+            "conversation": [{"role": "user", "content": user}],
+            "memory": {
+                "latestIntentKind": "generate",
+                "latestExplicitInstruction": user,
+                "summary": "Количество новых задач должно быть ровно 5. Нужна серия маленьких программ, которые пошагово учат самому использованию if.",
+            },
+        }
+        result = {
+            "assistantMessage": meta_message,
+            "actions": [{
+                "name": "save_chat_blueprint",
+                "arguments": {
+                    "courseId": "c1",
+                    "summary": "Три обучалки по if",
+                    "proposals": [
+                        {"title": "Обучалка 1", "fullCondition": "Считай два числа и выведи результаты сравнений."},
+                        {"title": "Обучалка 2", "fullCondition": "Считай число x и проверь диапазон от 10 до 50."},
+                        {"title": "Обучалка 3", "fullCondition": "Считай число n и проверь остаток от деления на 2."},
+                    ],
+                },
+            }],
+        }
+        normalized = worker._normalize_chat_turn_result(data, result)
+        proposals = normalized["actions"][0]["arguments"]["proposals"]
+        self.assertEqual(len(proposals), 5)
+        forbidden = ["я подготовил", "сохранил", "посмотри условия", "сразу одобряю", "варианта подготовительных задач"]
+        for proposal in proposals[3:]:
+            text = (proposal.get("conditionPreview", "") + "\n" + proposal.get("fullCondition", "")).lower()
+            self.assertFalse(any(marker in text for marker in forbidden), text)
+            self.assertIn("Следуй шагам", proposal.get("fullCondition", ""))
+            self.assertRegex(proposal.get("fullCondition", "").lower(), r"if|условн|провер")
+
+    def test_existing_meta_filler_slots_are_replaced_during_ladder_repair(self):
+        user = "Сделай 5 обучалок лесенкой перед if"
+        meta_condition = (
+            "Что нужно сделать: Я подготовил три варианта подготовительных задач, которые плавно подводят к теме if. "
+            "Сохранил их как черновики. Посмотри условия: нужно что-то упростить, усложнить или сразу одобряю для генерации?"
+        )
+        data = {
+            "courseId": "c1",
+            "conversation": [{"role": "user", "content": user}],
+            "memory": {"latestExplicitInstruction": user},
+        }
+        result = {
+            "assistantMessage": "Я собрала лесенку в нужной форме.",
+            "draftBlueprint": {
+                "proposals": [
+                    {"title": "Задание 1", "fullCondition": "Считай два числа и выведи результаты сравнений."},
+                    {"title": "Задание 2", "fullCondition": "Считай число x и проверь диапазон от 10 до 50."},
+                    {"title": "Задание 3", "fullCondition": "Считай число n и проверь остаток от деления на 2."},
+                    {"title": "Задание 4. Маленький шаг 4", "fullCondition": meta_condition},
+                    {"title": "Задание 5. Маленький шаг 5", "fullCondition": meta_condition},
+                ]
+            },
+            "count": 5,
+        }
+        proposals = worker._chat_build_blueprint_proposals(data, result, user, user, 5, "code-test", 2)
+        self.assertEqual(len(proposals), 5)
+        for proposal in proposals[3:]:
+            text = (proposal.get("conditionPreview", "") + "\n" + proposal.get("fullCondition", "")).lower()
+            self.assertNotIn("я подготовил", text)
+            self.assertNotIn("сохранил", text)
+            self.assertNotIn("посмотри условия", text)
+            self.assertIn("Следуй шагам", proposal.get("fullCondition", ""))
+            self.assertRegex(proposal.get("fullCondition", "").lower(), r"if|условн|провер")
+
     def test_failed_first_save_needs_revision_repairs_without_current_blueprint(self):
         user = "Мне нужны задачи обучалки к if\n\nсделай набор черновиков обучалок перед if"
         raw = [
@@ -179,6 +256,118 @@ class GuidedOnboardingRealExecutionPathTests(unittest.TestCase):
         self.assertNotIn("needs-revision", normalized["assistantMessage"].lower())
         self.assertEqual(len(normalized["actions"][0]["arguments"]["proposals"]), 5)
 
+
+
+class GuidedOnboardingSlotExpansionTests(unittest.TestCase):
+    def test_missing_slots_are_generated_one_by_one_before_deterministic_count_fallback(self):
+        user = "Сделай 5 обучалок лесенкой перед if"
+        calls = []
+
+        def fake_call(prompt_text, cfg):
+            calls.append(prompt_text)
+            slot = 3 + len(calls)
+            return {
+                "title": f"LLM слот {slot}",
+                "conditionPreview": f"Давай сделаем отдельную маленькую программу для слота {slot} по if.",
+                "fullCondition": (
+                    f"Давай сделаем отдельную маленькую программу для слота {slot}. Она будет тренировать if живым шагом.\n\n"
+                    "Следуй шагам:\n"
+                    "1. Считай целое число x.\n"
+                    "(Так программа получит число для проверки.)\n"
+                    "2. Используй if и выбери подходящий вывод.\n"
+                    "(Так ученик видит, где программа принимает решение.)\n"
+                    "3. Выведи результат на экран.\n"
+                    "(После запуска сразу видно, сработала ли проверка.)\n\n"
+                    "Запусти код и посмотри, какой результат появится на экране."
+                ),
+                "goal": f"Сгенерированный отдельным LLM-запросом слот {slot}.",
+            }
+
+        data = {
+            "courseId": "c1",
+            "conversation": [{"role": "user", "content": user}],
+            "memory": {
+                "latestIntentKind": "generate",
+                "latestExplicitInstruction": user,
+                "summary": "Нужно ровно 5 дружелюбных обучалок перед if.",
+            },
+        }
+        result = {
+            "assistantMessage": "Сохраняю условия",
+            "actions": [{
+                "name": "save_chat_blueprint",
+                "reason": "raw llm action",
+                "arguments": {
+                    "courseId": "c1",
+                    "summary": "Три обучалки по if",
+                    "proposals": [
+                        {"title": "Обучалка 1", "fullCondition": "Напишите программу с if."},
+                        {"title": "Обучалка 2", "fullCondition": "Напишите программу с if else."},
+                        {"title": "Обучалка 3", "fullCondition": "Напишите программу с диапазоном."},
+                    ],
+                },
+            }],
+        }
+
+        with patch.dict(os.environ, {"TASKFORGE_DISABLE_LLM_SLOT_EXPANSION": "0"}):
+            with patch("worker.call_llm", side_effect=fake_call):
+                normalized = worker._normalize_chat_turn_result(data, result)
+
+        proposals = normalized["actions"][0]["arguments"]["proposals"]
+        self.assertEqual(len(proposals), 5)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("Номер слота: 4 из 5", calls[0])
+        self.assertIn("Номер слота: 5 из 5", calls[1])
+        self.assertIn("LLM слот 4", proposals[3].get("title", ""))
+        self.assertIn("LLM слот 5", proposals[4].get("title", ""))
+        reason = normalized["actions"][0].get("reason", "").lower()
+        self.assertNotIn("count repair", reason)
+        self.assertNotIn("count/style", reason)
+
+    def test_meta_llm_slot_response_falls_back_to_safe_real_task(self):
+        user = "Сделай 5 обучалок лесенкой перед if"
+
+        def fake_meta_call(prompt_text, cfg):
+            return {
+                "title": "Я подготовил варианты",
+                "conditionPreview": "Я подготовил три варианта и сохранил их как черновики.",
+                "fullCondition": "Я подготовил три варианта. Посмотри условия и сразу одобряю для генерации.",
+                "goal": "meta",
+            }
+
+        data = {
+            "courseId": "c1",
+            "conversation": [{"role": "user", "content": user}],
+            "memory": {"latestIntentKind": "generate", "latestExplicitInstruction": user},
+        }
+        result = {
+            "assistantMessage": "Сохраняю условия",
+            "actions": [{
+                "name": "save_chat_blueprint",
+                "arguments": {
+                    "courseId": "c1",
+                    "summary": "Три обучалки по if",
+                    "proposals": [
+                        {"title": "Обучалка 1", "fullCondition": "Напишите программу с if."},
+                        {"title": "Обучалка 2", "fullCondition": "Напишите программу с if else."},
+                        {"title": "Обучалка 3", "fullCondition": "Напишите программу с диапазоном."},
+                    ],
+                },
+            }],
+        }
+
+        with patch.dict(os.environ, {"TASKFORGE_DISABLE_LLM_SLOT_EXPANSION": "0"}):
+            with patch("worker.call_llm", side_effect=fake_meta_call):
+                normalized = worker._normalize_chat_turn_result(data, result)
+
+        proposals = normalized["actions"][0]["arguments"]["proposals"]
+        for proposal in proposals[3:]:
+            text = (proposal.get("title", "") + "\n" + proposal.get("fullCondition", "")).lower()
+            self.assertNotIn("я подготовил", text)
+            self.assertNotIn("сохранил", text)
+            self.assertNotIn("посмотри условия", text)
+            self.assertIn("Следуй шагам", proposal.get("fullCondition", ""))
+            self.assertRegex(proposal.get("fullCondition", "").lower(), r"if|условн|провер")
 if __name__ == "__main__":
     unittest.main()
 

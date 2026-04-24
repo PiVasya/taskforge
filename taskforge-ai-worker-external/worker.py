@@ -9,6 +9,7 @@ This file contains only the job-routing dispatcher and the main poll loop.
 """
 
 import json
+import os
 import re
 import time
 from typing import Any, Dict
@@ -90,7 +91,7 @@ from reviews import (
 )
 from scenario_router import detect_scenario_profile, scenario_generation_mode
 from scenario_policy import looks_like_task_generation_intent, scenario_should_bypass_blueprint
-from ladder_style import extract_learning_concept, beautify_ladder_proposal, looks_like_ladder_style, looks_too_dry_for_ladder
+from ladder_style import extract_learning_concept, beautify_ladder_proposal, looks_like_ladder_style, looks_too_dry_for_ladder, looks_like_meta_task_filler, ladder_seed_condition
 
 GUIDED_LADDER_SCENARIOS = {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}
 from batch_pipeline import (
@@ -841,7 +842,7 @@ def _chat_repair_blueprint_write_result(payload: Dict[str, Any], result: Dict[st
         "assistantMessage": _chat_sanitize_visible_assistant_message(human),
         "actions": [{
             "name": action_name,
-            "reason": "Автоматически чиню blueprint по count/style/scaffold до tool-call, чтобы не сохранять сырой вариант.",
+            "reason": "Собираю недостающие слоты blueprint по отдельности и сохраняю только уже нормализованную лесенку.",
             "arguments": {
                 "courseId": args.get("courseId") or _chat_pick_course_id(payload, source_result),
                 "summary": str(raw.get("summary") or args.get("summary") or human).strip()[:300],
@@ -1241,6 +1242,259 @@ def _chat_should_force_ladder_style(payload: Dict[str, Any], last_user: str, pro
     return False
 
 
+def _chat_slot_expansion_enabled(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if str(os.environ.get("TASKFORGE_DISABLE_LLM_SLOT_EXPANSION") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+    raw = payload.get("disableLlmSlotExpansion") or payload.get("__disableLlmSlotExpansion")
+    if raw is True or str(raw).strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+    return True
+
+
+def _chat_blueprint_slot_generation_prompt(
+    payload: Dict[str, Any],
+    last_user: str,
+    prompt: str,
+    concept: str,
+    slot_index: int,
+    total_count: int,
+    existing_proposals: list[Dict[str, Any]],
+) -> str:
+    existing_lines: list[str] = []
+    for idx, item in enumerate(existing_proposals[: max(0, slot_index - 1)], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or f"Задание {idx}").strip()
+        text = str(item.get("fullCondition") or item.get("conditionPreview") or "").strip()
+        if text:
+            existing_lines.append(f"{idx}. {title}: {text[:700]}")
+    seed = ladder_seed_condition(concept, slot_index, total_count)
+    user_goal = last_user or prompt or str((_chat_memory(payload) or {}).get("latestExplicitInstruction") or "")
+    return (
+        "Ты генерируешь ровно один недостающий слот для chat blueprint учебной лесенки.\n"
+        "Это НЕ финальный draft и НЕ сообщение пользователю. Нужен только JSON одной задачи.\n\n"
+        f"Запрос пользователя:\n{user_goal[:1600]}\n\n"
+        f"Тема/якорь: {concept or 'та же тема, что в запросе'}\n"
+        f"Номер слота: {slot_index} из {total_count}.\n"
+        "Уже собранные предыдущие слоты:\n"
+        f"{chr(10).join(existing_lines) if existing_lines else '- пока нет'}\n\n"
+        "Сгенерируй следующий слот так, чтобы он был реальной маленькой программой ученика, а не мета-комментарием пайплайна.\n"
+        "Стиль: дружелюбная обучалка. Обязательно: короткое вступление, блок 'Следуй шагам:', 3-5 нумерованных шагов, пояснения в скобках, финальная фраза про запуск программы.\n"
+        "Запрещено писать: 'я подготовил', 'сохранил черновики', 'посмотри условия', 'одобряю', 'blueprint', 'validator', 'needs-revision'.\n"
+        "Не повторяй предыдущие слоты. Делай следующий логический микрошаг.\n"
+        f"Если сомневаешься, опирайся на этот seed, но перепиши его красиво: {seed}\n\n"
+        "Верни строго JSON:\n"
+        "{\"title\":\"...\",\"conditionPreview\":\"...\",\"fullCondition\":\"...\",\"goal\":\"...\"}"
+    )
+
+
+def _chat_normalize_generated_slot(
+    raw: Any,
+    concept: str,
+    slot_index: int,
+    total_count: int,
+    assignment_type: str,
+    difficulty: int,
+) -> Dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    item = raw.get("proposal") if isinstance(raw.get("proposal"), dict) else raw
+    title = str(item.get("title") or item.get("name") or f"Вариант {slot_index}").strip()
+    cond = str(item.get("conditionPreview") or item.get("fullCondition") or item.get("condition") or "").strip()
+    full = str(item.get("fullCondition") or cond).strip()
+    goal = str(item.get("goal") or item.get("microGoal") or "").strip()
+    combined = "\n".join([title, cond, full, goal])
+    if not full or looks_like_meta_task_filler(combined):
+        return None
+    proposal = {
+        "id": None,
+        "title": title or f"Вариант {slot_index}",
+        "assignmentType": assignment_type or "code-test",
+        "difficulty": max(1, min(5, int(difficulty or 2))),
+        "goal": "" if looks_like_meta_task_filler(goal) else goal,
+        "conditionPreview": cond[:2000],
+        "fullCondition": full[:8000],
+        "mustKeep": [],
+        "avoid": [],
+        "placementAfterAssignmentId": None,
+        "placementAfterTitle": None,
+        "placementReason": "slot-expanded-by-llm",
+        "status": "draft",
+        "publicTests": [],
+        "hiddenTests": [],
+    }
+    return beautify_ladder_proposal(proposal, concept, slot_index, total_count)
+
+
+def _chat_generate_missing_ladder_slot(
+    payload: Dict[str, Any],
+    last_user: str,
+    prompt: str,
+    concept: str,
+    slot_index: int,
+    total_count: int,
+    existing_proposals: list[Dict[str, Any]],
+    assignment_type: str,
+    difficulty: int,
+) -> Dict[str, Any] | None:
+    if not _chat_slot_expansion_enabled(payload):
+        return None
+    llm_prompt = _chat_blueprint_slot_generation_prompt(payload, last_user, prompt, concept, slot_index, total_count, existing_proposals)
+    cfg = OllamaCallConfig(
+        stage="chat_blueprint_slot_generate",
+        timeout=45,
+        attempts=1,
+        num_predict=650,
+        temperature=0.10,
+        json_mode=True,
+        required_keys=["title", "fullCondition"],
+        preferred_keys=["conditionPreview", "goal"],
+        assistant_prefill=False,
+    )
+    try:
+        raw = call_llm(llm_prompt, cfg)
+    except Exception as ex:
+        logger.warning(f"chat blueprint slot expansion failed: {ex} [{_job_context({}, payload)}]")
+        return None
+    return _chat_normalize_generated_slot(raw, concept, slot_index, total_count, assignment_type, difficulty)
+
+
+def _chat_fallback_missing_ladder_slot(
+    concept: str,
+    slot_index: int,
+    total_count: int,
+    assignment_type: str,
+    difficulty: int,
+    exact: list[str],
+    forbidden: list[str],
+) -> Dict[str, Any]:
+    seed = ladder_seed_condition(concept, slot_index, total_count)
+    item = {
+        "id": None,
+        "title": f"Вариант {slot_index}",
+        "assignmentType": assignment_type or "code-test",
+        "difficulty": max(1, min(5, int(difficulty or 2))),
+        "goal": "",
+        "conditionPreview": seed[:2000],
+        "fullCondition": seed[:8000],
+        "mustKeep": exact[:10],
+        "avoid": forbidden[:10],
+        "placementAfterAssignmentId": None,
+        "placementAfterTitle": None,
+        "placementReason": "slot-expanded-deterministic-fallback",
+        "status": "draft",
+        "publicTests": [],
+        "hiddenTests": [],
+    }
+    return beautify_ladder_proposal(item, concept, slot_index, total_count)
+
+
+def _chat_ladder_slot_fingerprint(proposal: Dict[str, Any]) -> str:
+    text = " ".join(str((proposal or {}).get(key) or "") for key in ["title", "goal", "conditionPreview", "fullCondition"])
+    text = re.sub(r"[^a-zа-я0-9]+", " ", text.lower(), flags=re.IGNORECASE).strip()
+    stop = {
+        "задание", "вариант", "следуй", "шагам", "напиши", "программу", "которая", "выведи", "введи",
+        "если", "пользователь", "число", "строку", "значение", "проверь", "после", "этого", "должна", "должен",
+    }
+    tokens = [token for token in text.split() if len(token) >= 3 and token not in stop]
+    return " ".join(tokens[:80])
+
+
+def _chat_ladder_slots_too_similar(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    a = set(_chat_ladder_slot_fingerprint(left).split())
+    b = set(_chat_ladder_slot_fingerprint(right).split())
+    if not a or not b:
+        return False
+    overlap = len(a & b) / max(1, min(len(a), len(b)))
+    return overlap >= 0.72
+
+
+def _chat_generate_sequential_ladder_slots(
+    payload: Dict[str, Any],
+    last_user: str,
+    prompt: str,
+    concept: str,
+    count_cap: int,
+    assignment_type: str,
+    difficulty: int,
+    exact: list[str],
+    forbidden: list[str],
+    source_proposals: list[Dict[str, Any]] | None = None,
+) -> list[Dict[str, Any]] | None:
+    """Generate the whole guided ladder through per-slot LLM calls.
+
+    For guided-onboarding-ladder the batch LLM proposals are not trusted as the
+    final blueprint. They are only optional hints. The real blueprint is built
+    slot-by-slot: 1 -> 2 -> ... -> requested count. Each new prompt receives
+    the already accepted previous slots, so the model has a clear local memory
+    and can avoid overlap.
+    """
+    if count_cap <= 0 or not _chat_slot_expansion_enabled(payload):
+        return None
+    generated: list[Dict[str, Any]] = []
+    hints = source_proposals if isinstance(source_proposals, list) else []
+    for slot_index in range(1, count_cap + 1):
+        generated_slot = _chat_generate_missing_ladder_slot(
+            payload,
+            last_user,
+            prompt,
+            concept,
+            slot_index,
+            count_cap,
+            generated,
+            assignment_type,
+            difficulty,
+        )
+        if generated_slot is not None and any(_chat_ladder_slots_too_similar(generated_slot, previous) for previous in generated):
+            generated_slot = None
+        if generated_slot is None:
+            hint = hints[slot_index - 1] if slot_index - 1 < len(hints) and isinstance(hints[slot_index - 1], dict) else {}
+            hinted_text = str(hint.get("fullCondition") or hint.get("conditionPreview") or hint.get("summary") or "").strip()
+            generated_slot = _chat_fallback_missing_ladder_slot(concept, slot_index, count_cap, assignment_type, difficulty, exact, forbidden)
+            if hinted_text and not looks_like_meta_task_filler(hinted_text):
+                generated_slot["placementReason"] = "sequential-slot-fallback-from-safe-hint"
+        generated_slot["placementReason"] = str(generated_slot.get("placementReason") or "sequential-slot-generated")
+        generated.append(generated_slot)
+    return generated[:count_cap]
+
+
+def _chat_expand_missing_ladder_slots(
+    payload: Dict[str, Any],
+    clean: list[Dict[str, Any]],
+    last_user: str,
+    prompt: str,
+    concept: str,
+    count_cap: int,
+    assignment_type: str,
+    difficulty: int,
+    exact: list[str],
+    forbidden: list[str],
+    scenario_profile: Dict[str, Any],
+) -> list[Dict[str, Any]]:
+    sid = str((scenario_profile or {}).get("id") or "").strip().lower()
+    if sid not in GUIDED_LADDER_SCENARIOS or len(clean) >= count_cap:
+        return clean
+    expanded = list(clean)
+    for slot_index in range(len(expanded) + 1, count_cap + 1):
+        generated = _chat_generate_missing_ladder_slot(
+            payload,
+            last_user,
+            prompt,
+            concept,
+            slot_index,
+            count_cap,
+            expanded,
+            assignment_type,
+            difficulty,
+        )
+        if generated is None:
+            generated = _chat_fallback_missing_ladder_slot(concept, slot_index, count_cap, assignment_type, difficulty, exact, forbidden)
+        expanded.append(generated)
+    return expanded
+
+
 def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, Any], last_user: str, prompt: str, count: int, assignment_type: str, difficulty: int) -> list[Dict[str, Any]]:
     raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
     proposals = raw.get("proposals") if isinstance(raw.get("proposals"), list) else []
@@ -1251,7 +1505,27 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     clean: list[Dict[str, Any]] = []
     count_cap = max(1, min(12, count or 1))
     scenario_profile = detect_scenario_profile({**payload, "prompt": prompt, "sourceText": prompt}, requested_count=count_cap)
-    concept = extract_learning_concept({**payload, "prompt": prompt, "sourceText": prompt})
+    concept_source = " ".join(
+        str(part or "").strip()
+        for part in [last_user, prompt, str((_chat_memory(payload) or {}).get("latestExplicitInstruction") or "")]
+        if str(part or "").strip()
+    )
+    concept = _chat_extract_anchor_concept(concept_source) or extract_learning_concept({**payload, "prompt": prompt, "sourceText": prompt})
+    if str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS and _chat_slot_expansion_enabled(payload):
+        sequential = _chat_generate_sequential_ladder_slots(
+            payload,
+            last_user,
+            prompt,
+            concept,
+            count_cap,
+            assignment_type,
+            difficulty,
+            exact,
+            forbidden,
+            proposals,
+        )
+        if sequential and len(sequential) >= count_cap:
+            return [beautify_ladder_proposal(item, concept, idx, count_cap) for idx, item in enumerate(sequential[:count_cap], start=1)]
     for index, item in enumerate(proposals[:count_cap], start=1):
         if not isinstance(item, dict):
             continue
@@ -1274,6 +1548,15 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             cond = _chat_build_fallback_blueprint_condition(last_user, str(result.get("assistantMessage") or ""), contract)
         if not full_condition:
             full_condition = _chat_build_fallback_blueprint_condition(last_user, str(result.get("assistantMessage") or ""), contract)
+        combined_for_meta_check = "\n".join(str(x or "") for x in [title, goal, cond, full_condition])
+        if looks_like_meta_task_filler(combined_for_meta_check):
+            seed = ladder_seed_condition(concept, index, count_cap)
+            cond = seed
+            full_condition = seed
+            if looks_like_meta_task_filler(title):
+                title = f"Вариант {index}"
+            if looks_like_meta_task_filler(goal):
+                goal = ""
         proposal = {
             "id": item.get("id") or existing_item.get("id") or None,
             "title": title or f"Вариант {index}",
@@ -1304,29 +1587,64 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             ],
         }
         clean.append(proposal)
-    base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
+    raw_base_text = str(result.get("assistantMessage") or "").strip()
+    base_text = "" if looks_like_meta_task_filler(raw_base_text) else raw_base_text
+    base_text = base_text or str(prompt or last_user or "").strip()
     base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
+    if looks_like_meta_task_filler(base_condition):
+        base_condition = ladder_seed_condition(concept, max(1, len(clean) + 1), count_cap)
     if clean and len(clean) < count_cap:
-        for i in range(len(clean) + 1, count_cap + 1):
-            existing_item = existing[i - 1] if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else {}
-            seed_condition = str(existing_item.get("fullCondition") or existing_item.get("conditionPreview") or base_condition or prompt or last_user or "").strip()
-            clean.append({
-                "id": existing_item.get("id") or None,
-                "title": str(existing_item.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
-                "assignmentType": str(existing_item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
-                "difficulty": max(1, min(5, int(existing_item.get("difficulty") or difficulty or 2))),
-                "goal": str(existing_item.get("goal") or "").strip(),
-                "conditionPreview": seed_condition[:2000],
-                "fullCondition": seed_condition[:8000],
-                "mustKeep": exact[:10],
-                "avoid": forbidden[:10],
-                "placementAfterAssignmentId": existing_item.get("placementAfterAssignmentId"),
-                "placementAfterTitle": existing_item.get("placementAfterTitle"),
-                "placementReason": existing_item.get("placementReason"),
-                "status": existing_item.get("status") or "draft",
-                "publicTests": existing_item.get("publicTests") if isinstance(existing_item.get("publicTests"), list) else [],
-                "hiddenTests": existing_item.get("hiddenTests") if isinstance(existing_item.get("hiddenTests"), list) else [],
-            })
+        if str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS:
+            clean = _chat_expand_missing_ladder_slots(
+                payload,
+                clean,
+                last_user,
+                prompt,
+                concept,
+                count_cap,
+                assignment_type,
+                difficulty,
+                exact,
+                forbidden,
+                scenario_profile,
+            )
+        else:
+            for i in range(len(clean) + 1, count_cap + 1):
+                existing_item = existing[i - 1] if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else {}
+                seed_condition = str(existing_item.get("fullCondition") or existing_item.get("conditionPreview") or base_condition or prompt or last_user or "").strip()
+                if looks_like_meta_task_filler(seed_condition) or not seed_condition:
+                    seed_condition = ladder_seed_condition(concept, i, count_cap)
+                clean.append({
+                    "id": existing_item.get("id") or None,
+                    "title": str(existing_item.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
+                    "assignmentType": str(existing_item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
+                    "difficulty": max(1, min(5, int(existing_item.get("difficulty") or difficulty or 2))),
+                    "goal": str(existing_item.get("goal") or "").strip(),
+                    "conditionPreview": seed_condition[:2000],
+                    "fullCondition": seed_condition[:8000],
+                    "mustKeep": exact[:10],
+                    "avoid": forbidden[:10],
+                    "placementAfterAssignmentId": existing_item.get("placementAfterAssignmentId"),
+                    "placementAfterTitle": existing_item.get("placementAfterTitle"),
+                    "placementReason": existing_item.get("placementReason"),
+                    "status": existing_item.get("status") or "draft",
+                    "publicTests": existing_item.get("publicTests") if isinstance(existing_item.get("publicTests"), list) else [],
+                    "hiddenTests": existing_item.get("hiddenTests") if isinstance(existing_item.get("hiddenTests"), list) else [],
+                })
+    if not clean and str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS:
+        clean = _chat_expand_missing_ladder_slots(
+            payload,
+            [],
+            last_user,
+            prompt,
+            concept,
+            count_cap,
+            assignment_type,
+            difficulty,
+            exact,
+            forbidden,
+            scenario_profile,
+        )
     if clean:
         if _chat_should_force_ladder_style(payload, last_user, prompt, clean, scenario_profile):
             styled: list[Dict[str, Any]] = []
@@ -1337,19 +1655,25 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             return styled
         return clean[:count_cap]
     default_count = count_cap
-    fallback_items = [{
-        "id": (existing[i - 1].get("id") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else None),
-        "title": str(result.get("title") or (existing[i - 1].get("title") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else f"Вариант {i}")).strip() or f"Вариант {i}",
-        "assignmentType": assignment_type,
-        "difficulty": difficulty,
-        "goal": str(result.get("goal") or "").strip(),
-        "conditionPreview": base_condition[:2000],
-        "fullCondition": (base_condition or prompt or last_user)[:8000],
-        "mustKeep": exact[:10],
-        "avoid": forbidden[:10],
-        "publicTests": [],
-        "hiddenTests": [],
-    } for i in range(1, default_count + 1)]
+    fallback_items = []
+    for i in range(1, default_count + 1):
+        existing_item = existing[i - 1] if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else {}
+        seed_condition = str(existing_item.get("fullCondition") or existing_item.get("conditionPreview") or base_condition or "").strip()
+        if looks_like_meta_task_filler(seed_condition) or not seed_condition:
+            seed_condition = ladder_seed_condition(concept, i, default_count)
+        fallback_items.append({
+            "id": existing_item.get("id"),
+            "title": str(result.get("title") or existing_item.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
+            "assignmentType": assignment_type,
+            "difficulty": difficulty,
+            "goal": "" if looks_like_meta_task_filler(str(result.get("goal") or "")) else str(result.get("goal") or "").strip(),
+            "conditionPreview": seed_condition[:2000],
+            "fullCondition": seed_condition[:8000],
+            "mustKeep": exact[:10],
+            "avoid": forbidden[:10],
+            "publicTests": [],
+            "hiddenTests": [],
+        })
     if str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS:
         fallback_items = [beautify_ladder_proposal(item, concept, idx, default_count) for idx, item in enumerate(fallback_items, start=1)]
     return fallback_items
