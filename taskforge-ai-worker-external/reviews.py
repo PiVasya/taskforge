@@ -105,7 +105,7 @@ def fallback_pedagogy_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Di
     else:
         checks.append({"name": "single-learning-goal", "status": "passed", "details": "Учебная цель выглядит достаточно узкой"})
     scenario = detect_scenario_profile(payload)
-    if normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}:
+    if normalize_text(scenario.get("id")) in {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}:
         checks.append({"name": "ladder-guided-structure", "status": "passed" if looks_like_ladder_style(draft) else "failed", "details": "Есть структура friendly walkthrough" if looks_like_ladder_style(draft) else "Для лесенки не хватает дружелюбного вступления, блока «Следуй шагам:» или коротких пояснений"})
         checks.append({"name": "ladder-not-dry", "status": "passed" if not looks_too_dry_for_ladder(draft) else "warning", "details": "Формулировка не выглядит сухой" if not looks_too_dry_for_ladder(draft) else "Описание стартует слишком сухо для лесенки"})
     if normalize_text(scenario.get("id")) == "single-deep-task":
@@ -157,7 +157,7 @@ def run_style_review(payload: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, 
             score -= 0.12
 
     scenario = detect_scenario_profile(payload)
-    if normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}:
+    if normalize_text(scenario.get("id")) in {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}:
         if looks_like_ladder_style(draft):
             checks.append({"name": "style-ladder-guided", "status": "passed", "details": "Draft похож на friendly walkthrough в стиле первого задания"})
         else:

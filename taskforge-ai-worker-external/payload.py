@@ -27,6 +27,8 @@ from log import log, log_debug, logger
 from similarity_signatures import similarity_signature_report
 from duplicate_clusters import cluster_duplicate_candidates
 from scenario_router import detect_scenario_profile, scenario_generation_mode
+GUIDED_LADDER_SCENARIOS = {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}
+
 from text_utils import (
     normalize_text,
     truncate_text,
@@ -122,6 +124,17 @@ def compact_reference_assignments(
             "forbiddenCalls": item.get("forbiddenCalls")[:6] if isinstance(item.get("forbiddenCalls"), list) else [],
             "requiredCalls": item.get("requiredCalls")[:6] if isinstance(item.get("requiredCalls"), list) else [],
         }
+        overview = item.get("aiOverview") if isinstance(item.get("aiOverview"), dict) else {}
+        pedagogical_role = normalize_text(item.get("pedagogicalRole") or overview.get("pedagogicalRole"))
+        teaching_style = normalize_text(item.get("teachingStyle") or overview.get("teachingStyle"))
+        if pedagogical_role:
+            compact_item["pedagogicalRole"] = pedagogical_role
+        if teaching_style:
+            compact_item["teachingStyle"] = teaching_style
+        if overview.get("isImportant") is not None:
+            compact_item["isImportant"] = bool(overview.get("isImportant"))
+        if overview.get("importanceScore") is not None:
+            compact_item["importanceScore"] = overview.get("importanceScore")
         if include_cases:
             compact_item["publicCases"] = item.get("publicCases")[:2] if isinstance(item.get("publicCases"), list) else []
         compact.append(compact_item)
@@ -208,6 +221,34 @@ def _explicit_reference_hints(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"exactStyle": exact_style, "numberHints": number_hints[:6], "titleHints": title_hints[:6]}
 
 
+def _looks_like_onboarding_ladder_request(payload: Dict[str, Any]) -> bool:
+    scenario = detect_scenario_profile(payload)
+    sid = normalize_text(scenario.get("id")).lower()
+    if sid in GUIDED_LADDER_SCENARIOS:
+        return True
+    text = _instruction_text_payload(payload).lower()
+    return any(marker in text for marker in [
+        "обучалк", "лесенк", "научить пользоваться", "научить работать",
+        "перед if", "до первого if", "перед темой", "перед новой темой", "мягко подвести",
+    ])
+
+
+def _looks_like_guided_intro_ref(ref: Dict[str, Any]) -> bool:
+    role = normalize_text(ref.get("pedagogicalRole")).lower()
+    style = normalize_text(ref.get("teachingStyle")).lower()
+    title = normalize_text(ref.get("title")).lower()
+    desc = normalize_text(ref.get("descriptionSummary")).lower()
+    if role in {"guided-intro", "intro", "onboarding", "bridge", "milestone"}:
+        return True
+    if "guided" in style or "walkthrough" in style:
+        return True
+    if "следуй шагам" in desc or ("давай" in desc and "запусти" in desc):
+        return True
+    if title.startswith("задание 1") or "перв" in title:
+        return True
+    return False
+
+
 def _matches_assignment_number(ref: Dict[str, Any], number: str) -> bool:
     title = normalize_text(ref.get("title")).lower()
     if not title or not number:
@@ -245,6 +286,12 @@ def _style_exemplar_candidates(payload: Dict[str, Any], refs_sorted: List[Dict[s
     if hints.get("exactStyle") and not result:
         for ref in refs_sorted[:2]:
             _push(ref)
+    if _looks_like_onboarding_ladder_request(payload):
+        for ref in refs_sorted:
+            if _looks_like_guided_intro_ref(ref):
+                _push(ref)
+        if not result and refs_sorted:
+            _push(refs_sorted[0])
     return result[:4]
 
 
@@ -456,7 +503,7 @@ def _infer_requested_domain(payload: Dict[str, Any]) -> str:
         return "programming-quiz"
     if sid == "pretopic-bridges":
         return "bridge-pack"
-    if sid in {"step-by-step-ladder", "micro-program-series", "new-topic-intro", "topic-expansion"}:
+    if sid in {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series", "new-topic-intro", "topic-expansion"}:
         early_batch_memory = payload.get("batchMemory") if isinstance(payload.get("batchMemory"), dict) else {}
         early_agent_state = early_batch_memory.get("agentState") if isinstance(early_batch_memory.get("agentState"), dict) else {}
         early_text = " ".join([
@@ -1313,7 +1360,7 @@ def _synthesize_plan_tasks_from_batch_memory(payload: Dict[str, Any], count: int
         for local in range(task_count):
             if idx > count:
                 break
-            default_format = "guided-walkthrough" if prefer_guides and (local == 0 or normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"}) else "exercise"
+            default_format = "guided-walkthrough" if prefer_guides and (local == 0 or normalize_text(scenario.get("id")) in GUIDED_LADDER_SCENARIOS) else "exercise"
             task_format = normalize_text(point.get("taskFormat") or default_format) or "exercise"
             title_hint = normalize_text(point.get("titleHint")) or concept
             if task_format == "guided-walkthrough":
@@ -1460,7 +1507,7 @@ def _synthesize_batch_plan(payload: Dict[str, Any], result: Dict[str, Any]) -> D
         scenario = detect_scenario_profile(payload, requested_count=count)
         default_format = "exercise"
         if bool(((_compact_batch_memory(payload).get("pedagogy") or {}) if isinstance(_compact_batch_memory(payload).get("pedagogy"), dict) else {}).get("preferGuidedWalkthroughs")) or bool(scenario.get("prefer_guided")):
-            default_format = "guided-walkthrough" if idx == 1 or normalize_text(scenario.get("id")) in {"step-by-step-ladder", "micro-program-series"} else "exercise"
+            default_format = "guided-walkthrough" if idx == 1 or normalize_text(scenario.get("id")) in GUIDED_LADDER_SCENARIOS else "exercise"
         task["taskFormat"] = normalize_text(task.get("taskFormat") or task.get("learningMode") or default_format) or "exercise"
         task["learningMode"] = normalize_text(task.get("learningMode") or task.get("taskFormat") or task["taskFormat"]) or task["taskFormat"]
     coverage = result.get("coverage") if isinstance(result.get("coverage"), dict) else {"coverageBand": "medium", "noveltyGoal": f"Produce {count} distinct {canonical.get('domain')} tasks"}
@@ -2116,11 +2163,14 @@ def _synthesize_generation_result(payload: Dict[str, Any], result: Dict[str, Any
                 }
             anchor_context = payload.get("anchorContext") if isinstance(payload.get("anchorContext"), dict) else {}
             style_exemplars = anchor_context.get("styleExemplarAssignments") if isinstance(anchor_context.get("styleExemplarAssignments"), list) else []
-            if anchor_context.get("exactStyleRequested") or style_exemplars:
+            scenario = detect_scenario_profile(payload)
+            force_guided_scaffold = normalize_text(scenario.get("id")).lower() in GUIDED_LADDER_SCENARIOS or _looks_like_onboarding_ladder_request(payload)
+            if anchor_context.get("exactStyleRequested") or style_exemplars or force_guided_scaffold:
                 meta["styleContract"] = {
                     "exactStyleRequested": bool(anchor_context.get("exactStyleRequested")),
-                    "preferGuidedIntroScaffold": bool(anchor_context.get("exactStyleRequested")),
+                    "preferGuidedIntroScaffold": bool(anchor_context.get("exactStyleRequested")) or force_guided_scaffold,
                     "avoidGenericCommentary": True,
+                    "scenarioId": normalize_text(scenario.get("id")),
                     "exemplarTitles": [truncate_text((item or {}).get("title"), 80) for item in style_exemplars[:4] if isinstance(item, dict) and truncate_text((item or {}).get("title"), 80)],
                 }
         else:

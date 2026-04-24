@@ -41,7 +41,7 @@ internal sealed record AiGenerationScenarioDefinition(
 
         if (PreferSingleDeepTask && requestedCount <= 1)
             score += 2;
-        if ((Id is "step-by-step-ladder" or "micro-program-series") && requestedCount > 1)
+        if ((Id is "guided-onboarding-ladder" or "step-by-step-ladder" or "micro-program-series") && requestedCount > 1)
             score += 2;
         return score;
     }

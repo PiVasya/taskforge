@@ -60,7 +60,7 @@ def extract_learning_concept(payload: Dict[str, Any]) -> str:
 
 def ladder_style_appendix(profile: Dict[str, Any], payload: Dict[str, Any]) -> str:
     sid = normalize_text(profile.get("id"))
-    if sid not in {"step-by-step-ladder", "micro-program-series"}:
+    if sid not in {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}:
         return ""
     concept = extract_learning_concept(payload)
     concept_line = (

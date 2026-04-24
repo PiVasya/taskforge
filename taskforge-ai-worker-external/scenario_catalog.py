@@ -2,6 +2,26 @@ from __future__ import annotations
 
 SCENARIO_DEFINITIONS = [
     {
+        "id": "guided-onboarding-ladder",
+        "name": "Обучающая лесенка",
+        "family": "progression",
+        "default_mode": "guided-onboarding-ladder",
+        "default_count": 5,
+        "prefer_guided": True,
+        "prefer_tiny_steps": True,
+        "force_small_programs": True,
+        "require_explicit_if": False,
+        "prefer_single_deep_task": False,
+        "prefer_course_audit": True,
+        "assistant_silence_priority": True,
+        "aliases": [
+            "обучалк", "обучающ", "лесенк", "научить пользоваться", "научить работать",
+            "перед if", "до if", "до первого if", "перед темой", "перед новой темой",
+            "мягко подвести", "подвести к теме", "friendly walkthrough", "guided onboarding", "guided intro"
+        ],
+        "anti": ["одну сложную", "без разжёвывания", "без обучалки"],
+    },
+    {
         "id": "step-by-step-ladder",
         "name": "Лесенка",
         "family": "progression",

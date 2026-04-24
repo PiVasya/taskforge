@@ -7,6 +7,9 @@ from scenario_catalog import SCENARIO_DEFINITIONS, SCENARIO_BY_ID
 from text_utils import normalize_text
 
 
+GUIDED_LADDER_SCENARIOS = {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}
+
+
 def _collect_signal_parts(payload: Dict[str, Any]) -> List[str]:
     parts: List[str] = []
     for key in ("prompt", "sourceText", "notes", "titleHint", "teachingScript", "userInstructionSnapshot"):
@@ -60,7 +63,7 @@ def detect_scenario_profile(payload: Dict[str, Any], requested_count: int | None
                 score -= 4 if len(anti) >= 10 else 3
         if scenario.get("prefer_single_deep_task") and count <= 1:
             score += 2
-        if scenario.get("id") in {"step-by-step-ladder", "micro-program-series"} and count > 1:
+        if scenario.get("id") in GUIDED_LADDER_SCENARIOS and count > 1:
             score += 2
         if score > best_score:
             best = scenario
@@ -89,13 +92,13 @@ def scenario_requires_explicit_if(profile: Dict[str, Any]) -> bool:
 
 
 def is_progression_scenario(profile: Dict[str, Any]) -> bool:
-    return normalize_text(profile.get("id")) in {"step-by-step-ladder", "micro-program-series"}
+    return normalize_text(profile.get("id")) in GUIDED_LADDER_SCENARIOS
 
 
 def scenario_prompt_appendix(profile: Dict[str, Any]) -> str:
     sid = normalize_text(profile.get("id"))
-    if sid in {"micro-program-series", "step-by-step-ladder"}:
-        return "\n- Сценарий: лесенка. Каждое следующее задание должно быть лишь немного сложнее предыдущего, без резких скачков. Захардкожен только стиль очень понятного guided walkthrough, а не конкретная тема.\n"
+    if sid in GUIDED_LADDER_SCENARIOS:
+        return "\n- Сценарий: guided-onboarding-ladder / обучающая лесенка. Это не просто набор задач: каждое задание должно выглядеть как friendly walkthrough в жанре первого задания курса: вступление, «Следуй шагам:», короткие шаги, пояснения в скобках и финальная фраза про запуск/видимый результат. Захардкожен стиль подачи, а не конкретная тема.\n"
     if sid == "single-deep-task":
         return "\n- Сценарий: одна сильная задача. Не дроби идею на серию микрошагов и не превращай запрос в лесенку.\n"
     if sid == "pretopic-bridges":

@@ -91,6 +91,8 @@ from reviews import (
 from scenario_router import detect_scenario_profile, scenario_generation_mode
 from scenario_policy import looks_like_task_generation_intent, scenario_should_bypass_blueprint
 from ladder_style import extract_learning_concept, beautify_ladder_proposal, looks_like_ladder_style, looks_too_dry_for_ladder
+
+GUIDED_LADDER_SCENARIOS = {"guided-onboarding-ladder", "step-by-step-ladder", "micro-program-series"}
 from batch_pipeline import (
     run_batch_review,
     run_student_journey_review,
@@ -299,18 +301,28 @@ def _chat_recent_attachments(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
 def _chat_extract_requested_count(text: str) -> int | None:
     if not text:
         return None
+    low = text.lower()
+    word_numbers = {
+        "одну": 1, "одно": 1, "один": 1, "две": 2, "два": 2, "три": 3,
+        "четыре": 4, "пять": 5, "шесть": 6, "семь": 7, "восемь": 8,
+        "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12,
+    }
+    unit = r"(?:задач[а-я]*|задан[а-я]*|обучал[а-я]*|черновик[а-я]*|услови[яй][а-я]*|пример[а-я]*|программ[а-я]*|шаг[а-я]*|шт\.?|штук|items?|pieces|tasks?)"
     for pattern in (
-        r"(?<!\d)(\d{1,2})\s*(?:задач[а-я]*|шт\.?|штук|items?)",
+        rf"(?<!\d)(\d{{1,2}})\s*{unit}",
         r"\bна\s+(\d{1,2})\b",
-        r"\b(\d{1,2})\s*(?:pieces|tasks?)\b",
+        rf"\b(\d{{1,2}})\s*(?:pieces|tasks?)\b",
     ):
-        match = re.search(pattern, text, flags=re.IGNORECASE)
+        match = re.search(pattern, low, flags=re.IGNORECASE)
         if match:
             try:
                 value = int(match.group(1))
                 return max(1, min(50, value))
             except Exception:
                 return None
+    for word, value in word_numbers.items():
+        if re.search(rf"(?<![а-яa-z]){word}(?![а-яa-z])\s+{unit}", low, flags=re.IGNORECASE):
+            return max(1, min(50, value))
     return None
 
 
@@ -650,8 +662,68 @@ def _chat_is_recoverable_tool_failure(result: Dict[str, Any] | None) -> bool:
         "пока не удовлетвор",
         "убери явное ветвление",
         "нельзя переносить варианты",
+        "не хватает количества",
+        "пользователь просил",
+        "дружелюбный пошаговый формат",
+        "нет дружелюбного вступления",
     ]
     return any(marker in summary for marker in recoverable_markers)
+
+
+def _chat_recent_tool_results(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
+    results: list[Dict[str, Any]] = []
+    conversation = payload.get("conversation") if isinstance(payload.get("conversation"), list) else []
+    for message in conversation:
+        if not isinstance(message, dict):
+            continue
+        items = message.get("toolResults") if isinstance(message.get("toolResults"), list) else []
+        if not items and isinstance(message.get("toolResult"), dict):
+            items = [message.get("toolResult")]
+        for item in items:
+            if isinstance(item, dict):
+                results.append(item)
+    direct = payload.get("toolResults") if isinstance(payload.get("toolResults"), list) else []
+    for item in direct:
+        if isinstance(item, dict):
+            results.append(item)
+    return results
+
+
+def _chat_latest_needs_revision(payload: Dict[str, Any]) -> Dict[str, Any]:
+    for item in reversed(_chat_recent_tool_results(payload)):
+        if str(item.get("status") or "").strip().lower() == "needs-revision":
+            return item
+    return {}
+
+
+def _chat_recoverable_revision_summary(payload: Dict[str, Any]) -> str:
+    item = _chat_latest_needs_revision(payload)
+    summary = str(item.get("summary") or item.get("message") or "").strip()
+    low = summary.lower()
+    if not summary:
+        return ""
+    if any(marker in low for marker in [
+        "пользователь просил", "blueprint пока не удовлетворяет", "дружелюбный пошаговый",
+        "нет дружелюбного", "сухие", "scaffold", "количеств", "не хватает", "лесенк",
+    ]):
+        return summary
+    return ""
+
+
+def _chat_human_message_after_repair(summary: str) -> str:
+    low = (summary or "").lower()
+    if "количеств" in low or "просил" in low:
+        return "Я поправила количество и собрала черновики в нужной форме."
+    if "scaffold" in low or "пошаг" in low or "сух" in low or "лесенк" in low:
+        return "Я поправила формат и собрала лесенку в нужной форме."
+    return "Я поправила черновики по самопроверке."
+
+
+def _chat_sanitize_visible_assistant_message(message: str) -> str:
+    low = (message or "").lower()
+    if "blueprint пока не удовлетворяет" in low or "needs-revision" in low or "самопровер" in low and "стоп" in low:
+        return "Я поправила формат и собрала более точные черновики."
+    return message
 
 
 def _dict_ci_get(obj: Any, *keys: str) -> Any:
@@ -670,6 +742,19 @@ def _chat_extract_anchor_concept(text: str) -> str:
     low = str(text or "").strip().lower()
     if not low:
         return ""
+    # For routing hints prefer explicit programming anchors over broad
+    # learning-concept extraction. Long generated conditions can contain
+    # friendly filler that the generic extractor may misread as a topic.
+    if re.search(r"(?<![A-Za-zА-Яа-я0-9_])(?:if|else|elseif)(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE) or "ветвлен" in low or "условн" in low:
+        return "if"
+    if re.search(r"(?<![A-Za-zА-Яа-я0-9_])(?:switch|case|default)(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE):
+        return "switch"
+    if re.search(r"(?<![A-Za-zА-Яа-я0-9_])foreach(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE):
+        return "foreach"
+    if re.search(r"(?<![A-Za-zА-Яа-я0-9_])for(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE) or "цикл for" in low:
+        return "for"
+    if re.search(r"(?<![A-Za-zА-Яа-я0-9_])while(?![A-Za-zА-Яа-я0-9_])", low, flags=re.IGNORECASE) or "цикл while" in low:
+        return "while"
     learned = extract_learning_concept({"prompt": low, "sourceText": low})
     if learned:
         return learned.strip().lower()
@@ -1013,7 +1098,7 @@ def _chat_build_fallback_blueprint_condition(last_user: str, assistant: str, con
 
 def _chat_should_apply_ladder_style(profile: Dict[str, Any], proposal: Dict[str, Any]) -> bool:
     sid = str((profile or {}).get("id") or "").strip().lower()
-    if sid not in {"step-by-step-ladder", "micro-program-series"}:
+    if sid not in GUIDED_LADDER_SCENARIOS:
         return False
     draft = {"title": proposal.get("title"), "description": proposal.get("fullCondition") or proposal.get("conditionPreview")}
     return looks_too_dry_for_ladder(draft) or not looks_like_ladder_style(draft)
@@ -1021,7 +1106,7 @@ def _chat_should_apply_ladder_style(profile: Dict[str, Any], proposal: Dict[str,
 
 def _chat_should_force_ladder_style(payload: Dict[str, Any], last_user: str, prompt: str, proposals: list[Dict[str, Any]], scenario_profile: Dict[str, Any]) -> bool:
     sid = str((scenario_profile or {}).get("id") or "").strip().lower()
-    if sid in {"step-by-step-ladder", "micro-program-series"}:
+    if sid in GUIDED_LADDER_SCENARIOS:
         return True
     routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, prompt, proposals)
     if str(routing_hint.get("mode") or "").strip().lower() == "anchor-onboarding":
@@ -1037,9 +1122,10 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     exact = [str(x).strip() for x in (contract.get("exactSnippets") if isinstance(contract.get("exactSnippets"), list) else []) if str(x).strip()]
     forbidden = [str(x).strip() for x in (contract.get("forbiddenSnippets") if isinstance(contract.get("forbiddenSnippets"), list) else []) if str(x).strip()]
     clean: list[Dict[str, Any]] = []
-    scenario_profile = detect_scenario_profile({**payload, "prompt": prompt, "sourceText": prompt}, requested_count=max(1, min(5, count)))
+    count_cap = max(1, min(12, count or 1))
+    scenario_profile = detect_scenario_profile({**payload, "prompt": prompt, "sourceText": prompt}, requested_count=count_cap)
     concept = extract_learning_concept({**payload, "prompt": prompt, "sourceText": prompt})
-    for index, item in enumerate(proposals[: max(1, min(5, count))], start=1):
+    for index, item in enumerate(proposals[:count_cap], start=1):
         if not isinstance(item, dict):
             continue
         existing_item = existing[index - 1] if index - 1 < len(existing) and isinstance(existing[index - 1], dict) else {}
@@ -1091,18 +1177,39 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             ],
         }
         clean.append(proposal)
+    base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
+    base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
+    if clean and len(clean) < count_cap:
+        for i in range(len(clean) + 1, count_cap + 1):
+            existing_item = existing[i - 1] if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else {}
+            seed_condition = str(existing_item.get("fullCondition") or existing_item.get("conditionPreview") or base_condition or prompt or last_user or "").strip()
+            clean.append({
+                "id": existing_item.get("id") or None,
+                "title": str(existing_item.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
+                "assignmentType": str(existing_item.get("assignmentType") or assignment_type or "code-test").strip() or "code-test",
+                "difficulty": max(1, min(5, int(existing_item.get("difficulty") or difficulty or 2))),
+                "goal": str(existing_item.get("goal") or "").strip(),
+                "conditionPreview": seed_condition[:2000],
+                "fullCondition": seed_condition[:8000],
+                "mustKeep": exact[:10],
+                "avoid": forbidden[:10],
+                "placementAfterAssignmentId": existing_item.get("placementAfterAssignmentId"),
+                "placementAfterTitle": existing_item.get("placementAfterTitle"),
+                "placementReason": existing_item.get("placementReason"),
+                "status": existing_item.get("status") or "draft",
+                "publicTests": existing_item.get("publicTests") if isinstance(existing_item.get("publicTests"), list) else [],
+                "hiddenTests": existing_item.get("hiddenTests") if isinstance(existing_item.get("hiddenTests"), list) else [],
+            })
     if clean:
         if _chat_should_force_ladder_style(payload, last_user, prompt, clean, scenario_profile):
             styled: list[Dict[str, Any]] = []
-            for index, proposal in enumerate(clean, start=1):
-                if _chat_should_apply_ladder_style({"id": "step-by-step-ladder"}, proposal):
-                    proposal = beautify_ladder_proposal(proposal, concept, index, max(1, min(5, count)))
+            for index, proposal in enumerate(clean[:count_cap], start=1):
+                if _chat_should_apply_ladder_style({"id": "guided-onboarding-ladder"}, proposal):
+                    proposal = beautify_ladder_proposal(proposal, concept, index, count_cap)
                 styled.append(proposal)
             return styled
-        return clean
-    base_text = str(result.get("assistantMessage") or "").strip() or str(prompt or last_user or "").strip()
-    base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
-    default_count = max(1, min(3, count or 1))
+        return clean[:count_cap]
+    default_count = count_cap
     fallback_items = [{
         "id": (existing[i - 1].get("id") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else None),
         "title": str(result.get("title") or (existing[i - 1].get("title") if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else f"Вариант {i}")).strip() or f"Вариант {i}",
@@ -1116,7 +1223,7 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
         "publicTests": [],
         "hiddenTests": [],
     } for i in range(1, default_count + 1)]
-    if str((scenario_profile or {}).get("id") or "").strip().lower() in {"step-by-step-ladder", "micro-program-series"}:
+    if str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS:
         fallback_items = [beautify_ladder_proposal(item, concept, idx, default_count) for idx, item in enumerate(fallback_items, start=1)]
     return fallback_items
 
@@ -1448,12 +1555,32 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
         result["actions"] = [_coerce_batch_chat_action(a) for a in result.get("actions") or [] if isinstance(a, dict)]
     prompt = str(result.get("prompt") or result.get("summary") or result.get("assistantMessage") or "").strip()
     latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
-    if latest_intent_kind in {"generate", "revise-blueprint"} and isinstance(result.get("draftBlueprint"), dict):
+    revision_summary = _chat_recoverable_revision_summary(payload)
+    if revision_summary and _chat_has_blueprint(payload):
+        repair_prompt = " ".join(part for part in [last_user, prompt, revision_summary] if str(part or "").strip())
+        repair_count = _chat_extract_requested_count(repair_prompt) or len(_chat_blueprint_proposals(payload)) or 1
+        proposals = _chat_build_blueprint_proposals(payload, result, last_user, repair_prompt, repair_count, _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
+        routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, repair_prompt, proposals)
+        return {
+            "assistantMessage": _chat_human_message_after_repair(revision_summary),
+            "actions": [{
+                "name": "revise_chat_blueprint",
+                "reason": "Автоматически исправляю recoverable needs-revision по количеству/стилю/scaffold без показа внутренней ошибки пользователю.",
+                "arguments": {
+                    "courseId": _chat_pick_course_id(payload, result),
+                    "summary": _chat_human_message_after_repair(revision_summary),
+                    "proposals": proposals,
+                    **({"routingHint": routing_hint} if routing_hint else {}),
+                },
+            }],
+            "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
+        }
+    if latest_intent_kind in {"generate", "revise-blueprint", "show-blueprint"} and isinstance(result.get("draftBlueprint"), dict):
         proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), max(1, len(_chat_blueprint_proposals(payload)) or 1)), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
         action_name = "revise_chat_blueprint" if latest_intent_kind == "revise-blueprint" and _chat_has_blueprint(payload) else "save_chat_blueprint"
         autonomous = _chat_is_autonomous_mode(payload)
         scenario_profile = detect_scenario_profile({**payload, "prompt": prompt, "sourceText": prompt}, requested_count=_chat_safe_count(result.get("count"), max(1, len(proposals) or 1)))
-        if scenario_should_bypass_blueprint(scenario_profile, autonomous, last_user):
+        if latest_intent_kind == "generate" and scenario_should_bypass_blueprint(scenario_profile, autonomous, last_user):
             primary = proposals[0] if proposals else {}
             count = _chat_safe_count(result.get("count"), max(1, len(proposals) or 1))
             result["actions"] = [{
@@ -1494,7 +1621,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
             },
         }]
         return {
-            "assistantMessage": str(result.get("assistantMessage") or "").strip() or assistant_fallback,
+            "assistantMessage": _chat_sanitize_visible_assistant_message(str(result.get("assistantMessage") or "").strip() or assistant_fallback),
             "actions": result.get("actions") or [],
             "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
         }
@@ -1527,7 +1654,7 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     llm_msg = str(result.get("assistantMessage") or "").strip()
     if llm_msg and len(llm_msg) > 40:
         return {
-            "assistantMessage": llm_msg,
+            "assistantMessage": _chat_sanitize_visible_assistant_message(llm_msg),
             "actions": [],
             "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
         }

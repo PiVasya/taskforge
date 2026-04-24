@@ -14,6 +14,11 @@ internal static class AiGenerationScenarioPromptAdapter
 
         return profile.Id switch
         {
+            "guided-onboarding-ladder" =>
+                $"Сгенерируй {count} задач-обучалок для курса «{courseTitle}» в формате friendly walkthrough, как первое вводное задание." +
+                conceptClause +
+                " Это не просто серия с ростом сложности: каждое условие должно иметь дружелюбное вступление, блок «Следуй шагам:», короткие нумерованные шаги, пояснения в скобках и финальную фразу про запуск/видимый результат.",
+
             "step-by-step-ladder" =>
                 $"Сгенерируй {count} задач для курса «{courseTitle}» в формате очень понятной пошаговой лесенки." +
                 conceptClause +
@@ -46,6 +51,11 @@ internal static class AiGenerationScenarioPromptAdapter
         var concept = AiLadderScenarioSupport.ExtractLearningConcept(memory, null, sourceText);
         var intro = profile.Id switch
         {
+            "guided-onboarding-ladder" =>
+                $"Пользователь просит обучающую лесенку из {count} задач в жанре friendly walkthrough." +
+                BuildConceptClause(concept, " Она должна мягко научить теме «", "».") +
+                " Сохраняй scaffold: вступление, «Следуй шагам:», 3-6 шагов, пояснения в скобках, финал про запуск.",
+
             "micro-program-series" =>
                 $"Пользователь просит серию из {count} маленьких самостоятельных учебных задач." +
                 BuildConceptClause(concept, " Они должны учить теме «", "»."),
@@ -87,6 +97,7 @@ internal static class AiGenerationScenarioPromptAdapter
 
         return profile.Id switch
         {
+            "guided-onboarding-ladder" => AiLadderScenarioSupport.BuildTitleHint(concept, currentTitleHint, 1, requestedCount),
             "micro-program-series" => AiLadderScenarioSupport.BuildTitleHint(concept, currentTitleHint, 1, requestedCount),
             "step-by-step-ladder" => AiLadderScenarioSupport.BuildTitleHint(concept, currentTitleHint, 1, requestedCount),
             "single-deep-task" => "Сильная задача",

@@ -4,6 +4,9 @@ internal static class AiGenerationScenarioCatalog
 {
     public static readonly IReadOnlyList<AiGenerationScenarioDefinition> Definitions = new List<AiGenerationScenarioDefinition>
     {
+        D("guided-onboarding-ladder", "Обучающая лесенка", "progression", "guided-onboarding-ladder", true, true, true, false, false, true, 5,
+            ["обучалк", "обучающ", "лесенк", "научить пользоваться", "научить работать", "перед if", "до if", "до первого if", "перед темой", "перед новой темой", "мягко подвести", "подвести к теме", "friendly walkthrough", "guided onboarding", "guided intro"],
+            ["одну сложную", "без разжёвывания", "без обучалки"]),
         D("step-by-step-ladder", "Лесенка", "progression", "guided-sequence", true, true, true, false, false, false, 5,
             ["лесенк", "пошаг", "шаг за шаг", "с нуля", "первые шаги", "маленьких программ", "серия маленьких"],
             ["одну сложную", "без разжёвывания"]),

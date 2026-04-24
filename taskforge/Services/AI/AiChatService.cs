@@ -3368,7 +3368,7 @@ public sealed class AiChatService
             .LastOrDefault();
 
         if (!string.IsNullOrWhiteSpace(validationSummary))
-            return $"Уточняю ответ по результатам самопроверки: {validationSummary}";
+            return "Я поправила формат и добираю черновики до нужной формы.";
         if (flow.Count > 0)
             return $"Продолжаю внутреннюю проверку: уже выполнила {string.Join(" → ", flow)} и сейчас добираю недостающий шаг, чтобы не отвечать вслепую.";
         return !string.IsNullOrWhiteSpace(memory.AgentState?.ObjectiveSummary)
@@ -3387,7 +3387,7 @@ public sealed class AiChatService
             .LastOrDefault();
         var objective = ShortenSingleLine(memory.AgentState?.ObjectiveSummary ?? memory.LatestExplicitInstruction ?? string.Empty, 180);
         if (!string.IsNullOrWhiteSpace(latestRevision))
-            return $"Остановила авто-цикл самопроверки, потому что замечание повторяется. Нужна явная правка направления от пользователя. Последний стоп-фактор: {latestRevision}";
+            return "Остановила авто-исправление, потому что одно и то же замечание повторяется. Нужна короткая правка направления от пользователя.";
         return !string.IsNullOrWhiteSpace(objective)
             ? $"Остановила авто-цикл по цели «{objective}». Нужна явная корректировка от пользователя, иначе агент будет повторять одни и те же шаги." 
             : "Остановила авто-цикл: дальнейшее автопродолжение дублирует предыдущие шаги и не даёт нового результата.";
@@ -3463,10 +3463,12 @@ public sealed class AiChatService
             return true;
 
         var status = (result.Status ?? string.Empty).Trim();
+        if (string.Equals(status, "needs-revision", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(status, "error", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, "needs-revision", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return string.IsNullOrWhiteSpace(result.Summary) && !string.IsNullOrWhiteSpace(result.NavigateTo);
@@ -7399,7 +7401,7 @@ private static string? DetectAnchorConceptFromText(string? text)
     private static bool RequestsStepByStepSeries(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null)
     {
         var scenario = AiGenerationScenarioRouter.Resolve(memory, prompt, sourceText, 5);
-        return scenario.Id is "step-by-step-ladder" or "micro-program-series";
+        return scenario.Id is "guided-onboarding-ladder" or "step-by-step-ladder" or "micro-program-series";
     }
 
     private static bool AllowsExplicitAnchorOnboarding(AiFoundryChatMemoryDto memory, string? prompt = null, string? sourceText = null, string? concept = null)
