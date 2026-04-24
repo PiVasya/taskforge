@@ -1342,12 +1342,19 @@ public sealed class AiChatService
 
                     var memory = BuildMemory(messages, session.PlanJson);
                     var current = memory.CurrentDraftBlueprint;
-                    if (current == null || current.Proposals.Count == 0)
-                        return FailTool("В этой сессии пока нет сохранённых примерных условий. Сначала собери их через чат.");
 
+                    // revise_chat_blueprint can also be used as a silent repair for a failed first
+                    // save_chat_blueprint attempt. In that path the validator rejected the raw
+                    // blueprint, so CurrentDraftBlueprint is still null, but the repaired proposals
+                    // are already present in the tool arguments. Treat it as a bootstrap revise
+                    // instead of failing and leaking pipeline internals back to the user.
                     var proposals = ReadChatBlueprintProposals(args, current);
                     if (proposals.Count == 0)
+                    {
+                        if (current == null || current.Proposals.Count == 0)
+                            return FailTool("В этой сессии пока нет сохранённых примерных условий. Сначала собери их через чат.");
                         return FailTool("Не удалось обновить примерные условия: proposals пустой или сломан.");
+                    }
 
                     var blueprintValidation = ValidateChatBlueprintProposals(memory, proposals, args);
                     if (blueprintValidation != null)
@@ -1359,13 +1366,13 @@ public sealed class AiChatService
                         return blueprintValidation;
                     }
 
-                    var nextRevision = Math.Max(ReadInt(args, "revision") ?? (current.Revision + 1), 1);
+                    var nextRevision = Math.Max(ReadInt(args, "revision") ?? ((current?.Revision ?? 0) + 1), 1);
                     var blueprint = new AiFoundryChatDraftBlueprintDto
                     {
                         Summary = ReadString(args, "summary") ?? BuildChatBlueprintSummaryText(proposals),
                         UpdatedAtUtc = DateTime.UtcNow,
                         Revision = nextRevision,
-                        Source = current.Source,
+                        Source = current?.Source ?? "chat",
                         ApprovedForDraft = ReadBool(args, "approvedForDraft") ?? false,
                         Proposals = proposals,
                     };
@@ -3387,7 +3394,7 @@ public sealed class AiChatService
             .LastOrDefault();
         var objective = ShortenSingleLine(memory.AgentState?.ObjectiveSummary ?? memory.LatestExplicitInstruction ?? string.Empty, 180);
         if (!string.IsNullOrWhiteSpace(latestRevision))
-            return "Остановила авто-исправление, потому что одно и то же замечание повторяется. Нужна короткая правка направления от пользователя.";
+            return "Я не стала показывать внутреннюю ошибку проверки. Черновики нужно пересобрать в более точной форме: сохранить нужное количество и дружелюбный пошаговый формат.";
         return !string.IsNullOrWhiteSpace(objective)
             ? $"Остановила авто-цикл по цели «{objective}». Нужна явная корректировка от пользователя, иначе агент будет повторять одни и те же шаги." 
             : "Остановила авто-цикл: дальнейшее автопродолжение дублирует предыдущие шаги и не даёт нового результата.";

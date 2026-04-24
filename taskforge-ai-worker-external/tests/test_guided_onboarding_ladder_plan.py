@@ -116,5 +116,69 @@ class GuidedOnboardingLadderPlanTests(unittest.TestCase):
         self.assertEqual(contract["scenarioId"], "guided-onboarding-ladder")
 
 
+class GuidedOnboardingRealExecutionPathTests(unittest.TestCase):
+    def test_direct_save_action_is_repaired_before_tool_call(self):
+        user = "Мне нужны задачи обучалки к if\n\nсделай набор черновиков обучалок перед if"
+        data = {
+            "courseId": "c1",
+            "conversation": [{"role": "user", "content": user}],
+            "memory": {
+                "latestIntentKind": "generate",
+                "latestExplicitInstruction": user,
+                "summary": "Дирижёр следит: Количество новых задач должно быть ровно 5. Нужна серия маленьких программ, которые пошагово учат самому использованию if.",
+            },
+        }
+        result = {
+            "assistantMessage": "Сохраняю условия",
+            "actions": [{
+                "name": "save_chat_blueprint",
+                "reason": "raw llm action",
+                "arguments": {
+                    "courseId": "c1",
+                    "summary": "Три обучалки по if",
+                    "proposals": [
+                        {"title": "Обучалка 1", "fullCondition": "Напишите программу с if."},
+                        {"title": "Обучалка 2", "fullCondition": "Напишите программу с if else."},
+                        {"title": "Обучалка 3", "fullCondition": "Напишите программу с диапазоном."},
+                    ],
+                },
+            }],
+        }
+        normalized = worker._normalize_chat_turn_result(data, result)
+        self.assertEqual(normalized["actions"][0]["name"], "save_chat_blueprint")
+        proposals = normalized["actions"][0]["arguments"]["proposals"]
+        self.assertEqual(len(proposals), 5)
+        self.assertTrue(all("Следуй шагам" in proposal.get("fullCondition", "") for proposal in proposals))
+
+    def test_failed_first_save_needs_revision_repairs_without_current_blueprint(self):
+        user = "Мне нужны задачи обучалки к if\n\nсделай набор черновиков обучалок перед if"
+        raw = [
+            {"title": "Обучалка 1", "fullCondition": "Напишите программу с if."},
+            {"title": "Обучалка 2", "fullCondition": "Напишите программу с if else."},
+            {"title": "Обучалка 3", "fullCondition": "Напишите программу с диапазоном."},
+        ]
+        data = {
+            "courseId": "c1",
+            "conversation": [
+                {"role": "user", "content": user},
+                {"role": "assistant", "content": "Blueprint пока не удовлетворяет явной инструкции пользователя.", "toolResults": [{"status": "needs-revision", "summary": "Blueprint пока не удовлетворяет явной инструкции пользователя. Пользователь просил 5 задач(и), а в blueprint сейчас 3. Нужен дружелюбный пошаговый scaffold."}]},
+            ],
+            "memory": {
+                "latestIntentKind": "generate",
+                "latestExplicitInstruction": user,
+                "currentDraftBlueprint": None,
+            },
+        }
+        result = {
+            "assistantMessage": "Остановила авто-исправление, потому что одно и то же замечание повторяется.",
+            "actions": [{"name": "save_chat_blueprint", "arguments": {"courseId": "c1", "summary": "raw", "proposals": raw}}],
+        }
+        normalized = worker._normalize_chat_turn_result(data, result)
+        self.assertEqual(normalized["actions"][0]["name"], "revise_chat_blueprint")
+        self.assertNotIn("Остановила", normalized["assistantMessage"])
+        self.assertNotIn("needs-revision", normalized["assistantMessage"].lower())
+        self.assertEqual(len(normalized["actions"][0]["arguments"]["proposals"]), 5)
+
 if __name__ == "__main__":
     unittest.main()
+

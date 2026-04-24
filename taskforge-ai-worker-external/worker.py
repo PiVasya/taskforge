@@ -308,11 +308,14 @@ def _chat_extract_requested_count(text: str) -> int | None:
         "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12,
     }
     unit = r"(?:задач[а-я]*|задан[а-я]*|обучал[а-я]*|черновик[а-я]*|услови[яй][а-я]*|пример[а-я]*|программ[а-я]*|шаг[а-я]*|шт\.?|штук|items?|pieces|tasks?)"
-    for pattern in (
+    digit_patterns = (
         rf"(?<!\d)(\d{{1,2}})\s*{unit}",
+        rf"{unit}[^\d]{{0,48}}(?:ровно|минимум|не меньше|хотя бы|должно быть|должны быть|=|:)\s*(\d{{1,2}})(?!\d)",
+        rf"(?:ровно|минимум|не меньше|хотя бы)\s*(\d{{1,2}})\s*{unit}?",
         r"\bна\s+(\d{1,2})\b",
         rf"\b(\d{{1,2}})\s*(?:pieces|tasks?)\b",
-    ):
+    )
+    for pattern in digit_patterns:
         match = re.search(pattern, low, flags=re.IGNORECASE)
         if match:
             try:
@@ -322,6 +325,8 @@ def _chat_extract_requested_count(text: str) -> int | None:
                 return None
     for word, value in word_numbers.items():
         if re.search(rf"(?<![а-яa-z]){word}(?![а-яa-z])\s+{unit}", low, flags=re.IGNORECASE):
+            return max(1, min(50, value))
+        if re.search(rf"{unit}[^а-яa-z0-9]{{0,48}}(?:ровно|минимум|не меньше|хотя бы|должно быть|должны быть)?\s*(?<![а-яa-z]){word}(?![а-яa-z])", low, flags=re.IGNORECASE):
             return max(1, min(50, value))
     return None
 
@@ -723,7 +728,129 @@ def _chat_sanitize_visible_assistant_message(message: str) -> str:
     low = (message or "").lower()
     if "blueprint пока не удовлетворяет" in low or "needs-revision" in low or "самопровер" in low and "стоп" in low:
         return "Я поправила формат и собрала более точные черновики."
+    if "остановила авто-исправление" in low or "одно и то же замечание повторяется" in low:
+        return "Я поправила формат и собрала более точные черновики."
     return message
+
+
+def _chat_memory_text_fragments(payload: Dict[str, Any]) -> list[str]:
+    memory = _chat_memory(payload)
+    fragments: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        if text:
+            fragments.append(text)
+
+    for key in (
+        "latestExplicitInstruction", "latestTeachingScript", "summary",
+        "canonicalObjective", "canonicalUserGoal", "latestUserGoal",
+    ):
+        add(_dict_ci_get(memory, key))
+    for key in ("recentGoals", "executionHardRules", "recentEntities"):
+        values = _dict_ci_get(memory, key)
+        if isinstance(values, list):
+            for item in values[-8:]:
+                add(item)
+    agent_state = memory.get("agentState") if isinstance(memory.get("agentState"), dict) else {}
+    for key in (
+        "objectiveSummary", "stageSummary", "nextSuggestedAction", "openQuestion",
+        "blockerSummary", "directorInstruction", "canonicalObjective", "currentGoal",
+    ):
+        add(_dict_ci_get(agent_state, key))
+    return fragments[:24]
+
+
+def _chat_requested_count_contract(payload: Dict[str, Any], result: Dict[str, Any] | None = None, *texts: str) -> int | None:
+    result = result if isinstance(result, dict) else {}
+    raw_values: list[Any] = [result.get("count"), result.get("requestedCount")]
+    raw = result.get("draftBlueprint") if isinstance(result.get("draftBlueprint"), dict) else {}
+    raw_values.extend([raw.get("count"), raw.get("requestedCount")])
+    for value in raw_values:
+        if isinstance(value, int) and value > 0:
+            return max(1, min(12, value))
+        parsed = _chat_extract_requested_count(str(value or ""))
+        if parsed:
+            return max(1, min(12, parsed))
+    # User/director memory is the contract. Model summaries like "Три обучалки"
+    # are merely the LLM's flawed attempt and must not override the requested count.
+    for text in _chat_memory_text_fragments(payload) + list(texts):
+        parsed = _chat_extract_requested_count(str(text or ""))
+        if parsed:
+            return max(1, min(12, parsed))
+    return None
+
+
+def _chat_result_from_blueprint_action(action: Dict[str, Any], fallback: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    fallback = fallback if isinstance(fallback, dict) else {}
+    args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+    fallback_draft = fallback.get("draftBlueprint") if isinstance(fallback.get("draftBlueprint"), dict) else {}
+    draft = {
+        "summary": args.get("summary") or fallback_draft.get("summary"),
+        "proposals": args.get("proposals") if isinstance(args.get("proposals"), list) else [],
+    }
+    return {
+        **fallback,
+        "assistantMessage": fallback.get("assistantMessage") or args.get("summary") or "",
+        "summary": args.get("summary") or fallback.get("summary"),
+        "count": args.get("count") or fallback.get("count"),
+        "draftBlueprint": draft,
+    }
+
+
+def _chat_first_blueprint_write_action(result: Dict[str, Any]) -> Dict[str, Any]:
+    actions = result.get("actions") if isinstance(result.get("actions"), list) else []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        name = str(action.get("name") or "").strip()
+        args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+        if name in {"save_chat_blueprint", "revise_chat_blueprint"} and isinstance(args.get("proposals"), list):
+            return action
+    return {}
+
+
+def _chat_repair_blueprint_write_result(payload: Dict[str, Any], result: Dict[str, Any], revision_summary: str = "", force_revise: bool = False) -> Dict[str, Any]:
+    last_user = _chat_last_user_text(payload)
+    action = _chat_first_blueprint_write_action(result)
+    source_result = _chat_result_from_blueprint_action(action, result) if action else result
+    prompt = " ".join(part for part in [
+        last_user,
+        str(source_result.get("prompt") or ""),
+        str(source_result.get("summary") or ""),
+        str(source_result.get("assistantMessage") or ""),
+        revision_summary,
+    ] if str(part or "").strip())
+    raw = source_result.get("draftBlueprint") if isinstance(source_result.get("draftBlueprint"), dict) else {}
+    raw_count = len(raw.get("proposals") or []) if isinstance(raw.get("proposals"), list) else 0
+    count = _chat_requested_count_contract(payload, source_result, prompt, revision_summary) or raw_count or len(_chat_blueprint_proposals(payload)) or 1
+    proposals = _chat_build_blueprint_proposals(
+        payload,
+        source_result,
+        last_user,
+        prompt,
+        count,
+        _chat_pick_assignment_type(payload, source_result),
+        _chat_pick_difficulty(payload, source_result),
+    )
+    routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, prompt, proposals)
+    action_name = "revise_chat_blueprint" if (force_revise or _chat_has_blueprint(payload) or revision_summary) else "save_chat_blueprint"
+    human = _chat_human_message_after_repair(revision_summary) if revision_summary else "Я собрала лесенку в нужной форме."
+    args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+    return {
+        "assistantMessage": _chat_sanitize_visible_assistant_message(human),
+        "actions": [{
+            "name": action_name,
+            "reason": "Автоматически чиню blueprint по count/style/scaffold до tool-call, чтобы не сохранять сырой вариант.",
+            "arguments": {
+                "courseId": args.get("courseId") or _chat_pick_course_id(payload, source_result),
+                "summary": str(raw.get("summary") or args.get("summary") or human).strip()[:300],
+                "proposals": proposals,
+                **({"routingHint": routing_hint} if routing_hint else {}),
+            },
+        }],
+        "sessionTitle": source_result.get("sessionTitle") or result.get("sessionTitle") or _chat_build_session_title(payload),
+    }
 
 
 def _dict_ci_get(obj: Any, *keys: str) -> Any:
@@ -1556,25 +1683,8 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
     prompt = str(result.get("prompt") or result.get("summary") or result.get("assistantMessage") or "").strip()
     latest_intent_kind = _chat_latest_intent_kind(payload, last_user, prompt)
     revision_summary = _chat_recoverable_revision_summary(payload)
-    if revision_summary and _chat_has_blueprint(payload):
-        repair_prompt = " ".join(part for part in [last_user, prompt, revision_summary] if str(part or "").strip())
-        repair_count = _chat_extract_requested_count(repair_prompt) or len(_chat_blueprint_proposals(payload)) or 1
-        proposals = _chat_build_blueprint_proposals(payload, result, last_user, repair_prompt, repair_count, _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
-        routing_hint = _chat_build_blueprint_routing_hint(payload, last_user, repair_prompt, proposals)
-        return {
-            "assistantMessage": _chat_human_message_after_repair(revision_summary),
-            "actions": [{
-                "name": "revise_chat_blueprint",
-                "reason": "Автоматически исправляю recoverable needs-revision по количеству/стилю/scaffold без показа внутренней ошибки пользователю.",
-                "arguments": {
-                    "courseId": _chat_pick_course_id(payload, result),
-                    "summary": _chat_human_message_after_repair(revision_summary),
-                    "proposals": proposals,
-                    **({"routingHint": routing_hint} if routing_hint else {}),
-                },
-            }],
-            "sessionTitle": result.get("sessionTitle") or _chat_build_session_title(payload),
-        }
+    if revision_summary:
+        return _chat_repair_blueprint_write_result(payload, result, revision_summary=revision_summary, force_revise=True)
     if latest_intent_kind in {"generate", "revise-blueprint", "show-blueprint"} and isinstance(result.get("draftBlueprint"), dict):
         proposals = _chat_build_blueprint_proposals(payload, result, last_user, prompt, _chat_safe_count(result.get("count"), max(1, len(_chat_blueprint_proposals(payload)) or 1)), _chat_pick_assignment_type(payload, result), _chat_pick_difficulty(payload, result))
         action_name = "revise_chat_blueprint" if latest_intent_kind == "revise-blueprint" and _chat_has_blueprint(payload) else "save_chat_blueprint"
@@ -1647,8 +1757,19 @@ def _normalize_chat_turn_result(payload: Dict[str, Any], result: Dict[str, Any])
                     args["prompt"] = last_user or action_prompt
                 deduped_actions.append(action)
             result["actions"] = deduped_actions
+            blueprint_action = _chat_first_blueprint_write_action(result)
+            if blueprint_action:
+                source_result = _chat_result_from_blueprint_action(blueprint_action, result)
+                requested = _chat_requested_count_contract(payload, source_result, last_user, assistant_msg)
+                args = blueprint_action.get("arguments") if isinstance(blueprint_action.get("arguments"), dict) else {}
+                proposal_count = len(args.get("proposals") or []) if isinstance(args.get("proposals"), list) else 0
+                scenario_profile = detect_scenario_profile({**payload, "prompt": last_user or assistant_msg, "sourceText": last_user or assistant_msg}, requested_count=requested or proposal_count or 1)
+                force_repair = (requested is not None and proposal_count != requested) or str(scenario_profile.get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS
+                if force_repair:
+                    return _chat_repair_blueprint_write_result(payload, source_result)
             if _looks_like_progress_message(assistant_msg):
                 result["assistantMessage"] = "Принято. Выполняю запрос без лишних промежуточных сообщений."
+            result["assistantMessage"] = _chat_sanitize_visible_assistant_message(str(result.get("assistantMessage") or ""))
         return result
 
     llm_msg = str(result.get("assistantMessage") or "").strip()
