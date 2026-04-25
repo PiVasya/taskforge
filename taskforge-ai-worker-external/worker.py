@@ -928,6 +928,189 @@ def _chat_anchor_aliases(concept: str) -> list[str]:
     return aliases
 
 
+
+def _chat_expected_course_language(payload: Dict[str, Any]) -> str:
+    parts: list[str] = []
+    selected = payload.get("selectedCourse") if isinstance(payload.get("selectedCourse"), dict) else {}
+    if isinstance(selected, dict):
+        parts.append(str(selected.get("title") or ""))
+    memory = _chat_memory(payload)
+    inspection = memory.get("lastCourseInspection") if isinstance(memory.get("lastCourseInspection"), dict) else {}
+    if isinstance(inspection, dict):
+        parts.extend([str(inspection.get("courseTitle") or ""), str(inspection.get("summary") or "")])
+        for item in inspection.get("observations") or []:
+            parts.append(str(item or ""))
+        assignments = inspection.get("assignments") if isinstance(inspection.get("assignments"), list) else inspection.get("inspectedAssignments") if isinstance(inspection.get("inspectedAssignments"), list) else []
+        for item in assignments[:20]:
+            if isinstance(item, dict):
+                parts.extend([str(item.get("title") or ""), str(item.get("descriptionExcerpt") or item.get("description") or "")])
+    for key in ("summary", "latestExplicitInstruction", "latestTeachingScript"):
+        parts.append(str(memory.get(key) or ""))
+    hay = " ".join(parts).lower()
+    if re.search(r"c\+\+|с\+\+|\bcpp\b|c plus plus|си\s*\+\s*\+", hay, flags=re.IGNORECASE) or any(tok in hay for tok in ["#include", "std::", "cout", "cin"]):
+        return "cpp"
+    if re.search(r"c#|csharp|си\s*шарп", hay, flags=re.IGNORECASE):
+        return "csharp"
+    if re.search(r"python|питон|пайтон", hay, flags=re.IGNORECASE):
+        return "python"
+    if re.search(r"javascript|java\s*script|\bjs\b", hay, flags=re.IGNORECASE):
+        return "javascript"
+    return ""
+
+
+def _chat_python_markers_for_cpp(text: str) -> list[str]:
+    markers: list[str] = []
+    value = str(text or "")
+    low = value.lower()
+    checks = [
+        (r"\bint\s*\(\s*input\s*\(", "int(input())"),
+        (r"(?<![A-Za-zА-Яа-я0-9_])input\s*\(", "input()"),
+        (r"(?<![A-Za-zА-Яа-я0-9_])print\s*\(", "print()"),
+        (r"(?<![A-Za-zА-Яа-я0-9_])print(?![A-Za-zА-Яа-я0-9_])", "print"),
+        (r"(?<![A-Za-zА-Яа-я0-9_])elif(?![A-Za-zА-Яа-я0-9_])", "elif"),
+        (r"(?<![A-Za-zА-Яа-я0-9_])(?:True|False)(?![A-Za-zА-Яа-я0-9_])", "True/False"),
+        (r"\bpython\b|\bпитон\b|\bпайтон\b", "Python"),
+    ]
+    for pattern, label in checks:
+        if re.search(pattern, value, flags=re.IGNORECASE):
+            markers.append(label)
+    if "отступ в 4 пробела" in low or "важно для python" in low or "двоеточия" in low:
+        markers.append("Python indentation/colon rules")
+    return sorted(set(markers))
+
+
+def _chat_language_contract(payload: Dict[str, Any]) -> str:
+    language = _chat_expected_course_language(payload)
+    if language == "cpp":
+        return (
+            "Курс определён как C++. Все условия, подсказки и микрошаги должны быть строго про C++. "
+            "Используй лексику C++: cin/cout, фигурные скобки, точка с запятой, else if, true/false в нижнем регистре только если это реально нужно. "
+            "Запрещено: int(input()), input(), print(), elif, Python, True/False, правила Python-отступов и двоеточий."
+        )
+    if language:
+        return f"Сохраняй язык текущего курса: {language}. Не смешивай синтаксис другого языка."
+    return "Сохраняй язык текущего курса и не смешивай синтаксис соседних языков."
+
+
+def _chat_has_language_violation(payload: Dict[str, Any], text: str) -> bool:
+    return _chat_expected_course_language(payload) == "cpp" and bool(_chat_python_markers_for_cpp(text))
+
+
+def _chat_is_pre_anchor_request(payload: Dict[str, Any], last_user: str, prompt: str, concept: str) -> bool:
+    concept = str(concept or "").strip().lower()
+    if not concept:
+        return False
+    memory = _chat_memory(payload)
+    parts = [
+        last_user,
+        prompt,
+        str(memory.get("latestExplicitInstruction") or ""),
+        str(memory.get("latestTeachingScript") or ""),
+        " ".join(str(x or "") for x in (memory.get("recentGoals") or [])),
+    ]
+    hay = " ".join(str(x or "") for x in parts).lower()
+    if re.search(rf"перед\s+(?:перв\w+\s+)?{re.escape(concept)}", hay, flags=re.IGNORECASE):
+        return True
+    if re.search(rf"до\s+(?:перв\w+\s+)?{re.escape(concept)}", hay, flags=re.IGNORECASE):
+        return True
+    if any(marker in hay for marker in ["перед первым появлением", "до первого появления", "прежде чем вводить", "без самого", "слишком рано"]):
+        return concept in hay or (concept == "if" and any(x in hay for x in ["ветвлен", "условн"]))
+    return False
+
+
+def _chat_pre_anchor_seed_condition(concept: str, index: int, total_count: int) -> str:
+    concept_low = str(concept or "").strip().lower()
+    if concept_low == "if" or "ветв" in concept_low or "услов" in concept_low:
+        seeds = [
+            "Считай целое число x. Вычисли выражение x > 0 и сохрани результат проверки как 1 или 0 без условного оператора. Выведи этот результат на экран и запусти программу для положительного числа, отрицательного числа и нуля.",
+            "Считай два целых числа a и b. Выведи на экран три результата проверок: a > b, a == b и a < b как 1 или 0. Так ученик увидит, как программа получает ответы на вопросы без ветвления.",
+            "Считай целое число n. Найди остаток от деления n на 2 и выведи его на экран. Затем запусти программу для чётного и нечётного числа, чтобы подготовиться к будущему выбору между двумя случаями.",
+            "Считай целое число age. Вычисли выражение age >= 18 и выведи его как 1 или 0. Проверь программу на значениях 17, 18 и 19, чтобы увидеть работу границы.",
+            "Считай целое число score. Вычисли две проверки: score >= 60 и score < 60, выведи оба результата как 1 или 0. Запусти программу для 59 и 60, чтобы понять, как одна проверка становится истинной, а другая ложной.",
+            "Считай целое число x. Вычисли три числовых флага: x < 0, x == 0 и x > 0, выведи их на отдельных строках как 1 или 0. Запусти программу для отрицательного числа, нуля и положительного числа.",
+        ]
+        return seeds[max(0, min(len(seeds) - 1, index - 1))]
+    return ladder_seed_condition(concept, index, total_count)
+
+
+def _chat_seed_condition_for_slot(payload: Dict[str, Any], last_user: str, prompt: str, concept: str, index: int, total_count: int) -> str:
+    if _chat_is_pre_anchor_request(payload, last_user, prompt, concept):
+        return _chat_pre_anchor_seed_condition(concept, index, total_count)
+    return ladder_seed_condition(concept, index, total_count)
+
+
+
+
+def _chat_beautify_concept_for_slot(payload: Dict[str, Any], last_user: str, prompt: str, concept: str) -> str:
+    if _chat_is_pre_anchor_request(payload, last_user, prompt, concept):
+        concept_low = str(concept or "").strip().lower()
+        if concept_low == "if" or "ветв" in concept_low or "услов" in concept_low:
+            return "проверки и сравнения"
+        return "подготовительная проверка"
+    return concept
+
+
+
+
+def _chat_assignment_has_explicit_anchor(text: str, concept: str) -> bool:
+    concept = str(concept or "").strip().lower()
+    value = str(text or "")
+    if not concept:
+        return False
+    if concept == "if":
+        return bool(re.search(r"(?<![A-Za-zА-Яа-я0-9_])if(?![A-Za-zА-Яа-я0-9_])", value, flags=re.IGNORECASE)
+                    or re.search(r"(?<![A-Za-zА-Яа-я0-9_])else\s+if(?![A-Za-zА-Яа-я0-9_])", value, flags=re.IGNORECASE)
+                    or re.search(r"оператор\s+if|конструкц\w*\s+if", value, flags=re.IGNORECASE))
+    if concept == "switch":
+        return bool(re.search(r"(?<![A-Za-zА-Яа-я0-9_])(?:switch|case|default)(?![A-Za-zА-Яа-я0-9_])", value, flags=re.IGNORECASE))
+    return bool(re.search(rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(concept)}(?![A-Za-zА-Яа-я0-9_])", value, flags=re.IGNORECASE))
+
+
+def _chat_first_anchor_placement(payload: Dict[str, Any], concept: str) -> dict[str, Any] | None:
+    concept = str(concept or "").strip().lower()
+    if not concept:
+        return None
+    memory = _chat_memory(payload)
+    inspection = memory.get("lastCourseInspection") if isinstance(memory.get("lastCourseInspection"), dict) else {}
+    assignments = []
+    if isinstance(inspection, dict):
+        raw = inspection.get("assignments") if isinstance(inspection.get("assignments"), list) else inspection.get("inspectedAssignments") if isinstance(inspection.get("inspectedAssignments"), list) else []
+        assignments = [x for x in raw if isinstance(x, dict)]
+    if not assignments:
+        return None
+    ordered = sorted(assignments, key=lambda x: int(x.get("sort") or x.get("Sort") or 0))
+    anchor_index = -1
+    for idx, item in enumerate(ordered):
+        hay = " ".join(str(item.get(k) or "") for k in ["title", "Title", "descriptionExcerpt", "description", "aiOverview"])
+        if _chat_assignment_has_explicit_anchor(hay, concept):
+            anchor_index = idx
+            break
+    if anchor_index <= 0:
+        return None
+    previous = ordered[anchor_index - 1]
+    anchor = ordered[anchor_index]
+    return {
+        "placementAfterAssignmentId": previous.get("id") or previous.get("Id"),
+        "placementAfterTitle": previous.get("title") or previous.get("Title"),
+        "placementReason": f"strict-pre-anchor-before-{anchor.get('title') or anchor.get('Title') or concept}",
+    }
+
+
+def _chat_apply_strict_pre_anchor_placement(payload: Dict[str, Any], proposals: list[Dict[str, Any]], last_user: str, prompt: str, concept: str) -> list[Dict[str, Any]]:
+    if not _chat_is_pre_anchor_request(payload, last_user, prompt, concept):
+        return proposals
+    placement = _chat_first_anchor_placement(payload, concept)
+    if not placement:
+        return proposals
+    result: list[Dict[str, Any]] = []
+    for proposal in proposals:
+        if not isinstance(proposal, dict):
+            continue
+        aligned = dict(proposal)
+        aligned.update({k: v for k, v in placement.items() if v})
+        result.append(aligned)
+    return result
+
 def _chat_proposal_uses_explicit_anchor(proposal: Dict[str, Any], concept: str) -> bool:
     concept = str(concept or "").strip().lower()
     if not concept:
@@ -957,10 +1140,14 @@ def _chat_is_blueprint_assent_request(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low:
         return False
-    return any(marker in low for marker in [
-        "согласен", "давай", "ок", "окей", "погнали", "напиши чернов", "наброс",
-        "черновики к этим", "к этим задач", "для этих задач", "пиши чернов",
+    explicit_approval = any(marker in low for marker in [
+        "согласен", "одобряю", "утверждаю", "подходит", "всё верно", "все верно", "оставляй так", "именно так",
     ])
+    explicit_target = any(marker in low for marker in ["к этим задач", "для этих задач", "эти варианты", "по этим условиям"])
+    explicit_draft_action = any(marker in low for marker in [
+        "напиши чернов", "пиши чернов", "сделай чернов", "закидывай в чернов", "набросай чернов",
+    ])
+    return explicit_approval or (explicit_target and explicit_draft_action)
 
 
 def _chat_build_blueprint_routing_hint(payload: Dict[str, Any], last_user: str, prompt: str, proposals: list[Dict[str, Any]]) -> dict[str, Any]:
@@ -1270,19 +1457,27 @@ def _chat_blueprint_slot_generation_prompt(
         text = str(item.get("fullCondition") or item.get("conditionPreview") or "").strip()
         if text:
             existing_lines.append(f"{idx}. {title}: {text[:700]}")
-    seed = ladder_seed_condition(concept, slot_index, total_count)
+    seed = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, slot_index, total_count)
     user_goal = last_user or prompt or str((_chat_memory(payload) or {}).get("latestExplicitInstruction") or "")
+    language_contract = _chat_language_contract(payload)
+    pre_anchor_contract = (
+        f"Режим: это подготовка ДО первого {concept}. В этом слоте нельзя учить сам {concept}, нельзя писать if/else/elif, нельзя давать код с этой конструкцией. Нужно тренировать только базу перед ней: ввод, вывод, сравнения, остаток, логические результаты 1/0.\n"
+        if _chat_is_pre_anchor_request(payload, last_user, prompt, concept) else ""
+    )
     return (
         "Ты генерируешь ровно один недостающий слот для chat blueprint учебной лесенки.\n"
         "Это НЕ финальный draft и НЕ сообщение пользователю. Нужен только JSON одной задачи.\n\n"
         f"Запрос пользователя:\n{user_goal[:1600]}\n\n"
         f"Тема/якорь: {concept or 'та же тема, что в запросе'}\n"
         f"Номер слота: {slot_index} из {total_count}.\n"
+        f"Языковой контракт: {language_contract}\n"
+        f"{pre_anchor_contract}"
         "Уже собранные предыдущие слоты:\n"
         f"{chr(10).join(existing_lines) if existing_lines else '- пока нет'}\n\n"
         "Сгенерируй следующий слот так, чтобы он был реальной маленькой программой ученика, а не мета-комментарием пайплайна.\n"
         "Стиль: дружелюбная обучалка. Обязательно: короткое вступление, блок 'Следуй шагам:', 3-5 нумерованных шагов, пояснения в скобках, финальная фраза про запуск программы.\n"
         "Запрещено писать: 'я подготовил', 'сохранил черновики', 'посмотри условия', 'одобряю', 'blueprint', 'validator', 'needs-revision'.\n"
+        "Запрещено превращать поздний слот в обрывок вроде 'Следуй шагам: 1' или список мыслей без действий ученика.\n"
         "Не повторяй предыдущие слоты. Делай следующий логический микрошаг.\n"
         f"Если сомневаешься, опирайся на этот seed, но перепиши его красиво: {seed}\n\n"
         "Верни строго JSON:\n"
@@ -1297,6 +1492,9 @@ def _chat_normalize_generated_slot(
     total_count: int,
     assignment_type: str,
     difficulty: int,
+    payload: Dict[str, Any],
+    last_user: str,
+    prompt: str,
 ) -> Dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -1307,6 +1505,12 @@ def _chat_normalize_generated_slot(
     goal = str(item.get("goal") or item.get("microGoal") or "").strip()
     combined = "\n".join([title, cond, full, goal])
     if not full or looks_like_meta_task_filler(combined):
+        return None
+    if re.search(r"следуй[ \t]+шагам[ \t]*:[ \t]*\d+", combined, flags=re.IGNORECASE):
+        return None
+    if _chat_has_language_violation(payload, combined):
+        return None
+    if _chat_is_pre_anchor_request(payload, last_user, prompt, concept) and _chat_assignment_has_explicit_anchor(combined, concept):
         return None
     proposal = {
         "id": None,
@@ -1325,7 +1529,7 @@ def _chat_normalize_generated_slot(
         "publicTests": [],
         "hiddenTests": [],
     }
-    return beautify_ladder_proposal(proposal, concept, slot_index, total_count)
+    return beautify_ladder_proposal(proposal, _chat_beautify_concept_for_slot(payload, last_user, prompt, concept), slot_index, total_count)
 
 
 def _chat_generate_missing_ladder_slot(
@@ -1358,7 +1562,7 @@ def _chat_generate_missing_ladder_slot(
     except Exception as ex:
         logger.warning(f"chat blueprint slot expansion failed: {ex} [{_job_context({}, payload)}]")
         return None
-    return _chat_normalize_generated_slot(raw, concept, slot_index, total_count, assignment_type, difficulty)
+    return _chat_normalize_generated_slot(raw, concept, slot_index, total_count, assignment_type, difficulty, payload, last_user, prompt)
 
 
 def _chat_fallback_missing_ladder_slot(
@@ -1369,8 +1573,10 @@ def _chat_fallback_missing_ladder_slot(
     difficulty: int,
     exact: list[str],
     forbidden: list[str],
+    seed_override: str | None = None,
+    beautify_concept: str | None = None,
 ) -> Dict[str, Any]:
-    seed = ladder_seed_condition(concept, slot_index, total_count)
+    seed = seed_override or ladder_seed_condition(concept, slot_index, total_count)
     item = {
         "id": None,
         "title": f"Вариант {slot_index}",
@@ -1388,7 +1594,7 @@ def _chat_fallback_missing_ladder_slot(
         "publicTests": [],
         "hiddenTests": [],
     }
-    return beautify_ladder_proposal(item, concept, slot_index, total_count)
+    return beautify_ladder_proposal(item, beautify_concept or concept, slot_index, total_count)
 
 
 def _chat_ladder_slot_fingerprint(proposal: Dict[str, Any]) -> str:
@@ -1452,7 +1658,9 @@ def _chat_generate_sequential_ladder_slots(
         if generated_slot is None:
             hint = hints[slot_index - 1] if slot_index - 1 < len(hints) and isinstance(hints[slot_index - 1], dict) else {}
             hinted_text = str(hint.get("fullCondition") or hint.get("conditionPreview") or hint.get("summary") or "").strip()
-            generated_slot = _chat_fallback_missing_ladder_slot(concept, slot_index, count_cap, assignment_type, difficulty, exact, forbidden)
+            seed = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, slot_index, count_cap)
+            beautify_concept = "проверки и сравнения" if _chat_is_pre_anchor_request(payload, last_user, prompt, concept) else None
+            generated_slot = _chat_fallback_missing_ladder_slot(concept, slot_index, count_cap, assignment_type, difficulty, exact, forbidden, seed, beautify_concept)
             if hinted_text and not looks_like_meta_task_filler(hinted_text):
                 generated_slot["placementReason"] = "sequential-slot-fallback-from-safe-hint"
         generated_slot["placementReason"] = str(generated_slot.get("placementReason") or "sequential-slot-generated")
@@ -1490,7 +1698,9 @@ def _chat_expand_missing_ladder_slots(
             difficulty,
         )
         if generated is None:
-            generated = _chat_fallback_missing_ladder_slot(concept, slot_index, count_cap, assignment_type, difficulty, exact, forbidden)
+            seed = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, slot_index, count_cap)
+            beautify_concept = "проверки и сравнения" if _chat_is_pre_anchor_request(payload, last_user, prompt, concept) else None
+            generated = _chat_fallback_missing_ladder_slot(concept, slot_index, count_cap, assignment_type, difficulty, exact, forbidden, seed, beautify_concept)
         expanded.append(generated)
     return expanded
 
@@ -1525,7 +1735,9 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             proposals,
         )
         if sequential and len(sequential) >= count_cap:
-            return [beautify_ladder_proposal(item, concept, idx, count_cap) for idx, item in enumerate(sequential[:count_cap], start=1)]
+            beautify_concept = _chat_beautify_concept_for_slot(payload, last_user, prompt, concept)
+            items = [beautify_ladder_proposal(item, beautify_concept, idx, count_cap) for idx, item in enumerate(sequential[:count_cap], start=1)]
+            return _chat_apply_strict_pre_anchor_placement(payload, items, last_user, prompt, concept)
     for index, item in enumerate(proposals[:count_cap], start=1):
         if not isinstance(item, dict):
             continue
@@ -1549,13 +1761,14 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
         if not full_condition:
             full_condition = _chat_build_fallback_blueprint_condition(last_user, str(result.get("assistantMessage") or ""), contract)
         combined_for_meta_check = "\n".join(str(x or "") for x in [title, goal, cond, full_condition])
-        if looks_like_meta_task_filler(combined_for_meta_check):
-            seed = ladder_seed_condition(concept, index, count_cap)
+        pre_anchor_conflict = _chat_is_pre_anchor_request(payload, last_user, prompt, concept) and _chat_assignment_has_explicit_anchor(combined_for_meta_check, concept)
+        if looks_like_meta_task_filler(combined_for_meta_check) or _chat_has_language_violation(payload, combined_for_meta_check) or pre_anchor_conflict:
+            seed = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, index, count_cap)
             cond = seed
             full_condition = seed
-            if looks_like_meta_task_filler(title):
+            if looks_like_meta_task_filler(title) or _chat_has_language_violation(payload, title) or pre_anchor_conflict:
                 title = f"Вариант {index}"
-            if looks_like_meta_task_filler(goal):
+            if looks_like_meta_task_filler(goal) or _chat_has_language_violation(payload, goal) or pre_anchor_conflict:
                 goal = ""
         proposal = {
             "id": item.get("id") or existing_item.get("id") or None,
@@ -1591,8 +1804,8 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
     base_text = "" if looks_like_meta_task_filler(raw_base_text) else raw_base_text
     base_text = base_text or str(prompt or last_user or "").strip()
     base_condition = _chat_build_fallback_blueprint_condition(last_user, base_text, contract) or str(result.get("conditionPreview") or result.get("summary") or base_text or prompt or last_user or "").strip()
-    if looks_like_meta_task_filler(base_condition):
-        base_condition = ladder_seed_condition(concept, max(1, len(clean) + 1), count_cap)
+    if looks_like_meta_task_filler(base_condition) or _chat_has_language_violation(payload, base_condition):
+        base_condition = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, max(1, len(clean) + 1), count_cap)
     if clean and len(clean) < count_cap:
         if str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS:
             clean = _chat_expand_missing_ladder_slots(
@@ -1612,8 +1825,8 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             for i in range(len(clean) + 1, count_cap + 1):
                 existing_item = existing[i - 1] if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else {}
                 seed_condition = str(existing_item.get("fullCondition") or existing_item.get("conditionPreview") or base_condition or prompt or last_user or "").strip()
-                if looks_like_meta_task_filler(seed_condition) or not seed_condition:
-                    seed_condition = ladder_seed_condition(concept, i, count_cap)
+                if looks_like_meta_task_filler(seed_condition) or _chat_has_language_violation(payload, seed_condition) or not seed_condition:
+                    seed_condition = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, i, count_cap)
                 clean.append({
                     "id": existing_item.get("id") or None,
                     "title": str(existing_item.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
@@ -1650,17 +1863,17 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             styled: list[Dict[str, Any]] = []
             for index, proposal in enumerate(clean[:count_cap], start=1):
                 if _chat_should_apply_ladder_style({"id": "guided-onboarding-ladder"}, proposal):
-                    proposal = beautify_ladder_proposal(proposal, concept, index, count_cap)
+                    proposal = beautify_ladder_proposal(proposal, _chat_beautify_concept_for_slot(payload, last_user, prompt, concept), index, count_cap)
                 styled.append(proposal)
-            return styled
-        return clean[:count_cap]
+            return _chat_apply_strict_pre_anchor_placement(payload, styled, last_user, prompt, concept)
+        return _chat_apply_strict_pre_anchor_placement(payload, clean[:count_cap], last_user, prompt, concept)
     default_count = count_cap
     fallback_items = []
     for i in range(1, default_count + 1):
         existing_item = existing[i - 1] if i - 1 < len(existing) and isinstance(existing[i - 1], dict) else {}
         seed_condition = str(existing_item.get("fullCondition") or existing_item.get("conditionPreview") or base_condition or "").strip()
-        if looks_like_meta_task_filler(seed_condition) or not seed_condition:
-            seed_condition = ladder_seed_condition(concept, i, default_count)
+        if looks_like_meta_task_filler(seed_condition) or _chat_has_language_violation(payload, seed_condition) or not seed_condition:
+            seed_condition = _chat_seed_condition_for_slot(payload, last_user, prompt, concept, i, default_count)
         fallback_items.append({
             "id": existing_item.get("id"),
             "title": str(result.get("title") or existing_item.get("title") or f"Вариант {i}").strip() or f"Вариант {i}",
@@ -1675,8 +1888,9 @@ def _chat_build_blueprint_proposals(payload: Dict[str, Any], result: Dict[str, A
             "hiddenTests": [],
         })
     if str((scenario_profile or {}).get("id") or "").strip().lower() in GUIDED_LADDER_SCENARIOS:
-        fallback_items = [beautify_ladder_proposal(item, concept, idx, default_count) for idx, item in enumerate(fallback_items, start=1)]
-    return fallback_items
+        beautify_concept = _chat_beautify_concept_for_slot(payload, last_user, prompt, concept)
+        fallback_items = [beautify_ladder_proposal(item, beautify_concept, idx, default_count) for idx, item in enumerate(fallback_items, start=1)]
+    return _chat_apply_strict_pre_anchor_placement(payload, fallback_items, last_user, prompt, concept)
 
 
 def _chat_is_listing_request(text: str) -> bool:

@@ -705,12 +705,13 @@ def _compact_memory_for_chat(value: Any) -> Dict[str, Any]:
     if isinstance(value.get("lastCourseInspection"), dict):
         inspection = value.get("lastCourseInspection")
         observations = inspection.get("observations") if isinstance(inspection.get("observations"), list) else []
-        inspected = inspection.get("inspectedAssignments") if isinstance(inspection.get("inspectedAssignments"), list) else []
+        inspected = inspection.get("assignments") if isinstance(inspection.get("assignments"), list) else inspection.get("inspectedAssignments") if isinstance(inspection.get("inspectedAssignments"), list) else []
         memory["lastCourseInspection"] = {
             "summary": truncate_text(inspection.get("summary"), 220),
             "courseId": inspection.get("courseId"),
+            "courseTitle": truncate_text(inspection.get("courseTitle"), 100),
             "observations": [truncate_text(x, 120) for x in observations[:5] if normalize_text(x)],
-            "inspectedAssignments": [_compact_assignment_like_for_chat(x) for x in inspected[:6] if isinstance(x, dict)],
+            "assignments": [_compact_assignment_like_for_chat(x) for x in inspected[:10] if isinstance(x, dict)],
         }
     if isinstance(value.get("lastBridgePlan"), dict):
         plan = value.get("lastBridgePlan")
@@ -892,9 +893,11 @@ def build_chat_turn_prompt(job: Dict[str, Any], payload: Dict[str, Any]) -> str:
             "Если для честного ответа нужно сначала найти anchor, потом открыть соседние задания, потом открыть эталон и только после этого собрать новые условия — сделай весь этот цикл сам, а не останавливайся после первого шага. "
             "Разрешены цепочки до 3 действий внутри одного ответа модели, а backend может продолжить ещё несколько внутренних проходов, если после tool-result всё ещё не выполнены completion criteria. "
             "Если пользователь просит 'как первая задача', но у тебя нет подтверждённого эталона первой задачи, сначала открой ранние задания курса и только потом сохраняй blueprint. "
+            "Если selectedCourse/inspection показывает C++/С++, запрещено уезжать в Python: никаких int(input()), input(), print(), elif, True/False, Python-отступов и двоеточий. Для C++ используй cin/cout, фигурные скобки, точку с запятой и else if. "
             "Если пользователь явно указал точку вставки ('перед 20 заданием', 'после 7 задания'), все proposals обязаны держать именно этот anchor; нельзя молча переносить их в другое место. "
+            "Если inspection нашёл первое if в конкретном задании, placement каждого proposal должен быть строго перед этой точкой; не сохраняй blueprint после другого задания и не оставляй placement пустым. "
             "Если пользователь попросил конкретное количество задач, proposals в save_chat_blueprint/revise_chat_blueprint должны совпадать по количеству; это контракт, а не пожелание. Если видишь needs-revision только по count/style/scaffold, не показывай его пользователю: сразу верни revise_chat_blueprint с исправленными proposals. "
-            "Если запрос звучит как подготовка ДО новой конструкции (например if/else), не вводи целевую конструкцию преждевременно в ранних bridge-задачах, пока пользователь явно не попросил уже начинать с неё. "
+            "Если запрос звучит как подготовка ДО новой конструкции (например if/else), не вводи целевую конструкцию преждевременно: нельзя уже во 2-м слоте учить if/else/elif. Сначала тренируй ввод/вывод, сравнения, остаток, логические выражения как 1/0, границы и пары проверок без самой конструкции. "
             "prepare_bridge_plan нельзя вызывать без свежего analyze_course_progression для того же courseId и focus: сначала audit, потом plan. "
             "Если пользователь пишет 'не продолжай старый план', 'повтори заново' или 'все предыдущие черновики недействительны', старый bridge-plan и старый blueprint нужно считать устаревшими, а не продолжать их по инерции. "
             "Никогда не дублируй один и тот же action. Не считай задачу завершённой, если после inspection всё ещё не открыты нужные соседи, не подтверждён эталон или blueprint не прошёл самопроверку. "

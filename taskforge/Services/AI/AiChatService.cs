@@ -6593,22 +6593,46 @@ public sealed class AiChatService
 
         var strictAnchor = ResolveStrictRequestedPlacement(memory, args);
         if (strictAnchor.AfterAssignmentId.HasValue)
-        {
-            var mismatch = proposals
-                .Where(x => x.PlacementAfterAssignmentId != strictAnchor.AfterAssignmentId || !string.Equals((x.PlacementAfterTitle ?? string.Empty).Trim(), (strictAnchor.AfterAssignmentTitle ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase))
-                .Select(x => x.Title)
-                .Take(3)
-                .ToList();
-            if (mismatch.Count > 0)
-                issues.Add($"Пользователь явно задал точку вставки: {strictAnchor.HumanSummary}. Нельзя переносить варианты в другое место курса.");
-        }
+            AddPlacementMismatchIssue(issues, proposals, strictAnchor.AfterAssignmentId, strictAnchor.AfterAssignmentTitle, strictAnchor.HumanSummary);
 
         if (RequiresFirstTaskStyleEvidence(memory) && !InspectionContainsFirstTask(memory.LastCourseInspection))
             issues.Add("Пользователь просил стиль 'как первая задача', но в текущем просмотре нет самой первой задачи или раннего эталона. Сначала открой первое задание курса и только потом сохраняй blueprint.");
 
+        var expectedLanguage = DetectExpectedCourseLanguage(memory);
+        var languageIssues = FindBlueprintLanguageFidelityIssues(expectedLanguage, proposals);
+        if (languageIssues.Count > 0)
+            issues.Add($"Blueprint уехал в другой язык курса. Ожидался {CourseLanguageLabel(expectedLanguage)}, но найдены чужие маркеры: {string.Join("; ", languageIssues.Take(8))}.");
+
+        var requireWalkthroughIntegrity = RequestsTutorialLadder(memory) || RequiresFirstTaskStyleEvidence(memory);
+        var malformedSlots = proposals
+            .Select(x => new { Proposal = x, Reason = DetectMalformedBlueprintSlotReason(x, requireWalkthroughIntegrity) })
+            .Where(x => !string.IsNullOrWhiteSpace(x.Reason))
+            .Select(x => $"{x.Proposal.Title}: {x.Reason}")
+            .Take(5)
+            .ToList();
+        if (malformedSlots.Count > 0)
+            issues.Add($"В blueprint есть сломанные/мета-слоты, которые нельзя сохранять как задания: {string.Join("; ", malformedSlots)}.");
+
+        if (requireWalkthroughIntegrity && proposals.Count > 0)
+        {
+            var weakWalkthrough = proposals
+                .Where(x => !ProposalLooksLikeFriendlyWalkthrough(x))
+                .Select(x => x.Title)
+                .Take(5)
+                .ToList();
+            if (weakWalkthrough.Count > Math.Max(0, proposals.Count / 2))
+                issues.Add($"Большая часть лесенки не похожа на полноценный дружелюбный walkthrough со вступлением, блоком «Следуй шагам:», 3+ шагами и финальной фразой: {string.Join(", ", weakWalkthrough)}.");
+        }
+
         var anchorConcept = DetectAnchorConcept(memory);
         var anchorLabel = AnchorConceptLabel(anchorConcept);
         var routingDecision = ResolveBlueprintRoutingDecision(memory, args, proposals, anchorConcept);
+        if (routingDecision.ShouldAvoidExplicitAnchor)
+        {
+            var preAnchorPlacement = ResolvePreAnchorPlacementFromInspection(memory, anchorConcept);
+            if (preAnchorPlacement.AfterAssignmentId.HasValue)
+                AddPlacementMismatchIssue(issues, proposals, preAnchorPlacement.AfterAssignmentId, preAnchorPlacement.AfterAssignmentTitle, preAnchorPlacement.HumanSummary);
+        }
         if (routingDecision.ShouldAvoidExplicitAnchor)
         {
             var explicitAnchorTitles = proposals
@@ -6716,15 +6740,24 @@ public sealed class AiChatService
         if (string.IsNullOrWhiteSpace(text))
             return false;
         var low = text.ToLowerInvariant();
-        return low.Contains("согласен")
-            || low.Contains("давай")
-            || Regex.IsMatch(low, @"\bок(?:ей)?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || low.Contains("погнали")
-            || low.Contains("напиши чернов")
-            || low.Contains("наброс")
-            || low.Contains("черновик")
-            || low.Contains("к этим задач")
-            || low.Contains("для этих задач");
+        var explicitApproval = low.Contains("согласен")
+            || low.Contains("одобряю")
+            || low.Contains("утверждаю")
+            || low.Contains("подходит")
+            || low.Contains("всё верно")
+            || low.Contains("все верно")
+            || low.Contains("оставляй так")
+            || low.Contains("именно так");
+        var explicitDraftTarget = low.Contains("к этим задач")
+            || low.Contains("для этих задач")
+            || low.Contains("эти варианты")
+            || low.Contains("по этим условиям");
+        var explicitBlueprintAction = low.Contains("напиши чернов")
+            || low.Contains("пиши чернов")
+            || low.Contains("сделай чернов")
+            || low.Contains("закидывай в чернов")
+            || low.Contains("набросай чернов");
+        return explicitApproval || (explicitDraftTarget && explicitBlueprintAction);
     }
 
     private static bool ProposalsSuggestAnchorOnboarding(IReadOnlyList<AiFoundryChatDraftProposalDto> proposals, string? concept)
@@ -7114,6 +7147,26 @@ private static string? DetectAnchorConceptFromText(string? text)
     private static bool ContainsExplicitIfMarker(string? text)
         => ContainsExplicitAnchorMarker(text, "if");
 
+
+    private static bool ContainsConcreteAnchorAssignmentMarker(string? text, string? concept)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(concept))
+            return false;
+
+        concept = concept.Trim().ToLowerInvariant();
+        if (string.Equals(concept, "if", StringComparison.OrdinalIgnoreCase))
+        {
+            return Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])if(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                || Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])else\s+if(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                || Regex.IsMatch(text, @"оператор\s+if|конструкц\w*\s+if", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        if (string.Equals(concept, "switch", StringComparison.OrdinalIgnoreCase))
+            return Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])(?:switch|case|default)(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        return Regex.IsMatch(text, $@"(?<![A-Za-zА-Яа-я0-9_]){Regex.Escape(concept)}(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
     private static CourseAuditAssignmentSnapshot? FindFirstExplicitAnchorAssignment(IReadOnlyList<CourseAuditAssignmentSnapshot> ordered, string? concept)
     {
         if (ordered == null || ordered.Count == 0 || string.IsNullOrWhiteSpace(concept))
@@ -7121,7 +7174,7 @@ private static string? DetectAnchorConceptFromText(string? text)
 
         return ordered
             .OrderBy(x => x.Sort)
-            .FirstOrDefault(x => ContainsExplicitAnchorMarker($"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}\n{x.AiOverview}", concept));
+            .FirstOrDefault(x => ContainsConcreteAnchorAssignmentMarker($"{x.Title}\n{ExtractPlainTextFromRichDescription(x.Description)}\n{x.AiOverview}", concept));
     }
 
     private static CourseAuditAssignmentSnapshot? FindFirstExplicitIfAssignment(IReadOnlyList<CourseAuditAssignmentSnapshot> ordered)
@@ -7134,7 +7187,7 @@ private static string? DetectAnchorConceptFromText(string? text)
 
         return inspection.Assignments
             .OrderBy(x => x.Sort)
-            .FirstOrDefault(x => ContainsExplicitAnchorMarker($"{x.Title}\n{x.DescriptionExcerpt}\n{x.AiOverview}", concept));
+            .FirstOrDefault(x => ContainsConcreteAnchorAssignmentMarker($"{x.Title}\n{x.DescriptionExcerpt}\n{x.AiOverview}", concept));
     }
 
     private static AiFoundryCourseInspectionAssignmentDto? FindFirstExplicitIfAssignment(AiFoundryCourseInspectionDto inspection)
@@ -7484,6 +7537,214 @@ private static string? DetectAnchorConceptFromText(string? text)
             || hay.Contains("Вход", StringComparison.OrdinalIgnoreCase)
             || hay.Contains("Выход", StringComparison.OrdinalIgnoreCase);
     }
+
+    private enum ExpectedCourseLanguage
+    {
+        Unknown,
+        Cpp,
+        Python,
+        CSharp,
+        JavaScript,
+        Java,
+        Pascal,
+    }
+
+    private static ExpectedCourseLanguage DetectExpectedCourseLanguage(AiFoundryChatMemoryDto memory)
+    {
+        var hay = new StringBuilder();
+        void Append(string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                hay.Append(' ').Append(value);
+        }
+
+        Append(memory.LastCourseInspection?.CourseTitle);
+        Append(memory.LastCourseInspection?.Summary);
+        foreach (var observation in memory.LastCourseInspection?.Observations ?? new List<string>())
+            Append(observation);
+        foreach (var assignment in memory.LastCourseInspection?.Assignments ?? new List<AiFoundryCourseInspectionAssignmentDto>())
+        {
+            Append(assignment.Title);
+            Append(assignment.DescriptionExcerpt);
+            Append(assignment.AiOverview?.ToString());
+        }
+        foreach (var fact in memory.Facts ?? new List<string>())
+            Append(fact);
+        Append(memory.Summary);
+
+        var text = hay.ToString();
+        var low = text.ToLowerInvariant();
+        if (Regex.IsMatch(text, @"(?:c\+\+|с\+\+|cpp|c plus plus|си\s*\+\s*\+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || low.Contains("#include")
+            || Regex.IsMatch(text, @"\b(?:cin|cout|std::)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ExpectedCourseLanguage.Cpp;
+        if (Regex.IsMatch(text, @"(?:c#|csharp|си\s*шарп)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ExpectedCourseLanguage.CSharp;
+        if (Regex.IsMatch(text, @"(?:python|питон|пайтон)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ExpectedCourseLanguage.Python;
+        if (Regex.IsMatch(text, @"(?:javascript|java\s*script|js|node\.js)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ExpectedCourseLanguage.JavaScript;
+        if (Regex.IsMatch(text, @"\bjava\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ExpectedCourseLanguage.Java;
+        if (Regex.IsMatch(text, @"(?:pascal|паскал)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ExpectedCourseLanguage.Pascal;
+        return ExpectedCourseLanguage.Unknown;
+    }
+
+    private static string CourseLanguageLabel(ExpectedCourseLanguage language)
+        => language switch
+        {
+            ExpectedCourseLanguage.Cpp => "C++",
+            ExpectedCourseLanguage.CSharp => "C#",
+            ExpectedCourseLanguage.Python => "Python",
+            ExpectedCourseLanguage.JavaScript => "JavaScript",
+            ExpectedCourseLanguage.Java => "Java",
+            ExpectedCourseLanguage.Pascal => "Pascal",
+            _ => "язык текущего курса",
+        };
+
+    private static string ProposalCombinedText(AiFoundryChatDraftProposalDto proposal)
+        => string.Join("\n", new[]
+        {
+            proposal.Title,
+            proposal.Goal,
+            proposal.ConditionPreview,
+            proposal.FullCondition,
+            string.Join("\n", proposal.MustKeep ?? new List<string>()),
+            string.Join("\n", proposal.Avoid ?? new List<string>()),
+        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+    private static List<string> FindBlueprintLanguageFidelityIssues(ExpectedCourseLanguage language, IReadOnlyList<AiFoundryChatDraftProposalDto> proposals)
+    {
+        var issues = new List<string>();
+        if (language == ExpectedCourseLanguage.Unknown || proposals.Count == 0)
+            return issues;
+
+        foreach (var proposal in proposals)
+        {
+            var text = ProposalCombinedText(proposal);
+            if (string.IsNullOrWhiteSpace(text))
+                continue;
+            foreach (var marker in DetectForeignLanguageMarkers(language, text).Take(4))
+                issues.Add($"{proposal.Title}: {marker}");
+        }
+        return issues.Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList();
+    }
+
+    private static IEnumerable<string> DetectForeignLanguageMarkers(ExpectedCourseLanguage language, string text)
+    {
+        if (language == ExpectedCourseLanguage.Cpp)
+        {
+            if (Regex.IsMatch(text, @"\bint\s*\(\s*input\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                yield return "Python int(input())";
+            if (Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])input\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                yield return "Python input()";
+            if (Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])print\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                || Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])print(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                yield return "Python print";
+            if (Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])elif(?![A-Za-zА-Яа-я0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                yield return "Python elif";
+            if (Regex.IsMatch(text, @"(?<![A-Za-zА-Яа-я0-9_])(?:True|False)(?![A-Za-zА-Яа-я0-9_])", RegexOptions.CultureInvariant))
+                yield return "Python True/False";
+            if (Regex.IsMatch(text, @"\bPython\b|\bПитон\b|\bПайтон\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                yield return "упоминание Python";
+            if (text.Contains("отступ в 4 пробела", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("важно для Python", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("двоеточия", StringComparison.OrdinalIgnoreCase))
+                yield return "Python-правила отступов/двоеточий";
+        }
+    }
+
+    private static int CountNumberedSteps(string text)
+        => Regex.Matches(text ?? string.Empty, @"(?:^|\n)\s*\d+\.", RegexOptions.CultureInvariant).Count;
+
+    private static string? DetectMalformedBlueprintSlotReason(AiFoundryChatDraftProposalDto proposal, bool requireWalkthroughIntegrity)
+    {
+        var text = ProposalCombinedText(proposal).Trim();
+        if (string.IsNullOrWhiteSpace(proposal.Title) || string.IsNullOrWhiteSpace(text))
+            return "пустой title/condition";
+
+        var low = text.ToLowerInvariant();
+        var metaMarkers = new[]
+        {
+            "blueprint", "save_chat_blueprint", "revise_chat_blueprint", "needs-revision", "validator", "валидатор",
+            "tool-call", "я подготовил", "я подготовила", "сохранил чернов", "сохранила чернов", "пользователь просил",
+            "примерные условия из чата", "согласованные условия", "одобряю для генерации"
+        };
+        var meta = metaMarkers.FirstOrDefault(low.Contains);
+        if (!string.IsNullOrWhiteSpace(meta))
+            return $"мета-текст вместо условия ({meta})";
+
+        if (Regex.IsMatch(text, @"следуй[ \t]+шагам[ \t]*:[ \t]*\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return "сломанный scaffold: 'Следуй шагам: 1' на одной строке";
+
+        var stepsHeaderCount = Regex.Matches(text, @"следуй\s+шагам\s*:", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Count;
+        if (stepsHeaderCount > 1)
+            return "внутри одного условия повторяется блок 'Следуй шагам:'";
+
+        var stepCount = CountNumberedSteps(text);
+        if (stepsHeaderCount > 0 && stepCount < 3)
+            return "есть заголовок шагов, но меньше 3 нормальных нумерованных шагов";
+        if (requireWalkthroughIntegrity && stepCount < 3)
+            return "для обучающей лесенки нужно минимум 3 нумерованных шага";
+
+        var repeatedLongLines = text
+            .Split('\n')
+            .Select(x => x.Trim())
+            .Where(x => x.Length >= 35)
+            .GroupBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() >= 3)
+            .Select(g => g.Key)
+            .FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(repeatedLongLines))
+            return "повторяющийся filler вместо живого шага";
+
+        return null;
+    }
+
+    private static void AddPlacementMismatchIssue(
+        List<string> issues,
+        IReadOnlyList<AiFoundryChatDraftProposalDto> proposals,
+        Guid? expectedAfterAssignmentId,
+        string? expectedAfterTitle,
+        string? humanSummary)
+    {
+        if (!expectedAfterAssignmentId.HasValue)
+            return;
+        var mismatch = proposals
+            .Where(x => x.PlacementAfterAssignmentId != expectedAfterAssignmentId
+                || (!string.IsNullOrWhiteSpace(expectedAfterTitle)
+                    && !string.Equals((x.PlacementAfterTitle ?? string.Empty).Trim(), expectedAfterTitle.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .Select(x => string.IsNullOrWhiteSpace(x.Title) ? "без названия" : x.Title)
+            .Take(4)
+            .ToList();
+        if (mismatch.Count > 0)
+        {
+            var fallbackSummary = $"после «{expectedAfterTitle ?? "выбранного задания"}»";
+            var placementSummary = humanSummary ?? fallbackSummary;
+            issues.Add($"Пользователь/inspection зафиксировали точку вставки: {placementSummary}. Нельзя сохранять blueprint с другим placement или без явного placement. Проблемные слоты: {string.Join(", ", mismatch)}.");
+        }
+    }
+
+    private static (Guid? AfterAssignmentId, string? AfterAssignmentTitle, string? HumanSummary) ResolvePreAnchorPlacementFromInspection(AiFoundryChatMemoryDto memory, string? concept)
+    {
+        var inspection = memory.LastCourseInspection;
+        if (inspection == null || inspection.Assignments.Count == 0 || string.IsNullOrWhiteSpace(concept))
+            return (null, null, null);
+
+        var ordered = inspection.Assignments.OrderBy(x => x.Sort).ToList();
+        var anchor = FindFirstExplicitAnchorAssignment(inspection, concept);
+        if (anchor == null)
+            return (null, null, null);
+
+        var index = ordered.FindIndex(x => x.Id == anchor.Id);
+        if (index <= 0)
+            return (null, null, null);
+
+        var previous = ordered[index - 1];
+        return (previous.Id, previous.Title, $"между «{previous.Title}» и «{anchor.Title}» (строго перед первым {AnchorConceptLabel(concept)})");
+    }
+
 
     private static List<AiFoundryChatDraftProposalDto> ReadChatBlueprintProposals(JsonObject args, AiFoundryChatDraftBlueprintDto? previous = null)
     {

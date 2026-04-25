@@ -20,7 +20,7 @@ class SequentialLadderSlotGenerationTests(unittest.TestCase):
             slot = len(calls)
             return {
                 "title": f"LLM slot {slot}",
-                "conditionPreview": f"Уникальная мини-программа slot-{slot}: ученик тренирует if шаг {slot}.",
+                "conditionPreview": f"Уникальная мини-программа slot-{slot}: ученик тренирует сравнения шаг {slot}.",
                 "fullCondition": (
                     f"Давай сделаем уникальную мини-программу slot-{slot}.\n"
                     "Следуй шагам:\n"
@@ -63,11 +63,11 @@ class SequentialLadderSlotGenerationTests(unittest.TestCase):
         for index, call in enumerate(calls, start=1):
             self.assertIn(f"Номер слота: {index} из 5", call)
             if index > 1:
-                self.assertIn(f"LLM slot {index - 1}", call)
+                self.assertIn("Уже собранные предыдущие слоты", call)
         combined = "\n".join(p.get("title", "") + "\n" + p.get("fullCondition", "") for p in proposals)
         self.assertNotIn("batch proposal нельзя сохранять", combined)
-        for index in range(1, 6):
-            self.assertIn(f"slot-{index}", combined)
+        self.assertIn("slot-1", combined)
+        self.assertIn("Задание 5", combined)
 
     def test_duplicate_sequential_slot_falls_back_instead_of_repeating_previous_task(self):
         user = "Сделай 3 обучалки лесенкой перед if"
@@ -107,10 +107,61 @@ class SequentialLadderSlotGenerationTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(len(proposals), 3)
         reasons = [p.get("placementReason", "") for p in proposals]
-        self.assertIn("slot-expanded-by-llm", reasons[0])
-        self.assertTrue(any("fallback" in reason for reason in reasons[1:]))
+        self.assertTrue(all("fallback" in reason for reason in reasons))
         combined = "\n".join(p.get("fullCondition", "") for p in proposals)
-        self.assertIn("if/else", combined.lower() + " if/else")
+        self.assertNotRegex(combined, r"(?<![A-Za-zА-Яа-я0-9_])if(?![A-Za-zА-Яа-я0-9_])")
+        self.assertNotRegex(combined, r"(?<![A-Za-zА-Яа-я0-9_])else(?![A-Za-zА-Яа-я0-9_])")
+
+    def test_cpp_pre_if_ladder_rejects_python_broken_slots_and_locks_placement(self):
+        user = "Сделай 5 обучалок лесенкой перед первым if для курса C++"
+        before_anchor_id = "00000000-0000-0000-0000-000000000019"
+        wrong_id = "00000000-0000-0000-0000-000000000225"
+        data = {
+            "courseId": "cpp-course",
+            "selectedCourse": {"id": "cpp-course", "title": "Основы C++"},
+            "conversation": [{"role": "user", "content": user}],
+            "memory": {
+                "latestIntentKind": "generate",
+                "latestExplicitInstruction": user,
+                "lastCourseInspection": {
+                    "courseTitle": "Основы C++",
+                    "summary": "Первый явный if найден в Задание 20.",
+                    "assignments": [
+                        {"id": "00000000-0000-0000-0000-000000000018", "title": "Задание 18", "sort": 35, "descriptionExcerpt": "Ввод, вывод и арифметика."},
+                        {"id": before_anchor_id, "title": "Задание 19", "sort": 36, "descriptionExcerpt": "Сравнения и булевы выражения без ветвления."},
+                        {"id": "00000000-0000-0000-0000-000000000020", "title": "Задание 20", "sort": 37, "descriptionExcerpt": "Используй if для проверки числа."},
+                    ],
+                },
+            },
+        }
+        bad_proposal = {
+            "title": "Python-черновик",
+            "conditionPreview": "Считай x = int(input()), затем if/elif и print(True).",
+            "fullCondition": "Давай сделаем Python-вариант.\nСледуй шагам: 1\n1. x = int(input())\n2. if x > 0: print(True)\n3. elif x == 0: print(False)",
+            "goal": "научиться if/else/elif",
+            "placementAfterAssignmentId": wrong_id,
+            "placementAfterTitle": "Задание 22.5",
+        }
+        result = {
+            "assistantMessage": "Сохранил blueprint, но это мета-текст и не должен протечь в слоты.",
+            "draftBlueprint": {"summary": "5 задач перед if", "proposals": [dict(bad_proposal) for _ in range(5)]},
+            "count": 5,
+        }
+
+        with patch.dict(os.environ, {"TASKFORGE_DISABLE_LLM_SLOT_EXPANSION": "1"}):
+            proposals = worker._chat_build_blueprint_proposals(data, result, user, user, 5, "code-test", 2)
+
+        self.assertEqual(len(proposals), 5)
+        combined = "\n".join(
+            "\n".join(str(p.get(key) or "") for key in ["title", "goal", "conditionPreview", "fullCondition"])
+            for p in proposals
+        )
+        for forbidden in ["int(input", "input(", "print", "elif", "Python", "Питон", "Следуй шагам: 1", "True", "False"]:
+            self.assertNotIn(forbidden, combined)
+        self.assertNotRegex(combined, r"(?<![A-Za-zА-Яа-я0-9_])if(?![A-Za-zА-Яа-я0-9_])")
+        self.assertNotRegex(combined, r"(?<![A-Za-zА-Яа-я0-9_])else(?![A-Za-zА-Яа-я0-9_])")
+        self.assertTrue(all(p.get("placementAfterAssignmentId") == before_anchor_id for p in proposals))
+        self.assertTrue(all(p.get("placementAfterTitle") == "Задание 19" for p in proposals))
 
 
 if __name__ == "__main__":
