@@ -6,7 +6,7 @@ from agent_core.context_pack import build_ai_context
 from agent_core.contracts import AgentContextSnapshot, ScenarioDefinition, ScenarioResult, ScenarioRoute
 from agent_core.llm_json import LlmJsonClient, compact_json
 from scenarios.base import Scenario, llm_failed_result, previous_artifact, requested_count, target_concept
-from scenarios.llm_common import BASE_SYSTEM, as_dict, as_list, as_str
+from scenarios.llm_common import BASE_SYSTEM, TASKFORGE_TRAINING_TASK_STYLE, as_dict, as_list, as_str
 
 
 class GuidedLadderScenario(Scenario):
@@ -64,12 +64,14 @@ class GuidedLadderScenario(Scenario):
         }
         user = (
             f"Собери обучающую лесенку из {count} маленьких задач. Целевая тема: {concept}.\n"
-            "Стиль: дружелюбное вступление, маленькие шаги, понятные пояснения в скобках, один новый микро-навык на шаг, публичный тест.\n"
-            "Если есть gap_report, используй его для placement. Если курса нет, всё равно сделай общую лесенку по запросу, но честно оставь selectedCourseId=null.\n"
-            "Если тема if/условия, задача, где вводится if, обязана иметь if в referenceSolution.\n"
-            "Нельзя возвращать шаблонные одинаковые задачи.\n\n"
+            "Главная цель — не просто придумать условия, а сделать обучающие задачи в стиле первых заданий курса: ученик должен видеть, какие строки писать в код и зачем.\n"
+            "Если пользователь просит 'перед 20 задачей', используй gap_report/currentDraftBlueprint/lastGapAudit для placement.\n"
+            "Если в контексте или прошлом черновике выбран C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp не null, referenceSolutionPython=null.\n"
+            "Если тема if/условия, задача, где вводится if, обязана иметь if в referenceSolutionCpp. Первые шаги могут тренировать сравнения без if только если это явно подготовка перед if.\n"
+            "Нельзя возвращать шаблонные одинаковые задачи, нельзя переключаться на Python при C++-курсе.\n\n"
+            f"Эталон стиля обучающих задач:\n{TASKFORGE_TRAINING_TASK_STYLE}\n\n"
             f"gap_report:\n{compact_json(gap_report, 12000)}\n\n"
-            f"Контекст TaskForge:\n{build_ai_context(context, max_chars=36000)}\n\n"
+            f"Контекст TaskForge:\n{build_ai_context(context, max_chars=52000)}\n\n"
             f"Схема результата:\n{schema}"
         )
         try:

@@ -60,6 +60,9 @@ def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 62000) -
     if not isinstance(course_outline, list):
         course_outline = []
     target_concepts = context.raw_payload.get("targetConcepts") or context.raw_payload.get("target_concepts") or []
+    memory = context.raw_payload.get("memory") if isinstance(context.raw_payload.get("memory"), dict) else {}
+    current_draft = memory.get("currentDraftBlueprint") if isinstance(memory.get("currentDraftBlueprint"), dict) else None
+    last_gap_audit = memory.get("lastGapAudit") if isinstance(memory.get("lastGapAudit"), dict) else None
 
     payload: Dict[str, Any] = {
         "userMessage": context.user_message,
@@ -84,6 +87,8 @@ def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 62000) -
         "conceptMap": context.concept_map,
         "recentMessages": trim_list(context.raw_payload.get("recentMessages") or [], 24),
         "recentDrafts": trim_list(context.recent_drafts, 10),
+        "currentDraftBlueprint": current_draft,
+        "lastGapAudit": last_gap_audit,
         "lastCourseAudit": context.last_course_audit,
         "lastBridgePlan": context.last_bridge_plan,
     }

@@ -59,7 +59,11 @@ class MessageNormalizer:
         generation_verbs = _contains_any(lowered, ["создай", "сделай", "придумай", "сгенер", "подготовь", "дай ", "накидай"])
         task_words = _contains_any(lowered, ["задач", "задани", "черновик", "упражнен"])
         wants_generation = generation_verbs and task_words
-        wants_revision = _contains_any(lowered, ["исправ", "передел", "упрост", "сложнее", "мягче", "не так", "поправ"])
+        wants_revision = _contains_any(lowered, [
+            "исправ", "передел", "упрост", "сложнее", "мягче", "не так", "поправ",
+            "эти же", "те же", "то же", "так же", "эти самые", "прям лесен", "каждым шагом",
+            "как задача 1", "как задание 1", "пример задача 1", "пример задание 1"
+        ])
         wants_background = _contains_any(lowered, ["на фоне", "фоном", "параллельно", "background"])
         direct_mode = _contains_any(lowered, ["сразу", "делай", "без вопросов", "не спрашивай", "можно хардкод", "разрешаю"])
         requested_style = "ladder_screenshot_1" if _contains_any(lowered, ["скрин", "лесен"]) else None

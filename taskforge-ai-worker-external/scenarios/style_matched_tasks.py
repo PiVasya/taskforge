@@ -5,7 +5,7 @@ from typing import List, Optional
 from agent_core.contracts import AgentContextSnapshot, ScenarioDefinition, ScenarioResult, ScenarioRoute
 from agent_core.llm_json import LlmJsonClient
 from scenarios.base import Scenario, llm_failed_result, requested_count, target_concept
-from scenarios.llm_common import BASE_SYSTEM, as_dict, as_list, as_str, context_user_block
+from scenarios.llm_common import BASE_SYSTEM, TASKFORGE_TRAINING_TASK_STYLE, as_dict, as_list, as_str, context_user_block
 
 
 class StyleMatchedTasksScenario(Scenario):
@@ -61,6 +61,9 @@ class StyleMatchedTasksScenario(Scenario):
 Создай {count} качественных черновиков задач по запросу пользователя. Если пользователь упоминает конкретный курс, выбери его из courseCatalog/courseContexts. Если курс не указан, работай как общий AI-ассистент и используй все доступные курсы как справочный стиль.
 Тема/навык: {topic}.
 Не сохраняй в курс. Не используй шаблон-заглушку. Каждая задача должна быть реально осмысленной и отличаться от остальных.
+Если контекст курса или прошлый черновик указывает C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null.
+Если пользователь просит стиль первых обучающих заданий, используй этот эталон:
+{TASKFORGE_TRAINING_TASK_STYLE}
 Если тема if/условия, эталонное решение обязано реально содержать if.
 """
         try:

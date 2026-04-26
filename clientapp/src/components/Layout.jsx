@@ -241,7 +241,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   const primaryNav = [
     { to: '/news', label: 'Лента', subtitle: 'Новости и обновления', icon: House, active: isActive('/news') },
     { to: '/courses', label: 'Курсы', subtitle: 'Каталог заданий', icon: GraduationCap, active: isActive('/courses') || isActive('/course') },
-    access && isAdmin && { to: '/ai', label: 'AI', subtitle: 'Анализ курса и задачки', icon: Bot, active: isActive('/ai') || isActive('/agent') },
     access && { to: '/my/solutions', label: 'Мои решения', subtitle: 'История отправок', icon: ListOrdered, active: isActive('/my/solutions') },
     access && { to: '/leaderboard', label: 'Рейтинг', subtitle: 'Топ студентов', icon: Trophy, active: isActive('/leaderboard') },
     access && { to: supportHref, label: 'Поддержка', subtitle: isAdmin ? 'Тикеты пользователей' : 'Мои обращения', icon: LifeBuoy, active: isActive(supportHref) },
@@ -250,6 +249,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
 
   const adminPrimaryNav = isAdmin
     ? [
+        { to: '/admin/ai', label: 'AI-ассистент', subtitle: 'Курсы, аудит, генерация', icon: Bot, active: isActive('/admin/ai') || isActive('/ai') || isActive('/agent') },
         { to: '/admin/analytics', label: 'Аналитика', subtitle: 'Сводки и графики', icon: BarChart2, active: isActive('/admin/analytics') },
         { to: '/admin/activity', label: 'Действия', subtitle: 'Логи пользователей', icon: Activity, active: isActive('/admin/activity') },
         { to: '/admin/users', label: 'Пользователи', subtitle: 'Профили и роли', icon: UserCog, active: isActive('/admin/users') },
@@ -271,6 +271,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
 
   const roleBadges = roles.filter(Boolean).slice(0, 4);
   const currentViewTitle = (() => {
+    if (currentPath.startsWith('/admin/ai') || currentPath.startsWith('/ai') || currentPath.startsWith('/agent')) return 'Админ AI';
     if (currentPath.startsWith('/admin/')) return 'Админ-панель';
     if (currentPath.startsWith('/minecraft/')) return 'Minecraft';
     if (currentPath.startsWith('/support')) return 'Поддержка';
@@ -329,7 +330,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                 {isAdmin && (
                   <HeaderAction to="/admin/analytics" icon={BarChart2} label="Аналитика" active={isActive('/admin/analytics')} />
                 )}
-                {isAdmin && <HeaderAction to="/ai" icon={Bot} label="AI" active={isActive('/ai') || isActive('/agent')} />}
                 <HeaderAction to={supportHref} icon={LifeBuoy} label="Поддержка" active={isActive(supportHref)} />
                 <HeaderAction to="/settings" icon={Settings} label="Настройки" active={isActive('/settings')} />
                 {canEdit && (

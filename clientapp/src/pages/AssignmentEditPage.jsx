@@ -497,7 +497,7 @@ export default function AssignmentEditPage() {
           <Button
             variant="outline"
             className="inline-flex items-center gap-2"
-            onClick={() => nav(`/ai?assignmentId=${assignmentId}${courseId ? `&courseId=${courseId}` : ''}`)}
+            onClick={() => nav(`/admin/ai?assignmentId=${assignmentId}${courseId ? `&courseId=${courseId}` : ''}`)}
             title="Открыть AI-ассистент для этого задания"
           >
             <Bot size={16} /> AI по заданию

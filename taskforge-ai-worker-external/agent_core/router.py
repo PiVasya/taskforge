@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Any, Dict, Iterable, List
 
 from agent_core.contracts import AgentContextSnapshot, NormalizedMessage, ScenarioDefinition, ScenarioRoute
 
 
 def _has_any(text: str, values: Iterable[str]) -> bool:
     return any(value in text for value in values)
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _has_current_draft(context: AgentContextSnapshot) -> bool:
+    memory = _as_dict(context.raw_payload.get("memory"))
+    return bool(_as_dict(memory.get("currentDraftBlueprint")) or context.recent_drafts)
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,17 @@ class ScenarioRouter:
         scenarios: List[ScenarioDefinition],
     ) -> ScenarioRoute:
         scenario_ids = {s.id for s in scenarios}
+
+        if message.wants_revision and "draft_revision" in scenario_ids and _has_current_draft(context):
+            return ScenarioRoute(
+                scenario_id="draft_revision",
+                confidence=97,
+                reason="Пользователь правит уже созданный AI-черновик; нужно сохранить контекст и стиль предыдущего результата.",
+                execution_mode="single",
+                requested_count=message.requested_count,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
 
         if message.wants_analysis and message.wants_gap_audit and message.wants_ladder:
             return ScenarioRoute(

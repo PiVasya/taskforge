@@ -323,7 +323,7 @@ export default function CourseAssignmentsPage() {
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">
           {isAdmin && (
-            <Button variant="outline" className="w-full sm:w-auto" title="Открыть AI-ассистент курса" onClick={() => nav(`/ai?courseId=${courseId}`)}>
+            <Button variant="outline" className="w-full sm:w-auto" title="Открыть AI-ассистент курса" onClick={() => nav(`/admin/ai?courseId=${courseId}`)}>
               <Bot size={16} /> AI
             </Button>
           )}

@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { NotifyProvider } from './components/notify/NotifyProvider';
 
 import ProtectedRoute from './auth/ProtectedRoute';
@@ -58,6 +58,11 @@ function NotFound() {
   return <div className="container-app py-10">Страница не найдена</div>;
 }
 
+function AdminAiRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/admin/ai${location.search || ''}`} replace />;
+}
+
 export default function App() {
   return (
     <NotifyProvider>
@@ -76,12 +81,6 @@ export default function App() {
 
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
-
-          {/* AI ассистент курса/заданий: только Admin */}
-          <Route element={<AdminRoute />}>
-            <Route path="/ai" element={<AgentPage />} />
-            <Route path="/agent" element={<AgentPage />} />
-          </Route>
 
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
@@ -125,6 +124,9 @@ export default function App() {
             <Route path="/admin/groups" element={<AdminGroupsPage />} />
             <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
             <Route path="/admin/system-status" element={<AdminSystemStatusPage />} />
+            <Route path="/admin/ai" element={<AgentPage />} />
+            <Route path="/agent" element={<AdminAiRedirect />} />
+            <Route path="/ai" element={<AdminAiRedirect />} />
             <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
             <Route path="/admin/activity" element={<AdminUserActionsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
