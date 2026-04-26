@@ -20,7 +20,9 @@ namespace taskforge.Services
             var course = await _db.Courses.FirstOrDefaultAsync(c => c.Id == courseId)
                          ?? throw new InvalidOperationException("Курс не найден");
 
-            var isOwner = course.OwnerId == currentUserId
+            var isAdmin = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin);
+            var isOwner = isAdmin
+                          || course.OwnerId == currentUserId
                           || await _db.CourseOwners.AnyAsync(o => o.CourseId == courseId && o.UserId == currentUserId);
             if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can add assignments.");
@@ -62,6 +64,15 @@ namespace taskforge.Services
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 AllowedLanguagesCsv = string.IsNullOrWhiteSpace(allowedCsv) ? null : allowedCsv,
+                IsHidden = req.IsHidden,
+                LifecycleStatus = NormalizeLifecycleStatus(req.LifecycleStatus, req.IsHidden ? "draft" : "published"),
+                IsAiDraft = req.IsAiDraft,
+                SourceAgentRunId = req.SourceAgentRunId,
+                SourceAgentArtifactId = req.SourceAgentArtifactId,
+                SourceAgentTaskIndex = req.SourceAgentTaskIndex,
+                AiDraftJson = string.IsNullOrWhiteSpace(req.AiDraftJson) ? null : req.AiDraftJson,
+                PolishedAtUtc = req.IsAiDraft ? DateTime.UtcNow : null,
+                PublishedAtUtc = req.IsHidden ? null : DateTime.UtcNow,
 
                 // code policy (per task)
                 CodeForbiddenCallsJson = (normalizedType == TaskAssignmentTypes.CodeTest || normalizedType == TaskAssignmentTypes.ImageTest)
@@ -98,34 +109,44 @@ namespace taskforge.Services
         }
 
         public async Task<IList<AssignmentListItemDto>> GetByCourseAsync(Guid courseId, Guid currentUserId)
-{
-    return await _db.TaskAssignments
-        .Where(a => a.CourseId == courseId)
-        .OrderBy(a => a.Sort)
-        .ThenByDescending(a => a.CreatedAt)
-        .Select(a => new AssignmentListItemDto
         {
-            Id = a.Id,
-            Title = a.Title,
-            Description = a.Description,
-            Difficulty = a.Difficulty,
-            Tags = a.Tags,
-            CreatedAt = a.CreatedAt,
-            // Важно: "решено" должно работать для всех типов заданий.
-            // - code-test: Solution.PassedAllTests
-            // - test: UserTaskTestAttempts.Passed
-            // - image-test: UserImageTaskSolutions.Passed == true (как правило финальная отправка)
-            SolvedByCurrentUser =
-                a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
-                || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
-                || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false)
-                || _db.UserTaskMathAttempts.Any(m => m.TaskAssignmentId == a.Id && m.UserId == currentUserId && m.Passed),
-            Sort = a.Sort,
-            CanEdit = a.Course.OwnerId == currentUserId
-                      || _db.CourseOwners.Any(o => o.CourseId == a.CourseId && o.UserId == currentUserId)
-        })
-        .ToListAsync();
-}
+            var canEditCourse = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin)
+                                || await _db.Courses.AnyAsync(c => c.Id == courseId && (
+                                    c.OwnerId == currentUserId || _db.CourseOwners.Any(o => o.CourseId == courseId && o.UserId == currentUserId)));
+
+            var query = _db.TaskAssignments.Where(a => a.CourseId == courseId);
+            if (!canEditCourse)
+            {
+                query = query.Where(a => !a.IsHidden && a.LifecycleStatus == "published");
+            }
+
+            return await query
+                .OrderBy(a => a.Sort)
+                .ThenByDescending(a => a.CreatedAt)
+                .Select(a => new AssignmentListItemDto
+                {
+                    Id = a.Id,
+                    Title = a.Title,
+                    Description = a.Description,
+                    Difficulty = a.Difficulty,
+                    Tags = a.Tags,
+                    CreatedAt = a.CreatedAt,
+                    SolvedByCurrentUser =
+                        a.Solutions.Any(s => s.UserId == currentUserId && s.PassedAllTests)
+                        || _db.UserTaskTestAttempts.Any(t => t.TaskAssignmentId == a.Id && t.UserId == currentUserId && t.Passed)
+                        || _db.UserImageTaskSolutions.Any(s => s.TaskAssignmentId == a.Id && s.UserId == currentUserId && s.Passed == true && s.IsTrial == false)
+                        || _db.UserTaskMathAttempts.Any(m => m.TaskAssignmentId == a.Id && m.UserId == currentUserId && m.Passed),
+                    Sort = a.Sort,
+                    CanEdit = canEditCourse,
+                    IsHidden = a.IsHidden,
+                    LifecycleStatus = a.LifecycleStatus,
+                    IsAiDraft = a.IsAiDraft,
+                    SourceAgentRunId = a.SourceAgentRunId,
+                    SourceAgentArtifactId = a.SourceAgentArtifactId,
+                    SourceAgentTaskIndex = a.SourceAgentTaskIndex
+                })
+                .ToListAsync();
+        }
 
 public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid currentUserId)
 {
@@ -138,8 +159,11 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 
     if (a == null) return null;
 
-    var canEdit = a.Course.OwnerId == currentUserId
+    var canEdit = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin)
+                  || a.Course.OwnerId == currentUserId
                   || await _db.CourseOwners.AnyAsync(o => o.CourseId == a.CourseId && o.UserId == currentUserId);
+
+    if (!canEdit && (a.IsHidden || a.LifecycleStatus != "published")) return null;
 
     var visibleCases = a.TestCases
         .Where(tc => canEdit || !tc.IsHidden)
@@ -178,7 +202,16 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
         ImageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
         CodeForbiddenCalls = canEdit ? DeserializeCallList(a.CodeForbiddenCallsJson) : new List<string>(),
         CodeRequiredCalls = canEdit ? DeserializeCallList(a.CodeRequiredCallsJson) : new List<string>(),
-        CanEdit = canEdit
+        CanEdit = canEdit,
+        IsHidden = a.IsHidden,
+        LifecycleStatus = a.LifecycleStatus,
+        IsAiDraft = a.IsAiDraft,
+        SourceAgentRunId = a.SourceAgentRunId,
+        SourceAgentArtifactId = a.SourceAgentArtifactId,
+        SourceAgentTaskIndex = a.SourceAgentTaskIndex,
+        AiDraftJson = canEdit ? a.AiDraftJson : null,
+        PolishedAtUtc = a.PolishedAtUtc,
+        PublishedAtUtc = a.PublishedAtUtc
     };
 }
 
@@ -191,7 +224,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             if (task == null)
                 throw new KeyNotFoundException("Assignment not found");
 
-            var isOwner = task.Course?.OwnerId == currentUserId
+            var isOwner = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin)
+                          || task.Course?.OwnerId == currentUserId
                           || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
             if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can edit this assignment.");
@@ -247,6 +281,14 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
             task.Tags = request.Tags?.Trim();
             task.Difficulty = request.Difficulty;
             task.Rating = request.Rating ?? 1;
+            task.IsHidden = request.IsHidden;
+            task.LifecycleStatus = NormalizeLifecycleStatus(request.LifecycleStatus, request.IsHidden ? "draft" : "published");
+            task.IsAiDraft = request.IsAiDraft;
+            task.SourceAgentRunId = request.SourceAgentRunId;
+            task.SourceAgentArtifactId = request.SourceAgentArtifactId;
+            task.SourceAgentTaskIndex = request.SourceAgentTaskIndex;
+            task.AiDraftJson = string.IsNullOrWhiteSpace(request.AiDraftJson) ? task.AiDraftJson : request.AiDraftJson;
+            task.PublishedAtUtc = task.IsHidden ? null : (task.PublishedAtUtc ?? DateTime.UtcNow);
             task.UpdatedAt = DateTime.UtcNow;
 
             await _db.Set<TaskTestCase>()
@@ -350,6 +392,20 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
 
             await _db.SaveChangesAsync();
             return true;
+        }
+
+        private static string NormalizeLifecycleStatus(string? value, string fallback)
+        {
+            var normalized = (value ?? fallback ?? "published").Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "draft" => "draft",
+                "polishing" => "polishing",
+                "ready" => "ready",
+                "published" => "published",
+                "archived" => "archived",
+                _ => fallback == "draft" ? "draft" : "published"
+            };
         }
 
         private static string NormalizeCodeTestInput(string? raw)

@@ -11,4 +11,10 @@ namespace taskforge.Data.Models.DTO
         public string ExpectedOutput { get; set; } = "";
         public bool IsHidden { get; set; }
     }
+
+    public sealed class UpdateAssignmentVisibilityRequest
+    {
+        public bool IsHidden { get; set; }
+        public string LifecycleStatus { get; set; } = "published";
+    }
 }

@@ -34,13 +34,17 @@ namespace taskforge.Controllers
             var userId = _current.GetUserId();
             var role = _current.GetRole();
 
-            var courseId = await _db.TaskAssignments.AsNoTracking()
+            var assignmentAccess = await _db.TaskAssignments.AsNoTracking()
                 .Where(a => a.Id == assignmentId)
-                .Select(a => (Guid?)a.CourseId)
+                .Select(a => new { a.CourseId, a.IsHidden, a.LifecycleStatus })
                 .FirstOrDefaultAsync();
-            if (courseId == null) return NotFound();
-            if (!await _access.CanViewCourseAsync(userId, role, courseId.Value))
+            if (assignmentAccess == null) return NotFound();
+            if (!await _access.CanViewCourseAsync(userId, role, assignmentAccess.CourseId))
                 return Forbid();
+            if ((assignmentAccess.IsHidden || assignmentAccess.LifecycleStatus != "published")
+                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
+                && !await _access.CanEditCourseAsync(userId, role, assignmentAccess.CourseId))
+                return NotFound();
 
             var list = await _solutions.GetTopSolutionsAsync(assignmentId, Math.Clamp(top, 1, 100));
             return Ok(list);
@@ -53,13 +57,17 @@ namespace taskforge.Controllers
             var userId = _current.GetUserId();
             var role = _current.GetRole();
 
-            var courseId = await _db.TaskAssignments.AsNoTracking()
+            var assignmentAccess = await _db.TaskAssignments.AsNoTracking()
                 .Where(a => a.Id == assignmentId)
-                .Select(a => (Guid?)a.CourseId)
+                .Select(a => new { a.CourseId, a.IsHidden, a.LifecycleStatus })
                 .FirstOrDefaultAsync();
-            if (courseId == null) return NotFound();
-            if (!await _access.CanViewCourseAsync(userId, role, courseId.Value))
+            if (assignmentAccess == null) return NotFound();
+            if (!await _access.CanViewCourseAsync(userId, role, assignmentAccess.CourseId))
                 return Forbid();
+            if ((assignmentAccess.IsHidden || assignmentAccess.LifecycleStatus != "published")
+                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
+                && !await _access.CanEditCourseAsync(userId, role, assignmentAccess.CourseId))
+                return NotFound();
 
             var result = await _solutions.SubmitAsync(assignmentId, userId, req);
             return Ok(result);

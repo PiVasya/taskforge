@@ -32,6 +32,12 @@ export async function deleteAssignment(assignmentId) {
   return res.data;
 }
 
+// Обновить видимость / статус черновика
+export async function updateAssignmentVisibility(assignmentId, payload) {
+  const res = await api.patch(`/api/assignments/${assignmentId}/visibility`, payload);
+  return res.data;
+}
+
 // Обновить сортировку
 export async function updateAssignmentSort(assignmentId, sort) {
   await api.patch(`/api/assignments/${assignmentId}/sort`, { sort });

@@ -45,6 +45,15 @@ namespace taskforge.Data.Models.DTO
         public IList<string>? CodeForbiddenCalls { get; set; }
 
         public IList<CreateTestCaseDto> TestCases { get; set; } = new List<CreateTestCaseDto>();
+
+        // Draft / visibility metadata. Used by AI-generated hidden drafts.
+        public bool IsHidden { get; set; } = false;
+        public string LifecycleStatus { get; set; } = "published";
+        public bool IsAiDraft { get; set; } = false;
+        public Guid? SourceAgentRunId { get; set; }
+        public Guid? SourceAgentArtifactId { get; set; }
+        public int? SourceAgentTaskIndex { get; set; }
+        public string? AiDraftJson { get; set; }
     }
 
     public sealed class CreateTestCaseDto

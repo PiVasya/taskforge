@@ -72,11 +72,22 @@ namespace taskforge.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // TaskAssignment code policy JSON columns
+            // TaskAssignment code policy JSON columns + AI draft metadata.
             modelBuilder.Entity<TaskAssignment>(entity =>
             {
                 entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
                 entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
+                entity.Property(x => x.AiDraftJson).HasColumnType("jsonb");
+                entity.Property(x => x.LifecycleStatus).HasMaxLength(32).HasDefaultValue("published");
+                entity.HasIndex(x => new { x.CourseId, x.IsHidden, x.LifecycleStatus, x.Sort });
+                entity.HasOne(x => x.SourceAgentRun)
+                    .WithMany()
+                    .HasForeignKey(x => x.SourceAgentRunId)
+                    .OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(x => x.SourceAgentArtifact)
+                    .WithMany()
+                    .HasForeignKey(x => x.SourceAgentArtifactId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
 

@@ -147,6 +147,119 @@ namespace taskforge.Controllers.Agent
             return Ok(new { message = messageDto, run = runDto });
         }
 
+
+        [HttpPost("conversations/{conversationId:guid}/polish-task")]
+        public async Task<IActionResult> PolishGeneratedTask([FromRoute] Guid conversationId, [FromBody] AgentPolishGeneratedTaskRequest request)
+        {
+            var uid = _current.GetUserId();
+            var role = _current.GetRole();
+            var conversation = await _db.AgentConversations.FirstOrDefaultAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived);
+            if (conversation == null) return NotFound();
+
+            var courseId = request.CourseId ?? conversation.CourseId;
+            if (!courseId.HasValue && request.BeforeAssignmentId.HasValue)
+            {
+                courseId = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == request.BeforeAssignmentId.Value)
+                    .Select(x => (Guid?)x.CourseId)
+                    .FirstOrDefaultAsync();
+            }
+            if (!courseId.HasValue && request.AfterAssignmentId.HasValue)
+            {
+                courseId = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == request.AfterAssignmentId.Value)
+                    .Select(x => (Guid?)x.CourseId)
+                    .FirstOrDefaultAsync();
+            }
+            if (courseId.HasValue && !await _courseAccess.CanViewCourseAsync(uid, role, courseId.Value))
+                return Forbid();
+
+            if (request.Task.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+                throw new ValidationException("Не передано AI-задание для вылизывания.");
+
+            var now = DateTime.UtcNow;
+            var taskTitle = TryGetString(request.Task, "title") ?? TryGetString(request.Task, "Title") ?? $"Задание {request.TaskIndex ?? 1}";
+            var message = new AgentMessage
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversation.Id,
+                Role = "user",
+                Source = "ui-action",
+                Text = $"Выбрано AI-задание для вылизывания и создания скрытого черновика: {taskTitle}",
+                DataJson = JsonSerializer.Serialize(new
+                {
+                    action = "polish_generated_task",
+                    sourceMessageId = request.SourceMessageId,
+                    sourceRunId = request.SourceRunId,
+                    sourceArtifactId = request.SourceArtifactId,
+                    taskIndex = request.TaskIndex,
+                    courseId,
+                    beforeAssignmentId = request.BeforeAssignmentId,
+                    afterAssignmentId = request.AfterAssignmentId,
+                    note = request.Note
+                }),
+                CreatedAtUtc = now,
+            };
+
+            var run = new AgentRun
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversation.Id,
+                RequestedByUserId = uid,
+                ActingOnBehalfOfUserId = uid,
+                Status = "queued",
+                ScenarioId = "polish_assignment_draft",
+                Priority = 20,
+                Attempt = 0,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+                RequestJson = JsonSerializer.Serialize(new
+                {
+                    action = "polish_assignment_draft",
+                    rawText = message.Text,
+                    courseId,
+                    assignmentId = conversation.AssignmentId,
+                    supportTicketId = conversation.SupportTicketId,
+                    sourceMessageId = request.SourceMessageId,
+                    sourceRunId = request.SourceRunId,
+                    sourceArtifactId = request.SourceArtifactId,
+                    taskIndex = request.TaskIndex,
+                    selectedTask = JsonSerializer.Deserialize<JsonElement>(request.Task.GetRawText()),
+                    beforeAssignmentId = request.BeforeAssignmentId,
+                    afterAssignmentId = request.AfterAssignmentId,
+                    note = request.Note,
+                    createHiddenDraft = true,
+                    requiredValidation = new { runnerAttempts = 2, requireReferenceSolution = true, requireTests = true }
+                }),
+            };
+            message.RunId = run.Id;
+            conversation.CourseId ??= courseId;
+            conversation.UpdatedAtUtc = now;
+
+            _db.AgentMessages.Add(message);
+            _db.AgentRuns.Add(run);
+            _db.AgentSteps.Add(new AgentStep
+            {
+                Id = Guid.NewGuid(),
+                RunId = run.Id,
+                Seq = 1,
+                Kind = "lifecycle",
+                Status = "queued",
+                ActionName = "polish_assignment_draft",
+                Title = "AI-задание выбрано для вылизывания",
+                Summary = "Worker улучшит условие, тесты, эталонное решение, прогонит решение на раннерах и создаст скрытый черновик.",
+                CreatedAtUtc = now,
+                IsVisibleToUser = true,
+            });
+
+            await _db.SaveChangesAsync();
+            var messageDto = ToMessageDto(message);
+            var runDto = ToRunDto(run);
+            await BroadcastAsync(conversation.Id, "message.created", new { message = messageDto });
+            await BroadcastAsync(conversation.Id, "run.created", new { run = runDto });
+            return Ok(new { message = messageDto, run = runDto });
+        }
+
         [HttpPost("runs/{runId:guid}/cancel")]
         public async Task<IActionResult> CancelRun([FromRoute] Guid runId, [FromBody] AgentCancelRunRequest? request)
         {
@@ -309,6 +422,18 @@ namespace taskforge.Controllers.Agent
                 AgentHub.EventMethod,
                 new { type, conversationId, payload, at = DateTime.UtcNow },
                 HttpContext.RequestAborted);
+        }
+
+
+        private static string? TryGetString(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
+                    return prop.GetString();
+            }
+            return null;
         }
 
         private static string NormalizeTitle(string? title, string? firstMessage)

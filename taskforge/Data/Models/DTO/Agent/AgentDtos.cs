@@ -107,6 +107,24 @@ namespace taskforge.Data.Models.DTO.Agent
         public string? Reason { get; set; }
     }
 
+    public sealed class AgentPolishGeneratedTaskRequest
+    {
+        public Guid? SourceMessageId { get; set; }
+        public Guid? SourceRunId { get; set; }
+        public Guid? SourceArtifactId { get; set; }
+        public int? TaskIndex { get; set; }
+        public Guid? CourseId { get; set; }
+        public Guid? BeforeAssignmentId { get; set; }
+        public Guid? AfterAssignmentId { get; set; }
+        public JsonElement Task { get; set; }
+        public string? Note { get; set; }
+    }
+
+    public sealed class AgentPublishDraftRequest
+    {
+        public bool Publish { get; set; } = true;
+    }
+
     public sealed class InternalAgentClaimNextRequest
     {
         public string? WorkerId { get; set; }

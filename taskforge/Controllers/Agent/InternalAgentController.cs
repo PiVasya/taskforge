@@ -5,9 +5,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
+using taskforge.Data.Models.DTO;
 using taskforge.Data.Models.DTO.Agent;
 using taskforge.Data.Models.Entities;
 using taskforge.Hubs;
+using taskforge.Services.Interfaces;
 
 namespace taskforge.Controllers.Agent
 {
@@ -19,12 +21,14 @@ namespace taskforge.Controllers.Agent
         private readonly ApplicationDbContext _db;
         private readonly IConfiguration _config;
         private readonly IHubContext<AgentHub> _hub;
+        private readonly ICompilerService _compiler;
 
-        public InternalAgentController(ApplicationDbContext db, IConfiguration config, IHubContext<AgentHub> hub)
+        public InternalAgentController(ApplicationDbContext db, IConfiguration config, IHubContext<AgentHub> hub, ICompilerService compiler)
         {
             _db = db;
             _config = config;
             _hub = hub;
+            _compiler = compiler;
         }
 
         [HttpPost("claim-next")]
@@ -191,8 +195,35 @@ namespace taskforge.Controllers.Agent
                 IsVisibleToUser = true,
             });
 
-            foreach (var artifact in ExtractArtifacts(run.Id, result, now))
+            var artifacts = ExtractArtifacts(run.Id, result, now).ToList();
+            foreach (var artifact in artifacts)
                 _db.AgentRunArtifacts.Add(artifact);
+
+            var createdDrafts = new List<object>();
+            foreach (var artifact in artifacts)
+            {
+                var created = await TryCreateHiddenDraftAssignmentAsync(run, artifact, now);
+                if (created != null) createdDrafts.Add(created);
+            }
+
+            if (createdDrafts.Count > 0)
+            {
+                _db.AgentSteps.Add(new AgentStep
+                {
+                    Id = Guid.NewGuid(),
+                    RunId = run.Id,
+                    Seq = await NextStepSeqAsync(run.Id),
+                    Kind = "draft",
+                    Status = "completed",
+                    ActionName = "create_hidden_assignment_draft",
+                    Title = "Создан скрытый черновик задания",
+                    Summary = $"Создано скрытых AI-черновиков: {createdDrafts.Count}.",
+                    OutputJson = JsonSerializer.Serialize(new { createdDrafts }),
+                    CreatedAtUtc = now,
+                    FinishedAtUtc = now,
+                    IsVisibleToUser = true,
+                });
+            }
 
             var memoryPatchRaw = GetRaw(result, "memoryPatch", "memory_patch");
             if (!string.IsNullOrWhiteSpace(memoryPatchRaw))
@@ -259,6 +290,20 @@ namespace taskforge.Controllers.Agent
             await BroadcastAsync(run.ConversationId, "message.created", new { message = ToMessagePayload(message) });
             await BroadcastAsync(run.ConversationId, "run.failed", new { runId = run.Id, status = run.Status, error = ParseJson(errorRaw) });
             return Ok(new { ok = true, runId = run.Id });
+        }
+
+
+        [HttpPost("tools/run-tests")]
+        public async Task<IActionResult> RunTestsTool([FromBody] TestRunRequestDto request)
+        {
+            if (!IsAuthorized()) return Unauthorized();
+            request.Language = NormalizeRunnerLanguage(request.Language);
+            var results = await _compiler.RunTestsAsync(request);
+            return Ok(new
+            {
+                ok = results.All(x => x.Passed && string.Equals(x.Status, "ok", StringComparison.OrdinalIgnoreCase)),
+                results
+            });
         }
 
         private async Task<object> BuildWorkerJobAsync(Guid runId)
@@ -446,6 +491,9 @@ namespace taskforge.Controllers.Agent
             public int Sort { get; init; }
             public string? AllowedLanguages { get; init; }
             public DateTime CreatedAt { get; init; }
+            public bool IsHidden { get; init; }
+            public string LifecycleStatus { get; init; } = "published";
+            public bool IsAiDraft { get; init; }
         }
 
         private sealed class AssignmentOutlineRow
@@ -462,6 +510,9 @@ namespace taskforge.Controllers.Agent
             public string? AllowedLanguages { get; init; }
             public string DescriptionPreview { get; init; } = string.Empty;
             public List<string> ConceptHints { get; init; } = new();
+            public bool IsHidden { get; init; }
+            public string LifecycleStatus { get; init; } = "published";
+            public bool IsAiDraft { get; init; }
         }
 
         private async Task<List<AssignmentContextRow>> LoadAssignmentRowsAsync(IEnumerable<Guid> courseIds)
@@ -487,6 +538,9 @@ namespace taskforge.Controllers.Agent
                     Sort = x.Sort,
                     AllowedLanguages = x.AllowedLanguagesCsv,
                     CreatedAt = x.CreatedAt,
+                    IsHidden = x.IsHidden,
+                    LifecycleStatus = x.LifecycleStatus,
+                    IsAiDraft = x.IsAiDraft,
                 })
                 .ToListAsync();
         }
@@ -507,6 +561,9 @@ namespace taskforge.Controllers.Agent
                 AllowedLanguages = assignment.AllowedLanguages,
                 DescriptionPreview = includeDescriptionPreview ? Preview(assignment.Description, 260) : Preview(assignment.Description, 120),
                 ConceptHints = DetectAssignmentConceptHints(assignment),
+                IsHidden = assignment.IsHidden,
+                LifecycleStatus = assignment.LifecycleStatus,
+                IsAiDraft = assignment.IsAiDraft,
             };
         }
 
@@ -525,6 +582,9 @@ namespace taskforge.Controllers.Agent
                 sort = assignment.Sort,
                 index,
                 allowedLanguages = assignment.AllowedLanguages,
+                isHidden = assignment.IsHidden,
+                lifecycleStatus = assignment.LifecycleStatus,
+                isAiDraft = assignment.IsAiDraft,
                 conceptHints = DetectAssignmentConceptHints(assignment),
             };
         }
@@ -732,6 +792,168 @@ namespace taskforge.Controllers.Agent
             return null;
         }
 
+
+        private async Task<object?> TryCreateHiddenDraftAssignmentAsync(AgentRun run, AgentRunArtifact artifact, DateTime now)
+        {
+            if (!string.Equals(artifact.Type, "polished_assignment_draft", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(artifact.Type, "assignment_draft_ready", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var parsedData = ParseJson(artifact.DataJson);
+            var data = parsedData is JsonElement parsedElement ? parsedElement : default;
+            if (data.ValueKind != JsonValueKind.Object) return null;
+
+            var title = GetString(data, "title") ?? GetString(data, "assignmentTitle") ?? artifact.Title;
+            var description = GetString(data, "description") ?? GetString(data, "condition") ?? GetString(data, "body");
+            var language = NormalizeRunnerLanguage(GetString(data, "language") ?? "cpp");
+            var solution = language == "python"
+                ? GetString(data, "referenceSolutionPython", "referenceSolution", "solutionPython", "solution")
+                : GetString(data, "referenceSolutionCpp", "referenceSolution", "solutionCpp", "solution");
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description) || string.IsNullOrWhiteSpace(solution))
+                return null;
+
+            var requestJsonObj = ParseJson(run.RequestJson ?? "{}");
+            var requestJson = requestJsonObj is JsonElement requestEl ? requestEl : default;
+            var courseId = GetGuid(data, "selectedCourseId", "courseId")
+                           ?? run.Conversation.CourseId
+                           ?? GetGuid(requestJson, "courseId");
+            var beforeId = GetGuid(data, "beforeAssignmentId") ?? GetGuid(requestJson, "beforeAssignmentId");
+            var afterId = GetGuid(data, "afterAssignmentId") ?? GetGuid(requestJson, "afterAssignmentId");
+
+            if (!courseId.HasValue && beforeId.HasValue)
+            {
+                courseId = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == beforeId.Value)
+                    .Select(x => (Guid?)x.CourseId)
+                    .FirstOrDefaultAsync();
+            }
+            if (!courseId.HasValue && afterId.HasValue)
+            {
+                courseId = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == afterId.Value)
+                    .Select(x => (Guid?)x.CourseId)
+                    .FirstOrDefaultAsync();
+            }
+            if (!courseId.HasValue) return null;
+
+            var tests = ExtractTestCases(data).ToList();
+            if (tests.Count == 0) return null;
+
+            var insertSort = await GetDraftInsertSortAsync(courseId.Value, beforeId, afterId);
+            if (insertSort.HasValue)
+            {
+                var shifted = await _db.TaskAssignments
+                    .Where(x => x.CourseId == courseId.Value && x.Sort >= insertSort.Value)
+                    .ToListAsync();
+                foreach (var row in shifted)
+                {
+                    row.Sort += 1;
+                    row.UpdatedAt = now;
+                }
+            }
+
+            var assignment = new TaskAssignment
+            {
+                Id = Guid.NewGuid(),
+                CourseId = courseId.Value,
+                Title = Trim(title, 200),
+                Description = description,
+                Type = "code-test",
+                Difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3),
+                Rating = 1,
+                Sort = insertSort ?? ((await _db.TaskAssignments.Where(x => x.CourseId == courseId.Value).Select(x => (int?)x.Sort).MaxAsync()) ?? -1) + 1,
+                AllowedLanguagesCsv = language,
+                Tags = MergeTags(GetString(data, "tags"), "AI,черновик"),
+                IsHidden = true,
+                LifecycleStatus = "ready",
+                IsAiDraft = true,
+                SourceAgentRunId = run.Id,
+                SourceAgentArtifactId = artifact.Id,
+                SourceAgentTaskIndex = GetInt(data, "sourceTaskIndex", "index"),
+                AiDraftJson = artifact.DataJson,
+                CreatedAt = now,
+                UpdatedAt = now,
+                PolishedAtUtc = now,
+                PublishedAtUtc = null,
+            };
+
+            foreach (var tc in tests)
+            {
+                assignment.TestCases.Add(new TaskTestCase
+                {
+                    Id = Guid.NewGuid(),
+                    Input = tc.Input,
+                    ExpectedOutput = tc.ExpectedOutput,
+                    IsHidden = tc.IsHidden,
+                });
+            }
+
+            _db.TaskAssignments.Add(assignment);
+            return new
+            {
+                id = assignment.Id,
+                courseId = assignment.CourseId,
+                title = assignment.Title,
+                isHidden = assignment.IsHidden,
+                lifecycleStatus = assignment.LifecycleStatus,
+                testCount = tests.Count,
+                sourceAgentRunId = run.Id,
+                sourceAgentArtifactId = artifact.Id
+            };
+        }
+
+        private async Task<int?> GetDraftInsertSortAsync(Guid courseId, Guid? beforeId, Guid? afterId)
+        {
+            if (beforeId.HasValue)
+            {
+                var beforeSort = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == beforeId.Value && x.CourseId == courseId)
+                    .Select(x => (int?)x.Sort)
+                    .FirstOrDefaultAsync();
+                if (beforeSort.HasValue) return beforeSort.Value;
+            }
+            if (afterId.HasValue)
+            {
+                var afterSort = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == afterId.Value && x.CourseId == courseId)
+                    .Select(x => (int?)x.Sort)
+                    .FirstOrDefaultAsync();
+                if (afterSort.HasValue) return afterSort.Value + 1;
+            }
+            return null;
+        }
+
+        private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden);
+
+        private static IEnumerable<DraftTestCase> ExtractTestCases(JsonElement data)
+        {
+            foreach (var group in new[] { (Name: "publicTests", Hidden: false), (Name: "hiddenTests", Hidden: true), (Name: "testCases", Hidden: false) })
+            {
+                if (!data.TryGetProperty(group.Name, out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
+                foreach (var item in arr.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    var input = GetString(item, "input") ?? string.Empty;
+                    var output = GetString(item, "expectedOutput", "output") ?? string.Empty;
+                    var hidden = GetBool(item, "isHidden", "hidden") ?? group.Hidden;
+                    yield return new DraftTestCase(input, output, hidden);
+                }
+            }
+        }
+
+        private static string MergeTags(string? existing, string required)
+        {
+            var tags = new List<string>();
+            foreach (var raw in new[] { existing, required })
+            {
+                foreach (var part in (raw ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!tags.Contains(part, StringComparer.OrdinalIgnoreCase)) tags.Add(part);
+                }
+            }
+            return string.Join(',', tags);
+        }
+
         private static IEnumerable<AgentRunArtifact> ExtractArtifacts(Guid runId, JsonElement result, DateTime now)
         {
             if (result.ValueKind != JsonValueKind.Object) yield break;
@@ -801,6 +1023,43 @@ namespace taskforge.Controllers.Agent
             return null;
         }
 
+
+        private static Guid? GetGuid(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.String && Guid.TryParse(prop.GetString(), out var id)) return id;
+            }
+            return null;
+        }
+
+        private static int? GetInt(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var n)) return n;
+                if (prop.ValueKind == JsonValueKind.String && int.TryParse(prop.GetString(), out var parsed)) return parsed;
+            }
+            return null;
+        }
+
+        private static bool? GetBool(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.True) return true;
+                if (prop.ValueKind == JsonValueKind.False) return false;
+                if (prop.ValueKind == JsonValueKind.String && bool.TryParse(prop.GetString(), out var parsed)) return parsed;
+            }
+            return null;
+        }
+
         private static string? GetRaw(JsonElement element, params string[] names)
         {
             if (element.ValueKind != JsonValueKind.Object) return null;
@@ -841,6 +1100,21 @@ namespace taskforge.Controllers.Agent
             clientMessageId = message.ClientMessageId,
             createdAtUtc = message.CreatedAtUtc,
         };
+
+        private static string NormalizeRunnerLanguage(string? value)
+        {
+            var text = (value ?? string.Empty).Trim().ToLowerInvariant();
+            return text switch
+            {
+                "c++" or "cpp" or "g++" or "gcc" or "cxx" => "cpp",
+                "c#" or "csharp" or "cs" => "csharp",
+                "py" or "python3" or "python" => "python",
+                "js" or "javascript" or "node" or "nodejs" => "javascript",
+                "pas" or "pascal" => "pascal",
+                "java" => "java",
+                _ => string.IsNullOrWhiteSpace(text) ? "cpp" : text
+            };
+        }
 
         private static string Trim(string value, int max)
         {

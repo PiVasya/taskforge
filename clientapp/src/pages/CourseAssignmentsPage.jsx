@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom"
 
 import Layout from "../components/Layout";
 import QuotaPill from "../components/QuotaPill";
-import { Card, Button, Input } from "../components/ui";
+import { Card, Button, Input, Badge } from "../components/ui";
 
 import { getCourse } from "../api/courses";
 
@@ -359,7 +359,7 @@ export default function CourseAssignmentsPage() {
       </div>
 
       <Card className="page-search-card mb-6 rounded-[24px] p-3 sm:p-4">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Input
               placeholder="Поиск по названию или тегам"
@@ -367,6 +367,11 @@ export default function CourseAssignmentsPage() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
+          {courseCanEdit && (
+            <div className="text-xs text-neutral-500">
+              Скрытые AI-черновики показываются только администраторам/редакторам курса и отмечены бейджами.
+            </div>
+          )}
         </div>
       </Card>
 
@@ -469,12 +474,17 @@ export default function CourseAssignmentsPage() {
             <div className="assignment-card-main min-w-0">
               <div className="assignment-card-heading">
                 <div className="assignment-card-kicker">Задание {positionById.get(a.id) ?? idx + 1}</div>
-                {solved && (
-                  <span className="assignment-card-status">
-                    <CheckCircle2 size={14} />
-                    Решено
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {a.isAiDraft && <Badge variant="secondary">AI-черновик</Badge>}
+                  {a.isHidden && <Badge variant="outline">скрыто</Badge>}
+                  {a.lifecycleStatus && a.lifecycleStatus !== 'published' && <Badge variant="outline">{a.lifecycleStatus}</Badge>}
+                  {solved && (
+                    <span className="assignment-card-status">
+                      <CheckCircle2 size={14} />
+                      Решено
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="assignment-card-title-wrap">

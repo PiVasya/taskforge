@@ -26,6 +26,13 @@ class AgentRuntime:
         normalized = MessageNormalizer.normalize(incoming)
         snapshot = self.context.build_snapshot(incoming, allow_stale=True)
         route = self.router.select(normalized, snapshot, self.registry.definitions())
+        request_action = (snapshot.raw_payload.get("request") or {}).get("action") if isinstance(snapshot.raw_payload.get("request"), dict) else None
+        if request_action == "polish_assignment_draft":
+            route.scenario_id = "polish_assignment_draft"
+            route.secondary_scenario_id = None
+            route.execution_mode = "single"
+            route.confidence = 99
+            route.reason = "Пользователь выбрал AI-задание галочкой: нужно вылизать его, прогнать тесты и создать скрытый черновик."
         log_event(
             "agent-route-selected",
             run_id=str(job.get("id") or payload.get("runId") or ""),
@@ -148,6 +155,11 @@ class AgentRuntime:
             return [
                 {"name": "guided_ladder", "label": "Собрать лесенку"},
                 {"name": "bridge_tasks", "label": "Собрать мостик"},
+            ]
+        if result.type == "polished_assignment_draft":
+            return [
+                {"name": "open_draft", "label": "Открыть скрытый черновик"},
+                {"name": "publish_draft", "label": "Опубликовать после проверки"},
             ]
         if result.type in {"task_ladder_blueprint", "task_draft_bundle", "bridge_plan"}:
             return [

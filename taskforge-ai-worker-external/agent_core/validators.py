@@ -148,6 +148,23 @@ class ResultValidator:
             if topic == "if" and invalid_if >= len(drafts):
                 return _fail_result(result, "Все черновики по if не прошли проверку: в эталонных решениях нет if.", warnings, validation)
 
+
+        if result.type == "polished_assignment_draft":
+            tests = (result.data.get("publicTests") or []) + (result.data.get("hiddenTests") or [])
+            validation.setdefault("testCount", len(tests))
+            if not result.data.get("title") or not result.data.get("description"):
+                return _fail_result(result, "Вылизанный черновик отклонён: нет title/description.", warnings, validation)
+            if len(tests) < 2:
+                return _fail_result(result, "Вылизанный черновик отклонён: мало тестов.", warnings, validation)
+            if _expects_cpp(context) or str(result.data.get("language") or "").lower() in {"cpp", "c++"}:
+                if not _task_is_cpp(result.data):
+                    return _fail_result(result, "Вылизанный черновик отклонён: нужен C++ и referenceSolutionCpp.", warnings, validation)
+            if not _description_is_step_by_step(result.data):
+                return _fail_result(result, "Вылизанный черновик отклонён: описание не похоже на пошаговую обучалку.", warnings, validation)
+            runner_validation = result.data.get("runnerValidation") if isinstance(result.data.get("runnerValidation"), dict) else {}
+            validation.setdefault("runnerUsed", bool(runner_validation.get("runnerUsed")))
+            validation.setdefault("runnerPassed", bool(runner_validation.get("passed")))
+
         if result.type == "bridge_plan":
             items = result.data.get("items") or []
             validation.setdefault("itemCount", len(items))

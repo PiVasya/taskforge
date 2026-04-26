@@ -84,6 +84,19 @@ class AgentApiClient:
             return
         self._post(f"/api/internal/agent/runs/{run_id}/steps", {"workerId": AGENT_WORKER_ID, "step": step})
 
+    def run_tests(self, language: str, code: str, test_cases: list[dict[str, Any]], policy_forbidden_calls: Optional[list[str]] = None, policy_required_calls: Optional[list[str]] = None) -> Dict[str, Any]:
+        if not self.configured:
+            raise RuntimeError("TASKFORGE_AGENT_API_BASE_URL is not configured; cannot run code tests")
+        return self._post("/api/internal/agent/tools/run-tests", {
+            "language": language or "cpp",
+            "code": code or "",
+            "testCases": test_cases or [],
+            "policyForbiddenCalls": policy_forbidden_calls or [],
+            "policyRequiredCalls": policy_required_calls or [],
+            "timeLimitMs": 3000,
+            "memoryLimitMb": 256,
+        })
+
 
 def sleep_seconds(seconds: float) -> None:
     time.sleep(max(0.0, seconds))

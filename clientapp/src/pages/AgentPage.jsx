@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   BrainCircuit,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   FileJson,
@@ -30,6 +31,7 @@ import {
   getAgentConversation,
   listAgentConversations,
   sendAgentMessage,
+  polishAgentGeneratedTask,
 } from '../api/agent';
 import { joinAgentConversation, leaveAgentConversation } from '../realtime/agentHub';
 
@@ -141,7 +143,7 @@ function ThinkingDots() {
   );
 }
 
-function MessageBubble({ message }) {
+function MessageBubble({ message, onPolishTask, polishingTasks }) {
   const role = String(message?.role || '').toLowerCase();
   const isUser = role === 'user';
   const artifacts = getArtifactData(message);
@@ -168,7 +170,14 @@ function MessageBubble({ message }) {
         {artifacts.length > 0 && (
           <div className="w-full space-y-2">
             {artifacts.map((artifact, idx) => (
-              <ArtifactPreview key={`${artifact?.type || 'artifact'}-${idx}`} artifact={artifact} />
+              <ArtifactPreview
+                key={`${artifact?.type || 'artifact'}-${idx}`}
+                artifact={artifact}
+                message={message}
+                artifactIndex={idx}
+                onPolishTask={onPolishTask}
+                polishingTasks={polishingTasks}
+              />
             ))}
           </div>
         )}
@@ -186,7 +195,7 @@ function MessageBubble({ message }) {
   );
 }
 
-function ArtifactPreview({ artifact }) {
+function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, polishingTasks }) {
   const data = artifact?.data || {};
   const tasks = Array.isArray(data.tasks) ? data.tasks : Array.isArray(data.drafts) ? data.drafts : [];
   const findings = Array.isArray(data.findings) ? data.findings : [];
@@ -217,26 +226,47 @@ function ArtifactPreview({ artifact }) {
 
       {tasks.length > 0 && (
         <div className="mt-3 space-y-2">
-          {tasks.slice(0, 3).map((task, i) => (
-            <div key={`${task?.title || 'task'}-${i}`} className="rounded-xl bg-white/70 dark:bg-neutral-950/30 p-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
-                <Badge variant="secondary">сложность {task.difficulty || 1}</Badge>
-              </div>
-              <div className="mt-1 text-neutral-600 dark:text-neutral-300 line-clamp-3 whitespace-pre-line">
-                {task.description || task.goal || task.pedagogicalGoal || 'Черновик задания готов.'}
-              </div>
-              {Array.isArray(task.publicTests) && task.publicTests.length > 0 && (
-                <div className="mt-2 rounded-lg border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/60 p-2 text-xs">
-                  <div className="uppercase tracking-wide text-neutral-500">Публичный тест</div>
-                  <div className="mt-1 grid gap-1 sm:grid-cols-2">
-                    <div><span className="opacity-60">Ввод:</span> <code>{task.publicTests[0]?.input || '—'}</code></div>
-                    <div><span className="opacity-60">Вывод:</span> <code>{task.publicTests[0]?.expectedOutput || '—'}</code></div>
+          {tasks.map((task, i) => {
+            const taskKey = `${message?.id || message?.runId || 'message'}-${artifactIndex}-${task?.index || i}`;
+            const polishing = !!polishingTasks?.[taskKey];
+            return (
+              <div key={`${task?.title || 'task'}-${i}`} className="rounded-xl bg-white/70 dark:bg-neutral-950/30 p-3 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                      <Badge variant="secondary">сложность {task.difficulty || 1}</Badge>
+                      {task.language && <span>{task.language}</span>}
+                    </div>
                   </div>
+                  {onPolishTask && (
+                    <button
+                      type="button"
+                      disabled={polishing}
+                      onClick={() => onPolishTask({ task, taskIndex: task.index ?? i + 1, artifact, artifactIndex, message, taskKey })}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-60 dark:border-brand-900 dark:bg-neutral-950/50 dark:text-brand-300"
+                      title="Выбрать это задание: AI вылижет его, прогонит решение на раннерах и создаст скрытый черновик"
+                    >
+                      {polishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                      {polishing ? 'вылизываю' : 'в черновик'}
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+                <div className="mt-2 text-neutral-700 dark:text-neutral-200 whitespace-pre-line">
+                  {task.description || task.goal || task.pedagogicalGoal || 'Черновик задания готов.'}
+                </div>
+                {Array.isArray(task.publicTests) && task.publicTests.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/60 p-2 text-xs">
+                    <div className="uppercase tracking-wide text-neutral-500">Публичный тест</div>
+                    <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                      <div><span className="opacity-60">Ввод:</span> <code>{task.publicTests[0]?.input || '—'}</code></div>
+                      <div><span className="opacity-60">Вывод:</span> <code>{task.publicTests[0]?.expectedOutput || '—'}</code></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -420,6 +450,7 @@ export default function AgentPage() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [realtimeEvents, setRealtimeEvents] = useState([]);
+  const [polishingTasks, setPolishingTasks] = useState({});
 
   const bottomRef = useRef(null);
   const selectedIdRef = useRef(null);
@@ -655,6 +686,34 @@ export default function AgentPage() {
     }
   };
 
+
+  const handlePolishGeneratedTask = async ({ task, taskIndex, artifact, message, taskKey }) => {
+    if (!selectedId || !task) return;
+    setPolishingTasks((prev) => ({ ...prev, [taskKey]: true }));
+    try {
+      const placement = task.placement || artifact?.data?.placement || {};
+      const res = await polishAgentGeneratedTask(selectedId, {
+        sourceMessageId: message?.id || null,
+        sourceRunId: message?.runId || null,
+        sourceArtifactId: artifact?.id || artifact?.artifactId || null,
+        taskIndex,
+        courseId: conversation?.courseId || courseId || task.selectedCourseId || artifact?.data?.selectedCourseId || null,
+        beforeAssignmentId: placement.beforeAssignmentId || task.beforeAssignmentId || null,
+        afterAssignmentId: placement.afterAssignmentId || task.afterAssignmentId || null,
+        task,
+        note: 'Пользователь выбрал это AI-задание галочкой для вылизывания и создания скрытого черновика.',
+      });
+      if (res?.message) setMessages((prev) => sortByTimeAsc(upsertMessage(prev, res.message)));
+      if (res?.run) setRuns((prev) => sortRunsDesc(upsertById(prev, res.run)));
+      notify.success('AI начал вылизывать задание и готовить скрытый черновик');
+      setTimeout(() => scrollToBottom(), 0);
+    } catch (err) {
+      handleApiError(err, notify, 'Не удалось отправить задание на вылизывание');
+    } finally {
+      setPolishingTasks((prev) => ({ ...prev, [taskKey]: false }));
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     sendText();
@@ -724,7 +783,12 @@ export default function AgentPage() {
             ) : (
               <>
                 {messages.map((message) => (
-                  <MessageBubble key={message.id || message.clientMessageId || `${message.role}-${message.createdAtUtc}`} message={message} />
+                  <MessageBubble
+                    key={message.id || message.clientMessageId || `${message.role}-${message.createdAtUtc}`}
+                    message={message}
+                    onPolishTask={handlePolishGeneratedTask}
+                    polishingTasks={polishingTasks}
+                  />
                 ))}
                 <ThinkingPanel run={activeRun} />
                 <div ref={bottomRef} />

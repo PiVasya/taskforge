@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
 using taskforge.Services.Interfaces;
+using taskforge.Constants;
 
 namespace taskforge.Controllers
 {
@@ -38,7 +39,7 @@ namespace taskforge.Controllers
             var uid = _current.GetUserId();
             var role = _current.GetRole();
 
-            if (!await _access.CanEditCourseAsync(uid, role, courseId))
+            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId))
                 return Forbid();
 
             var id = await _assignments.CreateAsync(courseId, req, uid);
@@ -89,7 +90,7 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             await _assignments.UpdateAsync(assignmentId, uid, req);
@@ -107,11 +108,42 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             await _assignments.DeleteAsync(assignmentId, uid);
             return NoContent();
+        }
+
+
+        [HttpPatch("assignments/{assignmentId:guid}/visibility")]
+        public async Task<IActionResult> UpdateVisibility([FromRoute] Guid assignmentId, [FromBody] UpdateAssignmentVisibilityRequest body)
+        {
+            var uid = _current.GetUserId();
+            var role = _current.GetRole();
+
+            var task = await _db.TaskAssignments.FirstOrDefaultAsync(a => a.Id == assignmentId);
+            if (task == null) return NotFound();
+            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, task.CourseId))
+                return Forbid();
+
+            var status = (body.LifecycleStatus ?? (body.IsHidden ? "draft" : "published")).Trim().ToLowerInvariant();
+            status = status switch
+            {
+                "draft" => "draft",
+                "polishing" => "polishing",
+                "ready" => "ready",
+                "published" => "published",
+                "archived" => "archived",
+                _ => body.IsHidden ? "draft" : "published"
+            };
+
+            task.IsHidden = body.IsHidden;
+            task.LifecycleStatus = status;
+            task.PublishedAtUtc = body.IsHidden ? null : (task.PublishedAtUtc ?? DateTime.UtcNow);
+            task.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return Ok(new { task.Id, task.IsHidden, task.LifecycleStatus, task.PublishedAtUtc });
         }
 
         [HttpPatch("assignments/{assignmentId:guid}/sort")]
@@ -125,7 +157,7 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             await _assignments.UpdateSortAsync(assignmentId, uid, body.Sort);

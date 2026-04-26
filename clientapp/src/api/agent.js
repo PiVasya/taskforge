@@ -24,3 +24,8 @@ export async function cancelAgentRun(runId, reason = 'user_requested') {
   const res = await api.post(`/api/agent/runs/${runId}/cancel`, { reason });
   return res.data;
 }
+
+export async function polishAgentGeneratedTask(conversationId, payload) {
+  const res = await api.post(`/api/agent/conversations/${conversationId}/polish-task`, payload);
+  return res.data;
+}

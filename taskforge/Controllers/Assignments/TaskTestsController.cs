@@ -40,13 +40,17 @@ namespace taskforge.Controllers.Assignments
             var userId = _current.GetUserId();
             var role = _current.GetRole();
 
-            var courseId = await _db.TaskAssignments.AsNoTracking()
+            var assignmentAccess = await _db.TaskAssignments.AsNoTracking()
                 .Where(a => a.Id == assignmentId)
-                .Select(a => (Guid?)a.CourseId)
+                .Select(a => new { a.CourseId, a.IsHidden, a.LifecycleStatus })
                 .FirstOrDefaultAsync();
-            if (courseId == null) return NotFound();
-            if (!await _access.CanViewCourseAsync(userId, role, courseId.Value))
+            if (assignmentAccess == null) return NotFound();
+            if (!await _access.CanViewCourseAsync(userId, role, assignmentAccess.CourseId))
                 return Forbid();
+            if ((assignmentAccess.IsHidden || assignmentAccess.LifecycleStatus != "published")
+                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
+                && !await _access.CanEditCourseAsync(userId, role, assignmentAccess.CourseId))
+                return NotFound();
 
             var dto = await _service.StartAsync(assignmentId, userId, HttpContext.RequestAborted);
             return Ok(dto);
@@ -59,13 +63,17 @@ namespace taskforge.Controllers.Assignments
             var userId = _current.GetUserId();
             var role = _current.GetRole();
 
-            var courseId = await _db.TaskAssignments.AsNoTracking()
+            var assignmentAccess = await _db.TaskAssignments.AsNoTracking()
                 .Where(a => a.Id == assignmentId)
-                .Select(a => (Guid?)a.CourseId)
+                .Select(a => new { a.CourseId, a.IsHidden, a.LifecycleStatus })
                 .FirstOrDefaultAsync();
-            if (courseId == null) return NotFound();
-            if (!await _access.CanViewCourseAsync(userId, role, courseId.Value))
+            if (assignmentAccess == null) return NotFound();
+            if (!await _access.CanViewCourseAsync(userId, role, assignmentAccess.CourseId))
                 return Forbid();
+            if ((assignmentAccess.IsHidden || assignmentAccess.LifecycleStatus != "published")
+                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
+                && !await _access.CanEditCourseAsync(userId, role, assignmentAccess.CourseId))
+                return NotFound();
 
             var dto = await _service.SubmitAsync(assignmentId, userId, request, HttpContext.RequestAborted);
             return Ok(dto);
