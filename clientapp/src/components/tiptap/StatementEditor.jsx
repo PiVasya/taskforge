@@ -56,6 +56,19 @@ function safeParseJson(str) {
   return null;
 }
 
+function plainTextToDoc(value) {
+  const text = String(value ?? "");
+  if (!text.trim()) return "";
+  if (/<[a-z][\s\S]*>/i.test(text)) return text;
+  return {
+    type: "doc",
+    content: text.replace(/\r/g, "").split("\n").map((line) => ({
+      type: "paragraph",
+      content: line.length ? [{ type: "text", text: line }] : [],
+    })),
+  };
+}
+
 function ToolbarButton({ title, isActive, disabled, onClick, children }) {
   return (
     <button
@@ -120,7 +133,7 @@ function StatementEditor({ value, onChange }) {
   const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
   const initialContent = useMemo(() => {
     const doc = safeParseJson(value);
-    return doc ?? (value ?? "");
+    return doc ?? plainTextToDoc(value ?? "");
   }, [value]);
 
   const editor = useEditor({

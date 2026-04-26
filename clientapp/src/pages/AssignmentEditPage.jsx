@@ -55,6 +55,9 @@ export default function AssignmentEditPage() {
   const [tags, setTags] = useState("");
   const [difficulty, setDifficulty] = useState(1);
   const [rating, setRating] = useState(1);
+  const [isHidden, setIsHidden] = useState(false);
+  const [isAiDraft, setIsAiDraft] = useState(false);
+  const [lifecycleStatus, setLifecycleStatus] = useState("published");
   const [testCases, setTestCases] = useState([]);
 
   // code policy (per-task)
@@ -116,6 +119,9 @@ export default function AssignmentEditPage() {
         setTags(a.tags || "");
         setDifficulty(Number(a.difficulty || 1));
         setRating(typeof a.rating === "number" ? a.rating : Number(a.rating || 1));
+        setIsHidden(!!a.isHidden);
+        setIsAiDraft(!!a.isAiDraft);
+        setLifecycleStatus(a.lifecycleStatus || (a.isHidden ? "draft" : "published"));
 
         // code policy
         const forb = Array.isArray(a.codeForbiddenCalls) ? a.codeForbiddenCalls : [];
@@ -300,7 +306,7 @@ export default function AssignmentEditPage() {
     }
 
     return [...new Set(issues)];
-  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
+  }, [title, description, type, difficulty, rating, isHidden, isAiDraft, lifecycleStatus, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
 
   useEffect(() => {
     if (saveIssues.length > 0) {
@@ -350,6 +356,9 @@ export default function AssignmentEditPage() {
         tags: (tags || "").trim(),
         difficulty: Number(difficulty) || 1,
         rating: Number(rating) >= 0 ? Number(rating) : 1,
+        isHidden,
+        isAiDraft,
+        lifecycleStatus: isHidden ? (lifecycleStatus === "published" ? "draft" : lifecycleStatus) : "published",
 
         // code policy (applies to code-test & image-test)
         codeForbiddenCalls: (["code-test", "image-test"].includes((type || "").trim()))
@@ -590,9 +599,6 @@ export default function AssignmentEditPage() {
                       >
                         <PlusCircle size={16} /> Добавить
                       </Button>
-                      <div className="text-xs text-neutral-500">
-                        Оставь список пустым, чтобы разрешить все доступные языки для этого типа.
-                      </div>
                     </div>
 
                     {allowedLanguages.length > 0 && (
@@ -627,12 +633,6 @@ export default function AssignmentEditPage() {
               {(["code-test", "image-test"].includes((type || "").trim())) && (
                 <div className="sm:col-span-2">
                   <Card className="p-4">
-                    <div className="text-sm text-neutral-600 dark:text-neutral-300 mb-3">
-                      Проверка решения по коду (анализатор): списки <b>ожидаемых</b> и <b>запрещённых</b> <u>вызовов</u>.
-                      Можно указывать не только слова — подойдёт и целая строка.
-                      Формат: по одному правилу на строку. Примеры: <code>solve</code>, <code>__import__</code>, <code>Process.Start</code>, <code>std::sort</code>.
-                    </div>
-
                     <div className="grid md:grid-cols-2 gap-4">
                       <Field label="Запрещённые (если найдено — решение отклоняется)">
                         <Textarea
@@ -713,6 +713,31 @@ export default function AssignmentEditPage() {
 
               <Field label="Теги (через запятую)">
                 <Input value={tags} onChange={(e) => setTags(e.target.value)} />
+              </Field>
+
+              <Field label="Метки">
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[rgba(var(--border)/0.65)] px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={isAiDraft}
+                      onChange={(e) => setIsAiDraft(e.target.checked)}
+                    />
+                    AI-черновик
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[rgba(var(--border)/0.65)] px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={isHidden}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setIsHidden(checked);
+                        setLifecycleStatus(checked ? (lifecycleStatus === "published" ? "draft" : lifecycleStatus) : "published");
+                      }}
+                    />
+                    Скрыто
+                  </label>
+                </div>
               </Field>
 
               <div className="sm:col-span-2">

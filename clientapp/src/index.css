@@ -1301,24 +1301,14 @@ html.dark .bg-fx__blob {
 .assignment-card-title {
   position: relative;
   min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  padding-right: 2.5rem;
-  font-size: 1.35rem;
-  font-weight: 600;
+  font-size: 1.22rem;
+  font-weight: 650;
   line-height: 1.25;
-}
-
-.assignment-card-title::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 2.4rem;
-  pointer-events: none;
-  background: linear-gradient(90deg, rgba(var(--card) / 0), rgba(var(--card) / 0.92) 72%);
 }
 
 .assignment-card-title-tooltip {
@@ -1351,10 +1341,19 @@ html.dark .bg-fx__blob {
 @media (max-width: 640px) {
   .assignment-card-title {
     font-size: 1.18rem;
-    padding-right: 2rem;
   }
 
   .assignment-card-title-tooltip {
     max-width: min(24rem, calc(100vw - 2rem));
   }
+}
+
+.assignment-card--dragging {
+  opacity: 0.55;
+  transform: scale(0.985);
+}
+
+.assignment-card--drop-target {
+  outline: 2px dashed rgb(var(--brand-500));
+  outline-offset: 5px;
 }

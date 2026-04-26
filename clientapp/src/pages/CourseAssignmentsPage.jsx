@@ -12,7 +12,7 @@ import {
   createAssignment,
   updateAssignmentSort,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, ArrowUp, ArrowDown, Bot } from "lucide-react";
+import { Plus, Layers, CheckCircle2, Bot } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
@@ -72,12 +72,11 @@ export default function CourseAssignmentsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // draft-значения для инпута "позиция" по каждому заданию
-  // (чтобы можно было ввести число и применить по blur/Enter)
-  const [posDraft, setPosDraft] = useState({});
 
   // тип создаваемого задания (по умолчанию — code-test)
   const [createType, setCreateType] = useState("code-test");
+  const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
+  const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
 
   const sortMode = params.get("sort") || "default";
 
@@ -267,6 +266,25 @@ export default function CourseAssignmentsPage() {
     }
   };
 
+  const handleDropOnAssignment = async (targetId) => {
+    const sourceId = draggedAssignmentId;
+    setDraggedAssignmentId(null);
+    setDragOverAssignmentId(null);
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    if (sortMode !== "default") {
+      notify.info("Перетаскивание доступно только в стандартной сортировке");
+      return;
+    }
+    const source = orderedAll.find((x) => x.id === sourceId);
+    const targetPos = positionById.get(targetId);
+    if (!source || !targetPos) return;
+    if (source.canEdit === false) {
+      notify.error("Недостаточно прав");
+      return;
+    }
+    await moveToPosition(sourceId, targetPos);
+  };
+
   const handleCreate = async () => {
     // быстрый UX-гард: по первому элементу понимаем, чужой курс или нет
     if (items.length > 0 && items[0].canEdit === false) {
@@ -366,13 +384,7 @@ export default function CourseAssignmentsPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-          </div>
-          {courseCanEdit && (
-            <div className="text-xs text-neutral-500">
-              Скрытые AI-черновики показываются только администраторам/редакторам курса и отмечены бейджами.
-            </div>
-          )}
-        </div>
+          </div>        </div>
       </Card>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
@@ -393,82 +405,6 @@ export default function CourseAssignmentsPage() {
               {children}
             </Link>
           );
-
-          const EditorToolbar =
-            sortMode === "default" ? (
-              <IfEditor>
-                <div
-                  className="flex items-center gap-2 rounded-2xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.36)] px-2.5 py-2 shadow-soft"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    className="h-9 w-[4.7rem] shrink-0 text-sm"
-                    min={1}
-                    max={orderedAll.length}
-                    title="Позиция задания в курсе"
-                    value={posDraft[a.id] ?? String(positionById.get(a.id) ?? "")}
-                    onChange={(e) => setPosDraft((p) => ({ ...p, [a.id]: e.target.value }))}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") e.currentTarget.blur();
-                      if (e.key === "Escape") {
-                        setPosDraft((p) => {
-                          const next = { ...p };
-                          delete next[a.id];
-                          return next;
-                        });
-                        e.currentTarget.blur();
-                      }
-                    }}
-                    onBlur={() => {
-                      const raw = posDraft[a.id];
-                      if (raw === undefined) return;
-
-                      setPosDraft((p) => {
-                        const next = { ...p };
-                        delete next[a.id];
-                        return next;
-                      });
-
-                      const n = parseInt(String(raw), 10);
-                      if (!Number.isFinite(n)) return;
-                      moveToPosition(a.id, n);
-                    }}
-                  />
-
-                  <div className="flex items-center overflow-hidden rounded-xl border border-[rgba(var(--border)/0.55)]">
-                    <button
-                      type="button"
-                      className="grid h-9 w-9 place-items-center hover:bg-[rgba(var(--border)/0.18)]"
-                      title="Выше"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        swapByIndex(idx, idx - 1);
-                      }}
-                    >
-                      <ArrowUp size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      className="grid h-9 w-9 place-items-center border-l border-[rgba(var(--border)/0.55)] hover:bg-[rgba(var(--border)/0.18)]"
-                      title="Ниже"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        swapByIndex(idx, idx + 1);
-                      }}
-                    >
-                      <ArrowDown size={16} />
-                    </button>
-                  </div>
-                </div>
-              </IfEditor>
-            ) : null;
 
           const CardMain = (
             <div className="assignment-card-main min-w-0">
@@ -497,7 +433,6 @@ export default function CourseAssignmentsPage() {
                 >
                   {title}
                 </div>
-                <div className="assignment-card-title-tooltip" aria-hidden="true">{title}</div>
               </div>
 
               {a.description && (
@@ -511,28 +446,51 @@ export default function CourseAssignmentsPage() {
             </div>
           );
 
+          const baseCardClass =
+            "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
+            (solved ? "opacity-60 hover:opacity-90 " : "") +
+            (draggedAssignmentId === a.id ? "assignment-card--dragging " : "") +
+            (dragOverAssignmentId === a.id ? "assignment-card--drop-target " : "");
+
           const CardBase = (
-            <Card
-              className={
-                "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
-                (solved ? "opacity-60 hover:opacity-90" : "")
-              }
-            >
+            <Card className={baseCardClass}>
               {CardMain}
             </Card>
           );
 
           const EditorCard = (
             <Card
-              className={
-                "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
-                (solved ? "opacity-60 hover:opacity-90" : "")
-              }
+              draggable={sortMode === "default" && a.canEdit !== false}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", a.id);
+                setDraggedAssignmentId(a.id);
+              }}
+              onDragEnter={(e) => {
+                if (!draggedAssignmentId || draggedAssignmentId === a.id) return;
+                e.preventDefault();
+                setDragOverAssignmentId(a.id);
+              }}
+              onDragOver={(e) => {
+                if (!draggedAssignmentId || draggedAssignmentId === a.id) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+              }}
+              onDragLeave={() => {
+                if (dragOverAssignmentId === a.id) setDragOverAssignmentId(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                handleDropOnAssignment(a.id);
+              }}
+              onDragEnd={() => {
+                setDraggedAssignmentId(null);
+                setDragOverAssignmentId(null);
+              }}
+              className={baseCardClass + " cursor-move"}
+              title="Перетащи карточку, чтобы изменить порядок"
             >
-              <div className="flex h-full flex-col gap-4">
-                <div className="flex justify-end">{EditorToolbar}</div>
-                <EditWrap>{CardMain}</EditWrap>
-              </div>
+              <EditWrap>{CardMain}</EditWrap>
             </Card>
           );
 

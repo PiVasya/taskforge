@@ -873,7 +873,7 @@ namespace taskforge.Controllers.Agent
                 Id = Guid.NewGuid(),
                 CourseId = courseId.Value,
                 Title = Trim(title, 200),
-                Description = description,
+                Description = ToTiptapDocumentJson(description),
                 Type = "code-test",
                 Difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3),
                 Rating = 1,
@@ -937,6 +937,43 @@ namespace taskforge.Controllers.Agent
                 if (afterSort.HasValue) return afterSort.Value + 1;
             }
             return null;
+        }
+
+        private static string ToTiptapDocumentJson(string value)
+        {
+            var text = value ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(text)) return text;
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("type", out var type)
+                    && string.Equals(type.GetString(), "doc", StringComparison.OrdinalIgnoreCase))
+                {
+                    return text;
+                }
+            }
+            catch
+            {
+            }
+
+            if (Regex.IsMatch(text, @"<\s*(p|div|br|ul|ol|li|h[1-6]|blockquote|pre|code)\b", RegexOptions.IgnoreCase))
+                return text;
+
+            var paragraphs = text
+                .Replace("\r", string.Empty)
+                .Split('\n')
+                .Select(line => new
+                {
+                    type = "paragraph",
+                    content = string.IsNullOrWhiteSpace(line)
+                        ? Array.Empty<object>()
+                        : new object[] { new { type = "text", text = line } }
+                })
+                .Cast<object>()
+                .ToArray();
+
+            return JsonSerializer.Serialize(new { type = "doc", content = paragraphs });
         }
 
         private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden);
