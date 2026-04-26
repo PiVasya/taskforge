@@ -278,22 +278,23 @@ namespace taskforge.Controllers.Agent
 
             var lastUserText = messages.LastOrDefault(x => x.role == "user")?.text ?? ExtractRequestRawText(run.RequestJson) ?? string.Empty;
 
-            object? course = null;
-            List<object> assignments = new();
+            object? selectedCourse = null;
+            List<object> selectedAssignments = new();
             if (conversation.CourseId.HasValue)
             {
-                course = await _db.Courses.AsNoTracking()
+                selectedCourse = await _db.Courses.AsNoTracking()
                     .Where(x => x.Id == conversation.CourseId.Value)
                     .Select(x => new { id = x.Id, title = x.Title, description = x.Description, isPublic = x.IsPublic })
                     .FirstOrDefaultAsync();
 
-                var assignmentRows = await _db.TaskAssignments.AsNoTracking()
+                selectedAssignments = (await _db.TaskAssignments.AsNoTracking()
                     .Where(x => x.CourseId == conversation.CourseId.Value)
                     .OrderBy(x => x.Sort)
                     .ThenBy(x => x.CreatedAt)
                     .Select(x => new
                     {
                         id = x.Id,
+                        courseId = x.CourseId,
                         title = x.Title,
                         description = x.Description,
                         type = x.Type,
@@ -303,9 +304,68 @@ namespace taskforge.Controllers.Agent
                         sort = x.Sort,
                         allowedLanguages = x.AllowedLanguagesCsv,
                     })
-                    .ToListAsync();
-                assignments = assignmentRows.Cast<object>().ToList();
+                    .ToListAsync()).Cast<object>().ToList();
             }
+
+            var courseRows = await _db.Courses.AsNoTracking()
+                .OrderBy(x => x.Title)
+                .Select(x => new
+                {
+                    id = x.Id,
+                    title = x.Title,
+                    description = x.Description,
+                    isPublic = x.IsPublic,
+                    assignmentCount = _db.TaskAssignments.Count(a => a.CourseId == x.Id)
+                })
+                .ToListAsync();
+
+            var courseCatalog = courseRows.Cast<object>().ToList();
+            var lowerText = (lastUserText ?? string.Empty).ToLowerInvariant();
+            var wantsWideContext = lowerText.Contains("все курсы") || lowerText.Contains("любой курс") || lowerText.Contains("любые курсы") || lowerText.Contains("курсы") || !conversation.CourseId.HasValue;
+
+            var contextCourseIds = courseRows
+                .Select(x => new { x.id, Score = ScoreCourseForAgentContext(lowerText, x.title, x.description) })
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.id)
+                .Take(wantsWideContext ? 12 : 6)
+                .Select(x => x.id)
+                .ToList();
+
+            if (conversation.CourseId.HasValue && !contextCourseIds.Contains(conversation.CourseId.Value))
+                contextCourseIds.Insert(0, conversation.CourseId.Value);
+
+            if (contextCourseIds.Count == 0)
+                contextCourseIds = courseRows.Take(12).Select(x => x.id).ToList();
+
+            var contextAssignments = await _db.TaskAssignments.AsNoTracking()
+                .Where(x => contextCourseIds.Contains(x.CourseId))
+                .OrderBy(x => x.CourseId)
+                .ThenBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .Select(x => new
+                {
+                    id = x.Id,
+                    courseId = x.CourseId,
+                    title = x.Title,
+                    description = x.Description,
+                    type = x.Type,
+                    difficulty = x.Difficulty,
+                    rating = x.Rating,
+                    tags = x.Tags,
+                    sort = x.Sort,
+                    allowedLanguages = x.AllowedLanguagesCsv,
+                })
+                .ToListAsync();
+
+            var courseContexts = courseRows
+                .Where(c => contextCourseIds.Contains(c.id))
+                .Select(c => new
+                {
+                    course = new { id = c.id, title = c.title, description = c.description, isPublic = c.isPublic, assignmentCount = c.assignmentCount },
+                    assignments = contextAssignments.Where(a => a.courseId == c.id).Cast<object>().ToList()
+                })
+                .Cast<object>()
+                .ToList();
 
             var payload = new
             {
@@ -318,8 +378,10 @@ namespace taskforge.Controllers.Agent
                 supportTicketId = conversation.SupportTicketId,
                 rawText = lastUserText,
                 message = new { text = lastUserText },
-                course,
-                assignments,
+                course = selectedCourse,
+                assignments = selectedAssignments,
+                courseCatalog,
+                courseContexts,
                 recentMessages = messages,
                 memory = ParseJson(conversation.MemoryJson ?? "{}"),
                 request = ParseJson(run.RequestJson ?? "{}"),
@@ -334,6 +396,27 @@ namespace taskforge.Controllers.Agent
             };
         }
 
+        private static int ScoreCourseForAgentContext(string normalizedMessage, string? title, string? description)
+        {
+            var text = normalizedMessage ?? string.Empty;
+            var normalizedTitle = (title ?? string.Empty).ToLowerInvariant();
+            var normalizedDescription = (description ?? string.Empty).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            var score = 0;
+            foreach (var word in normalizedTitle.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(x => x.Length >= 2).Distinct())
+            {
+                if (text.Contains(word)) score += 12;
+            }
+            foreach (var word in normalizedDescription.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(x => x.Length >= 4).Distinct().Take(20))
+            {
+                if (text.Contains(word)) score += 3;
+            }
+            if (normalizedTitle.Contains("c++") && text.Contains("c++")) score += 30;
+            if (normalizedTitle.Contains("python") && text.Contains("python")) score += 30;
+            if (normalizedTitle.Contains("основ") && text.Contains("основ")) score += 12;
+            if (text.Contains(normalizedTitle) && !string.IsNullOrWhiteSpace(normalizedTitle)) score += 50;
+            return score;
+        }
         private bool IsAuthorized()
         {
             var expected = _config["TASKFORGE_AGENT_INTERNAL_KEY"]

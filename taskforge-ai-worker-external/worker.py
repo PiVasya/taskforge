@@ -9,7 +9,6 @@ from agent_core.runtime import AgentRuntime
 from api_client import AgentApiClient, sleep_seconds
 from config import (
     AGENT_API_BASE_URL,
-    AGENT_HEARTBEAT_SECONDS,
     AGENT_IDLE_LOG_SECONDS,
     AGENT_POLL_SECONDS,
     AGENT_WORKER_ID,
@@ -55,7 +54,7 @@ def process_claimed_job(api: AgentApiClient, runtime: AgentRuntime, job: Dict[st
             "kind": "context",
             "status": "running",
             "title": "AI подтягивает контекст",
-            "summary": "Смотрю сообщение, память чата, курс и последние задания.",
+            "summary": "Смотрю сообщение, память чата и доступные курсы.",
         })
         result = process_job(job, runtime=runtime)
         route = ((result.get("debug") or {}).get("route") or {}) if isinstance(result, dict) else {}
@@ -68,14 +67,23 @@ def process_claimed_job(api: AgentApiClient, runtime: AgentRuntime, job: Dict[st
                 "summary": route.get("reason") or "ScenarioRouter выбрал подходящий pipeline.",
             })
         elapsed = round(utc_ts() - started, 3)
+        failed = result.get("status") == "failed"
         api.append_step(run_id, {
             "kind": "scenario_result",
-            "status": result.get("status"),
+            "status": "failed" if failed else result.get("status"),
             "scenarioId": result.get("scenario_id"),
             "elapsedSeconds": elapsed,
-            "title": "Собран структурированный результат",
+            "title": "AI-run завершился ошибкой" if failed else "Собран структурированный результат",
             "summary": result.get("assistant_message"),
         })
+        if failed:
+            api.fail_run(run_id, {
+                "message": result.get("assistant_message") or "Реальный LLM-вызов не завершился.",
+                "result": result,
+                "retryable": True,
+            })
+            log_event("agent-run-failed", run_id=run_id, elapsed_seconds=elapsed, status=result.get("status"))
+            return
         api.complete_run(run_id, result)
         log_event("agent-run-completed", run_id=run_id, elapsed_seconds=elapsed, status=result.get("status"))
     except Exception as exc:
@@ -105,7 +113,7 @@ def worker_loop() -> None:
                     log_event(
                         "agent-worker-idle",
                         api_configured=api.configured,
-                        message="No job claimed. Configure TASKFORGE_AGENT_API_BASE_URL when backend internal agent endpoints are ready.",
+                        message="No runnable agent run found; worker is connected and idle.",
                     )
                     last_idle_log = now
                 sleep_seconds(AGENT_POLL_SECONDS)
@@ -122,14 +130,16 @@ def smoke_payload() -> Dict[str, Any]:
         "type": "assistant_chat_turn",
         "payload": {
             "conversationId": "smoke-conv-1",
-            "courseId": "course-demo",
-            "rawText": "Найди дырки перед if и сделай лесенку как на скрине 1",
-            "course": {"id": "course-demo", "title": "Python Start"},
-            "assignments": [
-                {"id": "a1", "title": "Привет", "description": "Выведи текст на экран через print."},
-                {"id": "a2", "title": "Число", "description": "Считай число input и выведи его."},
-                {"id": "a3", "title": "Первое условие", "description": "Считай число. Если число больше 10, выведи Большое число."},
-            ],
+            "rawText": "Проанализируй курс Python Start и найди переход к if",
+            "courseCatalog": [{"id": "course-demo", "title": "Python Start", "assignmentCount": 3}],
+            "courseContexts": [{
+                "course": {"id": "course-demo", "title": "Python Start"},
+                "assignments": [
+                    {"id": "a1", "title": "Привет", "description": "Выведи текст на экран через print."},
+                    {"id": "a2", "title": "Число", "description": "Считай число input и выведи его."},
+                    {"id": "a3", "title": "Первое условие", "description": "Считай число. Если число больше 10, выведи Большое число."},
+                ],
+            }],
             "memory": {"summary": "Пользователь улучшает курс маленькими обучающими задачами."},
         },
     }

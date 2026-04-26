@@ -33,6 +33,9 @@ class AgentRuntime:
             secondary_scenario_id=route.secondary_scenario_id,
             confidence=route.confidence,
             reason=route.reason,
+            course_id=snapshot.course_id,
+            course_context_count=len(snapshot.course_contexts),
+            course_catalog_count=len(snapshot.course_catalog),
         )
 
         results: List[ScenarioResult] = []
@@ -43,6 +46,8 @@ class AgentRuntime:
             result = scenario.run(snapshot, route, previous_results=results)
             result = self.validator.validate(result, snapshot)
             results.append(result)
+            if result.type == "llm_generation_failed":
+                break
 
         final = results[-1]
         artifacts = [
@@ -58,10 +63,11 @@ class AgentRuntime:
             for r in results
         ]
         result_data = {"type": final.type, **deep_to_dict(final.data)}
+        envelope_status = "failed" if final.type == "llm_generation_failed" else ("completed_with_warnings" if final.warnings else "completed")
         envelope = ResultEnvelope(
             kind="agent_result",
             scenario_id=final.scenario_id,
-            status="completed_with_warnings" if final.warnings else "completed",
+            status=envelope_status,
             assistant_message=final.summary,
             artifacts=artifacts,
             suggested_next_actions=self._suggest_next_actions(final),
@@ -70,6 +76,12 @@ class AgentRuntime:
                 "route": deep_to_dict(route),
                 "contextFreshness": (snapshot.course_digest or {}).get("freshness"),
                 "assignmentCount": (snapshot.course_digest or {}).get("assignmentCount"),
+                "courseCount": (snapshot.course_digest or {}).get("courseCount"),
+                "courseCatalogCount": len(snapshot.course_catalog),
+                "courseContextCount": len(snapshot.course_contexts),
+                "courseId": snapshot.course_id,
+                "llmUsed": bool(final.validation.get("llmUsed")),
+                "templateUsed": bool(final.validation.get("templateUsed")),
                 "warnings": final.warnings,
             },
         )
@@ -81,21 +93,22 @@ class AgentRuntime:
         snapshot = self.context.build_snapshot(incoming, allow_stale=False)
         result = self.registry.get("course_analysis").run(snapshot, route=None, previous_results=[])
         result = self.validator.validate(result, snapshot)
+        status = "failed" if result.type == "llm_generation_failed" else ("completed_with_warnings" if result.warnings else "completed")
         envelope = ResultEnvelope(
             kind="agent_context_refresh_result",
             scenario_id="course_analysis",
-            status="completed_with_warnings" if result.warnings else "completed",
+            status=status,
             assistant_message=result.summary,
-            artifacts=[{"type": result.type, "scenarioId": result.scenario_id, "data": result.data}],
-            suggested_next_actions=[{"name": "course_gap_audit", "label": "Найти дыры в курсе"}],
+            artifacts=[{"type": result.type, "scenarioId": result.scenario_id, "data": result.data, "warnings": result.warnings, "validation": result.validation}],
+            suggested_next_actions=self._suggest_next_actions(result),
             memory_patch=self.memory.build_patch("course_analysis", {"type": result.type, **result.data}),
-            debug={"assignmentCount": (snapshot.course_digest or {}).get("assignmentCount")},
+            debug={"assignmentCount": (snapshot.course_digest or {}).get("assignmentCount"), "courseCatalogCount": len(snapshot.course_catalog)},
         )
         return envelope.to_dict()
 
     def run_scenario(self, job: Dict[str, Any]) -> Dict[str, Any]:
         payload = job.get("payload") if isinstance(job.get("payload"), dict) else job
-        scenario_id = str(payload.get("scenarioId") or payload.get("scenario_id") or "course_analysis")
+        scenario_id = str(payload.get("scenarioId") or payload.get("scenario_id") or "free_chat")
         incoming = IncomingAgentMessage.from_payload(payload)
         normalized = MessageNormalizer.normalize(incoming)
         snapshot = self.context.build_snapshot(incoming, allow_stale=True)
@@ -104,30 +117,41 @@ class AgentRuntime:
         scenario = self.registry.get(scenario_id)
         result = scenario.run(snapshot, route, previous_results=[])
         result = self.validator.validate(result, snapshot)
+        status = "failed" if result.type == "llm_generation_failed" else ("completed_with_warnings" if result.warnings else "completed")
         envelope = ResultEnvelope(
             kind="agent_result",
             scenario_id=result.scenario_id,
-            status="completed_with_warnings" if result.warnings else "completed",
+            status=status,
             assistant_message=result.summary,
-            artifacts=[{"type": result.type, "scenarioId": result.scenario_id, "data": result.data}],
+            artifacts=[{"type": result.type, "scenarioId": result.scenario_id, "data": result.data, "warnings": result.warnings, "validation": result.validation}],
             suggested_next_actions=self._suggest_next_actions(result),
             memory_patch=self.memory.build_patch(result.scenario_id, {"type": result.type, **result.data}),
-            debug={"forcedScenario": scenario_id},
+            debug={"forcedScenario": scenario_id, "llmUsed": bool(result.validation.get("llmUsed")), "templateUsed": bool(result.validation.get("templateUsed"))},
         )
         return envelope.to_dict()
 
     @staticmethod
     def _suggest_next_actions(result: ScenarioResult) -> List[Dict[str, str]]:
+        if result.type == "llm_generation_failed":
+            return [{"name": "retry", "label": "Повторить реальный LLM-вызов"}]
+        if result.type == "chat_answer":
+            return [
+                {"name": "course_analysis", "label": "Проанализировать курсы"},
+                {"name": "style_matched_tasks", "label": "Создать задачи"},
+            ]
         if result.type == "course_analysis_report":
             return [
-                {"name": "course_gap_audit", "label": "Найти дыры в курсе"},
-                {"name": "style_matched_tasks", "label": "Создать задачи в стиле курса"},
+                {"name": "course_gap_audit", "label": "Найти дыры"},
+                {"name": "style_matched_tasks", "label": "Создать задачи"},
             ]
         if result.type == "gap_audit_report":
-            return [{"name": "guided_ladder", "label": "Собрать лесенку по главной дыре"}]
-        if result.type in {"task_ladder_blueprint", "task_draft_bundle"}:
             return [
-                {"name": "draft_revision", "label": "Поправить черновики"},
+                {"name": "guided_ladder", "label": "Собрать лесенку"},
+                {"name": "bridge_tasks", "label": "Собрать мостик"},
+            ]
+        if result.type in {"task_ladder_blueprint", "task_draft_bundle", "bridge_plan"}:
+            return [
+                {"name": "draft_revision", "label": "Поправить результат"},
                 {"name": "persist_later", "label": "Сохранение в курс подключим отдельным слоем"},
             ]
         return []

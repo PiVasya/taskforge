@@ -53,10 +53,12 @@ class MessageNormalizer:
         text = message.raw_text or ""
         lowered = text.lower()
         wants_ladder = _contains_any(lowered, ["лесен", "пошаг", "маленьк", "с нуля", "как на скрин", "микро", "ступен"])
-        wants_gap = _contains_any(lowered, ["дыр", "пробел", "скач", "не хватает", "слаб", "застр", "аудит"])
-        wants_analysis = _contains_any(lowered, ["анализ", "разбери курс", "посмотри курс", "пойми курс", "структур", "карта курса"])
+        wants_gap = _contains_any(lowered, ["дыр", "пробел", "скач", "не хватает", "слаб", "застр", "аудит", "переход", "перед if", "перед иф", "к ним"])
+        wants_analysis = _contains_any(lowered, ["анализ", "изучи курс", "изучить курс", "разбери курс", "посмотри курс", "пойми курс", "проверь курс", "структур", "карта курса"])
         wants_style = _contains_any(lowered, ["в стиле курса", "как в курсе", "похож", "как текущ", "продолжи", "стиль"])
-        wants_generation = _contains_any(lowered, ["создай", "сделай", "придумай", "сгенер", "задач", "задани", "черновик"])
+        generation_verbs = _contains_any(lowered, ["создай", "сделай", "придумай", "сгенер", "подготовь", "дай ", "накидай"])
+        task_words = _contains_any(lowered, ["задач", "задани", "черновик", "упражнен"])
+        wants_generation = generation_verbs and task_words
         wants_revision = _contains_any(lowered, ["исправ", "передел", "упрост", "сложнее", "мягче", "не так", "поправ"])
         wants_background = _contains_any(lowered, ["на фоне", "фоном", "параллельно", "background"])
         direct_mode = _contains_any(lowered, ["сразу", "делай", "без вопросов", "не спрашивай", "можно хардкод", "разрешаю"])

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 from agent_core.contracts import AgentContextSnapshot, NormalizedMessage, ScenarioDefinition, ScenarioRoute
 
@@ -21,39 +21,46 @@ class Rule:
 
 SCENARIO_RULES: List[Rule] = [
     Rule(
+        scenario_id="course_analysis",
+        must_contain_any=["анализ", "изучи", "изучить", "разбери", "посмотри", "пойми", "проверь курс", "структур", "карта курса"],
+        must_not_contain_any=["не анализ"],
+        priority=96,
+        reason="Пользователь просит изучить/проанализировать курс или набор курсов.",
+    ),
+    Rule(
         scenario_id="course_gap_audit",
-        must_contain_any=["дыр", "пробел", "скач", "не хватает", "слаб", "аудит", "застр"],
+        must_contain_any=["дыр", "пробел", "скач", "не хватает", "слаб", "аудит", "застр", "переход", "перед"],
         must_not_contain_any=["не анализ"],
         priority=95,
-        reason="В сообщении есть запрос на поиск дыр/пробелов в курсе.",
+        reason="Пользователь просит найти пробелы, скачки сложности или переходы между темами.",
     ),
     Rule(
         scenario_id="guided_ladder",
-        must_contain_any=["лесен", "пошаг", "маленьк", "с нуля", "как на скрин", "микро", "ступен"],
+        must_contain_any=["лесен", "пошаг", "маленьк", "с нуля", "как на скрин", "микро", "ступен", "обучал"],
         must_not_contain_any=["одну сложную", "без разж"],
         priority=90,
-        reason="В сообщении есть запрос на задачки-лесенки или микро-шаги.",
+        reason="Пользователь просит обучающую лесенку или микро-шаги.",
     ),
     Rule(
         scenario_id="style_matched_tasks",
-        must_contain_any=["в стиле курса", "как в курсе", "похож", "как текущ", "ещё задач", "создай задач", "сделай задач", "придумай задач"],
+        must_contain_any=["в стиле курса", "как в курсе", "похож", "как текущ", "ещё задач", "создай задач", "сделай задач", "придумай задач", "сгенер"],
         must_not_contain_any=["другим стилем"],
-        priority=75,
-        reason="В сообщении есть запрос на создание задач в стиле курса.",
+        priority=82,
+        reason="Пользователь просит создать задачи/черновики.",
+    ),
+    Rule(
+        scenario_id="bridge_tasks",
+        must_contain_any=["мостик", "мост", "между заданиями", "между темами", "подвести"],
+        must_not_contain_any=[],
+        priority=84,
+        reason="Пользователь просит мостик между заданиями или темами.",
     ),
     Rule(
         scenario_id="draft_revision",
         must_contain_any=["исправ", "передел", "упрост", "сложнее", "мягче", "поправ", "не так"],
         must_not_contain_any=[],
         priority=80,
-        reason="В сообщении есть запрос на правку существующего черновика/blueprint.",
-    ),
-    Rule(
-        scenario_id="course_analysis",
-        must_contain_any=["анализ", "разбери курс", "посмотри курс", "пойми курс", "структур", "карта курса"],
-        must_not_contain_any=["не анализ"],
-        priority=65,
-        reason="В сообщении есть запрос на анализ курса.",
+        reason="Пользователь просит правку существующего результата.",
     ),
 ]
 
@@ -66,6 +73,43 @@ class ScenarioRouter:
         scenarios: List[ScenarioDefinition],
     ) -> ScenarioRoute:
         scenario_ids = {s.id for s in scenarios}
+
+        if message.wants_analysis and message.wants_gap_audit and message.wants_ladder:
+            return ScenarioRoute(
+                scenario_id="course_analysis",
+                secondary_scenario_id="course_gap_audit",
+                confidence=98,
+                reason="Нужно сначала изучить курсы/курс, затем найти дыры; лесенку можно запросить следующим сообщением или отдельным шагом.",
+                execution_mode="chain",
+                requested_count=message.requested_count,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
+
+        if message.wants_gap_audit and message.wants_ladder:
+            return ScenarioRoute(
+                scenario_id="course_gap_audit",
+                secondary_scenario_id="guided_ladder",
+                confidence=96,
+                reason="Пользователь просит найти пробел и сразу сделать обучающую лесенку.",
+                execution_mode="chain",
+                requested_count=message.requested_count or 5,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
+
+        if message.wants_analysis and (message.wants_gap_audit or message.target_concept):
+            return ScenarioRoute(
+                scenario_id="course_analysis",
+                secondary_scenario_id="course_gap_audit",
+                confidence=94,
+                reason="Пользователь просит изучить курс/курсы и проверить переход к целевой теме.",
+                execution_mode="chain",
+                requested_count=message.requested_count,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
+
         candidates: List[tuple[int, Rule]] = []
         for rule in SCENARIO_RULES:
             if rule.scenario_id not in scenario_ids:
@@ -73,25 +117,23 @@ class ScenarioRouter:
             if _has_any(message.lowered, rule.must_contain_any) and not _has_any(message.lowered, rule.must_not_contain_any):
                 candidates.append((rule.priority, rule))
 
-        if message.wants_gap_audit and message.wants_ladder:
+        if message.wants_generation and message.wants_ladder:
             return ScenarioRoute(
-                scenario_id="course_gap_audit",
-                secondary_scenario_id="guided_ladder",
-                confidence=96,
-                reason="Пользователь просит найти дыру/пробел и сразу сделать лесенку.",
-                execution_mode="chain",
-                requested_count=message.requested_count or 5,
+                scenario_id="guided_ladder",
+                confidence=94,
+                reason="Пользователь просит создать обучающую лесенку.",
+                execution_mode="single",
+                requested_count=message.requested_count,
                 target_concept=message.target_concept,
                 requested_style=message.requested_style,
             )
 
-        if message.wants_analysis and message.wants_gap_audit:
+        if message.wants_generation:
             return ScenarioRoute(
-                scenario_id="course_analysis",
-                secondary_scenario_id="course_gap_audit",
+                scenario_id="style_matched_tasks",
                 confidence=90,
-                reason="Пользователь просит анализ курса и поиск дыр.",
-                execution_mode="chain",
+                reason="Пользователь просит создать задачи; генерация будет выполнена только реальным LLM-вызовом.",
+                execution_mode="single",
                 requested_count=message.requested_count,
                 target_concept=message.target_concept,
                 requested_style=message.requested_style,
@@ -101,7 +143,7 @@ class ScenarioRouter:
             _, best = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
             return ScenarioRoute(
                 scenario_id=best.scenario_id,
-                confidence=min(99, best.priority + (5 if context.course_id else 0)),
+                confidence=best.priority,
                 reason=best.reason,
                 execution_mode="single",
                 requested_count=message.requested_count,
@@ -109,22 +151,10 @@ class ScenarioRouter:
                 requested_style=message.requested_style,
             )
 
-        if message.wants_generation:
-            fallback = "guided_ladder" if message.wants_ladder else "style_matched_tasks"
-            return ScenarioRoute(
-                scenario_id=fallback,
-                confidence=70,
-                reason="Пользователь просит создать задачи; выбран безопасный generation fallback.",
-                execution_mode="single",
-                requested_count=message.requested_count,
-                target_concept=message.target_concept,
-                requested_style=message.requested_style,
-            )
-
         return ScenarioRoute(
-            scenario_id="course_analysis",
-            confidence=55,
-            reason="Не найден явный сценарий, поэтому выбран безопасный read-only анализ контекста.",
+            scenario_id="free_chat",
+            confidence=70,
+            reason="Явный сценарий не найден; запускается обычный AI-чат с доступным контекстом курсов.",
             execution_mode="single",
             requested_count=message.requested_count,
             target_concept=message.target_concept,

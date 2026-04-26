@@ -677,7 +677,7 @@ export default function AgentPage() {
               <div className="min-w-0">
                 <div className="font-semibold truncate">{conversation?.title || 'AI-ассистент'}</div>
                 <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
-                  {contextBits.length ? `Контекст: ${contextBits.join(' · ')}` : 'Свободный чат: можно попросить анализ курса, дырки или обучающие задачи'}
+                  {contextBits.length ? `Контекст: ${contextBits.join(' · ')}` : 'Свободный AI-чат: можно работать с любыми доступными курсами, без привязки к URL'}
                 </div>
               </div>
             </div>
@@ -698,7 +698,6 @@ export default function AgentPage() {
           </div>
 
           {error && <div className="p-4"><AppErrorPanel error={error} title="Проблема в AI-чате" /></div>}
-
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5 space-y-5">
             {loadingConversation ? (
               <div className="h-full grid place-items-center text-neutral-500">

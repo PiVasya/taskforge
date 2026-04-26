@@ -109,6 +109,7 @@ public sealed class RequestLoggingMiddleware
         if (!path.StartsWith("/api", StringComparison.OrdinalIgnoreCase)) return false;
         if (path.StartsWith("/api/private-files", StringComparison.OrdinalIgnoreCase)) return false;
         if (path.StartsWith("/api/public-files", StringComparison.OrdinalIgnoreCase)) return false;
+        if (path.StartsWith("/api/internal/agent", StringComparison.OrdinalIgnoreCase)) return false;
         return true;
     }
 

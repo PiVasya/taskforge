@@ -125,6 +125,8 @@ class AgentContextSnapshot:
     recent_drafts: List[Dict[str, Any]]
     last_course_audit: Optional[Dict[str, Any]]
     last_bridge_plan: Optional[Dict[str, Any]]
+    course_catalog: List[Dict[str, Any]] = field(default_factory=list)
+    course_contexts: List[Dict[str, Any]] = field(default_factory=list)
     raw_payload: Dict[str, Any] = field(default_factory=dict)
 
 

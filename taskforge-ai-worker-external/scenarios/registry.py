@@ -8,6 +8,7 @@ from scenarios.bridge_tasks import BridgeTasksScenario
 from scenarios.course_analysis import CourseAnalysisScenario
 from scenarios.course_gap_audit import CourseGapAuditScenario
 from scenarios.draft_revision import DraftRevisionScenario
+from scenarios.free_chat import FreeChatScenario
 from scenarios.guided_ladder import GuidedLadderScenario
 from scenarios.style_matched_tasks import StyleMatchedTasksScenario
 
@@ -36,4 +37,5 @@ def build_default_registry() -> ScenarioRegistry:
         StyleMatchedTasksScenario(),
         BridgeTasksScenario(),
         DraftRevisionScenario(),
+        FreeChatScenario(),
     ])

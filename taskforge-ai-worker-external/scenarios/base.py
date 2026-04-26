@@ -13,8 +13,8 @@ class Scenario:
         return self.definition.id
 
     def can_run(self, context: AgentContextSnapshot) -> bool:
-        if self.definition.needs_course and not context.course_id and not context.recent_assignments:
-            return False
+        # No scenario is allowed to fake success because a course is missing.
+        # If context is weak, the real LLM must say so in the result.
         return True
 
     def run(
@@ -42,3 +42,20 @@ def previous_artifact(previous_results: List[ScenarioResult], result_type: str) 
         if result.type == result_type:
             return result.data
     return None
+
+
+def llm_failed_result(scenario_id: str, error: Exception | str, *, title: str = "LLM generation failed") -> ScenarioResult:
+    message = (
+        "Реальный LLM-вызов не завершился, поэтому я не подставляю шаблон и не выдаю фейковый результат. "
+        f"Причина: {error}"
+    )
+    return ScenarioResult(
+        type="llm_generation_failed",
+        scenario_id=scenario_id,
+        summary=message,
+        data={"type": "llm_generation_failed", "title": title, "message": message},
+        confidence=0,
+        warnings=["real LLM call failed; template generation is disabled"],
+        validation={"llmUsed": False, "templateUsed": False, "noFakeGeneration": "ok"},
+    )
+

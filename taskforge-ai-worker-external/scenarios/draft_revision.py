@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from agent_core.contracts import AgentContextSnapshot, ScenarioDefinition, ScenarioResult, ScenarioRoute
-from scenarios.base import Scenario
+from agent_core.llm_json import LlmJsonClient
+from scenarios.base import Scenario, llm_failed_result
+from scenarios.llm_common import BASE_SYSTEM, as_dict, as_list, as_str, context_user_block
 
 
 class DraftRevisionScenario(Scenario):
@@ -15,73 +17,45 @@ class DraftRevisionScenario(Scenario):
         anti_aliases=[],
         default_count=0,
         default_mode="revision-plan",
-        required_context=["recent_drafts"],
-        pipeline=["load_current_blueprint", "parse_feedback", "apply_targeted_revision", "return_revision_plan"],
+        required_context=["recent_drafts", "memory"],
+        pipeline=["llm_load_blueprint", "llm_parse_feedback", "llm_revise"],
         output_type="revision_plan",
         can_run_directly=True,
         needs_course=False,
     )
 
-    def run(
-        self,
-        context: AgentContextSnapshot,
-        route: Optional[ScenarioRoute],
-        previous_results: List[ScenarioResult],
-    ) -> ScenarioResult:
-        current = self._current_blueprint(context)
-        feedback = context.user_message
-        changes = self._changes_from_feedback(feedback)
-        summary = "Собрал план правки текущего blueprint. Если blueprint не был передан в payload, изменения описаны как target patch."
-        data = {
+    def run(self, context: AgentContextSnapshot, route: Optional[ScenarioRoute], previous_results: List[ScenarioResult]) -> ScenarioResult:
+        schema = {
             "type": "revision_plan",
-            "title": "План правки черновиков",
-            "feedback": feedback,
-            "target": current.get("type") or "currentDraftBlueprint",
-            "changes": changes,
-            "revised": self._apply_light_patch(current, changes),
+            "title": "string",
+            "summary": "string",
+            "target": "string",
+            "changes": [{"field": "string", "operation": "string", "scope": "string", "reason": "string"}],
+            "revised": {},
+            "warnings": ["string"],
         }
+        task = """
+Исправь или перепланируй последний blueprint/черновик с учётом сообщения пользователя.
+Если в памяти нет черновика, честно верни warnings и предложи, что нужно прислать.
+Не создавай шаблонные изменения; исправления должны следовать фидбеку пользователя.
+"""
+        try:
+            parsed = LlmJsonClient().generate(system=BASE_SYSTEM, user=context_user_block(context, task, schema), purpose=self.id).data
+        except Exception as exc:
+            return llm_failed_result(self.id, exc, title="Правка не выполнена")
+
+        data = as_dict(parsed)
+        data["type"] = "revision_plan"
+        data.setdefault("title", "План правки")
+        data.setdefault("changes", [])
+        data.setdefault("warnings", [])
+        summary = as_str(data.get("summary"), "LLM подготовил план правки.")
         return ScenarioResult(
             type="revision_plan",
             scenario_id=self.id,
             summary=summary,
             data=data,
-            confidence=72 if current else 55,
-            warnings=[] if current else ["В payload нет currentDraftBlueprint; возвращён только план правки."],
-            validation={"pipeline": self.definition.pipeline},
+            confidence=78,
+            warnings=[str(x) for x in as_list(data.get("warnings"))],
+            validation={"pipeline": self.definition.pipeline, "llmUsed": True, "templateUsed": False},
         )
-
-    @staticmethod
-    def _current_blueprint(context: AgentContextSnapshot) -> Dict[str, Any]:
-        payload = context.raw_payload or {}
-        memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
-        for key in ["currentDraftBlueprint", "current_blueprint", "blueprint"]:
-            value = payload.get(key) or memory.get(key)
-            if isinstance(value, dict):
-                return value
-        return {}
-
-    @staticmethod
-    def _changes_from_feedback(feedback: str) -> List[Dict[str, Any]]:
-        lowered = feedback.lower()
-        changes: List[Dict[str, Any]] = []
-        if any(word in lowered for word in ["упрост", "проще", "слишком сложно"]):
-            changes.append({"field": "difficulty", "operation": "decrease", "scope": "all_tasks"})
-            changes.append({"field": "description", "operation": "make_more_step_by_step", "scope": "all_tasks"})
-        if any(word in lowered for word in ["сложнее", "мало", "слаб"]):
-            changes.append({"field": "hiddenTests", "operation": "add_edge_cases", "scope": "all_tasks"})
-        if any(word in lowered for word in ["дружелюб", "мягче", "теплее"]):
-            changes.append({"field": "description", "operation": "make_tone_friendlier", "scope": "all_tasks"})
-        if "убери if" in lowered or "без if" in lowered:
-            changes.append({"field": "forbiddenConcepts", "operation": "add", "value": "if", "scope": "all_tasks"})
-        if not changes:
-            changes.append({"field": "description", "operation": "revise_according_to_feedback", "scope": "all_tasks"})
-        return changes
-
-    @staticmethod
-    def _apply_light_patch(current: Dict[str, Any], changes: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if not current:
-            return {"patchOnly": True, "changes": changes}
-        revised = dict(current)
-        revised.setdefault("revisionNotes", [])
-        revised["revisionNotes"] = list(revised["revisionNotes"]) + changes
-        return revised
