@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -278,9 +279,10 @@ namespace taskforge.Controllers.Agent
 
             var lastUserText = messages.LastOrDefault(x => x.role == "user")?.text ?? ExtractRequestRawText(run.RequestJson) ?? string.Empty;
             var normalizedUserText = NormalizeCourseSearchText(lastUserText);
+            var targetConcepts = InferTargetConcepts(normalizedUserText);
 
             object? selectedCourse = null;
-            List<object> selectedAssignments = new();
+            List<AssignmentContextRow> selectedAssignmentRows = new();
             if (conversation.CourseId.HasValue)
             {
                 selectedCourse = await _db.Courses.AsNoTracking()
@@ -288,24 +290,7 @@ namespace taskforge.Controllers.Agent
                     .Select(x => new { id = x.Id, title = x.Title, description = x.Description, isPublic = x.IsPublic })
                     .FirstOrDefaultAsync();
 
-                selectedAssignments = (await _db.TaskAssignments.AsNoTracking()
-                    .Where(x => x.CourseId == conversation.CourseId.Value)
-                    .OrderBy(x => x.Sort)
-                    .ThenBy(x => x.CreatedAt)
-                    .Select(x => new
-                    {
-                        id = x.Id,
-                        courseId = x.CourseId,
-                        title = x.Title,
-                        description = x.Description,
-                        type = x.Type,
-                        difficulty = x.Difficulty,
-                        rating = x.Rating,
-                        tags = x.Tags,
-                        sort = x.Sort,
-                        allowedLanguages = x.AllowedLanguagesCsv,
-                    })
-                    .ToListAsync()).Cast<object>().ToList();
+                selectedAssignmentRows = await LoadAssignmentRowsAsync(new[] { conversation.CourseId.Value });
             }
 
             var courseRows = await _db.Courses.AsNoTracking()
@@ -343,18 +328,6 @@ namespace taskforge.Controllers.Agent
                 .Take(4)
                 .ToList();
 
-            var contextTake = strongMatchedCourses.Count > 0 ? Math.Max(4, strongMatchedCourses.Count) : (wantsWideContext ? 12 : 6);
-            var contextCourseIds = (strongMatchedCourses.Count > 0 ? strongMatchedCourses : scoredCourses)
-                .Take(contextTake)
-                .Select(x => x.id)
-                .ToList();
-
-            if (conversation.CourseId.HasValue && !contextCourseIds.Contains(conversation.CourseId.Value))
-                contextCourseIds.Insert(0, conversation.CourseId.Value);
-
-            if (contextCourseIds.Count == 0)
-                contextCourseIds = courseRows.Take(12).Select(x => x.id).ToList();
-
             var effectiveCourseId = conversation.CourseId ?? strongMatchedCourses.FirstOrDefault()?.id;
             if (!conversation.CourseId.HasValue && effectiveCourseId.HasValue)
             {
@@ -363,47 +336,47 @@ namespace taskforge.Controllers.Agent
                     .Select(x => new { id = x.Id, title = x.Title, description = x.Description, isPublic = x.IsPublic })
                     .FirstOrDefaultAsync();
 
-                selectedAssignments = (await _db.TaskAssignments.AsNoTracking()
-                    .Where(x => x.CourseId == effectiveCourseId.Value)
-                    .OrderBy(x => x.Sort)
-                    .ThenBy(x => x.CreatedAt)
-                    .Select(x => new
-                    {
-                        id = x.Id,
-                        courseId = x.CourseId,
-                        title = x.Title,
-                        description = x.Description,
-                        type = x.Type,
-                        difficulty = x.Difficulty,
-                        rating = x.Rating,
-                        tags = x.Tags,
-                        sort = x.Sort,
-                        allowedLanguages = x.AllowedLanguagesCsv,
-                    })
-                    .ToListAsync()).Cast<object>().ToList();
+                selectedAssignmentRows = await LoadAssignmentRowsAsync(new[] { effectiveCourseId.Value });
             }
 
-            var contextAssignments = await _db.TaskAssignments.AsNoTracking()
-                .Where(x => contextCourseIds.Contains(x.CourseId))
-                .OrderBy(x => x.CourseId)
-                .ThenBy(x => x.Sort)
-                .ThenBy(x => x.CreatedAt)
-                .Select(x => new
-                {
-                    id = x.Id,
-                    courseId = x.CourseId,
-                    title = x.Title,
-                    description = x.Description,
-                    type = x.Type,
-                    difficulty = x.Difficulty,
-                    rating = x.Rating,
-                    tags = x.Tags,
-                    sort = x.Sort,
-                    allowedLanguages = x.AllowedLanguagesCsv,
-                })
-                .ToListAsync();
+            var contextTake = strongMatchedCourses.Count > 0 ? Math.Max(4, strongMatchedCourses.Count) : (wantsWideContext ? 12 : 6);
+            var contextCourseIds = (strongMatchedCourses.Count > 0 ? strongMatchedCourses : scoredCourses)
+                .Take(contextTake)
+                .Select(x => x.id)
+                .ToList();
 
+            if (effectiveCourseId.HasValue && !contextCourseIds.Contains(effectiveCourseId.Value))
+                contextCourseIds.Insert(0, effectiveCourseId.Value);
+
+            if (contextCourseIds.Count == 0)
+                contextCourseIds = courseRows.Take(12).Select(x => x.id).ToList();
+
+            var contextAssignmentRows = await LoadAssignmentRowsAsync(contextCourseIds);
             var courseById = courseRows.ToDictionary(x => x.id, x => x);
+
+            var selectedOutline = selectedAssignmentRows
+                .Select((a, index) => BuildAssignmentOutline(a, index, includeDescriptionPreview: true))
+                .Cast<object>()
+                .ToList();
+
+            var focusAssignments = BuildFocusAssignments(selectedAssignmentRows, targetConcepts)
+                .Select((a, index) => BuildAssignmentDetail(a, index))
+                .Cast<object>()
+                .ToList();
+
+            var courseDigest = BuildCourseDigestPayload(
+                effectiveCourseId,
+                selectedCourse,
+                selectedAssignmentRows,
+                selectedOutline,
+                targetConcepts,
+                focusAssignments.Count,
+                courseCatalog.Count);
+
+            var compactContextRows = contextAssignmentRows
+                .Select((a, index) => BuildAssignmentOutline(a, index, includeDescriptionPreview: false))
+                .ToList();
+
             var courseContexts = contextCourseIds
                 .Where(courseById.ContainsKey)
                 .Select(id =>
@@ -412,7 +385,7 @@ namespace taskforge.Controllers.Agent
                     return new
                     {
                         course = new { id = c.id, title = c.title, description = c.description, isPublic = c.isPublic, assignmentCount = c.assignmentCount },
-                        assignments = contextAssignments.Where(a => a.courseId == c.id).Cast<object>().ToList()
+                        assignments = compactContextRows.Where(a => a.CourseId == c.id).Cast<object>().ToList()
                     };
                 })
                 .Cast<object>()
@@ -437,7 +410,12 @@ namespace taskforge.Controllers.Agent
                 rawText = lastUserText,
                 message = new { text = lastUserText },
                 course = selectedCourse,
-                assignments = selectedAssignments,
+                targetConcepts,
+                focusAssignments,
+                targetAssignments = focusAssignments,
+                courseOutline = selectedOutline,
+                courseDigest,
+                assignments = focusAssignments,
                 matchedCourses,
                 courseCatalog,
                 courseContexts,
@@ -453,6 +431,222 @@ namespace taskforge.Controllers.Agent
                 jobType = "assistant_chat_turn",
                 payload,
             };
+        }
+
+        private sealed class AssignmentContextRow
+        {
+            public Guid Id { get; init; }
+            public Guid CourseId { get; init; }
+            public string Title { get; init; } = string.Empty;
+            public string Description { get; init; } = string.Empty;
+            public string Type { get; init; } = string.Empty;
+            public int Difficulty { get; init; }
+            public int Rating { get; init; }
+            public string? Tags { get; init; }
+            public int Sort { get; init; }
+            public string? AllowedLanguages { get; init; }
+            public DateTime CreatedAt { get; init; }
+        }
+
+        private sealed class AssignmentOutlineRow
+        {
+            public Guid Id { get; init; }
+            public Guid CourseId { get; init; }
+            public string Title { get; init; } = string.Empty;
+            public string Type { get; init; } = string.Empty;
+            public int Difficulty { get; init; }
+            public int Rating { get; init; }
+            public string? Tags { get; init; }
+            public int Sort { get; init; }
+            public int Index { get; init; }
+            public string? AllowedLanguages { get; init; }
+            public string DescriptionPreview { get; init; } = string.Empty;
+            public List<string> ConceptHints { get; init; } = new();
+        }
+
+        private async Task<List<AssignmentContextRow>> LoadAssignmentRowsAsync(IEnumerable<Guid> courseIds)
+        {
+            var ids = courseIds.Distinct().ToList();
+            if (ids.Count == 0) return new List<AssignmentContextRow>();
+
+            return await _db.TaskAssignments.AsNoTracking()
+                .Where(x => ids.Contains(x.CourseId))
+                .OrderBy(x => x.CourseId)
+                .ThenBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .Select(x => new AssignmentContextRow
+                {
+                    Id = x.Id,
+                    CourseId = x.CourseId,
+                    Title = x.Title,
+                    Description = x.Description,
+                    Type = x.Type,
+                    Difficulty = x.Difficulty,
+                    Rating = x.Rating,
+                    Tags = x.Tags,
+                    Sort = x.Sort,
+                    AllowedLanguages = x.AllowedLanguagesCsv,
+                    CreatedAt = x.CreatedAt,
+                })
+                .ToListAsync();
+        }
+
+        private static AssignmentOutlineRow BuildAssignmentOutline(AssignmentContextRow assignment, int index, bool includeDescriptionPreview)
+        {
+            return new AssignmentOutlineRow
+            {
+                Id = assignment.Id,
+                CourseId = assignment.CourseId,
+                Title = assignment.Title,
+                Type = assignment.Type,
+                Difficulty = assignment.Difficulty,
+                Rating = assignment.Rating,
+                Tags = assignment.Tags,
+                Sort = assignment.Sort,
+                Index = index,
+                AllowedLanguages = assignment.AllowedLanguages,
+                DescriptionPreview = includeDescriptionPreview ? Preview(assignment.Description, 260) : Preview(assignment.Description, 120),
+                ConceptHints = DetectAssignmentConceptHints(assignment),
+            };
+        }
+
+        private static object BuildAssignmentDetail(AssignmentContextRow assignment, int index)
+        {
+            return new
+            {
+                id = assignment.Id,
+                courseId = assignment.CourseId,
+                title = assignment.Title,
+                description = assignment.Description,
+                type = assignment.Type,
+                difficulty = assignment.Difficulty,
+                rating = assignment.Rating,
+                tags = assignment.Tags,
+                sort = assignment.Sort,
+                index,
+                allowedLanguages = assignment.AllowedLanguages,
+                conceptHints = DetectAssignmentConceptHints(assignment),
+            };
+        }
+
+        private static List<AssignmentContextRow> BuildFocusAssignments(List<AssignmentContextRow> assignments, List<string> targetConcepts)
+        {
+            if (assignments.Count == 0) return new List<AssignmentContextRow>();
+            if (targetConcepts.Count == 0) return assignments.Take(24).ToList();
+
+            var hits = assignments
+                .Select((assignment, index) => new { assignment, index, score = ScoreAssignmentForConcepts(assignment, targetConcepts) })
+                .Where(x => x.score > 0)
+                .OrderBy(x => x.index)
+                .ToList();
+
+            if (hits.Count == 0)
+                return assignments.Take(24).ToList();
+
+            var selected = new SortedSet<int>();
+            foreach (var hit in hits.Take(18))
+            {
+                for (var i = Math.Max(0, hit.index - 5); i <= Math.Min(assignments.Count - 1, hit.index + 7); i++)
+                    selected.Add(i);
+            }
+
+            selected.Add(0);
+            selected.Add(Math.Min(assignments.Count - 1, 1));
+            selected.Add(Math.Min(assignments.Count - 1, 2));
+
+            return selected.Take(80).Select(i => assignments[i]).ToList();
+        }
+
+        private static object BuildCourseDigestPayload(Guid? effectiveCourseId, object? selectedCourse, List<AssignmentContextRow> assignments, List<object> outline, List<string> targetConcepts, int focusCount, int courseCatalogCount)
+        {
+            var conceptFirstSeen = new Dictionary<string, Guid>();
+            foreach (var assignment in assignments)
+            {
+                foreach (var concept in DetectAssignmentConceptHints(assignment))
+                    conceptFirstSeen.TryAdd(concept, assignment.Id);
+            }
+
+            return new
+            {
+                courseId = effectiveCourseId,
+                selectedCourse,
+                courseCatalogCount,
+                assignmentCount = assignments.Count,
+                focusAssignmentCount = focusCount,
+                targetConcepts,
+                assignments = outline,
+                conceptFirstSeen,
+                freshness = assignments.Count > 0 ? "payload-derived-full-course-outline" : "no-course-data",
+            };
+        }
+
+        private static int ScoreAssignmentForConcepts(AssignmentContextRow assignment, List<string> targetConcepts)
+        {
+            var text = NormalizeCourseSearchText($"{assignment.Title} {assignment.Description} {assignment.Tags}");
+            var titleTags = NormalizeCourseSearchText($"{assignment.Title} {assignment.Tags}");
+            var score = 0;
+            foreach (var concept in targetConcepts)
+            {
+                if (concept == "if")
+                {
+                    if (Regex.IsMatch(text, @"(^|[^a-zа-я0-9_])if([^a-zа-я0-9_]|$)", RegexOptions.IgnoreCase)) score += 80;
+                    if (text.Contains("если")) score += 60;
+                    if (text.Contains("иначе")) score += 50;
+                    if (text.Contains("ветв")) score += 45;
+                    if (text.Contains("условный") || text.Contains("условного") || titleTags.Contains("услов")) score += 45;
+                }
+                if (concept == "comparison")
+                {
+                    if (text.Contains("сравн")) score += 40;
+                    if (text.Contains("больше") || text.Contains("меньше") || text.Contains("равн") || text.Contains("четн")) score += 25;
+                    if (text.Contains(">") || text.Contains("<") || text.Contains("==") || text.Contains("!=")) score += 30;
+                }
+                if (concept == "input")
+                {
+                    if (text.Contains("cin") || text.Contains("scanf") || text.Contains("ввод") || text.Contains("считай") || text.Contains("дано")) score += 25;
+                }
+            }
+            return score;
+        }
+
+        private static List<string> InferTargetConcepts(string normalizedMessage)
+        {
+            var result = new List<string>();
+            if (Regex.IsMatch(normalizedMessage, @"(^|[^a-zа-я0-9_])if([^a-zа-я0-9_]|$)", RegexOptions.IgnoreCase)
+                || normalizedMessage.Contains("услов")
+                || normalizedMessage.Contains("ветв")
+                || normalizedMessage.Contains("если"))
+            {
+                result.Add("if");
+                result.Add("comparison");
+            }
+            if (normalizedMessage.Contains("ввод") || normalizedMessage.Contains("cin") || normalizedMessage.Contains("scanf")) result.Add("input");
+            if (normalizedMessage.Contains("цикл") || normalizedMessage.Contains("for") || normalizedMessage.Contains("while")) result.Add("loops");
+            if (normalizedMessage.Contains("массив") || normalizedMessage.Contains("array") || normalizedMessage.Contains("vector")) result.Add("arrays");
+            return result.Distinct().ToList();
+        }
+
+        private static List<string> DetectAssignmentConceptHints(AssignmentContextRow assignment)
+        {
+            var text = NormalizeCourseSearchText($"{assignment.Title} {assignment.Description} {assignment.Tags}");
+            var titleTags = NormalizeCourseSearchText($"{assignment.Title} {assignment.Tags}");
+            var result = new List<string>();
+            if (text.Contains("cout") || text.Contains("printf") || text.Contains("вывод") || text.Contains("напечат")) result.Add("output");
+            if (text.Contains("cin") || text.Contains("scanf") || text.Contains("ввод") || text.Contains("считай") || text.Contains("прочитай")) result.Add("input");
+            if (text.Contains("int ") || text.Contains("переменн") || text.Contains("тип")) result.Add("variables");
+            if (text.Contains("+") || text.Contains("-") || text.Contains("*") || text.Contains("/") || text.Contains("арифмет")) result.Add("arithmetic");
+            if (text.Contains("сравн") || text.Contains("больше") || text.Contains("меньше") || text.Contains("равн") || text.Contains(">") || text.Contains("<") || text.Contains("==") || text.Contains("!=")) result.Add("comparison");
+            if (Regex.IsMatch(text, @"(^|[^a-zа-я0-9_])if([^a-zа-я0-9_]|$)", RegexOptions.IgnoreCase) || text.Contains("если") || text.Contains("иначе") || text.Contains("ветв") || text.Contains("условный") || text.Contains("условного") || titleTags.Contains("услов")) result.Add("if");
+            if (text.Contains("for") || text.Contains("while") || text.Contains("цикл")) result.Add("loops");
+            if (text.Contains("массив") || text.Contains("array") || text.Contains("vector")) result.Add("arrays");
+            if (text.Contains("строк") || text.Contains("string") || text.Contains("char")) result.Add("strings");
+            return result.Distinct().ToList();
+        }
+
+        private static string Preview(string? value, int max)
+        {
+            var text = Regex.Replace(value ?? string.Empty, @"\s+", " ").Trim();
+            return text.Length <= max ? text : text[..max].TrimEnd() + "…";
         }
 
         private static int ScoreCourseForAgentContext(string normalizedMessage, string? title, string? description)
@@ -492,7 +686,6 @@ namespace taskforge.Controllers.Agent
             text = text.Replace("с #", "c#");
             text = text.Replace("си#", "c#");
             text = text.Replace("с#", "c#");
-            text = text.Replace('с', 'c');
             text = text.Replace("c ++", "c++");
             text = text.Replace("c plus plus", "c++");
             text = text.Replace("cpp", "c++");

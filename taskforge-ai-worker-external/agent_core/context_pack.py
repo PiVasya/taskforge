@@ -44,7 +44,7 @@ def _trim_assignments_in_contexts(contexts: List[Dict[str, Any]], *, selected_co
     return result
 
 
-def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 42000) -> str:
+def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 62000) -> str:
     """Build a compact, honest context packet for the LLM.
 
     Important: course catalog and selected/matched courses are placed BEFORE large
@@ -53,25 +53,33 @@ def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 42000) -
     """
     matched_courses = context.raw_payload.get("matchedCourses") or context.raw_payload.get("matched_courses") or []
     selected_course = context.raw_payload.get("course") if isinstance(context.raw_payload.get("course"), dict) else None
-    selected_assignments = context.recent_assignments if context.course_id else []
+    focus_assignments = context.raw_payload.get("focusAssignments") or context.raw_payload.get("targetAssignments") or context.recent_assignments
+    if not isinstance(focus_assignments, list):
+        focus_assignments = []
+    course_outline = context.raw_payload.get("courseOutline") or context.raw_payload.get("course_outline") or []
+    if not isinstance(course_outline, list):
+        course_outline = []
+    target_concepts = context.raw_payload.get("targetConcepts") or context.raw_payload.get("target_concepts") or []
 
     payload: Dict[str, Any] = {
         "userMessage": context.user_message,
         "selectedCourseId": context.course_id,
         "selectedCourseTitle": context.course_title,
         "selectedCourse": selected_course,
+        "targetConcepts": target_concepts if isinstance(target_concepts, list) else [],
+        "focusAssignments": trim_list(focus_assignments, 90),
+        "courseOutline": trim_list(course_outline, 220),
+        "courseDigest": context.course_digest,
         "matchedCourses": trim_list(matched_courses if isinstance(matched_courses, list) else [], 12),
         "courseCatalog": trim_list(context.course_catalog, 200),
         "courseContexts": _trim_assignments_in_contexts(
             context.course_contexts,
             selected_course_id=context.course_id,
-            per_course_limit=90 if context.course_id else 35,
-            total_limit=140 if context.course_id else 180,
+            per_course_limit=24 if context.course_id else 16,
+            total_limit=50 if context.course_id else 80,
         ),
-        "selectedAssignments": trim_list(selected_assignments, 140),
         "chatSummary": context.chat_summary,
         "hardRules": context.hard_rules,
-        "courseDigest": context.course_digest,
         "styleProfile": context.style_profile,
         "conceptMap": context.concept_map,
         "recentMessages": trim_list(context.raw_payload.get("recentMessages") or [], 24),

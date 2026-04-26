@@ -96,6 +96,20 @@ function upsertById(prev, item) {
   return (prev || []).map((x) => (normalizeId(x.id) === id ? { ...x, ...item } : x));
 }
 
+function upsertMessage(prev, item) {
+  const id = normalizeId(item?.id);
+  const clientId = normalizeId(item?.clientMessageId);
+  if (!id && !clientId) return prev || [];
+
+  const cleaned = (prev || []).filter((x) => {
+    const sameId = id && normalizeId(x.id) === id;
+    const sameClientId = clientId && normalizeId(x.clientMessageId) === clientId;
+    return !(sameId || sameClientId);
+  });
+
+  return [...cleaned, item];
+}
+
 function getArtifactData(message) {
   const data = message?.data || message?.Data;
   if (!data || typeof data !== 'object') return [];
@@ -409,6 +423,7 @@ export default function AgentPage() {
 
   const bottomRef = useRef(null);
   const selectedIdRef = useRef(null);
+  const sendingRef = useRef(false);
 
   const activeRun = useMemo(() => getLatestActiveRun(runs), [runs]);
   const latestRun = useMemo(() => getLatestRun(runs), [runs]);
@@ -493,7 +508,7 @@ export default function AgentPage() {
           const payload = evt.payload || evt.Payload || {};
 
           if (type === 'message.created' && payload.message) {
-            setMessages((prev) => sortByTimeAsc(upsertById(prev, payload.message)));
+            setMessages((prev) => sortByTimeAsc(upsertMessage(prev, payload.message)));
             setTimeout(() => scrollToBottom(), 0);
           }
 
@@ -576,8 +591,9 @@ export default function AgentPage() {
 
   const sendText = async (overrideText) => {
     const value = safeText(overrideText ?? text);
-    if (!value || sending) return;
+    if (!value || sendingRef.current) return;
 
+    sendingRef.current = true;
     setSending(true);
     setError(null);
     const clientMessageId = `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -609,13 +625,13 @@ export default function AgentPage() {
         clientMessageId,
         createdAtUtc: nowIso(),
       };
-      setMessages((prev) => sortByTimeAsc([...prev, optimistic]));
+      setMessages((prev) => sortByTimeAsc(upsertMessage(prev, optimistic)));
       setText('');
       setTimeout(() => scrollToBottom(), 0);
 
       const res = await sendAgentMessage(targetId, { text: value, clientMessageId });
       if (res?.message) {
-        setMessages((prev) => sortByTimeAsc(upsertById(prev.filter((x) => x.id !== clientMessageId), res.message)));
+        setMessages((prev) => sortByTimeAsc(upsertMessage(prev, res.message)));
       }
       if (res?.run) setRuns((prev) => sortRunsDesc(upsertById(prev, res.run)));
       refreshConversations({ silent: true });
@@ -623,6 +639,7 @@ export default function AgentPage() {
       const parsed = handleApiError(err, notify, 'Не удалось отправить сообщение AI');
       setError(parsed);
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -722,8 +739,7 @@ export default function AgentPage() {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendText();
-                    if (!e.shiftKey && e.key === 'Enter') {
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       sendText();
                     }

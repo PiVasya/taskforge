@@ -49,7 +49,10 @@ def _extract_course_contexts(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _extract_assignments_from_payload(payload: Dict[str, Any], selected_course: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     candidates = [
+        payload.get("focusAssignments"),
+        payload.get("targetAssignments"),
         payload.get("assignments"),
+        payload.get("selectedAssignments"),
         payload.get("recentAssignments"),
         payload.get("recent_assignments"),
         (selected_course or {}).get("assignments") if isinstance(selected_course, dict) else None,

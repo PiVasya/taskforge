@@ -189,6 +189,32 @@ namespace taskforge.Controllers.Agent
         {
             var now = DateTime.UtcNow;
             var clean = text.Trim();
+            var cleanClientMessageId = string.IsNullOrWhiteSpace(clientMessageId) ? null : clientMessageId.Trim();
+
+            if (!string.IsNullOrWhiteSpace(cleanClientMessageId))
+            {
+                var existingMessage = await _db.AgentMessages.AsNoTracking()
+                    .Where(x => x.ConversationId == conversation.Id && x.Role == "user" && x.ClientMessageId == cleanClientMessageId)
+                    .OrderByDescending(x => x.CreatedAtUtc)
+                    .FirstOrDefaultAsync();
+                if (existingMessage?.RunId != null)
+                {
+                    var existingRun = await _db.AgentRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == existingMessage.RunId.Value);
+                    if (existingRun != null) return (existingMessage, existingRun);
+                }
+            }
+
+            var duplicateCutoff = now.AddSeconds(-2);
+            var recentDuplicate = await _db.AgentMessages.AsNoTracking()
+                .Where(x => x.ConversationId == conversation.Id && x.Role == "user" && x.Text == clean && x.CreatedAtUtc >= duplicateCutoff)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstOrDefaultAsync();
+            if (recentDuplicate?.RunId != null)
+            {
+                var duplicateRun = await _db.AgentRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == recentDuplicate.RunId.Value);
+                if (duplicateRun != null && duplicateRun.Status is not ("completed" or "completed_with_warnings" or "failed" or "canceled"))
+                    return (recentDuplicate, duplicateRun);
+            }
 
             var message = new AgentMessage
             {
@@ -197,7 +223,7 @@ namespace taskforge.Controllers.Agent
                 Role = "user",
                 Source = "chat",
                 Text = clean,
-                ClientMessageId = string.IsNullOrWhiteSpace(clientMessageId) ? null : clientMessageId.Trim(),
+                ClientMessageId = cleanClientMessageId,
                 CreatedAtUtc = now,
             };
 

@@ -53,11 +53,11 @@ class CourseGapAuditScenario(Scenario):
         }
         user = (
             "Найди реальные педагогические пробелы и скачки сложности. "
-            f"Целевая тема: {concept}. Если данных по заданиям нет, не придумывай assignmentId, а верни finding kind=missing_context.\n\n"
+            f"Целевая тема: {concept}. Сначала проверь focusAssignments, затем весь courseOutline. Если focusAssignments содержит задания с conceptHints по целевой теме, считай, что тема в курсе есть, и анализируй реальные переходы до/после этих заданий. Только если ни focusAssignments, ни courseOutline не содержат целевой темы, возвращай finding kind=missing_context. Не делай вывод, что курс обрывается на первых заданиях, если courseOutline длиннее.\n\n"
             "Предыдущий анализ, если есть:\n"
             f"{compact_json(analysis, 12000)}\n\n"
             "Контекст TaskForge:\n"
-            f"{build_ai_context(context, max_chars=36000)}\n\n"
+            f"{build_ai_context(context, max_chars=56000)}\n\n"
             f"Схема результата:\n{schema}"
         )
         try:

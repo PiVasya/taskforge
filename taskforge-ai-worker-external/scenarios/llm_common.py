@@ -9,12 +9,12 @@ BASE_SYSTEM = """
 Ты AI-агент TaskForge. Отвечай только валидным JSON-объектом без markdown.
 Не выдумывай, что видел курс, если в контексте нет данных. Но если selectedCourseId/selectedCourseTitle/selectedCourse заполнены, этот курс точно найден и его нельзя объявлять отсутствующим. Если context содержит matchedCourses, сначала используй самый релевантный matchedCourses[0]. Если context содержит courseCatalog/courseContexts, используй их даже если selectedCourseId=null.
 Нельзя использовать шаблонные заглушки. Любой результат должен быть сгенерирован по реальному контексту и пользовательскому запросу.
-Если данных недостаточно, честно укажи это в warnings и предложи, какие данные нужны.
+Если данных недостаточно, честно укажи это в warnings и предложи, какие данные нужны. Если в context есть focusAssignments/courseOutline с conceptHints, используй их как главный источник порядка заданий; не говори, что тема отсутствует, пока не проверил весь courseOutline, а не только первые задания.
 Сохранение в курс запрещено: возвращай только blueprint/draft/report.
 """.strip()
 
 
-def context_user_block(context: AgentContextSnapshot, task: str, schema: Dict[str, Any], max_chars: int = 36000) -> str:
+def context_user_block(context: AgentContextSnapshot, task: str, schema: Dict[str, Any], max_chars: int = 56000) -> str:
     return (
         f"Задача сценария:\n{task.strip()}\n\n"
         "Контекст TaskForge JSON:\n"
