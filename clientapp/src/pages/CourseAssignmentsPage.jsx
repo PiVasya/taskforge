@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -77,6 +77,7 @@ export default function CourseAssignmentsPage() {
   const [createType, setCreateType] = useState("code-test");
   const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
   const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
+  const dragStartedRef = useRef(false);
 
   const sortMode = params.get("sort") || "default";
 
@@ -266,8 +267,8 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  const handleDropOnAssignment = async (targetId) => {
-    const sourceId = draggedAssignmentId;
+  const handleDropOnAssignment = async (targetId, sourceFromEvent) => {
+    const sourceId = sourceFromEvent || draggedAssignmentId;
     setDraggedAssignmentId(null);
     setDragOverAssignmentId(null);
     if (!sourceId || !targetId || sourceId === targetId) return;
@@ -394,18 +395,13 @@ export default function CourseAssignmentsPage() {
         {filtered.map((a, idx) => {
           const solved = !!a.solvedByCurrentUser;
           const title = previewAssignmentTitle(a.title, `Задание ${idx + 1}`);
+          const assignmentCanEdit = canEdit && a.canEdit !== false;
 
           const ViewWrap = ({ children }) => (
             <Link to={`/assignment/${a.id}`} className="block group">
               {children}
             </Link>
           );
-          const EditWrap = ({ children }) => (
-            <Link to={`/assignment/${a.id}/edit`} className="block group">
-              {children}
-            </Link>
-          );
-
           const CardMain = (
             <div className="assignment-card-main min-w-0">
               <div className="assignment-card-heading">
@@ -460,8 +456,28 @@ export default function CourseAssignmentsPage() {
 
           const EditorCard = (
             <Card
-              draggable={sortMode === "default" && a.canEdit !== false}
+              role="link"
+              tabIndex={0}
+              draggable={assignmentCanEdit && sortMode === "default"}
+              onClick={() => {
+                if (dragStartedRef.current) {
+                  dragStartedRef.current = false;
+                  return;
+                }
+                nav(`/assignment/${a.id}/edit`);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  nav(`/assignment/${a.id}/edit`);
+                }
+              }}
               onDragStart={(e) => {
+                if (!assignmentCanEdit || sortMode !== "default") {
+                  e.preventDefault();
+                  return;
+                }
+                dragStartedRef.current = true;
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", a.id);
                 setDraggedAssignmentId(a.id);
@@ -481,22 +497,26 @@ export default function CourseAssignmentsPage() {
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                handleDropOnAssignment(a.id);
+                const sourceId = e.dataTransfer.getData("text/plain");
+                handleDropOnAssignment(a.id, sourceId);
               }}
               onDragEnd={() => {
                 setDraggedAssignmentId(null);
                 setDragOverAssignmentId(null);
+                setTimeout(() => {
+                  dragStartedRef.current = false;
+                }, 0);
               }}
-              className={baseCardClass + " cursor-move"}
-              title="Перетащи карточку, чтобы изменить порядок"
+              className={baseCardClass + (assignmentCanEdit && sortMode === "default" ? " cursor-move" : " cursor-pointer")}
+              title={sortMode === "default" ? "Перетащи карточку, чтобы изменить порядок" : "Открыть редактор задания"}
             >
-              <EditWrap>{CardMain}</EditWrap>
+              {CardMain}
             </Card>
           );
 
           return (
             <IfEditor key={a.id} otherwise={<ViewWrap>{CardBase}</ViewWrap>}>
-              {a.canEdit ? EditorCard : <ViewWrap>{CardBase}</ViewWrap>}
+              {assignmentCanEdit ? EditorCard : <ViewWrap>{CardBase}</ViewWrap>}
             </IfEditor>
           );
         })}

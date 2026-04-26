@@ -292,7 +292,7 @@ export default function CodeEditor({
   return (
     <div
       ref={wrapperRef}
-      className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 min-w-0"
+      className="code-editor-shell rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 min-w-0"
       style={{ width: '100%' }}
     >
       <Editor

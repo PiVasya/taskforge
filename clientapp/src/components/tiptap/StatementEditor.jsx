@@ -42,6 +42,7 @@ import { Button } from "../ui";
 import { uploadImage } from "../../api/files";
 
 import { FontSize } from "./extensions/FontSize";
+import { plainTextToTiptapDoc } from "./markdownToTiptap";
 
 import "./tiptap.css";
 
@@ -60,13 +61,7 @@ function plainTextToDoc(value) {
   const text = String(value ?? "");
   if (!text.trim()) return "";
   if (/<[a-z][\s\S]*>/i.test(text)) return text;
-  return {
-    type: "doc",
-    content: text.replace(/\r/g, "").split("\n").map((line) => ({
-      type: "paragraph",
-      content: line.length ? [{ type: "text", text: line }] : [],
-    })),
-  };
+  return plainTextToTiptapDoc(text);
 }
 
 function ToolbarButton({ title, isActive, disabled, onClick, children }) {

@@ -906,7 +906,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                     value={plainMode ? 'plain' : 'editor'}
                     onChange={(e) => setPlainMode(e.target.value === 'plain')}
                   >
-                    <option value="editor">Графический редактор</option>
+                    <option value="editor">Редактор кода</option>
                     <option value="plain">Простой текст</option>
                   </Select>
                 </div>
@@ -983,7 +983,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                     value={plainMode ? 'plain' : 'editor'}
                     onChange={(e) => setPlainMode(e.target.value === 'plain')}
                   >
-                    <option value="editor">Графический редактор</option>
+                    <option value="editor">Редактор кода</option>
                     <option value="plain">Простой текст</option>
                   </Select>
                 </div>

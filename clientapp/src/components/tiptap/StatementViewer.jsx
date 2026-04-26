@@ -10,6 +10,7 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Subscript } from "@tiptap/extension-subscript";
 import { Superscript } from "@tiptap/extension-superscript";
+import { plainTextToTiptapDoc } from "./markdownToTiptap";
 
 import "./tiptap.css";
 
@@ -22,14 +23,6 @@ function safeParseJson(str) {
   } catch {
     return null;
   }
-}
-
-function PlainTextViewer({ value }) {
-  return (
-    <div className="prose max-w-none whitespace-pre-wrap break-words text-neutral-900 dark:text-neutral-100 dark:prose-invert">
-      {value || ""}
-    </div>
-  );
 }
 
 function TiptapDocViewer({ doc }) {
@@ -67,11 +60,6 @@ function TiptapDocViewer({ doc }) {
 }
 
 export default function StatementViewer({ value }) {
-  const doc = useMemo(() => safeParseJson(value), [value]);
-
-  // Старые задания (txt) — просто показываем текст, НЕ создаём editor вообще
-  if (!doc) return <PlainTextViewer value={value} />;
-
-  // Новые задания — TipTap doc (JSON)
+  const doc = useMemo(() => safeParseJson(value) || plainTextToTiptapDoc(value), [value]);
   return <TiptapDocViewer doc={doc} />;
 }

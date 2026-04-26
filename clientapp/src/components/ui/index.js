@@ -19,7 +19,7 @@ export const Button = ({ variant, intent, className = '', ...p }) => {
         />
     );
 };
-export const Card = ({ className = '', children }) => <div className={`card p-5 ${className}`}>{children}</div>;
+export const Card = ({ className = '', children, ...p }) => <div {...p} className={`card p-5 ${className}`}>{children}</div>;
 export const Badge = ({ children, variant, intent, className = '' }) => {
     const v = variant || intent || 'secondary';
     const cls =

@@ -1357,3 +1357,44 @@ html.dark .bg-fx__blob {
   outline: 2px dashed rgb(var(--brand-500));
   outline-offset: 5px;
 }
+
+.assignment-card-heading {
+  align-items: flex-start;
+}
+
+.assignment-card-heading > .flex {
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 68%;
+}
+
+.assignment-card-kicker {
+  letter-spacing: 0.13em;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.assignment-card-title {
+  -webkit-line-clamp: 4;
+}
+
+.assignment-card .line-clamp-3 {
+  -webkit-line-clamp: 4;
+}
+
+.assignment-card[draggable="true"] {
+  user-select: none;
+}
+
+.assignment-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.code-editor-shell {
+  background: rgba(var(--muted) / 0.22);
+  box-shadow: inset 0 1px 0 rgba(255 255 255 / 0.08);
+}
+
+.dark .code-editor-shell {
+  background: rgba(255 255 255 / 0.04);
+}

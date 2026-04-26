@@ -111,3 +111,21 @@
 .dark .tiptap-content mark {
   background: rgba(255, 235, 59, 0.22);
 }
+
+.tiptap-content code {
+  border: 1px solid rgba(var(--border) / 0.52);
+  background: rgba(var(--muted) / 0.5);
+  color: rgb(var(--text));
+  white-space: break-spaces;
+}
+
+.tiptap-content pre {
+  border: 1px solid rgba(var(--border) / 0.58);
+  background: linear-gradient(180deg, rgba(var(--muted) / 0.44), rgba(var(--muted) / 0.28));
+  box-shadow: inset 0 1px 0 rgba(255 255 255 / 0.08);
+}
+
+.dark .tiptap-content code,
+.dark .tiptap-content pre {
+  border-color: rgba(255 255 255 / 0.12);
+}
