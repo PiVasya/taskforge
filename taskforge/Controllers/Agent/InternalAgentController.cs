@@ -277,6 +277,7 @@ namespace taskforge.Controllers.Agent
                 .ToListAsync();
 
             var lastUserText = messages.LastOrDefault(x => x.role == "user")?.text ?? ExtractRequestRawText(run.RequestJson) ?? string.Empty;
+            var normalizedUserText = NormalizeCourseSearchText(lastUserText);
 
             object? selectedCourse = null;
             List<object> selectedAssignments = new();
@@ -320,14 +321,31 @@ namespace taskforge.Controllers.Agent
                 .ToListAsync();
 
             var courseCatalog = courseRows.Cast<object>().ToList();
-            var lowerText = (lastUserText ?? string.Empty).ToLowerInvariant();
+            var lowerText = normalizedUserText;
             var wantsWideContext = lowerText.Contains("все курсы") || lowerText.Contains("любой курс") || lowerText.Contains("любые курсы") || lowerText.Contains("курсы") || !conversation.CourseId.HasValue;
 
-            var contextCourseIds = courseRows
-                .Select(x => new { x.id, Score = ScoreCourseForAgentContext(lowerText, x.title, x.description) })
+            var scoredCourses = courseRows
+                .Select(x => new
+                {
+                    x.id,
+                    x.title,
+                    x.description,
+                    x.assignmentCount,
+                    Score = ScoreCourseForAgentContext(lowerText, x.title, x.description)
+                })
                 .OrderByDescending(x => x.Score)
-                .ThenBy(x => x.id)
-                .Take(wantsWideContext ? 12 : 6)
+                .ThenByDescending(x => x.assignmentCount)
+                .ThenBy(x => x.title)
+                .ToList();
+
+            var strongMatchedCourses = scoredCourses
+                .Where(x => x.Score >= 45)
+                .Take(4)
+                .ToList();
+
+            var contextTake = strongMatchedCourses.Count > 0 ? Math.Max(4, strongMatchedCourses.Count) : (wantsWideContext ? 12 : 6);
+            var contextCourseIds = (strongMatchedCourses.Count > 0 ? strongMatchedCourses : scoredCourses)
+                .Take(contextTake)
                 .Select(x => x.id)
                 .ToList();
 
@@ -336,6 +354,34 @@ namespace taskforge.Controllers.Agent
 
             if (contextCourseIds.Count == 0)
                 contextCourseIds = courseRows.Take(12).Select(x => x.id).ToList();
+
+            var effectiveCourseId = conversation.CourseId ?? strongMatchedCourses.FirstOrDefault()?.id;
+            if (!conversation.CourseId.HasValue && effectiveCourseId.HasValue)
+            {
+                selectedCourse = await _db.Courses.AsNoTracking()
+                    .Where(x => x.Id == effectiveCourseId.Value)
+                    .Select(x => new { id = x.Id, title = x.Title, description = x.Description, isPublic = x.IsPublic })
+                    .FirstOrDefaultAsync();
+
+                selectedAssignments = (await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.CourseId == effectiveCourseId.Value)
+                    .OrderBy(x => x.Sort)
+                    .ThenBy(x => x.CreatedAt)
+                    .Select(x => new
+                    {
+                        id = x.Id,
+                        courseId = x.CourseId,
+                        title = x.Title,
+                        description = x.Description,
+                        type = x.Type,
+                        difficulty = x.Difficulty,
+                        rating = x.Rating,
+                        tags = x.Tags,
+                        sort = x.Sort,
+                        allowedLanguages = x.AllowedLanguagesCsv,
+                    })
+                    .ToListAsync()).Cast<object>().ToList();
+            }
 
             var contextAssignments = await _db.TaskAssignments.AsNoTracking()
                 .Where(x => contextCourseIds.Contains(x.CourseId))
@@ -357,13 +403,25 @@ namespace taskforge.Controllers.Agent
                 })
                 .ToListAsync();
 
-            var courseContexts = courseRows
-                .Where(c => contextCourseIds.Contains(c.id))
-                .Select(c => new
+            var courseById = courseRows.ToDictionary(x => x.id, x => x);
+            var courseContexts = contextCourseIds
+                .Where(courseById.ContainsKey)
+                .Select(id =>
                 {
-                    course = new { id = c.id, title = c.title, description = c.description, isPublic = c.isPublic, assignmentCount = c.assignmentCount },
-                    assignments = contextAssignments.Where(a => a.courseId == c.id).Cast<object>().ToList()
+                    var c = courseById[id];
+                    return new
+                    {
+                        course = new { id = c.id, title = c.title, description = c.description, isPublic = c.isPublic, assignmentCount = c.assignmentCount },
+                        assignments = contextAssignments.Where(a => a.courseId == c.id).Cast<object>().ToList()
+                    };
                 })
+                .Cast<object>()
+                .ToList();
+
+            var matchedCourses = scoredCourses
+                .Where(x => x.Score > 0)
+                .Take(8)
+                .Select(x => new { id = x.id, title = x.title, score = x.Score, assignmentCount = x.assignmentCount })
                 .Cast<object>()
                 .ToList();
 
@@ -373,13 +431,14 @@ namespace taskforge.Controllers.Agent
                 runId = run.Id,
                 conversationId = conversation.Id,
                 userId = conversation.UserId,
-                courseId = conversation.CourseId,
+                courseId = effectiveCourseId,
                 assignmentId = conversation.AssignmentId,
                 supportTicketId = conversation.SupportTicketId,
                 rawText = lastUserText,
                 message = new { text = lastUserText },
                 course = selectedCourse,
                 assignments = selectedAssignments,
+                matchedCourses,
                 courseCatalog,
                 courseContexts,
                 recentMessages = messages,
@@ -398,25 +457,52 @@ namespace taskforge.Controllers.Agent
 
         private static int ScoreCourseForAgentContext(string normalizedMessage, string? title, string? description)
         {
-            var text = normalizedMessage ?? string.Empty;
-            var normalizedTitle = (title ?? string.Empty).ToLowerInvariant();
-            var normalizedDescription = (description ?? string.Empty).ToLowerInvariant();
+            var text = NormalizeCourseSearchText(normalizedMessage);
+            var normalizedTitle = NormalizeCourseSearchText(title);
+            var normalizedDescription = NormalizeCourseSearchText(description);
             if (string.IsNullOrWhiteSpace(text)) return 0;
+
             var score = 0;
+            if (!string.IsNullOrWhiteSpace(normalizedTitle) && text.Contains(normalizedTitle)) score += 90;
+
             foreach (var word in normalizedTitle.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(x => x.Length >= 2).Distinct())
             {
-                if (text.Contains(word)) score += 12;
+                if (text.Contains(word)) score += word is "c++" or "cpp" or "c#" or "python" or "pascal" ? 30 : 12;
             }
-            foreach (var word in normalizedDescription.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(x => x.Length >= 4).Distinct().Take(20))
+
+            foreach (var word in normalizedDescription.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(x => x.Length >= 4).Distinct().Take(30))
             {
                 if (text.Contains(word)) score += 3;
             }
-            if (normalizedTitle.Contains("c++") && text.Contains("c++")) score += 30;
-            if (normalizedTitle.Contains("python") && text.Contains("python")) score += 30;
-            if (normalizedTitle.Contains("основ") && text.Contains("основ")) score += 12;
-            if (text.Contains(normalizedTitle) && !string.IsNullOrWhiteSpace(normalizedTitle)) score += 50;
+
+            if ((normalizedTitle.Contains("c++") || normalizedTitle.Contains("cpp")) && (text.Contains("c++") || text.Contains("cpp"))) score += 60;
+            if (normalizedTitle.Contains("c#") && text.Contains("c#")) score += 60;
+            if (normalizedTitle.Contains("python") && text.Contains("python")) score += 60;
+            if (normalizedTitle.Contains("pascal") && text.Contains("pascal")) score += 60;
+            if (normalizedTitle.Contains("основ") && text.Contains("основ")) score += 18;
+            if (normalizedTitle.Contains("продвин") && text.Contains("продвин")) score += 18;
             return score;
         }
+
+        private static string NormalizeCourseSearchText(string? value)
+        {
+            var text = (value ?? string.Empty).ToLowerInvariant();
+            text = text.Replace("си++", "c++");
+            text = text.Replace("с++", "c++");
+            text = text.Replace("с #", "c#");
+            text = text.Replace("си#", "c#");
+            text = text.Replace("с#", "c#");
+            text = text.Replace('с', 'c');
+            text = text.Replace("c ++", "c++");
+            text = text.Replace("c plus plus", "c++");
+            text = text.Replace("cpp", "c++");
+            text = text.Replace("си#", "c#");
+            text = text.Replace("c sharp", "c#");
+            text = text.Replace("csharp", "c#");
+            text = text.Replace("питон", "python");
+            return string.Join(' ', text.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries));
+        }
+
         private bool IsAuthorized()
         {
             var expected = _config["TASKFORGE_AGENT_INTERNAL_KEY"]

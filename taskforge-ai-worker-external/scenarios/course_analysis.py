@@ -38,7 +38,7 @@ class CourseAnalysisScenario(Scenario):
             "nextActions": ["string"],
         }
         task = """
-Проанализируй один или несколько курсов по запросу пользователя. Если selectedCourseId=null, выбери релевантные курсы из courseCatalog/courseContexts сам.
+Проанализируй один или несколько курсов по запросу пользователя. Если selectedCourseId или selectedCourseTitle заполнены, анализируй именно этот курс и не пиши, что он отсутствует. Если selectedCourseId=null, выбери релевантные курсы из matchedCourses, courseCatalog и courseContexts сам.
 Особенно внимательно смотри порядок заданий, стиль условий, карту понятий и места возможных скачков сложности.
 Не создавай задания в этом сценарии.
 """

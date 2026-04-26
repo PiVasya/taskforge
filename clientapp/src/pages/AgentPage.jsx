@@ -6,7 +6,6 @@ import {
   BrainCircuit,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   FileJson,
   Loader2,
   PanelRightOpen,
@@ -141,12 +140,12 @@ function MessageBubble({ message }) {
           <Bot size={18} />
         </div>
       )}
-      <div className={`max-w-[min(46rem,86%)] ${isUser ? 'items-end' : 'items-start'} flex flex-col gap-2`}>
+      <div className={`max-w-[min(54rem,92%)] ${isUser ? 'items-end' : 'items-start'} flex flex-col gap-2`}>
         <div
           className={
             isUser
-              ? 'rounded-3xl rounded-br-lg bg-brand-600 text-white px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
-              : 'rounded-3xl rounded-bl-lg border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))]/90 px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
+              ? 'rounded-2xl rounded-br-md bg-brand-600 text-white px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
+              : 'rounded-2xl rounded-bl-md border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))]/90 px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
           }
         >
           {text}
@@ -186,14 +185,14 @@ function ArtifactPreview({ artifact }) {
           <FileJson size={16} />
           <span>{title}</span>
         </div>
-        <Badge variant="outline">{artifact?.type || 'artifact'}</Badge>
+        <span className="text-xs text-neutral-500">{artifact?.type || 'artifact'}</span>
       </div>
 
       {data?.summary && <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{data.summary}</div>}
 
       {findings.length > 0 && (
         <div className="mt-3 space-y-2">
-          {findings.slice(0, 3).map((f, i) => (
+          {findings.slice(0, 2).map((f, i) => (
             <div key={`finding-${i}`} className="rounded-xl bg-white/60 dark:bg-neutral-950/30 p-3 text-sm">
               <div className="font-semibold">{f.concept || f.kind || `Дыра ${i + 1}`}</div>
               <div className="mt-1 text-neutral-600 dark:text-neutral-300">{f.reason || f.summary || 'Найдено слабое место в курсе.'}</div>
@@ -204,13 +203,13 @@ function ArtifactPreview({ artifact }) {
 
       {tasks.length > 0 && (
         <div className="mt-3 space-y-2">
-          {tasks.slice(0, 5).map((task, i) => (
+          {tasks.slice(0, 3).map((task, i) => (
             <div key={`${task?.title || 'task'}-${i}`} className="rounded-xl bg-white/70 dark:bg-neutral-950/30 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
                 <Badge variant="secondary">сложность {task.difficulty || 1}</Badge>
               </div>
-              <div className="mt-1 text-neutral-600 dark:text-neutral-300 line-clamp-4 whitespace-pre-line">
+              <div className="mt-1 text-neutral-600 dark:text-neutral-300 line-clamp-3 whitespace-pre-line">
                 {task.description || task.goal || task.pedagogicalGoal || 'Черновик задания готов.'}
               </div>
               {Array.isArray(task.publicTests) && task.publicTests.length > 0 && (
@@ -716,43 +715,41 @@ export default function AgentPage() {
             )}
           </div>
 
-          <div className="border-t border-neutral-200/70 dark:border-neutral-800/70 p-3 sm:p-4 bg-white/45 dark:bg-neutral-950/20">
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <div className="flex flex-wrap gap-2 text-xs">
-                <button type="button" className="badge badge-outline" onClick={() => setText('Найди дырки в курсе и предложи, где нужны задачи-мостики.')}>поиск дыр</button>
-                <button type="button" className="badge badge-outline" onClick={() => setText('Сделай задачки-лесенки как на скрине: дружелюбно, пошагово, одна микроидея на шаг.')}>лесенка</button>
-                <button type="button" className="badge badge-outline" onClick={() => setText('Создай задачи в стиле курса, но без резкого скачка сложности.')}>в стиле курса</button>
-              </div>
-              <div className="rounded-3xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] p-2 shadow-soft">
+          <div className="border-t border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))]/95 p-3">
+            <form onSubmit={handleSubmit} className="mx-auto flex max-w-5xl items-end gap-2">
+              <div className="min-w-0 flex-1 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white/80 dark:bg-neutral-950/40 px-3 py-2 shadow-soft focus-within:border-brand-400">
                 <Textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => {
                     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendText();
+                    if (!e.shiftKey && e.key === 'Enter') {
+                      e.preventDefault();
+                      sendText();
+                    }
                   }}
-                  rows={3}
-                  placeholder="Напиши AI как в GPT: “проанализируй курс”, “найди дырки”, “сделай лесенку перед if”, “создай C++ задачи как на скрине”…"
-                  className="!border-0 !shadow-none !bg-transparent resize-none"
+                  rows={1}
+                  placeholder="Напиши запрос: проанализируй курс, найди дырки, сделай лесенку..."
+                  className="!min-h-[2.5rem] !max-h-28 !border-0 !bg-transparent !p-0 !shadow-none resize-none text-sm"
                 />
-                <div className="flex items-center justify-between gap-2 px-2 pb-1">
-                  <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                    <Clock3 size={14} />
-                    <span>Ctrl/⌘ + Enter — отправить. Логи только по кнопке AI logs.</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {activeRun && (
-                      <Button type="button" variant="outline" onClick={stopActiveRun} className="!min-w-0">
-                        <Square size={15} />
-                        <span className="hidden sm:inline">Стоп</span>
-                      </Button>
-                    )}
-                    <Button type="submit" disabled={sending || !text.trim()} className="!min-w-0">
-                      {sending ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
-                      <span>Отправить</span>
-                    </Button>
-                  </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+                  <span>Enter — отправить, Shift+Enter — новая строка</span>
+                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Найди дырки в курсе и предложи задачи-мостики.')}>поиск дыр</button>
+                  <span>·</span>
+                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Сделай задачки-лесенки: дружелюбно, пошагово, одна микроидея на шаг.')}>лесенка</button>
+                  <span>·</span>
+                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Создай задачи в стиле курса без резкого скачка сложности.')}>в стиле курса</button>
                 </div>
               </div>
+              {activeRun && (
+                <Button type="button" variant="outline" onClick={stopActiveRun} className="!min-w-0 !px-3 h-12">
+                  <Square size={15} />
+                </Button>
+              )}
+              <Button type="submit" disabled={sending || !text.trim()} className="!min-w-0 h-12 px-4">
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
+                <span className="hidden sm:inline">Отправить</span>
+              </Button>
             </form>
           </div>
         </section>
