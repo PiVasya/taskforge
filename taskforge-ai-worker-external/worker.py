@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -9,6 +10,7 @@ from agent_core.runtime import AgentRuntime
 from api_client import AgentApiClient, sleep_seconds
 from config import (
     AGENT_API_BASE_URL,
+    AGENT_CONCURRENCY,
     AGENT_IDLE_LOG_SECONDS,
     AGENT_POLL_SECONDS,
     AGENT_WORKER_ID,
@@ -92,6 +94,10 @@ def process_claimed_job(api: AgentApiClient, runtime: AgentRuntime, job: Dict[st
         log_event("agent-run-failed", run_id=run_id, error=str(exc))
 
 
+def _process_job_in_slot(job: Dict[str, Any]) -> None:
+    process_claimed_job(AgentApiClient(), AgentRuntime(), job)
+
+
 def worker_loop() -> None:
     runtime = AgentRuntime()
     api = AgentApiClient()
@@ -102,26 +108,67 @@ def worker_loop() -> None:
         api_base_url=AGENT_API_BASE_URL or None,
         llm_base_url=EXTERNAL_AI_BASE_URL,
         model=EXTERNAL_AI_MODEL,
+        concurrency=AGENT_CONCURRENCY,
     )
-    last_idle_log = 0.0
-    while True:
-        try:
-            job = api.claim_next()
-            if not job:
-                now = utc_ts()
-                if now - last_idle_log >= AGENT_IDLE_LOG_SECONDS:
-                    log_event(
-                        "agent-worker-idle",
-                        api_configured=api.configured,
-                        message="No runnable agent run found; worker is connected and idle.",
-                    )
-                    last_idle_log = now
+
+    if AGENT_CONCURRENCY <= 1:
+        last_idle_log = 0.0
+        while True:
+            try:
+                job = api.claim_next()
+                if not job:
+                    now = utc_ts()
+                    if now - last_idle_log >= AGENT_IDLE_LOG_SECONDS:
+                        log_event(
+                            "agent-worker-idle",
+                            api_configured=api.configured,
+                            message="No runnable agent run found; worker is connected and idle.",
+                        )
+                        last_idle_log = now
+                    sleep_seconds(AGENT_POLL_SECONDS)
+                    continue
+                process_claimed_job(api, runtime, job)
+            except Exception as exc:
+                log_event("agent-worker-loop-error", error=str(exc))
                 sleep_seconds(AGENT_POLL_SECONDS)
-                continue
-            process_claimed_job(api, runtime, job)
-        except Exception as exc:
-            log_event("agent-worker-loop-error", error=str(exc))
-            sleep_seconds(AGENT_POLL_SECONDS)
+
+    last_idle_log = 0.0
+    active = set()
+    with ThreadPoolExecutor(max_workers=AGENT_CONCURRENCY, thread_name_prefix="agent-worker") as executor:
+        while True:
+            try:
+                completed = {future for future in active if future.done()}
+                for future in completed:
+                    active.remove(future)
+                    error = future.exception()
+                    if error:
+                        log_event("agent-worker-slot-error", error=str(error))
+
+                claimed_any = False
+                while len(active) < AGENT_CONCURRENCY:
+                    job = api.claim_next()
+                    if not job:
+                        break
+                    claimed_any = True
+                    active.add(executor.submit(_process_job_in_slot, job))
+
+                if not active and not claimed_any:
+                    now = utc_ts()
+                    if now - last_idle_log >= AGENT_IDLE_LOG_SECONDS:
+                        log_event(
+                            "agent-worker-idle",
+                            api_configured=api.configured,
+                            message="No runnable agent run found; worker is connected and idle.",
+                        )
+                        last_idle_log = now
+                    sleep_seconds(AGENT_POLL_SECONDS)
+                    continue
+
+                if active:
+                    wait(active, timeout=AGENT_POLL_SECONDS, return_when=FIRST_COMPLETED)
+            except Exception as exc:
+                log_event("agent-worker-loop-error", error=str(exc))
+                sleep_seconds(AGENT_POLL_SECONDS)
 
 
 def smoke_payload() -> Dict[str, Any]:

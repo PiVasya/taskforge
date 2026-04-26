@@ -39,24 +39,38 @@ namespace taskforge.Controllers.Agent
             var now = DateTime.UtcNow;
             var workerId = CleanWorkerId(request.WorkerId);
 
-            var run = await _db.AgentRuns
-                .Include(x => x.Conversation)
+            var candidateId = await _db.AgentRuns
                 .Where(x =>
                     x.Status == "queued" ||
                     (x.Status == "sleeping" && (x.NextWakeAtUtc == null || x.NextWakeAtUtc <= now)) ||
                     (x.Status == "running" && x.LeaseExpiresAtUtc != null && x.LeaseExpiresAtUtc <= now))
                 .OrderByDescending(x => x.Priority)
                 .ThenBy(x => x.CreatedAtUtc)
+                .Select(x => (Guid?)x.Id)
                 .FirstOrDefaultAsync();
 
-            if (run == null) return Ok(new { job = (object?)null });
+            if (candidateId == null) return Ok(new { job = (object?)null });
 
-            run.Status = "running";
-            run.WorkerId = workerId;
-            run.Attempt += 1;
-            run.StartedAtUtc ??= now;
-            run.UpdatedAtUtc = now;
-            run.LeaseExpiresAtUtc = now.AddSeconds(90);
+            var claimedRows = await _db.AgentRuns
+                .Where(x => x.Id == candidateId.Value && (
+                    x.Status == "queued" ||
+                    (x.Status == "sleeping" && (x.NextWakeAtUtc == null || x.NextWakeAtUtc <= now)) ||
+                    (x.Status == "running" && x.LeaseExpiresAtUtc != null && x.LeaseExpiresAtUtc <= now)))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, "running")
+                    .SetProperty(x => x.WorkerId, workerId)
+                    .SetProperty(x => x.Attempt, x => x.Attempt + 1)
+                    .SetProperty(x => x.StartedAtUtc, x => x.StartedAtUtc ?? now)
+                    .SetProperty(x => x.UpdatedAtUtc, now)
+                    .SetProperty(x => x.LeaseExpiresAtUtc, now.AddSeconds(90)));
+
+            if (claimedRows == 0) return Ok(new { job = (object?)null });
+
+            var run = await _db.AgentRuns
+                .Include(x => x.Conversation)
+                .FirstOrDefaultAsync(x => x.Id == candidateId.Value);
+
+            if (run == null) return Ok(new { job = (object?)null });
 
             _db.AgentSteps.Add(new AgentStep
             {
@@ -179,21 +193,7 @@ namespace taskforge.Controllers.Agent
             };
             _db.AgentMessages.Add(message);
 
-            _db.AgentSteps.Add(new AgentStep
-            {
-                Id = Guid.NewGuid(),
-                RunId = run.Id,
-                Seq = await NextStepSeqAsync(run.Id),
-                Kind = "final",
-                Status = "completed",
-                ActionName = scenarioId,
-                Title = "AI закончил ответ",
-                Summary = assistantText,
-                OutputJson = rawResult,
-                CreatedAtUtc = now,
-                FinishedAtUtc = now,
-                IsVisibleToUser = true,
-            });
+            var nextStepSeq = await NextStepSeqAsync(run.Id);
 
             var artifacts = ExtractArtifacts(run.Id, result, now).ToList();
             foreach (var artifact in artifacts)
@@ -212,7 +212,7 @@ namespace taskforge.Controllers.Agent
                 {
                     Id = Guid.NewGuid(),
                     RunId = run.Id,
-                    Seq = await NextStepSeqAsync(run.Id),
+                    Seq = nextStepSeq++,
                     Kind = "draft",
                     Status = "completed",
                     ActionName = "create_hidden_assignment_draft",
@@ -224,6 +224,22 @@ namespace taskforge.Controllers.Agent
                     IsVisibleToUser = true,
                 });
             }
+
+            _db.AgentSteps.Add(new AgentStep
+            {
+                Id = Guid.NewGuid(),
+                RunId = run.Id,
+                Seq = nextStepSeq++,
+                Kind = "final",
+                Status = "completed",
+                ActionName = scenarioId,
+                Title = "AI закончил ответ",
+                Summary = assistantText,
+                OutputJson = rawResult,
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                IsVisibleToUser = true,
+            });
 
             var memoryPatchRaw = GetRaw(result, "memoryPatch", "memory_patch");
             if (!string.IsNullOrWhiteSpace(memoryPatchRaw))

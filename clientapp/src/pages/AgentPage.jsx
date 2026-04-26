@@ -32,6 +32,7 @@ import {
   listAgentConversations,
   sendAgentMessage,
   polishAgentGeneratedTask,
+  polishAgentGeneratedTasks,
 } from '../api/agent';
 import { joinAgentConversation, leaveAgentConversation } from '../realtime/agentHub';
 
@@ -143,7 +144,7 @@ function ThinkingDots() {
   );
 }
 
-function MessageBubble({ message, onPolishTask, polishingTasks }) {
+function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks }) {
   const role = String(message?.role || '').toLowerCase();
   const isUser = role === 'user';
   const artifacts = getArtifactData(message);
@@ -176,6 +177,10 @@ function MessageBubble({ message, onPolishTask, polishingTasks }) {
                 message={message}
                 artifactIndex={idx}
                 onPolishTask={onPolishTask}
+                onPolishSelectedTasks={onPolishSelectedTasks}
+                selectedDraftTasks={selectedDraftTasks}
+                onToggleDraftTask={onToggleDraftTask}
+                onSetDraftTasks={onSetDraftTasks}
                 polishingTasks={polishingTasks}
               />
             ))}
@@ -195,11 +200,23 @@ function MessageBubble({ message, onPolishTask, polishingTasks }) {
   );
 }
 
-function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, polishingTasks }) {
+function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks }) {
   const data = artifact?.data || {};
   const tasks = Array.isArray(data.tasks) ? data.tasks : Array.isArray(data.drafts) ? data.drafts : [];
   const findings = Array.isArray(data.findings) ? data.findings : [];
   const title = pickReadableArtifactTitle(artifact);
+  const taskItems = tasks.map((task, i) => {
+    const taskKey = `${message?.id || message?.runId || 'message'}-${artifactIndex}-${task?.index || i}`;
+    return { task, taskIndex: task.index ?? i + 1, artifact, artifactIndex, message, taskKey };
+  });
+  const selectedInArtifact = taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]).length;
+  const allSelected = taskItems.length > 0 && selectedInArtifact === taskItems.length;
+  const anyPolishing = taskItems.some((item) => polishingTasks?.[item.taskKey]);
+
+  const selectAll = () => {
+    if (!onSetDraftTasks) return;
+    onSetDraftTasks(taskItems, !allSelected);
+  };
 
   return (
     <div className="rounded-2xl border border-brand-200/70 dark:border-brand-900/70 bg-brand-50/50 dark:bg-brand-950/20 p-3">
@@ -208,7 +225,30 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, polis
           <FileJson size={16} />
           <span>{title}</span>
         </div>
-        <span className="text-xs text-neutral-500">{artifact?.type || 'artifact'}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {tasks.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={selectAll}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-900 dark:bg-neutral-950/50 dark:text-brand-300"
+              >
+                {allSelected ? 'снять выбор' : 'выбрать все'}
+              </button>
+              <button
+                type="button"
+                disabled={!selectedInArtifact || anyPolishing}
+                onClick={() => onPolishSelectedTasks?.(taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]))}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60 dark:border-brand-900"
+                title="Отправить выбранные задания пачкой. Каждое задание станет отдельным AI-run и может обрабатываться параллельно."
+              >
+                {anyPolishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                в черновики{selectedInArtifact ? `: ${selectedInArtifact}` : ''}
+              </button>
+            </>
+          )}
+          <span className="text-xs text-neutral-500">{artifact?.type || 'artifact'}</span>
+        </div>
       </div>
 
       {data?.summary && <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{data.summary}</div>}
@@ -224,31 +264,41 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, polis
         </div>
       )}
 
-      {tasks.length > 0 && (
+      {taskItems.length > 0 && (
         <div className="mt-3 space-y-2">
-          {tasks.map((task, i) => {
-            const taskKey = `${message?.id || message?.runId || 'message'}-${artifactIndex}-${task?.index || i}`;
+          {taskItems.map((item, i) => {
+            const { task, taskKey } = item;
             const polishing = !!polishingTasks?.[taskKey];
+            const selected = !!selectedDraftTasks?.[taskKey];
             return (
-              <div key={`${task?.title || 'task'}-${i}`} className="rounded-xl bg-white/70 dark:bg-neutral-950/30 p-3 text-sm">
+              <div key={`${task?.title || 'task'}-${i}`} className={`rounded-xl bg-white/70 dark:bg-neutral-950/30 p-3 text-sm transition ${selected ? 'ring-2 ring-brand-300/80 dark:ring-brand-800' : ''}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                      <Badge variant="secondary">сложность {task.difficulty || 1}</Badge>
-                      {task.language && <span>{task.language}</span>}
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => onToggleDraftTask?.(item)}
+                      className="mt-1 h-4 w-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500"
+                      title="Выбрать задание для пакетного вылизывания"
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                        <Badge variant="secondary">сложность {task.difficulty || 1}</Badge>
+                        {task.language && <span>{task.language}</span>}
+                      </div>
                     </div>
-                  </div>
+                  </label>
                   {onPolishTask && (
                     <button
                       type="button"
                       disabled={polishing}
-                      onClick={() => onPolishTask({ task, taskIndex: task.index ?? i + 1, artifact, artifactIndex, message, taskKey })}
+                      onClick={() => onPolishTask(item)}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-60 dark:border-brand-900 dark:bg-neutral-950/50 dark:text-brand-300"
-                      title="Выбрать это задание: AI вылижет его, прогонит решение на раннерах и создаст скрытый черновик"
+                      title="Выбрать только это задание: AI вылижет его, прогонит решение на раннерах и создаст скрытый черновик"
                     >
                       {polishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                      {polishing ? 'вылизываю' : 'в черновик'}
+                      {polishing ? 'вылизываю' : 'одно в черновик'}
                     </button>
                   )}
                 </div>
@@ -451,6 +501,7 @@ export default function AgentPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [realtimeEvents, setRealtimeEvents] = useState([]);
   const [polishingTasks, setPolishingTasks] = useState({});
+  const [selectedDraftTasks, setSelectedDraftTasks] = useState({});
 
   const bottomRef = useRef(null);
   const selectedIdRef = useRef(null);
@@ -458,6 +509,7 @@ export default function AgentPage() {
 
   const activeRun = useMemo(() => getLatestActiveRun(runs), [runs]);
   const latestRun = useMemo(() => getLatestRun(runs), [runs]);
+  const selectedDraftCount = useMemo(() => Object.keys(selectedDraftTasks).length, [selectedDraftTasks]);
 
   const scrollToBottom = useCallback((behavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
@@ -714,6 +766,75 @@ export default function AgentPage() {
     }
   };
 
+  const buildPolishPayload = ({ task, taskIndex, artifact, message }) => {
+    const placement = task?.placement || artifact?.data?.placement || {};
+    return {
+      sourceMessageId: message?.id || null,
+      sourceRunId: message?.runId || null,
+      sourceArtifactId: artifact?.id || artifact?.artifactId || null,
+      taskIndex,
+      courseId: conversation?.courseId || courseId || task?.selectedCourseId || artifact?.data?.selectedCourseId || null,
+      beforeAssignmentId: placement.beforeAssignmentId || task?.beforeAssignmentId || null,
+      afterAssignmentId: placement.afterAssignmentId || task?.afterAssignmentId || null,
+      task,
+      note: 'Пользователь выбрал это AI-задание галочкой для вылизывания и создания скрытого черновика.',
+    };
+  };
+
+  const toggleDraftTask = (item) => {
+    if (!item?.taskKey) return;
+    setSelectedDraftTasks((prev) => {
+      const next = { ...prev };
+      if (next[item.taskKey]) delete next[item.taskKey];
+      else next[item.taskKey] = item;
+      return next;
+    });
+  };
+
+  const setDraftTaskSelection = (items, selected) => {
+    setSelectedDraftTasks((prev) => {
+      const next = { ...prev };
+      (items || []).forEach((item) => {
+        if (!item?.taskKey) return;
+        if (selected) next[item.taskKey] = item;
+        else delete next[item.taskKey];
+      });
+      return next;
+    });
+  };
+
+  const handlePolishSelectedTasks = async (items) => {
+    const chosen = (items && items.length ? items : Object.values(selectedDraftTasks)).filter((item) => item?.task);
+    if (!selectedId || chosen.length === 0) return;
+
+    const keys = chosen.map((item) => item.taskKey).filter(Boolean);
+    setPolishingTasks((prev) => keys.reduce((acc, key) => ({ ...acc, [key]: true }), { ...prev }));
+    try {
+      const res = await polishAgentGeneratedTasks(selectedId, {
+        parallelize: true,
+        note: `Пакетное вылизывание ${chosen.length} AI-заданий и создание скрытых черновиков.`,
+        tasks: chosen.map(buildPolishPayload),
+      });
+      if (res?.message) setMessages((prev) => sortByTimeAsc(upsertMessage(prev, res.message)));
+      if (Array.isArray(res?.runs)) setRuns((prev) => sortRunsDesc(mergeById(prev, res.runs)));
+      setSelectedDraftTasks((prev) => {
+        const next = { ...prev };
+        keys.forEach((key) => delete next[key]);
+        return next;
+      });
+      notify.success(`AI поставил в очередь ${res?.count || chosen.length} черновиков`);
+      setTimeout(() => scrollToBottom(), 0);
+    } catch (err) {
+      handleApiError(err, notify, 'Не удалось отправить выбранные задания на вылизывание');
+    } finally {
+      setPolishingTasks((prev) => {
+        const next = { ...prev };
+        keys.forEach((key) => { next[key] = false; });
+        return next;
+      });
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     sendText();
@@ -787,6 +908,10 @@ export default function AgentPage() {
                     key={message.id || message.clientMessageId || `${message.role}-${message.createdAtUtc}`}
                     message={message}
                     onPolishTask={handlePolishGeneratedTask}
+                    onPolishSelectedTasks={handlePolishSelectedTasks}
+                    selectedDraftTasks={selectedDraftTasks}
+                    onToggleDraftTask={toggleDraftTask}
+                    onSetDraftTasks={setDraftTaskSelection}
                     polishingTasks={polishingTasks}
                   />
                 ))}
@@ -797,6 +922,17 @@ export default function AgentPage() {
           </div>
 
           <div className="border-t border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))]/95 p-3">
+            {selectedDraftCount > 0 && (
+              <div className="mx-auto mb-2 flex max-w-5xl flex-wrap items-center justify-between gap-2 rounded-2xl border border-brand-200 bg-brand-50/70 px-3 py-2 text-sm dark:border-brand-900 dark:bg-brand-950/20">
+                <div className="font-medium text-brand-800 dark:text-brand-200">Выбрано задач для черновиков: {selectedDraftCount}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" className="btn-outline !min-w-0 !px-3 !py-1.5 text-xs" onClick={() => setSelectedDraftTasks({})}>Очистить</button>
+                  <Button type="button" className="!min-w-0 !py-1.5 text-xs" onClick={() => handlePolishSelectedTasks()}>
+                    Создать черновики выбранных
+                  </Button>
+                </div>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="mx-auto flex max-w-5xl items-end gap-2">
               <div className="min-w-0 flex-1 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white/80 dark:bg-neutral-950/40 px-3 py-2 shadow-soft focus-within:border-brand-400">
                 <Textarea

@@ -29,3 +29,8 @@ export async function polishAgentGeneratedTask(conversationId, payload) {
   const res = await api.post(`/api/agent/conversations/${conversationId}/polish-task`, payload);
   return res.data;
 }
+
+export async function polishAgentGeneratedTasks(conversationId, payload) {
+  const res = await api.post(`/api/agent/conversations/${conversationId}/polish-tasks`, payload);
+  return res.data;
+}

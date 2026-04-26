@@ -120,6 +120,13 @@ namespace taskforge.Data.Models.DTO.Agent
         public string? Note { get; set; }
     }
 
+    public sealed class AgentPolishGeneratedTaskBatchRequest
+    {
+        public List<AgentPolishGeneratedTaskRequest> Tasks { get; set; } = new();
+        public string? Note { get; set; }
+        public bool Parallelize { get; set; } = true;
+    }
+
     public sealed class AgentPublishDraftRequest
     {
         public bool Publish { get; set; } = true;

@@ -260,6 +260,140 @@ namespace taskforge.Controllers.Agent
             return Ok(new { message = messageDto, run = runDto });
         }
 
+        [HttpPost("conversations/{conversationId:guid}/polish-tasks")]
+        public async Task<IActionResult> PolishGeneratedTasks([FromRoute] Guid conversationId, [FromBody] AgentPolishGeneratedTaskBatchRequest request)
+        {
+            var uid = _current.GetUserId();
+            var role = _current.GetRole();
+            var conversation = await _db.AgentConversations.FirstOrDefaultAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived);
+            if (conversation == null) return NotFound();
+
+            var items = (request.Tasks ?? new List<AgentPolishGeneratedTaskRequest>())
+                .Where(x => x.Task.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+                .Take(20)
+                .ToList();
+
+            if (items.Count == 0)
+                throw new ValidationException("Выберите хотя бы одно AI-задание для вылизывания.");
+
+            var now = DateTime.UtcNow;
+            var prepared = new List<(AgentPolishGeneratedTaskRequest Item, Guid? CourseId, string Title, int TaskIndex)>();
+            var selectedForMessage = new List<object>();
+
+            foreach (var item in items)
+            {
+                var courseId = await ResolvePolishCourseIdAsync(conversation, item);
+                if (courseId.HasValue && !await _courseAccess.CanViewCourseAsync(uid, role, courseId.Value))
+                    return Forbid();
+
+                var taskIndex = item.TaskIndex ?? prepared.Count + 1;
+                var taskTitle = TryGetString(item.Task, "title") ?? TryGetString(item.Task, "Title") ?? $"Задание {taskIndex}";
+                prepared.Add((item, courseId, taskTitle, taskIndex));
+                selectedForMessage.Add(new
+                {
+                    taskIndex,
+                    title = taskTitle,
+                    courseId,
+                    beforeAssignmentId = item.BeforeAssignmentId,
+                    afterAssignmentId = item.AfterAssignmentId,
+                    sourceRunId = item.SourceRunId,
+                    sourceMessageId = item.SourceMessageId,
+                    sourceArtifactId = item.SourceArtifactId,
+                });
+            }
+
+            var message = new AgentMessage
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversation.Id,
+                Role = "user",
+                Source = "ui-action",
+                Text = prepared.Count == 1
+                    ? $"Выбрано AI-задание для вылизывания и создания скрытого черновика: {prepared[0].Title}"
+                    : $"Выбрано {prepared.Count} AI-заданий для параллельного вылизывания и создания скрытых черновиков.",
+                DataJson = JsonSerializer.Serialize(new
+                {
+                    action = "polish_generated_tasks_batch",
+                    parallelize = request.Parallelize,
+                    note = request.Note,
+                    selectedTasks = selectedForMessage,
+                }),
+                CreatedAtUtc = now,
+            };
+
+            _db.AgentMessages.Add(message);
+
+            var runs = new List<AgentRun>();
+            var primaryCourseId = prepared.Select(x => x.CourseId).FirstOrDefault(x => x.HasValue);
+            if (primaryCourseId.HasValue) conversation.CourseId ??= primaryCourseId;
+            conversation.UpdatedAtUtc = now;
+
+            foreach (var preparedItem in prepared)
+            {
+                var item = preparedItem.Item;
+                var run = new AgentRun
+                {
+                    Id = Guid.NewGuid(),
+                    ConversationId = conversation.Id,
+                    RequestedByUserId = uid,
+                    ActingOnBehalfOfUserId = uid,
+                    Status = "queued",
+                    ScenarioId = "polish_assignment_draft",
+                    Priority = 30,
+                    Attempt = 0,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now,
+                    RequestJson = JsonSerializer.Serialize(new
+                    {
+                        action = "polish_assignment_draft",
+                        batchAction = true,
+                        batchMessageId = message.Id,
+                        rawText = $"Выбрано AI-задание для вылизывания и создания скрытого черновика: {preparedItem.Title}",
+                        courseId = preparedItem.CourseId,
+                        assignmentId = conversation.AssignmentId,
+                        supportTicketId = conversation.SupportTicketId,
+                        sourceMessageId = item.SourceMessageId,
+                        sourceRunId = item.SourceRunId,
+                        sourceArtifactId = item.SourceArtifactId,
+                        taskIndex = preparedItem.TaskIndex,
+                        selectedTask = JsonSerializer.Deserialize<JsonElement>(item.Task.GetRawText()),
+                        beforeAssignmentId = item.BeforeAssignmentId,
+                        afterAssignmentId = item.AfterAssignmentId,
+                        note = item.Note ?? request.Note ?? "Пользователь выбрал это AI-задание галочкой для вылизывания и создания скрытого черновика.",
+                        createHiddenDraft = true,
+                        requiredValidation = new { runnerAttempts = 2, requireReferenceSolution = true, requireTests = true }
+                    }),
+                };
+
+                runs.Add(run);
+                _db.AgentRuns.Add(run);
+                _db.AgentSteps.Add(new AgentStep
+                {
+                    Id = Guid.NewGuid(),
+                    RunId = run.Id,
+                    Seq = 1,
+                    Kind = "lifecycle",
+                    Status = "queued",
+                    ActionName = "polish_assignment_draft",
+                    Title = "AI-задание поставлено в очередь на вылизывание",
+                    Summary = "Worker улучшит условие, тесты, эталонное решение, прогонит решение на раннерах и создаст скрытый черновик.",
+                    OutputJson = JsonSerializer.Serialize(new { batchMessageId = message.Id, taskIndex = preparedItem.TaskIndex, title = preparedItem.Title }),
+                    CreatedAtUtc = now,
+                    IsVisibleToUser = true,
+                });
+            }
+
+            await _db.SaveChangesAsync();
+
+            var messageDto = ToMessageDto(message);
+            var runDtos = runs.Select(ToRunDto).ToList();
+            await BroadcastAsync(conversation.Id, "message.created", new { message = messageDto });
+            foreach (var runDto in runDtos)
+                await BroadcastAsync(conversation.Id, "run.created", new { run = runDto });
+
+            return Ok(new { message = messageDto, runs = runDtos, count = runDtos.Count, parallelize = request.Parallelize });
+        }
+
         [HttpPost("runs/{runId:guid}/cancel")]
         public async Task<IActionResult> CancelRun([FromRoute] Guid runId, [FromBody] AgentCancelRunRequest? request)
         {
@@ -383,6 +517,26 @@ namespace taskforge.Controllers.Agent
 
             await _db.SaveChangesAsync();
             return (message, run);
+        }
+
+        private async Task<Guid?> ResolvePolishCourseIdAsync(AgentConversation conversation, AgentPolishGeneratedTaskRequest request)
+        {
+            var courseId = request.CourseId ?? conversation.CourseId;
+            if (!courseId.HasValue && request.BeforeAssignmentId.HasValue)
+            {
+                courseId = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == request.BeforeAssignmentId.Value)
+                    .Select(x => (Guid?)x.CourseId)
+                    .FirstOrDefaultAsync();
+            }
+            if (!courseId.HasValue && request.AfterAssignmentId.HasValue)
+            {
+                courseId = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.Id == request.AfterAssignmentId.Value)
+                    .Select(x => (Guid?)x.CourseId)
+                    .FirstOrDefaultAsync();
+            }
+            return courseId;
         }
 
         private async Task<Guid?> EnsureContextAllowedAsync(Guid userId, string? role, Guid? courseId, Guid? assignmentId, Guid? supportTicketId)
