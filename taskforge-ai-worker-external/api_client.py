@@ -1,121 +1,89 @@
-"""HTTP helpers for the TaskForge backend API."""
+from __future__ import annotations
 
-import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from config import API_BASE, WORKER_ID, CAPABILITIES, session
-from log import log, log_debug, logger, log_event, preview_text
+import requests
 
-
-def _preview(value: Any, limit: int = 160) -> str:
-    if value is None:
-        return "-"
-    text = str(value).replace("\n", " ").replace("\r", " ").strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
+from config import (
+    AGENT_API_BASE_URL,
+    AGENT_INTERNAL_KEY,
+    AGENT_REQUEST_TIMEOUT_SECONDS,
+    AGENT_WORKER_ID,
+)
+from log import log_event, preview_text
 
 
-def _job_summary(job: Dict[str, Any]) -> str:
-    parts = [
-        f"job={job.get('id')}",
-        f"type={job.get('type')}",
-        f"priority={job.get('priority')}",
-    ]
-    if job.get("stageCode") or job.get("stageLabel"):
-        parts.append(f"stage={job.get('stageCode') or '-'}")
-        parts.append(f"stageLabel={_preview(job.get('stageLabel'), 80)}")
-    if job.get("targetEntityType") or job.get("targetEntityId"):
-        parts.append(f"target={job.get('targetEntityType') or '-'}:{job.get('targetEntityId') or '-'}")
-    if job.get("courseId"):
-        parts.append(f"course={job.get('courseId')}")
-    return " ".join(parts)
+class AgentApiClient:
+    """Small client for the future TaskForge internal agent API.
 
+    The API endpoints can be added on the ASP.NET side later. Until
+    TASKFORGE_AGENT_API_BASE_URL is configured, the worker stays in safe idle mode
+    and can still be smoke-tested locally through process_job().
+    """
 
-def post(
-    path: str,
-    payload: Dict[str, Any],
-    expected: Optional[List[int]] = None,
-    quiet: bool = False,
-):
-    expected = expected or [200]
-    payload_text = json.dumps(payload, ensure_ascii=False)
-    if not quiet:
-        log_debug(f"POST >>> path={path} payload_len={len(payload_text)} payload={_preview(payload_text, 220)}")
-    started = time.time()
-    resp = session.post(f"{API_BASE}{path}", json=payload, timeout=30)
-    elapsed_ms = int((time.time() - started) * 1000)
-    if not quiet or resp.status_code not in expected:
-        log_debug(f"POST <<< path={path} status={resp.status_code} elapsed_ms={elapsed_ms} body={_preview(resp.text, 220)}")
-    if resp.status_code not in expected:
-        raise RuntimeError(f"POST {path} -> {resp.status_code}: {resp.text[:500]}")
-    return resp
+    def __init__(self, session: Optional[requests.Session] = None) -> None:
+        self.session = session or requests.Session()
+        self.base_url = (AGENT_API_BASE_URL or "").rstrip("/")
 
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url)
 
-def pull_job() -> Optional[Dict[str, Any]]:
-    resp = post(
-        "/api/internal/ai/jobs/pull",
-        {"workerId": WORKER_ID, "capabilities": CAPABILITIES},
-        expected=[200, 204],
-        quiet=True,
-    )
-    if resp.status_code == 204:
-        log_debug(f"pull idle worker={WORKER_ID} caps={CAPABILITIES}")
-        return None
-    job = resp.json()
-    log_event('job-picked', job=_job_summary(job))
-    return job
+    def _headers(self) -> Dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            "X-TaskForge-Worker-Id": AGENT_WORKER_ID,
+        }
+        if AGENT_INTERNAL_KEY:
+            headers["X-Internal-Key"] = AGENT_INTERNAL_KEY
+        return headers
 
+    def _post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.configured:
+            raise RuntimeError("TASKFORGE_AGENT_API_BASE_URL is not configured")
+        url = f"{self.base_url}{path}"
+        response = self.session.post(url, headers=self._headers(), json=body, timeout=AGENT_REQUEST_TIMEOUT_SECONDS)
+        if response.status_code == 204:
+            return {}
+        if response.status_code >= 400:
+            raise RuntimeError(f"{path} HTTP {response.status_code}: {(response.text or '')[:800]}")
+        try:
+            return response.json()
+        except Exception:
+            return {"raw": response.text}
 
-def heartbeat(job_id: str):
-    log_debug(f"heartbeat >>> job={job_id} worker={WORKER_ID}")
-    post(
-        f"/api/internal/ai/jobs/{job_id}/heartbeat",
-        {"workerId": WORKER_ID},
-        expected=[200, 404],
-        quiet=True,
-    )
-    log_debug(f"heartbeat <<< job={job_id} worker={WORKER_ID}")
+    def claim_next(self) -> Optional[Dict[str, Any]]:
+        if not self.configured:
+            return None
+        data = self._post("/api/internal/agent/claim-next", {"workerId": AGENT_WORKER_ID})
+        job = data.get("job") if isinstance(data, dict) else None
+        if not job and isinstance(data, dict) and data.get("id"):
+            job = data
+        return job if isinstance(job, dict) else None
 
-
-def complete(job_id: str, result: Dict[str, Any]):
-    from config import ACTIVE_MODEL
-
-    telemetry = result.pop("__workerTelemetry", None) if isinstance(result, dict) else None
-    telemetry_json = json.dumps(telemetry, ensure_ascii=False) if isinstance(telemetry, dict) else None
-    result_json = json.dumps(result, ensure_ascii=False)
-    status = result.get("status") if isinstance(result, dict) else None
-    score = result.get("score") if isinstance(result, dict) else None
-    keys = sorted(result.keys())[:12] if isinstance(result, dict) else []
-    log_event('job-complete-api', job_id=job_id, model=ACTIVE_MODEL, result_len=len(result_json), telemetry_len=(len(telemetry_json) if telemetry_json else 0), status=status, score=score, keys=keys, result_preview=preview_text(result_json, 500))
-    resp = post(
-        f"/api/internal/ai/jobs/{job_id}/complete",
-        {
-            "workerId": WORKER_ID,
-            "modelName": ACTIVE_MODEL,
-            "resultJson": result_json,
-            "telemetryJson": telemetry_json,
-        },
-        expected=[200, 404, 409],
-    )
-    if resp.status_code == 409:
-        body = (resp.text or "")[:2000]
-        if "SAVE_CONFLICT" in body or "AiGeneratedAssignmentDrafts" in body or "BatchItemId" in body or "JobId" in body:
-            log_event('job-complete-conflict-ignored', level='warning', job_id=job_id, status=resp.status_code, body=_preview(body, 240))
+    def heartbeat(self, run_id: str) -> None:
+        if not self.configured:
             return
-        raise RuntimeError(f"POST /api/internal/ai/jobs/{job_id}/complete -> 409: {body[:500]}")
+        self._post(f"/api/internal/agent/runs/{run_id}/heartbeat", {"workerId": AGENT_WORKER_ID})
+
+    def complete_run(self, run_id: str, result: Dict[str, Any]) -> None:
+        if not self.configured:
+            log_event("agent-run-local-complete", run_id=run_id, result=preview_text(str(result), 800))
+            return
+        self._post(f"/api/internal/agent/runs/{run_id}/complete", {"workerId": AGENT_WORKER_ID, "result": result})
+
+    def fail_run(self, run_id: str, error: Dict[str, Any]) -> None:
+        if not self.configured:
+            log_event("agent-run-local-fail", run_id=run_id, error=preview_text(str(error), 800))
+            return
+        self._post(f"/api/internal/agent/runs/{run_id}/fail", {"workerId": AGENT_WORKER_ID, "error": error})
+
+    def append_step(self, run_id: str, step: Dict[str, Any]) -> None:
+        if not self.configured:
+            return
+        self._post(f"/api/internal/agent/runs/{run_id}/steps", {"workerId": AGENT_WORKER_ID, "step": step})
 
 
-def fail(job_id: str, error_text: str, retryable: bool = True, retry_delay_seconds: int = 120):
-    log_event('job-fail-api', level='warning', job_id=job_id, retryable=retryable, retry_delay_seconds=retry_delay_seconds, error=error_text[:500])
-    post(
-        f"/api/internal/ai/jobs/{job_id}/fail",
-        {
-            "workerId": WORKER_ID,
-            "errorText": error_text[:4000],
-            "retryable": retryable,
-            "retryDelaySeconds": retry_delay_seconds,
-        },
-        expected=[200, 404],
-    )
+def sleep_seconds(seconds: float) -> None:
+    time.sleep(max(0.0, seconds))

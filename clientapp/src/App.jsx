@@ -9,6 +9,7 @@ import FeatureRoute from './auth/FeatureRoute';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CoursesPage from './pages/CoursesPage';
+import AgentPage from './pages/AgentPage';
 import NewsPage from './pages/NewsPage';
 import UpdatePostPage from './pages/UpdatePostPage';
 import CourseAssignmentsPage from './pages/CourseAssignmentsPage';
@@ -47,8 +48,6 @@ import AdminMinecraftLinksPage from './pages/admin/AdminMinecraftLinksPage';
 import AdminAssignmentInsightsPage from './pages/admin/AdminAssignmentInsightsPage';
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage';
 import AdminUserActionsPage from './pages/admin/AdminUserActionsPage';
-import AdminAiPage from './pages/admin/AdminAiPage';
-import AdminAiChatPage from './pages/admin/AdminAiChatPage';
 import MinecraftChatPage from './pages/minecraft/MinecraftChatPage';
 
 function Home() {
@@ -77,6 +76,12 @@ export default function App() {
 
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
+
+          {/* AI ассистент курса/заданий: только Admin */}
+          <Route element={<AdminRoute />}>
+            <Route path="/ai" element={<AgentPage />} />
+            <Route path="/agent" element={<AgentPage />} />
+          </Route>
 
           {/* решение задания */}
           <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
@@ -123,8 +128,6 @@ export default function App() {
             <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
             <Route path="/admin/activity" element={<AdminUserActionsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
-            <Route path="/admin/ai" element={<AdminAiPage />} />
-            <Route path="/admin/ai/chat" element={<AdminAiChatPage />} />
             <Route path="/admin/minecraft-links" element={<AdminMinecraftLinksPage />} />
             <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />
           </Route>

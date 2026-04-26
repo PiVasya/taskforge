@@ -34,10 +34,6 @@ services:
       Compilers__python__Url: "http://python-runner:8080"
       Compilers__python__TimeoutMs: "8000"
       API_INTERNAL_KEY: "dev-internal-key"
-      AI__Enabled: "true"
-      AI__SystemUserEmail: "taskforge.ai@system.local"
-      AI__SystemUserFirstName: "TaskForge"
-      AI__SystemUserLastName: "AI"
     expose: ["8080"]
     networks: [appnet]
     restart: unless-stopped
@@ -81,32 +77,6 @@ services:
     image: taskforge-python-runner:local
     container_name: taskforge-python-runner
     expose: ["8080"]
-    networks: [appnet]
-    restart: unless-stopped
-
-  taskforge-ai-worker:
-    build:
-      context: ./taskforge-ai-worker
-      dockerfile: Dockerfile
-    image: taskforge-ai-worker:local
-    container_name: taskforge-ai-worker
-    depends_on: [api]
-    environment:
-      TASKFORGE_API_BASE: "http://api:8080"
-      TASKFORGE_INTERNAL_KEY: "dev-internal-key"
-      TASKFORGE_AI_WORKER_ID: "taskforge-ai-worker-local"
-      TASKFORGE_AI_CAPABILITIES: "*"
-      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
-      OLLAMA_MODEL: "qwen3:14b"
-      POLL_INTERVAL_SECONDS: "10"
-      TASKFORGE_AI_LOG_DIR: "/app/logs"
-      TASKFORGE_AI_LOG_FILE: "/app/logs/worker.log"
-      TASKFORGE_AI_JSON_LOG_FILE: "/app/logs/worker.jsonl"
-      TASKFORGE_AI_LOG_LEVEL: "INFO"
-      TASKFORGE_AI_LOG_INCLUDE_PROMPTS: "true"
-      TASKFORGE_AI_LOG_INCLUDE_RESPONSES: "true"
-    volumes:
-      - ./logs/taskforge-ai-worker:/app/logs
     networks: [appnet]
     restart: unless-stopped
 

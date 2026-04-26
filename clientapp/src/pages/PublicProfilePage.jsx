@@ -26,7 +26,7 @@ export default function PublicProfilePage() {
         const { data } = await api.get(`/api/users/${userId}/public-profile`);
         setProfile(data);
       } catch (e) {
-        console.error(e);
+        // логирование на фронте отключено
         setError('Профиль не найден');
       } finally {
         setLoading(false);
@@ -43,7 +43,7 @@ export default function PublicProfilePage() {
         const list = await getUserBadges(userId);
         setBadges(Array.isArray(list) ? list : []);
       } catch (e) {
-        console.error('Failed to load user badges', e);
+        // логирование на фронте отключено
         setBadges([]);
       } finally {
         setBadgesLoading(false);

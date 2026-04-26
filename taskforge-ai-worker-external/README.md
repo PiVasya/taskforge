@@ -1,199 +1,90 @@
-# taskforge-ai-worker-external
+# TaskForge external AI worker
 
-Отдельный AI worker для TaskForge, который **не использует локальный Ollama**.
+This container is no longer a no-op reset stub. It now contains the first MVP of the external TaskForge AI agent runtime:
 
-Он сохраняет тот же pipeline и тот же контракт с backend API, что и обычный
-`taskforge-ai-worker`, но вместо локальной модели ходит во **внешний API**.
+- durable-worker loop shell: `worker.py` claims internal agent jobs when `TASKFORGE_AGENT_API_BASE_URL` is configured;
+- payload-driven local processing for smoke tests and early backend integration;
+- `agent_core/` with runtime, context snapshot builder, chat memory patching, rule-based scenario router and validators;
+- `scenarios/` with hardcoded MVP scenarios:
+  - `course_analysis`;
+  - `course_gap_audit`;
+  - `guided_ladder`;
+  - `style_matched_tasks`;
+  - `bridge_tasks`;
+  - `draft_revision`;
+- `hardcoded_presets/ladder_screenshot_1.py` for the small friendly ladder style.
 
-Старый локальный worker **оставлен без изменений** в папке `taskforge-ai-worker`.
-Эта папка — новый альтернативный вариант под внешний AI.
+The worker still does **not** persist generated assignments into TaskForge. It returns structured artifacts such as `task_ladder_blueprint` and `task_draft_bundle`. Persistence/publishing should be added later through an internal Agent Action Gateway in the ASP.NET API.
 
-## Что поддерживается
+## Runtime flow
 
-По умолчанию worker работает через **OpenAI-compatible Chat Completions API**.
-Это удобно для:
-
-- OpenAI
-- DeepSeek API
-- OpenRouter
-- DashScope / Qwen compatible-mode
-- других совместимых провайдеров
-
-Также есть отдельный режим `anthropic`.
-
-## Как запускать
-
-```bash
-docker compose -f docker-compose.external-ai-worker.yaml up -d --build
+```text
+assistant_chat_turn job
+  -> AgentRuntime
+  -> MessageNormalizer
+  -> ContextSupervisor
+  -> ScenarioRouter
+  -> Scenario pipeline
+  -> Validators
+  -> ResultEnvelope
 ```
 
-## Основные env-переменные
+A user request such as:
 
-- `TASKFORGE_API_BASE=https://<your-taskforge-host>`
-- `TASKFORGE_INTERNAL_KEY=<тот же API_INTERNAL_KEY, что и у backend>`
-- `TASKFORGE_AI_WORKER_ID=taskforge-ai-worker-external`
-- `TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible`
-- `TASKFORGE_EXTERNAL_AI_BASE_URL=https://api.openai.com/v1`
-- `TASKFORGE_EXTERNAL_AI_API_KEY=<secret>`
-- `TASKFORGE_EXTERNAL_AI_MODEL=gpt-4.1-mini`
-
-Дополнительно:
-
-- `TASKFORGE_EXTERNAL_AI_REQUEST_ATTEMPTS=2`
-- `TASKFORGE_EXTERNAL_AI_RETRY_BACKOFF_SECONDS=8`
-- `TASKFORGE_EXTERNAL_AI_JSON_MODE=true`
-- `TASKFORGE_EXTERNAL_AI_TEMPERATURE=0.12`
-- `TASKFORGE_EXTERNAL_AI_EXTRA_HEADERS=` — JSON-объект или список `Header: value`
-
-## Примеры провайдеров
-
-### OpenAI
-
-```env
-TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible
-TASKFORGE_EXTERNAL_AI_BASE_URL=https://api.openai.com/v1
-TASKFORGE_EXTERNAL_AI_MODEL=gpt-4.1-mini
+```text
+Найди дырки перед if и сделай лесенку как на скрине 1
 ```
 
-### DeepSeek
+becomes a chained route:
 
-```env
-TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible
-TASKFORGE_EXTERNAL_AI_BASE_URL=https://api.deepseek.com/v1
-TASKFORGE_EXTERNAL_AI_MODEL=deepseek-chat
+```text
+course_gap_audit -> guided_ladder
 ```
 
-### OpenRouter
+and returns a `ResultEnvelope` containing both the gap report and the ladder blueprint.
+
+## Environment
+
+OpenRouter/OpenAI-compatible LLM base is kept from the reset version:
 
 ```env
-TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible
 TASKFORGE_EXTERNAL_AI_BASE_URL=https://openrouter.ai/api/v1
-TASKFORGE_EXTERNAL_AI_MODEL=openai/gpt-4.1-mini
-TASKFORGE_EXTERNAL_AI_EXTRA_HEADERS={"HTTP-Referer":"https://your-site.example","X-Title":"TaskForge"}
+TASKFORGE_EXTERNAL_AI_API_KEY=...
+TASKFORGE_EXTERNAL_AI_MODEL=qwen/qwen3.6-plus
 ```
 
-### Qwen / DashScope compatible mode
+Internal TaskForge API settings are optional until the backend endpoints exist:
 
 ```env
-TASKFORGE_EXTERNAL_AI_PROVIDER=openai_compatible
-TASKFORGE_EXTERNAL_AI_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-TASKFORGE_EXTERNAL_AI_MODEL=qwen-plus
+TASKFORGE_AGENT_API_BASE_URL=http://taskforge:8080
+TASKFORGE_AGENT_INTERNAL_KEY=...
+TASKFORGE_AGENT_WORKER_ID=taskforge-ai-worker-external
+TASKFORGE_AGENT_POLL_SECONDS=5
+TASKFORGE_AGENT_HEARTBEAT_SECONDS=15
 ```
 
-### Anthropic
+Without `TASKFORGE_AGENT_API_BASE_URL`, the worker starts safely, logs idle state, and does not try to mutate anything.
 
-```env
-TASKFORGE_EXTERNAL_AI_PROVIDER=anthropic
-TASKFORGE_EXTERNAL_AI_BASE_URL=https://api.anthropic.com/v1
-TASKFORGE_EXTERNAL_AI_MODEL=claude-sonnet-4-20250514
-```
+## Smoke test
 
-## Замечания
-
-- worker по-прежнему возвращает в backend `modelName`, `resultJson` и т.д.;
-- старый pipeline сохранён почти полностью, чтобы можно было сравнивать локальный и внешний AI;
-- этот вариант нужен именно для следующего шага: тестировать внешний AI без удаления старого локального worker-а.
-
-## Что добавлено в больших апдейтах
-
-- OpenRouter-native structured outputs + schema validation по ключевым стадиям.
-- Route-aware repair и substage draft generation.
-- Stage-aware provider routing profiles (`planning/chat/draft/repair/review`).
-- Selection telemetry и signature-based duplicate hints.
-- Sandbox runner в двух режимах: `process` и `container`.
-
-### Дополнительные env
-
-- `TASKFORGE_AI_PROVIDER_ORDER_PLANNING=anthropic,openai`
-- `TASKFORGE_AI_PROVIDER_ORDER_CHAT=openai,anthropic`
-- `TASKFORGE_AI_PROVIDER_ORDER_DRAFT=openai,anthropic`
-- `TASKFORGE_AI_PROVIDER_ORDER_REPAIR=openai,anthropic`
-- `TASKFORGE_AI_STAGE_ROUTING_JSON={...}` — точечные overrides по stage/group
-- `TASKFORGE_AI_DUPLICATE_SIGNATURES=true`
-- `TASKFORGE_AI_SIMILARITY_SIGNATURE_WARNING=0.66`
-- `TASKFORGE_AI_SIMILARITY_SIGNATURE_FAIL=0.82`
-- `TASKFORGE_AI_SANDBOX_MODE=process|container`
-- `TASKFORGE_AI_RUNNER_RUNTIME=docker`
-- `TASKFORGE_AI_RUNNER_CONTAINER_IMAGE=taskforge-python-runner:wave4`
-
-### Containerized sandbox
-
-Для более жёсткой изоляции можно собрать runner image отдельно:
+From this folder:
 
 ```bash
-docker build -f taskforge-ai-worker-external/runner.Dockerfile -t taskforge-python-runner:wave4 .
+/usr/bin/python3 worker.py --smoke
 ```
 
-После этого включить:
+Expected behavior: a `course_gap_audit -> guided_ladder` result with a `task_ladder_blueprint`. The smoke test is deterministic and does not require an LLM API key.
 
-```env
-TASKFORGE_AI_SANDBOX_RUNNER=true
-TASKFORGE_AI_SANDBOX_MODE=container
-TASKFORGE_AI_RUNNER_CONTAINER_IMAGE=taskforge-python-runner:wave4
+## Backend contract expected later
+
+The worker is already prepared for these internal endpoints:
+
+```text
+POST /api/internal/agent/claim-next
+POST /api/internal/agent/runs/{id}/heartbeat
+POST /api/internal/agent/runs/{id}/steps
+POST /api/internal/agent/runs/{id}/complete
+POST /api/internal/agent/runs/{id}/fail
 ```
 
-Такой режим запускает решения через `docker run --network none --read-only ...` и оставляет fallback на обычный process-mode, если runtime недоступен.
-
-
-## Логи worker
-
-Worker пишет логи одновременно:
-- в stdout/stderr контейнера
-- в текстовый файл `TASKFORGE_AI_LOG_FILE` (по умолчанию `/app/logs/worker.log`)
-- в JSONL-файл `TASKFORGE_AI_JSON_LOG_FILE` (по умолчанию `/app/logs/worker.jsonl`)
-
-Рекомендуемый mount:
-
-```yaml
-volumes:
-  - ./logs/taskforge-ai-worker-external:/app/logs
-```
-
-Тогда после запуска можно забирать:
-
-```bash
-cat ./logs/taskforge-ai-worker-external/worker.log
-cat ./logs/taskforge-ai-worker-external/worker.jsonl
-```
-
-
-## Wave5 additions
-- Canonical external-LLM adapter import path is now `llm_client.py`; legacy `ollama.py` stays as a compatibility shim.
-- LLM success logs now include token/cost telemetry when the provider returns usage metadata.
-- Duplicate analysis now includes signature-based clustering for reference assignments and peer drafts.
-- GitHub Actions includes `test-external-ai-worker.yml` to run compileall + pytest before shipping worker-only changes.
-
-
-## Wave6 telemetry and duplicate tuning
-
-- `TASKFORGE_AI_WORKER_TELEMETRY=true` — worker sends `telemetryJson` to backend complete endpoint.
-- `TASKFORGE_AI_DUPLICATE_CLUSTER_WARNING_SIZE=2` — cluster size that triggers warning.
-- `TASKFORGE_AI_DUPLICATE_CLUSTER_FAIL_SIZE=3` — cluster size that triggers fail.
-
-
-## Preflight перед ручным тестом
-
-Перед запуском worker теперь можно быстро проверить конфиг:
-
-```bash
-cd taskforge-ai-worker-external
-python preflight.py
-```
-
-Для контейнерного healthcheck используется тот же скрипт:
-
-```bash
-python preflight.py --healthcheck
-```
-
-Если включён container sandbox, preflight проверит наличие `docker` CLI и базовую пригодность окружения.
-
-## Что важно перед тестом проекта целиком
-
-После добавления `TaskAssignment.IsAiGenerated` не забудь:
-
-1. Сгенерировать миграцию вручную.
-2. Применить её к базе.
-3. Только потом тестировать публикацию AI-draft и чтение заданий.
-
-Краткий чек-лист лежит в корне репозитория: `TESTING_NOW.md`.
+The intended production design is still: external worker + internal action gateway + durable state machine + approvals + audit. The worker should call backend domain services through API actions, not write directly to PostgreSQL.

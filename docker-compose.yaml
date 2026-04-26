@@ -158,12 +158,6 @@ services:
       CodeAnalyzer__Url: "http://code-analyzer:8080"
       CodeAnalyzer__TimeoutSeconds: "6"
 
-      AI__Enabled: "true"
-      AI__SystemUserEmail: "taskforge.ai@system.local"
-      AI__SystemUserFirstName: "TaskForge"
-      AI__SystemUserLastName: "AI"
-      AI__DefaultModel: "qwen3:14b"
-      AI__RequireHumanApproval: "true"
 
     depends_on:
       db:
@@ -202,34 +196,6 @@ services:
       timeout: 5s
       retries: 18
       start_period: 35s
-
-  taskforge-ai-worker:
-    image: ghcr.io/pivasya/taskforge-ai-worker:latest
-    container_name: taskforge-ai-worker
-    environment:
-      TASKFORGE_API_BASE: "http://api:8080"
-      TASKFORGE_INTERNAL_KEY: ${API_INTERNAL_KEY}
-      TASKFORGE_AI_WORKER_ID: "taskforge-ai-worker-main"
-      TASKFORGE_AI_CAPABILITIES: "assignment_generate_from_text,assignment_generate_from_file,assignment_improve_existing,assignment_analyze_existing,submission_review,user_risk_review,support_message_review,minecraft_chat_review,assistant_chat_turn,chat"
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:14b}
-      POLL_INTERVAL_SECONDS: "10"
-    depends_on:
-      api:
-        condition: service_healthy
-    networks: [appnet]
-    restart: unless-stopped
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  ollama:
-    profiles: ["ai-local"]
-    image: ollama/ollama:latest
-    container_name: taskforge-ollama
-    networks: [appnet]
-    restart: unless-stopped
-    volumes:
-      - ollama-data:/root/.ollama
 
   support-bot:
     image: ghcr.io/pivasya/taskforge-support-bot:latest
@@ -433,4 +399,3 @@ volumes:
   minio-data:
   certbot-www:
   letsencrypt:
-  ollama-data:

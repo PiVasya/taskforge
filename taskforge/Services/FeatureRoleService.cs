@@ -20,10 +20,6 @@ namespace taskforge.Services
         public async Task EnsureDefaultRolesAsync(CancellationToken ct = default)
         {
             await EnsureRoleAsync(FeatureRoles.Minecraft, "Minecraft", "Доступ к Minecraft-разделу сайта", ct);
-            await EnsureRoleAsync(FeatureRoles.AiConsole, "AI Console", "Доступ к AI-разделу и очереди нейросети", ct);
-            await EnsureRoleAsync(FeatureRoles.AiAuthoring, "AI Authoring", "Генерация и улучшение заданий через AI", ct);
-            await EnsureRoleAsync(FeatureRoles.AiReview, "AI Review", "AI-review решений и аналитика заданий", ct);
-            await EnsureRoleAsync(FeatureRoles.AiModeration, "AI Moderation", "AI moderation / risk review пользователей, тикетов и Minecraft", ct);
         }
 
         public async Task<IReadOnlyList<string>> GetRoleCodesForUserAsync(Guid userId, CancellationToken ct = default)

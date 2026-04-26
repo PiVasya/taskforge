@@ -72,7 +72,7 @@ export default function MySolutionsPage() {
       // если пришло меньше PAGE_SIZE — страниц больше нет
       setSolHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      console.error('Failed to load my solutions', e);
+      // логирование на фронте отключено
     } finally {
       setListLoading(false);
     }
@@ -95,7 +95,7 @@ export default function MySolutionsPage() {
 
       setTestHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      console.error('Failed to load my test attempts', e);
+      // логирование на фронте отключено
     } finally {
       setTestListLoading(false);
     }
@@ -118,7 +118,7 @@ export default function MySolutionsPage() {
 
       setMathHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      console.error('Failed to load my math attempts', e);
+      // логирование на фронте отключено
     } finally {
       setMathListLoading(false);
     }
@@ -141,7 +141,7 @@ export default function MySolutionsPage() {
 
       setImageHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      console.error('Failed to load my image solutions', e);
+      // логирование на фронте отключено
     } finally {
       setImageListLoading(false);
     }
@@ -213,7 +213,7 @@ export default function MySolutionsPage() {
         if (e?.response?.status === 403) {
           notify.warn('Просмотр результатов для этого math-задания отключён');
         } else {
-          console.error('Failed to load math attempt review', e);
+          // логирование на фронте отключено
           notify.error('Не удалось загрузить просмотр math-попытки');
         }
         return;
@@ -234,7 +234,7 @@ export default function MySolutionsPage() {
         const full = await getMyImageSolutionDetails(id);
         setImageDetails((prev) => ({ ...prev, [id]: full }));
       } catch (e) {
-        console.error('Failed to load image solution details', e);
+        // логирование на фронте отключено
         notify.error('Не удалось загрузить решение по картинке');
         return;
       }
@@ -253,7 +253,7 @@ export default function MySolutionsPage() {
         const full = await getMySolutionDetails(id);
         setDetails((prev) => ({ ...prev, [id]: full }));
       } catch (e) {
-        console.error('Failed to load solution details', e);
+        // логирование на фронте отключено
         return;
       }
     }
@@ -281,7 +281,7 @@ export default function MySolutionsPage() {
         if (e?.response?.status === 403) {
           notify.warn('Просмотр результатов для этого теста отключён');
         } else {
-          console.error('Failed to load attempt review', e);
+          // логирование на фронте отключено
           notify.error('Не удалось загрузить просмотр попытки');
         }
         return;

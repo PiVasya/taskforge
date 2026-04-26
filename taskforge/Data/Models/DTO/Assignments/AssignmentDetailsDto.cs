@@ -19,7 +19,6 @@ namespace taskforge.Data.Models.DTO
         public bool SolvedByCurrentUser { get; set; }
         public List<AssignmentTestCaseDto> TestCases { get; set; } = new();
         public int Sort { get; set; }
-        public bool IsAiGenerated { get; set; }
 
         // --- Code policy (applies to code-test and image-test code part) ---
         public List<string> CodeRequiredCalls { get; set; } = new();

@@ -24,7 +24,7 @@ import {
   GraduationCap,
   Trophy,
   ChevronRight,
-  Brain,
+  Bot,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext';
@@ -241,6 +241,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
   const primaryNav = [
     { to: '/news', label: 'Лента', subtitle: 'Новости и обновления', icon: House, active: isActive('/news') },
     { to: '/courses', label: 'Курсы', subtitle: 'Каталог заданий', icon: GraduationCap, active: isActive('/courses') || isActive('/course') },
+    access && isAdmin && { to: '/ai', label: 'AI', subtitle: 'Анализ курса и задачки', icon: Bot, active: isActive('/ai') || isActive('/agent') },
     access && { to: '/my/solutions', label: 'Мои решения', subtitle: 'История отправок', icon: ListOrdered, active: isActive('/my/solutions') },
     access && { to: '/leaderboard', label: 'Рейтинг', subtitle: 'Топ студентов', icon: Trophy, active: isActive('/leaderboard') },
     access && { to: supportHref, label: 'Поддержка', subtitle: isAdmin ? 'Тикеты пользователей' : 'Мои обращения', icon: LifeBuoy, active: isActive(supportHref) },
@@ -263,7 +264,6 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
         { to: '/admin/minecraft-links', label: 'Связи Minecraft', subtitle: 'Привязки игроков', icon: Link2, active: isActive('/admin/minecraft-links') },
         { to: '/admin/system-status', label: 'Статус', subtitle: 'Компоненты и раннеры', icon: Activity, active: isActive('/admin/system-status') },
         { to: '/admin/feature-roles', label: 'Доп. роли', subtitle: 'Права и фичи', icon: Shield, active: isActive('/admin/feature-roles') },
-        { to: '/admin/ai/chat', label: 'AI чат', subtitle: 'Отдельное рабочее пространство', icon: Brain, active: isActive('/admin/ai') },
       ]
     : [];
 
@@ -274,6 +274,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     if (currentPath.startsWith('/admin/')) return 'Админ-панель';
     if (currentPath.startsWith('/minecraft/')) return 'Minecraft';
     if (currentPath.startsWith('/support')) return 'Поддержка';
+    if (currentPath.startsWith('/ai') || currentPath.startsWith('/agent')) return 'AI-ассистент';
     if (currentPath.startsWith('/course') || currentPath.startsWith('/courses')) return 'Курсы';
     if (currentPath.startsWith('/leaderboard')) return 'Рейтинг';
     if (currentPath.startsWith('/settings')) return 'Настройки';
@@ -328,6 +329,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                 {isAdmin && (
                   <HeaderAction to="/admin/analytics" icon={BarChart2} label="Аналитика" active={isActive('/admin/analytics')} />
                 )}
+                {isAdmin && <HeaderAction to="/ai" icon={Bot} label="AI" active={isActive('/ai') || isActive('/agent')} />}
                 <HeaderAction to={supportHref} icon={LifeBuoy} label="Поддержка" active={isActive(supportHref)} />
                 <HeaderAction to="/settings" icon={Settings} label="Настройки" active={isActive('/settings')} />
                 {canEdit && (

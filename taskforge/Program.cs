@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +23,6 @@ using taskforge.Services.Quotas;
 using Amazon.S3;
 using Amazon;
 using taskforge.Middleware;
-using taskforge.Services.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,7 +36,6 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IFeatureRoleService, FeatureRoleService>();
 builder.Services.AddScoped<IMinecraftChatService, MinecraftChatService>();
-builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("AI"));
 
 // квоты (token bucket)
 builder.Services.AddScoped<IQuotaService, QuotaService>();
@@ -51,9 +49,6 @@ builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ITaskTestService, TaskTestService>();
 builder.Services.AddScoped<ITaskMathService, TaskMathService>();
-builder.Services.AddScoped<IAiJobService, AiJobService>();
-builder.Services.AddScoped<AiChatService>();
-builder.Services.AddScoped<AiBootstrapService>();
 builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
 builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
@@ -379,9 +374,7 @@ using (var scope = app.Services.CreateScope())
             var featureRoles = scope.ServiceProvider.GetRequiredService<IFeatureRoleService>();
             await featureRoles.EnsureDefaultRolesAsync();
             await featureRoles.SyncMinecraftLinkedUsersAsync();
-            var aiBootstrap = scope.ServiceProvider.GetRequiredService<AiBootstrapService>();
-            await aiBootstrap.EnsureSystemUserAsync();
-            logger.LogInformation("Feature roles ensured, Minecraft-linked users synced and AI bootstrap finished");
+            logger.LogInformation("Feature roles ensured and Minecraft-linked users synced");
         }
     }
     catch (Exception ex)
@@ -507,7 +500,8 @@ app.UseStaticFiles();
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "taskforge-api" })).AllowAnonymous();
 app.MapControllers();
 
-// SignalR хаб поддержки
+// SignalR хабы
+app.MapHub<AgentHub>("/hubs/agent");
 app.MapHub<SupportHub>("/hubs/support");
 app.MapHub<MinecraftChatHub>("/hubs/minecraft-chat");
 

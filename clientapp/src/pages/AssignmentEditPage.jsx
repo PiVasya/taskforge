@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -11,12 +11,12 @@ import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
 import { getMathTaskEdit, saveMathTaskEdit } from "../api/mathTasks";
 
 import { Card, Button, Field, Input, Textarea, Select } from "../components/ui";
-import { Save, Trash2, ArrowLeft, PlusCircle } from "lucide-react";
+import { Save, Trash2, ArrowLeft, PlusCircle, Bot } from "lucide-react";
 import TaskTestEditor from "./TaskTestEditor";
 import MathTaskEditor from "./MathTaskEditor";
 import StatementEditor from "../components/tiptap/StatementEditor";
 import { uploadImageTestReference } from "../api/imageTests";
-import { analyzeAiAssignment } from "../api/aiAdmin";
+import { useRoleFlags } from "../contexts/EditorModeContext";
 
 
 
@@ -42,6 +42,7 @@ export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
   const notify = useNotify();
+  const { isAdmin } = useRoleFlags();
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -472,24 +473,6 @@ export default function AssignmentEditPage() {
     }
   };
 
-  const runAiAudit = async () => {
-    try {
-      setBusy(true);
-      await analyzeAiAssignment({
-        assignmentId,
-        includeStats: true,
-        includeAttempts: true,
-        prompt: 'Проанализируй это задание, найди слабые места, ambiguity, скучные distractors и предложи улучшения под TaskForge.',
-        priority: 12,
-      });
-      notify.success('AI-аудит задания поставлен в очередь. Смотри результаты в /admin/ai');
-    } catch (e) {
-      handleApiError(e, notify, 'Не удалось поставить AI-аудит в очередь');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (loading) {
     return (
       <Layout fullWidth>
@@ -500,15 +483,27 @@ export default function AssignmentEditPage() {
 
   return (
     <Layout fullWidth>
-      {courseId && (
-        <Button
-          variant="ghost"
-          className="inline-flex items-center gap-2 mb-5"
-          onClick={() => nav(`/course/${courseId}`)}
-        >
-          <ArrowLeft size={16} /> к заданиям курса
-        </Button>
-      )}
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        {courseId && (
+          <Button
+            variant="ghost"
+            className="inline-flex items-center gap-2"
+            onClick={() => nav(`/course/${courseId}`)}
+          >
+            <ArrowLeft size={16} /> к заданиям курса
+          </Button>
+        )}
+        {isAdmin && (
+          <Button
+            variant="outline"
+            className="inline-flex items-center gap-2"
+            onClick={() => nav(`/ai?assignmentId=${assignmentId}${courseId ? `&courseId=${courseId}` : ''}`)}
+            title="Открыть AI-ассистент для этого задания"
+          >
+            <Bot size={16} /> AI по заданию
+          </Button>
+        )}
+      </div>
 
       {err && <div className="text-red-500 font-medium mb-4">{err}</div>}
 
@@ -522,7 +517,6 @@ export default function AssignmentEditPage() {
                 <div className="text-sm text-neutral-500">Здесь видно, что ещё нужно заполнить до сохранения.</div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" disabled={busy} onClick={runAiAudit}>AI-аудит</Button>
                 <div className={`text-sm font-medium ${validationIssues.length === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
                   {validationIssues.length === 0 ? 'Готово к сохранению' : `Нужно исправить: ${validationIssues.length}`}
                 </div>

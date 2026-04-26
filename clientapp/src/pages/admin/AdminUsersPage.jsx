@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
-import { reviewAiUser } from '../../api/aiAdmin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
@@ -118,22 +117,6 @@ export default function AdminUsersPage() {
   };
 
 
-  const runAiReview = async (user) => {
-    try {
-      await reviewAiUser({
-        userId: user.id,
-        includeSupport: true,
-        includeMinecraft: true,
-        includeRecentAttempts: true,
-        prompt: 'Сделай risk-review пользователя, опиши suspicious patterns, токсичность, аномалии и подготовь summary для админа.',
-        priority: 12,
-      });
-      notify.success('AI risk-review пользователя поставлен в очередь. Смотри /admin/ai');
-    } catch (e) {
-      handleApiError(e, notify, 'Не удалось поставить AI-review пользователя в очередь');
-    }
-  };
-
   const removeUser = async (user) => {
     const label = user?.email || user?.fullName || user?.id;
     const ok = window.confirm(`Удалить пользователя ${label}? Будут удалены аккаунт, решения и связанные записи.`);
@@ -227,7 +210,6 @@ export default function AdminUsersPage() {
                   </div>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                     <Button className="w-full sm:w-auto" onClick={() => save(user)}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
-                    <Button variant="outline" className="w-full sm:w-auto" onClick={() => runAiReview(user)}>AI risk</Button>
                     <Button intent="danger" className="w-full sm:w-auto" onClick={() => removeUser(user)}><Trash2 size={16} /> <span className="ml-1">Удалить</span></Button>
                   </div>
                 </div>

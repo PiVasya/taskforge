@@ -11,7 +11,6 @@ namespace taskforge.Data.Models.DTO
         public DateTime CreatedAt { get; set; }
         public bool SolvedByCurrentUser { get; set; }
         public int Sort { get; set; }
-        public bool IsAiGenerated { get; set; }
 
         public bool CanEdit { get; set; }
     }

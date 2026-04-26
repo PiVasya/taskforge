@@ -12,11 +12,12 @@ import {
   createAssignment,
   updateAssignmentSort,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Layers, CheckCircle2, ArrowUp, ArrowDown, Bot } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
+import { useRoleFlags } from "../contexts/EditorModeContext";
 
 function previewAssignmentTitle(value, fallback = 'Без названия') {
   const text = String(value || '')
@@ -63,6 +64,7 @@ export default function CourseAssignmentsPage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const notify = useNotify();
+  const { isAdmin } = useRoleFlags();
 
   const [items, setItems] = useState([]);
   const [courseCanEdit, setCourseCanEdit] = useState(true);
@@ -253,7 +255,7 @@ export default function CourseAssignmentsPage() {
       await Promise.all(changed.map((x) => updateAssignmentSort(x.id, x.sort)));
       notify.success("Позиция обновлена");
     } catch (e) {
-      console.error(e);
+      // логирование на фронте отключено
       notify.error("Не удалось изменить позицию");
       // откат/перезагрузка
       try {
@@ -320,6 +322,11 @@ export default function CourseAssignmentsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">
+          {isAdmin && (
+            <Button variant="outline" className="w-full sm:w-auto" title="Открыть AI-ассистент курса" onClick={() => nav(`/ai?courseId=${courseId}`)}>
+              <Bot size={16} /> AI
+            </Button>
+          )}
           <div className="min-w-0 xl:min-w-[170px]"><QuotaPill bucket="tasks" /></div>
           <div className="min-w-0 xl:min-w-[190px]">
             <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input w-full" title="Сортировка">
