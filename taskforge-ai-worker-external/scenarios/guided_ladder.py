@@ -41,7 +41,7 @@ class GuidedLadderScenario(Scenario):
             "tasks": [{
                 "index": 1,
                 "title": "string",
-                "assignmentType": "code-test|text|math|image|other",
+                "assignmentType": "code-test|test|math",
                 "language": "string",
                 "allowedLanguages": ["string"],
                 "inputMode": "graphical-editor|code-editor|text",
@@ -51,6 +51,8 @@ class GuidedLadderScenario(Scenario):
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
                 "referenceSolutionCpp": "string|null",
                 "referenceSolutionPython": "string|null",
+                "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
+                "mathSpec": {"settings": {}, "blocks": [{"kind": "info|number|expression|set|single-choice|multi-choice|order|match", "prompt": "string", "acceptedAnswers": ["string"], "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"]}]},
                 "pedagogicalGoal": "string",
                 "targetSkill": "string",
                 "microGoal": "string",
@@ -66,12 +68,12 @@ class GuidedLadderScenario(Scenario):
             f"Собери обучающую лесенку из {count} маленьких задач. Целевая тема: {concept}.\n"
             "Главная цель — не просто придумать условия, а сделать обучающие задачи в стиле первых заданий курса: ученик должен видеть, какие строки писать в код и зачем.\n"
             "Если пользователь просит 'перед 20 задачей', используй gap_report/currentDraftBlueprint/lastGapAudit для placement.\n"
-            "Если в контексте или прошлом черновике выбран C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp не null, referenceSolutionPython=null.\n"
-            "Если тема if/условия, задача, где вводится if, обязана иметь if в referenceSolutionCpp. Первые шаги могут тренировать сравнения без if только если это явно подготовка перед if.\n"
-            "Нельзя возвращать шаблонные одинаковые задачи, нельзя переключаться на Python при C++-курсе.\n\n"
+            "Если задача типа code-test и контекст/прошлый черновик указывает C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp не null, referenceSolutionPython=null. Для test/math кодовое решение не требуется.\n"
+            "Если задача типа code-test и тема if/условия, задача, где вводится if, обязана иметь if в referenceSolutionCpp. Первые шаги могут тренировать сравнения без if только если это явно подготовка перед if.\n"
+            "Нельзя возвращать шаблонные одинаковые задачи, нельзя переключаться на Python при C++-курсе. Не генерируй image/image-test: задачи на картинки выключены.\n\n"
             f"Эталон стиля обучающих задач:\n{TASKFORGE_TRAINING_TASK_STYLE}\n\n"
             f"gap_report:\n{compact_json(gap_report, 12000)}\n\n"
-            f"Контекст TaskForge:\n{build_ai_context(context, max_chars=52000)}\n\n"
+            f"Контекст TaskForge:\n{build_ai_context(context, max_chars=78000)}\n\n"
             f"Схема результата:\n{schema}"
         )
         try:

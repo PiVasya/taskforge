@@ -26,6 +26,10 @@ def _expects_cpp(context: AgentContextSnapshot) -> bool:
 
 
 def _task_is_cpp(item: Dict[str, Any]) -> bool:
+    assignment_type = str(item.get("assignmentType") or "code-test").lower().replace("_", "-")
+    if assignment_type in {"test", "math"}:
+        # Non-code task types belong to the same course but do not need a C++ reference solution.
+        return True
     language = str(item.get("language") or "").lower()
     allowed = [str(x).lower() for x in item.get("allowedLanguages", [])] if isinstance(item.get("allowedLanguages"), list) else []
     return (language in {"cpp", "c++", "с++"} or "cpp" in allowed or "c++" in allowed or "с++" in allowed) and bool(item.get("referenceSolutionCpp"))
@@ -150,20 +154,41 @@ class ResultValidator:
 
 
         if result.type == "polished_assignment_draft":
-            tests = (result.data.get("publicTests") or []) + (result.data.get("hiddenTests") or [])
-            validation.setdefault("testCount", len(tests))
+            assignment_type = str(result.data.get("assignmentType") or result.data.get("type") or "code-test").lower().replace("_", "-")
+            if assignment_type == "polished-assignment-draft":
+                assignment_type = "code-test"
+            validation.setdefault("assignmentType", assignment_type)
+            if assignment_type == "image-test":
+                return _fail_result(result, "Вылизанный черновик отклонён: задачи на картинки в AI-пайплайне отключены.", warnings, validation)
             if not result.data.get("title") or not result.data.get("description"):
                 return _fail_result(result, "Вылизанный черновик отклонён: нет title/description.", warnings, validation)
-            if len(tests) < 2:
-                return _fail_result(result, "Вылизанный черновик отклонён: мало тестов.", warnings, validation)
-            if _expects_cpp(context) or str(result.data.get("language") or "").lower() in {"cpp", "c++"}:
-                if not _task_is_cpp(result.data):
-                    return _fail_result(result, "Вылизанный черновик отклонён: нужен C++ и referenceSolutionCpp.", warnings, validation)
-            if not _description_is_step_by_step(result.data):
-                return _fail_result(result, "Вылизанный черновик отклонён: описание не похоже на пошаговую обучалку.", warnings, validation)
-            runner_validation = result.data.get("runnerValidation") if isinstance(result.data.get("runnerValidation"), dict) else {}
-            validation.setdefault("runnerUsed", bool(runner_validation.get("runnerUsed")))
-            validation.setdefault("runnerPassed", bool(runner_validation.get("passed")))
+            if assignment_type == "code-test":
+                tests = (result.data.get("publicTests") or []) + (result.data.get("hiddenTests") or [])
+                validation.setdefault("testCount", len(tests))
+                if len(tests) < 2:
+                    return _fail_result(result, "Вылизанный code-test черновик отклонён: мало тестов.", warnings, validation)
+                if _expects_cpp(context) or str(result.data.get("language") or "").lower() in {"cpp", "c++"}:
+                    if not _task_is_cpp(result.data):
+                        return _fail_result(result, "Вылизанный code-test черновик отклонён: нужен C++ и referenceSolutionCpp.", warnings, validation)
+                runner_validation = result.data.get("runnerValidation") if isinstance(result.data.get("runnerValidation"), dict) else {}
+                validation.setdefault("runnerUsed", bool(runner_validation.get("runnerUsed")))
+                validation.setdefault("runnerPassed", bool(runner_validation.get("passed")))
+            elif assignment_type == "test":
+                spec = result.data.get("testSpec") if isinstance(result.data.get("testSpec"), dict) else {}
+                questions = spec.get("questions") if isinstance(spec.get("questions"), list) else []
+                validation.setdefault("questionCount", len(questions))
+                if not questions:
+                    return _fail_result(result, "Вылизанный test черновик отклонён: нет testSpec.questions.", warnings, validation)
+            elif assignment_type == "math":
+                spec = result.data.get("mathSpec") if isinstance(result.data.get("mathSpec"), dict) else {}
+                blocks = spec.get("blocks") if isinstance(spec.get("blocks"), list) else []
+                validation.setdefault("blockCount", len(blocks))
+                if not blocks:
+                    return _fail_result(result, "Вылизанный math черновик отклонён: нет mathSpec.blocks.", warnings, validation)
+            else:
+                return _fail_result(result, f"Вылизанный черновик отклонён: неподдерживаемый тип задания {assignment_type}.", warnings, validation)
+            if assignment_type == "code-test" and not _description_is_step_by_step(result.data):
+                return _fail_result(result, "Вылизанный code-test черновик отклонён: описание не похоже на пошаговую обучалку.", warnings, validation)
 
         if result.type == "bridge_plan":
             items = result.data.get("items") or []

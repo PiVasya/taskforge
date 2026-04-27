@@ -514,6 +514,10 @@ namespace taskforge.Controllers.Agent
             public bool IsHidden { get; init; }
             public string LifecycleStatus { get; init; } = "published";
             public bool IsAiDraft { get; init; }
+            public int TestQuestionCount { get; set; }
+            public int MathBlockCount { get; set; }
+            public List<string> TestQuestionPreviews { get; set; } = new();
+            public List<string> MathBlockPreviews { get; set; } = new();
         }
 
         private sealed class AssignmentOutlineRow
@@ -530,6 +534,7 @@ namespace taskforge.Controllers.Agent
             public string? AllowedLanguages { get; init; }
             public string DescriptionPreview { get; init; } = string.Empty;
             public List<string> ConceptHints { get; init; } = new();
+            public object? ContentSummary { get; init; }
             public bool IsHidden { get; init; }
             public string LifecycleStatus { get; init; } = "published";
             public bool IsAiDraft { get; init; }
@@ -540,7 +545,7 @@ namespace taskforge.Controllers.Agent
             var ids = courseIds.Distinct().ToList();
             if (ids.Count == 0) return new List<AssignmentContextRow>();
 
-            return await _db.TaskAssignments.AsNoTracking()
+            var rows = await _db.TaskAssignments.AsNoTracking()
                 .Where(x => ids.Contains(x.CourseId))
                 .OrderBy(x => x.CourseId)
                 .ThenBy(x => x.Sort)
@@ -563,6 +568,39 @@ namespace taskforge.Controllers.Agent
                     IsAiDraft = x.IsAiDraft,
                 })
                 .ToListAsync();
+
+            var assignmentIds = rows.Select(x => x.Id).ToList();
+            if (assignmentIds.Count == 0) return rows;
+
+            var testPrompts = await _db.TaskTestQuestions.AsNoTracking()
+                .Where(x => assignmentIds.Contains(x.TaskAssignmentId))
+                .OrderBy(x => x.TaskAssignmentId)
+                .ThenBy(x => x.Order)
+                .Select(x => new { x.TaskAssignmentId, x.Prompt })
+                .ToListAsync();
+
+            var mathPrompts = await _db.TaskMathBlocks.AsNoTracking()
+                .Where(x => assignmentIds.Contains(x.TaskAssignmentId))
+                .OrderBy(x => x.TaskAssignmentId)
+                .ThenBy(x => x.Order)
+                .Select(x => new { x.TaskAssignmentId, x.Prompt })
+                .ToListAsync();
+
+            var rowById = rows.ToDictionary(x => x.Id);
+            foreach (var group in testPrompts.GroupBy(x => x.TaskAssignmentId))
+            {
+                if (!rowById.TryGetValue(group.Key, out var row)) continue;
+                row.TestQuestionCount = group.Count();
+                row.TestQuestionPreviews = group.Select(x => Preview(x.Prompt, 100)).Where(x => !string.IsNullOrWhiteSpace(x)).Take(4).ToList();
+            }
+            foreach (var group in mathPrompts.GroupBy(x => x.TaskAssignmentId))
+            {
+                if (!rowById.TryGetValue(group.Key, out var row)) continue;
+                row.MathBlockCount = group.Count();
+                row.MathBlockPreviews = group.Select(x => Preview(x.Prompt, 100)).Where(x => !string.IsNullOrWhiteSpace(x)).Take(4).ToList();
+            }
+
+            return rows;
         }
 
         private static AssignmentOutlineRow BuildAssignmentOutline(AssignmentContextRow assignment, int index, bool includeDescriptionPreview)
@@ -581,6 +619,7 @@ namespace taskforge.Controllers.Agent
                 AllowedLanguages = assignment.AllowedLanguages,
                 DescriptionPreview = includeDescriptionPreview ? Preview(assignment.Description, 260) : Preview(assignment.Description, 120),
                 ConceptHints = DetectAssignmentConceptHints(assignment),
+                ContentSummary = BuildAssignmentContentSummary(assignment),
                 IsHidden = assignment.IsHidden,
                 LifecycleStatus = assignment.LifecycleStatus,
                 IsAiDraft = assignment.IsAiDraft,
@@ -606,7 +645,31 @@ namespace taskforge.Controllers.Agent
                 lifecycleStatus = assignment.LifecycleStatus,
                 isAiDraft = assignment.IsAiDraft,
                 conceptHints = DetectAssignmentConceptHints(assignment),
+                contentSummary = BuildAssignmentContentSummary(assignment),
             };
+        }
+
+        private static object? BuildAssignmentContentSummary(AssignmentContextRow assignment)
+        {
+            if (string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase))
+            {
+                return new
+                {
+                    type = "test",
+                    questionCount = assignment.TestQuestionCount,
+                    questionPreviews = assignment.TestQuestionPreviews
+                };
+            }
+            if (string.Equals(assignment.Type, "math", StringComparison.OrdinalIgnoreCase))
+            {
+                return new
+                {
+                    type = "math",
+                    blockCount = assignment.MathBlockCount,
+                    blockPreviews = assignment.MathBlockPreviews
+                };
+            }
+            return null;
         }
 
         private static List<AssignmentContextRow> BuildFocusAssignments(List<AssignmentContextRow> assignments, List<string> targetConcepts)
@@ -662,7 +725,7 @@ namespace taskforge.Controllers.Agent
 
         private static int ScoreAssignmentForConcepts(AssignmentContextRow assignment, List<string> targetConcepts)
         {
-            var text = NormalizeCourseSearchText($"{assignment.Title} {assignment.Description} {assignment.Tags}");
+            var text = NormalizeCourseSearchText($"{assignment.Title} {assignment.Description} {assignment.Tags} {string.Join(' ', assignment.TestQuestionPreviews)} {string.Join(' ', assignment.MathBlockPreviews)}");
             var titleTags = NormalizeCourseSearchText($"{assignment.Title} {assignment.Tags}");
             var score = 0;
             foreach (var concept in targetConcepts)
@@ -684,6 +747,17 @@ namespace taskforge.Controllers.Agent
                 if (concept == "input")
                 {
                     if (text.Contains("cin") || text.Contains("scanf") || text.Contains("ввод") || text.Contains("считай") || text.Contains("дано")) score += 25;
+                }
+                if (concept == "loops")
+                {
+                    if (Regex.IsMatch(text, @"(^|[^a-zа-я0-9_])for([^a-zа-я0-9_]|$)", RegexOptions.IgnoreCase)) score += 60;
+                    if (Regex.IsMatch(text, @"(^|[^a-zа-я0-9_])while([^a-zа-я0-9_]|$)", RegexOptions.IgnoreCase)) score += 60;
+                    if (text.Contains("цикл") || text.Contains("повтор") || text.Contains("итерац")) score += 55;
+                }
+                if (concept == "arrays")
+                {
+                    if (text.Contains("массив") || text.Contains("список") || text.Contains("элемент")) score += 55;
+                    if (text.Contains("array") || text.Contains("vector") || text.Contains("list") || text.Contains("[]")) score += 60;
                 }
             }
             return score;
@@ -708,7 +782,7 @@ namespace taskforge.Controllers.Agent
 
         private static List<string> DetectAssignmentConceptHints(AssignmentContextRow assignment)
         {
-            var text = NormalizeCourseSearchText($"{assignment.Title} {assignment.Description} {assignment.Tags}");
+            var text = NormalizeCourseSearchText($"{assignment.Title} {assignment.Description} {assignment.Tags} {string.Join(' ', assignment.TestQuestionPreviews)} {string.Join(' ', assignment.MathBlockPreviews)}");
             var titleTags = NormalizeCourseSearchText($"{assignment.Title} {assignment.Tags}");
             var result = new List<string>();
             if (text.Contains("cout") || text.Contains("printf") || text.Contains("вывод") || text.Contains("напечат")) result.Add("output");
@@ -871,17 +945,34 @@ namespace taskforge.Controllers.Agent
             var data = parsedData is JsonElement parsedElement ? parsedElement : default;
             if (data.ValueKind != JsonValueKind.Object) return null;
 
+            var requestJsonObj = ParseJson(run.RequestJson ?? "{}");
+            var requestJson = requestJsonObj is JsonElement requestEl ? requestEl : default;
+
             var title = GetString(data, "title") ?? GetString(data, "assignmentTitle") ?? artifact.Title;
             var description = GetString(data, "description") ?? GetString(data, "condition") ?? GetString(data, "body");
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description))
+                return null;
+
+            var assignmentType = NormalizeDraftAssignmentType(GetString(data, "assignmentType", "assignment_type", "taskType", "task_type"));
+            if (assignmentType == "image-test")
+                return null;
+
             var language = NormalizeRunnerLanguage(GetString(data, "language") ?? "cpp");
             var solution = language == "python"
                 ? GetString(data, "referenceSolutionPython", "referenceSolution", "solutionPython", "solution")
                 : GetString(data, "referenceSolutionCpp", "referenceSolution", "solutionCpp", "solution");
-            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description) || string.IsNullOrWhiteSpace(solution))
+
+            var tests = assignmentType == "code-test" ? ExtractTestCases(data).ToList() : new List<DraftTestCase>();
+            var testQuestions = assignmentType == "test" ? ExtractDraftTestQuestionSpecs(data).ToList() : new List<DraftTestQuestionSpec>();
+            var mathBlocks = assignmentType == "math" ? ExtractDraftMathBlockSpecs(data).ToList() : new List<DraftMathBlockSpec>();
+
+            if (assignmentType == "code-test" && (string.IsNullOrWhiteSpace(solution) || tests.Count == 0))
+                return null;
+            if (assignmentType == "test" && testQuestions.Count == 0)
+                return null;
+            if (assignmentType == "math" && mathBlocks.Count == 0)
                 return null;
 
-            var requestJsonObj = ParseJson(run.RequestJson ?? "{}");
-            var requestJson = requestJsonObj is JsonElement requestEl ? requestEl : default;
             var courseId = GetGuid(data, "selectedCourseId", "courseId")
                            ?? run.Conversation.CourseId
                            ?? GetGuid(requestJson, "courseId");
@@ -904,7 +995,7 @@ namespace taskforge.Controllers.Agent
             }
             if (!courseId.HasValue) return null;
 
-            var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "index");
+            var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
             if (sourceTaskIndex.HasValue)
             {
                 var existingDraft = await _db.TaskAssignments.AsNoTracking()
@@ -914,6 +1005,7 @@ namespace taskforge.Controllers.Agent
                         id = x.Id,
                         courseId = x.CourseId,
                         title = x.Title,
+                        type = x.Type,
                         isHidden = x.IsHidden,
                         lifecycleStatus = x.LifecycleStatus,
                         sourceAgentRunId = x.SourceAgentRunId,
@@ -924,20 +1016,17 @@ namespace taskforge.Controllers.Agent
                 if (existingDraft != null) return existingDraft;
             }
 
-            var tests = ExtractTestCases(data).ToList();
-            if (tests.Count == 0) return null;
-
             var assignment = new TaskAssignment
             {
                 Id = Guid.NewGuid(),
                 CourseId = courseId.Value,
                 Title = Trim(title, 200),
                 Description = ToTiptapDocumentJson(description),
-                Type = "code-test",
+                Type = assignmentType,
                 Difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3),
                 Rating = 1,
                 Sort = 0,
-                AllowedLanguagesCsv = language,
+                AllowedLanguagesCsv = assignmentType == "code-test" ? language : (GetString(data, "allowedLanguagesCsv") ?? language),
                 Tags = MergeTags(GetString(data, "tags"), "AI,черновик"),
                 IsHidden = true,
                 LifecycleStatus = "ready",
@@ -965,18 +1054,412 @@ namespace taskforge.Controllers.Agent
 
             await ApplyDraftPlacementAsync(assignment, beforeId, afterId, now);
             _db.TaskAssignments.Add(assignment);
+
+            if (assignmentType == "test")
+                AddDraftTestContent(assignment.Id, data, testQuestions, now);
+            else if (assignmentType == "math")
+                AddDraftMathContent(assignment.Id, data, mathBlocks, now);
+
             return new
             {
                 id = assignment.Id,
                 courseId = assignment.CourseId,
                 title = assignment.Title,
+                type = assignment.Type,
                 isHidden = assignment.IsHidden,
                 lifecycleStatus = assignment.LifecycleStatus,
                 testCount = tests.Count,
+                questionCount = testQuestions.Count,
+                blockCount = mathBlocks.Count,
                 sourceAgentRunId = run.Id,
                 sourceAgentArtifactId = artifact.Id,
                 sourceAgentTaskIndex = assignment.SourceAgentTaskIndex
             };
+        }
+
+        private static string NormalizeDraftAssignmentType(string? value)
+        {
+            var text = (value ?? string.Empty).Trim().ToLowerInvariant().Replace("_", "-").Replace(" ", "-");
+            return text switch
+            {
+                "quiz" or "question" or "questions" or "test-task" or "task-test" or "text" => "test",
+                "math-test" or "maths" or "formula" or "numeric" => "math",
+                "code" or "programming" or "code-test" or "coding" => "code-test",
+                "image" or "image-test" or "picture" => "image-test",
+                "test" => "test",
+                "math" => "math",
+                _ => "code-test",
+            };
+        }
+
+        private sealed record DraftOptionSpec(string Key, string Text);
+        private sealed record DraftTestQuestionSpec(int Order, string Type, string Prompt, List<DraftOptionSpec> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool TrimAnswers);
+        private sealed record DraftMathMatchPairSpec(string LeftKey, string RightKey);
+        private sealed record DraftMathBlockSpec(int Order, string Kind, string Prompt, string? PromptContentJson, int Score, bool IsRequired, List<DraftOptionSpec> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool TrimAnswers, double? NumericTolerance, List<string> OrderItems, List<DraftOptionSpec> MatchLeftItems, List<DraftOptionSpec> MatchRightItems, List<DraftMathMatchPairSpec> MatchPairs);
+
+        private static IEnumerable<DraftTestQuestionSpec> ExtractDraftTestQuestionSpecs(JsonElement data)
+        {
+            var spec = GetObjectElement(data, "testSpec", "test", "taskTest");
+            var questions = GetArrayElement(spec ?? data, "questions", "items");
+            if (questions == null) yield break;
+
+            var order = 0;
+            foreach (var item in questions.Value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var type = NormalizeDraftQuestionType(GetString(item, "type", "kind"));
+                var prompt = GetString(item, "prompt", "question", "text", "title")?.Trim();
+                if (string.IsNullOrWhiteSpace(prompt)) continue;
+
+                var options = ExtractOptions(item).ToList();
+                var correct = NormalizeCorrectKeys(GetStringList(item, "correctOptionKeys", "correctKeys", "answers", "correctAnswers", "correct"), options);
+                var accepted = GetStringList(item, "acceptedAnswers", "answers", "correctAnswers", "answer");
+                var caseSensitive = GetBool(item, "caseSensitive") ?? false;
+                var trimAnswers = GetBool(item, "trim") ?? true;
+
+                if ((type == "single-choice" || type == "multi-choice") && (options.Count < 2 || correct.Count == 0)) continue;
+                if ((type == "fill" || type == "text") && accepted.Count == 0) continue;
+
+                yield return new DraftTestQuestionSpec(
+                    GetInt(item, "order") ?? order,
+                    type,
+                    prompt,
+                    options,
+                    correct,
+                    accepted,
+                    caseSensitive,
+                    trimAnswers);
+                order++;
+            }
+        }
+
+        private void AddDraftTestContent(Guid assignmentId, JsonElement data, List<DraftTestQuestionSpec> questions, DateTime now)
+        {
+            var spec = GetObjectElement(data, "testSpec", "test", "taskTest");
+            var settings = GetObjectElement(spec ?? data, "settings");
+            _db.TaskTestSettings.Add(new TaskTestSettings
+            {
+                Id = Guid.NewGuid(),
+                TaskAssignmentId = assignmentId,
+                MaxAttempts = Math.Max(1, GetInt(settings ?? default, "maxAttempts", "max_attempts") ?? 1),
+                PassPercent = Math.Clamp(GetInt(settings ?? default, "passPercent", "pass_percent") ?? 60, 0, 100),
+                ShuffleQuestions = GetBool(settings ?? default, "shuffleQuestions", "shuffle_questions") ?? true,
+                ShuffleAnswers = GetBool(settings ?? default, "shuffleAnswers", "shuffle_answers") ?? true,
+                AllowReview = GetBool(settings ?? default, "allowReview", "allow_review") ?? true,
+                AttemptTimeLimitsJson = JsonSerializer.Serialize(GetNullableIntList(settings ?? default, "attemptTimeLimitsSeconds", "attemptTimeLimits", "timeLimits")),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+
+            foreach (var question in questions.OrderBy(x => x.Order).Select((value, index) => (value, index)))
+            {
+                var q = question.value;
+                var dataJson = q.Type is "single-choice" or "multi-choice"
+                    ? JsonSerializer.Serialize(new
+                    {
+                        options = q.Options.Select(x => new { key = x.Key, text = x.Text }).ToList(),
+                        correctOptionKeys = q.CorrectOptionKeys
+                    })
+                    : JsonSerializer.Serialize(new
+                    {
+                        acceptedAnswers = q.AcceptedAnswers,
+                        caseSensitive = q.CaseSensitive,
+                        trim = q.TrimAnswers
+                    });
+
+                _db.TaskTestQuestions.Add(new TaskTestQuestion
+                {
+                    Id = Guid.NewGuid(),
+                    TaskAssignmentId = assignmentId,
+                    Order = question.index,
+                    Type = q.Type,
+                    Prompt = Trim(q.Prompt, 4000),
+                    DataJson = dataJson,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+            }
+        }
+
+        private static IEnumerable<DraftMathBlockSpec> ExtractDraftMathBlockSpecs(JsonElement data)
+        {
+            var spec = GetObjectElement(data, "mathSpec", "math", "taskMath");
+            var blocks = GetArrayElement(spec ?? data, "blocks", "items", "questions");
+            if (blocks == null) yield break;
+
+            var order = 0;
+            foreach (var item in blocks.Value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var kind = NormalizeDraftMathKind(GetString(item, "kind", "type"));
+                var prompt = GetString(item, "prompt", "question", "text", "title")?.Trim();
+                if (string.IsNullOrWhiteSpace(prompt)) continue;
+
+                var options = ExtractOptions(item).ToList();
+                var correct = NormalizeCorrectKeys(GetStringList(item, "correctOptionKeys", "correctKeys", "answers", "correctAnswers", "correct"), options);
+                var accepted = GetStringList(item, "acceptedAnswers", "answers", "correctAnswers", "answer");
+                var orderItems = GetStringList(item, "orderItems", "items", "correctOrder");
+                var leftItems = ExtractNamedOptions(item, "matchLeftItems", "leftItems", "left").ToList();
+                var rightItems = ExtractNamedOptions(item, "matchRightItems", "rightItems", "right").ToList();
+                var pairs = ExtractMatchPairs(item).ToList();
+
+                if ((kind == "single-choice" || kind == "multi-choice") && (options.Count < 2 || correct.Count == 0)) continue;
+                if ((kind == "number" || kind == "expression" || kind == "set") && accepted.Count == 0) continue;
+                if (kind == "order" && orderItems.Count < 2) continue;
+                if (kind == "match" && (leftItems.Count == 0 || rightItems.Count == 0 || pairs.Count == 0)) continue;
+
+                yield return new DraftMathBlockSpec(
+                    GetInt(item, "order") ?? order,
+                    kind,
+                    prompt,
+                    GetString(item, "promptContentJson", "prompt_content_json"),
+                    Math.Max(0, GetInt(item, "score") ?? (kind == "info" ? 0 : 1)),
+                    GetBool(item, "isRequired", "required") ?? kind != "info",
+                    options,
+                    correct,
+                    accepted,
+                    GetBool(item, "caseSensitive") ?? false,
+                    GetBool(item, "trim") ?? true,
+                    GetDouble(item, "numericTolerance", "tolerance"),
+                    orderItems,
+                    leftItems,
+                    rightItems,
+                    pairs);
+                order++;
+            }
+        }
+
+        private void AddDraftMathContent(Guid assignmentId, JsonElement data, List<DraftMathBlockSpec> blocks, DateTime now)
+        {
+            var spec = GetObjectElement(data, "mathSpec", "math", "taskMath");
+            var settings = GetObjectElement(spec ?? data, "settings");
+            _db.TaskMathSettings.Add(new TaskMathSettings
+            {
+                Id = Guid.NewGuid(),
+                TaskAssignmentId = assignmentId,
+                MaxAttempts = Math.Max(1, GetInt(settings ?? default, "maxAttempts", "max_attempts") ?? 1),
+                PassPercent = Math.Clamp(GetInt(settings ?? default, "passPercent", "pass_percent") ?? 60, 0, 100),
+                ShuffleBlocks = GetBool(settings ?? default, "shuffleBlocks", "shuffle_blocks") ?? false,
+                AllowReview = GetBool(settings ?? default, "allowReview", "allow_review") ?? true,
+                AttemptTimeLimitsJson = JsonSerializer.Serialize(GetNullableIntList(settings ?? default, "attemptTimeLimitsSeconds", "attemptTimeLimits", "timeLimits")),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+
+            foreach (var block in blocks.OrderBy(x => x.Order).Select((value, index) => (value, index)))
+            {
+                var b = block.value;
+                var dataJson = b.Kind switch
+                {
+                    "single-choice" or "multi-choice" => JsonSerializer.Serialize(new
+                    {
+                        options = b.Options.Select(x => new { key = x.Key, text = x.Text }).ToList(),
+                        correctOptionKeys = b.CorrectOptionKeys
+                    }),
+                    "number" or "expression" or "set" => JsonSerializer.Serialize(new
+                    {
+                        acceptedAnswers = b.AcceptedAnswers,
+                        caseSensitive = b.CaseSensitive,
+                        trim = b.TrimAnswers,
+                        numericTolerance = b.NumericTolerance
+                    }),
+                    "order" => JsonSerializer.Serialize(new { items = b.OrderItems }),
+                    "match" => JsonSerializer.Serialize(new
+                    {
+                        leftItems = b.MatchLeftItems.Select(x => new { key = x.Key, text = x.Text }).ToList(),
+                        rightItems = b.MatchRightItems.Select(x => new { key = x.Key, text = x.Text }).ToList(),
+                        pairs = b.MatchPairs.Select(x => new { leftKey = x.LeftKey, rightKey = x.RightKey }).ToList()
+                    }),
+                    _ => "{}"
+                };
+
+                _db.TaskMathBlocks.Add(new TaskMathBlock
+                {
+                    Id = Guid.NewGuid(),
+                    TaskAssignmentId = assignmentId,
+                    Order = block.index,
+                    Kind = b.Kind,
+                    Prompt = Trim(b.Prompt, 4000),
+                    PromptContentJson = string.IsNullOrWhiteSpace(b.PromptContentJson) ? null : b.PromptContentJson,
+                    DataJson = dataJson,
+                    Score = b.Score,
+                    IsRequired = b.IsRequired,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+            }
+        }
+
+        private static string NormalizeDraftQuestionType(string? value)
+        {
+            var text = (value ?? string.Empty).Trim().ToLowerInvariant().Replace("_", "-").Replace(" ", "-");
+            return text switch
+            {
+                "multi" or "multiple" or "multiple-choice" or "multi-choice" => "multi-choice",
+                "fill-in" or "fill-blank" or "short-answer" or "answer" => "fill",
+                "free-text" or "open" or "text-answer" => "text",
+                _ => "single-choice",
+            };
+        }
+
+        private static string NormalizeDraftMathKind(string? value)
+        {
+            var text = (value ?? string.Empty).Trim().ToLowerInvariant().Replace("_", "-").Replace(" ", "-");
+            return text switch
+            {
+                "info" or "theory" or "content" => "info",
+                "num" or "numeric" or "number" => "number",
+                "expr" or "expression" or "formula" => "expression",
+                "set" or "sets" => "set",
+                "multi" or "multiple" or "multiple-choice" or "multi-choice" => "multi-choice",
+                "single" or "choice" or "single-choice" => "single-choice",
+                "ordering" or "sort" or "order" => "order",
+                "matching" or "match" => "match",
+                _ => "number",
+            };
+        }
+
+        private static JsonElement? GetObjectElement(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Object)
+                    return prop;
+            }
+            return null;
+        }
+
+        private static JsonElement? GetArrayElement(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Array)
+                    return prop;
+            }
+            return null;
+        }
+
+        private static IEnumerable<DraftOptionSpec> ExtractOptions(JsonElement element)
+        {
+            return ExtractNamedOptions(element, "options", "answers", "choices");
+        }
+
+        private static IEnumerable<DraftOptionSpec> ExtractNamedOptions(JsonElement element, params string[] names)
+        {
+            var arr = GetArrayElement(element, names);
+            if (arr == null) yield break;
+            var index = 0;
+            foreach (var option in arr.Value.EnumerateArray())
+            {
+                var key = KeyForIndex(index);
+                var text = string.Empty;
+                if (option.ValueKind == JsonValueKind.Object)
+                {
+                    key = GetString(option, "key", "id", "value") ?? key;
+                    text = GetString(option, "text", "label", "title", "value") ?? key;
+                }
+                else if (option.ValueKind == JsonValueKind.String)
+                {
+                    text = option.GetString() ?? string.Empty;
+                }
+                else if (option.ValueKind == JsonValueKind.Number || option.ValueKind == JsonValueKind.True || option.ValueKind == JsonValueKind.False)
+                {
+                    text = option.ToString();
+                }
+                if (!string.IsNullOrWhiteSpace(text))
+                    yield return new DraftOptionSpec(Trim(key, 80), Trim(text, 1000));
+                index++;
+            }
+        }
+
+        private static IEnumerable<DraftMathMatchPairSpec> ExtractMatchPairs(JsonElement element)
+        {
+            var arr = GetArrayElement(element, "matchPairs", "pairs");
+            if (arr == null) yield break;
+            foreach (var pair in arr.Value.EnumerateArray())
+            {
+                if (pair.ValueKind != JsonValueKind.Object) continue;
+                var left = GetString(pair, "leftKey", "left", "sourceKey");
+                var right = GetString(pair, "rightKey", "right", "targetKey");
+                if (!string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right))
+                    yield return new DraftMathMatchPairSpec(Trim(left, 80), Trim(right, 80));
+            }
+        }
+
+        private static List<string> NormalizeCorrectKeys(List<string> raw, List<DraftOptionSpec> options)
+        {
+            var result = new List<string>();
+            foreach (var value in raw)
+            {
+                var match = options.FirstOrDefault(x => string.Equals(x.Key, value, StringComparison.OrdinalIgnoreCase))
+                            ?? options.FirstOrDefault(x => string.Equals(x.Text, value, StringComparison.OrdinalIgnoreCase));
+                var key = match?.Key ?? value;
+                if (!string.IsNullOrWhiteSpace(key) && !result.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    result.Add(Trim(key, 80));
+            }
+            return result;
+        }
+
+        private static List<string> GetStringList(JsonElement element, params string[] names)
+        {
+            var result = new List<string>();
+            if (element.ValueKind != JsonValueKind.Object) return result;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in prop.EnumerateArray())
+                    {
+                        var value = item.ValueKind == JsonValueKind.String ? item.GetString() : item.ToString();
+                        if (!string.IsNullOrWhiteSpace(value)) result.Add(Trim(value, 1000));
+                    }
+                }
+                else
+                {
+                    var value = prop.ValueKind == JsonValueKind.String ? prop.GetString() : prop.ToString();
+                    foreach (var part in (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        if (!string.IsNullOrWhiteSpace(part)) result.Add(Trim(part, 1000));
+                }
+                if (result.Count > 0) break;
+            }
+            return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static List<int?> GetNullableIntList(JsonElement element, params string[] names)
+        {
+            var result = new List<int?>();
+            if (element.ValueKind != JsonValueKind.Object) return result;
+            var arr = GetArrayElement(element, names);
+            if (arr == null) return result;
+            foreach (var item in arr.Value.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Null) result.Add(null);
+                else if (item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out var n)) result.Add(n);
+                else if (item.ValueKind == JsonValueKind.String && int.TryParse(item.GetString(), out var parsed)) result.Add(parsed);
+            }
+            return result;
+        }
+
+        private static double? GetDouble(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.Number && prop.TryGetDouble(out var d)) return d;
+                if (prop.ValueKind == JsonValueKind.String && double.TryParse(prop.GetString(), out var parsed)) return parsed;
+            }
+            return null;
+        }
+
+        private static string KeyForIndex(int index)
+        {
+            const string letters = "abcdefghijklmnopqrstuvwxyz";
+            if (index >= 0 && index < letters.Length) return letters[index].ToString();
+            return $"v{index + 1}";
         }
 
         private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now)

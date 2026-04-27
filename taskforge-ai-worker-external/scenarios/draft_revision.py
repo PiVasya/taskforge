@@ -37,7 +37,7 @@ class DraftRevisionScenario(Scenario):
             "tasks": [{
                 "index": 1,
                 "title": "string",
-                "assignmentType": "code-test",
+                "assignmentType": "code-test|test|math",
                 "language": "cpp",
                 "allowedLanguages": ["cpp"],
                 "inputMode": "graphical-editor|code-editor|text",
@@ -45,8 +45,10 @@ class DraftRevisionScenario(Scenario):
                 "description": "string with step-by-step instructions",
                 "publicTests": [{"input": "string", "expectedOutput": "string"}],
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
-                "referenceSolutionCpp": "string",
+                "referenceSolutionCpp": "string|null",
                 "referenceSolutionPython": None,
+                "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
+                "mathSpec": {"settings": {}, "blocks": [{"kind": "info|number|expression|set|single-choice|multi-choice|order|match", "prompt": "string", "acceptedAnswers": ["string"], "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"]}]},
                 "pedagogicalGoal": "string",
                 "targetSkill": "string",
                 "microGoal": "string",
@@ -67,16 +69,16 @@ class DraftRevisionScenario(Scenario):
 Критически важно:
 - Сохрани тему, количество задач, placement и язык из currentDraftBlueprint, если они есть.
 - Если в текущем черновике/контексте был C++ или курс «Основы C++/С++», не переключайся на Python.
-- Для C++ верни language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null.
+- Для code-test на C++ верни language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null. Для test/math сохраняй testSpec/mathSpec и не требуй кодовое решение.
 - Если правишь лесенку, лучше верни сразу исправленный объект type='task_ladder_blueprint', а не сухой revision_plan.
 - Описания задач должны стать настоящими обучалками: с фразой «Следуй шагам:», нумерованными шагами и пояснениями в скобках, как в задачах 1 и 1.1.
-- Не сохраняй в курс. Не используй шаблонные изменения.
+- Не сохраняй в курс. Не используй шаблонные изменения. Не генерируй image/image-test: задачи на картинки выключены в AI-пайплайне.
 
 Эталон стиля:
 {TASKFORGE_TRAINING_TASK_STYLE}
 """
         try:
-            parsed = LlmJsonClient().generate(system=BASE_SYSTEM, user=context_user_block(context, task, schema, max_chars=62000), purpose=self.id).data
+            parsed = LlmJsonClient().generate(system=BASE_SYSTEM, user=context_user_block(context, task, schema, max_chars=78000), purpose=self.id).data
         except Exception as exc:
             return llm_failed_result(self.id, exc, title="Правка не выполнена")
 

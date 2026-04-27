@@ -48,17 +48,22 @@ def _extract_course_contexts(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _extract_assignments_from_payload(payload: Dict[str, Any], selected_course: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    candidates = [
-        payload.get("focusAssignments"),
-        payload.get("targetAssignments"),
-        payload.get("assignments"),
-        payload.get("selectedAssignments"),
-        payload.get("recentAssignments"),
-        payload.get("recent_assignments"),
+    # The AI must reason over the whole selected course first. Earlier versions
+    # preferred focusAssignments/targetAssignments, so requests like “find arrays
+    # and loops” only saw the first/relevant slice and concluded that later topics
+    # were absent. Prefer full outlines/digests, then fall back to focus slices.
+    full_candidates = [
+        payload.get("courseOutline"),
+        payload.get("course_outline"),
+        payload.get("courseMap"),
+        payload.get("course_map"),
+        payload.get("fullCourseOutline"),
+        payload.get("selectedCourseOutline"),
+        (payload.get("courseDigest") or {}).get("assignments") if isinstance(payload.get("courseDigest"), dict) else None,
         (selected_course or {}).get("assignments") if isinstance(selected_course, dict) else None,
         (selected_course or {}).get("Assignments") if isinstance(selected_course, dict) else None,
     ]
-    for candidate in candidates:
+    for candidate in full_candidates:
         if isinstance(candidate, list) and candidate:
             return [x for x in candidate if isinstance(x, dict)]
 
@@ -74,14 +79,29 @@ def _extract_assignments_from_payload(payload: Dict[str, Any], selected_course: 
             cloned.setdefault("courseId", course_id)
             cloned.setdefault("courseTitle", course_title)
             flattened.append(cloned)
-    return flattened
+    if flattened:
+        return flattened
+
+    slice_candidates = [
+        payload.get("focusAssignments"),
+        payload.get("targetAssignments"),
+        payload.get("assignments"),
+        payload.get("selectedAssignments"),
+        payload.get("recentAssignments"),
+        payload.get("recent_assignments"),
+    ]
+    for candidate in slice_candidates:
+        if isinstance(candidate, list) and candidate:
+            return [x for x in candidate if isinstance(x, dict)]
+    return []
 
 
 def assignment_text(assignment: Dict[str, Any]) -> str:
     values = [
         assignment.get("courseTitle"), assignment.get("title"), assignment.get("Title"), assignment.get("name"),
-        assignment.get("description"), assignment.get("Description"), assignment.get("text"),
+        assignment.get("description"), assignment.get("Description"), assignment.get("descriptionPreview"), assignment.get("text"),
         assignment.get("overview"), assignment.get("aiOverview"), assignment.get("type"), assignment.get("tags"),
+        " ".join(str(x) for x in _as_list(assignment.get("conceptHints"))),
     ]
     return "\n".join(str(v) for v in values if v).lower()
 

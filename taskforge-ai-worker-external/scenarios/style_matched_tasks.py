@@ -37,7 +37,7 @@ class StyleMatchedTasksScenario(Scenario):
             "selectedCourseTitle": "string|null",
             "drafts": [{
                 "title": "string",
-                "assignmentType": "code-test|text|math|image|other",
+                "assignmentType": "code-test|test|math",
                 "language": "string",
                 "allowedLanguages": ["string"],
                 "inputMode": "graphical-editor|code-editor|text",
@@ -47,6 +47,8 @@ class StyleMatchedTasksScenario(Scenario):
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
                 "referenceSolutionCpp": "string|null",
                 "referenceSolutionPython": "string|null",
+                "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
+                "mathSpec": {"settings": {}, "blocks": [{"kind": "info|number|expression|set|single-choice|multi-choice|order|match", "prompt": "string", "acceptedAnswers": ["string"], "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"]}]},
                 "pedagogicalGoal": "string",
                 "targetSkill": "string",
                 "prerequisites": ["string"],
@@ -61,10 +63,10 @@ class StyleMatchedTasksScenario(Scenario):
 Создай {count} качественных черновиков задач по запросу пользователя. Если пользователь упоминает конкретный курс, выбери его из courseCatalog/courseContexts. Если курс не указан, работай как общий AI-ассистент и используй все доступные курсы как справочный стиль.
 Тема/навык: {topic}.
 Не сохраняй в курс. Не используй шаблон-заглушку. Каждая задача должна быть реально осмысленной и отличаться от остальных.
-Если контекст курса или прошлый черновик указывает C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null.
+Если задача типа code-test и контекст указывает C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null. Для test/math заполняй testSpec/mathSpec, а кодовое решение не требуется.
 Если пользователь просит стиль первых обучающих заданий, используй этот эталон:
 {TASKFORGE_TRAINING_TASK_STYLE}
-Если тема if/условия, эталонное решение обязано реально содержать if.
+Если задача типа code-test и тема if/условия, эталонное решение обязано реально содержать if. Не генерируй image/image-test: задачи на картинки выключены.
 """
         try:
             parsed = LlmJsonClient().generate(system=BASE_SYSTEM, user=context_user_block(context, task, schema), purpose=self.id).data

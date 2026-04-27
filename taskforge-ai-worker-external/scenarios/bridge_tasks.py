@@ -43,7 +43,7 @@ class BridgeTasksScenario(Scenario):
             f"Построй bridge-plan между текущим уровнем ученика и темой {concept}. "
             "Если есть точные assignmentId из контекста, используй их. Если нет, не выдумывай id.\n\n"
             f"gap_report:\n{compact_json(gap, 12000)}\n\n"
-            f"Контекст TaskForge:\n{build_ai_context(context, max_chars=36000)}\n\n"
+            f"Контекст TaskForge:\n{build_ai_context(context, max_chars=78000)}\n\n"
             f"Схема результата:\n{schema}"
         )
         try:
