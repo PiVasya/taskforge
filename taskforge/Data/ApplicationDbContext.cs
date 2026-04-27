@@ -80,6 +80,12 @@ namespace taskforge.Data
                 entity.Property(x => x.AiDraftJson).HasColumnType("jsonb");
                 entity.Property(x => x.LifecycleStatus).HasMaxLength(32).HasDefaultValue("published");
                 entity.HasIndex(x => new { x.CourseId, x.IsHidden, x.LifecycleStatus, x.Sort });
+                entity.HasIndex(x => x.SourceAgentArtifactId)
+                    .IsUnique()
+                    .HasFilter("\"SourceAgentArtifactId\" IS NOT NULL");
+                entity.HasIndex(x => new { x.SourceAgentRunId, x.SourceAgentTaskIndex })
+                    .IsUnique()
+                    .HasFilter("\"SourceAgentRunId\" IS NOT NULL AND \"SourceAgentTaskIndex\" IS NOT NULL");
                 entity.HasOne(x => x.SourceAgentRun)
                     .WithMany()
                     .HasForeignKey(x => x.SourceAgentRunId)

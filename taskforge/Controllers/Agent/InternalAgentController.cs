@@ -88,7 +88,7 @@ namespace taskforge.Controllers.Agent
                 IsVisibleToUser = true,
             });
 
-            await _db.SaveChangesAsync();
+            await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
 
             var job = await BuildWorkerJobAsync(run.Id);
             await BroadcastAsync(run.ConversationId, "run.updated", new { runId = run.Id, status = run.Status, workerId });
@@ -148,7 +148,7 @@ namespace taskforge.Controllers.Agent
             run.UpdatedAtUtc = now;
             run.WorkerId = CleanWorkerId(request.WorkerId);
             run.LeaseExpiresAtUtc = now.AddSeconds(90);
-            await _db.SaveChangesAsync();
+            await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
 
             await BroadcastAsync(run.ConversationId, "step.created", new { step = ToStepPayload(entity) });
             return Ok(new { ok = true, stepId = entity.Id });
@@ -163,6 +163,8 @@ namespace taskforge.Controllers.Agent
                 .Include(x => x.Conversation)
                 .FirstOrDefaultAsync(x => x.Id == runId);
             if (run == null) return NotFound();
+            if (run.FinishedAtUtc.HasValue || IsTerminalRunStatus(run.Status))
+                return Ok(new { ok = true, runId = run.Id, alreadyCompleted = true, status = run.Status });
 
             var now = DateTime.UtcNow;
             var result = request.Result;
@@ -246,7 +248,7 @@ namespace taskforge.Controllers.Agent
                 run.Conversation.MemoryJson = memoryPatchRaw;
 
             run.Conversation.UpdatedAtUtc = now;
-            await _db.SaveChangesAsync();
+            await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
 
             await BroadcastAsync(run.ConversationId, "message.created", new { message = ToMessagePayload(message) });
             await BroadcastAsync(run.ConversationId, "run.completed", new { runId = run.Id, status = run.Status, result = ParseJson(rawResult) });
@@ -260,6 +262,8 @@ namespace taskforge.Controllers.Agent
 
             var run = await _db.AgentRuns.Include(x => x.Conversation).FirstOrDefaultAsync(x => x.Id == runId);
             if (run == null) return NotFound();
+            if (run.FinishedAtUtc.HasValue || IsTerminalRunStatus(run.Status))
+                return Ok(new { ok = true, runId = run.Id, alreadyCompleted = true, status = run.Status });
 
             var now = DateTime.UtcNow;
             var errorRaw = request.Error.ValueKind == JsonValueKind.Undefined ? "{}" : request.Error.GetRawText();
@@ -301,7 +305,7 @@ namespace taskforge.Controllers.Agent
                 IsVisibleToUser = true,
             });
 
-            await _db.SaveChangesAsync();
+            await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
 
             await BroadcastAsync(run.ConversationId, "message.created", new { message = ToMessagePayload(message) });
             await BroadcastAsync(run.ConversationId, "run.failed", new { runId = run.Id, status = run.Status, error = ParseJson(errorRaw) });
@@ -786,6 +790,54 @@ namespace taskforge.Controllers.Agent
             return (await _db.AgentSteps.Where(x => x.RunId == runId).Select(x => (int?)x.Seq).MaxAsync() ?? 0) + 1;
         }
 
+        private async Task SaveChangesWithAgentStepSeqRetryAsync(Guid runId)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    await _db.SaveChangesAsync();
+                    return;
+                }
+                catch (DbUpdateException ex) when (attempt < 3 && IsAgentStepSeqConflict(ex))
+                {
+                    await ReassignPendingAgentStepSeqsAsync(runId);
+                }
+            }
+        }
+
+        private async Task ReassignPendingAgentStepSeqsAsync(Guid runId)
+        {
+            var pendingSteps = _db.ChangeTracker.Entries<AgentStep>()
+                .Where(x => x.State == EntityState.Added && x.Entity.RunId == runId)
+                .OrderBy(x => x.Entity.Seq)
+                .ThenBy(x => x.Entity.CreatedAtUtc)
+                .ToList();
+
+            if (pendingSteps.Count == 0) return;
+
+            var nextSeq = await NextStepSeqAsync(runId);
+            foreach (var entry in pendingSteps)
+                entry.Entity.Seq = nextSeq++;
+        }
+
+        private static bool IsAgentStepSeqConflict(DbUpdateException ex)
+        {
+            var text = ex.ToString();
+            return text.Contains("IX_AgentSteps_RunId_Seq", StringComparison.OrdinalIgnoreCase)
+                   || (text.Contains("AgentSteps", StringComparison.OrdinalIgnoreCase)
+                       && text.Contains("Seq", StringComparison.OrdinalIgnoreCase)
+                       && text.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsTerminalRunStatus(string? status)
+        {
+            var value = status ?? string.Empty;
+            return value.StartsWith("completed", StringComparison.OrdinalIgnoreCase)
+                   || value.Equals("failed", StringComparison.OrdinalIgnoreCase)
+                   || value.Equals("canceled", StringComparison.OrdinalIgnoreCase);
+        }
+
         private async Task BroadcastAsync(Guid conversationId, string type, object payload)
         {
             await _hub.Clients.Group(AgentHub.ConversationGroup(conversationId)).SendAsync(
@@ -852,21 +904,28 @@ namespace taskforge.Controllers.Agent
             }
             if (!courseId.HasValue) return null;
 
+            var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "index");
+            if (sourceTaskIndex.HasValue)
+            {
+                var existingDraft = await _db.TaskAssignments.AsNoTracking()
+                    .Where(x => x.SourceAgentRunId == run.Id && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
+                    .Select(x => new
+                    {
+                        id = x.Id,
+                        courseId = x.CourseId,
+                        title = x.Title,
+                        isHidden = x.IsHidden,
+                        lifecycleStatus = x.LifecycleStatus,
+                        sourceAgentRunId = x.SourceAgentRunId,
+                        sourceAgentArtifactId = x.SourceAgentArtifactId,
+                        sourceAgentTaskIndex = x.SourceAgentTaskIndex
+                    })
+                    .FirstOrDefaultAsync();
+                if (existingDraft != null) return existingDraft;
+            }
+
             var tests = ExtractTestCases(data).ToList();
             if (tests.Count == 0) return null;
-
-            var insertSort = await GetDraftInsertSortAsync(courseId.Value, beforeId, afterId);
-            if (insertSort.HasValue)
-            {
-                var shifted = await _db.TaskAssignments
-                    .Where(x => x.CourseId == courseId.Value && x.Sort >= insertSort.Value)
-                    .ToListAsync();
-                foreach (var row in shifted)
-                {
-                    row.Sort += 1;
-                    row.UpdatedAt = now;
-                }
-            }
 
             var assignment = new TaskAssignment
             {
@@ -877,7 +936,7 @@ namespace taskforge.Controllers.Agent
                 Type = "code-test",
                 Difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3),
                 Rating = 1,
-                Sort = insertSort ?? ((await _db.TaskAssignments.Where(x => x.CourseId == courseId.Value).Select(x => (int?)x.Sort).MaxAsync()) ?? -1) + 1,
+                Sort = 0,
                 AllowedLanguagesCsv = language,
                 Tags = MergeTags(GetString(data, "tags"), "AI,черновик"),
                 IsHidden = true,
@@ -885,7 +944,7 @@ namespace taskforge.Controllers.Agent
                 IsAiDraft = true,
                 SourceAgentRunId = run.Id,
                 SourceAgentArtifactId = artifact.Id,
-                SourceAgentTaskIndex = GetInt(data, "sourceTaskIndex", "index"),
+                SourceAgentTaskIndex = sourceTaskIndex,
                 AiDraftJson = artifact.DataJson,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -904,6 +963,7 @@ namespace taskforge.Controllers.Agent
                 });
             }
 
+            await ApplyDraftPlacementAsync(assignment, beforeId, afterId, now);
             _db.TaskAssignments.Add(assignment);
             return new
             {
@@ -914,8 +974,65 @@ namespace taskforge.Controllers.Agent
                 lifecycleStatus = assignment.LifecycleStatus,
                 testCount = tests.Count,
                 sourceAgentRunId = run.Id,
-                sourceAgentArtifactId = artifact.Id
+                sourceAgentArtifactId = artifact.Id,
+                sourceAgentTaskIndex = assignment.SourceAgentTaskIndex
             };
+        }
+
+        private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now)
+        {
+            var ordered = await _db.TaskAssignments
+                .Where(x => x.CourseId == assignment.CourseId)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync();
+
+            ordered.RemoveAll(x => x.Id == assignment.Id);
+
+            var insertIndex = ordered.Count;
+            if (beforeId.HasValue)
+            {
+                var beforeIndex = ordered.FindIndex(x => x.Id == beforeId.Value);
+                if (beforeIndex >= 0) insertIndex = beforeIndex;
+            }
+            else if (afterId.HasValue)
+            {
+                var afterIndex = ordered.FindIndex(x => x.Id == afterId.Value);
+                if (afterIndex >= 0) insertIndex = afterIndex + 1;
+            }
+
+            ordered.Insert(Math.Clamp(insertIndex, 0, ordered.Count), assignment);
+
+            if (assignment.SourceAgentTaskIndex.HasValue && (beforeId.HasValue || afterId.HasValue))
+            {
+                var start = afterId.HasValue ? ordered.FindIndex(x => x.Id == afterId.Value) + 1 : 0;
+                if (start < 0) start = 0;
+
+                var endExclusive = beforeId.HasValue ? ordered.FindIndex(x => x.Id == beforeId.Value) : ordered.Count;
+                if (endExclusive < 0) endExclusive = ordered.Count;
+
+                if (start < endExclusive)
+                {
+                    var segment = ordered
+                        .Skip(start)
+                        .Take(endExclusive - start)
+                        .Select((item, originalIndex) => new { item, originalIndex })
+                        .OrderBy(x => x.item.IsAiDraft && x.item.SourceAgentTaskIndex.HasValue ? 0 : 1)
+                        .ThenBy(x => x.item.IsAiDraft && x.item.SourceAgentTaskIndex.HasValue ? x.item.SourceAgentTaskIndex.GetValueOrDefault() : int.MaxValue)
+                        .ThenBy(x => x.originalIndex)
+                        .Select(x => x.item)
+                        .ToList();
+
+                    for (var i = 0; i < segment.Count; i++)
+                        ordered[start + i] = segment[i];
+                }
+            }
+
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].Sort = i;
+                ordered[i].UpdatedAt = now;
+            }
         }
 
         private async Task<int?> GetDraftInsertSortAsync(Guid courseId, Guid? beforeId, Guid? afterId)

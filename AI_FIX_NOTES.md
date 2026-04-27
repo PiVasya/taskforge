@@ -51,3 +51,11 @@
 
 - fixed payload crash in code-test rebalancing by restoring site-compatibility test helper after sentinel-input refactor;
 - hardened approved blueprint contract so sanitized draft re-applies agreed title/description after generation normalization.
+
+## Update: hidden AI drafts order + backend robustness
+- Hidden AI drafts are now created idempotently per agent run/source task index.
+- Draft placement is reindexed server-side, so parallel polishing no longer leaves 19.1-19.8 in random worker-finish order.
+- Assignment drag/drop now uses a single backend `position` endpoint instead of firing multiple `sort` PATCH calls.
+- `AgentSteps` save path now retries only the `RunId + Seq` conflict by recalculating pending step sequence numbers.
+- Repeated complete/fail calls for an already terminal AI run return `alreadyCompleted=true` instead of creating duplicate final messages/drafts.
+- Added partial unique indexes for AI draft artifact/task provenance.

@@ -164,6 +164,25 @@ namespace taskforge.Controllers
             return NoContent();
         }
 
+        [HttpPatch("assignments/{assignmentId:guid}/position")]
+        public async Task<IActionResult> MoveAssignment([FromRoute] Guid assignmentId, [FromBody] MoveAssignmentRequest body)
+        {
+            var uid = _current.GetUserId();
+            var role = _current.GetRole();
+
+            var courseId = await _db.TaskAssignments.AsNoTracking()
+                .Where(a => a.Id == assignmentId)
+                .Select(a => (Guid?)a.CourseId)
+                .FirstOrDefaultAsync();
+            if (courseId == null) return NotFound();
+            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
+                return Forbid();
+
+            var ok = await _assignments.PlaceAfterAssignmentAsync(assignmentId, body.AfterAssignmentId, uid);
+            if (!ok) return BadRequest(new { message = "Некорректная позиция задания" });
+            return NoContent();
+        }
+
 
     }
 }

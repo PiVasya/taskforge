@@ -11,6 +11,7 @@ import {
   getAssignmentsByCourse,
   createAssignment,
   updateAssignmentSort,
+  moveAssignmentAfter,
 } from "../api/assignments";
 import { Plus, Layers, CheckCircle2, Bot } from "lucide-react";
 import IfEditor from "../components/IfEditor";
@@ -235,9 +236,6 @@ export default function CourseAssignmentsPage() {
     const [moved] = nextOrder.splice(curIndex, 1);
     nextOrder.splice(newIndex, 0, moved);
 
-    const oldSort = new Map();
-    for (const x of orderedAll) oldSort.set(x.id, x.sort ?? 0);
-
     const newSort = new Map();
     nextOrder.forEach((x, idx) => newSort.set(x.id, idx));
 
@@ -247,12 +245,8 @@ export default function CourseAssignmentsPage() {
     );
 
     try {
-      // Обновляем только то, что реально поменялось
-      const changed = nextOrder
-        .filter((x) => (oldSort.get(x.id) ?? 0) !== (newSort.get(x.id) ?? 0))
-        .map((x) => ({ id: x.id, sort: newSort.get(x.id) ?? 0 }));
-
-      await Promise.all(changed.map((x) => updateAssignmentSort(x.id, x.sort)));
+      const afterAssignmentId = newIndex > 0 ? nextOrder[newIndex - 1]?.id : null;
+      await moveAssignmentAfter(assignmentId, afterAssignmentId || null);
       notify.success("Позиция обновлена");
     } catch (e) {
       // логирование на фронте отключено

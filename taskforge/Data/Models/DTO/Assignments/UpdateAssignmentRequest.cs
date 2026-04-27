@@ -70,4 +70,9 @@ namespace taskforge.Data.Models.DTO
     {
         public int Sort { get; set; }
     }
+
+    public sealed class MoveAssignmentRequest
+    {
+        public Guid? AfterAssignmentId { get; set; }
+    }
 }

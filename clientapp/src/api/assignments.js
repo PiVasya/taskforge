@@ -43,6 +43,12 @@ export async function updateAssignmentSort(assignmentId, sort) {
   await api.patch(`/api/assignments/${assignmentId}/sort`, { sort });
 }
 
+// Атомарно переместить задание после другого задания.
+// afterAssignmentId=null означает переместить в начало курса.
+export async function moveAssignmentAfter(assignmentId, afterAssignmentId) {
+  await api.patch(`/api/assignments/${assignmentId}/position`, { afterAssignmentId });
+}
+
 // Топ лучших решений (для страницы "Топ решений")
 export async function getTopSolutions(assignmentId, top = 20) {
   const res = await api.get(`/api/assignments/${assignmentId}/top-solutions`, {

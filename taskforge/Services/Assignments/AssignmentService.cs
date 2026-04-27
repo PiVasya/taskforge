@@ -320,7 +320,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 .FirstOrDefaultAsync(a => a.Id == assignmentId)
                 ?? throw new KeyNotFoundException("Assignment not found");
 
-            var isOwner = task.Course?.OwnerId == currentUserId
+            var isOwner = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin)
+                          || task.Course?.OwnerId == currentUserId
                           || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
             if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can delete assignment.");
@@ -336,13 +337,32 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 .FirstOrDefaultAsync(a => a.Id == assignmentId)
                 ?? throw new KeyNotFoundException("Assignment not found");
 
-            var isOwner = task.Course?.OwnerId == currentUserId
+            var isOwner = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin)
+                          || task.Course?.OwnerId == currentUserId
                           || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
             if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can reorder assignment.");
 
-            task.Sort = sort;
-            task.UpdatedAt = DateTime.UtcNow;
+            var ordered = await _db.TaskAssignments
+                .Where(x => x.CourseId == task.CourseId)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync();
+
+            var moving = ordered.FirstOrDefault(x => x.Id == assignmentId)
+                ?? throw new KeyNotFoundException("Assignment not found in course");
+
+            ordered.RemoveAll(x => x.Id == assignmentId);
+            var targetIndex = Math.Clamp(sort, 0, ordered.Count);
+            ordered.Insert(targetIndex, moving);
+
+            var now = DateTime.UtcNow;
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].Sort = i;
+                ordered[i].UpdatedAt = now;
+            }
+
             await _db.SaveChangesAsync();
         }
 
@@ -353,7 +373,8 @@ public async Task<AssignmentDetailsDto?> GetDetailsAsync(Guid assignmentId, Guid
                 .FirstOrDefaultAsync(a => a.Id == assignmentId)
                 ?? throw new KeyNotFoundException("Assignment not found");
 
-            var isOwner = task.Course?.OwnerId == currentUserId
+            var isOwner = await _db.Users.AnyAsync(u => u.Id == currentUserId && u.Role == AppRoles.Admin)
+                          || task.Course?.OwnerId == currentUserId
                           || await _db.CourseOwners.AnyAsync(o => o.CourseId == task.CourseId && o.UserId == currentUserId);
             if (!isOwner)
                 throw new UnauthorizedAccessException("Only course owner can reorder assignment.");
