@@ -1543,6 +1543,7 @@ namespace taskforge.Controllers.Agent
         {
             var text = value ?? string.Empty;
             if (string.IsNullOrWhiteSpace(text)) return text;
+
             try
             {
                 using var doc = JsonDocument.Parse(text);
@@ -1557,23 +1558,209 @@ namespace taskforge.Controllers.Agent
             {
             }
 
+            // HTML from the real TipTap editor should be preserved as-is.
+            // Important: do not treat C++ snippets like <iostream> as HTML.
             if (Regex.IsMatch(text, @"<\s*(p|div|br|ul|ol|li|h[1-6]|blockquote|pre|code)\b", RegexOptions.IgnoreCase))
                 return text;
 
-            var paragraphs = text
-                .Replace("\r", string.Empty)
-                .Split('\n')
-                .Select(line => new
-                {
-                    type = "paragraph",
-                    content = string.IsNullOrWhiteSpace(line)
-                        ? Array.Empty<object>()
-                        : new object[] { new { type = "text", text = line } }
-                })
-                .Cast<object>()
-                .ToArray();
+            var content = ParseMarkdownishStatementToTiptapContent(text);
+            return JsonSerializer.Serialize(new { type = "doc", content });
+        }
 
-            return JsonSerializer.Serialize(new { type = "doc", content = paragraphs });
+        private static List<object> ParseMarkdownishStatementToTiptapContent(string value)
+        {
+            var lines = (value ?? string.Empty).Replace("\r", string.Empty).Split('\n');
+            var content = new List<object>();
+            var i = 0;
+
+            while (i < lines.Length)
+            {
+                var line = lines[i] ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    i++;
+                    continue;
+                }
+
+                var fence = Regex.Match(line, @"^\s*```\s*([\w+-]*)\s*$");
+                if (fence.Success)
+                {
+                    var codeLines = new List<string>();
+                    var language = string.IsNullOrWhiteSpace(fence.Groups[1].Value) ? null : fence.Groups[1].Value.Trim();
+                    i++;
+                    while (i < lines.Length && !Regex.IsMatch(lines[i] ?? string.Empty, @"^\s*```\s*$"))
+                    {
+                        codeLines.Add(lines[i] ?? string.Empty);
+                        i++;
+                    }
+                    if (i < lines.Length) i++;
+
+                    var codeText = string.Join("\n", codeLines);
+                    var codeBlock = new Dictionary<string, object?>
+                    {
+                        ["type"] = "codeBlock",
+                        ["attrs"] = new Dictionary<string, object?> { ["language"] = language },
+                        ["content"] = string.IsNullOrEmpty(codeText)
+                            ? Array.Empty<object>()
+                            : new object[] { new Dictionary<string, object?> { ["type"] = "text", ["text"] = codeText } }
+                    };
+                    content.Add(codeBlock);
+                    continue;
+                }
+
+                var heading = Regex.Match(line, @"^\s{0,3}(#{1,3})\s+(.+)$");
+                if (heading.Success)
+                {
+                    content.Add(new Dictionary<string, object?>
+                    {
+                        ["type"] = "heading",
+                        ["attrs"] = new Dictionary<string, object?> { ["level"] = heading.Groups[1].Value.Length },
+                        ["content"] = InlineTextToTiptapNodes(heading.Groups[2].Value.Trim())
+                    });
+                    i++;
+                    continue;
+                }
+
+                var ordered = Regex.Match(line, @"^\s*(\d+)[\.)]\s+(.+)$");
+                if (ordered.Success)
+                {
+                    var start = int.TryParse(ordered.Groups[1].Value, out var parsedStart) ? Math.Max(1, parsedStart) : 1;
+                    var items = new List<object>();
+                    while (i < lines.Length)
+                    {
+                        var current = lines[i] ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(current))
+                        {
+                            var next = i + 1 < lines.Length ? lines[i + 1] ?? string.Empty : string.Empty;
+                            if (Regex.IsMatch(next, @"^\s*\d+[\.)]\s+"))
+                            {
+                                i++;
+                                continue;
+                            }
+                            break;
+                        }
+
+                        var itemMatch = Regex.Match(current, @"^\s*\d+[\.)]\s+(.+)$");
+                        if (!itemMatch.Success) break;
+                        items.Add(TiptapListItem(itemMatch.Groups[1].Value.Trim()));
+                        i++;
+                    }
+                    content.Add(new Dictionary<string, object?>
+                    {
+                        ["type"] = "orderedList",
+                        ["attrs"] = new Dictionary<string, object?> { ["start"] = start },
+                        ["content"] = items
+                    });
+                    continue;
+                }
+
+                var bullet = Regex.Match(line, @"^\s*[-*]\s+(.+)$");
+                if (bullet.Success)
+                {
+                    var items = new List<object>();
+                    while (i < lines.Length)
+                    {
+                        var current = lines[i] ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(current))
+                        {
+                            var next = i + 1 < lines.Length ? lines[i + 1] ?? string.Empty : string.Empty;
+                            if (Regex.IsMatch(next, @"^\s*[-*]\s+"))
+                            {
+                                i++;
+                                continue;
+                            }
+                            break;
+                        }
+
+                        var itemMatch = Regex.Match(current, @"^\s*[-*]\s+(.+)$");
+                        if (!itemMatch.Success) break;
+                        items.Add(TiptapListItem(itemMatch.Groups[1].Value.Trim()));
+                        i++;
+                    }
+                    content.Add(new Dictionary<string, object?>
+                    {
+                        ["type"] = "bulletList",
+                        ["content"] = items
+                    });
+                    continue;
+                }
+
+                content.Add(TiptapParagraph(line.Trim()));
+                i++;
+            }
+
+            return content;
+        }
+
+        private static Dictionary<string, object?> TiptapParagraph(string text)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["type"] = "paragraph",
+                ["content"] = InlineTextToTiptapNodes(text)
+            };
+        }
+
+        private static Dictionary<string, object?> TiptapListItem(string text)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["type"] = "listItem",
+                ["content"] = new object[] { TiptapParagraph(text) }
+            };
+        }
+
+        private static List<object> InlineTextToTiptapNodes(string value)
+        {
+            var text = value ?? string.Empty;
+            var nodes = new List<object>();
+            var i = 0;
+
+            while (i < text.Length)
+            {
+                var start = text.IndexOf('`', i);
+                if (start < 0)
+                {
+                    AddTiptapTextNode(nodes, text[i..], null);
+                    break;
+                }
+
+                if (start > i)
+                    AddTiptapTextNode(nodes, text[i..start], null);
+
+                var end = text.IndexOf('`', start + 1);
+                if (end < 0)
+                {
+                    AddTiptapTextNode(nodes, text[start..], null);
+                    break;
+                }
+
+                AddTiptapTextNode(nodes, text[(start + 1)..end], "code");
+                i = end + 1;
+            }
+
+            return nodes;
+        }
+
+        private static void AddTiptapTextNode(List<object> nodes, string text, string? markType)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            var node = new Dictionary<string, object?>
+            {
+                ["type"] = "text",
+                ["text"] = text
+            };
+
+            if (!string.IsNullOrWhiteSpace(markType))
+            {
+                node["marks"] = new object[]
+                {
+                    new Dictionary<string, object?> { ["type"] = markType }
+                };
+            }
+
+            nodes.Add(node);
         }
 
         private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden);

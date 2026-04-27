@@ -152,3 +152,72 @@ export function plainTextToTiptapDoc(value) {
 
   return { type: "doc", content };
 }
+
+function collectPlainLinesFromDoc(node, out) {
+  if (!node || typeof node !== "object") return;
+
+  if (node.type === "text") {
+    out.current += node.text || "";
+    return;
+  }
+
+  if (node.type === "hardBreak") {
+    out.current += "\n";
+    return;
+  }
+
+  const beforeBlock = ["paragraph", "heading", "listItem", "codeBlock"].includes(node.type);
+  if (beforeBlock && out.current) {
+    out.lines.push(out.current);
+    out.current = "";
+  }
+
+  if (node.type === "codeBlock") {
+    out.lines.push("```" + (node.attrs?.language || ""));
+    const text = Array.isArray(node.content) ? node.content.map((n) => n?.text || "").join("") : "";
+    if (text) out.lines.push(text);
+    out.lines.push("```");
+    out.current = "";
+    return;
+  }
+
+  if (Array.isArray(node.content)) {
+    node.content.forEach((child) => collectPlainLinesFromDoc(child, out));
+  }
+
+  if (beforeBlock && out.current) {
+    out.lines.push(out.current);
+    out.current = "";
+  }
+}
+
+function docHasRealRichNodes(node) {
+  if (!node || typeof node !== "object") return false;
+  if (["orderedList", "bulletList", "codeBlock", "blockquote", "heading", "image"].includes(node.type)) return true;
+  if (Array.isArray(node.marks) && node.marks.length > 0) return true;
+  return Array.isArray(node.content) && node.content.some(docHasRealRichNodes);
+}
+
+function docPlainText(doc) {
+  const out = { lines: [], current: "" };
+  collectPlainLinesFromDoc(doc, out);
+  if (out.current) out.lines.push(out.current);
+  return out.lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function looksLikeMarkdownishStatement(text) {
+  const s = String(text || "");
+  if (!s.trim()) return false;
+  return /`[^`]+`/.test(s) || /^\s*```/m.test(s) || /^\s*\d+[.)]\s+/m.test(s) || /^\s*[-*]\s+/m.test(s) || /^\s{0,3}#{1,3}\s+/m.test(s);
+}
+
+export function normalizeLegacyTiptapDoc(doc) {
+  if (!doc || typeof doc !== "object" || doc.type !== "doc") return doc;
+  if (docHasRealRichNodes(doc)) return doc;
+
+  const text = docPlainText(doc);
+  if (!looksLikeMarkdownishStatement(text)) return doc;
+
+  return plainTextToTiptapDoc(text);
+}
+

@@ -22,6 +22,7 @@ import {
 import Layout from '../components/Layout';
 import AppErrorPanel from '../components/AppErrorPanel';
 import { Button, Card, Textarea, Badge } from '../components/ui';
+import StatementViewer from '../components/tiptap/StatementViewer';
 import { useAuth } from '../auth/AuthContext';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
@@ -302,8 +303,8 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
                     </button>
                   )}
                 </div>
-                <div className="mt-2 text-neutral-700 dark:text-neutral-200 whitespace-pre-line">
-                  {task.description || task.goal || task.pedagogicalGoal || 'Черновик задания готов.'}
+                <div className="mt-2 text-neutral-700 dark:text-neutral-200 text-sm">
+                  <StatementViewer value={task.description || task.goal || task.pedagogicalGoal || 'Черновик задания готов.'} />
                 </div>
                 {Array.isArray(task.publicTests) && task.publicTests.length > 0 && (
                   <div className="mt-2 rounded-lg border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/60 p-2 text-xs">

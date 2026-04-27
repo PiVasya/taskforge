@@ -10,7 +10,7 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Subscript } from "@tiptap/extension-subscript";
 import { Superscript } from "@tiptap/extension-superscript";
-import { plainTextToTiptapDoc } from "./markdownToTiptap";
+import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from "./markdownToTiptap";
 
 import "./tiptap.css";
 
@@ -18,7 +18,7 @@ function safeParseJson(str) {
   if (!str) return null;
   try {
     const o = JSON.parse(str);
-    if (o && typeof o === "object" && o.type === "doc") return o;
+    if (o && typeof o === "object" && o.type === "doc") return normalizeLegacyTiptapDoc(o);
     return null;
   } catch {
     return null;

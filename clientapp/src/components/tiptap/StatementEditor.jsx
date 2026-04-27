@@ -42,7 +42,7 @@ import { Button } from "../ui";
 import { uploadImage } from "../../api/files";
 
 import { FontSize } from "./extensions/FontSize";
-import { plainTextToTiptapDoc } from "./markdownToTiptap";
+import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from "./markdownToTiptap";
 
 import "./tiptap.css";
 
@@ -50,7 +50,7 @@ function safeParseJson(str) {
   if (!str) return null;
   try {
     const o = JSON.parse(str);
-    if (o && typeof o === "object" && o.type === "doc") return o;
+    if (o && typeof o === "object" && o.type === "doc") return normalizeLegacyTiptapDoc(o);
   } catch {
     // ignore
   }
@@ -60,7 +60,7 @@ function safeParseJson(str) {
 function plainTextToDoc(value) {
   const text = String(value ?? "");
   if (!text.trim()) return "";
-  if (/<[a-z][\s\S]*>/i.test(text)) return text;
+  if (/<\s*(p|div|br|ul|ol|li|h[1-6]|blockquote|pre|code)\b/i.test(text)) return text;
   return plainTextToTiptapDoc(text);
 }
 
