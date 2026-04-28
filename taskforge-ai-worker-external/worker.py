@@ -52,7 +52,7 @@ def process_claimed_job(api: AgentApiClient, runtime: AgentRuntime, job: Dict[st
     log_event("agent-run-claimed", run_id=run_id, job_type=job_type_for(job))
     try:
         api.heartbeat(run_id)
-        api.append_step(run_id, {
+        api.try_append_step(run_id, {
             "kind": "context",
             "status": "running",
             "title": "AI подтягивает контекст",
@@ -61,7 +61,7 @@ def process_claimed_job(api: AgentApiClient, runtime: AgentRuntime, job: Dict[st
         result = process_job(job, runtime=runtime)
         route = ((result.get("debug") or {}).get("route") or {}) if isinstance(result, dict) else {}
         if route:
-            api.append_step(run_id, {
+            api.try_append_step(run_id, {
                 "kind": "route",
                 "status": "completed",
                 "title": "Выбран сценарий",
@@ -70,7 +70,7 @@ def process_claimed_job(api: AgentApiClient, runtime: AgentRuntime, job: Dict[st
             })
         elapsed = round(utc_ts() - started, 3)
         failed = result.get("status") == "failed"
-        api.append_step(run_id, {
+        api.try_append_step(run_id, {
             "kind": "scenario_result",
             "status": "failed" if failed else result.get("status"),
             "scenarioId": result.get("scenario_id"),

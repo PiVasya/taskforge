@@ -20,6 +20,12 @@ namespace taskforge.Controllers.Agent
     [AllowAnonymous]
     public sealed class InternalAgentController : ControllerBase
     {
+        private const int AgentStepKindMaxLength = 64;
+        private const int AgentStepStatusMaxLength = 64;
+        private const int AgentStepActionNameMaxLength = 128;
+        private const int AgentStepTitleMaxLength = 240;
+        private const int AgentStepSummaryMaxLength = 1900;
+
         private readonly ApplicationDbContext _db;
         private readonly IConfiguration _config;
         private readonly IHubContext<AgentHub> _hub;
@@ -126,11 +132,11 @@ namespace taskforge.Controllers.Agent
 
             var now = DateTime.UtcNow;
             var step = request.Step;
-            var kind = GetString(step, "kind") ?? "worker";
-            var status = GetString(step, "status") ?? "completed";
-            var title = GetString(step, "title", "label", "actionName", "scenarioId") ?? HumanizeStep(kind, status);
-            var summary = GetString(step, "summary", "message", "assistant_message", "reason");
-            var actionName = GetString(step, "actionName", "action", "scenarioId", "scenario_id");
+            var kind = LimitDbText(GetString(step, "kind") ?? "worker", AgentStepKindMaxLength) ?? "worker";
+            var status = LimitDbText(GetString(step, "status") ?? "completed", AgentStepStatusMaxLength) ?? "completed";
+            var title = LimitDbText(GetString(step, "title", "label", "actionName", "scenarioId") ?? HumanizeStep(kind, status), AgentStepTitleMaxLength) ?? HumanizeStep(kind, status);
+            var summary = LimitDbText(GetString(step, "summary", "message", "assistant_message", "reason"), AgentStepSummaryMaxLength);
+            var actionName = LimitDbText(GetString(step, "actionName", "action", "scenarioId", "scenario_id"), AgentStepActionNameMaxLength);
 
             var entity = new AgentStep
             {
@@ -266,7 +272,7 @@ namespace taskforge.Controllers.Agent
                 Status = "completed",
                 ActionName = scenarioId,
                 Title = "AI закончил ответ",
-                Summary = assistantText,
+                Summary = LimitDbText(assistantText, AgentStepSummaryMaxLength),
                 OutputJson = rawResult,
                 CreatedAtUtc = now,
                 FinishedAtUtc = now,
@@ -341,7 +347,7 @@ namespace taskforge.Controllers.Agent
                 Kind = "final",
                 Status = "failed",
                 Title = "AI-run завершился ошибкой",
-                Summary = errorMessage,
+                Summary = LimitDbText(errorMessage, AgentStepSummaryMaxLength),
                 ErrorJson = errorRaw,
                 CreatedAtUtc = now,
                 FinishedAtUtc = now,
@@ -1043,6 +1049,7 @@ namespace taskforge.Controllers.Agent
         {
             for (var attempt = 0; ; attempt++)
             {
+                NormalizePendingAgentSteps(runId);
                 try
                 {
                     await _db.SaveChangesAsync();
@@ -1053,6 +1060,33 @@ namespace taskforge.Controllers.Agent
                     await ReassignPendingAgentStepSeqsAsync(runId);
                 }
             }
+        }
+
+        private void NormalizePendingAgentSteps(Guid runId)
+        {
+            var entries = _db.ChangeTracker.Entries<AgentStep>()
+                .Where(x => (x.State == EntityState.Added || x.State == EntityState.Modified) && x.Entity.RunId == runId)
+                .ToList();
+
+            foreach (var entry in entries)
+            {
+                var step = entry.Entity;
+                step.Kind = LimitDbText(step.Kind, AgentStepKindMaxLength) ?? "worker";
+                step.Status = LimitDbText(step.Status, AgentStepStatusMaxLength) ?? "completed";
+                step.ActionName = LimitDbText(step.ActionName, AgentStepActionNameMaxLength);
+                step.Title = LimitDbText(step.Title, AgentStepTitleMaxLength) ?? "AI step";
+                step.Summary = LimitDbText(step.Summary, AgentStepSummaryMaxLength);
+            }
+        }
+
+        private static string? LimitDbText(string? value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value) || maxLength <= 0) return value;
+            if (value.Length <= maxLength) return value;
+
+            const string suffix = "... [truncated]";
+            var take = Math.Max(0, maxLength - suffix.Length);
+            return value.Substring(0, take).TrimEnd() + suffix;
         }
 
         private async Task ReassignPendingAgentStepSeqsAsync(Guid runId)

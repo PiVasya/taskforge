@@ -14,6 +14,37 @@ from config import (
 from log import log_event, preview_text
 
 
+_STEP_TEXT_LIMITS = {
+    "kind": 64,
+    "status": 64,
+    "actionName": 128,
+    "action": 128,
+    "scenarioId": 128,
+    "scenario_id": 128,
+    "title": 240,
+    "label": 240,
+    "summary": 1900,
+    "message": 1900,
+    "assistant_message": 1900,
+    "reason": 1900,
+}
+
+
+def _limit_text(value: Any, max_length: int) -> Any:
+    if not isinstance(value, str) or len(value) <= max_length:
+        return value
+    suffix = "... [truncated]"
+    return value[: max(0, max_length - len(suffix))].rstrip() + suffix
+
+
+def sanitize_agent_step(step: Dict[str, Any]) -> Dict[str, Any]:
+    safe = dict(step or {})
+    for key, max_length in _STEP_TEXT_LIMITS.items():
+        if key in safe:
+            safe[key] = _limit_text(safe[key], max_length)
+    return safe
+
+
 class AgentApiClient:
     """Small client for the future TaskForge internal agent API.
 
@@ -82,7 +113,15 @@ class AgentApiClient:
     def append_step(self, run_id: str, step: Dict[str, Any]) -> None:
         if not self.configured:
             return
-        self._post(f"/api/internal/agent/runs/{run_id}/steps", {"workerId": AGENT_WORKER_ID, "step": step})
+        self._post(f"/api/internal/agent/runs/{run_id}/steps", {"workerId": AGENT_WORKER_ID, "step": sanitize_agent_step(step)})
+
+    def try_append_step(self, run_id: str, step: Dict[str, Any]) -> bool:
+        try:
+            self.append_step(run_id, step)
+            return True
+        except Exception as exc:
+            log_event("agent-step-append-failed", run_id=run_id, error=preview_text(str(exc), 500), step=preview_text(str(sanitize_agent_step(step)), 500))
+            return False
 
     def run_tests(self, language: str, code: str, test_cases: list[dict[str, Any]], policy_forbidden_calls: Optional[list[str]] = None, policy_required_calls: Optional[list[str]] = None) -> Dict[str, Any]:
         if not self.configured:

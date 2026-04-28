@@ -45,10 +45,14 @@ SCENARIO_RULES: List[Rule] = [
     ),
     Rule(
         scenario_id="course_gap_audit",
-        must_contain_any=["дыр", "пробел", "скач", "не хватает", "слаб", "аудит", "застр", "переход", "перед"],
+        must_contain_any=[
+            "дыр", "пробел", "скач", "не хватает", "слаб", "аудит", "застр", "переход", "перед",
+            "найди места", "места куда", "куда бы ты вставил", "куда бы ты выставил", "куда вставить", "куда добавить",
+            "где вставить", "где добавить", "обучающие задачи", "обучающие задан",
+        ],
         must_not_contain_any=["не анализ"],
         priority=95,
-        reason="Пользователь просит найти пробелы, скачки сложности или переходы между темами.",
+        reason="Пользователь просит найти пробелы, скачки сложности или места для вставки обучающих задач.",
     ),
     Rule(
         scenario_id="guided_ladder",
@@ -117,6 +121,17 @@ class ScenarioRouter:
                 scenario_id="draft_revision",
                 confidence=97,
                 reason="Пользователь правит уже созданный AI-черновик; нужно сохранить контекст и стиль предыдущего результата.",
+                execution_mode="single",
+                requested_count=message.requested_count,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
+
+        if "course_gap_audit" in scenario_ids and _has_any(message.lowered, ["найди места", "места куда", "куда бы ты вставил", "куда бы ты выставил", "куда вставить", "куда добавить", "где вставить", "где добавить", "обучающие задачи", "обучающие задан"]):
+            return ScenarioRoute(
+                scenario_id="course_gap_audit",
+                confidence=96,
+                reason="Пользователь просит просканировать курс и найти универсальные точки для вставки обучающих задач.",
                 execution_mode="single",
                 requested_count=message.requested_count,
                 target_concept=message.target_concept,
