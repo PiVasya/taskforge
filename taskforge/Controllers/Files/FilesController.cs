@@ -112,6 +112,21 @@ public sealed class FilesController : ControllerBase
         if (_current.HasRole(AppRoles.Admin))
             return true;
 
+        var normalizedKey = (key ?? string.Empty).Trim('/');
+        const string agentPrefix = "agent-conversations/";
+        if (normalizedKey.StartsWith(agentPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = normalizedKey[agentPrefix.Length..];
+            var slash = rest.IndexOf('/');
+            var conversationPart = slash >= 0 ? rest[..slash] : rest;
+            if (Guid.TryParseExact(conversationPart, "N", out var conversationId) || Guid.TryParse(conversationPart, out conversationId))
+            {
+                return await _db.AgentConversations.AsNoTracking()
+                    .AnyAsync(x => x.Id == conversationId && x.UserId == userId && !x.IsArchived, ct);
+            }
+            return false;
+        }
+
         if (await _db.UserImageTaskSolutions.AsNoTracking().AnyAsync(x => x.UserId == userId && x.SubmittedKey == key, ct))
             return true;
 

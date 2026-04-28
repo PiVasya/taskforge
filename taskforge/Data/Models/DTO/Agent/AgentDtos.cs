@@ -16,6 +16,17 @@ namespace taskforge.Data.Models.DTO.Agent
     {
         public string Text { get; set; } = string.Empty;
         public string? ClientMessageId { get; set; }
+        public List<AgentAttachmentDto> Attachments { get; set; } = new();
+    }
+
+    public sealed class AgentAttachmentDto
+    {
+        public string Key { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long SizeBytes { get; set; }
+        public string? Url { get; set; }
+        public string? ExtractedText { get; set; }
     }
 
     public sealed class AgentConversationDto
@@ -49,6 +60,7 @@ namespace taskforge.Data.Models.DTO.Agent
         public string Text { get; set; } = string.Empty;
         public string Source { get; set; } = string.Empty;
         public JsonElement? Data { get; set; }
+        public List<AgentAttachmentDto> Attachments { get; set; } = new();
         public string? ClientMessageId { get; set; }
         public DateTime CreatedAtUtc { get; set; }
     }

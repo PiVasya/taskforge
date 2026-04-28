@@ -4,6 +4,8 @@ public interface IFileStorageService
 {
     Task<string> UploadImageAsync(IFormFile file, string folder, CancellationToken ct = default);
 
+    Task<string> UploadFileAsync(IFormFile file, string folder, CancellationToken ct = default);
+
     Task<string> UploadBytesAsync(
         byte[] bytes,
         string contentType,

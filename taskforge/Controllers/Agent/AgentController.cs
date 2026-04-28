@@ -10,6 +10,7 @@ using taskforge.Data.Models.DTO.Agent;
 using taskforge.Data.Models.Entities;
 using taskforge.Hubs;
 using taskforge.Services.Interfaces;
+using taskforge.Services.Files;
 
 namespace taskforge.Controllers.Agent
 {
@@ -22,17 +23,20 @@ namespace taskforge.Controllers.Agent
         private readonly ICurrentUserService _current;
         private readonly ICourseAccessService _courseAccess;
         private readonly IHubContext<AgentHub> _hub;
+        private readonly IFileStorageService _store;
 
         public AgentController(
             ApplicationDbContext db,
             ICurrentUserService current,
             ICourseAccessService courseAccess,
-            IHubContext<AgentHub> hub)
+            IHubContext<AgentHub> hub,
+            IFileStorageService store)
         {
             _db = db;
             _current = current;
             _courseAccess = courseAccess;
             _hub = hub;
+            _store = store;
         }
 
         [HttpGet("conversations")]
@@ -127,6 +131,28 @@ namespace taskforge.Controllers.Agent
             return Ok(details);
         }
 
+        [HttpPost("conversations/{conversationId:guid}/attachments")]
+        [RequestSizeLimit(25 * 1024 * 1024)]
+        public async Task<IActionResult> UploadAttachment([FromRoute] Guid conversationId, [FromForm] IFormFile file, CancellationToken ct)
+        {
+            var uid = _current.GetUserId();
+            var conversation = await _db.AgentConversations.FirstOrDefaultAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived, ct);
+            if (conversation == null) return NotFound();
+            if (file == null || file.Length <= 0) return BadRequest(new { message = "Файл не передан" });
+
+            var key = await _store.UploadFileAsync(file, $"agent-conversations/{conversationId:N}", ct);
+            var attachment = new AgentAttachmentDto
+            {
+                Key = key,
+                FileName = string.IsNullOrWhiteSpace(file.FileName) ? "file" : Path.GetFileName(file.FileName),
+                ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                SizeBytes = file.Length,
+                Url = $"/api/private-files/{Uri.EscapeDataString(key)}",
+            };
+            return Ok(attachment);
+        }
+
+
         [HttpPost("conversations/{conversationId:guid}/messages")]
         public async Task<IActionResult> SendMessage([FromRoute] Guid conversationId, [FromBody] AgentSendMessageRequest request)
         {
@@ -134,10 +160,11 @@ namespace taskforge.Controllers.Agent
             var conversation = await _db.AgentConversations.FirstOrDefaultAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived);
             if (conversation == null) return NotFound();
 
-            if (string.IsNullOrWhiteSpace(request.Text))
+            var attachments = NormalizeAttachments(request.Attachments);
+            if (string.IsNullOrWhiteSpace(request.Text) && attachments.Count == 0)
                 throw new ValidationException("Сообщение для AI-чата не может быть пустым.");
 
-            var (message, run) = await AddUserMessageAndRunAsync(conversation, request.Text, request.ClientMessageId);
+            var (message, run) = await AddUserMessageAndRunAsync(conversation, request.Text, request.ClientMessageId, attachments);
 
             var messageDto = ToMessageDto(message);
             var runDto = ToRunDto(run);
@@ -432,11 +459,12 @@ namespace taskforge.Controllers.Agent
             return Ok(ToRunDto(run));
         }
 
-        private async Task<(AgentMessage Message, AgentRun Run)> AddUserMessageAndRunAsync(AgentConversation conversation, string text, string? clientMessageId)
+        private async Task<(AgentMessage Message, AgentRun Run)> AddUserMessageAndRunAsync(AgentConversation conversation, string text, string? clientMessageId, List<AgentAttachmentDto>? attachments = null)
         {
             var now = DateTime.UtcNow;
-            var clean = text.Trim();
+            var clean = (text ?? string.Empty).Trim();
             var cleanClientMessageId = string.IsNullOrWhiteSpace(clientMessageId) ? null : clientMessageId.Trim();
+            var safeAttachments = NormalizeAttachments(attachments);
 
             if (!string.IsNullOrWhiteSpace(cleanClientMessageId))
             {
@@ -451,16 +479,19 @@ namespace taskforge.Controllers.Agent
                 }
             }
 
-            var duplicateCutoff = now.AddSeconds(-2);
-            var recentDuplicate = await _db.AgentMessages.AsNoTracking()
-                .Where(x => x.ConversationId == conversation.Id && x.Role == "user" && x.Text == clean && x.CreatedAtUtc >= duplicateCutoff)
-                .OrderByDescending(x => x.CreatedAtUtc)
-                .FirstOrDefaultAsync();
-            if (recentDuplicate?.RunId != null)
+            if (!string.IsNullOrWhiteSpace(clean) && safeAttachments.Count == 0)
             {
-                var duplicateRun = await _db.AgentRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == recentDuplicate.RunId.Value);
-                if (duplicateRun != null && duplicateRun.Status is not ("completed" or "completed_with_warnings" or "failed" or "canceled"))
-                    return (recentDuplicate, duplicateRun);
+                var duplicateCutoff = now.AddSeconds(-2);
+                var recentDuplicate = await _db.AgentMessages.AsNoTracking()
+                    .Where(x => x.ConversationId == conversation.Id && x.Role == "user" && x.Text == clean && x.CreatedAtUtc >= duplicateCutoff)
+                    .OrderByDescending(x => x.CreatedAtUtc)
+                    .FirstOrDefaultAsync();
+                if (recentDuplicate?.RunId != null)
+                {
+                    var duplicateRun = await _db.AgentRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == recentDuplicate.RunId.Value);
+                    if (duplicateRun != null && duplicateRun.Status is not ("completed" or "completed_with_warnings" or "failed" or "canceled"))
+                        return (recentDuplicate, duplicateRun);
+                }
             }
 
             var message = new AgentMessage
@@ -469,7 +500,8 @@ namespace taskforge.Controllers.Agent
                 ConversationId = conversation.Id,
                 Role = "user",
                 Source = "chat",
-                Text = clean,
+                Text = string.IsNullOrWhiteSpace(clean) && safeAttachments.Count > 0 ? "[файлы]" : clean,
+                DataJson = safeAttachments.Count > 0 ? JsonSerializer.Serialize(new { attachments = safeAttachments }) : null,
                 ClientMessageId = cleanClientMessageId,
                 CreatedAtUtc = now,
             };
@@ -493,12 +525,13 @@ namespace taskforge.Controllers.Agent
                     assignmentId = conversation.AssignmentId,
                     supportTicketId = conversation.SupportTicketId,
                     clientMessageId = message.ClientMessageId,
+                    attachments = safeAttachments,
                 }),
             };
 
             message.RunId = run.Id;
             conversation.UpdatedAtUtc = now;
-            if (conversation.Title == "AI-чат") conversation.Title = NormalizeTitle(null, clean);
+            if (conversation.Title == "AI-чат") conversation.Title = NormalizeTitle(null, string.IsNullOrWhiteSpace(clean) ? "Файлы для AI" : clean);
 
             _db.AgentMessages.Add(message);
             _db.AgentRuns.Add(run);
@@ -590,6 +623,71 @@ namespace taskforge.Controllers.Agent
             return null;
         }
 
+
+        private static List<AgentAttachmentDto> NormalizeAttachments(IEnumerable<AgentAttachmentDto>? attachments)
+        {
+            var result = new List<AgentAttachmentDto>();
+            foreach (var item in attachments ?? Enumerable.Empty<AgentAttachmentDto>())
+            {
+                if (string.IsNullOrWhiteSpace(item.Key)) continue;
+                var key = item.Key.Trim();
+                result.Add(new AgentAttachmentDto
+                {
+                    Key = key,
+                    FileName = string.IsNullOrWhiteSpace(item.FileName) ? Path.GetFileName(key) : Path.GetFileName(item.FileName),
+                    ContentType = string.IsNullOrWhiteSpace(item.ContentType) ? "application/octet-stream" : item.ContentType.Trim(),
+                    SizeBytes = Math.Max(0, item.SizeBytes),
+                    Url = string.IsNullOrWhiteSpace(item.Url) ? $"/api/private-files/{Uri.EscapeDataString(key)}" : item.Url,
+                    ExtractedText = string.IsNullOrWhiteSpace(item.ExtractedText) ? null : item.ExtractedText,
+                });
+            }
+            return result.Take(10).ToList();
+        }
+
+        private static List<AgentAttachmentDto> ExtractAttachments(string? dataJson)
+        {
+            if (string.IsNullOrWhiteSpace(dataJson)) return new List<AgentAttachmentDto>();
+            try
+            {
+                using var doc = JsonDocument.Parse(dataJson);
+                if (!doc.RootElement.TryGetProperty("attachments", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                    return new List<AgentAttachmentDto>();
+                var result = new List<AgentAttachmentDto>();
+                foreach (var item in arr.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    var key = TryGetString(item, "key", "Key");
+                    if (string.IsNullOrWhiteSpace(key)) continue;
+                    result.Add(new AgentAttachmentDto
+                    {
+                        Key = key,
+                        FileName = TryGetString(item, "fileName", "FileName", "name") ?? Path.GetFileName(key),
+                        ContentType = TryGetString(item, "contentType", "ContentType") ?? "application/octet-stream",
+                        SizeBytes = TryGetLong(item, "sizeBytes", "SizeBytes", "size") ?? 0,
+                        Url = TryGetString(item, "url", "Url") ?? $"/api/private-files/{Uri.EscapeDataString(key)}",
+                        ExtractedText = TryGetString(item, "extractedText", "ExtractedText"),
+                    });
+                }
+                return result;
+            }
+            catch
+            {
+                return new List<AgentAttachmentDto>();
+            }
+        }
+
+        private static long? TryGetLong(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt64(out var n)) return n;
+                if (prop.ValueKind == JsonValueKind.String && long.TryParse(prop.GetString(), out var parsed)) return parsed;
+            }
+            return null;
+        }
+
         private static string NormalizeTitle(string? title, string? firstMessage)
         {
             var raw = !string.IsNullOrWhiteSpace(title) ? title! : firstMessage ?? "AI-чат";
@@ -627,6 +725,7 @@ namespace taskforge.Controllers.Agent
             Text = message.Text,
             Source = message.Source,
             Data = ParseJsonElement(message.DataJson),
+            Attachments = ExtractAttachments(message.DataJson),
             ClientMessageId = message.ClientMessageId,
             CreatedAtUtc = message.CreatedAtUtc,
         };

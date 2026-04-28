@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ using taskforge.Data.Models.DTO.Agent;
 using taskforge.Data.Models.Entities;
 using taskforge.Hubs;
 using taskforge.Services.Interfaces;
+using taskforge.Services.Files;
 
 namespace taskforge.Controllers.Agent
 {
@@ -22,13 +24,15 @@ namespace taskforge.Controllers.Agent
         private readonly IConfiguration _config;
         private readonly IHubContext<AgentHub> _hub;
         private readonly ICompilerService _compiler;
+        private readonly IFileStorageService _store;
 
-        public InternalAgentController(ApplicationDbContext db, IConfiguration config, IHubContext<AgentHub> hub, ICompilerService compiler)
+        public InternalAgentController(ApplicationDbContext db, IConfiguration config, IHubContext<AgentHub> hub, ICompilerService compiler, IFileStorageService store)
         {
             _db = db;
             _config = config;
             _hub = hub;
             _compiler = compiler;
+            _store = store;
         }
 
         [HttpPost("claim-next")]
@@ -227,6 +231,32 @@ namespace taskforge.Controllers.Agent
                 });
             }
 
+            var appliedCourseEdits = new List<object>();
+            foreach (var artifact in artifacts)
+            {
+                var applied = await TryApplyAssignmentUpdateBatchAsync(run, artifact, now);
+                if (applied != null) appliedCourseEdits.Add(applied);
+            }
+
+            if (appliedCourseEdits.Count > 0)
+            {
+                _db.AgentSteps.Add(new AgentStep
+                {
+                    Id = Guid.NewGuid(),
+                    RunId = run.Id,
+                    Seq = nextStepSeq++,
+                    Kind = "course_edit",
+                    Status = "completed",
+                    ActionName = "apply_assignment_update_batch",
+                    Title = "AI применил правки к заданиям курса",
+                    Summary = $"Применено пакетов правок: {appliedCourseEdits.Count}.",
+                    OutputJson = JsonSerializer.Serialize(new { appliedCourseEdits }),
+                    CreatedAtUtc = now,
+                    FinishedAtUtc = now,
+                    IsVisibleToUser = true,
+                });
+            }
+
             _db.AgentSteps.Add(new AgentStep
             {
                 Id = Guid.NewGuid(),
@@ -334,13 +364,30 @@ namespace taskforge.Controllers.Agent
                 .FirstAsync(x => x.Id == runId);
 
             var conversation = run.Conversation;
-            var messages = await _db.AgentMessages.AsNoTracking()
+            var messageRows = await _db.AgentMessages.AsNoTracking()
                 .Where(x => x.ConversationId == conversation.Id)
                 .OrderByDescending(x => x.CreatedAtUtc)
                 .Take(24)
                 .OrderBy(x => x.CreatedAtUtc)
-                .Select(x => new { id = x.Id, role = x.Role, text = x.Text, createdAtUtc = x.CreatedAtUtc })
+                .Select(x => new { id = x.Id, role = x.Role, text = x.Text, createdAtUtc = x.CreatedAtUtc, dataJson = x.DataJson })
                 .ToListAsync();
+
+            var messages = messageRows
+                .Select(x => new
+                {
+                    id = x.id,
+                    role = x.role,
+                    text = x.text,
+                    createdAtUtc = x.createdAtUtc,
+                    data = ParseJson(x.dataJson),
+                    attachments = ExtractAgentAttachments(x.dataJson)
+                })
+                .ToList();
+
+            var requestJsonObj = ParseJson(run.RequestJson ?? "{}");
+            var requestJson = requestJsonObj is JsonElement reqEl ? reqEl : default;
+            var allAttachments = messages.SelectMany(x => x.attachments).Concat(ExtractAgentAttachments(requestJson)).ToList();
+            var fileContexts = await BuildAgentFileContextsAsync(allAttachments);
 
             var lastUserText = messages.LastOrDefault(x => x.role == "user")?.text ?? ExtractRequestRawText(run.RequestJson) ?? string.Empty;
             var normalizedUserText = NormalizeCourseSearchText(lastUserText);
@@ -438,6 +485,8 @@ namespace taskforge.Controllers.Agent
                 focusAssignments.Count,
                 courseCatalog.Count);
 
+            var editableAssignments = await BuildEditableAssignmentsAsync(effectiveCourseId);
+
             var compactContextRows = contextAssignmentRows
                 .Select((a, index) => BuildAssignmentOutline(a, index, includeDescriptionPreview: false))
                 .ToList();
@@ -476,10 +525,13 @@ namespace taskforge.Controllers.Agent
                 message = new { text = lastUserText },
                 course = selectedCourse,
                 targetConcepts,
+                attachments = fileContexts,
+                fileContexts,
                 focusAssignments,
                 targetAssignments = focusAssignments,
                 courseOutline = selectedOutline,
                 courseDigest,
+                editableAssignments,
                 assignments = focusAssignments,
                 matchedCourses,
                 courseCatalog,
@@ -670,6 +722,107 @@ namespace taskforge.Controllers.Agent
                 };
             }
             return null;
+        }
+
+        private async Task<List<object>> BuildEditableAssignmentsAsync(Guid? courseId)
+        {
+            if (!courseId.HasValue) return new List<object>();
+            var assignments = await _db.TaskAssignments.AsNoTracking()
+                .Where(x => x.CourseId == courseId.Value)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.CourseId,
+                    x.Title,
+                    x.Description,
+                    x.Type,
+                    x.Difficulty,
+                    x.Rating,
+                    x.Tags,
+                    x.Sort,
+                    x.AllowedLanguagesCsv,
+                    x.IsHidden,
+                    x.LifecycleStatus,
+                    x.IsAiDraft,
+                    x.ImageTestReferenceKey,
+                    x.ImageTestSimilarityThreshold
+                })
+                .ToListAsync();
+
+            var ids = assignments.Select(x => x.Id).ToList();
+            var testCases = await _db.TaskTestCases.AsNoTracking()
+                .Where(x => ids.Contains(x.TaskAssignmentId))
+                .OrderBy(x => x.TaskAssignmentId)
+                .ThenBy(x => x.IsHidden)
+                .Select(x => new { x.TaskAssignmentId, x.Input, x.ExpectedOutput, x.IsHidden })
+                .ToListAsync();
+            var testQuestions = await _db.TaskTestQuestions.AsNoTracking()
+                .Where(x => ids.Contains(x.TaskAssignmentId))
+                .OrderBy(x => x.TaskAssignmentId)
+                .ThenBy(x => x.Order)
+                .Select(x => new { x.TaskAssignmentId, x.Order, x.Type, x.Prompt, x.DataJson })
+                .ToListAsync();
+            var testSettings = await _db.TaskTestSettings.AsNoTracking()
+                .Where(x => ids.Contains(x.TaskAssignmentId))
+                .Select(x => new { x.TaskAssignmentId, x.MaxAttempts, x.PassPercent, x.ShuffleQuestions, x.ShuffleAnswers, x.AllowReview, x.AttemptTimeLimitsJson })
+                .ToListAsync();
+            var mathBlocks = await _db.TaskMathBlocks.AsNoTracking()
+                .Where(x => ids.Contains(x.TaskAssignmentId))
+                .OrderBy(x => x.TaskAssignmentId)
+                .ThenBy(x => x.Order)
+                .Select(x => new { x.TaskAssignmentId, x.Order, x.Kind, x.Prompt, x.PromptContentJson, x.DataJson, x.Score, x.IsRequired })
+                .ToListAsync();
+            var mathSettings = await _db.TaskMathSettings.AsNoTracking()
+                .Where(x => ids.Contains(x.TaskAssignmentId))
+                .Select(x => new { x.TaskAssignmentId, x.MaxAttempts, x.PassPercent, x.ShuffleBlocks, x.AllowReview, x.AttemptTimeLimitsJson })
+                .ToListAsync();
+
+            var testCaseLookup = testCases.GroupBy(x => x.TaskAssignmentId).ToDictionary(x => x.Key, x => x.ToList());
+            var questionLookup = testQuestions.GroupBy(x => x.TaskAssignmentId).ToDictionary(x => x.Key, x => x.ToList());
+            var testSettingsLookup = testSettings.ToDictionary(x => x.TaskAssignmentId);
+            var blockLookup = mathBlocks.GroupBy(x => x.TaskAssignmentId).ToDictionary(x => x.Key, x => x.ToList());
+            var mathSettingsLookup = mathSettings.ToDictionary(x => x.TaskAssignmentId);
+
+            return assignments.Select((a, index) =>
+            {
+                testSettingsLookup.TryGetValue(a.Id, out var ts);
+                mathSettingsLookup.TryGetValue(a.Id, out var ms);
+                testCaseLookup.TryGetValue(a.Id, out var cases);
+                questionLookup.TryGetValue(a.Id, out var questions);
+                blockLookup.TryGetValue(a.Id, out var blocks);
+                return (object)new
+                {
+                    id = a.Id,
+                    courseId = a.CourseId,
+                    index,
+                    sort = a.Sort,
+                    title = a.Title,
+                    description = a.Description,
+                    type = a.Type,
+                    difficulty = a.Difficulty,
+                    rating = a.Rating,
+                    tags = a.Tags,
+                    allowedLanguagesCsv = a.AllowedLanguagesCsv,
+                    isHidden = a.IsHidden,
+                    lifecycleStatus = a.LifecycleStatus,
+                    isAiDraft = a.IsAiDraft,
+                    imageTestReferenceKey = a.ImageTestReferenceKey,
+                    imageTestSimilarityThreshold = a.ImageTestSimilarityThreshold,
+                    testCases = cases == null ? new List<object>() : cases.Select(x => (object)new { input = x.Input, expectedOutput = x.ExpectedOutput, isHidden = x.IsHidden }).ToList(),
+                    testSpec = questions == null ? null : new
+                    {
+                        settings = ts == null ? null : new { ts.MaxAttempts, ts.PassPercent, ts.ShuffleQuestions, ts.ShuffleAnswers, ts.AllowReview, ts.AttemptTimeLimitsJson },
+                        questions = questions.Select(q => new { q.Order, q.Type, q.Prompt, data = ParseJson(q.DataJson) }).ToList()
+                    },
+                    mathSpec = blocks == null ? null : new
+                    {
+                        settings = ms == null ? null : new { ms.MaxAttempts, ms.PassPercent, ms.ShuffleBlocks, ms.AllowReview, ms.AttemptTimeLimitsJson },
+                        blocks = blocks.Select(b => new { b.Order, b.Kind, b.Prompt, b.PromptContentJson, data = ParseJson(b.DataJson), b.Score, b.IsRequired }).ToList()
+                    }
+                };
+            }).ToList();
         }
 
         private static List<AssignmentContextRow> BuildFocusAssignments(List<AssignmentContextRow> assignments, List<string> targetConcepts)
@@ -1016,6 +1169,9 @@ namespace taskforge.Controllers.Agent
                 if (existingDraft != null) return existingDraft;
             }
 
+            var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
+            var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? (difficulty * 10));
+
             var assignment = new TaskAssignment
             {
                 Id = Guid.NewGuid(),
@@ -1023,8 +1179,8 @@ namespace taskforge.Controllers.Agent
                 Title = Trim(title, 200),
                 Description = ToTiptapDocumentJson(description),
                 Type = assignmentType,
-                Difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3),
-                Rating = 1,
+                Difficulty = difficulty,
+                Rating = rating,
                 Sort = 0,
                 AllowedLanguagesCsv = assignmentType == "code-test" ? language : (GetString(data, "allowedLanguagesCsv") ?? language),
                 Tags = MergeTags(GetString(data, "tags"), "AI,черновик"),
@@ -1075,6 +1231,276 @@ namespace taskforge.Controllers.Agent
                 sourceAgentArtifactId = artifact.Id,
                 sourceAgentTaskIndex = assignment.SourceAgentTaskIndex
             };
+        }
+
+        private async Task<object?> TryApplyAssignmentUpdateBatchAsync(AgentRun run, AgentRunArtifact artifact, DateTime now)
+        {
+            if (!string.Equals(artifact.Type, "assignment_update_batch", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(artifact.Type, "course_edit_patch", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(artifact.Type, "course_style_update", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var parsedData = ParseJson(artifact.DataJson);
+            var data = parsedData is JsonElement root ? root : default;
+            if (data.ValueKind != JsonValueKind.Object) return null;
+
+            var courseId = GetGuid(data, "selectedCourseId", "courseId") ?? run.Conversation.CourseId;
+            var updatesArray = GetArrayElement(data, "assignments", "updates", "assignmentUpdates");
+            var orderIds = ExtractGuidArray(data, "order", "assignmentOrder", "orderedAssignmentIds", "courseOrder");
+
+            if (!courseId.HasValue && updatesArray.HasValue)
+            {
+                foreach (var item in updatesArray.Value.EnumerateArray())
+                {
+                    var id = GetGuid(item, "id", "assignmentId");
+                    if (!id.HasValue) continue;
+                    courseId = await _db.TaskAssignments.AsNoTracking()
+                        .Where(x => x.Id == id.Value)
+                        .Select(x => (Guid?)x.CourseId)
+                        .FirstOrDefaultAsync();
+                    if (courseId.HasValue) break;
+                }
+            }
+            if (!courseId.HasValue) return null;
+
+            var courseAssignments = await _db.TaskAssignments
+                .Where(x => x.CourseId == courseId.Value)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync();
+            var byId = courseAssignments.ToDictionary(x => x.Id);
+
+            var updated = new List<object>();
+            var sortOverrides = new Dictionary<Guid, int>();
+
+            if (updatesArray.HasValue)
+            {
+                foreach (var item in updatesArray.Value.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    var id = GetGuid(item, "id", "assignmentId");
+                    if (!id.HasValue || !byId.TryGetValue(id.Value, out var assignment)) continue;
+
+                    var changedFields = new List<string>();
+                    var nextType = NormalizeDraftAssignmentType(GetString(item, "type", "assignmentType", "taskType") ?? assignment.Type);
+                    if (nextType == "image-test") nextType = assignment.Type == "image-test" ? "image-test" : assignment.Type;
+
+                    var title = GetString(item, "title");
+                    if (!string.IsNullOrWhiteSpace(title) && title.Trim() != assignment.Title)
+                    {
+                        assignment.Title = Trim(title, 200);
+                        changedFields.Add("title");
+                    }
+
+                    var description = GetString(item, "description", "condition", "body");
+                    if (!string.IsNullOrWhiteSpace(description))
+                    {
+                        assignment.Description = ToTiptapDocumentJson(description);
+                        changedFields.Add("description");
+                    }
+
+                    if (!string.Equals(assignment.Type, nextType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        assignment.Type = nextType;
+                        changedFields.Add("type");
+                    }
+
+                    var difficulty = GetInt(item, "difficulty");
+                    if (difficulty.HasValue)
+                    {
+                        assignment.Difficulty = Math.Clamp(difficulty.Value, 1, 3);
+                        changedFields.Add("difficulty");
+                    }
+
+                    var rating = GetInt(item, "rating", "points", "score", "weight");
+                    if (rating.HasValue)
+                    {
+                        assignment.Rating = Math.Max(0, rating.Value);
+                        changedFields.Add("rating");
+                    }
+
+                    var tags = GetString(item, "tags");
+                    if (tags != null)
+                    {
+                        assignment.Tags = Trim(tags, 500);
+                        changedFields.Add("tags");
+                    }
+
+                    var allowedLanguages = GetStringList(item, "allowedLanguages", "languages");
+                    var allowedCsv = GetString(item, "allowedLanguagesCsv");
+                    if (allowedLanguages.Count > 0 || allowedCsv != null)
+                    {
+                        assignment.AllowedLanguagesCsv = allowedLanguages.Count > 0
+                            ? string.Join(",", allowedLanguages.Select(NormalizeRunnerLanguage).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+                            : allowedCsv;
+                        changedFields.Add("allowedLanguages");
+                    }
+
+                    var sort = GetInt(item, "sort", "order", "index");
+                    if (sort.HasValue)
+                        sortOverrides[assignment.Id] = Math.Max(0, sort.Value);
+
+                    if (assignment.Type == "code-test" && HasAnyProperty(item, "publicTests", "hiddenTests", "testCases"))
+                    {
+                        await _db.TaskTestCases.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
+                        var cases = ExtractTestCases(item).ToList();
+                        foreach (var tc in cases)
+                        {
+                            _db.TaskTestCases.Add(new TaskTestCase
+                            {
+                                Id = Guid.NewGuid(),
+                                TaskAssignmentId = assignment.Id,
+                                Input = tc.Input,
+                                ExpectedOutput = tc.ExpectedOutput,
+                                IsHidden = tc.IsHidden,
+                            });
+                        }
+                        changedFields.Add("codeTestCases");
+                    }
+
+                    if (assignment.Type == "test" && HasAnyProperty(item, "testSpec", "questions", "test", "taskTest"))
+                    {
+                        await _db.TaskTestSettings.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
+                        await _db.TaskTestQuestions.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
+                        var questions = ExtractDraftTestQuestionSpecs(item).ToList();
+                        if (questions.Count > 0)
+                        {
+                            AddDraftTestContent(assignment.Id, item, questions, now);
+                            changedFields.Add("testSpec");
+                        }
+                    }
+
+                    if (assignment.Type == "math" && HasAnyProperty(item, "mathSpec", "blocks", "math", "taskMath"))
+                    {
+                        await _db.TaskMathSettings.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
+                        await _db.TaskMathBlocks.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
+                        var blocks = ExtractDraftMathBlockSpecs(item).ToList();
+                        if (blocks.Count > 0)
+                        {
+                            AddDraftMathContent(assignment.Id, item, blocks, now);
+                            changedFields.Add("mathSpec");
+                        }
+                    }
+
+                    if (assignment.Type == "image-test")
+                    {
+                        var threshold = GetDouble(item, "imageTestSimilarityThreshold", "similarityThreshold");
+                        if (threshold.HasValue)
+                        {
+                            assignment.ImageTestSimilarityThreshold = Math.Clamp(threshold.Value, 0, 100);
+                            changedFields.Add("imageTestSimilarityThreshold");
+                        }
+                    }
+
+                    if (changedFields.Count > 0)
+                    {
+                        assignment.UpdatedAt = now;
+                        updated.Add(new { id = assignment.Id, title = assignment.Title, type = assignment.Type, changedFields });
+                    }
+                }
+            }
+
+            if (orderIds.Count > 0)
+                ApplyCourseOrder(courseAssignments, orderIds, now);
+            else if (sortOverrides.Count > 0)
+                ApplyCourseSortOverrides(courseAssignments, sortOverrides, now);
+
+            var normalizedRatings = NormalizeCourseRatingsIfRequested(data, courseAssignments, now);
+
+            return new
+            {
+                courseId = courseId.Value,
+                updatedCount = updated.Count,
+                updated,
+                reordered = orderIds.Count > 0 || sortOverrides.Count > 0,
+                normalizedRatings,
+            };
+        }
+
+        private static bool HasAnyProperty(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return false;
+            foreach (var name in names)
+            {
+                if (element.TryGetProperty(name, out _)) return true;
+            }
+            return false;
+        }
+
+        private static List<Guid> ExtractGuidArray(JsonElement element, params string[] names)
+        {
+            var result = new List<Guid>();
+            var arr = GetArrayElement(element, names);
+            if (arr == null) return result;
+            foreach (var item in arr.Value.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String && Guid.TryParse(item.GetString(), out var id)) result.Add(id);
+                else if (item.ValueKind == JsonValueKind.Object)
+                {
+                    var objId = GetGuid(item, "id", "assignmentId");
+                    if (objId.HasValue) result.Add(objId.Value);
+                }
+            }
+            return result.Distinct().ToList();
+        }
+
+        private static void ApplyCourseOrder(List<TaskAssignment> ordered, List<Guid> preferredOrder, DateTime now)
+        {
+            var byId = ordered.ToDictionary(x => x.Id);
+            var next = new List<TaskAssignment>();
+            foreach (var id in preferredOrder)
+            {
+                if (byId.TryGetValue(id, out var assignment) && !next.Any(x => x.Id == id))
+                    next.Add(assignment);
+            }
+            foreach (var assignment in ordered.OrderBy(x => x.Sort).ThenBy(x => x.CreatedAt))
+            {
+                if (!next.Any(x => x.Id == assignment.Id)) next.Add(assignment);
+            }
+            for (var i = 0; i < next.Count; i++)
+            {
+                next[i].Sort = i;
+                next[i].UpdatedAt = now;
+            }
+        }
+
+        private static void ApplyCourseSortOverrides(List<TaskAssignment> ordered, Dictionary<Guid, int> sortOverrides, DateTime now)
+        {
+            var next = ordered
+                .OrderBy(x => sortOverrides.TryGetValue(x.Id, out var value) ? value : x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToList();
+            for (var i = 0; i < next.Count; i++)
+            {
+                next[i].Sort = i;
+                next[i].UpdatedAt = now;
+            }
+        }
+
+        private static int NormalizeCourseRatingsIfRequested(JsonElement data, List<TaskAssignment> assignments, DateTime now)
+        {
+            var policy = (GetString(data, "ratingPolicy", "difficultyRatingPolicy") ?? string.Empty).ToLowerInvariant();
+            var shouldNormalize = GetBool(data, "normalizeRatings", "normalizeDifficultyRatings") == true
+                                  || policy.Contains("difficulty")
+                                  || policy.Contains("ровн")
+                                  || policy.Contains("difficulty_based");
+            if (!shouldNormalize) return 0;
+
+            var changed = 0;
+            foreach (var assignment in assignments)
+            {
+                var target = assignment.Difficulty switch
+                {
+                    <= 1 => 10,
+                    2 => 20,
+                    _ => 30,
+                };
+                if (assignment.Rating == target) continue;
+                assignment.Rating = target;
+                assignment.UpdatedAt = now;
+                changed++;
+            }
+            return changed;
         }
 
         private static string NormalizeDraftAssignmentType(string? value)
@@ -1791,7 +2217,7 @@ namespace taskforge.Controllers.Agent
                     if (!tags.Contains(part, StringComparer.OrdinalIgnoreCase)) tags.Add(part);
                 }
             }
-            return string.Join(',', tags);
+            return string.Join(",", tags);
         }
 
         private static IEnumerable<AgentRunArtifact> ExtractArtifacts(Guid runId, JsonElement result, DateTime now)
@@ -1815,6 +2241,131 @@ namespace taskforge.Controllers.Agent
                     CreatedAtUtc = now,
                 };
             }
+        }
+
+
+        private static List<AgentAttachmentDto> ExtractAgentAttachments(string? dataJson)
+        {
+            if (string.IsNullOrWhiteSpace(dataJson)) return new List<AgentAttachmentDto>();
+            try
+            {
+                using var doc = JsonDocument.Parse(dataJson);
+                return ExtractAgentAttachments(doc.RootElement);
+            }
+            catch
+            {
+                return new List<AgentAttachmentDto>();
+            }
+        }
+
+        private static List<AgentAttachmentDto> ExtractAgentAttachments(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return new List<AgentAttachmentDto>();
+            if (!element.TryGetProperty("attachments", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                return new List<AgentAttachmentDto>();
+
+            var result = new List<AgentAttachmentDto>();
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var key = GetString(item, "key", "Key");
+                if (string.IsNullOrWhiteSpace(key)) continue;
+                result.Add(new AgentAttachmentDto
+                {
+                    Key = key.Trim(),
+                    FileName = GetString(item, "fileName", "FileName", "name") ?? Path.GetFileName(key),
+                    ContentType = GetString(item, "contentType", "ContentType") ?? "application/octet-stream",
+                    SizeBytes = GetLong(item, "sizeBytes", "SizeBytes", "size") ?? 0,
+                    Url = GetString(item, "url", "Url") ?? $"/api/private-files/{Uri.EscapeDataString(key)}",
+                    ExtractedText = GetString(item, "extractedText", "ExtractedText"),
+                });
+            }
+            return result;
+        }
+
+        private async Task<List<object>> BuildAgentFileContextsAsync(IEnumerable<AgentAttachmentDto> attachments)
+        {
+            var result = new List<object>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in attachments ?? Enumerable.Empty<AgentAttachmentDto>())
+            {
+                if (string.IsNullOrWhiteSpace(item.Key) || !seen.Add(item.Key)) continue;
+                var contentType = string.IsNullOrWhiteSpace(item.ContentType) ? "application/octet-stream" : item.ContentType;
+                var fileName = string.IsNullOrWhiteSpace(item.FileName) ? Path.GetFileName(item.Key) : item.FileName;
+                var text = item.ExtractedText;
+                var extractStatus = string.IsNullOrWhiteSpace(text) ? "not_extracted" : "provided_by_client";
+
+                if (string.IsNullOrWhiteSpace(text) && IsTextLikeAgentAttachment(fileName, contentType, item.SizeBytes))
+                {
+                    try
+                    {
+                        var (stream, actualContentType) = await _store.GetAsync(item.Key);
+                        await using (stream)
+                        {
+                            text = await ReadTextPreviewAsync(stream, 160_000);
+                        }
+                        contentType = string.IsNullOrWhiteSpace(actualContentType) ? contentType : actualContentType;
+                        extractStatus = string.IsNullOrWhiteSpace(text) ? "empty" : "extracted_text_preview";
+                    }
+                    catch (Exception ex)
+                    {
+                        extractStatus = "extract_failed: " + ex.GetType().Name;
+                    }
+                }
+                else if (string.IsNullOrWhiteSpace(text))
+                {
+                    extractStatus = "binary_or_unsupported";
+                }
+
+                result.Add(new
+                {
+                    key = item.Key,
+                    fileName,
+                    contentType,
+                    sizeBytes = item.SizeBytes,
+                    url = item.Url,
+                    extractStatus,
+                    textPreview = Trim(text, 120_000)
+                });
+            }
+            return result;
+        }
+
+        private static bool IsTextLikeAgentAttachment(string? fileName, string? contentType, long sizeBytes)
+        {
+            if (sizeBytes > 2_000_000) return false;
+            var ct = (contentType ?? string.Empty).ToLowerInvariant();
+            if (ct.StartsWith("text/") || ct.Contains("json") || ct.Contains("xml") || ct.Contains("csv") || ct.Contains("yaml") || ct.Contains("markdown")) return true;
+            var ext = Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
+            return ext is ".txt" or ".md" or ".markdown" or ".json" or ".csv" or ".tsv" or ".xml" or ".html" or ".htm" or ".yaml" or ".yml" or ".cs" or ".js" or ".jsx" or ".ts" or ".tsx" or ".py" or ".cpp" or ".hpp" or ".c" or ".h" or ".java" or ".pas" or ".sql";
+        }
+
+        private static async Task<string> ReadTextPreviewAsync(Stream stream, int maxBytes)
+        {
+            var buffer = new byte[Math.Max(1024, maxBytes)];
+            var total = 0;
+            while (total < maxBytes)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(total, maxBytes - total));
+                if (read <= 0) break;
+                total += read;
+            }
+            if (total <= 0) return string.Empty;
+            var text = Encoding.UTF8.GetString(buffer, 0, total);
+            text = text.Replace("\0", "").Trim();
+            return total >= maxBytes ? text + "\n[... файл обрезан для AI-контекста ...]" : text;
+        }
+
+        private static long? GetLong(JsonElement element, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return null;
+            foreach (var name in names)
+            {
+                if (!element.TryGetProperty(name, out var prop)) continue;
+                if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt64(out var n)) return n;
+                if (prop.ValueKind == JsonValueKind.String && long.TryParse(prop.GetString(), out var parsed)) return parsed;
+            }
+            return null;
         }
 
         private static bool IsTerminalStepStatus(string? status)
@@ -1937,6 +2488,7 @@ namespace taskforge.Controllers.Agent
             text = message.Text,
             source = message.Source,
             data = ParseJson(message.DataJson),
+            attachments = ExtractAgentAttachments(message.DataJson),
             clientMessageId = message.ClientMessageId,
             createdAtUtc = message.CreatedAtUtc,
         };

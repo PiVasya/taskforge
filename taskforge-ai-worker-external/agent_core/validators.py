@@ -190,6 +190,31 @@ class ResultValidator:
             if assignment_type == "code-test" and not _description_is_step_by_step(result.data):
                 return _fail_result(result, "Вылизанный code-test черновик отклонён: описание не похоже на пошаговую обучалку.", warnings, validation)
 
+
+        if result.type == "assignment_update_batch":
+            assignments = result.data.get("assignments") or []
+            order = result.data.get("order") or []
+            validation.setdefault("assignmentUpdateCount", len(assignments) if isinstance(assignments, list) else 0)
+            validation.setdefault("orderCount", len(order) if isinstance(order, list) else 0)
+            if not isinstance(assignments, list):
+                return _fail_result(result, "Пакет правок отклонён: assignments должен быть массивом.", warnings, validation)
+            if not isinstance(order, list):
+                return _fail_result(result, "Пакет правок отклонён: order должен быть массивом id.", warnings, validation)
+            editable = context.raw_payload.get("editableAssignments") if isinstance(context.raw_payload.get("editableAssignments"), list) else []
+            known_ids = {str(x.get("id")) for x in editable if isinstance(x, dict) and x.get("id")}
+            if known_ids:
+                unknown = []
+                for item in assignments:
+                    if isinstance(item, dict) and item.get("id") and str(item.get("id")) not in known_ids:
+                        unknown.append(str(item.get("id")))
+                for item in order:
+                    if str(item) not in known_ids:
+                        unknown.append(str(item))
+                if unknown:
+                    return _fail_result(result, "Пакет правок отклонён: LLM вернул неизвестные assignment id.", warnings + unknown[:5], validation)
+            if not assignments and not order and not result.data.get("normalizeRatings"):
+                return _fail_result(result, "Пакет правок отклонён: нет ни assignments, ни order, ни normalizeRatings.", warnings, validation)
+
         if result.type == "bridge_plan":
             items = result.data.get("items") or []
             validation.setdefault("itemCount", len(items))

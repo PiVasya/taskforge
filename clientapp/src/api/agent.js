@@ -34,3 +34,10 @@ export async function polishAgentGeneratedTasks(conversationId, payload) {
   const res = await api.post(`/api/agent/conversations/${conversationId}/polish-tasks`, payload);
   return res.data;
 }
+
+export async function uploadAgentAttachment(conversationId, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await api.post(`/api/agent/conversations/${conversationId}/attachments`, fd);
+  return res.data;
+}

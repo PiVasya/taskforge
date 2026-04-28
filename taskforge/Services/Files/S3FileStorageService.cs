@@ -59,6 +59,30 @@ public sealed class S3FileStorageService : IFileStorageService
         return key;
     }
 
+    public async Task<string> UploadFileAsync(IFormFile file, string folder, CancellationToken ct = default)
+    {
+        if (file is null || file.Length <= 0)
+            throw new ArgumentException("Empty file", nameof(file));
+
+        var ext = Path.GetExtension(file.FileName);
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".bin";
+
+        var key = MakeKey(folder, ext);
+        await using var stream = file.OpenReadStream();
+
+        var req = new PutObjectRequest
+        {
+            BucketName = Bucket,
+            Key = key,
+            InputStream = stream,
+            ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+        };
+
+        _log.LogInformation("[S3] PUT {Key} ({ContentType}, {Size} bytes)", key, req.ContentType, file.Length);
+        await _s3.PutObjectAsync(req, ct);
+        return key;
+    }
+
     public async Task<string> UploadBytesAsync(byte[] bytes, string contentType, string folder, string fileExtension = ".bin", CancellationToken ct = default)
     {
         if (bytes is null || bytes.Length == 0)

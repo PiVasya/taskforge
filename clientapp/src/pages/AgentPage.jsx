@@ -10,6 +10,7 @@ import {
   FileJson,
   Loader2,
   PanelRightOpen,
+  Paperclip,
   Plus,
   RefreshCw,
   Send,
@@ -32,6 +33,7 @@ import {
   getAgentConversation,
   listAgentConversations,
   sendAgentMessage,
+  uploadAgentAttachment,
   polishAgentGeneratedTask,
   polishAgentGeneratedTasks,
 } from '../api/agent';
@@ -121,6 +123,13 @@ function getArtifactData(message) {
   return artifacts;
 }
 
+function getMessageAttachments(message) {
+  const fromDto = Array.isArray(message?.attachments) ? message.attachments : [];
+  const data = message?.data || message?.Data;
+  const fromData = data && typeof data === 'object' && Array.isArray(data.attachments) ? data.attachments : [];
+  return fromDto.length ? fromDto : fromData;
+}
+
 function pickReadableArtifactTitle(artifact) {
   return artifact?.title || artifact?.data?.title || artifact?.type || 'AI artifact';
 }
@@ -168,6 +177,24 @@ function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedD
         >
           {text}
         </div>
+
+        {getMessageAttachments(message).length > 0 && (
+          <div className="flex flex-wrap gap-2 px-1">
+            {getMessageAttachments(message).map((file, idx) => (
+              <a
+                key={`${file?.key || file?.fileName || idx}`}
+                href={file?.url || (file?.key ? `/api/private-files/${encodeURIComponent(file.key)}` : undefined)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-xl border border-neutral-200/70 bg-white/70 px-2.5 py-1 text-xs text-neutral-700 hover:border-brand-300 dark:border-neutral-800/70 dark:bg-neutral-950/40 dark:text-neutral-200"
+                title={file?.fileName || file?.key || 'файл'}
+              >
+                <Paperclip size={13} />
+                <span className="truncate">{file?.fileName || file?.key || 'файл'}</span>
+              </a>
+            ))}
+          </div>
+        )}
 
         {artifacts.length > 0 && (
           <div className="w-full space-y-2">
@@ -503,8 +530,11 @@ export default function AgentPage() {
   const [realtimeEvents, setRealtimeEvents] = useState([]);
   const [polishingTasks, setPolishingTasks] = useState({});
   const [selectedDraftTasks, setSelectedDraftTasks] = useState({});
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   const bottomRef = useRef(null);
+  const fileInputRef = useRef(null);
   const selectedIdRef = useRef(null);
   const sendingRef = useRef(false);
 
@@ -675,7 +705,8 @@ export default function AgentPage() {
 
   const sendText = async (overrideText) => {
     const value = safeText(overrideText ?? text);
-    if (!value || sendingRef.current) return;
+    const filesToUpload = [...pendingFiles];
+    if ((!value && filesToUpload.length === 0) || sendingRef.current) return;
 
     sendingRef.current = true;
     setSending(true);
@@ -700,20 +731,29 @@ export default function AgentPage() {
         setConversations((prev) => [conv, ...prev.filter((x) => normalizeId(x.id) !== normalizeId(conv.id))]);
       }
 
+      setUploadingFiles(filesToUpload.length > 0);
+      const uploadedAttachments = [];
+      for (const file of filesToUpload) {
+        const uploaded = await uploadAgentAttachment(targetId, file);
+        uploadedAttachments.push(uploaded);
+      }
+
       const optimistic = {
         id: clientMessageId,
         conversationId: targetId,
         role: 'user',
-        text: value,
+        text: value || '[файлы]',
         source: 'optimistic',
         clientMessageId,
         createdAtUtc: nowIso(),
+        attachments: uploadedAttachments.length ? uploadedAttachments : filesToUpload.map((f) => ({ fileName: f.name, sizeBytes: f.size, contentType: f.type })),
       };
       setMessages((prev) => sortByTimeAsc(upsertMessage(prev, optimistic)));
       setText('');
+      setPendingFiles([]);
       setTimeout(() => scrollToBottom(), 0);
 
-      const res = await sendAgentMessage(targetId, { text: value, clientMessageId });
+      const res = await sendAgentMessage(targetId, { text: value, clientMessageId, attachments: uploadedAttachments });
       if (res?.message) {
         setMessages((prev) => sortByTimeAsc(upsertMessage(prev, res.message)));
       }
@@ -725,6 +765,7 @@ export default function AgentPage() {
     } finally {
       sendingRef.current = false;
       setSending(false);
+      setUploadingFiles(false);
     }
   };
 
@@ -836,6 +877,18 @@ export default function AgentPage() {
     }
   };
 
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      setPendingFiles((prev) => [...prev, ...files].slice(0, 10));
+    }
+    e.target.value = '';
+  };
+
+  const removePendingFile = (index) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     sendText();
@@ -934,6 +987,17 @@ export default function AgentPage() {
                 </div>
               </div>
             )}
+            {pendingFiles.length > 0 && (
+              <div className="mx-auto mb-2 flex max-w-5xl flex-wrap gap-2 rounded-2xl border border-neutral-200/70 bg-white/70 px-3 py-2 text-xs dark:border-neutral-800/70 dark:bg-neutral-950/30">
+                {pendingFiles.map((file, idx) => (
+                  <span key={`${file.name}-${idx}`} className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-xl bg-neutral-100 px-2 py-1 dark:bg-neutral-900">
+                    <Paperclip size={13} />
+                    <span className="truncate">{file.name}</span>
+                    <button type="button" className="text-neutral-400 hover:text-danger-600" onClick={() => removePendingFile(idx)} aria-label="Убрать файл">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="mx-auto flex max-w-5xl items-end gap-2">
               <div className="min-w-0 flex-1 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white/80 dark:bg-neutral-950/40 px-3 py-2 shadow-soft focus-within:border-brand-400">
                 <Textarea
@@ -958,13 +1022,17 @@ export default function AgentPage() {
                   <button type="button" className="hover:text-brand-600" onClick={() => setText('Создай задачи в стиле курса без резкого скачка сложности.')}>в стиле курса</button>
                 </div>
               </div>
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
+              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} className="!min-w-0 !px-3 h-12" title="Прикрепить файлы к AI-контексту">
+                <Paperclip size={15} />
+              </Button>
               {activeRun && (
                 <Button type="button" variant="outline" onClick={stopActiveRun} className="!min-w-0 !px-3 h-12">
                   <Square size={15} />
                 </Button>
               )}
-              <Button type="submit" disabled={sending || !text.trim()} className="!min-w-0 h-12 px-4">
-                {sending ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
+              <Button type="submit" disabled={sending || uploadingFiles || (!text.trim() && pendingFiles.length === 0)} className="!min-w-0 h-12 px-4">
+                {sending || uploadingFiles ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
                 <span className="hidden sm:inline">Отправить</span>
               </Button>
             </form>

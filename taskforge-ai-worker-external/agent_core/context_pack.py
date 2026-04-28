@@ -80,6 +80,12 @@ def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 62000) -
     focus_assignments = context.raw_payload.get("focusAssignments") or context.raw_payload.get("targetAssignments") or []
     if not isinstance(focus_assignments, list):
         focus_assignments = []
+    file_contexts = context.raw_payload.get("fileContexts") or context.raw_payload.get("attachments") or []
+    if not isinstance(file_contexts, list):
+        file_contexts = []
+    editable_assignments = context.raw_payload.get("editableAssignments") or context.raw_payload.get("editable_assignments") or []
+    if not isinstance(editable_assignments, list):
+        editable_assignments = []
     course_outline = context.raw_payload.get("courseOutline") or context.raw_payload.get("course_outline") or context.recent_assignments or []
     if not isinstance(course_outline, list):
         course_outline = []
@@ -98,6 +104,10 @@ def build_ai_context(context: AgentContextSnapshot, *, max_chars: int = 62000) -
         "targetConcepts": target_concepts if isinstance(target_concepts, list) else [],
         "courseMap": course_map,
         "courseMapPolicy": "courseMap is the compact full selected-course index and must be scanned before any absence claim. It is placed before verbose details so late modules survive context trimming.",
+        "fileContexts": trim_list(file_contexts, 20),
+        "fileContextPolicy": "User-uploaded files are first-class context. If textPreview is present, use it as source material and cite the fileName in your reasoning/summary. If extractStatus is binary_or_unsupported, acknowledge that only metadata is available.",
+        "editableAssignments": trim_list(editable_assignments, 220),
+        "editableAssignmentsPolicy": "For course editing scenarios this is the editable full snapshot: ids, order, difficulty, rating, descriptions, code tests, test questions and math blocks. Use ids exactly when returning update patches.",
         "courseOutline": trim_list(course_outline, 1000),
         "courseOutlinePolicy": "courseOutline is the full selected-course map. Do not conclude a topic is absent from focusAssignments only; scan courseMap/courseOutline/courseDigest first.",
         "focusAssignments": trim_list(focus_assignments, 90),

@@ -156,6 +156,11 @@ class AgentRuntime:
                 {"name": "guided_ladder", "label": "Собрать лесенку"},
                 {"name": "bridge_tasks", "label": "Собрать мостик"},
             ]
+        if result.type == "assignment_update_batch":
+            return [
+                {"name": "course_analysis", "label": "Проверить курс после правок"},
+                {"name": "course_edit", "label": "Продолжить правку"},
+            ]
         if result.type == "polished_assignment_draft":
             return [
                 {"name": "open_draft", "label": "Открыть скрытый черновик"},

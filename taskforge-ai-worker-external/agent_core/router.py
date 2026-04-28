@@ -30,6 +30,13 @@ class Rule:
 
 SCENARIO_RULES: List[Rule] = [
     Rule(
+        scenario_id="course_edit",
+        must_contain_any=["редактир", "измени задания", "поменяй задания", "подгони", "подогнать", "единый стиль", "один стиль", "перестав", "порядок задан", "расставь рейтинг", "рейтинг", "нормализуй", "выровняй"],
+        must_not_contain_any=["только объясни", "не меняй"],
+        priority=99,
+        reason="Пользователь просит изменить существующие задания курса: стиль, порядок, рейтинг или содержимое.",
+    ),
+    Rule(
         scenario_id="course_analysis",
         must_contain_any=["анализ", "изучи", "изучить", "разбери", "посмотри", "пойми", "проверь курс", "структур", "карта курса"],
         must_not_contain_any=["не анализ"],
@@ -82,6 +89,17 @@ class ScenarioRouter:
         scenarios: List[ScenarioDefinition],
     ) -> ScenarioRoute:
         scenario_ids = {s.id for s in scenarios}
+
+        if "course_edit" in scenario_ids and _has_any(message.lowered, ["редактир", "существующ", "подгони", "подогнать", "единый стиль", "один стиль", "перестав", "порядок", "расставь рейтинг", "рейтинг", "нормализуй", "выровняй"]):
+            return ScenarioRoute(
+                scenario_id="course_edit",
+                confidence=98,
+                reason="Пользователь просит применить правки к существующим заданиям курса.",
+                execution_mode="single",
+                requested_count=message.requested_count,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
 
         if message.wants_revision and "draft_revision" in scenario_ids and _has_current_draft(context):
             return ScenarioRoute(
