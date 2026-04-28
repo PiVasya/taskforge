@@ -200,14 +200,17 @@ class ContextSupervisor:
         selected_course = message.selected_course or {}
         course_catalog = _extract_course_catalog(payload)
         course_contexts = _extract_course_contexts(payload)
+        effective_course_id = message.course_id or memory.get("activeCourseId") or memory.get("selectedCourseId") or memory.get("courseId")
         course_title = _first(
             selected_course.get("title"), selected_course.get("Title"), selected_course.get("name"), selected_course.get("Name")
         ) if isinstance(selected_course, dict) else None
+        if not course_title:
+            course_title = _first(memory.get("activeCourseTitle"), memory.get("selectedCourseTitle"), memory.get("courseTitle"))
         if not course_title and course_contexts:
-            if message.course_id:
+            if effective_course_id:
                 for ctx in course_contexts:
                     course = ctx.get("course") if isinstance(ctx.get("course"), dict) else {}
-                    if str(_first(ctx.get("courseId"), course.get("id"), course.get("Id"))) == str(message.course_id):
+                    if str(_first(ctx.get("courseId"), course.get("id"), course.get("Id"))) == str(effective_course_id):
                         course_title = str(_first(ctx.get("courseTitle"), course.get("title"), course.get("Title"), "")) or None
                         break
             elif len(course_contexts) > 1:
@@ -226,7 +229,7 @@ class ContextSupervisor:
         if not isinstance(concept_map, dict):
             concept_map = build_concept_map(digest)
         return AgentContextSnapshot(
-            course_id=message.course_id,
+            course_id=str(effective_course_id) if effective_course_id else None,
             course_title=str(course_title) if course_title else None,
             user_message=message.raw_text,
             chat_summary=str(memory.get("summary") or memory.get("chatSummary") or ""),

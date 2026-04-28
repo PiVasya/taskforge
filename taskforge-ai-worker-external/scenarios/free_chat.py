@@ -36,6 +36,7 @@ class FreeChatScenario(Scenario):
         task = """
 Ответь как живой AI-ассистент TaskForge. Можно использовать любые курсы из courseCatalog/courseContexts.
 Если пользователь просит действие, но оно требует отдельного сценария, объясни коротко и предложи следующий запрос.
+Если пользователь спрашивает, куда/в какой курс/после чего сохранены задачи, проверь currentDraftBlueprint, последние polished_assignment_draft и их selectedCourseId/beforeAssignmentId/afterAssignmentId. Если selectedCourseId=null, честно скажи, что в курс они не сохранены, а остались blueprint/результатом в чате.
 Не делай вид, что выполнил генерацию/сохранение, если этого не было.
 """
         try:

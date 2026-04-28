@@ -280,11 +280,17 @@ class PolishAssignmentDraftScenario(Scenario):
         data.setdefault("tags", "ОАИП,C++,AI,черновик" if language == "cpp" else "AI,черновик")
         data.setdefault("warnings", [])
         data.setdefault("qualityNotes", [])
-        data.setdefault("sourceTaskIndex", req.get("taskIndex") or task.get("index"))
-        data.setdefault("selectedCourseId", context.course_id or req.get("courseId"))
-        data.setdefault("selectedCourseTitle", context.course_title)
-        data.setdefault("beforeAssignmentId", req.get("beforeAssignmentId") or (as_dict(task.get("placement")).get("beforeAssignmentId") if isinstance(task.get("placement"), dict) else None))
-        data.setdefault("afterAssignmentId", req.get("afterAssignmentId") or (as_dict(task.get("placement")).get("afterAssignmentId") if isinstance(task.get("placement"), dict) else None))
+        if not data.get("sourceTaskIndex"):
+            data["sourceTaskIndex"] = req.get("taskIndex") or task.get("index")
+        placement = as_dict(task.get("placement"))
+        if not data.get("selectedCourseId"):
+            data["selectedCourseId"] = context.course_id or req.get("courseId") or task.get("selectedCourseId")
+        if not data.get("selectedCourseTitle"):
+            data["selectedCourseTitle"] = context.course_title or task.get("selectedCourseTitle")
+        if not data.get("beforeAssignmentId"):
+            data["beforeAssignmentId"] = req.get("beforeAssignmentId") or task.get("beforeAssignmentId") or placement.get("beforeAssignmentId")
+        if not data.get("afterAssignmentId"):
+            data["afterAssignmentId"] = req.get("afterAssignmentId") or task.get("afterAssignmentId") or placement.get("afterAssignmentId")
         data = _normalize_language_fields(data, language, assignment_type)
 
         if assignment_type == "code-test":
@@ -295,11 +301,16 @@ class PolishAssignmentDraftScenario(Scenario):
                 if repaired:
                     data = _normalize_language_fields(as_dict(repaired), language, assignment_type)
                     data["type"] = "polished_assignment_draft"
-                    data.setdefault("selectedCourseId", context.course_id or req.get("courseId"))
-                    data.setdefault("selectedCourseTitle", context.course_title)
-                    data.setdefault("beforeAssignmentId", req.get("beforeAssignmentId"))
-                    data.setdefault("afterAssignmentId", req.get("afterAssignmentId"))
-                    data.setdefault("sourceTaskIndex", req.get("taskIndex") or task.get("index"))
+                    if not data.get("selectedCourseId"):
+                        data["selectedCourseId"] = context.course_id or req.get("courseId") or task.get("selectedCourseId")
+                    if not data.get("selectedCourseTitle"):
+                        data["selectedCourseTitle"] = context.course_title or task.get("selectedCourseTitle")
+                    if not data.get("beforeAssignmentId"):
+                        data["beforeAssignmentId"] = req.get("beforeAssignmentId") or task.get("beforeAssignmentId")
+                    if not data.get("afterAssignmentId"):
+                        data["afterAssignmentId"] = req.get("afterAssignmentId") or task.get("afterAssignmentId")
+                    if not data.get("sourceTaskIndex"):
+                        data["sourceTaskIndex"] = req.get("taskIndex") or task.get("index")
                     validation = self._validate_with_runner(data, language)
                     data["runnerValidation"] = validation
         else:
@@ -307,6 +318,9 @@ class PolishAssignmentDraftScenario(Scenario):
             data["contentValidation"] = validation
 
         warnings = [str(x) for x in as_list(data.get("warnings"))]
+        can_create_hidden_draft = bool(data.get("selectedCourseId"))
+        if not can_create_hidden_draft:
+            warnings.append("Курс для сохранения не определён: backend не будет создавать скрытый черновик, пока не выбран курс или позиция вставки.")
         if not validation.get("passed"):
             warnings.append("Черновик не прошёл автоматическую проверку структуры/тестов; будет сохранён с предупреждением для ручной проверки.")
 
@@ -319,7 +333,10 @@ class PolishAssignmentDraftScenario(Scenario):
             b_count = len(as_list(as_dict(data.get("mathSpec")).get("blocks")))
             detail = f"математические блоки: {b_count}; структурная проверка: {'успешно' if validation.get('passed') else 'есть замечания'}"
 
-        summary = f"Вылизал задание «{data.get('title')}» ({assignment_type}): условие и данные черновика подготовлены; {detail}."
+        if can_create_hidden_draft:
+            summary = f"Вылизал задание «{data.get('title')}» ({assignment_type}): условие и данные черновика подготовлены; {detail}."
+        else:
+            summary = f"Вылизал задание «{data.get('title')}» ({assignment_type}), но не сохранил в курс: не определён selectedCourseId/позиция вставки; {detail}."
         return ScenarioResult(
             type="polished_assignment_draft",
             scenario_id=self.id,
@@ -336,7 +353,7 @@ class PolishAssignmentDraftScenario(Scenario):
                 "runnerPassed": bool(data.get("runnerValidation", {}).get("passed")) if isinstance(data.get("runnerValidation"), dict) else False,
                 "contentValidatorUsed": assignment_type != "code-test",
                 "contentValidatorPassed": bool(validation.get("passed")),
-                "willCreateHiddenDraft": True,
+                "willCreateHiddenDraft": can_create_hidden_draft,
             },
         )
 

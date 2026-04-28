@@ -275,7 +275,20 @@ namespace taskforge.Controllers.Agent
 
             var memoryPatchRaw = GetRaw(result, "memoryPatch", "memory_patch");
             if (!string.IsNullOrWhiteSpace(memoryPatchRaw))
-                run.Conversation.MemoryJson = memoryPatchRaw;
+                run.Conversation.MemoryJson = MergeAgentMemoryPatch(run.Conversation.MemoryJson, memoryPatchRaw);
+
+            if (!run.Conversation.CourseId.HasValue)
+            {
+                var createdCourseId = ExtractFirstCreatedDraftCourseId(createdDrafts);
+                if (createdCourseId.HasValue)
+                    run.Conversation.CourseId = createdCourseId.Value;
+                else
+                {
+                    var activeCourseId = ExtractActiveCourseIdFromMemory(run.Conversation.MemoryJson);
+                    if (activeCourseId.HasValue)
+                        run.Conversation.CourseId = activeCourseId.Value;
+                }
+            }
 
             run.Conversation.UpdatedAtUtc = now;
             await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
@@ -391,7 +404,14 @@ namespace taskforge.Controllers.Agent
 
             var lastUserText = messages.LastOrDefault(x => x.role == "user")?.text ?? ExtractRequestRawText(run.RequestJson) ?? string.Empty;
             var normalizedUserText = NormalizeCourseSearchText(lastUserText);
-            var targetConcepts = InferTargetConcepts(normalizedUserText);
+            var conversationSearchText = NormalizeCourseSearchText(string.Join(" ", new[]
+            {
+                conversation.Title,
+                string.Join(" ", messages.Where(x => x.role == "user").Select(x => x.text)),
+                ExtractRequestRawText(run.RequestJson),
+            }.Where(x => !string.IsNullOrWhiteSpace(x))));
+            var memoryCourseIds = ExtractCourseIdsFromAgentMemory(conversation.MemoryJson).ToHashSet();
+            var targetConcepts = InferTargetConcepts($"{normalizedUserText} {conversationSearchText}");
 
             object? selectedCourse = null;
             List<AssignmentContextRow> selectedAssignmentRows = new();
@@ -429,6 +449,8 @@ namespace taskforge.Controllers.Agent
                     x.description,
                     x.assignmentCount,
                     Score = ScoreCourseForAgentContext(lowerText, x.title, x.description)
+                            + Math.Min(70, ScoreCourseForAgentContext(conversationSearchText, x.title, x.description) / 2)
+                            + (memoryCourseIds.Contains(x.id) ? 75 : 0)
                 })
                 .OrderByDescending(x => x.Score)
                 .ThenByDescending(x => x.assignmentCount)
@@ -1077,6 +1099,112 @@ namespace taskforge.Controllers.Agent
         {
             var text = string.IsNullOrWhiteSpace(value) ? "taskforge-ai-worker" : value.Trim();
             return text.Length > 128 ? text[..128] : text;
+        }
+
+        private static string MergeAgentMemoryPatch(string? existingJson, string patchRaw)
+        {
+            try
+            {
+                var existing = ParseObjectElements(existingJson);
+                var patch = ParseObjectElements(patchRaw);
+                foreach (var item in patch)
+                {
+                    if (item.Value.ValueKind == JsonValueKind.Null || item.Value.ValueKind == JsonValueKind.Undefined)
+                        existing.Remove(item.Key);
+                    else
+                        existing[item.Key] = item.Value.Clone();
+                }
+                return JsonSerializer.Serialize(existing);
+            }
+            catch
+            {
+                return string.IsNullOrWhiteSpace(patchRaw) ? (existingJson ?? "{}") : patchRaw;
+            }
+        }
+
+        private static Dictionary<string, JsonElement> ParseObjectElements(string? json)
+        {
+            var result = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(json)) return result;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return result;
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    result[prop.Name] = prop.Value.Clone();
+            }
+            catch
+            {
+            }
+            return result;
+        }
+
+        private static Guid? ExtractActiveCourseIdFromMemory(string? memoryJson)
+        {
+            var ids = ExtractCourseIdsFromAgentMemory(memoryJson);
+            return ids.Count == 1 ? ids[0] : null;
+        }
+
+        private static Guid? ExtractFirstCreatedDraftCourseId(IEnumerable<object> createdDrafts)
+        {
+            foreach (var item in createdDrafts)
+            {
+                if (item == null) continue;
+                var prop = item.GetType().GetProperty("courseId") ?? item.GetType().GetProperty("CourseId");
+                var value = prop?.GetValue(item);
+                if (value is Guid id) return id;
+                if (Guid.TryParse(value?.ToString(), out var parsed)) return parsed;
+            }
+            return null;
+        }
+
+        private static List<Guid> ExtractCourseIdsFromAgentMemory(string? memoryJson)
+        {
+            var result = new List<Guid>();
+            if (string.IsNullOrWhiteSpace(memoryJson)) return result;
+            try
+            {
+                using var doc = JsonDocument.Parse(memoryJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return result;
+                AddCourseIdsFromElement(doc.RootElement, result);
+            }
+            catch
+            {
+            }
+            return result.Distinct().Take(8).ToList();
+        }
+
+        private static void AddCourseIdsFromElement(JsonElement element, List<Guid> result)
+        {
+            if (result.Count >= 16) return;
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in element.EnumerateObject())
+                {
+                    if (prop.Name.Equals("courseId", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("selectedCourseId", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("activeCourseId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.String && Guid.TryParse(prop.Value.GetString(), out var id))
+                            result.Add(id);
+                    }
+
+                    if (prop.Name.Equals("selectedCourses", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("usedCourses", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("findings", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("currentDraftBlueprint", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("lastCourseAnalysis", StringComparison.OrdinalIgnoreCase)
+                        || prop.Name.Equals("lastGapAudit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddCourseIdsFromElement(prop.Value, result);
+                    }
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in element.EnumerateArray())
+                    AddCourseIdsFromElement(item, result);
+            }
         }
 
         private static string? ExtractRequestRawText(string? requestJson)

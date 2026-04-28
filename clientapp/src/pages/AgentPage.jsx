@@ -154,7 +154,7 @@ function ThinkingDots() {
   );
 }
 
-function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks }) {
+function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, currentCourseId }) {
   const role = String(message?.role || '').toLowerCase();
   const isUser = role === 'user';
   const artifacts = getArtifactData(message);
@@ -210,6 +210,7 @@ function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedD
                 onToggleDraftTask={onToggleDraftTask}
                 onSetDraftTasks={onSetDraftTasks}
                 polishingTasks={polishingTasks}
+                currentCourseId={currentCourseId}
               />
             ))}
           </div>
@@ -228,7 +229,7 @@ function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedD
   );
 }
 
-function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks }) {
+function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, currentCourseId }) {
   const data = artifact?.data || {};
   const tasks = Array.isArray(data.tasks) ? data.tasks : Array.isArray(data.drafts) ? data.drafts : [];
   const findings = Array.isArray(data.findings) ? data.findings : [];
@@ -237,6 +238,15 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
     const taskKey = `${message?.id || message?.runId || 'message'}-${artifactIndex}-${task?.index || i}`;
     return { task, taskIndex: task.index ?? i + 1, artifact, artifactIndex, message, taskKey };
   });
+  const artifactPlacement = data?.placement || {};
+  const hasPersistTarget = Boolean(
+    currentCourseId ||
+    data?.selectedCourseId ||
+    data?.courseId ||
+    artifactPlacement.beforeAssignmentId ||
+    artifactPlacement.afterAssignmentId ||
+    taskItems.some(({ task }) => task?.selectedCourseId || task?.courseId || task?.beforeAssignmentId || task?.afterAssignmentId || task?.placement?.beforeAssignmentId || task?.placement?.afterAssignmentId),
+  );
   const selectedInArtifact = taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]).length;
   const allSelected = taskItems.length > 0 && selectedInArtifact === taskItems.length;
   const anyPolishing = taskItems.some((item) => polishingTasks?.[item.taskKey]);
@@ -265,13 +275,13 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
               </button>
               <button
                 type="button"
-                disabled={!selectedInArtifact || anyPolishing}
+                disabled={!selectedInArtifact || anyPolishing || !hasPersistTarget}
                 onClick={() => onPolishSelectedTasks?.(taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]))}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60 dark:border-brand-900"
-                title="Отправить выбранные задания пачкой. Каждое задание станет отдельным AI-run и может обрабатываться параллельно."
+                title={hasPersistTarget ? 'Отправить выбранные задания пачкой. Каждое задание станет отдельным AI-run и может обрабатываться параллельно.' : 'Нельзя создать скрытые черновики: AI не определил курс или позицию вставки.'}
               >
                 {anyPolishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                в черновики{selectedInArtifact ? `: ${selectedInArtifact}` : ''}
+                {hasPersistTarget ? `в черновики${selectedInArtifact ? `: ${selectedInArtifact}` : ''}` : 'нужен курс'}
               </button>
             </>
           )}
@@ -280,6 +290,11 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
       </div>
 
       {data?.summary && <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{data.summary}</div>}
+      {tasks.length > 0 && !hasPersistTarget && (
+        <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50/80 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          AI не указал курс/позицию для сохранения. Такие задачи можно смотреть как blueprint, но кнопки создания скрытых черновиков заблокированы, чтобы они не “терялись”.
+        </div>
+      )}
 
       {findings.length > 0 && (
         <div className="mt-3 space-y-2">
@@ -320,13 +335,13 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
                   {onPolishTask && (
                     <button
                       type="button"
-                      disabled={polishing}
+                      disabled={polishing || !hasPersistTarget}
                       onClick={() => onPolishTask(item)}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-60 dark:border-brand-900 dark:bg-neutral-950/50 dark:text-brand-300"
-                      title="Выбрать только это задание: AI вылижет его, прогонит решение на раннерах и создаст скрытый черновик"
+                      title={hasPersistTarget ? 'Выбрать только это задание: AI вылижет его, прогонит решение на раннерах и создаст скрытый черновик' : 'Нельзя создать скрытый черновик: AI не определил курс или позицию вставки.'}
                     >
                       {polishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                      {polishing ? 'вылизываю' : 'одно в черновик'}
+                      {polishing ? 'вылизываю' : hasPersistTarget ? 'одно в черновик' : 'нужен курс'}
                     </button>
                   )}
                 </div>
@@ -967,6 +982,7 @@ export default function AgentPage() {
                     onToggleDraftTask={toggleDraftTask}
                     onSetDraftTasks={setDraftTaskSelection}
                     polishingTasks={polishingTasks}
+                    currentCourseId={conversation?.courseId || courseId || null}
                   />
                 ))}
                 <ThinkingPanel run={activeRun} />

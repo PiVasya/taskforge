@@ -183,26 +183,15 @@ namespace taskforge.Controllers.Agent
             var conversation = await _db.AgentConversations.FirstOrDefaultAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived);
             if (conversation == null) return NotFound();
 
-            var courseId = request.CourseId ?? conversation.CourseId;
-            if (!courseId.HasValue && request.BeforeAssignmentId.HasValue)
-            {
-                courseId = await _db.TaskAssignments.AsNoTracking()
-                    .Where(x => x.Id == request.BeforeAssignmentId.Value)
-                    .Select(x => (Guid?)x.CourseId)
-                    .FirstOrDefaultAsync();
-            }
-            if (!courseId.HasValue && request.AfterAssignmentId.HasValue)
-            {
-                courseId = await _db.TaskAssignments.AsNoTracking()
-                    .Where(x => x.Id == request.AfterAssignmentId.Value)
-                    .Select(x => (Guid?)x.CourseId)
-                    .FirstOrDefaultAsync();
-            }
+            var courseId = await ResolvePolishCourseIdAsync(conversation, request);
             if (courseId.HasValue && !await _courseAccess.CanViewCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             if (request.Task.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
                 throw new ValidationException("Не передано AI-задание для вылизывания.");
+
+            if (!courseId.HasValue)
+                throw new ValidationException("Не определён курс для сохранения AI-черновика. Сгенерируйте задания в контексте курса или выберите курс/позицию вставки.");
 
             var now = DateTime.UtcNow;
             var taskTitle = TryGetString(request.Task, "title") ?? TryGetString(request.Task, "Title") ?? $"Задание {request.TaskIndex ?? 1}";
@@ -328,6 +317,9 @@ namespace taskforge.Controllers.Agent
                     sourceArtifactId = item.SourceArtifactId,
                 });
             }
+
+            if (prepared.Any(x => !x.CourseId.HasValue))
+                throw new ValidationException("Не определён курс для одного или нескольких AI-черновиков. Сгенерируйте задания в контексте курса или укажите позицию вставки.");
 
             var message = new AgentMessage
             {
@@ -554,7 +546,12 @@ namespace taskforge.Controllers.Agent
 
         private async Task<Guid?> ResolvePolishCourseIdAsync(AgentConversation conversation, AgentPolishGeneratedTaskRequest request)
         {
-            var courseId = request.CourseId ?? conversation.CourseId;
+            var courseId = request.CourseId
+                           ?? TryGetGuid(request.Task, "selectedCourseId", "courseId")
+                           ?? TryGetNestedGuid(request.Task, "placement", "courseId")
+                           ?? conversation.CourseId
+                           ?? ExtractActiveCourseIdFromMemory(conversation.MemoryJson);
+
             if (!courseId.HasValue && request.BeforeAssignmentId.HasValue)
             {
                 courseId = await _db.TaskAssignments.AsNoTracking()
@@ -570,6 +567,44 @@ namespace taskforge.Controllers.Agent
                     .FirstOrDefaultAsync();
             }
             return courseId;
+        }
+
+        private static Guid? TryGetGuid(JsonElement element, params string[] names)
+        {
+            var value = TryGetString(element, names);
+            return Guid.TryParse(value, out var id) ? id : null;
+        }
+
+        private static Guid? TryGetNestedGuid(JsonElement element, string objectName, params string[] names)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(objectName, out var obj) || obj.ValueKind != JsonValueKind.Object)
+                return null;
+            return TryGetGuid(obj, names);
+        }
+
+        private static Guid? ExtractActiveCourseIdFromMemory(string? memoryJson)
+        {
+            if (string.IsNullOrWhiteSpace(memoryJson)) return null;
+            try
+            {
+                using var doc = JsonDocument.Parse(memoryJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+                foreach (var key in new[] { "activeCourseId", "selectedCourseId", "courseId" })
+                {
+                    if (doc.RootElement.TryGetProperty(key, out var prop)
+                        && prop.ValueKind == JsonValueKind.String
+                        && Guid.TryParse(prop.GetString(), out var id))
+                        return id;
+                }
+                if (doc.RootElement.TryGetProperty("currentDraftBlueprint", out var draft)
+                    && draft.ValueKind == JsonValueKind.Object
+                    && TryGetGuid(draft, "selectedCourseId", "courseId") is Guid draftCourseId)
+                    return draftCourseId;
+            }
+            catch
+            {
+            }
+            return null;
         }
 
         private async Task<Guid?> EnsureContextAllowedAsync(Guid userId, string? role, Guid? courseId, Guid? assignmentId, Guid? supportTicketId)

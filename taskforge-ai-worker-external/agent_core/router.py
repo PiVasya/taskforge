@@ -90,6 +90,17 @@ class ScenarioRouter:
     ) -> ScenarioRoute:
         scenario_ids = {s.id for s in scenarios}
 
+        if _has_any(message.lowered, ["в какой курс", "какой курс", "куда сохран", "куда сохрани", "где сохран", "сохранены задач", "сохранены черновик", "после чего сохран", "куда они"]):
+            return ScenarioRoute(
+                scenario_id="free_chat",
+                confidence=92,
+                reason="Пользователь спрашивает статус/место сохранения уже созданных черновиков, а не просит генерировать новые задачи.",
+                execution_mode="single",
+                requested_count=message.requested_count,
+                target_concept=message.target_concept,
+                requested_style=message.requested_style,
+            )
+
         if "course_edit" in scenario_ids and _has_any(message.lowered, ["редактир", "существующ", "подгони", "подогнать", "единый стиль", "один стиль", "перестав", "порядок", "расставь рейтинг", "рейтинг", "нормализуй", "выровняй"]):
             return ScenarioRoute(
                 scenario_id="course_edit",
