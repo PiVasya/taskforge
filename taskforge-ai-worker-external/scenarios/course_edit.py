@@ -48,7 +48,7 @@ class CourseEditScenario(Scenario):
                 "rating": 10,
                 "sort": 0,
                 "tags": "comma,separated,tags",
-                "allowedLanguages": ["cpp"],
+                "allowedLanguages": ["string"],
                 "publicTests": [{"input": "string", "expectedOutput": "string"}],
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
                 "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
@@ -70,7 +70,7 @@ class CourseEditScenario(Scenario):
 6. Поддерживай все типы: code-test, test, math, image-test. Для image-test можно менять title, description, tags, difficulty, rating, sort, но не выдумывай картинку/эталон.
 7. Для code-test при изменении тестов возвращай publicTests/hiddenTests. Для test возвращай testSpec.questions, для math возвращай mathSpec.blocks.
 8. Не превращай test/math/image-test в code-test без явной причины пользователя.
-9. Сохраняй язык курса. Для C++ не переключайся на Python.
+9. Сохраняй язык курса для любого поддерживаемого языка: C++, C#, Python, JavaScript, Pascal, Java. Не переключай код и терминологию на другой язык.
 10. Если файловые материалы есть в fileContexts, используй их как материалы: добавляй термины/условия/примеры из textPreview, но не копируй бессмысленно весь файл.
 11. Если правка слишком широкая, всё равно верни безопасный частичный patch и warnings.
 

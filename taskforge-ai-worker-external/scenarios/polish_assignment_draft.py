@@ -8,6 +8,15 @@ from agent_core.llm_json import LlmJsonClient, compact_json
 from api_client import AgentApiClient
 from scenarios.base import Scenario, llm_failed_result
 from scenarios.llm_common import BASE_SYSTEM, TASKFORGE_TRAINING_TASK_STYLE, as_dict, as_list, as_str
+from agent_core.languages import (
+    LANGUAGE_CANONICAL_SOLUTION_KEY,
+    detect_expected_language_from_text,
+    ensure_language_solution_field,
+    language_prompt_line,
+    language_solution_schema_fields,
+    normalize_language,
+    solution_text_for_language,
+)
 
 
 SUPPORTED_ASSIGNMENT_TYPES = {"code-test", "test", "math"}
@@ -42,7 +51,9 @@ def _normalize_assignment_type(value: Any, *, task: Dict[str, Any] | None = None
         return "test"
     if any(k in task for k in ["mathSpec", "blocks"]):
         return "math"
-    if any(k in task for k in ["publicTests", "hiddenTests", "testCases", "referenceSolutionCpp", "referenceSolutionPython"]):
+    if any(k in task for k in ["publicTests", "hiddenTests", "testCases"]):
+        return "code-test"
+    if any(k.startswith("referenceSolution") or k.startswith("solution") for k in task.keys()):
         return "code-test"
     if any(word in haystack for word in ["single-choice", "multi-choice", "вариант", "тест", "вопрос", "acceptedanswers"]):
         return "test"
@@ -52,22 +63,21 @@ def _normalize_assignment_type(value: Any, *, task: Dict[str, Any] | None = None
 
 
 def _language_from_task(task: Dict[str, Any], context: AgentContextSnapshot) -> str:
-    explicit = str(task.get("language") or "").lower()
-    allowed = [str(x).lower() for x in task.get("allowedLanguages", [])] if isinstance(task.get("allowedLanguages"), list) else []
-    haystack = compact_json({"task": task, "courseTitle": context.course_title, "message": context.user_message}, 3000).lower()
-    if explicit in {"cpp", "c++"} or "cpp" in allowed or "c++" in allowed or "с++" in haystack or "c++" in haystack:
-        return "cpp"
-    if explicit in {"python", "py"} or "python" in allowed:
-        return "python"
-    if explicit in {"javascript", "js"} or "javascript" in allowed or "js" in allowed:
-        return "javascript"
-    if explicit in {"csharp", "c#", "cs"} or "csharp" in allowed or "c#" in allowed:
-        return "csharp"
-    if explicit in {"pascal", "pas"} or "pascal" in allowed:
-        return "pascal"
-    if explicit == "java" or "java" in allowed:
-        return "java"
-    return "cpp"
+    explicit = normalize_language(task.get("language"))
+    if explicit:
+        return explicit
+    allowed = [normalize_language(x) for x in task.get("allowedLanguages", [])] if isinstance(task.get("allowedLanguages"), list) else []
+    for lang in allowed:
+        if lang:
+            return lang
+    detected = detect_expected_language_from_text([
+        task,
+        context.course_title,
+        context.user_message,
+        context.raw_payload.get("selectedCourseTitle"),
+        context.raw_payload.get("matchedCourses"),
+    ])
+    return detected or "cpp"
 
 
 def _tests_from(data: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -85,12 +95,16 @@ def _tests_from(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _normalize_language_fields(data: Dict[str, Any], language: str, assignment_type: str) -> Dict[str, Any]:
+    language = normalize_language(language) or "cpp"
     data["assignmentType"] = assignment_type
     if assignment_type == "code-test":
         data["language"] = language
         data["allowedLanguages"] = [language]
-        if language == "cpp":
-            data["referenceSolutionPython"] = None
+        ensure_language_solution_field(data, language)
+        canonical = LANGUAGE_CANONICAL_SOLUTION_KEY.get(language)
+        for key in LANGUAGE_CANONICAL_SOLUTION_KEY.values():
+            if key != canonical and key not in data:
+                data[key] = None
     else:
         data.setdefault("language", language)
         data.setdefault("allowedLanguages", [language])
@@ -117,11 +131,11 @@ def _schema_for(assignment_type: str, language: str) -> Dict[str, Any]:
         "warnings": ["string"],
     }
     if assignment_type == "code-test":
+        solution_fields = language_solution_schema_fields(language)
         common.update({
             "publicTests": [{"input": "string", "expectedOutput": "string"}],
             "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
-            "referenceSolutionCpp": "string|null",
-            "referenceSolutionPython": "string|null",
+            **solution_fields,
             "runnerValidation": {"attempts": []},
         })
     elif assignment_type == "test":
@@ -255,7 +269,7 @@ class PolishAssignmentDraftScenario(Scenario):
             "Учитывай весь курс: сначала сканируй courseMap/courseOutline/courseDigest, а не только focusAssignments. Если ищешь тему позднего модуля, не делай вывод по первым задачам.\n"
             "Если есть placement before/after и sourceTaskIndex — сохрани их, чтобы backend мог вставить пакет в правильном порядке.\n"
             "Для code-test нужны минимум 2 публичных и 2 скрытых теста, эталонное решение и runner-проверка. Для test/math runner не используется: нужна структурная проверка контента.\n"
-            f"Язык курса/кода: {language}. Для code-test на C++ обязательно referenceSolutionCpp, allowedLanguages=['cpp'], referenceSolutionPython=null. Для test/math кодовое решение не требуется.\n"
+            f"Язык курса/кода: {language}. {language_prompt_line(language)}\n"
             "Текст задания должен быть в стиле TaskForge: понятная обучалка, нормальные переносы, шаги или ясные блоки условия, без заглушек.\n\n"
             f"Эталон стиля обучающих задач:\n{TASKFORGE_TRAINING_TASK_STYLE}\n\n"
             f"Выбранное задание JSON:\n{compact_json(task, 16000)}\n\n"
@@ -277,7 +291,7 @@ class PolishAssignmentDraftScenario(Scenario):
             data["assignmentType"] = assignment_type if assignment_type in SUPPORTED_ASSIGNMENT_TYPES else "code-test"
         assignment_type = data["assignmentType"]
         data.setdefault("difficulty", int(task.get("difficulty") or 1))
-        data.setdefault("tags", "ОАИП,C++,AI,черновик" if language == "cpp" else "AI,черновик")
+        data.setdefault("tags", f"AI,черновик,{language}")
         data.setdefault("warnings", [])
         data.setdefault("qualityNotes", [])
         if not data.get("sourceTaskIndex"):
@@ -358,7 +372,7 @@ class PolishAssignmentDraftScenario(Scenario):
         )
 
     def _validate_with_runner(self, data: Dict[str, Any], language: str) -> Dict[str, Any]:
-        code = as_str(data.get("referenceSolutionCpp") if language == "cpp" else data.get("referenceSolutionPython"))
+        code = as_str(solution_text_for_language(data, language))
         tests = _tests_from(data)
         attempts: List[Dict[str, Any]] = []
         if not code or not tests:

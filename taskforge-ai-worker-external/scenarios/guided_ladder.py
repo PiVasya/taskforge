@@ -7,6 +7,7 @@ from agent_core.contracts import AgentContextSnapshot, ScenarioDefinition, Scena
 from agent_core.llm_json import LlmJsonClient, compact_json
 from scenarios.base import Scenario, llm_failed_result, previous_artifact, requested_count, target_concept
 from scenarios.llm_common import BASE_SYSTEM, TASKFORGE_TRAINING_TASK_STYLE, as_dict, as_list, as_str
+from agent_core.languages import language_solution_schema_fields
 
 
 class GuidedLadderScenario(Scenario):
@@ -49,8 +50,7 @@ class GuidedLadderScenario(Scenario):
                 "description": "string",
                 "publicTests": [{"input": "string", "expectedOutput": "string"}],
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
-                "referenceSolutionCpp": "string|null",
-                "referenceSolutionPython": "string|null",
+                **language_solution_schema_fields(),
                 "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
                 "mathSpec": {"settings": {}, "blocks": [{"kind": "info|number|expression|set|single-choice|multi-choice|order|match", "prompt": "string", "acceptedAnswers": ["string"], "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"]}]},
                 "pedagogicalGoal": "string",
@@ -68,9 +68,9 @@ class GuidedLadderScenario(Scenario):
             f"Собери обучающую лесенку из {count} маленьких задач. Целевая тема: {concept}.\n"
             "Главная цель — не просто придумать условия, а сделать обучающие задачи в стиле первых заданий курса: ученик должен видеть, какие строки писать в код и зачем.\n"
             "Если пользователь просит 'перед 20 задачей', используй gap_report/currentDraftBlueprint/lastGapAudit для placement.\n"
-            "Если задача типа code-test и контекст/прошлый черновик указывает C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp не null, referenceSolutionPython=null. Для test/math кодовое решение не требуется.\n"
-            "Если задача типа code-test и тема if/условия, задача, где вводится if, обязана иметь if в referenceSolutionCpp. Первые шаги могут тренировать сравнения без if только если это явно подготовка перед if.\n"
-            "Нельзя возвращать шаблонные одинаковые задачи, нельзя переключаться на Python при C++-курсе. Не генерируй image/image-test: задачи на картинки выключены.\n\n"
+            "Если задача типа code-test, сохраняй язык курса/прошлого черновика: cpp/referenceSolutionCpp, csharp/referenceSolutionCsharp, python/referenceSolutionPython, javascript/referenceSolutionJavascript, pascal/referenceSolutionPascal, java/referenceSolutionJava. Для test/math кодовое решение не требуется.\n"
+            "Если задача типа code-test и тема if/условия, задача, где вводится if, обязана иметь if в эталонном решении на выбранном языке. Первые шаги могут тренировать сравнения без if только если это явно подготовка перед if.\n"
+            "Нельзя возвращать шаблонные одинаковые задачи, нельзя переключать язык курса. Не генерируй image/image-test: задачи на картинки выключены.\n\n"
             f"Эталон стиля обучающих задач:\n{TASKFORGE_TRAINING_TASK_STYLE}\n\n"
             f"gap_report:\n{compact_json(gap_report, 12000)}\n\n"
             f"Контекст TaskForge:\n{build_ai_context(context, max_chars=78000)}\n\n"

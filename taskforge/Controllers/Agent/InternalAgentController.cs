@@ -1273,9 +1273,7 @@ namespace taskforge.Controllers.Agent
                 return null;
 
             var language = NormalizeRunnerLanguage(GetString(data, "language") ?? "cpp");
-            var solution = language == "python"
-                ? GetString(data, "referenceSolutionPython", "referenceSolution", "solutionPython", "solution")
-                : GetString(data, "referenceSolutionCpp", "referenceSolution", "solutionCpp", "solution");
+            var solution = GetReferenceSolutionForLanguage(data, language);
 
             var tests = assignmentType == "code-test" ? ExtractTestCases(data).ToList() : new List<DraftTestCase>();
             var testQuestions = assignmentType == "test" ? ExtractDraftTestQuestionSpecs(data).ToList() : new List<DraftTestQuestionSpec>();
@@ -2655,17 +2653,32 @@ namespace taskforge.Controllers.Agent
             createdAtUtc = message.CreatedAtUtc,
         };
 
+        private static string? GetReferenceSolutionForLanguage(JsonElement data, string? language)
+        {
+            var lang = NormalizeRunnerLanguage(language);
+            return lang switch
+            {
+                "cpp" => GetString(data, "referenceSolutionCpp", "solutionCpp", "referenceSolutionCxx", "solutionCxx", "referenceSolution", "solution"),
+                "csharp" => GetString(data, "referenceSolutionCsharp", "referenceSolutionCSharp", "referenceSolutionCs", "solutionCsharp", "solutionCSharp", "solutionCs", "referenceSolution", "solution"),
+                "python" => GetString(data, "referenceSolutionPython", "solutionPython", "referenceSolutionPy", "solutionPy", "referenceSolution", "solution"),
+                "javascript" => GetString(data, "referenceSolutionJavascript", "referenceSolutionJavaScript", "referenceSolutionJs", "solutionJavascript", "solutionJavaScript", "solutionJs", "referenceSolution", "solution"),
+                "pascal" => GetString(data, "referenceSolutionPascal", "solutionPascal", "referenceSolutionPas", "solutionPas", "referenceSolution", "solution"),
+                "java" => GetString(data, "referenceSolutionJava", "solutionJava", "referenceSolution", "solution"),
+                _ => GetString(data, "referenceSolution", "solution", "referenceSolutionCpp", "solutionCpp", "referenceSolutionCsharp", "referenceSolutionCSharp", "referenceSolutionCs", "solutionCsharp", "solutionCSharp", "solutionCs", "referenceSolutionPython", "solutionPython", "referenceSolutionJavascript", "referenceSolutionJavaScript", "referenceSolutionJs", "solutionJavascript", "solutionJavaScript", "solutionJs", "referenceSolutionPascal", "solutionPascal", "referenceSolutionJava", "solutionJava")
+            };
+        }
+
         private static string NormalizeRunnerLanguage(string? value)
         {
             var text = (value ?? string.Empty).Trim().ToLowerInvariant();
             return text switch
             {
-                "c++" or "cpp" or "g++" or "gcc" or "cxx" => "cpp",
-                "c#" or "csharp" or "cs" => "csharp",
-                "py" or "python3" or "python" => "python",
-                "js" or "javascript" or "node" or "nodejs" => "javascript",
-                "pas" or "pascal" => "pascal",
-                "java" => "java",
+                "c++" or "cpp" or "g++" or "gcc" or "cxx" or "си++" or "с++" => "cpp",
+                "c#" or "csharp" or "cs" or "sharp" or "си#" or "с#" or "шарп" => "csharp",
+                "py" or "python3" or "python" or "питон" => "python",
+                "js" or "javascript" or "java-script" or "node" or "nodejs" or "node.js" => "javascript",
+                "pas" or "pascal" or "паскаль" => "pascal",
+                "java" or "джава" => "java",
                 _ => string.IsNullOrWhiteSpace(text) ? "cpp" : text
             };
         }

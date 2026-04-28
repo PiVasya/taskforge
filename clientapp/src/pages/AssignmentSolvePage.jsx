@@ -36,17 +36,16 @@ function normalizeLang(x) {
   if (!x) return '';
   const s = String(x).trim().toLowerCase();
 
-  if (s === 'c++' || s === 'cpp') return 'cpp';
-  if (s === 'c#' || s === 'cs' || s === 'csharp') return 'csharp';
-  if (s === 'py' || s === 'python') return 'python';
-  if (s === 'js' || s === 'node' || s === 'javascript') return 'javascript';
+  if (s === 'c++' || s === 'cpp' || s === 'g++' || s === 'gcc' || s === 'cxx' || s === 'си++' || s === 'с++') return 'cpp';
+  if (s === 'c#' || s === 'cs' || s === 'csharp' || s === 'sharp' || s === 'си#' || s === 'с#' || s === 'шарп') return 'csharp';
+  if (s === 'py' || s === 'python' || s === 'python3' || s === 'питон') return 'python';
+  if (s === 'js' || s === 'node' || s === 'nodejs' || s === 'node.js' || s === 'javascript' || s === 'java-script') return 'javascript';
 
   // Pascal: можно расширять алиасы как угодно
   if (s === 'pas' || s === 'pascal' || s === 'pascalabc' || s === 'pascalabcnet') return 'pascal';
-  if (s === 'cpp' || s === 'c++' || s === 'cc' || s === 'g++') return 'cpp';
 
   // Java
-  if (s === 'java') return 'java';
+  if (s === 'java' || s === 'джава') return 'java';
 
   return s;
 }
@@ -666,7 +665,7 @@ export default function AssignmentSolvePage() {
                     <CodeEditor
                       value={code}
                       onChange={setCode}
-                      language={language === 'pascal' ? 'pascal' : language === 'cpp' ? 'cpp' : 'python'}
+                      language={language}
                     />
                   </div>
                 </div>

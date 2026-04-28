@@ -6,6 +6,7 @@ from agent_core.contracts import AgentContextSnapshot, ScenarioDefinition, Scena
 from agent_core.llm_json import LlmJsonClient
 from scenarios.base import Scenario, llm_failed_result, requested_count, target_concept
 from scenarios.llm_common import BASE_SYSTEM, TASKFORGE_TRAINING_TASK_STYLE, as_dict, as_list, as_str, context_user_block
+from agent_core.languages import language_solution_schema_fields
 
 def _course_id_title_from_context(context: AgentContextSnapshot) -> Tuple[Optional[str], Optional[str]]:
     if context.course_id:
@@ -264,8 +265,7 @@ class StyleMatchedTasksScenario(Scenario):
                 "description": "string",
                 "publicTests": [{"input": "string", "expectedOutput": "string"}],
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
-                "referenceSolutionCpp": "string|null",
-                "referenceSolutionPython": "string|null",
+                **language_solution_schema_fields(),
                 "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
                 "mathSpec": {"settings": {}, "blocks": [{"kind": "info|number|expression|set|single-choice|multi-choice|order|match", "prompt": "string", "acceptedAnswers": ["string"], "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"]}]},
                 "pedagogicalGoal": "string",
@@ -282,7 +282,7 @@ class StyleMatchedTasksScenario(Scenario):
 Создай {count} качественных черновиков задач по запросу пользователя. Если в контексте есть selectedCourseId/activeCourseId или предыдущий аудит курса, обязательно укажи selectedCourseId, selectedCourseTitle и placement для будущего сохранения. Если пользователь указывает позицию через фразы вроде "перед <темой>", "до <раздела>", "после <задания>", placement должен указывать позицию относительно найденного якоря в курсе. Не привязывайся к одной конкретной теме: одинаково поддерживай матрицы, функции, циклы, строки, классы, тесты и любые другие темы из courseMap/courseContexts.
 Тема/навык: {topic}.
 Не сохраняй в курс на этом шаге: верни blueprint. Но blueprint должен содержать все данные для последующего сохранения скрытых черновиков в конкретный курс. Не используй шаблон-заглушку. Каждая задача должна быть реально осмысленной и отличаться от остальных.
-Если задача типа code-test и контекст указывает C++/Основы C++, строго сохраняй C++: language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null. Для test/math заполняй testSpec/mathSpec, а кодовое решение не требуется.
+Если задача типа code-test, строго сохраняй язык курса/предыдущего черновика: C++ -> language='cpp' и referenceSolutionCpp, C# -> language='csharp' и referenceSolutionCsharp, Python -> referenceSolutionPython, JavaScript -> referenceSolutionJavascript, Pascal -> referenceSolutionPascal, Java -> referenceSolutionJava. allowedLanguages должен содержать тот же runner-id языка. Для test/math заполняй testSpec/mathSpec, а кодовое решение не требуется.
 Если пользователь просит стиль первых обучающих заданий, используй этот эталон:
 {TASKFORGE_TRAINING_TASK_STYLE}
 Если задача типа code-test и тема if/условия, эталонное решение обязано реально содержать if. Не генерируй image/image-test: задачи на картинки выключены.

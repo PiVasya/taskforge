@@ -3,7 +3,7 @@ import Editor from '@monaco-editor/react';
 
 /**
  * Пропсы:
- *  - language: 'cpp' | 'csharp' | 'python'
+ *  - language: 'cpp' | 'csharp' | 'python' | 'javascript' | 'pascal' | 'java'
  *  - value: string
  *  - onChange: (code: string) => void
  *  - height?: number | string
@@ -27,11 +27,29 @@ export default function CodeEditor({
 
   // соответствие языков Monaco
   const monacoLang = useMemo(() => {
-    switch (language) {
-      case 'cpp': return 'cpp';
-      case 'csharp': return 'csharp';
-      case 'python': return 'python';
-      default: return 'plaintext';
+    switch (String(language || '').toLowerCase()) {
+      case 'c++':
+      case 'cpp':
+        return 'cpp';
+      case 'c#':
+      case 'cs':
+      case 'csharp':
+        return 'csharp';
+      case 'py':
+      case 'python':
+        return 'python';
+      case 'js':
+      case 'node':
+      case 'nodejs':
+      case 'javascript':
+        return 'javascript';
+      case 'pas':
+      case 'pascal':
+        return 'pascal';
+      case 'java':
+        return 'java';
+      default:
+        return 'plaintext';
     }
   }, [language]);
 

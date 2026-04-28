@@ -6,33 +6,60 @@ from typing import Any, Dict, List
 from agent_core.contracts import AgentContextSnapshot, ScenarioResult
 
 
+from agent_core.languages import (
+    any_solution_text,
+    detect_expected_language_from_text,
+    normalize_language,
+    solution_text_for_language,
+)
+
+
 def _solution_text(item: Dict[str, Any]) -> str:
-    return str(item.get("referenceSolutionCpp") or item.get("referenceSolutionPython") or "")
+    return any_solution_text(item)
+
+
+def _normalize_language(value: Any) -> str:
+    return normalize_language(value)
+
+
+def _solution_text_for_language(item: Dict[str, Any], language: Any) -> str:
+    return solution_text_for_language(item, language)
 
 
 def _has_if(solution: str) -> bool:
     return bool(re.search(r"\bif\s*\(", solution) or re.search(r"\bif\s+", solution))
 
 
+def _expected_code_language(context: AgentContextSnapshot) -> str | None:
+    return detect_expected_language_from_text([
+        context.user_message,
+        context.course_title,
+        context.raw_payload.get("selectedCourseTitle"),
+        (context.raw_payload.get("course") or {}).get("title") if isinstance(context.raw_payload.get("course"), dict) else "",
+        context.raw_payload.get("memory"),
+        context.raw_payload.get("matchedCourses"),
+    ])
+
+
 def _expects_cpp(context: AgentContextSnapshot) -> bool:
-    haystack = " ".join([
-        str(context.user_message or ""),
-        str(context.course_title or ""),
-        str(context.raw_payload.get("selectedCourseTitle") or ""),
-        str((context.raw_payload.get("course") or {}).get("title") if isinstance(context.raw_payload.get("course"), dict) else ""),
-        str(context.raw_payload.get("memory") or ""),
-    ]).lower()
-    return any(x in haystack for x in ["c++", "с++", "cpp", "си++", "основы c", "основы с"] )
+    return _expected_code_language(context) == "cpp"
+
+
+def _task_matches_expected_language(item: Dict[str, Any], expected_language: str | None) -> bool:
+    assignment_type = str(item.get("assignmentType") or "code-test").lower().replace("_", "-")
+    if assignment_type in {"test", "math"}:
+        return True
+    if not expected_language:
+        return True
+    language = _normalize_language(item.get("language"))
+    allowed = [_normalize_language(x) for x in item.get("allowedLanguages", [])] if isinstance(item.get("allowedLanguages"), list) else []
+    language_ok = language == expected_language or expected_language in allowed
+    solution_ok = bool(_solution_text_for_language(item, expected_language))
+    return language_ok and solution_ok
 
 
 def _task_is_cpp(item: Dict[str, Any]) -> bool:
-    assignment_type = str(item.get("assignmentType") or "code-test").lower().replace("_", "-")
-    if assignment_type in {"test", "math"}:
-        # Non-code task types belong to the same course but do not need a C++ reference solution.
-        return True
-    language = str(item.get("language") or "").lower()
-    allowed = [str(x).lower() for x in item.get("allowedLanguages", [])] if isinstance(item.get("allowedLanguages"), list) else []
-    return (language in {"cpp", "c++", "с++"} or "cpp" in allowed or "c++" in allowed or "с++" in allowed) and bool(item.get("referenceSolutionCpp"))
+    return _task_matches_expected_language(item, "cpp")
 
 
 def _description_is_step_by_step(item: Dict[str, Any]) -> bool:
@@ -99,21 +126,21 @@ class ResultValidator:
                 return _fail_result(result, "LLM не вернул ни одной задачи для лесенки.", warnings, validation)
             target = str(result.data.get("targetConcept") or "").lower()
             invalid_if = 0
-            expects_cpp = _expects_cpp(context)
-            cpp_invalid = 0
+            expected_language = _expected_code_language(context)
+            language_invalid = 0
             style_requested = any(x in str(context.user_message or "").lower() for x in ["лесен", "пошаг", "каждым шаг", "задача 1", "задание 1"])
             style_invalid = 0
             for index, task in enumerate(tasks):
                 if not isinstance(task, dict):
                     continue
-                if expects_cpp and not _task_is_cpp(task):
-                    warnings.append(f"task[{index}] is not C++ although context expects C++")
-                    cpp_invalid += 1
+                if expected_language and not _task_matches_expected_language(task, expected_language):
+                    warnings.append(f"task[{index}] is not {expected_language} although context expects {expected_language}")
+                    language_invalid += 1
                 if style_requested and not _description_is_step_by_step(task):
                     warnings.append(f"task[{index}] description is not step-by-step training style")
                     style_invalid += 1
-            if expects_cpp and cpp_invalid >= max(1, len(tasks) // 2):
-                return _fail_result(result, "Лесенка отклонена: контекст требует C++, но LLM сгенерировал задачи не в C++.", warnings, validation)
+            if expected_language and language_invalid >= max(1, len(tasks) // 2):
+                return _fail_result(result, f"Лесенка отклонена: контекст требует {expected_language}, но LLM сгенерировал задачи на другом языке или без эталонного решения.", warnings, validation)
             if style_requested and style_invalid >= max(1, len(tasks) // 2):
                 return _fail_result(result, "Лесенка отклонена: задачи не оформлены как пошаговая обучалка в стиле заданий 1/1.1.", warnings, validation)
             if target == "if":
@@ -124,7 +151,7 @@ class ResultValidator:
                         continue
                     new_concepts = [str(c).lower() for c in task.get("newConcepts", [])] if isinstance(task.get("newConcepts"), list) else []
                     says_if = any(c == "if" or "услов" in c for c in new_concepts) or "if" in str(task.get("targetSkill") or "").lower()
-                    if says_if and not _has_if(_solution_text(task)):
+                    if says_if and not _has_if(_solution_text_for_language(task, task.get("language") or expected_language)):
                         warnings.append(f"task[{index}] claims to train if but reference solution has no if")
                         invalid_if += 1
                 if invalid_if >= len(tasks):
@@ -138,6 +165,7 @@ class ResultValidator:
             if not drafts:
                 return _fail_result(result, "LLM не вернул ни одного черновика задачи.", warnings, validation)
             topic = str(result.data.get("topic") or "").lower()
+            expected_language = _expected_code_language(context) or _normalize_language(result.data.get("language"))
             invalid_if = 0
             for index, draft in enumerate(drafts):
                 if not isinstance(draft, dict):
@@ -146,7 +174,7 @@ class ResultValidator:
                     continue
                 if not draft.get("title") or not draft.get("description"):
                     warnings.append(f"draft[{index}] is missing title or description")
-                if topic == "if" and not _has_if(_solution_text(draft)):
+                if topic == "if" and not _has_if(_solution_text_for_language(draft, draft.get("language") or expected_language)):
                     warnings.append(f"draft[{index}] claims to train if but reference solution has no if")
                     invalid_if += 1
             if topic == "if" and invalid_if >= len(drafts):
@@ -167,9 +195,9 @@ class ResultValidator:
                 validation.setdefault("testCount", len(tests))
                 if len(tests) < 2:
                     return _fail_result(result, "Вылизанный code-test черновик отклонён: мало тестов.", warnings, validation)
-                if _expects_cpp(context) or str(result.data.get("language") or "").lower() in {"cpp", "c++"}:
-                    if not _task_is_cpp(result.data):
-                        return _fail_result(result, "Вылизанный code-test черновик отклонён: нужен C++ и referenceSolutionCpp.", warnings, validation)
+                expected_language = _expected_code_language(context) or _normalize_language(result.data.get("language"))
+                if expected_language and not _task_matches_expected_language(result.data, expected_language):
+                    return _fail_result(result, f"Вылизанный code-test черновик отклонён: нужен язык {expected_language} и эталонное решение для него.", warnings, validation)
                 runner_validation = result.data.get("runnerValidation") if isinstance(result.data.get("runnerValidation"), dict) else {}
                 validation.setdefault("runnerUsed", bool(runner_validation.get("runnerUsed")))
                 validation.setdefault("runnerPassed", bool(runner_validation.get("passed")))

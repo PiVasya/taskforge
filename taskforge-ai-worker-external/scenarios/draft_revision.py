@@ -6,6 +6,7 @@ from agent_core.contracts import AgentContextSnapshot, ScenarioDefinition, Scena
 from agent_core.llm_json import LlmJsonClient
 from scenarios.base import Scenario, llm_failed_result
 from scenarios.llm_common import BASE_SYSTEM, TASKFORGE_TRAINING_TASK_STYLE, as_dict, as_list, as_str, context_user_block
+from agent_core.languages import language_solution_schema_fields
 
 
 class DraftRevisionScenario(Scenario):
@@ -38,15 +39,14 @@ class DraftRevisionScenario(Scenario):
                 "index": 1,
                 "title": "string",
                 "assignmentType": "code-test|test|math",
-                "language": "cpp",
-                "allowedLanguages": ["cpp"],
+                "language": "string",
+                "allowedLanguages": ["string"],
                 "inputMode": "graphical-editor|code-editor|text",
                 "difficulty": 1,
                 "description": "string with step-by-step instructions",
                 "publicTests": [{"input": "string", "expectedOutput": "string"}],
                 "hiddenTests": [{"input": "string", "expectedOutput": "string"}],
-                "referenceSolutionCpp": "string|null",
-                "referenceSolutionPython": None,
+                **language_solution_schema_fields(),
                 "testSpec": {"settings": {}, "questions": [{"type": "single-choice|multi-choice|fill|text", "prompt": "string", "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"], "acceptedAnswers": ["string"]}]},
                 "mathSpec": {"settings": {}, "blocks": [{"kind": "info|number|expression|set|single-choice|multi-choice|order|match", "prompt": "string", "acceptedAnswers": ["string"], "options": [{"key": "a", "text": "string"}], "correctOptionKeys": ["a"]}]},
                 "pedagogicalGoal": "string",
@@ -68,8 +68,8 @@ class DraftRevisionScenario(Scenario):
 
 Критически важно:
 - Сохрани тему, количество задач, placement и язык из currentDraftBlueprint, если они есть.
-- Если в текущем черновике/контексте был C++ или курс «Основы C++/С++», не переключайся на Python.
-- Для code-test на C++ верни language='cpp', allowedLanguages=['cpp'], referenceSolutionCpp заполнен, referenceSolutionPython=null. Для test/math сохраняй testSpec/mathSpec и не требуй кодовое решение.
+- Не переключай язык: сохраняй язык текущего черновика/курса.
+- Для code-test верни эталонное решение в поле выбранного языка: cpp/referenceSolutionCpp, csharp/referenceSolutionCsharp, python/referenceSolutionPython, javascript/referenceSolutionJavascript, pascal/referenceSolutionPascal, java/referenceSolutionJava. Для test/math сохраняй testSpec/mathSpec и не требуй кодовое решение.
 - Если правишь лесенку, лучше верни сразу исправленный объект type='task_ladder_blueprint', а не сухой revision_plan.
 - Описания задач должны стать настоящими обучалками: с фразой «Следуй шагам:», нумерованными шагами и пояснениями в скобках, как в задачах 1 и 1.1.
 - Не сохраняй в курс. Не используй шаблонные изменения. Не генерируй image/image-test: задачи на картинки выключены в AI-пайплайне.
