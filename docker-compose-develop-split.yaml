@@ -1,0 +1,19 @@
+# TaskForge split compose entrypoint. Docker Compose v2.20+ required for include.
+name: taskforge
+include:
+- path: ./compose/infra.yaml
+  project_directory: .
+- path: ./compose/analyzers.yaml
+  project_directory: .
+- path: ./compose/runners.yaml
+  project_directory: .
+- path: ./compose/core.yaml
+  project_directory: .
+- path: ./compose/bots.yaml
+  project_directory: .
+- path: ./compose/ai.yaml
+  project_directory: .
+- path: ./compose/edge.yaml
+  project_directory: .
+- path: ./compose/ops.yaml
+  project_directory: .

@@ -1,0 +1,101 @@
+# TaskForge compose module: bots.yaml
+services:
+  support-bot:
+    image: ghcr.io/pivasya/taskforge-support-bot:latest
+    container_name: taskforge-support-bot
+    environment:
+      ConnectionStrings__DefaultConnection: 'Host=db;Port=5432;Database=${POSTGRES_DB};
+        Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
+        '
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_SUPPORT_GROUP_ID: ${TELEGRAM_SUPPORT_GROUP_ID}
+      API_BASE_URL: http://api:8080
+      API_INTERNAL_KEY: ${API_INTERNAL_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  telegram-quiz-db:
+    image: postgres:17
+    container_name: taskforge-telegram-quiz-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TELEGRAM_QUIZ_POSTGRES_DB}
+      POSTGRES_USER: ${TELEGRAM_QUIZ_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TELEGRAM_QUIZ_POSTGRES_PASSWORD}
+      TZ: Europe/Warsaw
+    volumes:
+    - telegram-quiz-pgdata:/var/lib/postgresql/data
+    networks:
+    - appnet
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${TELEGRAM_QUIZ_POSTGRES_USER} -d ${TELEGRAM_QUIZ_POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  telegram-quiz-bot:
+    image: ghcr.io/pivasya/taskforge-telegram-quiz-bot:latest
+    pull_policy: always
+    container_name: taskforge-telegram-quiz-bot
+    init: true
+    stop_grace_period: 30s
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__TelegramQuizDb: 'Host=telegram-quiz-db;Port=5432;Database=${TELEGRAM_QUIZ_POSTGRES_DB};
+        Username=${TELEGRAM_QUIZ_POSTGRES_USER};Password=${TELEGRAM_QUIZ_POSTGRES_PASSWORD}
+
+        '
+      TelegramQuiz__TeacherBotToken: ${TELEGRAM_QUIZ_TEACHER_BOT_TOKEN}
+      TelegramQuiz__StudentBotToken: ${TELEGRAM_QUIZ_STUDENT_BOT_TOKEN}
+      TelegramQuiz__TeacherPassword: ${TELEGRAM_QUIZ_TEACHER_PASSWORD}
+      TelegramQuiz__AdminUserId: ${TELEGRAM_QUIZ_ADMIN_USER_ID:-0}
+      TelegramQuiz__ImagePrefix: ${TELEGRAM_QUIZ_IMAGE_PREFIX:-telegram-quiz/images}
+      TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
+      TelegramQuiz__TelegramRequestTimeoutSeconds: ${TELEGRAM_QUIZ_REQUEST_TIMEOUT_SECONDS:-600}
+      TaskForge__ApiBaseUrl: http://api:8080
+      TaskForge__InternalKey: ${API_INTERNAL_KEY}
+      S3__Endpoint: http://minio:9000
+      S3__Bucket: ${S3_BUCKET}
+      S3__AccessKey: ${S3_ACCESS_KEY}
+      S3__SecretKey: ${S3_SECRET_KEY}
+      S3__Region: ${S3_REGION}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE}
+    depends_on:
+      telegram-quiz-db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      minio:
+        condition: service_started
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '3'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+volumes:
+  telegram-quiz-pgdata: null

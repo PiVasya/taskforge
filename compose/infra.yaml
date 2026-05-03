@@ -1,0 +1,77 @@
+# TaskForge compose module: infra.yaml
+services:
+  db:
+    image: postgres:17
+    container_name: taskforge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Europe/Warsaw
+    volumes:
+    - pgdata:/var/lib/postgresql/data
+    networks:
+    - appnet
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  minio:
+    image: minio/minio:latest
+    container_name: taskforge-minio
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TZ: Europe/Warsaw
+    volumes:
+    - minio-data:/data
+    networks:
+    - appnet
+    ports:
+    - 9001:9001
+    - 127.0.0.1:9000:9000
+  minio-init:
+    image: minio/mc:latest
+    container_name: taskforge-minio-init
+    profiles:
+    - init
+    depends_on:
+    - minio
+    networks:
+    - appnet
+    environment:
+      MINIO_INTERNAL_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    entrypoint: "/bin/sh -c ' set -eu;\nuntil mc alias set local \"$MINIO_INTERNAL_ENDPOINT\"\
+      \ \"$MINIO_ROOT_USER\" \"$MINIO_ROOT_PASSWORD\" 2>/dev/null; do\n  echo \"waiting\
+      \ for minio...\"; sleep 2;\ndone;\nmc mb -p \"local/$S3_BUCKET\" || true;\n\
+      mc admin user remove local \"$S3_ACCESS_KEY\" || true; mc admin user add local\
+      \ \"$S3_ACCESS_KEY\" \"$S3_SECRET_KEY\";\nmc admin policy attach local readwrite\
+      \ --user \"$S3_ACCESS_KEY\" || true;\necho \"minio init done\"; '\n"
+    restart: 'no'
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: taskforge-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+    - 8081:80
+    networks:
+    - appnet
+networks:
+  appnet: null
+volumes:
+  pgdata: null
+  minio-data: null

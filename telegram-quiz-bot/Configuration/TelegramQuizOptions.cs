@@ -8,4 +8,6 @@ public sealed class TelegramQuizOptions
     public long AdminUserId { get; set; }
     public string ImagePrefix { get; set; } = "telegram-quiz/images";
     public bool ApplyMigrationsOnStartup { get; set; } = true;
+    public int TelegramRequestTimeoutSeconds { get; set; } = 600;
 }
+

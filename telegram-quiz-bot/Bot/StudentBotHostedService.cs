@@ -17,18 +17,21 @@ public sealed class StudentBotHostedService : BackgroundService
     private readonly ILogger<StudentBotHostedService> _logger;
     private readonly TelegramQuizOptions _options;
     private readonly StudentBotStateStore _state;
+    private readonly TelegramBotClientFactory _botClientFactory;
     private TelegramBotClient? _bot;
 
     public StudentBotHostedService(
         IServiceProvider provider,
         ILogger<StudentBotHostedService> logger,
         IOptions<TelegramQuizOptions> options,
-        StudentBotStateStore state)
+        StudentBotStateStore state,
+        TelegramBotClientFactory botClientFactory)
     {
         _provider = provider;
         _logger = logger;
         _options = options.Value;
         _state = state;
+        _botClientFactory = botClientFactory;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,7 +42,7 @@ public sealed class StudentBotHostedService : BackgroundService
             return;
         }
 
-        _bot = new TelegramBotClient(_options.StudentBotToken);
+        _bot = _botClientFactory.Create(_options.StudentBotToken);
         await _bot.DeleteWebhookAsync(cancellationToken: stoppingToken);
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new ReceiverOptions { AllowedUpdates = Array.Empty<UpdateType>() }, stoppingToken);
         _logger.LogInformation("Student Telegram bot started");
@@ -205,6 +208,12 @@ public sealed class StudentBotHostedService : BackgroundService
 
     private Task HandleErrorAsync(ITelegramBotClient bot, Exception exception, CancellationToken ct)
     {
+        if (TelegramPollingErrorClassifier.IsExpectedShutdownOrLongPollingTimeout(exception, ct))
+        {
+            _logger.LogDebug("Student bot long polling timeout or shutdown signal");
+            return Task.CompletedTask;
+        }
+
         _logger.LogError(exception, "Student bot polling error");
         return Task.CompletedTask;
     }

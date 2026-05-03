@@ -1,0 +1,97 @@
+# TaskForge compose module: core.yaml
+services:
+  api:
+    image: ghcr.io/pivasya/taskforge-api:latest
+    container_name: taskforge-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: 'Host=db;Port=5432;Database=${POSTGRES_DB};
+        Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
+        '
+      API_INTERNAL_KEY: ${API_INTERNAL_KEY}
+      TASKFORGE_AGENT_INTERNAL_KEY: ${TASKFORGE_AGENT_INTERNAL_KEY}
+      Agent__InternalKey: ${TASKFORGE_AGENT_INTERNAL_KEY}
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__ExpireMinutes: ${JWT_EXPIRE_MINUTES}
+      S3__Endpoint: http://minio:9000
+      S3__Bucket: ${S3_BUCKET}
+      S3__AccessKey: ${S3_ACCESS_KEY}
+      S3__SecretKey: ${S3_SECRET_KEY}
+      S3__Region: ${S3_REGION}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE}
+      Compilers__cpp__Url: http://cpp-runner:8080
+      Compilers__cpp__TimeoutMs: '12000'
+      Compilers__csharp__Url: http://csharp-runner:8080
+      Compilers__csharp__TimeoutMs: '12000'
+      Compilers__python__Url: http://python-runner:8080
+      Compilers__python__TimeoutMs: '8000'
+      Compilers__pascal__Url: http://pascal-runner:8080
+      Compilers__pascal__TimeoutMs: '8000'
+      Compilers__java__Url: http://java-runner:8080
+      Compilers__java__TimeoutMs: '12000'
+      Compilers__javascript__Url: http://javascript-runner:8080
+      Compilers__javascript__TimeoutMs: '8000'
+      ImageRunners__python__Url: http://image-python-runner:8080
+      ImageRunners__python__TimeoutMs: '12000'
+      ImageRunners__pascal__Url: http://image-pascal-runner:8080
+      ImageRunners__pascal__TimeoutMs: '12000'
+      ImageRunners__cpp__Url: http://image-cpp-runner:8080
+      ImageRunners__cpp__TimeoutMs: '15000'
+      ImageAnalyzer__Enabled: 'true'
+      ImageAnalyzer__Url: http://image-analyzer:8080
+      ImageAnalyzer__TimeoutSeconds: '25'
+      CodeAnalyzer__Enabled: 'true'
+      CodeAnalyzer__Url: http://code-analyzer:8080
+      CodeAnalyzer__TimeoutSeconds: '6'
+      MINECRAFT_WEBHOOK_BASE_URL: ${MINECRAFT_WEBHOOK_BASE_URL}
+      MINECRAFT_WEBHOOK_SEND_CODE_PATH: ${MINECRAFT_WEBHOOK_SEND_CODE_PATH}
+      MINECRAFT_WEBHOOK_KEY: ${MINECRAFT_WEBHOOK_KEY}
+      MINECRAFT_WEEKLY_PENALTY: ${MINECRAFT_WEEKLY_PENALTY}
+      MINECRAFT_PLUGIN_KEY: ${MINECRAFT_PLUGIN_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      cpp-runner:
+        condition: service_started
+      csharp-runner:
+        condition: service_started
+      python-runner:
+        condition: service_started
+      pascal-runner:
+        condition: service_started
+      java-runner:
+        condition: service_started
+      javascript-runner:
+        condition: service_started
+      image-python-runner:
+        condition: service_started
+      image-pascal-runner:
+        condition: service_started
+      image-cpp-runner:
+        condition: service_started
+      image-analyzer:
+        condition: service_started
+      code-analyzer:
+        condition: service_started
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  front:
+    image: ghcr.io/pivasya/taskforge-front:latest
+    container_name: taskforge-front
+    expose:
+    - '80'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'

@@ -76,11 +76,17 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1"]
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 5
+      start_period: 30s
 
   code-analyzer:
     image: ghcr.io/pivasya/taskforge-code-analyzer:latest
@@ -92,11 +98,17 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1"]
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 5
+      start_period: 30s
 
   api:
     image: ghcr.io/pivasya/taskforge-api:latest
@@ -241,7 +253,10 @@ services:
 
   telegram-quiz-bot:
     image: ghcr.io/pivasya/taskforge-telegram-quiz-bot:latest
+    pull_policy: always
     container_name: taskforge-telegram-quiz-bot
+    init: true
+    stop_grace_period: 30s
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
@@ -255,7 +270,8 @@ services:
       TelegramQuiz__TeacherPassword: ${TELEGRAM_QUIZ_TEACHER_PASSWORD}
       TelegramQuiz__AdminUserId: ${TELEGRAM_QUIZ_ADMIN_USER_ID:-0}
       TelegramQuiz__ImagePrefix: ${TELEGRAM_QUIZ_IMAGE_PREFIX:-telegram-quiz/images}
-      TelegramQuiz__ApplyMigrationsOnStartup: "true"
+      TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
+      TelegramQuiz__TelegramRequestTimeoutSeconds: ${TELEGRAM_QUIZ_REQUEST_TIMEOUT_SECONDS:-600}
 
       TaskForge__ApiBaseUrl: "http://api:8080"
       TaskForge__InternalKey: ${API_INTERNAL_KEY}
@@ -279,11 +295,17 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1"]
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 5
+      start_period: 30s
 
   front:
     image: ghcr.io/pivasya/taskforge-front:latest

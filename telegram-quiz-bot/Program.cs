@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TelegramQuizBot.Bot;
 using TelegramQuizBot.Configuration;
 using TelegramQuizBot.Data;
@@ -20,6 +21,7 @@ builder.Services.AddHttpClient<TaskForgeApiClient>();
 
 builder.Services.AddSingleton<TeacherBotStateStore>();
 builder.Services.AddSingleton<StudentBotStateStore>();
+builder.Services.AddSingleton<TelegramBotClientFactory>();
 builder.Services.AddSingleton<IS3ImageStorage, S3ImageStorage>();
 
 builder.Services.AddScoped<TeacherAccessService>();
@@ -53,5 +55,27 @@ app.MapGet("/health", () => Results.Ok(new
     status = "ok",
     utc = DateTimeOffset.UtcNow
 }));
+
+app.MapGet("/ready", async (IServiceScopeFactory scopeFactory, IOptions<TelegramQuizOptions> options, CancellationToken ct) =>
+{
+    await using var scope = scopeFactory.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
+    var databaseReady = await db.Database.CanConnectAsync(ct);
+    var telegramOptions = options.Value;
+
+    var payload = new
+    {
+        service = "taskforge-telegram-quiz-bot",
+        status = databaseReady ? "ready" : "degraded",
+        database = databaseReady ? "ok" : "unavailable",
+        teacherBotConfigured = !string.IsNullOrWhiteSpace(telegramOptions.TeacherBotToken),
+        studentBotConfigured = !string.IsNullOrWhiteSpace(telegramOptions.StudentBotToken),
+        utc = DateTimeOffset.UtcNow
+    };
+
+    return databaseReady
+        ? Results.Ok(payload)
+        : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
 
 app.Run();

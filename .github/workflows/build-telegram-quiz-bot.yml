@@ -4,12 +4,16 @@ on:
   push:
     paths:
       - "telegram-quiz-bot/**"
+      - "compose/**"
       - "docker-compose-develop.yaml"
+      - "docker-compose-develop-split.yaml"
       - ".github/workflows/build-telegram-quiz-bot.yml"
   pull_request:
     paths:
       - "telegram-quiz-bot/**"
+      - "compose/**"
       - "docker-compose-develop.yaml"
+      - "docker-compose-develop-split.yaml"
       - ".github/workflows/build-telegram-quiz-bot.yml"
   workflow_dispatch: {}
 
@@ -24,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Lowercase owner
-        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -39,7 +43,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./telegram-quiz-bot
+          platforms: linux/amd64
           push: ${{ github.event_name == 'push' && contains(fromJson('["refs/heads/develop","refs/heads/main","refs/heads/master"]'), github.ref) }}
-          tags: ghcr.io/${{ env.OWNER_LC }}/taskforge-telegram-quiz-bot:latest
+          tags: |
+            ghcr.io/${{ env.OWNER_LC }}/taskforge-telegram-quiz-bot:latest
+            ghcr.io/${{ env.OWNER_LC }}/taskforge-telegram-quiz-bot:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

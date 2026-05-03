@@ -1,0 +1,92 @@
+# TaskForge compose module: runners.yaml
+services:
+  cpp-runner:
+    image: ghcr.io/pivasya/taskforge-cpp-runner:latest
+    container_name: taskforge-cpp-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  csharp-runner:
+    image: ghcr.io/pivasya/taskforge-csharp-runner:latest
+    container_name: taskforge-csharp-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  python-runner:
+    image: ghcr.io/pivasya/taskforge-python-runner:latest
+    container_name: taskforge-python-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  pascal-runner:
+    image: ghcr.io/pivasya/taskforge-pascal-runner:latest
+    container_name: taskforge-pascal-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  java-runner:
+    image: ghcr.io/pivasya/taskforge-java-runner:latest
+    container_name: taskforge-java-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  javascript-runner:
+    image: ghcr.io/pivasya/taskforge-javascript-runner:latest
+    container_name: taskforge-javascript-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  image-python-runner:
+    image: ghcr.io/pivasya/taskforge-image-python-runner:latest
+    container_name: taskforge-image-python-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  image-pascal-runner:
+    image: ghcr.io/pivasya/taskforge-image-pascal-runner:latest
+    container_name: taskforge-image-pascal-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+  image-cpp-runner:
+    image: ghcr.io/pivasya/taskforge-image-cpp-runner:latest
+    container_name: taskforge-image-cpp-runner
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
