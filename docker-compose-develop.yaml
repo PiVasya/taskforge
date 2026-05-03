@@ -220,6 +220,71 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+
+  telegram-quiz-db:
+    image: postgres:17
+    container_name: taskforge-telegram-quiz-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TELEGRAM_QUIZ_POSTGRES_DB}
+      POSTGRES_USER: ${TELEGRAM_QUIZ_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TELEGRAM_QUIZ_POSTGRES_PASSWORD}
+      TZ: Europe/Warsaw
+    volumes:
+      - telegram-quiz-pgdata:/var/lib/postgresql/data
+    networks: [appnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TELEGRAM_QUIZ_POSTGRES_USER} -d ${TELEGRAM_QUIZ_POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  telegram-quiz-bot:
+    image: ghcr.io/pivasya/taskforge-telegram-quiz-bot:latest
+    container_name: taskforge-telegram-quiz-bot
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+
+      ConnectionStrings__TelegramQuizDb: >
+        Host=telegram-quiz-db;Port=5432;Database=${TELEGRAM_QUIZ_POSTGRES_DB};
+        Username=${TELEGRAM_QUIZ_POSTGRES_USER};Password=${TELEGRAM_QUIZ_POSTGRES_PASSWORD}
+
+      TelegramQuiz__TeacherBotToken: ${TELEGRAM_QUIZ_TEACHER_BOT_TOKEN}
+      TelegramQuiz__StudentBotToken: ${TELEGRAM_QUIZ_STUDENT_BOT_TOKEN}
+      TelegramQuiz__TeacherPassword: ${TELEGRAM_QUIZ_TEACHER_PASSWORD}
+      TelegramQuiz__AdminUserId: ${TELEGRAM_QUIZ_ADMIN_USER_ID:-0}
+      TelegramQuiz__ImagePrefix: ${TELEGRAM_QUIZ_IMAGE_PREFIX:-telegram-quiz/images}
+      TelegramQuiz__ApplyMigrationsOnStartup: "true"
+
+      TaskForge__ApiBaseUrl: "http://api:8080"
+      TaskForge__InternalKey: ${API_INTERNAL_KEY}
+
+      S3__Endpoint: "http://minio:9000"
+      S3__Bucket: ${S3_BUCKET}
+      S3__AccessKey: ${S3_ACCESS_KEY}
+      S3__SecretKey: ${S3_SECRET_KEY}
+      S3__Region: ${S3_REGION}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE}
+
+    depends_on:
+      telegram-quiz-db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      minio:
+        condition: service_started
+    expose: ["8080"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   front:
     image: ghcr.io/pivasya/taskforge-front:latest
     container_name: taskforge-front
@@ -467,6 +532,7 @@ networks:
 
 volumes:
   pgdata:
+  telegram-quiz-pgdata:
   minio-data:
   certbot-www:
   letsencrypt:
