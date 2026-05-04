@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using TelegramQuizBot.Bot;
 using TelegramQuizBot.Configuration;
 using TelegramQuizBot.Data;
@@ -26,6 +25,7 @@ builder.Services.AddSingleton<IS3ImageStorage, S3ImageStorage>();
 
 builder.Services.AddScoped<TeacherAccessService>();
 builder.Services.AddScoped<StudentAccessService>();
+builder.Services.AddScoped<StudentDirectoryService>();
 builder.Services.AddScoped<CategoryService>();
 builder.Services.AddScoped<QuizService>();
 builder.Services.AddScoped<ProgressService>();
@@ -56,26 +56,24 @@ app.MapGet("/health", () => Results.Ok(new
     utc = DateTimeOffset.UtcNow
 }));
 
-app.MapGet("/ready", async (IServiceScopeFactory scopeFactory, IOptions<TelegramQuizOptions> options, CancellationToken ct) =>
+app.MapGet("/ready", async (IServiceProvider services, IConfiguration configuration, CancellationToken ct) =>
 {
-    await using var scope = scopeFactory.CreateAsyncScope();
+    await using var scope = services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
-    var databaseReady = await db.Database.CanConnectAsync(ct);
-    var telegramOptions = options.Value;
+    var canConnect = await db.Database.CanConnectAsync(ct);
+    var telegram = configuration.GetSection("TelegramQuiz").Get<TelegramQuizOptions>() ?? new TelegramQuizOptions();
 
-    var payload = new
-    {
-        service = "taskforge-telegram-quiz-bot",
-        status = databaseReady ? "ready" : "degraded",
-        database = databaseReady ? "ok" : "unavailable",
-        teacherBotConfigured = !string.IsNullOrWhiteSpace(telegramOptions.TeacherBotToken),
-        studentBotConfigured = !string.IsNullOrWhiteSpace(telegramOptions.StudentBotToken),
-        utc = DateTimeOffset.UtcNow
-    };
-
-    return databaseReady
-        ? Results.Ok(payload)
-        : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
+    return canConnect
+        ? Results.Ok(new
+        {
+            service = "taskforge-telegram-quiz-bot",
+            status = "ready",
+            database = "ok",
+            teacherBotConfigured = !string.IsNullOrWhiteSpace(telegram.TeacherBotToken),
+            studentBotConfigured = !string.IsNullOrWhiteSpace(telegram.StudentBotToken),
+            utc = DateTimeOffset.UtcNow
+        })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
 
 app.Run();

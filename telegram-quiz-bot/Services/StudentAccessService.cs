@@ -7,8 +7,13 @@ namespace TelegramQuizBot.Services;
 public sealed class StudentAccessService
 {
     private readonly TelegramQuizDbContext _db;
+    private readonly StudentDirectoryService _directory;
 
-    public StudentAccessService(TelegramQuizDbContext db) => _db = db;
+    public StudentAccessService(TelegramQuizDbContext db, StudentDirectoryService directory)
+    {
+        _db = db;
+        _directory = directory;
+    }
 
     public async Task<bool> HasAccessAsync(long userId, CancellationToken ct)
     {
@@ -18,6 +23,8 @@ public sealed class StudentAccessService
 
     public async Task AddAsync(long userId, int? hours, CancellationToken ct)
     {
+        await _directory.EnsureStubAsync(userId, ct);
+
         var entity = await _db.Whitelist.FindAsync([userId], ct);
         if (entity == null)
         {
@@ -37,5 +44,10 @@ public sealed class StudentAccessService
         _db.Whitelist.Remove(entity);
         await _db.SaveChangesAsync(ct);
         return true;
+    }
+
+    public async Task<WhitelistEntry?> GetAsync(long userId, CancellationToken ct)
+    {
+        return await _db.Whitelist.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
     }
 }

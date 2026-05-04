@@ -17,7 +17,7 @@ public sealed class StudentBotHostedService : BackgroundService
     private readonly ILogger<StudentBotHostedService> _logger;
     private readonly TelegramQuizOptions _options;
     private readonly StudentBotStateStore _state;
-    private readonly TelegramBotClientFactory _botClientFactory;
+    private readonly TelegramBotClientFactory _clientFactory;
     private TelegramBotClient? _bot;
 
     public StudentBotHostedService(
@@ -25,13 +25,13 @@ public sealed class StudentBotHostedService : BackgroundService
         ILogger<StudentBotHostedService> logger,
         IOptions<TelegramQuizOptions> options,
         StudentBotStateStore state,
-        TelegramBotClientFactory botClientFactory)
+        TelegramBotClientFactory clientFactory)
     {
         _provider = provider;
         _logger = logger;
         _options = options.Value;
         _state = state;
-        _botClientFactory = botClientFactory;
+        _clientFactory = clientFactory;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -42,7 +42,7 @@ public sealed class StudentBotHostedService : BackgroundService
             return;
         }
 
-        _bot = _botClientFactory.Create(_options.StudentBotToken);
+        _bot = _clientFactory.Create(_options.StudentBotToken);
         await _bot.DeleteWebhookAsync(cancellationToken: stoppingToken);
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new ReceiverOptions { AllowedUpdates = Array.Empty<UpdateType>() }, stoppingToken);
         _logger.LogInformation("Student Telegram bot started");
@@ -70,16 +70,22 @@ public sealed class StudentBotHostedService : BackgroundService
 
         using var scope = _provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
+        var directory = scope.ServiceProvider.GetRequiredService<StudentDirectoryService>();
         var access = scope.ServiceProvider.GetRequiredService<StudentAccessService>();
         var breaks = scope.ServiceProvider.GetRequiredService<TechnicalBreakService>();
         var quizzes = scope.ServiceProvider.GetRequiredService<QuizService>();
         var progress = scope.ServiceProvider.GetRequiredService<ProgressService>();
 
+        await directory.RememberMessageAsync(message, ct);
         await LogStartAsync(db, message, ct);
 
         if (!await access.HasAccessAsync(userId, ct))
         {
-            await bot.SendTextMessageAsync(message.Chat.Id, "⛔ У вас нет доступа. Обратитесь к учителю.", cancellationToken: ct);
+            await bot.SendTextMessageAsync(
+                message.Chat.Id,
+                $"⛔ У вас пока нет доступа. Обратитесь к учителю.\n\nВаш Telegram ID: `{userId}`",
+                parseMode: ParseMode.Markdown,
+                cancellationToken: ct);
             return;
         }
 
@@ -208,9 +214,9 @@ public sealed class StudentBotHostedService : BackgroundService
 
     private Task HandleErrorAsync(ITelegramBotClient bot, Exception exception, CancellationToken ct)
     {
-        if (TelegramPollingErrorClassifier.IsExpectedShutdownOrLongPollingTimeout(exception, ct))
+        if (TelegramPollingErrorClassifier.IsExpectedLongPollingTimeout(exception))
         {
-            _logger.LogDebug("Student bot long polling timeout or shutdown signal");
+            _logger.LogDebug("Student bot long polling timeout");
             return Task.CompletedTask;
         }
 

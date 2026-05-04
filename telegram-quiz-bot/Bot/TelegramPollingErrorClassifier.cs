@@ -4,34 +4,16 @@ namespace TelegramQuizBot.Bot;
 
 public static class TelegramPollingErrorClassifier
 {
-    public static bool IsExpectedShutdownOrLongPollingTimeout(Exception exception, CancellationToken cancellationToken)
+    public static bool IsExpectedLongPollingTimeout(Exception exception)
     {
-        if (cancellationToken.IsCancellationRequested)
-            return true;
-
-        if (exception is OperationCanceledException or TaskCanceledException or TimeoutException)
-            return true;
-
-        if (exception is RequestException requestException && ContainsTimeout(requestException))
-            return true;
-
-        return ContainsTimeout(exception);
+        return exception is RequestException && HasInner<TaskCanceledException>(exception);
     }
 
-    private static bool ContainsTimeout(Exception exception)
+    private static bool HasInner<T>(Exception exception) where T : Exception
     {
         for (var current = exception; current != null; current = current.InnerException!)
         {
-            if (current is TaskCanceledException or TimeoutException)
-                return true;
-
-            var message = current.Message;
-            if (message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("operation was canceled", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
+            if (current is T) return true;
         }
 
         return false;

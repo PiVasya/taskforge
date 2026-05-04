@@ -76,6 +76,8 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    init: true
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:
@@ -85,8 +87,8 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 5
       start_period: 30s
+      retries: 5
 
   code-analyzer:
     image: ghcr.io/pivasya/taskforge-code-analyzer:latest
@@ -98,6 +100,8 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    init: true
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:
@@ -107,8 +111,8 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 5
       start_period: 30s
+      retries: 5
 
   api:
     image: ghcr.io/pivasya/taskforge-api:latest
@@ -253,10 +257,7 @@ services:
 
   telegram-quiz-bot:
     image: ghcr.io/pivasya/taskforge-telegram-quiz-bot:latest
-    pull_policy: always
     container_name: taskforge-telegram-quiz-bot
-    init: true
-    stop_grace_period: 30s
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
@@ -268,10 +269,9 @@ services:
       TelegramQuiz__TeacherBotToken: ${TELEGRAM_QUIZ_TEACHER_BOT_TOKEN}
       TelegramQuiz__StudentBotToken: ${TELEGRAM_QUIZ_STUDENT_BOT_TOKEN}
       TelegramQuiz__TeacherPassword: ${TELEGRAM_QUIZ_TEACHER_PASSWORD}
-      TelegramQuiz__AdminUserId: ${TELEGRAM_QUIZ_ADMIN_USER_ID:-0}
       TelegramQuiz__ImagePrefix: ${TELEGRAM_QUIZ_IMAGE_PREFIX:-telegram-quiz/images}
       TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
-      TelegramQuiz__TelegramRequestTimeoutSeconds: ${TELEGRAM_QUIZ_REQUEST_TIMEOUT_SECONDS:-600}
+      TelegramQuiz__RequestTimeoutSeconds: ${TELEGRAM_QUIZ_REQUEST_TIMEOUT_SECONDS:-600}
 
       TaskForge__ApiBaseUrl: "http://api:8080"
       TaskForge__InternalKey: ${API_INTERNAL_KEY}
@@ -295,6 +295,8 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    init: true
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:
@@ -304,8 +306,29 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 5
       start_period: 30s
+      retries: 5
+
+
+
+  telegram-quiz-import:
+    image: ghcr.io/pivasya/taskforge-telegram-quiz-bot:latest
+    container_name: taskforge-telegram-quiz-import
+    profiles: ["telegram-quiz-import"]
+    command: ["--import-old-sqlite", "/import"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__TelegramQuizDb: >
+        Host=telegram-quiz-db;Port=5432;Database=${TELEGRAM_QUIZ_POSTGRES_DB};
+        Username=${TELEGRAM_QUIZ_POSTGRES_USER};Password=${TELEGRAM_QUIZ_POSTGRES_PASSWORD}
+      TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
+    depends_on:
+      telegram-quiz-db:
+        condition: service_healthy
+    volumes:
+      - ./imports/telegram-quiz:/import:ro
+    networks: [appnet]
+    restart: "no"
 
   front:
     image: ghcr.io/pivasya/taskforge-front:latest

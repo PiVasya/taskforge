@@ -10,6 +10,7 @@ public sealed class TelegramQuizDbContext : DbContext
     public DbSet<AuthorizedTeacher> AuthorizedTeachers => Set<AuthorizedTeacher>();
     public DbSet<WhitelistEntry> Whitelist => Set<WhitelistEntry>();
     public DbSet<StartLogEntry> StartLog => Set<StartLogEntry>();
+    public DbSet<StudentContact> StudentContacts => Set<StudentContact>();
     public DbSet<ProgressEntry> Progress => Set<ProgressEntry>();
     public DbSet<QuizQuestion> Quizzes => Set<QuizQuestion>();
     public DbSet<Category> Categories => Set<Category>();
@@ -51,6 +52,36 @@ public sealed class TelegramQuizDbContext : DbContext
             entity.Property(x => x.Username).HasColumnName("username");
             entity.Property(x => x.FullName).HasColumnName("full_name");
             entity.Property(x => x.Timestamp).HasColumnName("timestamp").HasDefaultValueSql("now()");
+        });
+
+
+
+        modelBuilder.Entity<StudentContact>(entity =>
+        {
+            entity.ToTable("student_contacts");
+            entity.HasKey(x => x.UserId);
+            entity.Property(x => x.UserId).HasColumnName("user_id");
+            entity.Property(x => x.ChatId).HasColumnName("chat_id");
+            entity.Property(x => x.Username).HasColumnName("username").HasMaxLength(128);
+            entity.Property(x => x.FirstName).HasColumnName("first_name").HasMaxLength(256);
+            entity.Property(x => x.LastName).HasColumnName("last_name").HasMaxLength(256);
+            entity.Property(x => x.FullName).HasColumnName("full_name").HasMaxLength(512);
+            entity.Property(x => x.LanguageCode).HasColumnName("language_code").HasMaxLength(32);
+            entity.Property(x => x.FirstSeenAt).HasColumnName("first_seen_at").HasDefaultValueSql("now()");
+            entity.Property(x => x.LastSeenAt).HasColumnName("last_seen_at").HasDefaultValueSql("now()");
+            entity.Property(x => x.LastMessageAt).HasColumnName("last_message_at").HasDefaultValueSql("now()");
+            entity.Property(x => x.LastMessageType).HasColumnName("last_message_type").HasMaxLength(64).HasDefaultValue("unknown");
+            entity.Property(x => x.LastMessageText).HasColumnName("last_message_text").HasMaxLength(2048);
+            entity.Property(x => x.MessageCount).HasColumnName("message_count").HasDefaultValue(0);
+            entity.Property(x => x.IsHidden).HasColumnName("is_hidden").HasDefaultValue(false);
+            entity.Property(x => x.HiddenAt).HasColumnName("hidden_at");
+            entity.Property(x => x.HiddenByTeacherId).HasColumnName("hidden_by_teacher_id");
+            entity.Property(x => x.Note).HasColumnName("note").HasMaxLength(2048);
+            entity.Property(x => x.SearchText).HasColumnName("search_text").HasMaxLength(2048).HasDefaultValue(string.Empty);
+            entity.HasIndex(x => x.Username);
+            entity.HasIndex(x => x.LastSeenAt);
+            entity.HasIndex(x => x.IsHidden);
+            entity.HasIndex(x => x.SearchText);
         });
 
         modelBuilder.Entity<ProgressEntry>(entity =>

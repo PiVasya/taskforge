@@ -1,6 +1,6 @@
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using TelegramQuizBot.Configuration;
-using Microsoft.Extensions.Options;
 
 namespace TelegramQuizBot.Bot;
 
@@ -15,10 +15,7 @@ public sealed class TelegramBotClientFactory
 
     public TelegramBotClient Create(string token)
     {
-        var timeoutSeconds = _options.TelegramRequestTimeoutSeconds <= 0
-            ? 600
-            : _options.TelegramRequestTimeoutSeconds;
-
+        var timeoutSeconds = Math.Clamp(_options.RequestTimeoutSeconds, 120, 1800);
         var httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(timeoutSeconds)
