@@ -84,7 +84,7 @@ public sealed class TeacherBotHostedService : BackgroundService
         if (text == "/start")
         {
             if (await teachers.IsTeacherAsync(teacherId, ct))
-                await bot.SendTextMessageAsync(message.Chat.Id, "✅ Вы уже авторизованы как учитель. Используйте /help.", cancellationToken: ct);
+                await SendTeacherHomeAsync(bot, message.Chat.Id, ct);
             else
                 await bot.SendTextMessageAsync(message.Chat.Id, "🔐 Для доступа введите пароль учителя:", cancellationToken: ct);
             return;
@@ -93,7 +93,8 @@ public sealed class TeacherBotHostedService : BackgroundService
         if (!string.IsNullOrWhiteSpace(_options.TeacherPassword) && text == _options.TeacherPassword)
         {
             await teachers.AuthorizeAsync(teacherId, ct);
-            await bot.SendTextMessageAsync(message.Chat.Id, "🔓 Авторизация успешна. Теперь доступны команды учителя. Помощников может быть сколько угодно — каждый входит по паролю.", cancellationToken: ct);
+            await bot.SendTextMessageAsync(message.Chat.Id, "🔓 Авторизация успешна. Помощников может быть сколько угодно — каждый входит по паролю.", replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+            await SendTeacherHomeAsync(bot, message.Chat.Id, ct);
             return;
         }
 
@@ -130,9 +131,12 @@ public sealed class TeacherBotHostedService : BackgroundService
             return;
         }
 
+        if (await HandleTeacherButtonAsync(bot, message.Chat.Id, text, quizzes, directory, stats, ct))
+            return;
+
         if (text.StartsWith("/help"))
         {
-            await bot.SendTextMessageAsync(message.Chat.Id, TelegramText.TeacherHelp, cancellationToken: ct);
+            await bot.SendTextMessageAsync(message.Chat.Id, TelegramText.TeacherHelp, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
         }
         else if (text.StartsWith("/logout"))
         {
@@ -228,9 +232,7 @@ public sealed class TeacherBotHostedService : BackgroundService
         }
         else if (text.StartsWith("/list_quizzes"))
         {
-            var list = await quizzes.ListAsync(null, 0, 20, ct);
-            var lines = list.Select(x => $"{x.Id}. [{x.Type}] {x.Category}/{x.Subcategory}: {Trim(x.Question, 80)}");
-            await bot.SendTextMessageAsync(message.Chat.Id, list.Count == 0 ? "Вопросов пока нет." : string.Join('\n', lines), cancellationToken: ct);
+            await SendQuizListAsync(bot, message.Chat.Id, null, quizzes, 1, 0, 0, ct);
         }
         else if (text.StartsWith("/class_stats"))
         {
@@ -246,7 +248,7 @@ public sealed class TeacherBotHostedService : BackgroundService
         }
         else
         {
-            await bot.SendTextMessageAsync(message.Chat.Id, "Неизвестная команда. Используйте /help.", cancellationToken: ct);
+            await bot.SendTextMessageAsync(message.Chat.Id, "Не понял. Пользуйся кнопками ниже 👇", replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
         }
     }
 
@@ -254,6 +256,7 @@ public sealed class TeacherBotHostedService : BackgroundService
     {
         var teacherId = callback.From.Id;
         var chatId = callback.Message?.Chat.Id ?? teacherId;
+        var messageId = callback.Message?.MessageId;
         var data = callback.Data ?? string.Empty;
 
         using var scope = _provider.CreateScope();
@@ -264,67 +267,234 @@ public sealed class TeacherBotHostedService : BackgroundService
             return;
         }
 
-        var students = scope.ServiceProvider.GetRequiredService<StudentAccessService>();
-        var directory = scope.ServiceProvider.GetRequiredService<StudentDirectoryService>();
-
         try
         {
-            var parts = data.Split(':', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3 || parts[0] != "sq")
+            if (data.StartsWith("tq:", StringComparison.Ordinal))
             {
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                var quizzes = scope.ServiceProvider.GetRequiredService<QuizService>();
+                await HandleQuizCallbackAsync(bot, callback, chatId, messageId, data, quizzes, ct);
                 return;
             }
 
-            var action = parts[1];
-            if (!long.TryParse(parts[2], out var studentId))
+            if (data.StartsWith("tm:", StringComparison.Ordinal))
             {
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Некорректный ID", showAlert: true, cancellationToken: ct);
+                var quizzes = scope.ServiceProvider.GetRequiredService<QuizService>();
+                var directory = scope.ServiceProvider.GetRequiredService<StudentDirectoryService>();
+                var stats = scope.ServiceProvider.GetRequiredService<StatisticsService>();
+                await HandleTeacherMenuCallbackAsync(bot, callback, chatId, messageId, teacherId, data, quizzes, directory, stats, ct);
                 return;
             }
 
-            switch (action)
+            if (data.StartsWith("sq:", StringComparison.Ordinal))
             {
-                case "card":
-                    await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
-                    break;
-                case "grant24":
-                    await students.AddAsync(studentId, 24, ct);
-                    await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ на 24 часа выдан", cancellationToken: ct);
-                    await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
-                    break;
-                case "grant7":
-                    await students.AddAsync(studentId, 24 * 7, ct);
-                    await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ на 7 дней выдан", cancellationToken: ct);
-                    await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
-                    break;
-                case "grantForever":
-                    await students.AddAsync(studentId, null, ct);
-                    await bot.AnswerCallbackQueryAsync(callback.Id, "Постоянный доступ выдан", cancellationToken: ct);
-                    await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
-                    break;
-                case "revoke":
-                    await students.RemoveAsync(studentId, ct);
-                    await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ отозван", cancellationToken: ct);
-                    await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
-                    break;
-                case "hide":
-                    await directory.HideContactAsync(studentId, teacherId, ct);
-                    await bot.AnswerCallbackQueryAsync(callback.Id, "Контакт скрыт из общего списка", cancellationToken: ct);
-                    break;
-                case "delete":
-                    await directory.DeleteContactAsync(studentId, deleteAccess: false, deleteProgress: false, deleteLogs: false, ct);
-                    await bot.AnswerCallbackQueryAsync(callback.Id, "Контакт удалён из справочника", cancellationToken: ct);
-                    break;
-                default:
-                    await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
-                    break;
+                var students = scope.ServiceProvider.GetRequiredService<StudentAccessService>();
+                var directory = scope.ServiceProvider.GetRequiredService<StudentDirectoryService>();
+                await HandleStudentCallbackAsync(bot, callback, chatId, data, teacherId, students, directory, ct);
+                return;
             }
+
+            await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Teacher callback handling failed");
             await bot.AnswerCallbackQueryAsync(callback.Id, "Ошибка обработки кнопки", showAlert: true, cancellationToken: ct);
+        }
+    }
+
+    private async Task HandleTeacherMenuCallbackAsync(
+        ITelegramBotClient bot,
+        CallbackQuery callback,
+        long chatId,
+        int? messageId,
+        long teacherId,
+        string data,
+        QuizService quizzes,
+        StudentDirectoryService directory,
+        StatisticsService stats,
+        CancellationToken ct)
+    {
+        switch (data)
+        {
+            case "tm:home":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendTeacherHomeAsync(bot, chatId, ct);
+                break;
+            case "tm:quizzes":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizListAsync(bot, chatId, messageId, quizzes, 1, 0, 0, ct);
+                break;
+            case "tm:students":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendStudentListAsync(bot, chatId, directory, null, ct);
+                break;
+            case "tm:addText":
+                _state.Drafts[teacherId] = new TeacherDraftQuestion { Type = "text", Step = "image" };
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SendTextMessageAsync(chatId, "📸 Отправьте изображение для вопроса или напишите /skip.", replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                break;
+            case "tm:addQuizInfo":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SendTextMessageAsync(chatId, "📊 Чтобы добавить quiz-вопрос, отправь сюда Telegram-опрос типа <b>quiz</b> с выбранным правильным ответом. Бот сохранит его автоматически.", parseMode: ParseMode.Html, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                break;
+            case "tm:stats":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SendTextMessageAsync(chatId, await stats.BuildClassStatsAsync(ct), replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                break;
+            case "tm:logs":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SendTextMessageAsync(chatId, await stats.BuildStartLogAsync(ct), replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                break;
+            case "tm:clean":
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SendTextMessageAsync(chatId, TelegramText.StudentCleanHelp, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                break;
+            default:
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                break;
+        }
+    }
+
+    private static async Task HandleStudentCallbackAsync(
+        ITelegramBotClient bot,
+        CallbackQuery callback,
+        long chatId,
+        string data,
+        long teacherId,
+        StudentAccessService students,
+        StudentDirectoryService directory,
+        CancellationToken ct)
+    {
+        var parts = data.Split(':', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3 || parts[0] != "sq")
+        {
+            await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+            return;
+        }
+
+        var action = parts[1];
+        if (!long.TryParse(parts[2], out var studentId))
+        {
+            await bot.AnswerCallbackQueryAsync(callback.Id, "Некорректный ID", showAlert: true, cancellationToken: ct);
+            return;
+        }
+
+        switch (action)
+        {
+            case "card":
+                await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
+                break;
+            case "grant24":
+                await students.AddAsync(studentId, 24, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ на 24 часа выдан", cancellationToken: ct);
+                await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
+                break;
+            case "grant7":
+                await students.AddAsync(studentId, 24 * 7, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ на 7 дней выдан", cancellationToken: ct);
+                await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
+                break;
+            case "grantForever":
+                await students.AddAsync(studentId, null, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, "Постоянный доступ выдан", cancellationToken: ct);
+                await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
+                break;
+            case "revoke":
+                await students.RemoveAsync(studentId, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ отозван", cancellationToken: ct);
+                await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
+                break;
+            case "hide":
+                await directory.HideContactAsync(studentId, teacherId, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, "Контакт скрыт из общего списка", cancellationToken: ct);
+                break;
+            case "delete":
+                await directory.DeleteContactAsync(studentId, deleteAccess: false, deleteProgress: false, deleteLogs: false, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, "Контакт удалён из справочника", cancellationToken: ct);
+                break;
+            default:
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                break;
+        }
+    }
+
+    private static async Task HandleQuizCallbackAsync(
+        ITelegramBotClient bot,
+        CallbackQuery callback,
+        long chatId,
+        int? messageId,
+        string data,
+        QuizService quizzes,
+        CancellationToken ct)
+    {
+        var parts = data.Split(':', StringSplitOptions.RemoveEmptyEntries);
+        var action = parts.Length > 1 ? parts[1] : string.Empty;
+
+        switch (action)
+        {
+            case "list":
+            {
+                var page = ReadInt(parts, 2, 1);
+                var categoryIndex = ReadInt(parts, 3, 0);
+                var subcategoryIndex = ReadInt(parts, 4, 0);
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizListAsync(bot, chatId, messageId, quizzes, page, categoryIndex, subcategoryIndex, ct);
+                break;
+            }
+            case "cats":
+            {
+                var page = ReadInt(parts, 2, 1);
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizCategoryPickerAsync(bot, chatId, messageId, quizzes, page, ct);
+                break;
+            }
+            case "setcat":
+            {
+                var categoryIndex = ReadInt(parts, 2, 0);
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizListAsync(bot, chatId, messageId, quizzes, 1, categoryIndex, 0, ct);
+                break;
+            }
+            case "subs":
+            {
+                var categoryIndex = ReadInt(parts, 2, 0);
+                var page = ReadInt(parts, 3, 1);
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizSubcategoryPickerAsync(bot, chatId, messageId, quizzes, categoryIndex, page, ct);
+                break;
+            }
+            case "setsub":
+            {
+                var categoryIndex = ReadInt(parts, 2, 0);
+                var subcategoryIndex = ReadInt(parts, 3, 0);
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizListAsync(bot, chatId, messageId, quizzes, 1, categoryIndex, subcategoryIndex, ct);
+                break;
+            }
+            case "card":
+            {
+                var quizId = ReadLong(parts, 2, 0);
+                var page = ReadInt(parts, 3, 1);
+                var categoryIndex = ReadInt(parts, 4, 0);
+                var subcategoryIndex = ReadInt(parts, 5, 0);
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await SendQuizCardAsync(bot, chatId, messageId, quizzes, quizId, page, categoryIndex, subcategoryIndex, ct);
+                break;
+            }
+            case "del":
+            {
+                var quizId = ReadLong(parts, 2, 0);
+                var page = ReadInt(parts, 3, 1);
+                var categoryIndex = ReadInt(parts, 4, 0);
+                var subcategoryIndex = ReadInt(parts, 5, 0);
+                var removed = await quizzes.RemoveAsync(quizId, ct);
+                await bot.AnswerCallbackQueryAsync(callback.Id, removed ? "Вопрос удалён" : "Вопрос не найден", cancellationToken: ct);
+                await SendQuizListAsync(bot, chatId, messageId, quizzes, page, categoryIndex, subcategoryIndex, ct);
+                break;
+            }
+            default:
+                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                break;
         }
     }
 
@@ -390,6 +560,400 @@ public sealed class TeacherBotHostedService : BackgroundService
                 await bot.SendTextMessageAsync(message.Chat.Id, $"✅ Текстовый вопрос сохранён. ID: {saved.Id}", cancellationToken: ct);
                 break;
         }
+    }
+
+    private static async Task<bool> HandleTeacherButtonAsync(
+        ITelegramBotClient bot,
+        long chatId,
+        string text,
+        QuizService quizzes,
+        StudentDirectoryService directory,
+        StatisticsService stats,
+        CancellationToken ct)
+    {
+        switch (text)
+        {
+            case "🏠 Меню":
+                await SendTeacherHomeAsync(bot, chatId, ct);
+                return true;
+            case "📚 Квизы":
+                await SendQuizListAsync(bot, chatId, null, quizzes, 1, 0, 0, ct);
+                return true;
+            case "👥 Ученики":
+                await SendStudentListAsync(bot, chatId, directory, null, ct);
+                return true;
+            case "➕ Вопрос":
+                await bot.SendTextMessageAsync(
+                    chatId,
+                    "<b>➕ Добавление вопроса</b>\n\nВыбери тип добавления ниже.",
+                    parseMode: ParseMode.Html,
+                    replyMarkup: new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithCallbackData("📝 Текстовый вопрос", "tm:addText") },
+                        new[] { InlineKeyboardButton.WithCallbackData("📊 Telegram quiz-опрос", "tm:addQuizInfo") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🏠 В меню", "tm:home") }
+                    }),
+                    cancellationToken: ct);
+                return true;
+            case "📊 Статистика":
+                await bot.SendTextMessageAsync(chatId, await stats.BuildClassStatsAsync(ct), replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                return true;
+            case "🧹 Очистка":
+                await bot.SendTextMessageAsync(chatId, TelegramText.StudentCleanHelp, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                return true;
+            case "❓ Помощь":
+                await bot.SendTextMessageAsync(chatId, TelegramText.TeacherHelp, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static async Task SendTeacherHomeAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
+    {
+        var text = string.Join('\n',
+            "<b>🏠 Панель учителя</b>",
+            "",
+            "Теперь основной сценарий работает через кнопки.",
+            "Команды оставлены как быстрые шорткаты, но пользоваться ими не обязательно.",
+            "",
+            "<b>Главное:</b>",
+            "📚 Квизы — список, страницы, категории, карточки вопросов.",
+            "👥 Ученики — кто писал student-боту и кому выдать доступ.",
+            "➕ Вопрос — добавление нового задания.",
+            "📊 Статистика — прогресс класса.");
+
+        await bot.SendTextMessageAsync(
+            chatId,
+            text,
+            parseMode: ParseMode.Html,
+            replyMarkup: TeacherMainKeyboard(),
+            cancellationToken: ct);
+    }
+
+    private static ReplyKeyboardMarkup TeacherMainKeyboard()
+    {
+        return new ReplyKeyboardMarkup(new[]
+        {
+            new[] { new KeyboardButton("📚 Квизы"), new KeyboardButton("👥 Ученики") },
+            new[] { new KeyboardButton("➕ Вопрос"), new KeyboardButton("📊 Статистика") },
+            new[] { new KeyboardButton("🧹 Очистка"), new KeyboardButton("❓ Помощь") },
+            new[] { new KeyboardButton("🏠 Меню") }
+        })
+        {
+            ResizeKeyboard = true,
+            OneTimeKeyboard = false
+        };
+    }
+
+    private const int QuizPageSize = 20;
+    private const int PickerPageSize = 8;
+
+    private static async Task SendQuizListAsync(
+        ITelegramBotClient bot,
+        long chatId,
+        int? messageId,
+        QuizService quizzes,
+        int page,
+        int categoryIndex,
+        int subcategoryIndex,
+        CancellationToken ct)
+    {
+        var category = await ResolveCategoryAsync(quizzes, categoryIndex, ct);
+        var subcategory = categoryIndex == 0 ? null : await ResolveSubcategoryAsync(quizzes, category, subcategoryIndex, ct);
+        var total = await quizzes.CountAsync(category, subcategory, ct);
+        var pages = Math.Max(1, (int)Math.Ceiling(total / (double)QuizPageSize));
+        page = Math.Clamp(page, 1, pages);
+        var list = await quizzes.ListAsync(category, subcategory, (page - 1) * QuizPageSize, QuizPageSize, ct);
+        var categories = await quizzes.GetCategoryStatsAsync(ct);
+        var withImages = await quizzes.CountWithImagesAsync(ct);
+        var missingAnswer = await quizzes.CountMissingAnswerAsync(ct);
+
+        var text = BuildQuizListText(list, page, pages, total, category, subcategory, categories, withImages, missingAnswer);
+        var keyboard = BuildQuizListKeyboard(list, page, pages, categoryIndex, subcategoryIndex);
+        await SendOrEditTextAsync(bot, chatId, messageId, text, keyboard, ct);
+    }
+
+    private static string BuildQuizListText(
+        IReadOnlyList<TelegramQuizBot.Data.Entities.QuizQuestion> list,
+        int page,
+        int pages,
+        int total,
+        string? category,
+        string? subcategory,
+        IReadOnlyList<QuizCategoryCount> categories,
+        int withImages,
+        int missingAnswer)
+    {
+        var rows = new List<string>
+        {
+            "<b>📚 Квизы</b>",
+            $"Всего по фильтру: <b>{total}</b>. Страница <b>{page}/{pages}</b>.",
+            $"Всего в базе: <b>{categories.Sum(x => x.Count)}</b>. Категорий: <b>{categories.Count}</b>. С картинками: <b>{withImages}</b>. Без ответа: <b>{missingAnswer}</b>.",
+            $"Фильтр: <b>{Html(category ?? "Все категории")}</b> / <b>{Html(subcategory ?? "Все подкатегории")}</b>",
+            "",
+            "<pre>ID    Раздел          Тип   Вопрос"
+        };
+
+        foreach (var q in list)
+        {
+            var group = Trim($"{q.Category}/{q.Subcategory}", 14);
+            rows.Add(string.Format(CultureInfo.InvariantCulture,
+                "{0,4}  {1,-14} {2,-5} {3}",
+                q.Id,
+                Html(group),
+                Html(q.Type),
+                Html(Trim(q.Question.Replace('\n', ' '), 42))));
+        }
+
+        rows.Add("</pre>");
+        rows.Add("Нажми ID ниже, чтобы открыть карточку вопроса.");
+        return string.Join('\n', rows);
+    }
+
+    private static InlineKeyboardMarkup BuildQuizListKeyboard(
+        IReadOnlyList<TelegramQuizBot.Data.Entities.QuizQuestion> list,
+        int page,
+        int pages,
+        int categoryIndex,
+        int subcategoryIndex)
+    {
+        var rows = new List<InlineKeyboardButton[]>();
+
+        foreach (var chunk in list.Chunk(4))
+        {
+            rows.Add(chunk
+                .Select(q => InlineKeyboardButton.WithCallbackData(q.Id.ToString(CultureInfo.InvariantCulture), $"tq:card:{q.Id}:{page}:{categoryIndex}:{subcategoryIndex}"))
+                .ToArray());
+        }
+
+        rows.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:list:{Math.Max(1, page - 1)}:{categoryIndex}:{subcategoryIndex}"),
+            InlineKeyboardButton.WithCallbackData($"{page}/{pages}", $"tq:list:{page}:{categoryIndex}:{subcategoryIndex}"),
+            InlineKeyboardButton.WithCallbackData("➡️", $"tq:list:{Math.Min(pages, page + 1)}:{categoryIndex}:{subcategoryIndex}")
+        });
+
+        rows.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("📁 Категории", "tq:cats:1"),
+            InlineKeyboardButton.WithCallbackData("📂 Подкатегории", $"tq:subs:{categoryIndex}:1")
+        });
+
+        rows.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("🔄 Сбросить фильтр", "tq:list:1:0:0"),
+            InlineKeyboardButton.WithCallbackData("🏠 Меню", "tm:home")
+        });
+
+        return new InlineKeyboardMarkup(rows);
+    }
+
+    private static async Task SendQuizCategoryPickerAsync(
+        ITelegramBotClient bot,
+        long chatId,
+        int? messageId,
+        QuizService quizzes,
+        int page,
+        CancellationToken ct)
+    {
+        var categories = await quizzes.GetCategoryStatsAsync(ct);
+        var total = categories.Sum(x => x.Count);
+        var pages = Math.Max(1, (int)Math.Ceiling(categories.Count / (double)PickerPageSize));
+        page = Math.Clamp(page, 1, pages);
+        var slice = categories.Skip((page - 1) * PickerPageSize).Take(PickerPageSize).ToList();
+
+        var text = string.Join('\n',
+            "<b>📁 Выбор категории</b>",
+            $"Всего вопросов: <b>{total}</b>",
+            $"Страница <b>{page}/{pages}</b>",
+            "",
+            "Выбери категорию ниже.");
+
+        var rows = new List<InlineKeyboardButton[]>
+        {
+            new[] { InlineKeyboardButton.WithCallbackData($"Все категории ({total})", "tq:setcat:0") }
+        };
+
+        for (var i = 0; i < slice.Count; i++)
+        {
+            var globalIndex = (page - 1) * PickerPageSize + i + 1;
+            var c = slice[i];
+            rows.Add(new[] { InlineKeyboardButton.WithCallbackData($"{c.Name} ({c.Count})", $"tq:setcat:{globalIndex}") });
+        }
+
+        rows.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:cats:{Math.Max(1, page - 1)}"),
+            InlineKeyboardButton.WithCallbackData($"{page}/{pages}", $"tq:cats:{page}"),
+            InlineKeyboardButton.WithCallbackData("➡️", $"tq:cats:{Math.Min(pages, page + 1)}")
+        });
+        rows.Add(new[] { InlineKeyboardButton.WithCallbackData("⬅️ К списку", "tq:list:1:0:0") });
+
+        await SendOrEditTextAsync(bot, chatId, messageId, text, new InlineKeyboardMarkup(rows), ct);
+    }
+
+    private static async Task SendQuizSubcategoryPickerAsync(
+        ITelegramBotClient bot,
+        long chatId,
+        int? messageId,
+        QuizService quizzes,
+        int categoryIndex,
+        int page,
+        CancellationToken ct)
+    {
+        var category = await ResolveCategoryAsync(quizzes, categoryIndex, ct);
+        var subcategories = await quizzes.GetSubcategoryStatsAsync(category, ct);
+        var total = subcategories.Sum(x => x.Count);
+        var pages = Math.Max(1, (int)Math.Ceiling(subcategories.Count / (double)PickerPageSize));
+        page = Math.Clamp(page, 1, pages);
+        var slice = subcategories.Skip((page - 1) * PickerPageSize).Take(PickerPageSize).ToList();
+
+        var text = string.Join('\n',
+            "<b>📂 Выбор подкатегории</b>",
+            $"Категория: <b>{Html(category ?? "Все категории")}</b>",
+            $"Вопросов: <b>{total}</b>. Страница <b>{page}/{pages}</b>",
+            "",
+            categoryIndex == 0 ? "Сначала можно выбрать категорию, но общий список подкатегорий тоже доступен." : "Выбери подкатегорию ниже.");
+
+        var rows = new List<InlineKeyboardButton[]>
+        {
+            new[] { InlineKeyboardButton.WithCallbackData($"Все подкатегории ({total})", $"tq:setsub:{categoryIndex}:0") }
+        };
+
+        for (var i = 0; i < slice.Count; i++)
+        {
+            var globalIndex = (page - 1) * PickerPageSize + i + 1;
+            var s = slice[i];
+            rows.Add(new[] { InlineKeyboardButton.WithCallbackData($"{s.Name} ({s.Count})", $"tq:setsub:{categoryIndex}:{globalIndex}") });
+        }
+
+        rows.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:subs:{categoryIndex}:{Math.Max(1, page - 1)}"),
+            InlineKeyboardButton.WithCallbackData($"{page}/{pages}", $"tq:subs:{categoryIndex}:{page}"),
+            InlineKeyboardButton.WithCallbackData("➡️", $"tq:subs:{categoryIndex}:{Math.Min(pages, page + 1)}")
+        });
+        rows.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("📁 Категории", "tq:cats:1"),
+            InlineKeyboardButton.WithCallbackData("⬅️ К списку", $"tq:list:1:{categoryIndex}:0")
+        });
+
+        await SendOrEditTextAsync(bot, chatId, messageId, text, new InlineKeyboardMarkup(rows), ct);
+    }
+
+    private static async Task SendQuizCardAsync(
+        ITelegramBotClient bot,
+        long chatId,
+        int? messageId,
+        QuizService quizzes,
+        long quizId,
+        int page,
+        int categoryIndex,
+        int subcategoryIndex,
+        CancellationToken ct)
+    {
+        var q = await quizzes.GetByIdAsync(quizId, ct);
+        if (q == null)
+        {
+            await SendOrEditTextAsync(bot, chatId, messageId, $"❌ Вопрос {quizId} не найден.", new InlineKeyboardMarkup(new[]
+            {
+                new[] { InlineKeyboardButton.WithCallbackData("⬅️ К списку", $"tq:list:{page}:{categoryIndex}:{subcategoryIndex}") }
+            }), ct);
+            return;
+        }
+
+        var options = string.IsNullOrWhiteSpace(q.Options)
+            ? "-"
+            : string.Join("\n", q.Options.Split('|', StringSplitOptions.RemoveEmptyEntries).Select((x, i) => $"{i + 1}. {Html(x)}"));
+
+        var text = string.Join('\n',
+            "<b>🧩 Карточка вопроса</b>",
+            $"<b>ID:</b> <code>{q.Id}</code>",
+            $"<b>Тип:</b> {Html(q.Type)}",
+            $"<b>Раздел:</b> {Html(q.Category)} / {Html(q.Subcategory)}",
+            "",
+            "<b>Вопрос:</b>",
+            Html(q.Question),
+            "",
+            "<b>Ответ:</b>",
+            Html(string.IsNullOrWhiteSpace(q.Answer) ? GetPollAnswer(q) : q.Answer),
+            "",
+            "<b>Варианты:</b>",
+            options,
+            "",
+            "<b>Объяснение:</b>",
+            Html(string.IsNullOrWhiteSpace(q.Explanation) ? "-" : q.Explanation),
+            string.IsNullOrWhiteSpace(q.Image) ? string.Empty : $"\n<b>Картинка:</b> <code>{Html(q.Image)}</code>");
+
+        var keyboard = new InlineKeyboardMarkup(new[]
+        {
+            new[] { InlineKeyboardButton.WithCallbackData("⬅️ К списку", $"tq:list:{page}:{categoryIndex}:{subcategoryIndex}") },
+            new[] { InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"tq:del:{q.Id}:{page}:{categoryIndex}:{subcategoryIndex}") }
+        });
+
+        await SendOrEditTextAsync(bot, chatId, messageId, text, keyboard, ct);
+    }
+
+    private static string GetPollAnswer(TelegramQuizBot.Data.Entities.QuizQuestion q)
+    {
+        if (q.CorrectOptionId == null || string.IsNullOrWhiteSpace(q.Options)) return "-";
+        var options = q.Options.Split('|', StringSplitOptions.None);
+        var index = q.CorrectOptionId.Value;
+        return index >= 0 && index < options.Length ? options[index] : "-";
+    }
+
+    private static async Task<string?> ResolveCategoryAsync(QuizService quizzes, int categoryIndex, CancellationToken ct)
+    {
+        if (categoryIndex <= 0) return null;
+        var categories = await quizzes.GetCategoryStatsAsync(ct);
+        return categoryIndex <= categories.Count ? categories[categoryIndex - 1].Name : null;
+    }
+
+    private static async Task<string?> ResolveSubcategoryAsync(QuizService quizzes, string? category, int subcategoryIndex, CancellationToken ct)
+    {
+        if (subcategoryIndex <= 0) return null;
+        var subcategories = await quizzes.GetSubcategoryStatsAsync(category, ct);
+        return subcategoryIndex <= subcategories.Count ? subcategories[subcategoryIndex - 1].Name : null;
+    }
+
+    private static async Task SendOrEditTextAsync(
+        ITelegramBotClient bot,
+        long chatId,
+        int? messageId,
+        string text,
+        InlineKeyboardMarkup? keyboard,
+        CancellationToken ct)
+    {
+        if (messageId is { } id)
+        {
+            try
+            {
+                await bot.EditMessageTextAsync(chatId, id, text, parseMode: ParseMode.Html, replyMarkup: keyboard, cancellationToken: ct);
+                return;
+            }
+            catch
+            {
+                // If Telegram refuses editing old/unchanged message, fall back to a new one.
+            }
+        }
+
+        await bot.SendTextMessageAsync(chatId, text, parseMode: ParseMode.Html, replyMarkup: keyboard, cancellationToken: ct);
+    }
+
+    private static int ReadInt(string[] parts, int index, int fallback)
+    {
+        return parts.Length > index && int.TryParse(parts[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
+    }
+
+    private static long ReadLong(string[] parts, int index, long fallback)
+    {
+        return parts.Length > index && long.TryParse(parts[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
     }
 
     private static async Task SendStudentListAsync(ITelegramBotClient bot, long chatId, StudentDirectoryService directory, string? query, CancellationToken ct)
@@ -589,6 +1153,12 @@ public sealed class TeacherBotHostedService : BackgroundService
         {
             _logger.LogDebug("Teacher bot long polling timeout");
             return Task.CompletedTask;
+        }
+
+        if (TelegramPollingErrorClassifier.IsTransientTelegramApiError(exception))
+        {
+            _logger.LogWarning("Teacher bot transient Telegram polling error: {Message}", exception.Message);
+            return Task.Delay(TimeSpan.FromSeconds(5), ct);
         }
 
         _logger.LogError(exception, "Teacher bot polling error");

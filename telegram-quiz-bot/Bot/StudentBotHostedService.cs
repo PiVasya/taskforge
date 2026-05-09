@@ -143,11 +143,21 @@ public sealed class StudentBotHostedService : BackgroundService
         if (settings.LearningMode == "smart")
             preferredSubcategory = (await quizzes.GetWeakSubcategoriesAsync(userId, ct)).FirstOrDefault();
 
-        var quiz = await quizzes.GetRandomForUserAsync(userId, settings.SelectedCategory, preferredSubcategory, ct);
+        var next = await quizzes.GetNextForUserAsync(userId, settings.SelectedCategory, preferredSubcategory, ct);
+        var quiz = next.Quiz;
         if (quiz == null)
         {
-            await bot.SendTextMessageAsync(chatId, "❌ Вопросов пока нет.", cancellationToken: ct);
+            await bot.SendTextMessageAsync(chatId, "❌ Вопросов пока нет. База квизов пуста или фильтр полностью удалён.", cancellationToken: ct);
             return;
+        }
+
+        if (next.FilterWasRelaxed)
+        {
+            await bot.SendTextMessageAsync(chatId, "ℹ️ В выбранном фильтре вопросов не осталось, поэтому показываю вопрос из более широкого набора.", cancellationToken: ct);
+        }
+        else if (next.IsRepeatCycle)
+        {
+            await bot.SendTextMessageAsync(chatId, "🔄 Вы уже прошли все доступные вопросы по текущему фильтру. Начинаю новый круг.", cancellationToken: ct);
         }
 
         if (quiz.Type == "text")
@@ -218,6 +228,12 @@ public sealed class StudentBotHostedService : BackgroundService
         {
             _logger.LogDebug("Student bot long polling timeout");
             return Task.CompletedTask;
+        }
+
+        if (TelegramPollingErrorClassifier.IsTransientTelegramApiError(exception))
+        {
+            _logger.LogWarning("Student bot transient Telegram polling error: {Message}", exception.Message);
+            return Task.Delay(TimeSpan.FromSeconds(5), ct);
         }
 
         _logger.LogError(exception, "Student bot polling error");
