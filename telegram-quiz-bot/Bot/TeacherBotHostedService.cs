@@ -323,10 +323,10 @@ public sealed class TeacherBotHostedService : BackgroundService
         using var scope = _provider.CreateScope();
         var teachers = scope.ServiceProvider.GetRequiredService<TeacherAccessService>();
         var isTeacher = await teachers.IsTeacherAsync(teacherId, ct);
-        TelegramDebugTrace.Write("teacher.message", "access-check", ("teacherId", teacherId), ("isTeacher", isTeacher), ("text", text));
+        TelegramDebugTrace.Write("teacher.callback", "access-check", ("teacherId", teacherId), ("isTeacher", isTeacher), ("data", data));
         if (!isTeacher)
         {
-            TelegramDebugTrace.Write("teacher.message", "blocked:not-teacher", ("teacherId", teacherId), ("text", text));
+            TelegramDebugTrace.Write("teacher.callback", "blocked:not-teacher", ("teacherId", teacherId), ("data", data));
             await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Доступ запрещён", showAlert: true, cancellationToken: ct);
             return;
         }
