@@ -118,7 +118,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
             var feedback = correct
                 ? "🎉 Правильно! Молодец!"
-                : $"❌ Неправильно, но ты справишься! ✨\n\nПравильный ответ: <b>{Html(pending.Answer)}</b>\n{Html(EmptyToMissing(pending.Explanation))}";
+                : $"❌ Неправильно, но ты справился! ✨\n\nПравильный ответ: <b>{Html(pending.Answer)}</b>\n{Html(EmptyToMissing(pending.Explanation))}";
 
             await bot.SendTextMessageAsync(
                 message.Chat.Id,
@@ -176,7 +176,7 @@ public sealed class StudentBotHostedService : BackgroundService
         var quizzes = scope.ServiceProvider.GetRequiredService<QuizService>();
         var progress = scope.ServiceProvider.GetRequiredService<ProgressService>();
 
-        await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+        await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
 
         if (!await access.HasAccessAsync(userId, ct))
         {
@@ -341,7 +341,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         var text = correct
             ? "🎉 Правильно! Молодец!"
-            : "❌ Неправильно, но ты справишься! ✨";
+            : "❌ Неправильно, но ты справился! ✨";
 
         await _bot.SendTextMessageAsync(
             active.ChatId,

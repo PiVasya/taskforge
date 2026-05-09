@@ -263,7 +263,7 @@ public sealed class TeacherBotHostedService : BackgroundService
         var teachers = scope.ServiceProvider.GetRequiredService<TeacherAccessService>();
         if (!await teachers.IsTeacherAsync(teacherId, ct))
         {
-            await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ запрещён", showAlert: true, cancellationToken: ct);
+            await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Доступ запрещён", showAlert: true, cancellationToken: ct);
             return;
         }
 
@@ -293,12 +293,12 @@ public sealed class TeacherBotHostedService : BackgroundService
                 return;
             }
 
-            await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+            await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Teacher callback handling failed");
-            await bot.AnswerCallbackQueryAsync(callback.Id, "Ошибка обработки кнопки", showAlert: true, cancellationToken: ct);
+            await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Ошибка обработки кнопки", showAlert: true, cancellationToken: ct);
         }
     }
 
@@ -317,40 +317,40 @@ public sealed class TeacherBotHostedService : BackgroundService
         switch (data)
         {
             case "tm:home":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendTeacherHomeAsync(bot, chatId, ct);
                 break;
             case "tm:quizzes":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizListAsync(bot, chatId, messageId, quizzes, 1, 0, 0, ct);
                 break;
             case "tm:students":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendStudentListAsync(bot, chatId, directory, null, ct);
                 break;
             case "tm:addText":
                 _state.Drafts[teacherId] = new TeacherDraftQuestion { Type = "text", Step = "image" };
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await bot.SendTextMessageAsync(chatId, "📸 Отправьте изображение для вопроса или напишите /skip.", replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
                 break;
             case "tm:addQuizInfo":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await bot.SendTextMessageAsync(chatId, "📊 Чтобы добавить quiz-вопрос, отправь сюда Telegram-опрос типа <b>quiz</b> с выбранным правильным ответом. Бот сохранит его автоматически.", parseMode: ParseMode.Html, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
                 break;
             case "tm:stats":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await bot.SendTextMessageAsync(chatId, await stats.BuildClassStatsAsync(ct), replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
                 break;
             case "tm:logs":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await bot.SendTextMessageAsync(chatId, await stats.BuildStartLogAsync(ct), replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
                 break;
             case "tm:clean":
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await bot.SendTextMessageAsync(chatId, TelegramText.StudentCleanHelp, replyMarkup: TeacherMainKeyboard(), cancellationToken: ct);
                 break;
             default:
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 break;
         }
     }
@@ -368,14 +368,14 @@ public sealed class TeacherBotHostedService : BackgroundService
         var parts = data.Split(':', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3 || parts[0] != "sq")
         {
-            await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+            await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
             return;
         }
 
         var action = parts[1];
         if (!long.TryParse(parts[2], out var studentId))
         {
-            await bot.AnswerCallbackQueryAsync(callback.Id, "Некорректный ID", showAlert: true, cancellationToken: ct);
+            await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Некорректный ID", showAlert: true, cancellationToken: ct);
             return;
         }
 
@@ -386,34 +386,34 @@ public sealed class TeacherBotHostedService : BackgroundService
                 break;
             case "grant24":
                 await students.AddAsync(studentId, 24, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ на 24 часа выдан", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Доступ на 24 часа выдан", cancellationToken: ct);
                 await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
                 break;
             case "grant7":
                 await students.AddAsync(studentId, 24 * 7, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ на 7 дней выдан", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Доступ на 7 дней выдан", cancellationToken: ct);
                 await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
                 break;
             case "grantForever":
                 await students.AddAsync(studentId, null, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Постоянный доступ выдан", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Постоянный доступ выдан", cancellationToken: ct);
                 await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
                 break;
             case "revoke":
                 await students.RemoveAsync(studentId, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Доступ отозван", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Доступ отозван", cancellationToken: ct);
                 await SendStudentCardAsync(bot, chatId, directory, studentId, ct);
                 break;
             case "hide":
                 await directory.HideContactAsync(studentId, teacherId, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Контакт скрыт из общего списка", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Контакт скрыт из общего списка", cancellationToken: ct);
                 break;
             case "delete":
                 await directory.DeleteContactAsync(studentId, deleteAccess: false, deleteProgress: false, deleteLogs: false, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, "Контакт удалён из справочника", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Контакт удалён из справочника", cancellationToken: ct);
                 break;
             default:
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 break;
         }
     }
@@ -437,21 +437,21 @@ public sealed class TeacherBotHostedService : BackgroundService
                 var page = ReadInt(parts, 2, 1);
                 var categoryIndex = ReadInt(parts, 3, 0);
                 var subcategoryIndex = ReadInt(parts, 4, 0);
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizListAsync(bot, chatId, messageId, quizzes, page, categoryIndex, subcategoryIndex, ct);
                 break;
             }
             case "cats":
             {
                 var page = ReadInt(parts, 2, 1);
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizCategoryPickerAsync(bot, chatId, messageId, quizzes, page, ct);
                 break;
             }
             case "setcat":
             {
                 var categoryIndex = ReadInt(parts, 2, 0);
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizListAsync(bot, chatId, messageId, quizzes, 1, categoryIndex, 0, ct);
                 break;
             }
@@ -459,7 +459,7 @@ public sealed class TeacherBotHostedService : BackgroundService
             {
                 var categoryIndex = ReadInt(parts, 2, 0);
                 var page = ReadInt(parts, 3, 1);
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizSubcategoryPickerAsync(bot, chatId, messageId, quizzes, categoryIndex, page, ct);
                 break;
             }
@@ -467,7 +467,7 @@ public sealed class TeacherBotHostedService : BackgroundService
             {
                 var categoryIndex = ReadInt(parts, 2, 0);
                 var subcategoryIndex = ReadInt(parts, 3, 0);
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizListAsync(bot, chatId, messageId, quizzes, 1, categoryIndex, subcategoryIndex, ct);
                 break;
             }
@@ -477,7 +477,7 @@ public sealed class TeacherBotHostedService : BackgroundService
                 var page = ReadInt(parts, 3, 1);
                 var categoryIndex = ReadInt(parts, 4, 0);
                 var subcategoryIndex = ReadInt(parts, 5, 0);
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 await SendQuizCardAsync(bot, chatId, messageId, quizzes, quizId, page, categoryIndex, subcategoryIndex, ct);
                 break;
             }
@@ -488,12 +488,12 @@ public sealed class TeacherBotHostedService : BackgroundService
                 var categoryIndex = ReadInt(parts, 4, 0);
                 var subcategoryIndex = ReadInt(parts, 5, 0);
                 var removed = await quizzes.RemoveAsync(quizId, ct);
-                await bot.AnswerCallbackQueryAsync(callback.Id, removed ? "Вопрос удалён" : "Вопрос не найден", cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, removed ? "Вопрос удалён" : "Вопрос не найден", cancellationToken: ct);
                 await SendQuizListAsync(bot, chatId, messageId, quizzes, page, categoryIndex, subcategoryIndex, ct);
                 break;
             }
             default:
-                await bot.AnswerCallbackQueryAsync(callback.Id, cancellationToken: ct);
+                await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
                 break;
         }
     }
