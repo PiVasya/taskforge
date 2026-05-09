@@ -105,12 +105,23 @@ public sealed class QuizService
 
     public async Task<List<QuizCategoryCount>> GetCategoryStatsAsync(CancellationToken ct)
     {
-        return await _db.Quizzes
+        // EF Core/Npgsql can translate grouping into anonymous DTOs, but not always
+        // directly into positional record constructors. Keep SQL translation simple,
+        // then map to the public record on the client side.
+        var rows = await _db.Quizzes
             .AsNoTracking()
             .GroupBy(x => x.Category)
-            .Select(g => new QuizCategoryCount(g.Key, g.Count()))
+            .Select(g => new
+            {
+                Name = g.Key,
+                Count = g.Count()
+            })
             .OrderBy(x => x.Name)
             .ToListAsync(ct);
+
+        return rows
+            .Select(x => new QuizCategoryCount(x.Name, x.Count))
+            .ToList();
     }
 
     public async Task<List<QuizSubcategoryCount>> GetSubcategoryStatsAsync(string? category, CancellationToken ct)
@@ -119,11 +130,21 @@ public sealed class QuizService
         if (!string.IsNullOrWhiteSpace(category) && category != "all")
             query = query.Where(x => x.Category == category);
 
-        return await query
+        // Same as categories: first translate to a simple anonymous shape,
+        // then map to the record after data is loaded.
+        var rows = await query
             .GroupBy(x => x.Subcategory)
-            .Select(g => new QuizSubcategoryCount(g.Key, g.Count()))
+            .Select(g => new
+            {
+                Name = g.Key,
+                Count = g.Count()
+            })
             .OrderBy(x => x.Name)
             .ToListAsync(ct);
+
+        return rows
+            .Select(x => new QuizSubcategoryCount(x.Name, x.Count))
+            .ToList();
     }
 
     public async Task<int> CountWithImagesAsync(CancellationToken ct)
