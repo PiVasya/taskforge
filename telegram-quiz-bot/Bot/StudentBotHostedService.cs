@@ -118,7 +118,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
             var feedback = correct
                 ? "🎉 Правильно! Молодец!"
-                : $"❌ Неправильно, но ты справился! ✨\n\nПравильный ответ: <b>{Html(pending.Answer)}</b>\n{Html(EmptyToMissing(pending.Explanation))}";
+                : $"❌ Неправильно, но ты справишься! ✨\n\nПравильный ответ: <b>{Html(pending.Answer)}</b>\n{Html(EmptyToMissing(pending.Explanation))}";
 
             await bot.SendTextMessageAsync(
                 message.Chat.Id,
@@ -341,7 +341,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         var text = correct
             ? "🎉 Правильно! Молодец!"
-            : "❌ Неправильно, но ты справился! ✨";
+            : "❌ Неправильно, но ты справишься! ✨";
 
         await _bot.SendTextMessageAsync(
             active.ChatId,
