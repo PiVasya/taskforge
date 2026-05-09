@@ -135,10 +135,10 @@ public sealed class TeacherBotHostedService : BackgroundService
         }
 
         var isTeacher = await teachers.IsTeacherAsync(teacherId, ct);
-        TelegramDebugTrace.Write("teacher.callback", "access-check", ("teacherId", teacherId), ("isTeacher", isTeacher), ("data", data));
+        TelegramDebugTrace.Write("teacher.message", "access-check", ("teacherId", teacherId), ("isTeacher", isTeacher), ("text", text));
         if (!isTeacher)
         {
-            TelegramDebugTrace.Write("teacher.callback", "blocked:not-teacher", ("teacherId", teacherId), ("data", data));
+            TelegramDebugTrace.Write("teacher.message", "blocked:not-teacher", ("teacherId", teacherId), ("text", text));
             await bot.SendTextMessageAsync(message.Chat.Id, "⛔ Доступ запрещён. Введите пароль учителя.", cancellationToken: ct);
             return;
         }
@@ -323,10 +323,10 @@ public sealed class TeacherBotHostedService : BackgroundService
         using var scope = _provider.CreateScope();
         var teachers = scope.ServiceProvider.GetRequiredService<TeacherAccessService>();
         var isTeacher = await teachers.IsTeacherAsync(teacherId, ct);
-        TelegramDebugTrace.Write("teacher.callback", "access-check", ("teacherId", teacherId), ("isTeacher", isTeacher), ("data", data));
+        TelegramDebugTrace.Write("teacher.message", "access-check", ("teacherId", teacherId), ("isTeacher", isTeacher), ("text", text));
         if (!isTeacher)
         {
-            TelegramDebugTrace.Write("teacher.callback", "blocked:not-teacher", ("teacherId", teacherId), ("data", data));
+            TelegramDebugTrace.Write("teacher.message", "blocked:not-teacher", ("teacherId", teacherId), ("text", text));
             await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, "Доступ запрещён", showAlert: true, cancellationToken: ct);
             return;
         }
