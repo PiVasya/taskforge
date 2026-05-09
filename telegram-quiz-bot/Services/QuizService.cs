@@ -8,6 +8,7 @@ namespace TelegramQuizBot.Services;
 public sealed record QuizCategoryCount(string Name, int Count);
 public sealed record QuizSubcategoryCount(string Name, int Count);
 public sealed record SmartRecommendation(string Category, string Subcategory, int Correct, int Incorrect, int Total, double Accuracy, int QuestionCount);
+public sealed record TopicProgressItem(string Category, string Subcategory, int Correct, int Incorrect, int Total, double Accuracy, int QuestionCount);
 public sealed record NextQuizResult(QuizQuestion? Quiz, int TotalAvailable, int UnseenAvailable, bool IsRepeatCycle, bool FilterWasRelaxed);
 
 public sealed class QuizService
@@ -277,11 +278,127 @@ public sealed class QuizService
             .ToList();
     }
 
+    public async Task<List<TopicProgressItem>> GetTopicProgressAsync(long userId, bool includeUnanswered, int take, CancellationToken ct)
+    {
+        take = Math.Max(1, take);
+
+        var questionCounts = await GetTopicQuestionCountsAsync(ct);
+        var statRows = await _db.SubcategoryStats
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .ToListAsync(ct);
+
+        var statMap = statRows.ToDictionary(x => (x.Category, x.Subcategory));
+        var result = new List<TopicProgressItem>();
+
+        foreach (var q in questionCounts)
+        {
+            statMap.TryGetValue((q.Category, q.Subcategory), out var stat);
+            var correct = stat?.Correct ?? 0;
+            var incorrect = stat?.Incorrect ?? 0;
+            var total = correct + incorrect;
+            if (!includeUnanswered && total == 0) continue;
+
+            var accuracy = total == 0 ? 0 : correct * 100.0 / total;
+            result.Add(new TopicProgressItem(q.Category, q.Subcategory, correct, incorrect, total, accuracy, q.QuestionCount));
+        }
+
+        result = includeUnanswered
+            ? result
+                .OrderByDescending(x => x.Total > 0)
+                .ThenBy(x => x.Category)
+                .ThenBy(x => x.Subcategory)
+                .Take(take)
+                .ToList()
+            : result
+                .OrderBy(x => x.Accuracy)
+                .ThenByDescending(x => x.Incorrect)
+                .ThenBy(x => x.Total)
+                .ThenBy(x => x.Category)
+                .ThenBy(x => x.Subcategory)
+                .Take(take)
+                .ToList();
+
+        TelegramDebugTrace.Write(
+            "quiz.service",
+            "topic-progress",
+            ("userId", userId),
+            ("includeUnanswered", includeUnanswered),
+            ("take", take),
+            ("count", result.Count),
+            ("items", string.Join(";", result.Select(x => $"{x.Category}/{x.Subcategory}:{x.Correct}/{x.Total}:{x.QuestionCount}"))));
+
+        return result;
+    }
+
     public async Task<List<SmartRecommendation>> GetSmartRecommendationsAsync(long userId, int take, CancellationToken ct)
     {
         take = Math.Max(1, take);
 
-        var questionCounts = await _db.Quizzes
+        var questionCounts = await GetTopicQuestionCountsAsync(ct);
+        var countMap = questionCounts.ToDictionary(
+            x => (x.Category, x.Subcategory),
+            x => x.QuestionCount);
+
+        var statRows = await _db.SubcategoryStats
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .ToListAsync(ct);
+
+        var attempted = statRows
+            .Select(x =>
+            {
+                var total = x.Correct + x.Incorrect;
+                var accuracy = total == 0 ? 0 : x.Correct * 100.0 / total;
+                countMap.TryGetValue((x.Category, x.Subcategory), out var questionCount);
+                return new SmartRecommendation(x.Category, x.Subcategory, x.Correct, x.Incorrect, total, accuracy, questionCount);
+            })
+            .Where(x => x.QuestionCount > 0 && x.Total > 0)
+            .ToList();
+
+        var result = attempted
+            .Where(x => x.Incorrect > 0)
+            .OrderBy(x => x.Accuracy)
+            .ThenByDescending(x => x.Incorrect)
+            .ThenBy(x => x.Total)
+            .ThenByDescending(x => x.QuestionCount)
+            .ThenBy(x => x.Category)
+            .ThenBy(x => x.Subcategory)
+            .Take(take)
+            .ToList();
+
+        var used = result
+            .Select(x => (x.Category, x.Subcategory))
+            .ToHashSet();
+
+        foreach (var q in questionCounts
+                     .Where(x => !attempted.Any(a => a.Category == x.Category && a.Subcategory == x.Subcategory))
+                     .OrderBy(x => x.Category)
+                     .ThenBy(x => x.Subcategory))
+        {
+            if (result.Count >= take) break;
+            if (!used.Add((q.Category, q.Subcategory))) continue;
+            result.Add(new SmartRecommendation(q.Category, q.Subcategory, 0, 0, 0, 0, q.QuestionCount));
+        }
+
+        foreach (var item in attempted
+                     .Where(x => !used.Contains((x.Category, x.Subcategory)))
+                     .OrderBy(x => x.Total)
+                     .ThenBy(x => x.Accuracy)
+                     .ThenByDescending(x => x.QuestionCount))
+        {
+            if (result.Count >= take) break;
+            if (!used.Add((item.Category, item.Subcategory))) continue;
+            result.Add(item);
+        }
+
+        TelegramDebugTrace.Write("quiz.service", "smart-recommendations", ("userId", userId), ("take", take), ("resultCount", result.Count), ("items", string.Join(";", result.Select(x => $"{x.Category}/{x.Subcategory}:{x.Accuracy:0.#}%:{x.Correct}/{x.Total}:{x.QuestionCount}"))));
+        return result;
+    }
+
+    private async Task<List<TopicQuestionCount>> GetTopicQuestionCountsAsync(CancellationToken ct)
+    {
+        var rows = await _db.Quizzes
             .AsNoTracking()
             .GroupBy(x => new { x.Category, x.Subcategory })
             .Select(g => new
@@ -294,46 +411,12 @@ public sealed class QuizService
             .ThenBy(x => x.Subcategory)
             .ToListAsync(ct);
 
-        var countMap = questionCounts.ToDictionary(
-            x => (x.Category, x.Subcategory),
-            x => x.QuestionCount);
-
-        var statRows = await _db.SubcategoryStats
-            .AsNoTracking()
-            .Where(x => x.UserId == userId)
-            .ToListAsync(ct);
-
-        var result = statRows
-            .Select(x =>
-            {
-                var total = x.Correct + x.Incorrect;
-                var accuracy = total == 0 ? 0 : x.Correct * 100.0 / total;
-                countMap.TryGetValue((x.Category, x.Subcategory), out var questionCount);
-                return new SmartRecommendation(x.Category, x.Subcategory, x.Correct, x.Incorrect, total, accuracy, questionCount);
-            })
-            .Where(x => x.QuestionCount > 0)
-            .OrderBy(x => x.Total == 0 ? 0 : 1)
-            .ThenBy(x => x.Accuracy)
-            .ThenByDescending(x => x.Incorrect)
-            .ThenByDescending(x => x.QuestionCount)
-            .ThenBy(x => x.Subcategory)
-            .Take(take)
+        return rows
+            .Select(x => new TopicQuestionCount(x.Category, x.Subcategory, x.QuestionCount))
             .ToList();
-
-        var used = result
-            .Select(x => (x.Category, x.Subcategory))
-            .ToHashSet();
-
-        foreach (var q in questionCounts)
-        {
-            if (result.Count >= take) break;
-            if (!used.Add((q.Category, q.Subcategory))) continue;
-            result.Add(new SmartRecommendation(q.Category, q.Subcategory, 0, 0, 0, 0, q.QuestionCount));
-        }
-
-        TelegramDebugTrace.Write("quiz.service", "smart-recommendations", ("userId", userId), ("take", take), ("resultCount", result.Count), ("items", string.Join(";", result.Select(x => $"{x.Category}/{x.Subcategory}:{x.Accuracy:0.#}%:{x.QuestionCount}"))));
-        return result;
     }
+
+    private sealed record TopicQuestionCount(string Category, string Subcategory, int QuestionCount);
 
     private IQueryable<QuizQuestion> BuildFilteredQuery(string? category, string? subcategory)
     {

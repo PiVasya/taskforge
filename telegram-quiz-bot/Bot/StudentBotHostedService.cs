@@ -199,7 +199,7 @@ public sealed class StudentBotHostedService : BackgroundService
         if (text == "/stats" || text == "📊 Статистика")
         {
             TelegramDebugTrace.Write("student.message", "command:stats", ("userId", userId), ("text", text));
-            await SendStudentStatsAsync(bot, message.Chat.Id, userId, progress, quizzes, ct);
+            await SendStudentStatsAsync(bot, message.Chat.Id, userId, progress, quizzes, includeAllTopics: false, ct);
             return;
         }
 
@@ -271,10 +271,11 @@ public sealed class StudentBotHostedService : BackgroundService
             return;
         }
 
-        if (data == "st:stats")
+        if (data == "st:stats" || data == "st:stats:solved" || data == "st:stats:all")
         {
-            TelegramDebugTrace.Write("student.callback", "callback:stats", ("userId", userId), ("data", data));
-            await SendStudentStatsAsync(bot, chatId, userId, progress, quizzes, ct);
+            var includeAllTopics = data == "st:stats:all";
+            TelegramDebugTrace.Write("student.callback", "callback:stats", ("userId", userId), ("data", data), ("includeAllTopics", includeAllTopics));
+            await SendStudentStatsAsync(bot, chatId, userId, progress, quizzes, includeAllTopics, ct);
             return;
         }
 
@@ -405,6 +406,11 @@ public sealed class StudentBotHostedService : BackgroundService
             _state.PendingTextAnswers[userId] = quiz;
             await bot.SendTextMessageAsync(
                 chatId,
+                BuildQuizTopicHeader(quiz, settings, next, preferredSubcategory),
+                parseMode: ParseMode.Html,
+                cancellationToken: ct);
+            await bot.SendTextMessageAsync(
+                chatId,
                 $"📝 <b>{Html(quiz.Question)}</b>",
                 parseMode: ParseMode.Html,
                 cancellationToken: ct);
@@ -418,6 +424,12 @@ public sealed class StudentBotHostedService : BackgroundService
             await bot.SendTextMessageAsync(chatId, $"⚠️ Вопрос {quiz.Id} повреждён: нет вариантов ответа.", replyMarkup: AfterAnswerKeyboard(false), cancellationToken: ct);
             return;
         }
+
+        await bot.SendTextMessageAsync(
+            chatId,
+            BuildQuizTopicHeader(quiz, settings, next, preferredSubcategory),
+            parseMode: ParseMode.Html,
+            cancellationToken: ct);
 
         var sent = await bot.SendPollAsync(
             chatId: chatId,
@@ -508,12 +520,15 @@ public sealed class StudentBotHostedService : BackgroundService
         long userId,
         ProgressService progress,
         QuizService quizzes,
+        bool includeAllTopics,
         CancellationToken ct)
     {
         var p = await progress.GetProgressAsync(userId, ct);
+        var topics = await quizzes.GetTopicProgressAsync(userId, includeAllTopics, 12, ct);
         var recommendations = await quizzes.GetSmartRecommendationsAsync(userId, 5, ct);
-        TelegramDebugTrace.Write("student.stats", "show", ("chatId", chatId), ("userId", userId), ("total", p.Total), ("correct", p.Correct), ("incorrect", p.Incorrect), ("experience", p.Experience), ("recommendations", recommendations.Count));
+        TelegramDebugTrace.Write("student.stats", "show", ("chatId", chatId), ("userId", userId), ("total", p.Total), ("correct", p.Correct), ("incorrect", p.Incorrect), ("experience", p.Experience), ("includeAllTopics", includeAllTopics), ("topics", topics.Count), ("recommendations", recommendations.Count));
 
+        var modeTitle = includeAllTopics ? "все темы" : "только темы, которые вы уже решали";
         var lines = new List<string>
         {
             "<b>📊 Ваша статистика</b>",
@@ -522,22 +537,42 @@ public sealed class StudentBotHostedService : BackgroundService
             $"❌ Ошибок: <b>{p.Incorrect}</b>",
             $"⭐ Опыт: <b>{p.Experience}</b>",
             string.Empty,
-            "<b>💡 Темы для тренировки:</b>"
+            $"<b>📌 Темы: {Html(modeTitle)}</b>"
         };
 
-        foreach (var (item, index) in recommendations.Select((item, index) => (item, index + 1)))
+        if (topics.Count == 0)
         {
-            lines.Add($"{index}. {Html(item.Subcategory)} — точность {item.Accuracy:0.#}% ({item.Correct}/{item.Total})");
+            lines.Add("Пока нет решённых тем. Нажмите 🎯 Задание и ответьте на пару вопросов.");
+        }
+        else
+        {
+            foreach (var (item, index) in topics.Select((item, index) => (item, index + 1)))
+            {
+                lines.Add($"{index}. {FormatTopicProgress(item)}");
+            }
         }
 
-        if (recommendations.Count == 0)
-            lines.Add("Пока нет статистики. Решите несколько заданий, и я подберу слабые темы.");
+        lines.Add(string.Empty);
+        lines.Add("<b>💡 Почему именно эти темы в умных рекомендациях:</b>");
+        lines.Add("1) сначала беру темы, где были ошибки или низкая точность;");
+        lines.Add("2) если таких мало — добавляю темы, которые ещё не решались;");
+        lines.Add("3) темы со 100% точностью не считаю слабыми, но могу дать их для закрепления.");
+
+        if (recommendations.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add("<b>🎯 Сейчас бот будет тренировать:</b>");
+            foreach (var (item, index) in recommendations.Select((item, index) => (item, index + 1)))
+            {
+                lines.Add($"{index}. {FormatSmartRecommendation(item)}");
+            }
+        }
 
         await bot.SendTextMessageAsync(
             chatId,
             string.Join('\n', lines),
             parseMode: ParseMode.Html,
-            replyMarkup: StudentHomeKeyboard(),
+            replyMarkup: StatsKeyboard(includeAllTopics),
             cancellationToken: ct);
     }
 
@@ -612,23 +647,31 @@ public sealed class StudentBotHostedService : BackgroundService
     private static async Task SendSmartRecommendationsAsync(ITelegramBotClient bot, long chatId, long userId, QuizService quizzes, CancellationToken ct)
     {
         var recommendations = await quizzes.GetSmartRecommendationsAsync(userId, 5, ct);
-        TelegramDebugTrace.Write("student.smart", "recommendations", ("chatId", chatId), ("userId", userId), ("count", recommendations.Count), ("items", string.Join(";", recommendations.Select(x => $"{x.Category}/{x.Subcategory}:{x.Accuracy:0.#}%:{x.QuestionCount}"))));
+        TelegramDebugTrace.Write("student.smart", "recommendations", ("chatId", chatId), ("userId", userId), ("count", recommendations.Count), ("items", string.Join(";", recommendations.Select(x => $"{x.Category}/{x.Subcategory}:{x.Accuracy:0.#}%:{x.Correct}/{x.Total}:{x.QuestionCount}"))));
         var lines = new List<string>
         {
             "💡 <b>Умные рекомендации включены</b>",
             "",
-            "На основе вашей статистики я буду чаще предлагать вопросы по этим темам:"
+            "Я буду чаще предлагать вопросы по темам ниже.",
+            "",
+            "<b>Почему именно они:</b>",
+            "• сначала идут темы с ошибками и низкой точностью;",
+            "• если ошибок мало — добавляю темы без практики;",
+            "• 0% больше не означает \"плохо\", если тема ещё не решалась."
         };
 
         if (recommendations.Count == 0)
         {
+            lines.Add("");
             lines.Add("Пока статистики нет. Начнём с разных тем, а затем бот сам найдёт слабые места.");
         }
         else
         {
+            lines.Add("");
+            lines.Add("<b>Темы тренировки:</b>");
             foreach (var (item, index) in recommendations.Select((item, index) => (item, index + 1)))
             {
-                lines.Add($"{index}. {Html(item.Subcategory)} (точность: {item.Accuracy:0.#}%, вопросов: {item.QuestionCount})");
+                lines.Add($"{index}. {FormatSmartRecommendation(item)}");
             }
         }
 
@@ -642,6 +685,72 @@ public sealed class StudentBotHostedService : BackgroundService
                 new[] { InlineKeyboardButton.WithCallbackData("📚 Обычный режим", "st:mode:normal"), InlineKeyboardButton.WithCallbackData("📊 Статистика", "st:stats") }
             }),
             cancellationToken: ct);
+    }
+
+    private static InlineKeyboardMarkup StatsKeyboard(bool includeAllTopics)
+    {
+        return new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData(includeAllTopics ? "✅ Только решённые" : "🗂 Все темы", includeAllTopics ? "st:stats:solved" : "st:stats:all"),
+                InlineKeyboardButton.WithCallbackData("💡 Умные рекомендации", "st:mode:smart")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🎯 Задание", "st:next"),
+                InlineKeyboardButton.WithCallbackData("🏠 Меню", "st:menu")
+            }
+        });
+    }
+
+    private static string BuildQuizTopicHeader(QuizQuestion quiz, UserSetting settings, NextQuizResult next, string? preferredSubcategory)
+    {
+        var title = settings.SelectedCategory == AllCategories
+            ? "🎲 Случайная категория"
+            : "📌 Текущая тема";
+
+        if (settings.LearningMode == ModeSmart)
+            title = "💡 Умная рекомендация";
+
+        var lines = new List<string>
+        {
+            $"{title}: <b>{Html(quiz.Category)}</b> / <b>{Html(quiz.Subcategory)}</b>",
+            $"Вопросов в наборе: <b>{next.TotalAvailable}</b>; непройденных: <b>{next.UnseenAvailable}</b>."
+        };
+
+        if (!string.IsNullOrWhiteSpace(preferredSubcategory))
+            lines.Add($"Приоритетная тема: <b>{Html(preferredSubcategory)}</b>.");
+
+        if (next.FilterWasRelaxed)
+            lines.Add("Фильтр расширен, потому что в выбранной теме не осталось новых вопросов.");
+
+        if (next.IsRepeatCycle)
+            lines.Add("Начался новый круг: все вопросы этого набора уже были решены.");
+
+        return string.Join('\n', lines);
+    }
+
+    private static string FormatSmartRecommendation(SmartRecommendation item)
+    {
+        var name = $"{Html(item.Category)} / {Html(item.Subcategory)}";
+        if (item.Total == 0)
+            return $"{name} — ещё не решали, вопросов в базе: {item.QuestionCount}";
+
+        var reason = item.Incorrect > 0
+            ? $"ошибок: {item.Incorrect}"
+            : "для закрепления";
+
+        return $"{name} — точность {item.Accuracy:0.#}% ({item.Correct}/{item.Total}), {reason}, вопросов в базе: {item.QuestionCount}";
+    }
+
+    private static string FormatTopicProgress(TopicProgressItem item)
+    {
+        var name = $"{Html(item.Category)} / {Html(item.Subcategory)}";
+        if (item.Total == 0)
+            return $"{name} — ещё не решали, вопросов в базе: {item.QuestionCount}";
+
+        return $"{name} — точность {item.Accuracy:0.#}% ({item.Correct}/{item.Total}), ошибок: {item.Incorrect}, вопросов в базе: {item.QuestionCount}";
     }
 
     private Task HandleErrorAsync(ITelegramBotClient bot, Exception exception, CancellationToken ct)
