@@ -271,6 +271,7 @@ services:
       TelegramQuiz__TeacherPassword: ${TELEGRAM_QUIZ_TEACHER_PASSWORD}
       TelegramQuiz__ImagePrefix: ${TELEGRAM_QUIZ_IMAGE_PREFIX:-telegram-quiz/images}
       TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
+      TELEGRAM_QUIZ_VERBOSE_CONSOLE_LOGS: ${TELEGRAM_QUIZ_VERBOSE_CONSOLE_LOGS:-true}
       TelegramQuiz__RequestTimeoutSeconds: ${TELEGRAM_QUIZ_REQUEST_TIMEOUT_SECONDS:-600}
 
       TaskForge__ApiBaseUrl: "http://api:8080"
@@ -322,6 +323,7 @@ services:
         Host=telegram-quiz-db;Port=5432;Database=${TELEGRAM_QUIZ_POSTGRES_DB};
         Username=${TELEGRAM_QUIZ_POSTGRES_USER};Password=${TELEGRAM_QUIZ_POSTGRES_PASSWORD}
       TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
+      TELEGRAM_QUIZ_VERBOSE_CONSOLE_LOGS: ${TELEGRAM_QUIZ_VERBOSE_CONSOLE_LOGS:-true}
     depends_on:
       telegram-quiz-db:
         condition: service_healthy

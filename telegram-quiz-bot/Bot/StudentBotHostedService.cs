@@ -41,9 +41,12 @@ public sealed class StudentBotHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        TelegramDebugTrace.Write("student", "execute:start", ("tokenConfigured", !string.IsNullOrWhiteSpace(_options.StudentBotToken)));
+
         if (string.IsNullOrWhiteSpace(_options.StudentBotToken))
         {
             _logger.LogWarning("Student bot token is empty. Student bot is disabled.");
+            TelegramDebugTrace.Write("student", "execute:disabled", ("reason", "empty-token"));
             return;
         }
 
@@ -51,20 +54,38 @@ public sealed class StudentBotHostedService : BackgroundService
         await _bot.DeleteWebhookAsync(cancellationToken: stoppingToken);
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new ReceiverOptions { AllowedUpdates = Array.Empty<UpdateType>() }, stoppingToken);
         _logger.LogInformation("Student Telegram bot started");
+        TelegramDebugTrace.Write("student", "execute:started");
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
     private async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
     {
+        TelegramDebugTrace.Write(
+            "student.update",
+            "received",
+            ("updateId", update.Id),
+            ("type", update.Type),
+            ("messageId", update.Message?.MessageId),
+            ("callbackId", update.CallbackQuery?.Id),
+            ("pollId", update.PollAnswer?.PollId));
+
         if (update.Message is { } message)
         {
-            if (message.Chat.Type != ChatType.Private) return;
+            if (message.Chat.Type != ChatType.Private)
+            {
+                TelegramDebugTrace.Write("student.update", "ignored:non-private-message", ("chatId", message.Chat.Id), ("chatType", message.Chat.Type));
+                return;
+            }
             await HandleMessageAsync(bot, message, ct);
         }
         else if (update.CallbackQuery is { } callback)
         {
-            if (callback.Message?.Chat.Type != ChatType.Private) return;
+            if (callback.Message?.Chat.Type != ChatType.Private)
+            {
+                TelegramDebugTrace.Write("student.update", "ignored:non-private-callback", ("userId", callback.From.Id), ("data", callback.Data));
+                return;
+            }
             await HandleCallbackAsync(bot, callback, ct);
         }
         else if (update.PollAnswer is { } answer)
@@ -76,7 +97,23 @@ public sealed class StudentBotHostedService : BackgroundService
     private async Task HandleMessageAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
     {
         var userId = message.From?.Id ?? 0;
-        if (userId == 0) return;
+        TelegramDebugTrace.Write(
+            "student.message",
+            "received",
+            ("messageId", message.MessageId),
+            ("chatId", message.Chat.Id),
+            ("userId", userId),
+            ("username", message.From?.Username),
+            ("firstName", message.From?.FirstName),
+            ("lastName", message.From?.LastName),
+            ("text", message.Text),
+            ("type", message.Type));
+
+        if (userId == 0)
+        {
+            TelegramDebugTrace.Write("student.message", "ignored:no-user");
+            return;
+        }
 
         using var scope = _provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
@@ -87,10 +124,14 @@ public sealed class StudentBotHostedService : BackgroundService
         var progress = scope.ServiceProvider.GetRequiredService<ProgressService>();
 
         await directory.RememberMessageAsync(message, ct);
+        TelegramDebugTrace.Write("student.message", "contact-remembered", ("userId", userId));
         await LogStartAsync(db, message, ct);
 
-        if (!await access.HasAccessAsync(userId, ct))
+        var hasAccess = await access.HasAccessAsync(userId, ct);
+        TelegramDebugTrace.Write("student.message", "access-check", ("userId", userId), ("hasAccess", hasAccess));
+        if (!hasAccess)
         {
+            TelegramDebugTrace.Write("student.message", "blocked:no-access", ("userId", userId));
             await bot.SendTextMessageAsync(
                 message.Chat.Id,
                 $"⛔ У вас пока нет доступа. Обратитесь к учителю.\n\nВаш Telegram ID: `{userId}`",
@@ -99,9 +140,12 @@ public sealed class StudentBotHostedService : BackgroundService
             return;
         }
 
-        if (await breaks.IsActiveAsync(ct))
+        var technicalBreakActive = await breaks.IsActiveAsync(ct);
+        TelegramDebugTrace.Write("student.message", "technical-break-check", ("active", technicalBreakActive));
+        if (technicalBreakActive)
         {
             var br = await breaks.GetAsync(ct);
+            TelegramDebugTrace.Write("student.message", "blocked:technical-break", ("endTime", br.EndTime));
             await bot.SendTextMessageAsync(message.Chat.Id, br.EndTime is null
                 ? "🛠️ Сейчас технический перерыв. Попробуйте позже."
                 : $"🛠️ Сейчас технический перерыв до {br.EndTime:HH:mm}.", cancellationToken: ct);
@@ -113,6 +157,14 @@ public sealed class StudentBotHostedService : BackgroundService
         if (_state.PendingTextAnswers.TryGetValue(userId, out var pending) && !string.IsNullOrWhiteSpace(text) && !text.StartsWith('/'))
         {
             var correct = string.Equals(Normalize(text), Normalize(pending.Answer), StringComparison.OrdinalIgnoreCase);
+            TelegramDebugTrace.Write(
+                "student.answer",
+                "text-answer",
+                ("userId", userId),
+                ("quizId", pending.Id),
+                ("input", text),
+                ("expected", pending.Answer),
+                ("correct", correct));
             await progress.SaveAnswerAsync(userId, message.From?.Username, pending, correct, ct);
             _state.PendingTextAnswers.TryRemove(userId, out _);
 
@@ -131,6 +183,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         if (IsStartCommand(text))
         {
+            TelegramDebugTrace.Write("student.message", "command:start", ("userId", userId));
             await EnsureSettingsAsync(db, userId, ct);
             await SendStudentHomeAsync(bot, message.Chat.Id, ct);
             return;
@@ -138,28 +191,33 @@ public sealed class StudentBotHostedService : BackgroundService
 
         if (text == "/help")
         {
+            TelegramDebugTrace.Write("student.message", "command:help", ("userId", userId));
             await SendStudentHomeAsync(bot, message.Chat.Id, ct);
             return;
         }
 
         if (text == "/stats" || text == "📊 Статистика")
         {
+            TelegramDebugTrace.Write("student.message", "command:stats", ("userId", userId), ("text", text));
             await SendStudentStatsAsync(bot, message.Chat.Id, userId, progress, quizzes, ct);
             return;
         }
 
         if (text == "/next" || text == "➡️ Следующее задание" || text == "➡️ Следующая викторина" || text == "🎯 Задание")
         {
+            TelegramDebugTrace.Write("student.message", "command:next", ("userId", userId), ("text", text));
             await SendNextQuizAsync(bot, message.Chat.Id, userId, quizzes, db, ct);
             return;
         }
 
         if (text == "🔄 Сменить режим" || text == "🏠 Меню")
         {
+            TelegramDebugTrace.Write("student.message", "command:menu", ("userId", userId), ("text", text));
             await SendStudentHomeAsync(bot, message.Chat.Id, ct);
             return;
         }
 
+        TelegramDebugTrace.Write("student.message", "fallback:home", ("userId", userId), ("text", text));
         await SendStudentHomeAsync(bot, message.Chat.Id, ct);
     }
 
@@ -168,6 +226,15 @@ public sealed class StudentBotHostedService : BackgroundService
         var userId = callback.From.Id;
         var chatId = callback.Message?.Chat.Id ?? userId;
         var data = callback.Data ?? string.Empty;
+        TelegramDebugTrace.Write(
+            "student.callback",
+            "received",
+            ("callbackId", callback.Id),
+            ("chatId", chatId),
+            ("userId", userId),
+            ("username", callback.From.Username),
+            ("messageId", callback.Message?.MessageId),
+            ("data", data));
 
         using var scope = _provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
@@ -177,39 +244,50 @@ public sealed class StudentBotHostedService : BackgroundService
         var progress = scope.ServiceProvider.GetRequiredService<ProgressService>();
 
         await bot.SafeAnswerCallbackQueryAsync(callback.Id, _logger, cancellationToken: ct);
+        TelegramDebugTrace.Write("student.callback", "ack-finished", ("callbackId", callback.Id), ("data", data));
 
-        if (!await access.HasAccessAsync(userId, ct))
+        var hasAccess = await access.HasAccessAsync(userId, ct);
+        TelegramDebugTrace.Write("student.callback", "access-check", ("userId", userId), ("hasAccess", hasAccess), ("data", data));
+        if (!hasAccess)
         {
+            TelegramDebugTrace.Write("student.callback", "blocked:no-access", ("userId", userId), ("data", data));
             await bot.SendTextMessageAsync(chatId, $"⛔ У вас пока нет доступа. Обратитесь к учителю.\n\nВаш Telegram ID: `{userId}`", cancellationToken: ct);
             return;
         }
 
-        if (await breaks.IsActiveAsync(ct))
+        var technicalBreakActive = await breaks.IsActiveAsync(ct);
+        TelegramDebugTrace.Write("student.callback", "technical-break-check", ("active", technicalBreakActive), ("data", data));
+        if (technicalBreakActive)
         {
+            TelegramDebugTrace.Write("student.callback", "blocked:technical-break", ("userId", userId), ("data", data));
             await bot.SendTextMessageAsync(chatId, "🛠️ Сейчас технический перерыв. Попробуйте позже.", cancellationToken: ct);
             return;
         }
 
         if (data == "st:menu")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:menu", ("userId", userId), ("data", data));
             await SendStudentHomeAsync(bot, chatId, ct);
             return;
         }
 
         if (data == "st:stats")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:stats", ("userId", userId), ("data", data));
             await SendStudentStatsAsync(bot, chatId, userId, progress, quizzes, ct);
             return;
         }
 
         if (data == "st:next")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:next", ("userId", userId), ("data", data));
             await SendNextQuizAsync(bot, chatId, userId, quizzes, db, ct);
             return;
         }
 
         if (data == "st:ask")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:ask", ("userId", userId), ("data", data));
             await bot.SendTextMessageAsync(
                 chatId,
                 "❓ Пока отдельный диалог с учителем не подключён. Напиши свой вопрос обычным сообщением учителю или попроси доступ через преподавательского бота.",
@@ -220,6 +298,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         if (data == "st:mode:normal")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:mode-normal", ("userId", userId), ("data", data));
             var settings = await EnsureSettingsAsync(db, userId, ct);
             settings.LearningMode = ModeNormal;
             settings.SelectedCategory = AllCategories;
@@ -230,6 +309,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         if (data == "st:mode:smart")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:mode-smart", ("userId", userId), ("data", data));
             var settings = await EnsureSettingsAsync(db, userId, ct);
             settings.LearningMode = ModeSmart;
             settings.SelectedCategory = AllCategories;
@@ -240,6 +320,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         if (data == "st:cat:random")
         {
+            TelegramDebugTrace.Write("student.callback", "callback:cat-random", ("userId", userId), ("data", data));
             var settings = await EnsureSettingsAsync(db, userId, ct);
             settings.LearningMode = ModeNormal;
             settings.SelectedCategory = AllCategories;
@@ -252,6 +333,7 @@ public sealed class StudentBotHostedService : BackgroundService
         if (data.StartsWith("st:cat:", StringComparison.Ordinal))
         {
             var category = data[7..];
+            TelegramDebugTrace.Write("student.callback", "callback:category", ("userId", userId), ("data", data), ("category", category));
             if (string.IsNullOrWhiteSpace(category)) category = AllCategories;
 
             var settings = await EnsureSettingsAsync(db, userId, ct);
@@ -263,18 +345,40 @@ public sealed class StudentBotHostedService : BackgroundService
             return;
         }
 
+        TelegramDebugTrace.Write("student.callback", "fallback:home", ("userId", userId), ("data", data));
         await SendStudentHomeAsync(bot, chatId, ct);
     }
 
     private async Task SendNextQuizAsync(ITelegramBotClient bot, long chatId, long userId, QuizService quizzes, TelegramQuizDbContext db, CancellationToken ct)
     {
         var settings = await EnsureSettingsAsync(db, userId, ct);
+        TelegramDebugTrace.Write(
+            "student.quiz",
+            "next:start",
+            ("chatId", chatId),
+            ("userId", userId),
+            ("mode", settings.LearningMode),
+            ("selectedCategory", settings.SelectedCategory));
         string? preferredSubcategory = null;
 
         if (settings.LearningMode == ModeSmart)
-            preferredSubcategory = (await quizzes.GetWeakSubcategoriesAsync(userId, ct)).FirstOrDefault();
+        {
+            var weakSubcategories = await quizzes.GetWeakSubcategoriesAsync(userId, ct);
+            preferredSubcategory = weakSubcategories.FirstOrDefault();
+            TelegramDebugTrace.Write("student.quiz", "smart:weak-subcategories", ("userId", userId), ("preferred", preferredSubcategory), ("all", string.Join(",", weakSubcategories)));
+        }
 
         var next = await quizzes.GetNextForUserAsync(userId, settings.SelectedCategory, preferredSubcategory, ct);
+        TelegramDebugTrace.Write(
+            "student.quiz",
+            "next:result",
+            ("userId", userId),
+            ("quizId", next.Quiz?.Id),
+            ("totalAvailable", next.TotalAvailable),
+            ("unseenAvailable", next.UnseenAvailable),
+            ("repeatCycle", next.IsRepeatCycle),
+            ("filterRelaxed", next.FilterWasRelaxed),
+            ("preferredSubcategory", preferredSubcategory));
         var quiz = next.Quiz;
         if (quiz == null)
         {
@@ -297,6 +401,7 @@ public sealed class StudentBotHostedService : BackgroundService
 
         if (quiz.Type == "text")
         {
+            TelegramDebugTrace.Write("student.quiz", "send:text", ("chatId", chatId), ("userId", userId), ("quizId", quiz.Id), ("category", quiz.Category), ("subcategory", quiz.Subcategory), ("question", quiz.Question));
             _state.PendingTextAnswers[userId] = quiz;
             await bot.SendTextMessageAsync(
                 chatId,
@@ -307,6 +412,7 @@ public sealed class StudentBotHostedService : BackgroundService
         }
 
         var options = quiz.GetOptions();
+        TelegramDebugTrace.Write("student.quiz", "prepare:poll", ("chatId", chatId), ("userId", userId), ("quizId", quiz.Id), ("category", quiz.Category), ("subcategory", quiz.Subcategory), ("question", quiz.Question), ("options", string.Join(" | ", options)), ("correctOptionId", quiz.CorrectOptionId));
         if (options.Length == 0 || quiz.CorrectOptionId is null)
         {
             await bot.SendTextMessageAsync(chatId, $"⚠️ Вопрос {quiz.Id} повреждён: нет вариантов ответа.", replyMarkup: AfterAnswerKeyboard(false), cancellationToken: ct);
@@ -324,20 +430,37 @@ public sealed class StudentBotHostedService : BackgroundService
             cancellationToken: ct);
 
         if (sent.Poll?.Id is { } pollId)
+        {
             _state.ActivePolls[pollId] = new ActivePollQuiz { UserId = userId, ChatId = chatId, Quiz = quiz };
+            TelegramDebugTrace.Write("student.quiz", "send:poll:registered", ("chatId", chatId), ("userId", userId), ("quizId", quiz.Id), ("pollId", pollId), ("messageId", sent.MessageId));
+        }
+        else
+        {
+            TelegramDebugTrace.Write("student.quiz", "send:poll:no-poll-id", ("chatId", chatId), ("userId", userId), ("quizId", quiz.Id), ("messageId", sent.MessageId));
+        }
     }
 
     private async Task HandlePollAnswerAsync(PollAnswer answer, CancellationToken ct)
     {
-        if (!_state.ActivePolls.TryRemove(answer.PollId, out var active)) return;
+        TelegramDebugTrace.Write("student.poll", "answer:received", ("pollId", answer.PollId), ("userId", answer.User.Id), ("username", answer.User.Username), ("optionIds", string.Join(",", answer.OptionIds)));
+        if (!_state.ActivePolls.TryRemove(answer.PollId, out var active))
+        {
+            TelegramDebugTrace.Write("student.poll", "answer:ignored:unknown-poll", ("pollId", answer.PollId), ("userId", answer.User.Id));
+            return;
+        }
 
         using var scope = _provider.CreateScope();
         var progress = scope.ServiceProvider.GetRequiredService<ProgressService>();
         var selected = answer.OptionIds.FirstOrDefault();
         var correct = active.Quiz.CorrectOptionId == selected;
+        TelegramDebugTrace.Write("student.poll", "answer:checked", ("pollId", answer.PollId), ("userId", answer.User.Id), ("quizId", active.Quiz.Id), ("selected", selected), ("correctOptionId", active.Quiz.CorrectOptionId), ("correct", correct));
         await progress.SaveAnswerAsync(answer.User.Id, answer.User.Username, active.Quiz, correct, ct);
 
-        if (_bot == null) return;
+        if (_bot == null)
+        {
+            TelegramDebugTrace.Write("student.poll", "answer:no-bot-client", ("pollId", answer.PollId), ("quizId", active.Quiz.Id));
+            return;
+        }
 
         var text = correct
             ? "🎉 Правильно! Молодец!"
@@ -353,16 +476,22 @@ public sealed class StudentBotHostedService : BackgroundService
     private static async Task<UserSetting> EnsureSettingsAsync(TelegramQuizDbContext db, long userId, CancellationToken ct)
     {
         var settings = await db.UserSettings.FindAsync([userId], ct);
-        if (settings != null) return settings;
+        if (settings != null)
+        {
+            TelegramDebugTrace.Write("student.settings", "loaded", ("userId", userId), ("mode", settings.LearningMode), ("category", settings.SelectedCategory));
+            return settings;
+        }
         settings = new UserSetting { UserId = userId, LearningMode = ModeNormal, SelectedCategory = AllCategories };
         db.UserSettings.Add(settings);
         await db.SaveChangesAsync(ct);
+        TelegramDebugTrace.Write("student.settings", "created", ("userId", userId), ("mode", settings.LearningMode), ("category", settings.SelectedCategory));
         return settings;
     }
 
     private static async Task LogStartAsync(TelegramQuizDbContext db, Message message, CancellationToken ct)
     {
         if (message.Text != "/start") return;
+        TelegramDebugTrace.Write("student.start-log", "add", ("userId", message.From!.Id), ("username", message.From.Username));
         db.StartLog.Add(new StartLogEntry
         {
             UserId = message.From!.Id,
@@ -383,6 +512,7 @@ public sealed class StudentBotHostedService : BackgroundService
     {
         var p = await progress.GetProgressAsync(userId, ct);
         var recommendations = await quizzes.GetSmartRecommendationsAsync(userId, 5, ct);
+        TelegramDebugTrace.Write("student.stats", "show", ("chatId", chatId), ("userId", userId), ("total", p.Total), ("correct", p.Correct), ("incorrect", p.Incorrect), ("experience", p.Experience), ("recommendations", recommendations.Count));
 
         var lines = new List<string>
         {
@@ -458,6 +588,7 @@ public sealed class StudentBotHostedService : BackgroundService
     private static async Task SendCategoryPickerAsync(ITelegramBotClient bot, long chatId, QuizService quizzes, CancellationToken ct)
     {
         var categories = await quizzes.GetCategoryStatsAsync(ct);
+        TelegramDebugTrace.Write("student.ui", "category-picker", ("chatId", chatId), ("count", categories.Count), ("categories", string.Join(",", categories.Select(x => $"{x.Name}:{x.Count}"))));
         var rows = new List<InlineKeyboardButton[]>();
 
         foreach (var chunk in categories.Chunk(2))
@@ -481,6 +612,7 @@ public sealed class StudentBotHostedService : BackgroundService
     private static async Task SendSmartRecommendationsAsync(ITelegramBotClient bot, long chatId, long userId, QuizService quizzes, CancellationToken ct)
     {
         var recommendations = await quizzes.GetSmartRecommendationsAsync(userId, 5, ct);
+        TelegramDebugTrace.Write("student.smart", "recommendations", ("chatId", chatId), ("userId", userId), ("count", recommendations.Count), ("items", string.Join(";", recommendations.Select(x => $"{x.Category}/{x.Subcategory}:{x.Accuracy:0.#}%:{x.QuestionCount}"))));
         var lines = new List<string>
         {
             "💡 <b>Умные рекомендации включены</b>",
@@ -516,16 +648,19 @@ public sealed class StudentBotHostedService : BackgroundService
     {
         if (TelegramPollingErrorClassifier.IsExpectedLongPollingTimeout(exception))
         {
+            TelegramDebugTrace.Exception("student.error", "long-polling-timeout", exception);
             _logger.LogDebug("Student bot long polling timeout");
             return Task.CompletedTask;
         }
 
         if (TelegramPollingErrorClassifier.IsTransientTelegramApiError(exception))
         {
+            TelegramDebugTrace.Exception("student.error", "transient", exception);
             _logger.LogWarning("Student bot transient Telegram polling error: {Message}", exception.Message);
             return Task.Delay(TimeSpan.FromSeconds(5), ct);
         }
 
+        TelegramDebugTrace.Exception("student.error", "fatal", exception);
         _logger.LogError(exception, "Student bot polling error");
         return Task.CompletedTask;
     }

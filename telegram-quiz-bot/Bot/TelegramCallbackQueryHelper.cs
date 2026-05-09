@@ -15,6 +15,15 @@ public static class TelegramCallbackQueryHelper
         int? cacheTime = null,
         CancellationToken cancellationToken = default)
     {
+        TelegramDebugTrace.Write(
+            "callback",
+            "answer:start",
+            ("callbackQueryId", callbackQueryId),
+            ("text", text),
+            ("showAlert", showAlert),
+            ("url", url),
+            ("cacheTime", cacheTime));
+
         try
         {
             await bot.AnswerCallbackQueryAsync(
@@ -24,10 +33,18 @@ public static class TelegramCallbackQueryHelper
                 url,
                 cacheTime,
                 cancellationToken);
+
+            TelegramDebugTrace.Write("callback", "answer:ok", ("callbackQueryId", callbackQueryId));
         }
         catch (ApiRequestException ex) when (IsOldOrInvalidCallbackQuery(ex))
         {
+            TelegramDebugTrace.Exception("callback", "answer:expired-ignored", ex, ("callbackQueryId", callbackQueryId));
             logger.LogDebug("Ignored expired Telegram callback query: {Message}", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            TelegramDebugTrace.Exception("callback", "answer:error-ignored", ex, ("callbackQueryId", callbackQueryId));
+            logger.LogWarning("Ignored Telegram callback answer error: {Message}", ex.Message);
         }
     }
 

@@ -11,11 +11,20 @@ public static class TelegramPollingErrorClassifier
         return exception is RequestException && HasInner<TaskCanceledException>(exception);
     }
 
+    public static bool IsExpiredCallbackQuery(Exception exception)
+    {
+        return exception is ApiRequestException api
+               && (api.Message.Contains("query is too old", StringComparison.OrdinalIgnoreCase)
+                   || api.Message.Contains("response timeout expired", StringComparison.OrdinalIgnoreCase)
+                   || api.Message.Contains("query ID is invalid", StringComparison.OrdinalIgnoreCase));
+    }
+
     public static bool IsTransientTelegramApiError(Exception exception)
     {
         if (exception is ApiRequestException api)
         {
-            return api.ErrorCode is 429 or 500 or 502 or 503 or 504
+            return IsExpiredCallbackQuery(exception)
+                   || api.ErrorCode is 429 or 500 or 502 or 503 or 504
                    || api.Message.Contains("Bad Gateway", StringComparison.OrdinalIgnoreCase)
                    || api.Message.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase);
         }

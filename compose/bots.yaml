@@ -61,6 +61,7 @@ services:
       TelegramQuiz__AdminUserId: ${TELEGRAM_QUIZ_ADMIN_USER_ID:-0}
       TelegramQuiz__ImagePrefix: ${TELEGRAM_QUIZ_IMAGE_PREFIX:-telegram-quiz/images}
       TelegramQuiz__ApplyMigrationsOnStartup: ${TELEGRAM_QUIZ_APPLY_MIGRATIONS_ON_STARTUP:-true}
+      TELEGRAM_QUIZ_VERBOSE_CONSOLE_LOGS: ${TELEGRAM_QUIZ_VERBOSE_CONSOLE_LOGS:-true}
       TelegramQuiz__TelegramRequestTimeoutSeconds: ${TELEGRAM_QUIZ_REQUEST_TIMEOUT_SECONDS:-600}
       TaskForge__ApiBaseUrl: http://api:8080
       TaskForge__InternalKey: ${API_INTERNAL_KEY}
