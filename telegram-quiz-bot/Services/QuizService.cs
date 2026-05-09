@@ -6,6 +6,7 @@ namespace TelegramQuizBot.Services;
 
 public sealed record QuizCategoryCount(string Name, int Count);
 public sealed record QuizSubcategoryCount(string Name, int Count);
+public sealed record SmartRecommendation(string Category, string Subcategory, int Correct, int Incorrect, int Total, double Accuracy, int QuestionCount);
 public sealed record NextQuizResult(QuizQuestion? Quiz, int TotalAvailable, int UnseenAvailable, bool IsRepeatCycle, bool FilterWasRelaxed);
 
 public sealed class QuizService
@@ -210,17 +211,69 @@ public sealed class QuizService
 
     public async Task<List<string>> GetWeakSubcategoriesAsync(long userId, CancellationToken ct)
     {
-        return await _db.SubcategoryStats
-            .AsNoTracking()
-            .Where(x => x.UserId == userId && x.Incorrect > x.Correct)
-            .Select(x => new { x.Subcategory, Score = x.Incorrect - x.Correct })
-            .GroupBy(x => x.Subcategory)
-            .Select(g => new { Subcategory = g.Key, Score = g.Max(x => x.Score) })
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.Subcategory)
-            .Take(10)
+        var recommendations = await GetSmartRecommendationsAsync(userId, 10, ct);
+        return recommendations
             .Select(x => x.Subcategory)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<List<SmartRecommendation>> GetSmartRecommendationsAsync(long userId, int take, CancellationToken ct)
+    {
+        take = Math.Max(1, take);
+
+        var questionCounts = await _db.Quizzes
+            .AsNoTracking()
+            .GroupBy(x => new { x.Category, x.Subcategory })
+            .Select(g => new
+            {
+                g.Key.Category,
+                g.Key.Subcategory,
+                QuestionCount = g.Count()
+            })
+            .OrderBy(x => x.Category)
+            .ThenBy(x => x.Subcategory)
             .ToListAsync(ct);
+
+        var countMap = questionCounts.ToDictionary(
+            x => (x.Category, x.Subcategory),
+            x => x.QuestionCount);
+
+        var statRows = await _db.SubcategoryStats
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .ToListAsync(ct);
+
+        var result = statRows
+            .Select(x =>
+            {
+                var total = x.Correct + x.Incorrect;
+                var accuracy = total == 0 ? 0 : x.Correct * 100.0 / total;
+                countMap.TryGetValue((x.Category, x.Subcategory), out var questionCount);
+                return new SmartRecommendation(x.Category, x.Subcategory, x.Correct, x.Incorrect, total, accuracy, questionCount);
+            })
+            .Where(x => x.QuestionCount > 0)
+            .OrderBy(x => x.Total == 0 ? 0 : 1)
+            .ThenBy(x => x.Accuracy)
+            .ThenByDescending(x => x.Incorrect)
+            .ThenByDescending(x => x.QuestionCount)
+            .ThenBy(x => x.Subcategory)
+            .Take(take)
+            .ToList();
+
+        var used = result
+            .Select(x => (x.Category, x.Subcategory))
+            .ToHashSet();
+
+        foreach (var q in questionCounts)
+        {
+            if (result.Count >= take) break;
+            if (!used.Add((q.Category, q.Subcategory))) continue;
+            result.Add(new SmartRecommendation(q.Category, q.Subcategory, 0, 0, 0, 0, q.QuestionCount));
+        }
+
+        return result;
     }
 
     private IQueryable<QuizQuestion> BuildFilteredQuery(string? category, string? subcategory)

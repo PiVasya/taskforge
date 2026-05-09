@@ -12,5 +12,6 @@ public sealed class StudentBotStateStore
 public sealed class ActivePollQuiz
 {
     public long UserId { get; set; }
+    public long ChatId { get; set; }
     public QuizQuestion Quiz { get; set; } = new();
 }
