@@ -4,16 +4,14 @@ on:
   push:
     paths:
       - "telegram-quiz-bot/**"
-      - "compose/**"
-      - "docker-compose-develop.yaml"
-      - "docker-compose-develop-split.yaml"
+      - "compose/bots.yaml"
+      - "env.telegram-quiz*.additions.txt"
       - ".github/workflows/build-telegram-quiz-bot.yml"
   pull_request:
     paths:
       - "telegram-quiz-bot/**"
-      - "compose/**"
-      - "docker-compose-develop.yaml"
-      - "docker-compose-develop-split.yaml"
+      - "compose/bots.yaml"
+      - "env.telegram-quiz*.additions.txt"
       - ".github/workflows/build-telegram-quiz-bot.yml"
   workflow_dispatch: {}
 

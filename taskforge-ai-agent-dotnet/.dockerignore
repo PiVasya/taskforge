@@ -5,3 +5,5 @@
 .vscode
 *.user
 *.suo
+# Tests are built by the dedicated test project in CI; do not copy them into the image build context.
+tests

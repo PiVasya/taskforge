@@ -20,4 +20,10 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.9" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep unit tests in the separate test project. The SDK default glob would otherwise compile nested tests into this Worker project and CI would fail without xUnit referenced here. -->
+    <Compile Remove="tests/**/*.cs" />
+    <None Include="tests/**/*.cs" />
+  </ItemGroup>
 </Project>
