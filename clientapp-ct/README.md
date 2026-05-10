@@ -1,15 +1,24 @@
 # clientapp-ct — второй фронт TaskForge
 
-Минимальный React-фронт для поддомена CT Macha. Он использует тот же backend TaskForge и те же endpoints авторизации, что и основной `clientapp`.
+React-фронт для поддомена ЦТ/ЦЭ. Использует общую авторизацию TaskForge и отдельные учебные микросервисы.
 
-## Что оставлено
+## Что есть теперь
 
-- `LoginPage` — вход через `/api/auth/login`.
-- `RegisterPage` — регистрация через `/api/auth/register`.
-- `AuthContext` — refresh/logout/access-token логика из основного фронта.
-- `ProtectedRoute` — защита главной страницы.
-- `PrivacyPolicyPage` — ссылка из формы регистрации.
-- `CtTrainerPage` — защищённая страница, которая открывает `public/trainer.html`.
+- `/` — список и просмотр полноценных конспектов.
+- `/conspects/:slug` — открытие конкретного конспекта.
+- `/tasks` — простая страница заданий, на которую ведёт кнопка из конспекта.
+- `/admin/conspects` — базовый редактор конспектов: можно создать/изменить `ContentJson` и добавить кнопку «Сделать задания».
+
+## Важное
+
+Конспекты больше не открываются через iframe `public/trainer.html`. Старый HTML оставлен в `public`, но новый экран работает через API:
+
+```text
+learning-content-service -> /api/learning/conspects
+quiz-task-service        -> /api/quiz/tasks
+```
+
+Если backend ещё без миграций или временно недоступен, главная страница показывает fallback-конспект, чтобы интерфейс не падал полностью.
 
 ## Локальный запуск
 
@@ -19,11 +28,7 @@ npm ci
 npm start
 ```
 
-По умолчанию dev-сервер запускается на `PORT=82`.
-
 ## Production
-
-Сборка и runtime повторяют основной фронт:
 
 ```bash
 npm run build

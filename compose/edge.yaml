@@ -11,6 +11,8 @@ services:
     - front
     - front-ct
     - api
+    - learning-content-service
+    - quiz-task-service
     volumes:
     - certbot-www:/var/www/certbot
     - letsencrypt:/etc/letsencrypt

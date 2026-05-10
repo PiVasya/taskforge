@@ -20,6 +20,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TaskForge.AiAgent.Tests", "
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Элементы решения", "Элементы решения", "{754FC069-D67B-A9D7-50A1-8D1CA196D8F1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "learning-content-service", "learning-content-service\learning-content-service.csproj", "{B4EC9AF5-F57F-49AF-95A0-1A8C0F806D4A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "quiz-task-service", "quiz-task-service\quiz-task-service.csproj", "{379EF9A5-0068-4214-9918-8B1F3927BD55}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +56,14 @@ Global
 		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B4EC9AF5-F57F-49AF-95A0-1A8C0F806D4A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B4EC9AF5-F57F-49AF-95A0-1A8C0F806D4A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B4EC9AF5-F57F-49AF-95A0-1A8C0F806D4A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B4EC9AF5-F57F-49AF-95A0-1A8C0F806D4A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{379EF9A5-0068-4214-9918-8B1F3927BD55}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{379EF9A5-0068-4214-9918-8B1F3927BD55}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{379EF9A5-0068-4214-9918-8B1F3927BD55}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{379EF9A5-0068-4214-9918-8B1F3927BD55}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

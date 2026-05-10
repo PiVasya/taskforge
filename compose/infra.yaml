@@ -20,6 +20,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+  db-init:
+    image: postgres:17
+    container_name: taskforge-db-init
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      LEARNING_DB: ${LEARNING_DB:-taskforge_learning}
+      QUIZ_DB: ${QUIZ_DB:-taskforge_quiz}
+    networks:
+    - appnet
+    entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      export PGPASSWORD="$$POSTGRES_PASSWORD"
+      for database in "$$LEARNING_DB" "$$QUIZ_DB"; do
+        if psql -h db -U "$$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$${database}'" | grep -q 1; then
+          echo "[db-init] database $$database already exists"
+        else
+          echo "[db-init] creating database $$database"
+          psql -h db -U "$$POSTGRES_USER" -d postgres -c "CREATE DATABASE \"$${database}\""
+        fi
+      done
+    restart: 'no'
+
   minio:
     image: minio/minio:latest
     container_name: taskforge-minio

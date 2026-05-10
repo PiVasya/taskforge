@@ -5,6 +5,8 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import CtTrainerPage from './pages/CtTrainerPage';
+import QuizTasksPage from './pages/QuizTasksPage';
+import AdminConspectsPage from './pages/AdminConspectsPage';
 
 export default function App() {
   return (
@@ -15,6 +17,9 @@ export default function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<CtTrainerPage />} />
+        <Route path="/conspects/:slug" element={<CtTrainerPage />} />
+        <Route path="/tasks" element={<QuizTasksPage />} />
+        <Route path="/admin/conspects" element={<AdminConspectsPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -105,3 +105,47 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: 'true'
+
+  learning-content-service:
+    image: ghcr.io/pivasya/taskforge-learning-content-service:latest
+    container_name: taskforge-learning-content-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__LearningConnection: Host=db;Port=5432;Database=${LEARNING_DB:-taskforge_learning};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Database__EnsureCreated: 'false'
+      Seed__InitialCatalog: 'false'
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+
+  quiz-task-service:
+    image: ghcr.io/pivasya/taskforge-quiz-task-service:latest
+    container_name: taskforge-quiz-task-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__QuizConnection: Host=db;Port=5432;Database=${QUIZ_DB:-taskforge_quiz};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Database__EnsureCreated: 'false'
+      Seed__A1Samples: 'false'
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    expose:
+    - '8080'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
