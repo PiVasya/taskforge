@@ -341,14 +341,25 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  front-ct:
+    image: ghcr.io/pivasya/taskforge-front-ct:latest
+    container_name: taskforge-front-ct
+    expose: ["80"]
+    networks: [appnet]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   nginx:
     build:
       context: ./nginx
     container_name: taskforge-nginx
     environment:
       - DOMAIN=${DOMAIN}
+      - CT_DOMAIN=${CT_DOMAIN}
     depends_on:
       - front
+      - front-ct
       - api
     volumes:
       - certbot-www:/var/www/certbot
@@ -364,6 +375,7 @@ services:
     container_name: taskforge-certbot-init
     environment:
       - DOMAIN=${DOMAIN}
+      - CT_DOMAIN=${CT_DOMAIN}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     volumes:
       - certbot-www:/var/www/certbot
@@ -373,15 +385,13 @@ services:
       - sh
       - -c
       - |
-        if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
-          echo "[certbot-init] Certificate already exists for $DOMAIN - skipping";
-        else
-          certbot certonly \
-            --webroot -w /var/www/certbot \
-            -d "$DOMAIN" \
-            --email "$LETSENCRYPT_EMAIL" \
-            --rsa-key-size 4096 --agree-tos --no-eff-email --non-interactive;
-        fi
+        certbot certonly \
+          --webroot -w /var/www/certbot \
+          --cert-name "$DOMAIN" \
+          -d "$DOMAIN" \
+          -d "$CT_DOMAIN" \
+          --email "$LETSENCRYPT_EMAIL" \
+          --rsa-key-size 4096 --agree-tos --no-eff-email --non-interactive --expand --keep-until-expiring
     restart: "no"
     networks: [appnet]
 
@@ -390,6 +400,7 @@ services:
     container_name: taskforge-certbot-renew
     environment:
       - DOMAIN=${DOMAIN}
+      - CT_DOMAIN=${CT_DOMAIN}
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt

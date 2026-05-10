@@ -1,0 +1,1400 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+/* ====== Токены ======
+
+  Важно:
+  - "Цветовая тема" (blue/pink/apple) отвечает ТОЛЬКО за бренд-цвета и светлую палитру.
+  - "Режим" (light/dark) отвечает ТОЛЬКО за светлую/тёмную палитру.
+  - Тёмный режим НЕ должен перетира́ть бренд-цвет (иначе снова вылезет синий в apple/pink).
+*/
+
+:root {
+  /* light */
+  --page-bg: 248 250 252;  /* neutral-50 */
+  --card: 255 255 255;
+  --muted: 244 247 252;
+
+  /* brand (blue / sky) */
+  --brand-50: 240 249 255;
+  --brand-100: 224 242 254;
+  --brand-200: 186 230 253;
+  --brand-300: 125 211 252;
+  --brand-400: 56 189 248;
+  --brand-500: 14 165 233;
+  --brand-600: 2 132 199;
+  --brand-700: 3 105 161;
+  --brand-800: 7 89 133;
+  --brand-900: 12 74 110;
+
+  /* Accent tokens (used by focus rings, buttons, bootstrap overrides, etc.)
+     IMPORTANT: these MUST exist for every theme, otherwise browser/tailwind
+     fall back to default blue focus/links. */
+  --accent: var(--brand-600);
+  --accent-700: var(--brand-700);
+  --accent2: var(--brand-400);
+  --accent3: var(--brand-200);
+
+  /* Нейтральные токены, чтобы нигде не «проскакивал» дефолтный синий */
+  --text: 15 23 42;
+  --text-muted: 107 114 128;
+  --border: 210 214 220;
+
+  /* Bootstrap overrides (если где-то используются bootstrap-классы/переменные) */
+  --bs-primary: rgb(var(--accent));
+  --bs-primary-rgb: var(--accent);
+  --bs-link-color: rgb(var(--accent));
+  --bs-link-color-rgb: var(--accent);
+  --bs-link-hover-color: rgb(var(--accent-700));
+  --bs-link-hover-color-rgb: var(--accent-700);
+}
+
+/* ===== Light: make neutral borders follow выбранную палитру =====
+   Сейчас большинство компонентов используют tailwind классы вида
+   border-neutral-200(/60,/70) и т.п. Из-за этого в светлой теме
+   палитра (blue/pink/apple) визуально почти не проявляется.
+
+   Ниже мы переопределяем самые частые нейтральные border-* классы,
+   подставляя "тематические" бордеры на базе brand-цвета.
+   (Только для light — в dark свои значения уже задаются через --border.)
+*/
+
+/* helper: theme border color (light) */
+html:not(.dark).blue,
+html:not(.dark).pink,
+html:not(.dark).apple,
+html:not(.dark).red,
+html:not(.dark).honey,
+html:not(.dark).violet {
+  /* базовый бордер = средний brand-тон */
+  --border: var(--brand-300);
+}
+
+/* Tailwind neutral borders -> theme border */
+html:not(.dark).blue .border-neutral-200,
+html:not(.dark).blue .border-neutral-200\/60,
+html:not(.dark).blue .border-neutral-200\/70,
+html:not(.dark).blue .border-neutral-200\/80,
+html:not(.dark).blue .border-neutral-300,
+html:not(.dark).blue .border-neutral-300\/60,
+html:not(.dark).blue .border-neutral-300\/70,
+html:not(.dark).blue .border-gray-200,
+html:not(.dark).blue .border-slate-200 {
+  border-color: rgba(var(--border) / 0.65) !important;
+}
+
+html:not(.dark).pink .border-neutral-200,
+html:not(.dark).pink .border-neutral-200\/60,
+html:not(.dark).pink .border-neutral-200\/70,
+html:not(.dark).pink .border-neutral-200\/80,
+html:not(.dark).pink .border-neutral-300,
+html:not(.dark).pink .border-neutral-300\/60,
+html:not(.dark).pink .border-neutral-300\/70,
+html:not(.dark).pink .border-gray-200,
+html:not(.dark).pink .border-slate-200 {
+  border-color: rgba(var(--border) / 0.60) !important;
+}
+
+html:not(.dark).apple .border-neutral-200,
+html:not(.dark).apple .border-neutral-200\/60,
+html:not(.dark).apple .border-neutral-200\/70,
+html:not(.dark).apple .border-neutral-200\/80,
+html:not(.dark).apple .border-neutral-300,
+html:not(.dark).apple .border-neutral-300\/60,
+html:not(.dark).apple .border-neutral-300\/70,
+html:not(.dark).apple .border-gray-200,
+html:not(.dark).apple .border-slate-200 {
+  border-color: rgba(var(--border) / 0.58) !important;
+}
+
+html:not(.dark).red .border-neutral-200,
+html:not(.dark).red .border-neutral-200\/60,
+html:not(.dark).red .border-neutral-200\/70,
+html:not(.dark).red .border-neutral-200\/80,
+html:not(.dark).red .border-neutral-300,
+html:not(.dark).red .border-neutral-300\/60,
+html:not(.dark).red .border-neutral-300\/70,
+html:not(.dark).red .border-gray-200,
+html:not(.dark).red .border-slate-200 {
+  border-color: rgba(var(--border) / 0.60) !important;
+}
+
+html:not(.dark).honey .border-neutral-200,
+html:not(.dark).honey .border-neutral-200\/60,
+html:not(.dark).honey .border-neutral-200\/70,
+html:not(.dark).honey .border-neutral-200\/80,
+html:not(.dark).honey .border-neutral-300,
+html:not(.dark).honey .border-neutral-300\/60,
+html:not(.dark).honey .border-neutral-300\/70,
+html:not(.dark).honey .border-gray-200,
+html:not(.dark).honey .border-slate-200 {
+  border-color: rgba(var(--border) / 0.58) !important;
+}
+
+html:not(.dark).violet .border-neutral-200,
+html:not(.dark).violet .border-neutral-200\/60,
+html:not(.dark).violet .border-neutral-200\/70,
+html:not(.dark).violet .border-neutral-200\/80,
+html:not(.dark).violet .border-neutral-300,
+html:not(.dark).violet .border-neutral-300\/60,
+html:not(.dark).violet .border-neutral-300\/70,
+html:not(.dark).violet .border-gray-200,
+html:not(.dark).violet .border-slate-200 {
+  border-color: rgba(var(--border) / 0.60) !important;
+}
+
+/* Цветовая тема: BLUE (дефолт). Класс нужен для явного выбора в UI. */
+html.blue {
+  --page-bg: 248 250 252;
+  --card: 255 255 255;
+  --muted: 244 247 252;
+  --brand-50: 240 249 255;
+  --brand-100: 224 242 254;
+  --brand-200: 186 230 253;
+  --brand-300: 125 211 252;
+  --brand-400: 56 189 248;
+  --brand-500: 14 165 233;
+  --brand-600: 2 132 199;
+  --brand-700: 3 105 161;
+  --brand-800: 7 89 133;
+  --brand-900: 12 74 110;
+
+  /* фоновые блики (включаются переключателем) */
+  --fx-1: 14 165 233;   /* sky */
+  --fx-2: 34 211 238;   /* cyan */
+  --fx-3: 167 139 250;  /* violet */
+  --fg: 148 163 184;    /* slate-400 для частиц */
+}
+
+/* Цветовая тема: PINK */
+html.pink {
+  --page-bg: 255 241 246;  /* rose-50 */
+  --card: 255 250 252;
+  --muted: 255 228 235;    /* rose-100 */
+  --brand-50: 253 242 248;
+  --brand-100: 252 231 243;
+  --brand-200: 251 207 232;
+  --brand-300: 249 168 212;
+  --brand-400: 244 114 182;
+  --brand-500: 236 72 153;
+  --brand-600: 219 39 119;
+  --brand-700: 190 24 93;
+  --brand-800: 157 23 77;
+  --brand-900: 131 24 67;
+
+  /* фоновые блики (включаются переключателем) */
+  --fx-1: 236 72 153;   /* pink */
+  --fx-2: 168 85 247;   /* purple */
+  --fx-3: 251 113 133;  /* rose */
+  --fg: 148 163 184;    /* slate-400 для частиц */
+}
+
+/* Цветовая тема: APPLE */
+html.apple {
+  /* чуть более "холодный" (mint/emerald), чтобы не уходил в жёлтый */
+  --page-bg: 236 253 245; /* emerald-50 */
+  --card: 248 255 252;
+  --muted: 209 250 229;   /* emerald-100 */
+
+  --brand-50: 236 253 245;
+  --brand-100: 209 250 229;
+  --brand-200: 167 243 208;
+  --brand-300: 110 231 183;
+  /* более "холодный" зелёный (неспелое яблоко / mint), без желтизны */
+  --brand-400: 74 222 162;
+  --brand-500: 34 211 151;
+  --brand-600: 22 201 154;
+  --brand-700: 15 162 120;
+  --brand-800: 6 95 70;
+  --brand-900: 6 78 59;
+
+  /* Цвета для фоновых бликов */
+  --fx-1: 16 185 129;
+  --fx-2: 52 211 153;
+  --fx-3: 167 243 208;
+  --fg: 148 163 184;    /* slate-400 для частиц */
+}
+
+/* Цветовая тема: RED */
+html.red {
+  --page-bg: 254 242 242; /* red-50 */
+  --card: 255 251 251;
+  --muted: 254 226 226;  /* red-100 */
+
+  --brand-50: 254 242 242;
+  --brand-100: 254 226 226;
+  --brand-200: 254 202 202;
+  --brand-300: 252 165 165;
+  --brand-400: 248 113 113;
+  --brand-500: 239 68 68;
+  --brand-600: 220 38 38;
+  --brand-700: 185 28 28;
+  --brand-800: 153 27 27;
+  --brand-900: 127 29 29;
+
+  --fx-1: 239 68 68;   /* red */
+  --fx-2: 251 113 133; /* rose */
+  --fx-3: 245 158 11;  /* amber for contrast */
+  --fg: 148 163 184;
+}
+
+/* Цветовая тема: HONEY (жёлтая, ближе к мёду) */
+html.honey {
+  --page-bg: 255 251 235; /* amber-50 */
+  --card: 255 253 245;
+  --muted: 254 243 199;   /* amber-100 */
+
+  --brand-50: 255 251 235;
+  --brand-100: 254 243 199;
+  --brand-200: 253 230 138;
+  --brand-300: 252 211 77;
+  --brand-400: 251 191 36;
+  --brand-500: 245 158 11;
+  --brand-600: 217 119 6;
+  --brand-700: 180 83 9;
+  --brand-800: 146 64 14;
+  --brand-900: 120 53 15;
+
+  --fx-1: 245 158 11;  /* amber */
+  --fx-2: 251 191 36;  /* amber-400 */
+  --fx-3: 253 230 138; /* amber-200 */
+  --fg: 148 163 184;
+}
+
+/* Цветовая тема: VIOLET */
+html.violet {
+  --page-bg: 250 245 255;
+  --card: 253 249 255;
+  --muted: 243 232 255;
+
+  --brand-50: 245 243 255;
+  --brand-100: 237 233 254;
+  --brand-200: 221 214 254;
+  --brand-300: 196 181 253;
+  --brand-400: 167 139 250;
+  --brand-500: 139 92 246;
+  --brand-600: 124 58 237;
+  --brand-700: 109 40 217;
+  --brand-800: 91 33 182;
+  --brand-900: 76 29 149;
+
+  --fx-1: 168 85 247;
+  --fx-2: 244 114 182;
+  --fx-3: 34 211 238;
+  --fg: 148 163 184;
+}
+
+/*
+  Режим: DARK.
+  Раньше здесь были neutral-900/800 для всех тем, из‑за чего PINK/APPLE выглядели «синими».
+  Теперь тёмные фоны подбираются под выбранную цветовую тему.
+
+  Порядок применения:
+    1) html.<theme> задаёт бренд‑палитру
+    2) html.dark.<theme> задаёт тёмные фоны/карточки
+*/
+html.dark.blue {
+  --page-bg: 15 23 42;
+  --card: 15 23 42;
+  --muted: 30 41 59;
+  --border: 40 50 70;
+  --fg: 203 213 225;    /* slate-300 для частиц в тёмной теме */
+}
+
+html.dark.pink {
+  --page-bg: 28 16 26;   /* тёмный розово‑фиолетовый */
+  --card: 32 18 30;
+  --muted: 44 26 41;
+  --border: 70 48 68;
+  --fg: 253 224 239;    /* rose-100 для частиц в тёмной теме */
+}
+
+html.dark.apple {
+  --page-bg: 12 22 17;   /* тёмный зелёный */
+  --card: 14 26 20;
+  --muted: 22 38 30;
+  --border: 52 72 62;
+  --fg: 209 250 229;    /* emerald-100 для частиц в тёмной теме */
+}
+
+html.dark.red {
+  --page-bg: 26 12 12;   /* глубокий бордовый */
+  --card: 30 14 14;
+  --muted: 44 20 20;
+  --border: 78 40 40;
+  --fg: 254 226 226;    /* red-100 */
+}
+
+html.dark.honey {
+  --page-bg: 20 14 8;   /* тёмный тёплый */
+  --card: 24 16 10;
+  --muted: 40 26 14;
+  --border: 84 62 28;
+  --fg: 254 243 199;    /* amber-100 */
+}
+
+html.dark.violet {
+  --page-bg: 24 16 38;
+  --card: 28 18 46;
+  --muted: 42 28 64;
+  --border: 82 58 128;
+  --fg: 237 233 254;
+}
+
+/* запасной вариант, если вдруг на html нет theme-класса */
+html.dark:not(.blue):not(.pink):not(.apple):not(.red):not(.honey):not(.violet) {
+  --page-bg: 15 23 42;
+  --card: 15 23 42;
+  --muted: 30 41 59;
+}
+
+/* Общие токены для dark (текст/бордеры/bs), не влияющие на фон темы */
+html.dark {
+  --text: 245 247 250;
+  --text-muted: 200 206 215;
+  /* border в dark лучше задавать в html.dark.<theme>, чтобы не получать
+     «синеву» на pink/apple. Здесь оставляем запасной дефолт. */
+  --border: 40 50 70;
+
+  --bs-primary: rgb(var(--accent));
+  --bs-primary-rgb: var(--accent);
+  --bs-link-color: rgb(var(--accent));
+  --bs-link-color-rgb: var(--accent);
+  --bs-link-hover-color: rgb(var(--accent-700));
+}
+
+/* ===== Tailwind dark:neutral-* подстраиваем под выбранную палитру =====
+   На pink/apple дефолтные neutral-700/800 визуально дают «синий» оттенок.
+   Здесь мы переопределяем самые частые классы бордеров в тёмном режиме. */
+html.dark.pink .dark\:border-neutral-700,
+html.dark.pink .dark\:border-neutral-800,
+html.dark.apple .dark\:border-neutral-700,
+html.dark.apple .dark\:border-neutral-800 {
+  border-color: rgba(var(--border) / 0.8) !important;
+}
+
+html.dark.red .dark\:border-neutral-700,
+html.dark.red .dark\:border-neutral-800,
+html.dark.honey .dark\:border-neutral-700,
+html.dark.honey .dark\:border-neutral-800 {
+  border-color: rgba(var(--border) / 0.8) !important;
+}
+
+/* ====== База / типографика / фон ====== */
+
+/* Manrope по всему сайту (шире и «плотнее» визуально) */
+html, body {
+  font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+               Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+body {
+  background-color: rgb(var(--page-bg));
+  color: rgb(var(--text));
+}
+
+html.dark body {
+  color: rgb(var(--text));
+}
+
+/* Ссылки/hover/focus без дефолтного «синего» */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover { color: rgb(var(--accent)); }
+
+/* Унифицированная подсветка фокуса под текущую цветовую тему */
+:where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--accent) / 0.35);
+}
+
+/* Заголовки — чуть плотнее и «короче» трекинг */
+h1, h2, h3, .h1, .h2, .h3 { @apply font-semibold tracking-tight; }
+
+/* Кнопки в хедере — стабильная жирность */
+header .btn-outline,
+header .btn-primary {
+  @apply font-medium;
+}
+
+.container-app { width: min(1740px, calc(100vw - 24px)); max-width: none; margin-left: auto; margin-right: auto; padding-left: 0.75rem; padding-right: 0.75rem; }
+
+html, body, #root { min-height: 100%; }
+body { overflow-x: clip; }
+
+main .container-app .container-app {
+  width: 100%;
+  max-width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+@media (min-width: 640px) {
+  .container-app {
+    width: min(1780px, calc(100vw - 32px));
+    padding-left: 1.1rem;
+    padding-right: 1.1rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .container-app {
+    width: min(1860px, calc(100vw - 44px));
+    padding-left: 1.35rem;
+    padding-right: 1.35rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  .container-app {
+    width: min(1940px, calc(100vw - 56px));
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+.card {
+  @apply rounded-2xl shadow-soft;
+  background: rgba(var(--card) / 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(var(--border) / 0.55);
+}
+
+.card-muted {
+  @apply rounded-2xl bg-[rgb(var(--muted))];
+  border: 1px solid rgba(var(--border) / 0.55);
+}
+
+/* ====== Контролы ====== */
+.btn { @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap min-h-[42px] min-w-[10ch]; }
+@media (max-width: 640px) {
+  .btn { min-height: 44px; min-width: 0; max-width: 100%; }
+  .card { border-radius: 18px; }
+  .badge { font-size: 11px; }
+  .input, .select, .textarea { font-size: 16px; }
+  header .btn-outline, header .btn-primary { padding-left: .8rem; padding-right: .8rem; }
+  .container-app { width: min(100vw - 16px, 100%); padding-left: .75rem; padding-right: .75rem; }
+}
+
+@media (max-width: 480px) {
+  .btn { padding-left: .9rem; padding-right: .9rem; }
+}
+.btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99]; }
+.btn-ghost { @apply btn bg-transparent; }
+.btn-ghost:hover { background: rgba(var(--border) / 0.16); }
+
+.btn-outline { @apply btn; border: 1px solid rgba(var(--border) / 0.75); }
+.btn-outline:hover { background: rgba(var(--border) / 0.16); }
+
+/* ====== Badge ====== */
+.badge { 
+  @apply inline-flex items-center rounded-full px-2 py-1 text-xs font-medium;
+  border: 1px solid rgba(var(--border) / 0.7);
+  background: rgba(var(--border) / 0.12);
+}
+.badge-secondary { color: rgb(var(--text-muted)); }
+.badge-outline { @apply bg-transparent; }
+.badge-success { @apply border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-200; }
+.badge-danger { @apply border-rose-300/70 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-200; }
+.badge-primary {
+  border: 1px solid rgba(var(--accent) / 0.5);
+  background: rgba(var(--accent) / 0.1);
+  color: rgb(var(--accent));
+}
+html.dark .badge-primary {
+  border: 1px solid rgba(var(--accent2) / 0.4);
+  background: rgba(var(--accent2) / 0.15);
+  color: rgb(var(--accent2));
+}
+.badge-info {
+  border: 1px solid rgba(var(--accent2) / 0.5);
+  background: rgba(var(--accent2) / 0.1);
+  color: rgb(var(--accent));
+}
+html.dark .badge-info {
+  border: 1px solid rgba(var(--accent3) / 0.4);
+  background: rgba(var(--accent3) / 0.15);
+  color: rgb(var(--accent3));
+}
+
+/* ЕДИНЫЙ фон для всех контролов: rgb(var(--card)) */
+.input {
+  @apply w-full rounded-xl px-3 py-2 bg-[rgb(var(--card))];
+  border: 1px solid rgba(var(--border) / 0.75);
+}
+.input::placeholder { opacity: .7; }
+
+/* ====== Нативные radio/checkbox/file — красим под тему ====== */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: rgb(var(--accent));
+}
+
+input[type="file"] {
+  color: inherit;
+}
+
+input[type="file"]::file-selector-button {
+  background: rgb(var(--accent));
+  color: white;
+  border: 0;
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-right: 12px;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button:hover {
+  filter: brightness(0.95);
+}
+
+/* ====== Fill question: поле В ТЕКСТЕ + ширина от количества _ ====== */
+.fill-line {
+  /* Вставляем input прямо в текст и даём строке вести себя как обычный текст.
+     Так корректно работают переносы строк/пробелы (в т.ч. в коде) и не появляется
+     "двойной" перенос/огромные отступы как при inline-flex+gap. */
+  display: inline;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.fill-input {
+  display: inline-block;
+  background: rgb(var(--card));
+  color: inherit;
+  border: 1px solid rgba(100, 116, 139, 0.35); /* neutral-500/35 */
+  border-radius: 10px;
+  /* компактнее, чтобы не выглядело "квадратом" */
+  padding: 2px 8px;
+  height: 1.9em;
+  vertical-align: baseline;
+  /* не добавляем свои пробелы через gap — делаем аккуратный отступ */
+  margin: 0 0.35em;
+}
+
+.dark .fill-input {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+/* Палитра влияет на brand/accent через CSS-переменные — отдельные правила по цветам не нужны */
+
+.fill-input:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
+
+.link { @apply underline underline-offset-2 hover:no-underline; }
+
+/* Акцентные ссылки: очень лёгкий оттенок от темы, не перекрашиваем весь UI */
+a.link { color: color-mix(in srgb, rgb(var(--text)) 85%, rgb(var(--accent)) 15%); }
+a.link:hover { color: color-mix(in srgb, rgb(var(--text)) 75%, rgb(var(--accent)) 25%); }
+
+/* ====== Select: единый стиль + темы
+   ВАЖНО: больше НЕ трогаем .select класс — только настоящие <select> ====== */
+select,
+select.input {
+  @apply w-full rounded-xl px-3 py-2;
+  @apply border bg-[rgb(var(--card))];
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='currentColor' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem; /* место под стрелку */
+}
+
+/* =======================
+   Background FX (soft blurred blobs)
+   Enabled by `.bgfx` on the app root.
+   We keep this as raw CSS (not Tailwind) so it can't be purged.
+   ======================= */
+
+.bgfx .bgfx-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.55;
+  transform: translate3d(0,0,0);
+  will-change: transform;
+}
+
+/* Light: a bit calmer */
+:not(.dark) .bgfx .bgfx-blob {
+  opacity: 0.35;
+  filter: blur(90px);
+  mix-blend-mode: multiply;
+}
+
+/* Dark: a bit brighter, add glow feel */
+.dark .bgfx .bgfx-blob {
+  opacity: 0.50;
+  filter: blur(75px);
+  mix-blend-mode: screen;
+}
+
+.bgfx .bgfx-blob--a {
+  width: 520px;
+  height: 520px;
+  left: -140px;
+  top: -160px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(var(--accent), 0.35), transparent 60%),
+    radial-gradient(circle at 70% 70%, rgba(var(--accent2), 0.25), transparent 60%);
+  animation: bgfx-float-a 18s ease-in-out infinite;
+}
+
+.bgfx .bgfx-blob--b {
+  width: 640px;
+  height: 640px;
+  right: -220px;
+  top: 120px;
+  background:
+    radial-gradient(circle at 40% 30%, rgba(var(--accent2), 0.35), transparent 62%),
+    radial-gradient(circle at 70% 70%, rgba(var(--accent), 0.22), transparent 62%);
+  animation: bgfx-float-b 22s ease-in-out infinite;
+}
+
+.bgfx .bgfx-blob--c {
+  width: 520px;
+  height: 520px;
+  left: 22%;
+  bottom: -220px;
+  background:
+    radial-gradient(circle at 45% 40%, rgba(var(--accent), 0.30), transparent 60%),
+    radial-gradient(circle at 70% 75%, rgba(var(--accent3), 0.20), transparent 60%);
+  animation: bgfx-float-c 20s ease-in-out infinite;
+}
+
+@keyframes bgfx-float-a {
+  0%   { transform: translate(-10px, -10px) scale(1.00); }
+  35%  { transform: translate(80px, 10px)  scale(1.05); }
+  70%  { transform: translate(40px, 70px)  scale(0.98); }
+  100% { transform: translate(-10px, -10px) scale(1.00); }
+}
+
+@keyframes bgfx-float-b {
+  0%   { transform: translate(10px, 0px)   scale(1.00); }
+  40%  { transform: translate(-70px, 40px) scale(1.06); }
+  75%  { transform: translate(-30px, -20px) scale(0.98); }
+  100% { transform: translate(10px, 0px)   scale(1.00); }
+}
+
+@keyframes bgfx-float-c {
+  0%   { transform: translate(0px, 10px)  scale(1.00); }
+  40%  { transform: translate(60px, -30px) scale(1.04); }
+  75%  { transform: translate(-40px, -10px) scale(0.98); }
+  100% { transform: translate(0px, 10px)  scale(1.00); }
+}
+
+
+
+/* Дополнительные варианты эффектов (рандомно, через html[data-fx="0|1|2"]) */
+.bg-fx__dna,
+.bg-fx__glitter,
+.bg-fx__ribbon {
+  position: absolute;
+  inset: -10%;
+  pointer-events: none;
+}
+
+/* Canvas эффекты (туман / пыль+кометы / нейросвязи)
+   Рендерится React-компонентом BgFxCanvas. */
+.bgfx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: screen;
+}
+
+/* В светлой теме чуть спокойнее */
+:not(.dark) .bgfx-canvas {
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+}
+
+/* DNA: две размытые "спирали" из градиентов */
+.bg-fx__dna {
+  opacity: 0.55;
+  filter: blur(14px);
+  mix-blend-mode: screen;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(var(--accent) / 0.16) 0px,
+      rgba(var(--accent) / 0.16) 1px,
+      transparent 1px,
+      transparent 18px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(var(--accent2) / 0.14) 0px,
+      rgba(var(--accent2) / 0.14) 1px,
+      transparent 1px,
+      transparent 22px
+    );
+  mask-image: radial-gradient(circle at 50% 50%, #000 0 55%, transparent 75%);
+  animation: bgfx-dna 14s linear infinite;
+}
+
+@keyframes bgfx-dna {
+  0% { transform: translate3d(-4%, -2%, 0) rotate(0deg); }
+  100% { transform: translate3d(4%, 2%, 0) rotate(360deg); }
+}
+
+/* Glitter: мягкие "блики" точки */
+.bg-fx__glitter {
+  opacity: 0.45;
+  filter: blur(1px);
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18) 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 40%, rgba(255,255,255,0.12) 0 1px, transparent 3px),
+    radial-gradient(circle at 50% 70%, rgba(var(--accent) / 0.16) 0 2px, transparent 4px);
+  background-size: 380px 240px;
+  animation: bgfx-glitter 10s ease-in-out infinite;
+}
+
+@keyframes bgfx-glitter {
+  0% { transform: translate3d(-2%, -1%, 0); }
+  50% { transform: translate3d(2%, 1%, 0); }
+  100% { transform: translate3d(-2%, -1%, 0); }
+}
+
+/* Ribbon: "аврора" лента */
+.bg-fx__ribbon {
+  opacity: 0.42;
+  filter: blur(28px);
+  mix-blend-mode: screen;
+  background:
+    conic-gradient(from 180deg at 50% 50%,
+      rgba(var(--accent) / 0.22),
+      rgba(var(--accent2) / 0.18),
+      rgba(var(--accent3) / 0.16),
+      rgba(var(--accent) / 0.22));
+  mask-image: radial-gradient(circle at 40% 45%, #000 0 45%, transparent 70%);
+  animation: bgfx-ribbon 18s ease-in-out infinite;
+}
+
+@keyframes bgfx-ribbon {
+  0% { transform: translate3d(-6%, -4%, 0) rotate(-6deg); }
+  50% { transform: translate3d(6%, 4%, 0) rotate(6deg); }
+  100% { transform: translate3d(-6%, -4%, 0) rotate(-6deg); }
+}
+
+/* Варианты:
+   0 = туман (canvas)
+   1 = пыль + кометы (canvas)
+   2 = нейронные связи (canvas)
+   3 = классика (DNA+glitter+ribbon)
+*/
+html[data-fx="0"] .bg-fx__dna,
+html[data-fx="0"] .bg-fx__glitter,
+html[data-fx="0"] .bg-fx__ribbon { display: none; }
+
+html[data-fx="1"] .bg-fx__dna,
+html[data-fx="1"] .bg-fx__glitter,
+html[data-fx="1"] .bg-fx__ribbon { display: none; }
+
+html[data-fx="2"] .bg-fx__dna,
+html[data-fx="2"] .bg-fx__glitter,
+html[data-fx="2"] .bg-fx__ribbon { display: none; }
+
+/* классика */
+html[data-fx="3"] .bg-fx__dna,
+html[data-fx="3"] .bg-fx__glitter,
+html[data-fx="3"] .bg-fx__ribbon { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-fx__blob, .bg-fx__dna, .bg-fx__glitter, .bg-fx__ribbon { animation: none !important; }
+}
+select:focus,
+select.input:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
+
+/* Тёмная тема для select — тоже через var(--card) */
+.dark select,
+.dark select.input {
+  @apply bg-[rgb(var(--card))];
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.75);
+}
+/* dark/pink подхватываются автоматически через var(--accent) */
+
+/* Розовая тема для select — НЕ задаём фон, он уже из var(--card) */
+html.pink select,
+html.pink select.input { color: rgb(var(--text)); }
+/* pink подхватывается автоматически через var(--accent) */
+
+/* Firefox normalize for inputs */
+@-moz-document url-prefix() {
+  .input {
+    -moz-appearance: none; appearance: none;
+    background-clip: padding-box; outline: none; line-height: 1.2; min-height: 40px;
+  }
+  .input::placeholder { opacity: .7; }
+}
+
+/* ====== Брендовые утилиты через CSS-переменные (без "синих" хвостов) ====== */
+.bg-brand-500 { background-color: rgb(var(--brand-500)) !important; }
+.bg-brand-600 { background-color: rgb(var(--brand-600)) !important; }
+.bg-brand-700 { background-color: rgb(var(--brand-700)) !important; }
+
+.text-brand-500 { color: color-mix(in srgb, rgb(var(--text)) 96%, rgb(var(--accent)) 4%) !important; }
+.text-brand-600 { color: color-mix(in srgb, rgb(var(--text)) 93%, rgb(var(--accent)) 7%) !important; }
+.text-brand-700 { color: color-mix(in srgb, rgb(var(--text)) 90%, rgb(var(--accent)) 10%) !important; }
+
+.border-brand-200 { border-color: rgb(var(--brand-200)) !important; }
+.border-brand-300 { border-color: rgb(var(--brand-300)) !important; }
+.border-brand-500 { border-color: rgb(var(--brand-500)) !important; }
+.border-brand-600 { border-color: rgb(var(--brand-600)) !important; }
+
+.ring-brand-500 { --tw-ring-color: rgb(var(--brand-500) / 35%) !important; }
+.focus\:ring-brand-500:focus { --tw-ring-color: rgb(var(--brand-500) / 35%) !important; }
+.focus\:border-brand-500:focus { border-color: rgb(var(--brand-500)) !important; }
+
+.hover\:bg-brand-500:hover { background-color: rgb(var(--brand-500)) !important; }
+.hover\:bg-brand-600:hover { background-color: rgb(var(--brand-600)) !important; }
+.hover\:bg-brand-700:hover { background-color: rgb(var(--brand-700)) !important; }
+.hover\:text-brand-600:hover { color: color-mix(in srgb, rgb(var(--text)) 80%, rgb(var(--accent)) 20%) !important; }
+.hover\:border-brand-600:hover { border-color: rgb(var(--brand-600)) !important; }
+
+/* Tailwind from-* утилиты должны оставаться градиентом, не background-color */
+.from-brand-600\/10 {
+  --tw-gradient-from: rgb(var(--brand-600) / 0.10) !important;
+  --tw-gradient-to: rgb(var(--brand-600) / 0) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+/* ====== Инпуты/редакторы: гармонизация и автофилл ====== */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  @apply bg-[rgb(var(--card))] border rounded-xl px-3 py-2;
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+}
+
+/* Моноширинная гарнитура в кодовых редакторах/textarea */
+textarea,
+code, pre,
+.cm-editor, .cm-scroller, .monaco-editor, .monaco-editor * {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+/* Подложки редакторов под тему */
+:root {
+  --editor-bg: var(--card);
+}
+
+.cm-editor, .cm-scroller {
+  background: rgb(var(--editor-bg)) !important;
+  color: inherit;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(var(--border) / 0.8);
+}
+
+.dark .cm-editor, .dark .cm-scroller {
+  border-color: rgba(var(--border) / 0.8);
+}
+/* (оставлено пустым намеренно) */
+
+/* Monaco рисует фон внутренними слоями (background/margin), поэтому задаём их тоже */
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin,
+.monaco-editor .overflow-guard,
+.monaco-editor .scroll-decoration,
+.monaco-editor .minimap,
+.monaco-editor .minimap-shadow-visible {
+  background-color: rgb(var(--editor-bg)) !important;
+}
+
+/* Autofill (Chrome/Edge/Safari): полностью под переменные темы, без «синевы по умолчанию» */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(var(--text));
+  caret-color: rgb(var(--text));
+  box-shadow: inset 0 0 0 1000px rgb(var(--card));
+  transition: background-color 9999s ease-out 0s;
+}
+
+/* Фокус под тему (через var(--accent), без "синевы" в pink) */
+input:focus,
+textarea:focus,
+select:focus,
+.select:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
+
+/* Monaco: убираем фокус-ринг у внутреннего textarea */
+.monaco-editor .inputarea:focus {
+  outline: none !important;
+  box-shadow: none !important; /* гасит tailwind ring */
+}
+
+/* Monaco: подсветка текущей строки и выделения — строго под тему (без вечной «синевы») */
+.monaco-editor .view-overlays .current-line,
+.monaco-editor .margin-view-overlays .current-line {
+  background: rgba(var(--accent) / 0.10) !important;
+  border: none !important;
+}
+
+.monaco-editor .selected-text,
+.monaco-editor .focused .selected-text,
+.monaco-editor .selectionHighlight,
+.monaco-editor .focused .selectionHighlight {
+  background-color: rgba(var(--accent) / 0.30) !important;
+}
+
+.monaco-editor .findMatch,
+.monaco-editor .currentFindMatch {
+  background-color: rgba(var(--accent) / 0.22) !important;
+}
+
+
+/* ====== Доп. классы для наших UI-компонентов ====== */
+.field { @apply w-full; }
+.field > .label { @apply block text-sm font-medium mb-1; color: rgb(var(--text-muted)); }
+
+/* алиасы под классы компонентов */
+.textarea {
+  @apply w-full bg-[rgb(var(--card))] border rounded-xl px-3 py-2;
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+}
+.select {
+  @apply w-full rounded-xl px-3 py-2 border bg-[rgb(var(--card))];
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='currentColor' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+}
+.dark .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
+html.pink .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
+
+/* ===== Динамичные фоновые блики (опционально, через переключатель) ===== */
+
+/* Убираем глобальный outline (он ломает вид редакторов/карточек).
+   Фокус подсвечиваем только через унифицированный box-shadow выше. */
+*:focus-visible { outline: none; }
+
+/* Ссылки по умолчанию НЕ должны красить весь текст (карточки курсов — это <Link>).
+   Поэтому по умолчанию ссылки наследуют цвет. Акцентные ссылки используем через класс .link. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  color: inherit;
+  text-decoration-color: currentColor;
+}
+a:visited {
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, rgba(var(--accent) / 0.22), rgba(var(--border) / 0.12));
+  color: rgb(var(--text));
+}
+
+/* Контейнер слоёв бликов */
+.bg-fx {
+  position: absolute;
+  inset: -25%;
+  filter: blur(70px);
+  /* делаем заметнее: на тёмных темах раньше «терялось» и виделся только угол‑градиент */
+  opacity: 0.62;
+}
+
+html.dark .bg-fx {
+  opacity: 0.78;
+  filter: blur(65px);
+}
+
+/* Сами блики */
+.bg-fx__blob {
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--fx-1) / 0.5), transparent 60%);
+  mix-blend-mode: multiply;
+  animation: bgfx-float-1 18s ease-in-out infinite;
+}
+
+html.dark .bg-fx__blob {
+  /* в тёмной теме блики "светятся" чуть мягче */
+  mix-blend-mode: screen;
+  opacity: 1;
+}
+
+.bg-fx__blob:nth-child(2) {
+  width: 45vmax;
+  height: 45vmax;
+  background: radial-gradient(circle at 35% 35%, rgba(var(--fx-2) / 0.45), transparent 62%);
+  animation: bgfx-float-2 22s ease-in-out infinite;
+}
+
+.bg-fx__blob:nth-child(3) {
+  width: 50vmax;
+  height: 50vmax;
+  background: radial-gradient(circle at 40% 40%, rgba(var(--fx-3) / 0.45), transparent 65%);
+  animation: bgfx-float-3 26s ease-in-out infinite;
+}
+
+@keyframes bgfx-float-1 {
+  0%   { transform: translate3d(-18%, -10%, 0) scale(1); }
+  50%  { transform: translate3d(12%, 8%, 0) scale(1.08); }
+  100% { transform: translate3d(-18%, -10%, 0) scale(1); }
+}
+
+@keyframes bgfx-float-2 {
+  0%   { transform: translate3d(22%, -8%, 0) scale(1); }
+  50%  { transform: translate3d(-10%, 12%, 0) scale(1.06); }
+  100% { transform: translate3d(22%, -8%, 0) scale(1); }
+}
+
+@keyframes bgfx-float-3 {
+  0%   { transform: translate3d(-5%, 22%, 0) scale(1); }
+  50%  { transform: translate3d(18%, -8%, 0) scale(1.07); }
+  100% { transform: translate3d(-5%, 22%, 0) scale(1); }
+}
+
+/* ====== Layout polish / wider shell ====== */
+.layout-topbar-surface {
+  background: linear-gradient(180deg, rgba(var(--card) / 0.86), rgba(var(--card) / 0.72));
+}
+
+.page-hero-card {
+  border: 1px solid rgba(var(--border) / 0.52);
+  background: linear-gradient(180deg, rgba(var(--card) / 0.72), rgba(var(--card) / 0.58));
+  backdrop-filter: blur(14px);
+}
+
+.page-search-card {
+  border: 1px solid rgba(var(--border) / 0.48);
+  background: linear-gradient(180deg, rgba(var(--card) / 0.66), rgba(var(--card) / 0.52));
+}
+
+.auto-fill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 1.25rem;
+}
+
+.auto-fill-grid.auto-fill-grid--dense {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+@media (min-width: 1280px) {
+  .auto-fill-grid { gap: 1.35rem; }
+}
+
+@media (min-width: 1536px) {
+  .auto-fill-grid {
+    grid-template-columns: repeat(auto-fill, minmax(292px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .auto-fill-grid.auto-fill-grid--dense {
+    grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+  }
+}
+
+/* ====== Social-like layout helpers (без смены основной палитры) ====== */
+.side-nav-section-title {
+  @apply px-2 text-[11px] font-semibold uppercase tracking-[0.18em];
+  color: rgb(var(--text-muted));
+}
+
+.side-nav-link {
+  @apply flex w-full items-center gap-2.5 rounded-2xl px-3 py-2.5 text-left transition;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  min-width: 0;
+}
+
+.side-nav-link.is-compact {
+  @apply py-3;
+}
+
+.side-nav-link:hover {
+  background: rgba(var(--border) / 0.16);
+}
+
+.side-nav-link.is-active {
+  background: linear-gradient(180deg, rgba(var(--accent) / 0.13), rgba(var(--accent) / 0.08));
+  border-color: rgba(var(--accent) / 0.28);
+}
+
+.side-nav-icon {
+  @apply h-9 w-9 shrink-0 rounded-2xl grid place-items-center;
+  background: rgba(var(--border) / 0.12);
+}
+
+.side-nav-link.is-active .side-nav-icon {
+  background: rgba(var(--accent) / 0.14);
+  color: rgb(var(--accent));
+}
+
+.side-nav-label {
+  @apply block truncate text-[0.94rem] font-medium leading-5;
+}
+
+.side-nav-label.is-compact {
+  @apply text-[0.94rem] leading-5;
+}
+
+.side-nav-chevron {
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.side-nav-link.is-active .side-nav-chevron {
+  opacity: 0.8;
+  color: rgb(var(--accent));
+}
+
+
+.header-quick-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.header-center-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+}
+
+
+.header-quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.64rem 0.9rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(var(--border) / 0.68);
+  background: rgba(var(--card) / 0.72);
+  box-shadow: 0 6px 18px rgba(0 0 0 / 0.06);
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.header-quick-action:hover {
+  background: rgba(var(--border) / 0.18);
+  transform: translateY(-1px);
+}
+
+.header-quick-action.is-active {
+  background: linear-gradient(180deg, rgba(var(--accent) / 0.13), rgba(var(--accent) / 0.08));
+  border-color: rgba(var(--accent) / 0.28);
+  color: rgb(var(--text));
+}
+
+@media (max-width: 1439px) {
+  .header-center-cluster {
+    gap: 0.65rem;
+  }
+}
+
+
+.dashboard-sticky-rail {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.25rem;
+  scrollbar-width: thin;
+}
+
+.dashboard-sticky-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-sticky-rail::-webkit-scrollbar-thumb {
+  background: rgba(var(--border) / 0.45);
+  border-radius: 9999px;
+}
+
+
+.assignment-card {
+  position: relative;
+  overflow: visible;
+}
+
+.assignment-card-main {
+  min-width: 0;
+}
+
+.assignment-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.assignment-card-kicker {
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(var(--text-muted));
+}
+
+.assignment-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(var(--border) / 0.55);
+  background: rgba(var(--muted) / 0.34);
+  padding: 0.32rem 0.65rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.assignment-card-title-wrap {
+  position: relative;
+  margin-top: 0.6rem;
+  min-width: 0;
+}
+
+.assignment-card-title {
+  position: relative;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 1.22rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.assignment-card-title-tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.6rem);
+  z-index: 12;
+  max-width: min(28rem, calc(100vw - 4rem));
+  transform: translateY(6px);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 1rem;
+  border: 1px solid rgba(var(--border) / 0.62);
+  background: rgba(var(--card) / 0.96);
+  box-shadow: 0 22px 44px rgba(0 0 0 / 0.16);
+  padding: 0.8rem 0.95rem;
+  font-size: 0.94rem;
+  line-height: 1.45;
+  color: rgb(var(--text));
+  backdrop-filter: blur(12px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.assignment-card:hover .assignment-card-title-tooltip,
+.assignment-card:focus-within .assignment-card-title-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 640px) {
+  .assignment-card-title {
+    font-size: 1.18rem;
+  }
+
+  .assignment-card-title-tooltip {
+    max-width: min(24rem, calc(100vw - 2rem));
+  }
+}
+
+.assignment-card--dragging {
+  opacity: 0.55;
+  transform: scale(0.985);
+}
+
+.assignment-card--drop-target {
+  outline: 2px dashed rgb(var(--brand-500));
+  outline-offset: 5px;
+}
+
+.assignment-card-heading {
+  align-items: flex-start;
+}
+
+.assignment-card-heading > .flex {
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 68%;
+}
+
+.assignment-card-kicker {
+  letter-spacing: 0.13em;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.assignment-card-title {
+  -webkit-line-clamp: 4;
+}
+
+.assignment-card .line-clamp-3 {
+  -webkit-line-clamp: 4;
+}
+
+.assignment-card[draggable="true"] {
+  user-select: none;
+}
+
+.assignment-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.code-editor-shell {
+  background: rgba(var(--muted) / 0.22);
+  box-shadow: inset 0 1px 0 rgba(255 255 255 / 0.08);
+}
+
+.dark .code-editor-shell {
+  background: rgba(255 255 255 / 0.04);
+}

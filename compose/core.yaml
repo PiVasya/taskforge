@@ -95,3 +95,13 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: 'true'
+  front-ct:
+    image: ghcr.io/pivasya/taskforge-front-ct:latest
+    container_name: taskforge-front-ct
+    expose:
+    - '80'
+    networks:
+    - appnet
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'

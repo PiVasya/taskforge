@@ -7,7 +7,7 @@ CONF=/etc/nginx/conf.d/default.conf
 LIVE_DIR="/etc/letsencrypt/live/${DOMAIN}"
 
 render_https() {
-  envsubst '${DOMAIN}' < "${TPL_DIR}/https.conf" > "${CONF}"
+  envsubst '${DOMAIN} ${CT_DOMAIN}' < "${TPL_DIR}/https.conf" > "${CONF}"
 }
 
 ensure_https_config () {

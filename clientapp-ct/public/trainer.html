@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A1 Орфография — обучалка</title>
+  <style>
+    :root {
+      --blue: #dfeefa;
+      --deep-blue: #2e2e87;
+      --text: #242424;
+      --muted: #666;
+      --card: #f2f8df;
+      --cream: #fff9ed;
+      --yellow: #ffd943;
+      --green: #85bd4b;
+      --green-dark: #548d27;
+      --red: #e44732;
+      --violet: #efecff;
+      --shadow: 0 12px 26px rgba(39, 58, 92, 0.1);
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      background: #f5f5f5;
+      line-height: 1.45;
+    }
+
+    .app {
+      max-width: 1100px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background: white;
+      box-shadow: 0 0 0 1px #ddd;
+    }
+
+    header {
+      min-height: 126px;
+      padding: 28px 54px;
+      background: var(--blue);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid #c8dbe9;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .brand__mark {
+      font-size: 72px;
+      line-height: 0.9;
+      font-weight: 900;
+      color: var(--deep-blue);
+      letter-spacing: -4px;
+    }
+
+    .brand__title {
+      color: var(--deep-blue);
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 2px;
+    }
+
+    .brand__sub {
+      color: #555;
+      font-size: 16px;
+      letter-spacing: 0.2px;
+    }
+
+    .flower {
+      position: relative;
+      width: 70px;
+      height: 70px;
+    }
+
+    .petal {
+      position: absolute;
+      width: 22px;
+      height: 42px;
+      left: 24px;
+      top: 14px;
+      background: #ed7fab;
+      border-radius: 24px 24px 12px 12px;
+      transform-origin: 11px 21px;
+    }
+
+    .petal:nth-child(1) { transform: rotate(0deg) translateY(-17px); }
+    .petal:nth-child(2) { transform: rotate(45deg) translateY(-17px); }
+    .petal:nth-child(3) { transform: rotate(90deg) translateY(-17px); }
+    .petal:nth-child(4) { transform: rotate(135deg) translateY(-17px); }
+    .petal:nth-child(5) { transform: rotate(180deg) translateY(-17px); }
+    .petal:nth-child(6) { transform: rotate(225deg) translateY(-17px); }
+    .petal:nth-child(7) { transform: rotate(270deg) translateY(-17px); }
+    .petal:nth-child(8) { transform: rotate(315deg) translateY(-17px); }
+
+    .flower::after {
+      content: "";
+      position: absolute;
+      width: 25px;
+      height: 25px;
+      left: 22px;
+      top: 22px;
+      background: #ffd538;
+      border-radius: 50%;
+      box-shadow: inset 0 0 0 4px rgba(255, 164, 54, 0.55);
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 10px;
+      padding: 14px 54px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #eee;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      background: #f1f1f1;
+      color: #333;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: 0.18s;
+    }
+
+    .tab-btn:hover {
+      transform: translateY(-1px);
+      background: #e9eef7;
+    }
+
+    .tab-btn.active {
+      background: var(--deep-blue);
+      color: white;
+    }
+
+    main {
+      padding: 32px 54px 70px;
+    }
+
+    .page {
+      display: none;
+      animation: appear 0.22s ease;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    @keyframes appear {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    h1, h2, h3 {
+      margin-top: 0;
+    }
+
+    .center-title {
+      text-align: center;
+      font-size: 30px;
+      margin: 0 0 26px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h3 {
+      font-size: 20px;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+
+    .card p {
+      margin: 8px 0;
+    }
+
+    .red {
+      color: var(--red);
+      font-style: italic;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .rule-list {
+      margin: 0;
+      padding-left: 0;
+      list-style: none;
+    }
+
+    .rule-list li {
+      margin: 8px 0;
+    }
+
+    .mini-note {
+      background: white;
+      border-left: 4px solid var(--yellow);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 14px 0;
+    }
+
+    .lifehack {
+      border: 2px dashed var(--green);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      background: #fffef8;
+      margin-top: 20px;
+    }
+
+    .lifehack strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .exercise {
+      margin-top: 30px;
+      background: var(--cream);
+      border-left: 5px solid var(--yellow);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .exercise-title {
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 12px;
+    }
+
+    .answer {
+      display: none;
+      margin-top: 12px;
+      padding: 14px;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #eee;
+    }
+
+    .answer.show {
+      display: block;
+    }
+
+    .action-btn {
+      border: 0;
+      background: var(--yellow);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+
+    .section-title {
+      font-size: 30px;
+      margin-bottom: 14px;
+    }
+
+    .lead {
+      font-size: 18px;
+      color: #444;
+      max-width: 850px;
+      margin-bottom: 24px;
+    }
+
+    details {
+      background: #f7f7ff;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin: 12px 0;
+      box-shadow: 0 4px 14px rgba(54, 54, 120, 0.06);
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 900;
+      color: var(--deep-blue);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: white;
+      border: 1px solid #ddd;
+    }
+
+    .dictionary-toolbar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin: 18px 0 22px;
+      padding: 14px;
+      border-radius: 14px;
+      background: #f7f8fb;
+    }
+
+    .search {
+      flex: 1 1 240px;
+      min-width: 220px;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 16px;
+    }
+
+    .letter-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .letter-card {
+      position: relative;
+      background: white;
+      border-radius: var(--radius);
+      padding: 18px 18px 16px;
+      border: 1px solid #ececec;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .letter-card::before {
+      content: attr(data-letter);
+      position: absolute;
+      right: 14px;
+      top: 8px;
+      color: rgba(133, 189, 75, 0.18);
+      font-size: 74px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .letter {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #f6ffad;
+      box-shadow: 0 0 20px rgba(224, 255, 75, 0.8);
+      font-size: 22px;
+      font-weight: 900;
+      color: #273427;
+      margin-bottom: 12px;
+    }
+
+    .word-list {
+      columns: 2;
+      column-gap: 18px;
+      position: relative;
+      margin: 0;
+      padding-left: 18px;
+      font-size: 15px;
+    }
+
+    .word-list li {
+      break-inside: avoid;
+      margin-bottom: 4px;
+    }
+
+    .year-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+
+    .year-card {
+      border-radius: var(--radius);
+      background: white;
+      border: 1px solid #e7e7e7;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .year-title {
+      background: #f4f4f4;
+      padding: 12px 16px;
+      font-weight: 900;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .year-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .year-col {
+      padding: 12px 16px 16px;
+    }
+
+    .year-col:first-child {
+      border-right: 1px solid #eee;
+    }
+
+    .year-letter {
+      text-align: center;
+      font-weight: 900;
+      margin-bottom: 8px;
+    }
+
+    .year-col ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .year-col li {
+      margin-bottom: 4px;
+    }
+
+    .hidden-words .word-list,
+    .hidden-words .year-cols {
+      filter: blur(7px);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .hide-panel {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #fff9d8;
+      border-radius: 14px;
+      margin-bottom: 16px;
+    }
+
+    .practice-box {
+      background: #f7fbef;
+      border: 1px solid #e1ecd0;
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-top: 18px;
+    }
+
+    .quiz-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #e4ead8;
+    }
+
+    .quiz-row:last-child {
+      border-bottom: 0;
+    }
+
+    select {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      background: white;
+      font-weight: 700;
+    }
+
+    .result {
+      font-weight: 800;
+      margin-left: 8px;
+    }
+
+    .ok { color: #27803a; }
+    .bad { color: #d43020; }
+
+    footer {
+      padding: 18px 54px;
+      border-top: 1px solid #eee;
+      color: #999;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    @media (max-width: 860px) {
+      header, nav, main, footer {
+        padding-left: 22px;
+        padding-right: 22px;
+      }
+
+      header {
+        align-items: flex-start;
+      }
+
+      .brand__mark {
+        font-size: 58px;
+      }
+
+      .brand__title {
+        font-size: 22px;
+      }
+
+      .grid-2,
+      .letter-grid,
+      .year-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .word-list {
+        columns: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="brand__mark">A1</div>
+        <div>
+          <div class="brand__title">Орфография</div>
+          <div class="brand__sub">Гласная в корне слова</div>
+        </div>
+      </div>
+      <div class="flower" aria-hidden="true">
+        <span class="petal"></span><span class="petal"></span><span class="petal"></span><span class="petal"></span>
+        <span class="petal"></span><span class="petal"></span><span class="petal"></span><span class="petal"></span>
+      </div>
+    </header>
+
+    <nav aria-label="Разделы обучалки">
+      <button class="tab-btn active" data-page="algorithm">Алгоритм</button>
+      <button class="tab-btn" data-page="roots">Чередование</button>
+      <button class="tab-btn" data-page="dictionary">Словарные слова</button>
+      <button class="tab-btn" data-page="ct">ЦТ / ЦЭ</button>
+      <button class="tab-btn" data-page="practice">Тренировка</button>
+    </nav>
+
+    <main>
+      <section id="algorithm" class="page active">
+        <h1 class="center-title">Алгоритм решения A1</h1>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Шаг 1. Проверить, нет ли корня с чередующимися гласными</h3>
+            <ul class="rule-list">
+              <li><b>кас</b> — <b>-а-</b> — <b>кос</b>: касаться, коснуться</li>
+              <li><b>гар</b> — <b>гор</b>: загар, загореть</li>
+              <li><b>клан</b> — <b>клон</b>: кланяться, поклон</li>
+              <li><b>твар</b> — <b>твор</b>: тварь, творить</li>
+              <li><b>зар</b> — <b>зор</b>: заря, зорька</li>
+              <li><b>скак</b> — <b>скоч</b>: скакать, вскочить</li>
+              <li><b>раст / ращ / рос</b>: растение, выращенный, росли</li>
+              <li><b>лаг</b> — <b>лож</b>: полагать, положить</li>
+              <li><b>мак</b> — <b>мок / моч</b>: макать, промокнуть, мочить</li>
+              <li><b>равн</b> — <b>ровн</b>: равный, ровный</li>
+              <li><b>плав</b> — <b>плов / плыв</b>: плавать, пловец, плывун</li>
+            </ul>
+          </div>
+
+          <div>
+            <div class="card">
+              <h3>Шаг 2. Пытаемся подобрать проверочное слово</h3>
+              <p><i>Нужно подобрать однокоренное слово так, чтобы слышно было, какая гласная в корне.</i></p>
+              <p>побледневший — <b>бледный</b></p>
+              <p>удивляться — <b>диво</b></p>
+              <div class="mini-note">
+                ⚠ Нельзя подбирать слова с суффиксами <b>-ива-</b>, <b>-ыва-</b>, когда ищем однокоренное слово для проверки.
+              </div>
+              <p><i>опоздать — опаздывать</i>: так не проверяем</p>
+              <p><i>опоздать — поздний</i>: так проверяем</p>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+              <h3>Шаг 3. Если не можем подобрать слово, то оно словарное</h3>
+              <p>Такие слова нужно запоминать. Для них в обучалке есть отдельная страница.</p>
+            </div>
+
+            <div class="lifehack">
+              <strong>🌳 Лайфхак</strong>
+              <div>В этом задании обычно:</div>
+              <div>1 слово словарное,</div>
+              <div>2 слова на чередование,</div>
+              <div>2 слова на проверяемую гласную.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="exercise">
+          <div class="exercise-title">↝ Упражнение</div>
+          <p>1. Пол__жить вещи / Пол__гаться на друга</p>
+          <p>2. Г__реть на солнце / Уг__рать в бане</p>
+          <p>3. Пл__вец / Пл__вучий остров / Зап__сной вариант</p>
+          <button class="action-btn" onclick="toggleAnswer('answer1')">Показать ответ</button>
+          <div id="answer1" class="answer">
+            <p><b>1. Положить / полагаться.</b> Корень <b>лаг/лож</b>: перед <b>ж</b> пишем <b>о</b>, перед <b>г</b> — <b>а</b>.</p>
+            <p><b>2. Гореть / угорать.</b> Корень <b>гар/гор</b>: без ударения обычно пишется <b>о</b>, под ударением — <b>а</b>.</p>
+            <p><b>3. Пловец / плавучий / запасной.</b> <b>Пловец</b> — исключение, <b>плавучий</b> — корень плав, <b>запасной</b> проверяется словом запас.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="roots" class="page">
+        <h2 class="section-title">Корни с чередующимися гласными</h2>
+        <p class="lead">Сначала ищем именно эти корни. Если слово попало сюда, обычное проверочное слово подбирать нельзя: работает правило чередования.</p>
+
+        <details open>
+          <summary>Корни и базовые пары</summary>
+          <div class="pill-row">
+            <span class="pill">кас — -а- — кос</span>
+            <span class="pill">гар — гор</span>
+            <span class="pill">клан — клон</span>
+            <span class="pill">твар — твор</span>
+            <span class="pill">зар — зор</span>
+            <span class="pill">скак — скоч</span>
+            <span class="pill">раст — ращ — рос</span>
+            <span class="pill">лаг — лож</span>
+            <span class="pill">мак — мок / моч</span>
+            <span class="pill">равн — ровн</span>
+            <span class="pill">плав — плов / плыв</span>
+          </div>
+        </details>
+
+        <details open>
+          <summary>Исключения</summary>
+          <p><b>гар/гор:</b> <span class="red">пригарь, выгарки, утварь, изгарь</span></p>
+          <p><b>скак/скоч:</b> <span class="red">скачу, скачок, скачкообразный</span></p>
+          <p><b>раст/ращ/рос:</b> <span class="red">росток, Ростов, Ростислав, ростовщик, отрасль, вырост, подростковый, подросток, полог</span></p>
+          <p><b>равн/ровн:</b> <span class="red">поровну, уровень, ровесник, равнина, поравняться, сравнить, равнение</span></p>
+          <p><b>плав/плов/плыв:</b> <span class="red">пловец, пловчиха, плывун</span></p>
+        </details>
+
+        <details>
+          <summary>Короткие подсказки</summary>
+          <p><b>лаг/лож:</b> перед <b>г</b> обычно пишется <b>а</b>, перед <b>ж</b> — <b>о</b>: полагать — положить.</p>
+          <p><b>кас/кос:</b> если после корня есть суффикс <b>-а-</b>, пишется <b>а</b>: касаться. Без суффикса — <b>о</b>: коснуться.</p>
+          <p><b>раст/ращ/рос:</b> перед <b>ст</b> и <b>щ</b> пишется <b>а</b>, перед <b>с</b> — <b>о</b>, но есть исключения.</p>
+          <p><b>мак/мок:</b> мак — погружать в жидкость, мок/моч — впитывать влагу.</p>
+          <p><b>равн/ровн:</b> равн — одинаковый, ровн — гладкий, прямой.</p>
+        </details>
+      </section>
+
+      <section id="dictionary" class="page hidden-words">
+        <h2 class="section-title">Словарные слова</h2>
+        <p class="lead">Эти слова нельзя нормально проверить ударением. Их лучше учить отдельными порциями. Сейчас они спрятаны: можно открыть, когда понадобится.</p>
+
+        <div class="hide-panel">
+          <input type="checkbox" id="showDict" onchange="toggleHiddenWords('dictionary', this.checked)">
+          <label for="showDict"><b>Показать словарные слова</b></label>
+        </div>
+
+        <div class="dictionary-toolbar">
+          <input class="search" id="dictSearch" type="search" placeholder="Поиск по словарным словам..." oninput="filterWords()" />
+          <button class="action-btn" onclick="clearSearch()">Сбросить поиск</button>
+        </div>
+
+        <div class="letter-grid" id="dictionaryGrid"></div>
+      </section>
+
+      <section id="ct" class="page hidden-words">
+        <h2 class="section-title">Слова из ЦТ / ЦЭ прошлых лет</h2>
+        <p class="lead">Это отдельный блок для повторения. Слова разделены по годам и по буквам А / О, как на картинках.</p>
+
+        <div class="hide-panel">
+          <input type="checkbox" id="showCt" onchange="toggleHiddenWords('ct', this.checked)">
+          <label for="showCt"><b>Показать слова из ЦТ / ЦЭ</b></label>
+        </div>
+
+        <div class="year-grid" id="ctGrid"></div>
+      </section>
+
+      <section id="practice" class="page">
+        <h2 class="section-title">Тренировка</h2>
+        <p class="lead">Выбери правильную букву. После проверки появится короткое объяснение.</p>
+
+        <div class="practice-box" id="quiz"></div>
+        <button class="action-btn" onclick="checkQuiz()">Проверить</button>
+        <button class="action-btn" onclick="resetQuiz()">Сбросить</button>
+      </section>
+    </main>
+
+    <footer>
+      <span>Русский язык • A1 • обучалка</span>
+      <span>гласная в корне слова</span>
+    </footer>
+  </div>
+
+  <script>
+    const dictionary = {
+      "А": ["абажур", "аббревиатура", "абитуриент", "абонемент", "аборт", "абсолют", "абсолютно", "абсолютный", "абстрактный", "авангардизм", "авторизация", "авторитет", "актуальность", "аллигатор", "альпинист", "аналог", "анонимный", "аплодировать", "аплодисменты", "аристократия", "аромат", "арсенал", "артикуляция", "артиллерия", "архитектура", "атака", "атмосфера"],
+      "Б": ["багровый", "бадминтон", "байдарка", "балалайка", "балкон", "балл", "баллада", "барон", "баррикада", "бархат", "батальон", "батарея", "бесчестный", "бесчувственный", "бетон", "бечевка", "бидон", "бильярд", "бинокль", "бичевать", "благодарность", "благородный", "блаженство", "блокировка", "бордовый", "бордюр", "бриллиант", "брошюра"],
+      "В": ["вагон", "варежки", "велосипед", "веранда", "верблюд", "вереница", "вермишель", "вернисаж", "вестибюль", "ветеран", "ветеринар", "ветчина", "викторина", "выразительность", "винегрет", "вегетарианский", "воображение", "виньетка", "виолончель", "виртуоз", "витрина", "водоросли", "возражать", "возражение", "вокзал", "воскресенье", "восхищаться", "восхищение"],
+      "Г": ["габарит", "галантерея", "галерея", "галоши", "гараж", "гардероб", "гипотеза", "гирлянда", "гонорар", "горизонт", "гравюра", "градация", "грейпфрут", "гримаса", "громоздкий", "гуманизм", "гусеница", "грандиозность"],
+      "Д": ["дебил", "дезорганизация", "декада", "декламировать", "демократия", "демонстрация", "десант", "дипломат", "директор", "дирижер", "дисквалификация", "дискуссия", "досконально", "доставка", "дрессировка", "дуршлаг"],
+      "Ж": ["жаворонок", "желоб", "жокей", "жонглер"],
+      "З": ["забвение", "знаменитый"],
+      "И": ["идеал", "идиллия", "иждивенец", "извиниться", "изображение", "иллюминация", "имитация", "испещренный", "истина", "истязать", "исполин", "исполкон"],
+      "К": ["кавалерия", "кавычки", "какофония", "калач", "карман", "карнавал", "коллектив", "колорит", "комедия", "комета", "комод", "компенсация", "комплимент", "композитор", "компонент", "компот", "коноплянник", "контрабанда", "контролер", "конфорка", "коралл", "коридор", "корректный", "кочан", "кошелек", "кошелка", "критерий", "кропотливый"],
+      "Л": ["лабиринт", "лимонад", "лаборатория", "лазарет", "лаконичный", "лауреат", "лачуга", "лачу́жка", "лелеять", "лиловый", "линолеум", "лоскут"],
+      "Н": ["начинающий", "негодовать", "недосягаемый", "ненавидеть", "неологизм", "неприятель", "нивелировать", "никак", "ничуть", "новелла", "ностальгия"],
+      "О": ["оазис", "обаяние", "обелиск", "обиход", "облако", "обогащать", "обогащение", "обоняние", "одолеть", "одуванчик", "озираться", "окуляция", "олигарх", "олимпиада", "оригинальный", "орхидея", "осязание", "отечество", "отчизна", "офицер", "официальный", "оцепенеть", "ошеломить"],
+      "П": ["прототип", "пантомима", "папоротник", "периферия", "перспектива", "пекарь", "пессимист", "полемика", "поликлиника", "поролон", "пороша", "портмоне", "портрет", "поскользнуться", "постамент", "предварительный", "превалировать", "процедура", "презентация", "президент", "приоритет", "присяга", "продюсер", "пролетариат", "пролог", "прообраз", "пропаганда", "пропеллер", "прототип", "пуловер", "пьедестал"],
+      "С": ["саботаж", "свирель", "семантика", "сертификат", "симпозиум", "симфония", "сирень", "смятение", "снегирь", "солдат", "сорока", "спираль", "спортсмен", "стадион", "стеллаж", "стипендия"],
+      "Т": ["тавтология", "талант", "таможня", "тасовать", "тенденция", "терраса", "трагедия", "трапеция", "тренер", "тренировка", "трибуна", "тротуар"],
+      "У": ["учреждение"],
+      "Ф": ["формализм", "фаланга", "фантазия", "фасад", "фаэтон", "фаянс", "фаянсовый", "февраль", "фейерверк", "фестиваль", "фиалка", "фиаско", "филармония"],
+      "Х": ["халат", "хамелеон", "хижина", "хлебороб", "холера", "хомут", "хомяк", "хризантема", "хронология", "хронометраж"],
+      "Ц": ["целина", "целлофан", "целлюлоза", "церемония", "цивилизация", "циклон"],
+      "Ч": ["чечевица", "чемодан", "чемпион"],
+      "Ш": ["шеренга", "шершавый", "шиповник", "шпингалет"],
+      "Щ": ["щавель", "щедроты", "щеколда", "щекотать"],
+      "Э": ["эволюция", "эвфемизм"]
+    };
+
+    const ctWords = [
+      { year: "ЦТ 2011", a: ["Парадокс", "Панорама", "Багряный"], o: ["Комитет", "Пропаганда", "Экспонат", "Количество", "Тротуар", "Бокал"] },
+      { year: "ЦТ 2012", a: ["Карнавал", "Пропаганда", "Багряный"], o: ["Ароматный", "Тротуар", "Мольберт", "Панорама", "Конспект", "Композиция", "Кондуктор"] },
+      { year: "ЦТ 2013", a: ["Хризантема", "Пародия", "Пропаганда", "Трафарет", "Скафандр", "Парадокс", "Манифест", "Палисадник", "Каравай", "Табурет"], o: ["Изобильный", "Панорама", "Континент", "Обоняние", "Фломастер", "Компактный", "Алгоритм"] },
+      { year: "ЦТ 2014", a: ["Багровый", "Багряный", "Транспарант", "Газон", "Обаяние", "Парадокс"], o: ["Кондитер", "Монолог", "Лаконичный", "Столица"] },
+      { year: "ЦТ 2015", a: ["Патриот", "Катастрофа", "Трафарет", "Калория", "Палисадник", "Комната", "Катаклизм", "Гараж", "Санаторий", "Багрянец", "Кавычки", "Возражать"], o: ["Континент", "Популярный", "Обоняние", "Акробат", "Бордовый", "Фольклор", "Полемика", "Кочан"] },
+      { year: "ЦТ 2017", a: ["Карниз", "Ураган", "Планета", "Капитан", "Наваждение", "Караул", "Абажур"], o: ["Тротуар", "Категоричный", "Полковник"] },
+      { year: "ЦТ 2018", a: ["Гардины", "Катастрофа", "Пропаганда", "Эксплуатировать"], o: ["Корректный", "Континент", "Корзина", "Гипербола", "Коридор", "Энциклопедия"] },
+      { year: "ЦТ 2019", a: ["Кандидат", "Ярмарка", "Габаритный", "Эстафета", "Обаятельный", "Батальон", "Раздражение", "Карман", "Лазурный", "Хризантема", "Калейдоскоп"], o: ["Колорит", "Бокал", "Досконально", "Кондитер", "Аннотация", "Афоризм", "Эмоциональный", "Панорама", "Концентрировать внимание", "Ассоциация"] },
+      { year: "ЦТ 2021", a: ["Фарфор", "Гастроли", "Гамак", "Бархатный", "Стакан", "Ураган", "Багровый", "Обнажить", "Предварительный", "Каталог", "Обязательный"], o: ["Пародист"] },
+      { year: "ЦТ 2022", a: ["Ностальгия", "Гармония", "Стадион", "Авангард", "Каблук", "Авантюра", "Воображение", "Парадокс"], o: ["Протокол"] },
+      { year: "ЦЭ и ЦТ 2023", a: ["Эстафета", "Масштаб", "Стадион", "Ландшафт", "Традиция"], o: ["Абсолютный", "Компонент", "Обоняние"] },
+      { year: "ЦЭ и ЦТ 2024", a: ["Барометр", "Фантазия", "Кабинет", "Натюрморт", "Фарфор"], o: [] }
+    ];
+
+    const quiz = [
+      { text: "Пол__жить вещи", options: ["а", "о"], right: "о", explain: "Положить: корень лаг/лож, перед ж пишется о." },
+      { text: "Пол__гаться на друга", options: ["а", "о"], right: "а", explain: "Полагаться: корень лаг/лож, перед г пишется а." },
+      { text: "Г__реть на солнце", options: ["а", "о"], right: "о", explain: "Гореть: корень гар/гор, без ударения пишется о." },
+      { text: "Уг__рать в бане", options: ["а", "о"], right: "а", explain: "Угорать: здесь а под ударением в корне гар/гор." },
+      { text: "Пл__вец", options: ["а", "о"], right: "о", explain: "Пловец — исключение." },
+      { text: "Пл__вучий остров", options: ["а", "о"], right: "а", explain: "Плавучий пишется через а." },
+      { text: "Зап__сной вариант", options: ["а", "о"], right: "а", explain: "Запасной проверяется словом запас." },
+      { text: "К__саться темы", options: ["а", "о"], right: "а", explain: "Касаться: после корня есть суффикс -а-, пишется а." },
+      { text: "К__снуться стены", options: ["а", "о"], right: "о", explain: "Коснуться: суффикса -а- после корня нет, пишется о." },
+      { text: "Выр__щенный цветок", options: ["а", "о"], right: "а", explain: "Выращенный: раст/ращ/рос, перед щ пишется а." }
+    ];
+
+    function switchPage(id) {
+      document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.page === id));
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => switchPage(btn.dataset.page));
+    });
+
+    function toggleAnswer(id) {
+      document.getElementById(id).classList.toggle('show');
+    }
+
+    function toggleHiddenWords(sectionId, show) {
+      document.getElementById(sectionId).classList.toggle('hidden-words', !show);
+    }
+
+    function renderDictionary() {
+      const grid = document.getElementById('dictionaryGrid');
+      grid.innerHTML = Object.entries(dictionary).map(([letter, words]) => `
+        <article class="letter-card" data-letter="${letter}">
+          <div class="letter">${letter}</div>
+          <ul class="word-list">
+            ${words.map(word => `<li data-word="${word.toLowerCase()}">${word}</li>`).join('')}
+          </ul>
+        </article>
+      `).join('');
+    }
+
+    function filterWords() {
+      const query = document.getElementById('dictSearch').value.trim().toLowerCase();
+      document.querySelectorAll('.letter-card').forEach(card => {
+        let visibleCount = 0;
+        card.querySelectorAll('li').forEach(li => {
+          const match = li.dataset.word.includes(query);
+          li.style.display = match ? '' : 'none';
+          if (match) visibleCount++;
+        });
+        card.style.display = visibleCount ? '' : 'none';
+      });
+    }
+
+    function clearSearch() {
+      document.getElementById('dictSearch').value = '';
+      filterWords();
+    }
+
+    function renderCtWords() {
+      const grid = document.getElementById('ctGrid');
+      grid.innerHTML = ctWords.map(item => `
+        <article class="year-card">
+          <div class="year-title">${item.year}</div>
+          <div class="year-cols">
+            <div class="year-col">
+              <div class="year-letter">А</div>
+              <ul>${item.a.map(word => `<li>${word}</li>`).join('') || '<li class="muted">нет слов</li>'}</ul>
+            </div>
+            <div class="year-col">
+              <div class="year-letter">О</div>
+              <ul>${item.o.map(word => `<li>${word}</li>`).join('') || '<li class="muted">нет слов</li>'}</ul>
+            </div>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function renderQuiz() {
+      const box = document.getElementById('quiz');
+      box.innerHTML = quiz.map((item, index) => `
+        <div class="quiz-row">
+          <div>
+            <b>${index + 1}. ${item.text}</b>
+            <span class="result" id="res${index}"></span>
+            <div class="muted" id="exp${index}" style="display:none; margin-top:5px;">${item.explain}</div>
+          </div>
+          <select id="q${index}">
+            <option value="">?</option>
+            ${item.options.map(option => `<option value="${option}">${option}</option>`).join('')}
+          </select>
+        </div>
+      `).join('');
+    }
+
+    function checkQuiz() {
+      quiz.forEach((item, index) => {
+        const select = document.getElementById(`q${index}`);
+        const result = document.getElementById(`res${index}`);
+        const explain = document.getElementById(`exp${index}`);
+        const isRight = select.value === item.right;
+        result.textContent = select.value ? (isRight ? '✓ верно' : `✗ нужно «${item.right}»`) : 'выбери букву';
+        result.className = `result ${isRight ? 'ok' : 'bad'}`;
+        explain.style.display = 'block';
+      });
+    }
+
+    function resetQuiz() {
+      quiz.forEach((_, index) => {
+        document.getElementById(`q${index}`).value = '';
+        document.getElementById(`res${index}`).textContent = '';
+        document.getElementById(`exp${index}`).style.display = 'none';
+      });
+    }
+
+    renderDictionary();
+    renderCtWords();
+    renderQuiz();
+  </script>
+</body>
+</html>

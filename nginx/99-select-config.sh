@@ -5,7 +5,7 @@ set -eu
 DOMAIN="${DOMAIN:-taskforge.example.com}"
 
 render_conf () {
-  envsubst '${DOMAIN}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
+  envsubst '${DOMAIN} ${CT_DOMAIN}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
 }
 
 # Если серт уже есть — https, иначе — bootstrap (только 80 + challenge)
