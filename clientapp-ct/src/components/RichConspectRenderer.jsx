@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, PlayCircle, Sparkles } from 'lucide-react';
 
@@ -189,6 +189,11 @@ export default function RichConspectRenderer({ details }) {
   const tabs = Array.isArray(content.tabs) ? content.tabs : [];
   const initialTab = content.startTabId || tabs[0]?.id || 'main';
   const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab, details?.conspect?.id]);
+
   const currentTab = tabs.find((tab) => tab.id === activeTab) || tabs[0];
   const taskLinks = details?.taskLinks || [];
   const conspect = details?.conspect || {};

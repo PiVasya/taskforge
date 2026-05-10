@@ -117,7 +117,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       Database__MigrateOnStartup: 'true'
       Database__EnsureCreated: 'false'
-      Seed__InitialCatalog: 'false'
+      Seed__InitialCatalog: 'true'
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -140,7 +140,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       Database__MigrateOnStartup: 'true'
       Database__EnsureCreated: 'false'
-      Seed__A1Samples: 'false'
+      Seed__A1Samples: 'true'
     depends_on:
       db-init:
         condition: service_completed_successfully

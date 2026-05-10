@@ -41,6 +41,8 @@ public sealed class LearningCourseTreeDto
     public string Title { get; set; } = string.Empty;
     public string? ShortTitle { get; set; }
     public string? Summary { get; set; }
+    public string? SubjectCode { get; set; }
+    public string? ExamCode { get; set; }
     public string? SectionCode { get; set; }
     public int SortOrder { get; set; }
     public List<LearningCourseTreeDto> Children { get; set; } = new();

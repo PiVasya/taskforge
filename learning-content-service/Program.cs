@@ -83,8 +83,9 @@ using (var scope = app.Services.CreateScope())
         await db.Database.EnsureCreatedAsync();
     }
 
-    if (builder.Configuration.GetValue("Seed:InitialCatalog", false))
+    if (builder.Configuration.GetValue("Seed:InitialCatalog", true))
     {
+        app.Logger.LogInformation("Seeding initial learning catalog if database is empty...");
         await LearningSeedService.SeedInitialCatalogAsync(db);
     }
 }
@@ -102,7 +103,11 @@ app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, bool inclu
     if (!includeDraft) query = query.Where(x => x.IsPublished);
 
     var courses = await query.OrderBy(x => x.SortOrder).ThenBy(x => x.Title).ToListAsync();
-    var byParent = courses.GroupBy(x => x.ParentCourseId).ToDictionary(x => x.Key, x => x.ToList());
+    var roots = courses.Where(x => x.ParentCourseId == null).ToList();
+    var childrenByParent = courses
+        .Where(x => x.ParentCourseId.HasValue)
+        .GroupBy(x => x.ParentCourseId!.Value)
+        .ToDictionary(x => x.Key, x => x.ToList());
 
     LearningCourseTreeDto Map(LearningCourse c)
     {
@@ -114,11 +119,13 @@ app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, bool inclu
             Title = c.Title,
             ShortTitle = c.ShortTitle,
             Summary = c.Summary,
+            SubjectCode = c.SubjectCode,
+            ExamCode = c.ExamCode,
             SectionCode = c.SectionCode,
             SortOrder = c.SortOrder
         };
 
-        if (byParent.TryGetValue(c.Id, out var children))
+        if (childrenByParent.TryGetValue(c.Id, out var children))
         {
             dto.Children = children.Select(Map).ToList();
         }
@@ -126,11 +133,7 @@ app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, bool inclu
         return dto;
     }
 
-    var roots = byParent.TryGetValue(null, out var rootCourses)
-        ? rootCourses.Select(Map).ToList()
-        : new List<LearningCourseTreeDto>();
-
-    return Results.Ok(roots);
+    return Results.Ok(roots.Select(Map).ToList());
 });
 
 app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, string slug, bool includeDraft = false) =>

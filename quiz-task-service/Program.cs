@@ -83,8 +83,9 @@ using (var scope = app.Services.CreateScope())
         await db.Database.EnsureCreatedAsync();
     }
 
-    if (builder.Configuration.GetValue("Seed:A1Samples", false))
+    if (builder.Configuration.GetValue("Seed:A1Samples", true))
     {
+        app.Logger.LogInformation("Seeding A1 quiz samples if database is empty...");
         await QuizSeedService.SeedA1SamplesAsync(db);
     }
 }

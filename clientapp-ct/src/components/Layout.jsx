@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BookOpen, ClipboardList, LogOut, LogIn, Settings, UserPlus } from 'lucide-react';
+import { ClipboardList, GraduationCap, LogOut, LogIn, Settings, UserPlus } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 
 export default function Layout({ children, fullWidth = false }) {
@@ -26,8 +26,8 @@ export default function Layout({ children, fullWidth = false }) {
             {access ? (
               <>
                 <Link to="/" className="hidden md:inline-flex items-center gap-2 rounded-2xl px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-900">
-                  <BookOpen size={16} />
-                  Конспекты
+                  <GraduationCap size={16} />
+                  Курсы
                 </Link>
                 <Link to="/tasks" className="hidden md:inline-flex items-center gap-2 rounded-2xl px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-900">
                   <ClipboardList size={16} />
