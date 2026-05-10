@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Infrastructure;
 using TaskForge.AiAgent.Options;
@@ -29,7 +28,7 @@ public sealed class TaskForgeInternalApiClientTests
 
         var client = new TaskForgeInternalApiClient(
             new HttpClient(handler),
-            Options.Create(new TaskForgeInternalApiOptions
+            Microsoft.Extensions.Options.Options.Create(new TaskForgeInternalApiOptions
             {
                 BaseUrl = "http://taskforge.local",
                 ApiKey = "secret",
@@ -66,7 +65,7 @@ public sealed class TaskForgeInternalApiClientTests
         var handler = new CapturingHandler(_ => Task.FromException<HttpResponseMessage>(new InvalidOperationException("Backend should not be called.")));
         var client = new TaskForgeInternalApiClient(
             new HttpClient(handler),
-            Options.Create(new TaskForgeInternalApiOptions { BaseUrl = "http://taskforge.local" }),
+            Microsoft.Extensions.Options.Options.Create(new TaskForgeInternalApiOptions { BaseUrl = "http://taskforge.local" }),
             new TestLogger<TaskForgeInternalApiClient>());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.RunTestsAsync(new TestRunRequest
