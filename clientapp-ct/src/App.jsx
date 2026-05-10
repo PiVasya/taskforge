@@ -4,10 +4,9 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
-import CoursesHomePage from './pages/CoursesHomePage';
-import MainCoursePage from './pages/MainCoursePage';
+import LearningHomePage from './pages/LearningHomePage';
 import LearningCoursePage from './pages/LearningCoursePage';
-import ConspectPage from './pages/ConspectPage';
+import LearningConspectPage from './pages/LearningConspectPage';
 import QuizTasksPage from './pages/QuizTasksPage';
 import AdminConspectsPage from './pages/AdminConspectsPage';
 
@@ -17,15 +16,17 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
+
       <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<CoursesHomePage />} />
-        <Route path="/courses/:courseId" element={<MainCoursePage />} />
-        <Route path="/learning/:slug" element={<LearningCoursePage />} />
-        <Route path="/learning/:courseSlug/conspects/:slug" element={<ConspectPage />} />
-        <Route path="/conspects/:slug" element={<ConspectPage />} />
+        <Route path="/" element={<LearningHomePage />} />
+        <Route path="/courses/:courseSlug" element={<LearningCoursePage />} />
+        <Route path="/courses/:courseSlug/conspects/:slug" element={<LearningConspectPage />} />
+        <Route path="/courses/:courseSlug/tasks" element={<QuizTasksPage />} />
         <Route path="/tasks" element={<QuizTasksPage />} />
+        <Route path="/conspects/:slug" element={<LearningConspectPage />} />
         <Route path="/admin/conspects" element={<AdminConspectsPage />} />
       </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

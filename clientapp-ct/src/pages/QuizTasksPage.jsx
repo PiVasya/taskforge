@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Loader2, PlayCircle, RotateCcw, XCircle } from 'lucide-react';
 import Layout from '../components/Layout';
+import { getLearningCourseOutline } from '../api/learning';
 import { getQuizTask, getQuizTasks, submitQuizAttempt } from '../api/quiz';
 
 function safeJson(value, fallback) {
@@ -15,10 +16,9 @@ function safeJson(value, fallback) {
 }
 
 export default function QuizTasksPage() {
+  const { courseSlug } = useParams();
   const [searchParams] = useSearchParams();
-  const sectionCode = searchParams.get('sectionCode') || 'A1';
-  const type = searchParams.get('type') || '';
-  const taskSlug = searchParams.get('task') || '';
+  const [course, setCourse] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [details, setDetails] = useState(null);
@@ -28,20 +28,47 @@ export default function QuizTasksPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const sectionCode = searchParams.get('sectionCode') || course?.sectionCode || 'A1';
+  const subjectCode = searchParams.get('subjectCode') || course?.subjectCode || 'russian';
+  const examCode = searchParams.get('examCode') || course?.examCode || 'ct-ce-2026';
+  const type = searchParams.get('type') || '';
+  const taskSlug = searchParams.get('task') || '';
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCourse() {
+      if (!courseSlug) {
+        setCourse(null);
+        return;
+      }
+      try {
+        const outline = await getLearningCourseOutline(courseSlug);
+        if (!cancelled) setCourse(outline.course);
+      } catch {
+        if (!cancelled) setCourse(null);
+      }
+    }
+
+    loadCourse();
+    return () => { cancelled = true; };
+  }, [courseSlug]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadList() {
       setLoading(true);
       setError('');
+      setDetails(null);
       try {
-        const params = { subjectCode: 'russian', examCode: 'ct-ce-2026', sectionCode };
+        const params = { subjectCode, examCode, sectionCode };
         if (type) params.type = type;
         const list = await getQuizTasks(params);
         if (cancelled) return;
         setTasks(list || []);
-        const first = taskSlug || list?.[0]?.slug || list?.[0]?.id;
-        setSelectedTaskId(first || '');
+        const first = taskSlug || list?.[0]?.slug || list?.[0]?.id || '';
+        setSelectedTaskId(first);
       } catch (e) {
         if (!cancelled) setError(e?.userMessage || e?.message || 'Не удалось загрузить задания.');
       } finally {
@@ -50,10 +77,8 @@ export default function QuizTasksPage() {
     }
 
     loadList();
-    return () => {
-      cancelled = true;
-    };
-  }, [sectionCode, type, taskSlug]);
+    return () => { cancelled = true; };
+  }, [subjectCode, examCode, sectionCode, type, taskSlug]);
 
   useEffect(() => {
     if (!selectedTaskId) return;
@@ -71,21 +96,23 @@ export default function QuizTasksPage() {
     }
 
     loadTask();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [selectedTaskId]);
 
   const taskData = useMemo(() => safeJson(details?.dataJson, {}), [details]);
   const explanation = useMemo(() => safeJson(result?.explanationJson || details?.explanationJson, {}), [result, details]);
   const options = Array.isArray(taskData.options) ? taskData.options : [];
 
+  const backTo = courseSlug ? `/courses/${courseSlug}` : '/';
+  const backLabel = course ? `Назад в ${course.title}` : 'Назад к учебным курсам';
+
   const handleSubmit = async () => {
     if (!details?.task?.id || !answer) return;
     setSubmitting(true);
     setError('');
     try {
-      const res = await submitQuizAttempt(details.task.id, { selected: [answer] }, { clientAttemptId: crypto.randomUUID?.() });
+      const randomId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      const res = await submitQuizAttempt(details.task.id, { selected: [answer] }, { clientAttemptId: randomId });
       setResult(res);
     } catch (e) {
       setError(e?.userMessage || e?.message || 'Не удалось отправить ответ.');
@@ -100,14 +127,14 @@ export default function QuizTasksPage() {
         <div className="container-app py-6 lg:py-8">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">
+              <Link to={backTo} className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-300 hover:underline">
                 <ArrowLeft size={16} />
-                Вернуться к конспекту
+                {backLabel}
               </Link>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight">Задания к конспекту</h1>
-              <p className="mt-1 text-neutral-600 dark:text-neutral-300">Фильтр: русский язык · ЦТ/ЦЭ · {sectionCode}{type ? ` · ${type}` : ''}</p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight">Задания {sectionCode}</h1>
+              <p className="mt-1 text-neutral-600 dark:text-neutral-300">Фильтр: {subjectCode} · {examCode} · {sectionCode}{type ? ` · ${type}` : ''}</p>
             </div>
-            <Link to="/admin/conspects" className="btn-outline">Редактор конспектов</Link>
+            {courseSlug && <Link to={`/courses/${courseSlug}`} className="btn-outline">Карточка раздела</Link>}
           </div>
 
           {error && (
@@ -126,7 +153,7 @@ export default function QuizTasksPage() {
               <aside className="space-y-2 lg:sticky lg:top-[77px] lg:self-start">
                 {tasks.length === 0 && (
                   <div className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5 text-sm text-neutral-600 dark:text-neutral-300">
-                    Для этого фильтра пока нет опубликованных заданий.
+                    Для этого раздела пока нет опубликованных заданий.
                   </div>
                 )}
                 {tasks.map((task) => {
@@ -198,7 +225,7 @@ export default function QuizTasksPage() {
                   </section>
                 ) : (
                   <div className="rounded-[2rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-10 text-center shadow-soft text-neutral-600 dark:text-neutral-300">
-                    Выбери задание слева.
+                    {tasks.length > 0 ? 'Выбери задание слева.' : 'Заданий для этого раздела пока нет.'}
                   </div>
                 )}
               </main>

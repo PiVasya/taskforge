@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, PlayCircle, Sparkles } from 'lucide-react';
 
@@ -12,7 +12,7 @@ function safeJson(value, fallback) {
   }
 }
 
-function toTasksHref(link) {
+function toTasksHref(link, tasksBasePath = '/tasks') {
   const filter = safeJson(link?.taskFilterJson, null);
   const params = new URLSearchParams();
 
@@ -24,7 +24,7 @@ function toTasksHref(link) {
 
   if (link?.taskSlug) params.set('task', link.taskSlug);
   if (!params.has('sectionCode') && link?.anchorBlockId) params.set('from', link.anchorBlockId);
-  return `/tasks${params.toString() ? `?${params.toString()}` : ''}`;
+  return `${tasksBasePath}${params.toString() ? `?${params.toString()}` : ''}`;
 }
 
 function BlockShell({ block, icon, children, className = '' }) {
@@ -41,7 +41,7 @@ function BlockShell({ block, icon, children, className = '' }) {
   );
 }
 
-function RenderBlock({ block }) {
+function RenderBlock({ block, tasksBasePath = '/tasks' }) {
   if (!block || typeof block !== 'object') return null;
 
   switch (block.type) {
@@ -166,7 +166,7 @@ function RenderBlock({ block }) {
         <BlockShell block={block} icon={<PlayCircle size={20} className="text-brand-600" />} className="bg-gradient-to-br from-brand-50 to-white dark:from-brand-900/20 dark:to-neutral-900">
           <p className="leading-7 text-neutral-700 dark:text-neutral-200">{block.text}</p>
           {block.cta?.href && (
-            <Link to={block.cta.href} className="btn-primary mt-4 inline-flex items-center gap-2">
+            <Link to={block.cta.href?.startsWith('/tasks') ? `${tasksBasePath}${block.cta.href.includes('?') ? block.cta.href.slice(block.cta.href.indexOf('?')) : ''}` : block.cta.href} className="btn-primary mt-4 inline-flex items-center gap-2">
               <PlayCircle size={18} />
               {block.cta.label || 'К заданиям'}
             </Link>
@@ -184,16 +184,11 @@ function RenderBlock({ block }) {
   }
 }
 
-export default function RichConspectRenderer({ details }) {
+export default function RichConspectRenderer({ details, tasksBasePath = '/tasks' }) {
   const content = useMemo(() => safeJson(details?.contentJson, {}), [details]);
   const tabs = Array.isArray(content.tabs) ? content.tabs : [];
   const initialTab = content.startTabId || tabs[0]?.id || 'main';
   const [activeTab, setActiveTab] = useState(initialTab);
-
-  useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab, details?.conspect?.id]);
-
   const currentTab = tabs.find((tab) => tab.id === activeTab) || tabs[0];
   const taskLinks = details?.taskLinks || [];
   const conspect = details?.conspect || {};
@@ -246,7 +241,7 @@ export default function RichConspectRenderer({ details }) {
 
       <div className="space-y-4">
         {(currentTab?.blocks || []).map((block, index) => (
-          <RenderBlock key={block.id || `${block.type}-${index}`} block={block} />
+          <RenderBlock key={block.id || `${block.type}-${index}`} block={block} tasksBasePath={tasksBasePath} />
         ))}
       </div>
 
@@ -258,7 +253,7 @@ export default function RichConspectRenderer({ details }) {
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {taskLinks.map((link) => (
-              <Link key={link.id} to={toTasksHref(link)} className="group rounded-2xl border border-brand-200 dark:border-brand-800 bg-white dark:bg-neutral-900 p-4 transition hover:-translate-y-0.5 hover:shadow-soft">
+              <Link key={link.id} to={toTasksHref(link, tasksBasePath)} className="group rounded-2xl border border-brand-200 dark:border-brand-800 bg-white dark:bg-neutral-900 p-4 transition hover:-translate-y-0.5 hover:shadow-soft">
                 <div className="text-sm text-neutral-500 dark:text-neutral-400">{link.groupTitle || link.sourceService}</div>
                 <div className="mt-1 font-semibold group-hover:text-brand-700 dark:group-hover:text-brand-200">{link.title}</div>
                 <div className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-200">

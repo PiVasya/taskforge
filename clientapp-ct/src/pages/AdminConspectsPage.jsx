@@ -263,7 +263,7 @@ export default function AdminConspectsPage() {
             <div>
               <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">
                 <ArrowLeft size={16} />
-                Назад к курсам
+                Назад к учебным курсам
               </Link>
               <h1 className="mt-2 text-3xl font-bold tracking-tight">Редактор конспектов</h1>
               <p className="mt-1 text-neutral-600 dark:text-neutral-300">Здесь создаётся именно конспект: вкладки, блоки, таблицы, словари и кнопки к заданиям.</p>
@@ -366,7 +366,7 @@ export default function AdminConspectsPage() {
                     Сделать кнопку к заданиям
                   </button>
                   {form.id && (
-                    <Link to={selectedCourse?.slug ? `/learning/${selectedCourse.slug}/conspects/${form.slug}` : `/conspects/${form.slug}`} className="btn-outline inline-flex items-center gap-2">
+                    <Link to={`/courses/${selectedCourse?.slug || form.sectionCode}/conspects/${form.slug}`} className="btn-outline inline-flex items-center gap-2">
                       <CheckCircle2 size={18} />
                       Открыть
                     </Link>

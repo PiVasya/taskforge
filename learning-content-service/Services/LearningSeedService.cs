@@ -44,7 +44,7 @@ public static class LearningSeedService
             {
                 ParentCourseId = ct2026.Id,
                 Slug = $"russian-ct-ce-2026-a{i}",
-                Title = $"A{i}",
+                Title = i == 1 ? "A1. Орфография" : $"A{i}",
                 ShortTitle = $"A{i}",
                 Summary = i == 1 ? "A1. Орфография: гласная в корне слова." : $"Раздел A{i}.",
                 SubjectCode = "russian",
