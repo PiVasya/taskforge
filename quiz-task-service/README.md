@@ -10,7 +10,7 @@
 taskforge_quiz
 ```
 
-Сервис сам создаёт таблицы через `EnsureCreated` на старте. Для прод-эксплуатации позже лучше перейти на EF migrations.
+On startup the service applies EF Core migrations by default. `EnsureCreated` is kept only as an optional fallback when `Database__MigrateOnStartup=false`.
 
 ## Основные маршруты
 

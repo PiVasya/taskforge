@@ -34,9 +34,10 @@ taskforge_learning
 
 Миграции в этот апдейт НЕ добавлены. Их нужно сгенерировать вручную командами EF Core.
 
-На старте сервис по умолчанию не вызывает `EnsureCreated` и не сидит данные:
+On startup the service applies EF Core migrations by default and does not use `EnsureCreated` unless migrations are disabled:
 
 ```text
+Database__MigrateOnStartup=true
 Database__EnsureCreated=false
 Seed__InitialCatalog=false
 ```

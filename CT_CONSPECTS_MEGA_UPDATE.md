@@ -9,13 +9,12 @@
 5. Второй фронт `clientapp-ct` переведён с iframe на полноценный React UI.
 6. Добавлена страница `/tasks` для заданий из `quiz-task-service`.
 7. Добавлен базовый редактор `/admin/conspects`.
-8. Runtime-создание схемы отключено по умолчанию: миграции генерируются вручную.
+8. EF migrations are now applied automatically on service startup; migration files are still generated manually.
 
 ## Миграции
 
-Файлы миграций не добавлялись.
 
-После распаковки архива нужно самому сгенерировать миграции для новых сущностей `LearningConspect` и `LearningConspectTaskLink`, а также учитывать, что в `LearningCourseOutlineDto` теперь есть коллекция `Conspects`.
+Migration files are generated manually by EF Core commands, then applied automatically at runtime by `Program.cs` in `learning-content-service` and `quiz-task-service`.
 
 ## Новые основные файлы
 

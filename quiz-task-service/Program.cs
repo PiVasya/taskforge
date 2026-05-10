@@ -69,13 +69,20 @@ app.UseAuthorization();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<QuizDbContext>();
+    var migrateOnStartup = builder.Configuration.GetValue("Database:MigrateOnStartup", true);
     var ensureCreated = builder.Configuration.GetValue("Database:EnsureCreated", false);
-    if (ensureCreated)
+
+    if (migrateOnStartup)
+    {
+        app.Logger.LogInformation("Applying QuizDbContext migrations...");
+        await db.Database.MigrateAsync();
+        app.Logger.LogInformation("QuizDbContext migrations applied.");
+    }
+    else if (ensureCreated)
     {
         await db.Database.EnsureCreatedAsync();
     }
 
-    // По умолчанию не трогаем схему и не сидим БД: миграции/наполнение запускаются вручную.
     if (builder.Configuration.GetValue("Seed:A1Samples", false))
     {
         await QuizSeedService.SeedA1SamplesAsync(db);
