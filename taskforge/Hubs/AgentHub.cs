@@ -7,7 +7,7 @@ using taskforge.Data;
 
 namespace taskforge.Hubs
 {
-    [Authorize(Roles = AppRoles.Admin)]
+    [Authorize(Roles = AppRoles.Admin + "," + AppRoles.Editor)]
     public sealed class AgentHub : Hub
     {
         public const string EventMethod = "AgentEvent";
@@ -23,7 +23,7 @@ namespace taskforge.Hubs
 
         public async Task JoinConversation(string conversationId)
         {
-            if (Context.User?.IsInRole(AppRoles.Admin) != true) return;
+            if (Context.User?.IsInRole(AppRoles.Admin) != true && Context.User?.IsInRole(AppRoles.Editor) != true) return;
             if (!Guid.TryParse(conversationId, out var id)) return;
             var userId = GetUserId();
             if (userId == null) return;

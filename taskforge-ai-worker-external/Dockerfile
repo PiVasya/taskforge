@@ -1,3 +1,4 @@
+# DEPRECATED: legacy Python AI worker. Use taskforge-ai-agent-dotnet for new development.
 FROM python:3.12-slim
 
 WORKDIR /app

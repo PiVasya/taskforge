@@ -796,9 +796,13 @@ namespace taskforge.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SourceAgentArtifactId");
+                    b.HasIndex("SourceAgentArtifactId")
+                        .IsUnique()
+                        .HasFilter("\"SourceAgentArtifactId\" IS NOT NULL");
 
-                    b.HasIndex("SourceAgentRunId");
+                    b.HasIndex("SourceAgentRunId", "SourceAgentTaskIndex")
+                        .IsUnique()
+                        .HasFilter("\"SourceAgentRunId\" IS NOT NULL AND \"SourceAgentTaskIndex\" IS NOT NULL");
 
                     b.HasIndex("CourseId", "IsHidden", "LifecycleStatus", "Sort");
 

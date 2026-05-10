@@ -14,6 +14,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "csharp-runner", "csharp-run
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TelegramQuizBot", "telegram-quiz-bot\TelegramQuizBot.csproj", "{6F51CDF6-A0E3-43E3-A410-43B195C63208}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TaskForge.AiAgent", "taskforge-ai-agent-dotnet\TaskForge.AiAgent.csproj", "{A0F1DB2E-3E29-4EA2-9C8C-9A6C519C04B1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TaskForge.AiAgent.Tests", "taskforge-ai-agent-dotnet\tests\TaskForge.AiAgent.Tests\TaskForge.AiAgent.Tests.csproj", "{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Элементы решения", "Элементы решения", "{754FC069-D67B-A9D7-50A1-8D1CA196D8F1}"
 EndProject
 Global
@@ -40,6 +44,14 @@ Global
 		{6F51CDF6-A0E3-43E3-A410-43B195C63208}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6F51CDF6-A0E3-43E3-A410-43B195C63208}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6F51CDF6-A0E3-43E3-A410-43B195C63208}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A0F1DB2E-3E29-4EA2-9C8C-9A6C519C04B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A0F1DB2E-3E29-4EA2-9C8C-9A6C519C04B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A0F1DB2E-3E29-4EA2-9C8C-9A6C519C04B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A0F1DB2E-3E29-4EA2-9C8C-9A6C519C04B1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D70A3E5D-89F4-446F-A7E1-2DA7D108ED21}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

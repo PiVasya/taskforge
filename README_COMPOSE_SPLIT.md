@@ -19,3 +19,9 @@ docker compose -p taskforge-prod-linux -f docker-compose-prod-split.yml up -d te
 Не используй `--remove-orphans`, пока полностью не убедился, что split-файл покрывает все старые контейнеры.
 
 `watchtower` оставлен в модуле `compose/ops.yaml`; сервисы с label `com.centurylinklabs.watchtower.enable: "true"` будут обновляться автоматически.
+
+
+## AI runtime
+
+`compose/ai.yaml` now starts `taskforge-ai-agent-dotnet` by default.
+The old Python worker module is preserved only for rollback as `compose/ai-python-deprecated.yaml`.

@@ -41,6 +41,10 @@
         public string Code { get; set; } = string.Empty;
         public List<TestCaseDto>? TestCases { get; set; }
 
+        // Internal AI microservice ownership guard. Public compiler endpoints ignore these fields.
+        public Guid? RunId { get; set; }
+        public string? WorkerId { get; set; }
+
         // Policy (code-analyzer): per-task forbidden/required patterns (one per line in UI)
         public List<string>? PolicyForbiddenCalls { get; set; }
         public List<string>? PolicyRequiredCalls { get; set; }

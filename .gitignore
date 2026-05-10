@@ -445,3 +445,8 @@ nbdist/
 # тогда удали строки выше и добавь исключение для конкретного файла:
 # !minecraft-plugin-folia/TaskForgeFoliaPlugin/build/libs/*.jar
 .directory
+
+# Local environment files
+.env
+.env.*
+!.env.example

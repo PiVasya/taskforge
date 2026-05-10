@@ -53,6 +53,7 @@ builder.Services.AddScoped<ISolutionService, SolutionService>();
 builder.Services.AddScoped<IJudgeService, JudgeService>();
 builder.Services.AddScoped<ISolutionAdminService, SolutionAdminService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+builder.Services.AddScoped<taskforge.Services.Agent.AgentCourseEditApplyService>();
 
 // поддержка
 builder.Services.AddScoped<ISupportService, SupportService>();

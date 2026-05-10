@@ -41,3 +41,22 @@ export async function uploadAgentAttachment(conversationId, file) {
   const res = await api.post(`/api/agent/conversations/${conversationId}/attachments`, fd);
   return res.data;
 }
+
+export async function applyAgentArtifact(artifactId, payload = {}) {
+  const res = await api.post(`/api/agent/artifacts/${artifactId}/apply`, payload);
+  return res.data;
+}
+
+export async function applyAgentRunArtifact(runId, artifactId, payload = {}) {
+  const res = await api.post(`/api/agent/runs/${runId}/artifacts/${artifactId}/apply`, payload);
+  return res.data;
+}
+
+
+export async function getAgentConversationDebugDump(conversationId, { format = 'text' } = {}) {
+  const res = await api.get(`/api/agent/conversations/${conversationId}/debug-dump`, {
+    params: { format },
+    responseType: format === 'text' || format === 'txt' || format === 'log' ? 'text' : 'json',
+  });
+  return res.data;
+}

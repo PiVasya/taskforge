@@ -5,6 +5,7 @@ import {
   Bot,
   BrainCircuit,
   CheckCircle2,
+  ClipboardCopy,
   ChevronLeft,
   ChevronRight,
   FileJson,
@@ -36,6 +37,8 @@ import {
   uploadAgentAttachment,
   polishAgentGeneratedTask,
   polishAgentGeneratedTasks,
+  applyAgentRunArtifact,
+  getAgentConversationDebugDump,
 } from '../api/agent';
 import { joinAgentConversation, leaveAgentConversation } from '../realtime/agentHub';
 
@@ -134,6 +137,49 @@ function pickReadableArtifactTitle(artifact) {
   return artifact?.title || artifact?.data?.title || artifact?.type || 'AI artifact';
 }
 
+function isApplyableArtifact(artifact) {
+  const type = String(artifact?.type || '').toLowerCase();
+  if (['course_edit_proposal', 'assignment_update_batch', 'course_style_update'].includes(type)) return true;
+  if (type !== 'approval_request') return false;
+  const operation = String(artifact?.data?.operation || artifact?.operation || '').toLowerCase();
+  return ['apply_course_edit', 'apply_assignment_update_batch'].includes(operation);
+}
+
+function getArtifactStableKey({ persistedArtifact, message, artifactIndex, artifact }) {
+  return normalizeId(persistedArtifact?.id || artifact?.id || artifact?.artifactId || `${message?.runId || message?.id || 'artifact'}-${artifactIndex}`);
+}
+
+function findPersistedArtifactForMessage(runs, message, artifact, artifactIndex) {
+  const directId = artifact?.id || artifact?.artifactId;
+  if (directId) return { ...artifact, id: directId };
+
+  const runId = normalizeId(message?.runId);
+  if (!runId) return null;
+  const run = (runs || []).find((x) => normalizeId(x?.id) === runId);
+  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts : [];
+  if (!artifacts.length) return null;
+
+  const type = String(artifact?.type || '').toLowerCase();
+  const sameType = artifacts.filter((x) => String(x?.type || '').toLowerCase() === type);
+  if (sameType.length === 1) return sameType[0];
+  if (sameType[artifactIndex]) return sameType[artifactIndex];
+
+  const title = pickReadableArtifactTitle(artifact);
+  return sameType.find((x) => pickReadableArtifactTitle(x) === title) || artifacts[artifactIndex] || null;
+}
+
+function summarizeApplyResult(result) {
+  if (!result) return '';
+  const updated = Array.isArray(result.updated) ? result.updated.length : 0;
+  const validations = Array.isArray(result.validations) ? result.validations.length : 0;
+  const bits = [];
+  bits.push(result.dryRun ? 'Проверено без записи' : 'Применено');
+  bits.push(`действий: ${updated}`);
+  if (validations) bits.push(`проверок: ${validations}`);
+  if (result.reordered) bits.push('порядок обновляется');
+  return bits.join(' · ');
+}
+
 function getLatestActiveRun(runs) {
   const ordered = sortRunsDesc(runs || []);
   return ordered.find((r) => RUNNING_STATUSES.has(String(r.status || '').toLowerCase())) || null;
@@ -154,7 +200,7 @@ function ThinkingDots() {
   );
 }
 
-function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, currentCourseId }) {
+function MessageBubble({ message, runs, onPolishTask, onPolishSelectedTasks, onApplyArtifact, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, applyingArtifacts, artifactApplyResults, currentCourseId }) {
   const role = String(message?.role || '').toLowerCase();
   const isUser = role === 'user';
   const artifacts = getArtifactData(message);
@@ -205,11 +251,15 @@ function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedD
                 message={message}
                 artifactIndex={idx}
                 onPolishTask={onPolishTask}
+                runs={runs}
                 onPolishSelectedTasks={onPolishSelectedTasks}
+                onApplyArtifact={onApplyArtifact}
                 selectedDraftTasks={selectedDraftTasks}
                 onToggleDraftTask={onToggleDraftTask}
                 onSetDraftTasks={onSetDraftTasks}
                 polishingTasks={polishingTasks}
+                applyingArtifacts={applyingArtifacts}
+                artifactApplyResults={artifactApplyResults}
                 currentCourseId={currentCourseId}
               />
             ))}
@@ -229,8 +279,10 @@ function MessageBubble({ message, onPolishTask, onPolishSelectedTasks, selectedD
   );
 }
 
-function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPolishSelectedTasks, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, currentCourseId }) {
-  const data = artifact?.data || {};
+function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask, onPolishSelectedTasks, onApplyArtifact, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, applyingArtifacts, artifactApplyResults, currentCourseId }) {
+  const persistedArtifact = findPersistedArtifactForMessage(runs, message, artifact, artifactIndex);
+  const artifactKey = getArtifactStableKey({ persistedArtifact, message, artifactIndex, artifact });
+  const data = artifact?.data || persistedArtifact?.data || {};
   const tasks = Array.isArray(data.tasks) ? data.tasks : Array.isArray(data.drafts) ? data.drafts : [];
   const findings = Array.isArray(data.findings) ? data.findings : [];
   const title = pickReadableArtifactTitle(artifact);
@@ -250,6 +302,9 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
   const selectedInArtifact = taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]).length;
   const allSelected = taskItems.length > 0 && selectedInArtifact === taskItems.length;
   const anyPolishing = taskItems.some((item) => polishingTasks?.[item.taskKey]);
+  const canApply = isApplyableArtifact(artifact);
+  const applyingMode = applyingArtifacts?.[artifactKey];
+  const applyResult = artifactApplyResults?.[artifactKey];
 
   const selectAll = () => {
     if (!onSetDraftTasks) return;
@@ -304,6 +359,50 @@ function ArtifactPreview({ artifact, message, artifactIndex, onPolishTask, onPol
               <div className="mt-1 text-neutral-600 dark:text-neutral-300">{f.reason || f.summary || 'Найдено слабое место в курсе.'}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {canApply && (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="font-semibold">Proposal можно применить к курсу</div>
+              <div className="text-xs opacity-80">Сначала можно сделать dry-run: backend проверит права, форму patch и runner-тесты без записи в БД.</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={!persistedArtifact?.id || !!applyingMode}
+                onClick={() => onApplyArtifact?.({ message, artifact, persistedArtifact, artifactIndex, dryRun: true })}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900 dark:bg-neutral-950/50 dark:text-emerald-200"
+                title={persistedArtifact?.id ? 'Проверить proposal без записи в БД' : 'Artifact ещё не синхронизирован из run. Обновите чат после завершения AI-run.'}
+              >
+                {applyingMode === 'dry-run' ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
+                проверить
+              </button>
+              <button
+                type="button"
+                disabled={!persistedArtifact?.id || !!applyingMode}
+                onClick={() => onApplyArtifact?.({ message, artifact, persistedArtifact, artifactIndex, dryRun: false })}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600 bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                title={persistedArtifact?.id ? 'Применить proposal после backend-валидации' : 'Artifact ещё не синхронизирован из run. Обновите чат после завершения AI-run.'}
+              >
+                {applyingMode === 'apply' ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                применить
+              </button>
+            </div>
+          </div>
+          {!persistedArtifact?.id && (
+            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              Для применения нужен сохранённый artifact id. Нажмите обновить чат, если AI-run уже завершился.
+            </div>
+          )}
+          {applyResult && (
+            <div className={`mt-2 rounded-lg px-2.5 py-2 text-xs ${applyResult.ok ? 'bg-white/70 text-emerald-900 dark:bg-neutral-950/40 dark:text-emerald-100' : 'bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200'}`}>
+              {summarizeApplyResult(applyResult) || applyResult.message}
+              {applyResult.message && <div className="mt-1 opacity-80">{applyResult.message}</div>}
+            </div>
+          )}
         </div>
       )}
 
@@ -457,7 +556,7 @@ function ConversationList({ conversations, selectedId, onSelect, onCreate, loadi
   );
 }
 
-function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents }) {
+function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents, onCopyDebugDump, copyingDebugDump }) {
   if (!open) return null;
   const payload = {
     conversation,
@@ -475,9 +574,15 @@ function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents
             <div className="flex items-center gap-2 font-semibold"><TerminalSquare size={18} /> AI logs</div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">Всё, что связано с AI: события SignalR, runs, steps, artifacts, raw JSON.</div>
           </div>
-          <button type="button" className="btn-outline !min-w-0 !px-3" onClick={onClose} title="Закрыть">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-outline !min-w-0" onClick={onCopyDebugDump} disabled={!conversation?.id || copyingDebugDump} title="Скопировать полный AI debug dump">
+              {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
+              <span className="hidden sm:inline">Скопировать всё</span>
+            </button>
+            <button type="button" className="btn-outline !min-w-0 !px-3" onClick={onClose} title="Закрыть">
+              <X size={16} />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <pre className="text-xs leading-relaxed whitespace-pre-wrap rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-neutral-950 text-neutral-100 p-4">
@@ -541,9 +646,12 @@ export default function AgentPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [copyingDebugDump, setCopyingDebugDump] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [realtimeEvents, setRealtimeEvents] = useState([]);
   const [polishingTasks, setPolishingTasks] = useState({});
+  const [applyingArtifacts, setApplyingArtifacts] = useState({});
+  const [artifactApplyResults, setArtifactApplyResults] = useState({});
   const [selectedDraftTasks, setSelectedDraftTasks] = useState({});
   const [pendingFiles, setPendingFiles] = useState([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
@@ -679,6 +787,7 @@ export default function AgentPage() {
                 : run
             )));
             refreshConversations({ silent: true });
+            if (selectedIdRef.current) loadConversation(selectedIdRef.current, { silent: true });
           }
         };
 
@@ -796,6 +905,40 @@ export default function AgentPage() {
   };
 
 
+  const handleApplyArtifact = async ({ message, persistedArtifact, artifactIndex, dryRun }) => {
+    const artifactId = persistedArtifact?.id;
+    const runId = persistedArtifact?.runId || message?.runId;
+    if (!artifactId || !runId) {
+      notify.warn('Artifact ещё не готов к применению. Обнови чат после завершения AI-run.');
+      return;
+    }
+
+    const key = getArtifactStableKey({ persistedArtifact, message, artifactIndex });
+    setApplyingArtifacts((prev) => ({ ...prev, [key]: dryRun ? 'dry-run' : 'apply' }));
+    try {
+      const result = await applyAgentRunArtifact(runId, artifactId, {
+        dryRun: !!dryRun,
+        note: dryRun ? 'Пользователь запустил dry-run AI proposal из интерфейса.' : 'Пользователь подтвердил применение AI proposal из интерфейса.',
+      });
+      setArtifactApplyResults((prev) => ({ ...prev, [key]: result }));
+      if (result?.ok) {
+        notify.success(dryRun ? 'AI proposal проверен без записи' : 'AI proposal применён');
+        if (!dryRun && selectedId) await loadConversation(selectedId, { silent: true });
+      } else {
+        notify.warn(result?.message || 'AI proposal не прошёл проверку');
+      }
+    } catch (err) {
+      const parsed = handleApiError(err, notify, dryRun ? 'Dry-run AI proposal не прошёл' : 'Не удалось применить AI proposal');
+      setArtifactApplyResults((prev) => ({ ...prev, [key]: { ok: false, message: parsed?.message || 'Ошибка применения AI proposal' } }));
+    } finally {
+      setApplyingArtifacts((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
   const handlePolishGeneratedTask = async ({ task, taskIndex, artifact, message, taskKey }) => {
     if (!selectedId || !task) return;
     setPolishingTasks((prev) => ({ ...prev, [taskKey]: true }));
@@ -904,6 +1047,62 @@ export default function AgentPage() {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const copyAiDebugDump = useCallback(async () => {
+    if (!selectedId) {
+      notify.warn('Сначала открой AI-чат.');
+      return;
+    }
+
+    setCopyingDebugDump(true);
+    try {
+      const backendDump = await getAgentConversationDebugDump(selectedId, { format: 'text' });
+      const clientDump = {
+        generatedAtUtc: nowIso(),
+        page: 'AgentPage',
+        selectedId,
+        conversation,
+        messages,
+        runs,
+        realtimeEvents,
+        activeRun,
+        latestRun,
+        selectedDraftTasks,
+        artifactApplyResults,
+        applyingArtifacts,
+        polishingTasks,
+        pendingFiles: pendingFiles.map((file) => ({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified })),
+        context: { courseId, assignmentId, supportTicketId },
+      };
+      const textDump = [
+        backendDump || 'BACKEND DEBUG DUMP EMPTY',
+        '',
+        'CLIENT SIDE AI DEBUG SNAPSHOT',
+        '='.repeat(96),
+        JSON.stringify(clientDump, null, 2),
+      ].join('\n');
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textDump);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = textDump;
+        ta.setAttribute('readonly', 'readonly');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+
+      notify.success(`AI debug dump скопирован (${Math.round(textDump.length / 1024)} KB).`);
+    } catch (err) {
+      handleApiError(err, notify, 'Не удалось скопировать AI debug dump');
+    } finally {
+      setCopyingDebugDump(false);
+    }
+  }, [activeRun, applyingArtifacts, artifactApplyResults, assignmentId, conversation, courseId, latestRun, messages, notify, pendingFiles, polishingTasks, realtimeEvents, runs, selectedDraftTasks, selectedId, supportTicketId]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     sendText();
@@ -955,6 +1154,10 @@ export default function AgentPage() {
               <button type="button" className="btn-outline !min-w-0 !px-3" onClick={() => loadConversation(selectedId, { silent: true })} disabled={!selectedId} title="Обновить">
                 <RefreshCw size={16} />
               </button>
+              <button type="button" className="btn-outline !min-w-0" onClick={copyAiDebugDump} disabled={!selectedId || copyingDebugDump} title="Скопировать полный AI debug dump">
+                {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
+                <span className="hidden sm:inline">Copy AI dump</span>
+              </button>
               <button type="button" className="btn-outline !min-w-0" onClick={() => setLogsOpen(true)} title="Открыть AI logs">
                 <PanelRightOpen size={16} />
                 <span className="hidden sm:inline">AI logs</span>
@@ -976,12 +1179,16 @@ export default function AgentPage() {
                   <MessageBubble
                     key={message.id || message.clientMessageId || `${message.role}-${message.createdAtUtc}`}
                     message={message}
+                    runs={runs}
                     onPolishTask={handlePolishGeneratedTask}
                     onPolishSelectedTasks={handlePolishSelectedTasks}
+                    onApplyArtifact={handleApplyArtifact}
                     selectedDraftTasks={selectedDraftTasks}
                     onToggleDraftTask={toggleDraftTask}
                     onSetDraftTasks={setDraftTaskSelection}
                     polishingTasks={polishingTasks}
+                    applyingArtifacts={applyingArtifacts}
+                    artifactApplyResults={artifactApplyResults}
                     currentCourseId={conversation?.courseId || courseId || null}
                   />
                 ))}
@@ -1063,6 +1270,8 @@ export default function AgentPage() {
         messages={messages}
         runs={runs}
         realtimeEvents={realtimeEvents}
+        onCopyDebugDump={copyAiDebugDump}
+        copyingDebugDump={copyingDebugDump}
       />
     </Layout>
   );

@@ -48,7 +48,6 @@ namespace taskforge.Controllers.Assignments
             if (!await _access.CanViewCourseAsync(userId, role, assignmentAccess.CourseId))
                 return Forbid();
             if ((assignmentAccess.IsHidden || assignmentAccess.LifecycleStatus != "published")
-                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
                 && !await _access.CanEditCourseAsync(userId, role, assignmentAccess.CourseId))
                 return NotFound();
 
@@ -71,7 +70,6 @@ namespace taskforge.Controllers.Assignments
             if (!await _access.CanViewCourseAsync(userId, role, assignmentAccess.CourseId))
                 return Forbid();
             if ((assignmentAccess.IsHidden || assignmentAccess.LifecycleStatus != "published")
-                && !string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase)
                 && !await _access.CanEditCourseAsync(userId, role, assignmentAccess.CourseId))
                 return NotFound();
 

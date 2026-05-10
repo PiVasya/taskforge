@@ -1,0 +1,21 @@
+services:
+  taskforge-ai-agent-dotnet:
+    build:
+      context: ../taskforge-ai-agent-dotnet
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TaskForgeInternalApi__BaseUrl: http://taskforge:8080
+      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-}
+      TaskForgeAgent__Provider: OpenRouter
+      TaskForgeAgent__OpenAiCompatibleBaseUrl: https://openrouter.ai/api/v1
+      TaskForgeAgent__ApiKey: ${TASKFORGE_EXTERNAL_AI_API_KEY:-}
+      TaskForgeAgent__Model: ${TASKFORGE_EXTERNAL_AI_MODEL:-openai/gpt-4o-mini}
+      TaskForgeAgent__IncludeRawModelTextInDebug: "false"
+      TaskForgeAgent__EnableDangerousWriteTools: "false"
+    networks:
+      - taskforge
+
+networks:
+  taskforge:
+    external: true

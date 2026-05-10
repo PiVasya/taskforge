@@ -20,8 +20,9 @@ namespace taskforge.Services.Courses
         private static bool IsEditor(string? role)
             => string.Equals(role, AppRoles.Editor, StringComparison.OrdinalIgnoreCase);
 
-        private Task<bool> IsOwnerAsync(Guid userId, Guid courseId)
-            => _db.CourseOwners.AsNoTracking().AnyAsync(x => x.CourseId == courseId && x.UserId == userId);
+        private async Task<bool> IsOwnerAsync(Guid userId, Guid courseId)
+            => await _db.Courses.AsNoTracking().AnyAsync(c => c.Id == courseId && c.OwnerId == userId)
+               || await _db.CourseOwners.AsNoTracking().AnyAsync(x => x.CourseId == courseId && x.UserId == userId);
 
         public async Task<bool> CanViewCourseAsync(Guid userId, string? role, Guid courseId)
         {
@@ -91,7 +92,9 @@ namespace taskforge.Services.Courses
                     c.IsPublic
                     // group-visible
                     || (c.VisibleGroups.Any() && c.VisibleGroups.Any(v => userGroupIds.Contains(v.GroupId)))
-                    // own (private тоже должны быть видны владельцу)
+                    // own (private тоже должны быть видны владельцу). Поддерживаем оба варианта:
+                    // старое поле Course.OwnerId и новую таблицу CourseOwners.
+                    || c.OwnerId == userId
                     || c.Owners.Any(o => o.UserId == userId)
                 )
                 .Select(c => c.Id)

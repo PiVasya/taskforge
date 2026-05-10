@@ -1,0 +1,24 @@
+# Local helper for developing the .NET AI agent runtime.
+# Usage:
+#   docker compose -f docker-compose-develop.yaml -f docker-compose-ai-dotnet.yaml up -d --build taskforge-ai-agent-dotnet
+services:
+  taskforge-ai-agent-dotnet:
+    build:
+      context: ./taskforge-ai-agent-dotnet
+      dockerfile: Dockerfile
+    image: taskforge-ai-agent-dotnet:local
+    container_name: taskforge-ai-agent-dotnet
+    environment:
+      TZ: Europe/Warsaw
+      TaskForgeInternalApi__BaseUrl: ${TASKFORGE_AGENT_API_BASE_URL:-http://api:8080}
+      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY}
+      TaskForgeAgent__Provider: ${TASKFORGE_DOTNET_AI_PROVIDER:-OpenRouter}
+      TaskForgeAgent__OpenAiCompatibleBaseUrl: ${TASKFORGE_DOTNET_AI_BASE_URL:-https://openrouter.ai/api/v1}
+      TaskForgeAgent__ApiKey: ${TASKFORGE_DOTNET_AI_API_KEY:-${TASKFORGE_EXTERNAL_AI_API_KEY}}
+      TaskForgeAgent__Model: ${TASKFORGE_DOTNET_AI_MODEL:-openai/gpt-4o-mini}
+      TaskForgeAgent__EnableDangerousWriteTools: ${TASKFORGE_DOTNET_AI_ENABLE_DANGEROUS_WRITE_TOOLS:-false}
+    depends_on:
+      api:
+        condition: service_started
+    networks: [appnet]
+    restart: unless-stopped

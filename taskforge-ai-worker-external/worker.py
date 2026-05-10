@@ -1,3 +1,4 @@
+# DEPRECATED: legacy Python AI worker. Use taskforge-ai-agent-dotnet for new development.
 from __future__ import annotations
 
 import argparse

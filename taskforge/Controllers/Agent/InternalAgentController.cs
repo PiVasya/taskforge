@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
@@ -31,20 +32,23 @@ namespace taskforge.Controllers.Agent
         private readonly IHubContext<AgentHub> _hub;
         private readonly ICompilerService _compiler;
         private readonly IFileStorageService _store;
+        private readonly ICourseAccessService _courseAccess;
 
-        public InternalAgentController(ApplicationDbContext db, IConfiguration config, IHubContext<AgentHub> hub, ICompilerService compiler, IFileStorageService store)
+        public InternalAgentController(ApplicationDbContext db, IConfiguration config, IHubContext<AgentHub> hub, ICompilerService compiler, IFileStorageService store, ICourseAccessService courseAccess)
         {
             _db = db;
             _config = config;
             _hub = hub;
             _compiler = compiler;
             _store = store;
+            _courseAccess = courseAccess;
         }
 
         [HttpPost("claim-next")]
         public async Task<IActionResult> ClaimNext([FromBody] InternalAgentClaimNextRequest request)
         {
             if (!IsAuthorized()) return Unauthorized();
+            if (request == null) return BadRequest(new { ok = false, message = "Request body is required." });
 
             var now = DateTime.UtcNow;
             var workerId = CleanWorkerId(request.WorkerId);
@@ -111,13 +115,17 @@ namespace taskforge.Controllers.Agent
         public async Task<IActionResult> Heartbeat([FromRoute] Guid runId, [FromBody] InternalAgentHeartbeatRequest request)
         {
             if (!IsAuthorized()) return Unauthorized();
+            if (request == null) return BadRequest(new { ok = false, message = "Request body is required." });
 
             var run = await _db.AgentRuns.FirstOrDefaultAsync(x => x.Id == runId);
             if (run == null) return NotFound();
 
-            run.WorkerId = CleanWorkerId(request.WorkerId);
-            run.LeaseExpiresAtUtc = DateTime.UtcNow.AddSeconds(90);
-            run.UpdatedAtUtc = DateTime.UtcNow;
+            var now = DateTime.UtcNow;
+            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            if (workerCheck != null) return workerCheck;
+
+            run.LeaseExpiresAtUtc = now.AddSeconds(90);
+            run.UpdatedAtUtc = now;
             await _db.SaveChangesAsync();
             return Ok(new { ok = true, runId = run.Id, leaseExpiresAtUtc = run.LeaseExpiresAtUtc });
         }
@@ -126,11 +134,15 @@ namespace taskforge.Controllers.Agent
         public async Task<IActionResult> AppendStep([FromRoute] Guid runId, [FromBody] InternalAgentAppendStepRequest request)
         {
             if (!IsAuthorized()) return Unauthorized();
+            if (request == null) return BadRequest(new { ok = false, message = "Request body is required." });
 
             var run = await _db.AgentRuns.FirstOrDefaultAsync(x => x.Id == runId);
             if (run == null) return NotFound();
 
             var now = DateTime.UtcNow;
+            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            if (workerCheck != null) return workerCheck;
+
             var step = request.Step;
             var kind = LimitDbText(GetString(step, "kind") ?? "worker", AgentStepKindMaxLength) ?? "worker";
             var status = LimitDbText(GetString(step, "status") ?? "completed", AgentStepStatusMaxLength) ?? "completed";
@@ -156,7 +168,6 @@ namespace taskforge.Controllers.Agent
 
             _db.AgentSteps.Add(entity);
             run.UpdatedAtUtc = now;
-            run.WorkerId = CleanWorkerId(request.WorkerId);
             run.LeaseExpiresAtUtc = now.AddSeconds(90);
             await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
 
@@ -168,6 +179,7 @@ namespace taskforge.Controllers.Agent
         public async Task<IActionResult> Complete([FromRoute] Guid runId, [FromBody] InternalAgentCompleteRunRequest request)
         {
             if (!IsAuthorized()) return Unauthorized();
+            if (request == null) return BadRequest(new { ok = false, message = "Request body is required." });
 
             var run = await _db.AgentRuns
                 .Include(x => x.Conversation)
@@ -177,6 +189,9 @@ namespace taskforge.Controllers.Agent
                 return Ok(new { ok = true, runId = run.Id, alreadyCompleted = true, status = run.Status });
 
             var now = DateTime.UtcNow;
+            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            if (workerCheck != null) return workerCheck;
+
             var result = request.Result;
             var rawResult = result.ValueKind == JsonValueKind.Undefined ? "{}" : result.GetRawText();
             var assistantText = GetString(result, "assistantMessage", "assistant_message", "summary")
@@ -187,7 +202,6 @@ namespace taskforge.Controllers.Agent
             run.Status = status.StartsWith("completed", StringComparison.OrdinalIgnoreCase) ? status : "completed";
             run.ScenarioId = scenarioId;
             run.ResultJson = rawResult;
-            run.WorkerId = CleanWorkerId(request.WorkerId);
             run.UpdatedAtUtc = now;
             run.FinishedAtUtc = now;
             run.LeaseExpiresAtUtc = null;
@@ -211,11 +225,70 @@ namespace taskforge.Controllers.Agent
             foreach (var artifact in artifacts)
                 _db.AgentRunArtifacts.Add(artifact);
 
+            _db.AgentSteps.Add(new AgentStep
+            {
+                Id = Guid.NewGuid(),
+                RunId = run.Id,
+                Seq = nextStepSeq++,
+                Kind = "debug",
+                Status = "completed",
+                ActionName = "worker_result_ingested",
+                Title = "AI-result принят backend'ом",
+                Summary = $"Размер resultJson: {rawResult.Length} символов. Artifact'ов: {artifacts.Count}.",
+                InputJson = JsonSerializer.Serialize(new
+                {
+                    workerId = request.WorkerId,
+                    scenarioId,
+                    status,
+                    rawResultLength = rawResult.Length,
+                    assistantTextLength = assistantText.Length,
+                    resultSha256 = Sha256Text(rawResult)
+                }),
+                OutputJson = JsonSerializer.Serialize(new
+                {
+                    artifacts = artifacts.Select(x => new
+                    {
+                        x.Id,
+                        x.Type,
+                        x.Title,
+                        dataJsonLength = x.DataJson?.Length ?? 0,
+                        x.ContentHash,
+                        x.StorageKey
+                    }).ToList()
+                }),
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                IsVisibleToUser = false,
+            });
+
             var createdDrafts = new List<object>();
+            var rejectedDraftArtifacts = new List<object>();
             foreach (var artifact in artifacts)
             {
                 var created = await TryCreateHiddenDraftAssignmentAsync(run, artifact, now);
-                if (created != null) createdDrafts.Add(created);
+                if (created != null)
+                    createdDrafts.Add(created);
+                else if (IsHiddenDraftArtifactType(artifact.Type))
+                    rejectedDraftArtifacts.Add(new { artifact.Id, artifact.Type, artifact.Title, dataJsonLength = artifact.DataJson?.Length ?? 0 });
+            }
+
+            if (rejectedDraftArtifacts.Count > 0)
+            {
+                _db.AgentSteps.Add(new AgentStep
+                {
+                    Id = Guid.NewGuid(),
+                    RunId = run.Id,
+                    Seq = nextStepSeq++,
+                    Kind = "debug",
+                    Status = "failed",
+                    ActionName = "hidden_draft_not_created",
+                    Title = "AI-черновик не прошёл backend-gate",
+                    Summary = "Backend не создал скрытый draft: artifact не подходит под правила создания, права, placement или runner validation.",
+                    OutputJson = JsonSerializer.Serialize(new { rejectedDraftArtifacts }),
+                    CreatedAtUtc = now,
+                    FinishedAtUtc = now,
+                    IsVisibleToUser = false,
+                });
             }
 
             if (createdDrafts.Count > 0)
@@ -237,14 +310,15 @@ namespace taskforge.Controllers.Agent
                 });
             }
 
-            var appliedCourseEdits = new List<object>();
-            foreach (var artifact in artifacts)
-            {
-                var applied = await TryApplyAssignmentUpdateBatchAsync(run, artifact, now);
-                if (applied != null) appliedCourseEdits.Add(applied);
-            }
+            var courseEditProposals = artifacts
+                .Where(x => string.Equals(x.Type, "course_edit_proposal", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(x.Type, "assignment_update_batch", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(x.Type, "course_style_update", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(x.Type, "approval_request", StringComparison.OrdinalIgnoreCase))
+                .Select(x => new { x.Id, x.Type, x.Title })
+                .ToList();
 
-            if (appliedCourseEdits.Count > 0)
+            if (courseEditProposals.Count > 0)
             {
                 _db.AgentSteps.Add(new AgentStep
                 {
@@ -252,11 +326,11 @@ namespace taskforge.Controllers.Agent
                     RunId = run.Id,
                     Seq = nextStepSeq++,
                     Kind = "course_edit",
-                    Status = "completed",
-                    ActionName = "apply_assignment_update_batch",
-                    Title = "AI применил правки к заданиям курса",
-                    Summary = $"Применено пакетов правок: {appliedCourseEdits.Count}.",
-                    OutputJson = JsonSerializer.Serialize(new { appliedCourseEdits }),
+                    Status = "waiting_approval",
+                    ActionName = "course_edit_proposal",
+                    Title = "AI подготовил правки курса",
+                    Summary = "Правки сохранены как proposal artifact и не применяются автоматически. Их должен подтвердить пользователь с правом редактирования курса.",
+                    OutputJson = JsonSerializer.Serialize(new { courseEditProposals }),
                     CreatedAtUtc = now,
                     FinishedAtUtc = now,
                     IsVisibleToUser = true,
@@ -308,6 +382,7 @@ namespace taskforge.Controllers.Agent
         public async Task<IActionResult> Fail([FromRoute] Guid runId, [FromBody] InternalAgentFailRunRequest request)
         {
             if (!IsAuthorized()) return Unauthorized();
+            if (request == null) return BadRequest(new { ok = false, message = "Request body is required." });
 
             var run = await _db.AgentRuns.Include(x => x.Conversation).FirstOrDefaultAsync(x => x.Id == runId);
             if (run == null) return NotFound();
@@ -315,12 +390,14 @@ namespace taskforge.Controllers.Agent
                 return Ok(new { ok = true, runId = run.Id, alreadyCompleted = true, status = run.Status });
 
             var now = DateTime.UtcNow;
+            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            if (workerCheck != null) return workerCheck;
+
             var errorRaw = request.Error.ValueKind == JsonValueKind.Undefined ? "{}" : request.Error.GetRawText();
             var errorMessage = GetString(request.Error, "message", "error") ?? "AI-worker не смог завершить задачу.";
 
             run.Status = "failed";
             run.ErrorJson = errorRaw;
-            run.WorkerId = CleanWorkerId(request.WorkerId);
             run.UpdatedAtUtc = now;
             run.FinishedAtUtc = now;
             run.LeaseExpiresAtUtc = null;
@@ -366,13 +443,94 @@ namespace taskforge.Controllers.Agent
         public async Task<IActionResult> RunTestsTool([FromBody] TestRunRequestDto request)
         {
             if (!IsAuthorized()) return Unauthorized();
+            if (request == null)
+                return BadRequest(new { ok = false, message = "Request body is required." });
+            if (request.TestCases == null || request.TestCases.Count == 0)
+                return BadRequest(new { ok = false, message = "Field 'testCases' must contain at least one test case." });
+            if (!request.RunId.HasValue)
+                return BadRequest(new { ok = false, message = "Field 'runId' is required for internal AI test runs." });
+
+            var run = await _db.AgentRuns.FirstOrDefaultAsync(x => x.Id == request.RunId.Value);
+            if (run == null) return NotFound(new { ok = false, message = "AI run not found." });
+            var now = DateTime.UtcNow;
+            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            if (workerCheck != null) return workerCheck;
+
             request.Language = NormalizeRunnerLanguage(request.Language);
-            var results = await _compiler.RunTestsAsync(request);
-            return Ok(new
+            IList<TestResultDto> results;
+            try
             {
-                ok = results.All(x => x.Passed && string.Equals(x.Status, "ok", StringComparison.OrdinalIgnoreCase)),
-                results
+                results = await _compiler.RunTestsAsync(request);
+            }
+            catch (Exception ex)
+            {
+                _db.AgentSteps.Add(new AgentStep
+                {
+                    Id = Guid.NewGuid(),
+                    RunId = run.Id,
+                    Seq = await NextStepSeqAsync(run.Id),
+                    Kind = "runner",
+                    Status = "failed",
+                    ActionName = "internal_run_tests",
+                    Title = "AI runner-запрос упал",
+                    Summary = ex.Message,
+                    InputJson = JsonSerializer.Serialize(new
+                    {
+                        request.RunId,
+                        request.WorkerId,
+                        request.Language,
+                        codeLength = request.Code?.Length ?? 0,
+                        codeSha256 = Sha256Text(request.Code ?? string.Empty),
+                        testCount = request.TestCases?.Count ?? 0,
+                        request.TimeLimitMs,
+                        request.MemoryLimitMb,
+                        forbiddenPolicyCount = request.PolicyForbiddenCalls?.Count ?? 0,
+                        requiredPolicyCount = request.PolicyRequiredCalls?.Count ?? 0
+                    }),
+                    ErrorJson = JsonSerializer.Serialize(new { ex.Message, ex.StackTrace }),
+                    CreatedAtUtc = now,
+                    FinishedAtUtc = now,
+                    IsVisibleToUser = false,
+                });
+                await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
+                return StatusCode(500, new { ok = false, message = "Runner не смог проверить AI-код.", error = ex.Message });
+            }
+
+            var ok = results.Count > 0 && results.All(x => x.Passed && string.Equals(x.Status, "ok", StringComparison.OrdinalIgnoreCase));
+            var response = new { ok, results };
+            _db.AgentSteps.Add(new AgentStep
+            {
+                Id = Guid.NewGuid(),
+                RunId = run.Id,
+                Seq = await NextStepSeqAsync(run.Id),
+                Kind = "runner",
+                Status = ok ? "completed" : "failed",
+                ActionName = "internal_run_tests",
+                Title = ok ? "AI проверил решение через runner" : "AI runner-проверка не прошла",
+                Summary = $"Язык: {request.Language}. Тестов: {request.TestCases?.Count ?? 0}. Пройдено: {results.Count(x => x.Passed)}/{results.Count}.",
+                InputJson = JsonSerializer.Serialize(new
+                {
+                    request.RunId,
+                    request.WorkerId,
+                    request.Language,
+                    codeLength = request.Code?.Length ?? 0,
+                    codeSha256 = Sha256Text(request.Code ?? string.Empty),
+                    tests = request.TestCases,
+                    request.TimeLimitMs,
+                    request.MemoryLimitMb,
+                    request.PolicyForbiddenCalls,
+                    request.PolicyRequiredCalls
+                }),
+                OutputJson = JsonSerializer.Serialize(response),
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                IsVisibleToUser = false,
             });
+            run.UpdatedAtUtc = now;
+            run.LeaseExpiresAtUtc = now.AddSeconds(90);
+            await SaveChangesWithAgentStepSeqRetryAsync(run.Id);
+            await BroadcastAsync(run.ConversationId, "step.created", new { runId = run.Id, title = "AI runner-проверка", status = ok ? "completed" : "failed" });
+            return Ok(response);
         }
 
         private async Task<object> BuildWorkerJobAsync(Guid runId)
@@ -542,7 +700,9 @@ namespace taskforge.Controllers.Agent
 
             var payload = new
             {
-                type = "assistant_chat_turn",
+                type = run.ScenarioId,
+                jobType = run.ScenarioId,
+                scenarioId = run.ScenarioId,
                 runId = run.Id,
                 conversationId = conversation.Id,
                 userId = conversation.UserId,
@@ -572,8 +732,9 @@ namespace taskforge.Controllers.Agent
             return new
             {
                 id = run.Id,
-                type = "assistant_chat_turn",
-                jobType = "assistant_chat_turn",
+                type = run.ScenarioId,
+                jobType = run.ScenarioId,
+                scenarioId = run.ScenarioId,
                 payload,
             };
         }
@@ -1031,13 +1192,49 @@ namespace taskforge.Controllers.Agent
             return string.Join(' ', text.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries));
         }
 
+        private static string Sha256Text(string value)
+            => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty))).ToLowerInvariant();
+
         private bool IsAuthorized()
         {
             var expected = _config["TASKFORGE_AGENT_INTERNAL_KEY"]
                            ?? _config["Agent:InternalKey"]
                            ?? _config["API_INTERNAL_KEY"];
             var header = Request.Headers["X-Internal-Key"].ToString();
-            return !string.IsNullOrWhiteSpace(expected) && !string.IsNullOrWhiteSpace(header) && header == expected;
+            if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(header)) return false;
+
+            var expectedBytes = Encoding.UTF8.GetBytes(expected);
+            var headerBytes = Encoding.UTF8.GetBytes(header);
+            return expectedBytes.Length == headerBytes.Length
+                   && CryptographicOperations.FixedTimeEquals(expectedBytes, headerBytes);
+        }
+
+        private IActionResult? ValidateActiveWorker(AgentRun run, string? workerId, DateTime now)
+        {
+            var cleanWorkerId = CleanWorkerId(workerId);
+            if (!string.Equals(run.WorkerId, cleanWorkerId, StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    ok = false,
+                    message = "This worker does not own the AI run lease.",
+                    runId = run.Id,
+                    expectedWorkerId = run.WorkerId,
+                    actualWorkerId = cleanWorkerId
+                });
+            }
+
+            if (!string.Equals(run.Status, "running", StringComparison.OrdinalIgnoreCase))
+            {
+                return Conflict(new { ok = false, message = "AI run is not running.", runId = run.Id, status = run.Status });
+            }
+
+            if (!run.LeaseExpiresAtUtc.HasValue || run.LeaseExpiresAtUtc.Value < now)
+            {
+                return Conflict(new { ok = false, message = "AI run lease expired.", runId = run.Id, leaseExpiresAtUtc = run.LeaseExpiresAtUtc });
+            }
+
+            return null;
         }
 
         private async Task<int> NextStepSeqAsync(Guid runId)
@@ -1250,10 +1447,90 @@ namespace taskforge.Controllers.Agent
         }
 
 
+        private static bool CanCreateHiddenDraftFromRun(AgentRun run, JsonElement requestJson)
+        {
+            var action = GetString(requestJson, "action", "scenarioId", "scenario_id");
+            var createHiddenDraft = GetBool(requestJson, "createHiddenDraft", "create_hidden_draft") == true;
+            return createHiddenDraft
+                   && (string.Equals(run.ScenarioId, "polish_assignment_draft", StringComparison.OrdinalIgnoreCase)
+                       || string.Equals(action, "polish_assignment_draft", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private async Task<bool> CanRunWriteCourseAsync(AgentRun run, Guid courseId)
+        {
+            var actorId = run.ActingOnBehalfOfUserId ?? run.RequestedByUserId;
+            var user = await _db.Users.AsNoTracking()
+                .Where(x => x.Id == actorId)
+                .Select(x => new { x.Id, x.Role })
+                .FirstOrDefaultAsync();
+
+            return user != null && await _courseAccess.CanEditCourseAsync(user.Id, user.Role, courseId);
+        }
+
+        private async Task<bool> DraftPlacementBelongsToCourseAsync(Guid courseId, Guid? beforeId, Guid? afterId)
+        {
+            var ids = new[] { beforeId, afterId }.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+            if (ids.Count == 0) return true;
+
+            var count = await _db.TaskAssignments.AsNoTracking()
+                .CountAsync(x => ids.Contains(x.Id) && x.CourseId == courseId);
+            return count == ids.Count;
+        }
+
+        private static bool DraftPassesBackendValidationGate(JsonElement data, string assignmentType, IReadOnlyList<DraftTestCase> tests)
+        {
+            if (!string.Equals(assignmentType, "code-test", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var publicCount = tests.Count(x => !x.IsHidden && !string.IsNullOrWhiteSpace(x.ExpectedOutput));
+            var hiddenCount = tests.Count(x => x.IsHidden && !string.IsNullOrWhiteSpace(x.ExpectedOutput));
+            if (publicCount < 2 || hiddenCount < 2) return false;
+
+            var normalizedPublic = tests.Where(x => !x.IsHidden).Select(NormalizeTestFingerprint).ToHashSet(StringComparer.Ordinal);
+            var normalizedHidden = tests.Where(x => x.IsHidden).Select(NormalizeTestFingerprint).ToHashSet(StringComparer.Ordinal);
+            if (normalizedPublic.Count == 0 || normalizedHidden.Count == 0) return false;
+            if (normalizedHidden.All(normalizedPublic.Contains)) return false;
+
+            if (TryGetObject(data, out var validation, "validation", "draftValidation", "draft_validation"))
+            {
+                if (GetBool(validation, "ok") == false) return false;
+                if (TryGetObject(validation, out var testsNode, "tests", "testRun", "test_run"))
+                    return GetBool(testsNode, "ok") == true;
+            }
+
+            if (TryGetObject(data, out var directTestRun, "testRun", "runnerValidation", "runner_validation"))
+                return GetBool(directTestRun, "ok", "passed") == true;
+
+            return false;
+        }
+
+        private static string NormalizeTestFingerprint(DraftTestCase test)
+        {
+            return $"{(test.Input ?? string.Empty).Replace("\r\n", "\n").Trim()}=>{(test.ExpectedOutput ?? string.Empty).Replace("\r\n", "\n").Trim()}";
+        }
+
+        private static bool TryGetObject(JsonElement element, out JsonElement obj, params string[] names)
+        {
+            obj = default;
+            if (element.ValueKind != JsonValueKind.Object) return false;
+            foreach (var name in names)
+            {
+                if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Object)
+                {
+                    obj = prop;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsHiddenDraftArtifactType(string? type)
+            => string.Equals(type, "polished_assignment_draft", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(type, "assignment_draft_ready", StringComparison.OrdinalIgnoreCase);
+
         private async Task<object?> TryCreateHiddenDraftAssignmentAsync(AgentRun run, AgentRunArtifact artifact, DateTime now)
         {
-            if (!string.Equals(artifact.Type, "polished_assignment_draft", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(artifact.Type, "assignment_draft_ready", StringComparison.OrdinalIgnoreCase))
+            if (!IsHiddenDraftArtifactType(artifact.Type))
                 return null;
 
             var parsedData = ParseJson(artifact.DataJson);
@@ -1262,6 +1539,7 @@ namespace taskforge.Controllers.Agent
 
             var requestJsonObj = ParseJson(run.RequestJson ?? "{}");
             var requestJson = requestJsonObj is JsonElement requestEl ? requestEl : default;
+            if (!CanCreateHiddenDraftFromRun(run, requestJson)) return null;
 
             var title = GetString(data, "title") ?? GetString(data, "assignmentTitle") ?? artifact.Title;
             var description = GetString(data, "description") ?? GetString(data, "condition") ?? GetString(data, "body");
@@ -1281,14 +1559,16 @@ namespace taskforge.Controllers.Agent
 
             if (assignmentType == "code-test" && (string.IsNullOrWhiteSpace(solution) || tests.Count == 0))
                 return null;
+            if (!DraftPassesBackendValidationGate(data, assignmentType, tests))
+                return null;
             if (assignmentType == "test" && testQuestions.Count == 0)
                 return null;
             if (assignmentType == "math" && mathBlocks.Count == 0)
                 return null;
 
-            var courseId = GetGuid(data, "selectedCourseId", "courseId")
+            var courseId = GetGuid(requestJson, "courseId")
                            ?? run.Conversation.CourseId
-                           ?? GetGuid(requestJson, "courseId");
+                           ?? GetGuid(data, "selectedCourseId", "courseId");
             var beforeId = GetGuid(data, "beforeAssignmentId") ?? GetGuid(requestJson, "beforeAssignmentId");
             var afterId = GetGuid(data, "afterAssignmentId") ?? GetGuid(requestJson, "afterAssignmentId");
 
@@ -1307,6 +1587,8 @@ namespace taskforge.Controllers.Agent
                     .FirstOrDefaultAsync();
             }
             if (!courseId.HasValue) return null;
+            if (!await CanRunWriteCourseAsync(run, courseId.Value)) return null;
+            if (!await DraftPlacementBelongsToCourseAsync(courseId.Value, beforeId, afterId)) return null;
 
             var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
             if (sourceTaskIndex.HasValue)
@@ -1390,190 +1672,6 @@ namespace taskforge.Controllers.Agent
                 sourceAgentRunId = run.Id,
                 sourceAgentArtifactId = artifact.Id,
                 sourceAgentTaskIndex = assignment.SourceAgentTaskIndex
-            };
-        }
-
-        private async Task<object?> TryApplyAssignmentUpdateBatchAsync(AgentRun run, AgentRunArtifact artifact, DateTime now)
-        {
-            if (!string.Equals(artifact.Type, "assignment_update_batch", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(artifact.Type, "course_edit_patch", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(artifact.Type, "course_style_update", StringComparison.OrdinalIgnoreCase))
-                return null;
-
-            var parsedData = ParseJson(artifact.DataJson);
-            var data = parsedData is JsonElement root ? root : default;
-            if (data.ValueKind != JsonValueKind.Object) return null;
-
-            var courseId = GetGuid(data, "selectedCourseId", "courseId") ?? run.Conversation.CourseId;
-            var updatesArray = GetArrayElement(data, "assignments", "updates", "assignmentUpdates");
-            var orderIds = ExtractGuidArray(data, "order", "assignmentOrder", "orderedAssignmentIds", "courseOrder");
-
-            if (!courseId.HasValue && updatesArray.HasValue)
-            {
-                foreach (var item in updatesArray.Value.EnumerateArray())
-                {
-                    var id = GetGuid(item, "id", "assignmentId");
-                    if (!id.HasValue) continue;
-                    courseId = await _db.TaskAssignments.AsNoTracking()
-                        .Where(x => x.Id == id.Value)
-                        .Select(x => (Guid?)x.CourseId)
-                        .FirstOrDefaultAsync();
-                    if (courseId.HasValue) break;
-                }
-            }
-            if (!courseId.HasValue) return null;
-
-            var courseAssignments = await _db.TaskAssignments
-                .Where(x => x.CourseId == courseId.Value)
-                .OrderBy(x => x.Sort)
-                .ThenBy(x => x.CreatedAt)
-                .ToListAsync();
-            var byId = courseAssignments.ToDictionary(x => x.Id);
-
-            var updated = new List<object>();
-            var sortOverrides = new Dictionary<Guid, int>();
-
-            if (updatesArray.HasValue)
-            {
-                foreach (var item in updatesArray.Value.EnumerateArray())
-                {
-                    if (item.ValueKind != JsonValueKind.Object) continue;
-                    var id = GetGuid(item, "id", "assignmentId");
-                    if (!id.HasValue || !byId.TryGetValue(id.Value, out var assignment)) continue;
-
-                    var changedFields = new List<string>();
-                    var nextType = NormalizeDraftAssignmentType(GetString(item, "type", "assignmentType", "taskType") ?? assignment.Type);
-                    if (nextType == "image-test") nextType = assignment.Type == "image-test" ? "image-test" : assignment.Type;
-
-                    var title = GetString(item, "title");
-                    if (!string.IsNullOrWhiteSpace(title) && title.Trim() != assignment.Title)
-                    {
-                        assignment.Title = Trim(title, 200);
-                        changedFields.Add("title");
-                    }
-
-                    var description = GetString(item, "description", "condition", "body");
-                    if (!string.IsNullOrWhiteSpace(description))
-                    {
-                        assignment.Description = ToTiptapDocumentJson(description);
-                        changedFields.Add("description");
-                    }
-
-                    if (!string.Equals(assignment.Type, nextType, StringComparison.OrdinalIgnoreCase))
-                    {
-                        assignment.Type = nextType;
-                        changedFields.Add("type");
-                    }
-
-                    var difficulty = GetInt(item, "difficulty");
-                    if (difficulty.HasValue)
-                    {
-                        assignment.Difficulty = Math.Clamp(difficulty.Value, 1, 3);
-                        changedFields.Add("difficulty");
-                    }
-
-                    var rating = GetInt(item, "rating", "points", "score", "weight");
-                    if (rating.HasValue)
-                    {
-                        assignment.Rating = Math.Max(0, rating.Value);
-                        changedFields.Add("rating");
-                    }
-
-                    var tags = GetString(item, "tags");
-                    if (tags != null)
-                    {
-                        assignment.Tags = Trim(tags, 500);
-                        changedFields.Add("tags");
-                    }
-
-                    var allowedLanguages = GetStringList(item, "allowedLanguages", "languages");
-                    var allowedCsv = GetString(item, "allowedLanguagesCsv");
-                    if (allowedLanguages.Count > 0 || allowedCsv != null)
-                    {
-                        assignment.AllowedLanguagesCsv = allowedLanguages.Count > 0
-                            ? string.Join(",", allowedLanguages.Select(NormalizeRunnerLanguage).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
-                            : allowedCsv;
-                        changedFields.Add("allowedLanguages");
-                    }
-
-                    var sort = GetInt(item, "sort", "order", "index");
-                    if (sort.HasValue)
-                        sortOverrides[assignment.Id] = Math.Max(0, sort.Value);
-
-                    if (assignment.Type == "code-test" && HasAnyProperty(item, "publicTests", "hiddenTests", "testCases"))
-                    {
-                        await _db.TaskTestCases.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
-                        var cases = ExtractTestCases(item).ToList();
-                        foreach (var tc in cases)
-                        {
-                            _db.TaskTestCases.Add(new TaskTestCase
-                            {
-                                Id = Guid.NewGuid(),
-                                TaskAssignmentId = assignment.Id,
-                                Input = tc.Input,
-                                ExpectedOutput = tc.ExpectedOutput,
-                                IsHidden = tc.IsHidden,
-                            });
-                        }
-                        changedFields.Add("codeTestCases");
-                    }
-
-                    if (assignment.Type == "test" && HasAnyProperty(item, "testSpec", "questions", "test", "taskTest"))
-                    {
-                        await _db.TaskTestSettings.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
-                        await _db.TaskTestQuestions.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
-                        var questions = ExtractDraftTestQuestionSpecs(item).ToList();
-                        if (questions.Count > 0)
-                        {
-                            AddDraftTestContent(assignment.Id, item, questions, now);
-                            changedFields.Add("testSpec");
-                        }
-                    }
-
-                    if (assignment.Type == "math" && HasAnyProperty(item, "mathSpec", "blocks", "math", "taskMath"))
-                    {
-                        await _db.TaskMathSettings.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
-                        await _db.TaskMathBlocks.Where(x => x.TaskAssignmentId == assignment.Id).ExecuteDeleteAsync();
-                        var blocks = ExtractDraftMathBlockSpecs(item).ToList();
-                        if (blocks.Count > 0)
-                        {
-                            AddDraftMathContent(assignment.Id, item, blocks, now);
-                            changedFields.Add("mathSpec");
-                        }
-                    }
-
-                    if (assignment.Type == "image-test")
-                    {
-                        var threshold = GetDouble(item, "imageTestSimilarityThreshold", "similarityThreshold");
-                        if (threshold.HasValue)
-                        {
-                            assignment.ImageTestSimilarityThreshold = Math.Clamp(threshold.Value, 0, 100);
-                            changedFields.Add("imageTestSimilarityThreshold");
-                        }
-                    }
-
-                    if (changedFields.Count > 0)
-                    {
-                        assignment.UpdatedAt = now;
-                        updated.Add(new { id = assignment.Id, title = assignment.Title, type = assignment.Type, changedFields });
-                    }
-                }
-            }
-
-            if (orderIds.Count > 0)
-                ApplyCourseOrder(courseAssignments, orderIds, now);
-            else if (sortOverrides.Count > 0)
-                ApplyCourseSortOverrides(courseAssignments, sortOverrides, now);
-
-            var normalizedRatings = NormalizeCourseRatingsIfRequested(data, courseAssignments, now);
-
-            return new
-            {
-                courseId = courseId.Value,
-                updatedCount = updated.Count,
-                updated,
-                reordered = orderIds.Count > 0 || sortOverrides.Count > 0,
-                normalizedRatings,
             };
         }
 

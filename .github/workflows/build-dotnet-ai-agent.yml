@@ -1,0 +1,38 @@
+name: Build .NET AI Agent
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'taskforge-ai-agent-dotnet/**'
+      - '.github/workflows/build-dotnet-ai-agent.yml'
+  pull_request:
+    paths:
+      - 'taskforge-ai-agent-dotnet/**'
+      - '.github/workflows/build-dotnet-ai-agent.yml'
+
+jobs:
+  build-test-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore taskforge-ai-agent-dotnet/TaskForge.AiAgent.csproj
+
+      - name: Restore tests
+        run: dotnet restore taskforge-ai-agent-dotnet/tests/TaskForge.AiAgent.Tests/TaskForge.AiAgent.Tests.csproj
+
+      - name: Build
+        run: dotnet build taskforge-ai-agent-dotnet/TaskForge.AiAgent.csproj -c Release --no-restore
+
+      - name: Test
+        run: dotnet test taskforge-ai-agent-dotnet/tests/TaskForge.AiAgent.Tests/TaskForge.AiAgent.Tests.csproj -c Release --no-restore
+
+      - name: Docker build smoke
+        run: docker build -t taskforge-ai-agent-dotnet:ci ./taskforge-ai-agent-dotnet

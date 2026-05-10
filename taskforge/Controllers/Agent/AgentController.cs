@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,12 +12,13 @@ using taskforge.Data.Models.Entities;
 using taskforge.Hubs;
 using taskforge.Services.Interfaces;
 using taskforge.Services.Files;
+using taskforge.Services.Agent;
 
 namespace taskforge.Controllers.Agent
 {
     [ApiController]
     [Route("api/agent")]
-    [Authorize(Roles = AppRoles.Admin)]
+    [Authorize(Roles = AppRoles.Admin + "," + AppRoles.Editor)]
     public sealed class AgentController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -24,19 +26,22 @@ namespace taskforge.Controllers.Agent
         private readonly ICourseAccessService _courseAccess;
         private readonly IHubContext<AgentHub> _hub;
         private readonly IFileStorageService _store;
+        private readonly AgentCourseEditApplyService _courseEditApplier;
 
         public AgentController(
             ApplicationDbContext db,
             ICurrentUserService current,
             ICourseAccessService courseAccess,
             IHubContext<AgentHub> hub,
-            IFileStorageService store)
+            IFileStorageService store,
+            AgentCourseEditApplyService courseEditApplier)
         {
             _db = db;
             _current = current;
             _courseAccess = courseAccess;
             _hub = hub;
             _store = store;
+            _courseEditApplier = courseEditApplier;
         }
 
         [HttpGet("conversations")]
@@ -131,6 +136,28 @@ namespace taskforge.Controllers.Agent
             return Ok(details);
         }
 
+
+        [HttpGet("conversations/{conversationId:guid}/debug-dump")]
+        public async Task<IActionResult> GetConversationDebugDump([FromRoute] Guid conversationId, [FromQuery] string? format = "text", CancellationToken ct = default)
+        {
+            var uid = _current.GetUserId();
+            var conversationExists = await _db.AgentConversations
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived, ct);
+
+            if (!conversationExists) return NotFound(new { message = "AI-чат не найден." });
+
+            var dump = await BuildAgentDebugDumpAsync(conversationId, ct);
+            var asText = string.Equals(format, "text", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(format, "txt", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(format, "log", StringComparison.OrdinalIgnoreCase);
+
+            if (asText)
+                return new ContentResult { Content = BuildAgentDebugDumpText(dump), ContentType = "text/plain; charset=utf-8", StatusCode = 200 };
+
+            return Ok(dump);
+        }
+
         [HttpPost("conversations/{conversationId:guid}/attachments")]
         [RequestSizeLimit(25 * 1024 * 1024)]
         public async Task<IActionResult> UploadAttachment([FromRoute] Guid conversationId, [FromForm] IFormFile file, CancellationToken ct)
@@ -160,7 +187,7 @@ namespace taskforge.Controllers.Agent
             var conversation = await _db.AgentConversations.FirstOrDefaultAsync(x => x.Id == conversationId && x.UserId == uid && !x.IsArchived);
             if (conversation == null) return NotFound();
 
-            var attachments = NormalizeAttachments(request.Attachments);
+            var attachments = NormalizeAttachments(request.Attachments, conversation.Id);
             if (string.IsNullOrWhiteSpace(request.Text) && attachments.Count == 0)
                 throw new ValidationException("Сообщение для AI-чата не может быть пустым.");
 
@@ -184,7 +211,7 @@ namespace taskforge.Controllers.Agent
             if (conversation == null) return NotFound();
 
             var courseId = await ResolvePolishCourseIdAsync(conversation, request);
-            if (courseId.HasValue && !await _courseAccess.CanViewCourseAsync(uid, role, courseId.Value))
+            if (courseId.HasValue && !await _courseAccess.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             if (request.Task.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
@@ -194,6 +221,7 @@ namespace taskforge.Controllers.Agent
                 throw new ValidationException("Не определён курс для сохранения AI-черновика. Сгенерируйте задания в контексте курса или выберите курс/позицию вставки.");
 
             var now = DateTime.UtcNow;
+            var draftConversationContext = await BuildDraftConversationContextAsync(conversation.Id);
             var taskTitle = TryGetString(request.Task, "title") ?? TryGetString(request.Task, "Title") ?? $"Задание {request.TaskIndex ?? 1}";
             var message = new AgentMessage
             {
@@ -244,8 +272,10 @@ namespace taskforge.Controllers.Agent
                     beforeAssignmentId = request.BeforeAssignmentId,
                     afterAssignmentId = request.AfterAssignmentId,
                     note = request.Note,
+                    draftConversationContext,
+                    conversationMemory = ParseJson(conversation.MemoryJson ?? "{}"),
                     createHiddenDraft = true,
-                    requiredValidation = new { runnerAttempts = 2, requireReferenceSolution = true, requireTests = true }
+                    requiredValidation = new { runnerAttempts = 2, requireReferenceSolution = true, requireTests = true, requireRunnerPass = true }
                 }),
             };
             message.RunId = run.Id;
@@ -293,13 +323,14 @@ namespace taskforge.Controllers.Agent
                 throw new ValidationException("Выберите хотя бы одно AI-задание для вылизывания.");
 
             var now = DateTime.UtcNow;
+            var draftConversationContext = await BuildDraftConversationContextAsync(conversation.Id);
             var prepared = new List<(AgentPolishGeneratedTaskRequest Item, Guid? CourseId, string Title, int TaskIndex)>();
             var selectedForMessage = new List<object>();
 
             foreach (var item in items)
             {
                 var courseId = await ResolvePolishCourseIdAsync(conversation, item);
-                if (courseId.HasValue && !await _courseAccess.CanViewCourseAsync(uid, role, courseId.Value))
+                if (courseId.HasValue && !await _courseAccess.CanEditCourseAsync(uid, role, courseId.Value))
                     return Forbid();
 
                 var taskIndex = item.TaskIndex ?? prepared.Count + 1;
@@ -379,8 +410,10 @@ namespace taskforge.Controllers.Agent
                         beforeAssignmentId = item.BeforeAssignmentId,
                         afterAssignmentId = item.AfterAssignmentId,
                         note = item.Note ?? request.Note ?? "Пользователь выбрал это AI-задание галочкой для вылизывания и создания скрытого черновика.",
+                        draftConversationContext,
+                        conversationMemory = ParseJson(conversation.MemoryJson ?? "{}"),
                         createHiddenDraft = true,
-                        requiredValidation = new { runnerAttempts = 2, requireReferenceSolution = true, requireTests = true }
+                        requiredValidation = new { runnerAttempts = 2, requireReferenceSolution = true, requireTests = true, requireRunnerPass = true }
                     }),
                 };
 
@@ -411,6 +444,38 @@ namespace taskforge.Controllers.Agent
                 await BroadcastAsync(conversation.Id, "run.created", new { run = runDto });
 
             return Ok(new { message = messageDto, runs = runDtos, count = runDtos.Count, parallelize = request.Parallelize });
+        }
+
+        [HttpPost("artifacts/{artifactId:guid}/apply")]
+        public async Task<IActionResult> ApplyArtifact([FromRoute] Guid artifactId, [FromBody] AgentApplyArtifactRequest? request, CancellationToken ct)
+        {
+            return await ApplyArtifactCore(null, artifactId, request, ct);
+        }
+
+        [HttpPost("runs/{runId:guid}/artifacts/{artifactId:guid}/apply")]
+        public async Task<IActionResult> ApplyRunArtifact([FromRoute] Guid runId, [FromRoute] Guid artifactId, [FromBody] AgentApplyArtifactRequest? request, CancellationToken ct)
+        {
+            return await ApplyArtifactCore(runId, artifactId, request, ct);
+        }
+
+        private async Task<IActionResult> ApplyArtifactCore(Guid? runId, Guid artifactId, AgentApplyArtifactRequest? request, CancellationToken ct)
+        {
+            var uid = _current.GetUserId();
+            var role = _current.GetRole();
+            var safeRequest = request ?? new AgentApplyArtifactRequest();
+            var result = await _courseEditApplier.ApplyAsync(artifactId, runId, uid, role, safeRequest, ct);
+            await AppendArtifactApplyHttpDebugStepAsync(result, safeRequest, ct);
+
+            if (result.ConversationId != Guid.Empty)
+                await BroadcastAsync(result.ConversationId, result.Ok ? "artifact.applied" : "artifact.apply_failed", new { result });
+
+            if (!result.Ok)
+            {
+                if (result.RunId == Guid.Empty) return NotFound(result);
+                return BadRequest(result);
+            }
+
+            return Ok(result);
         }
 
         [HttpPost("runs/{runId:guid}/cancel")]
@@ -456,7 +521,7 @@ namespace taskforge.Controllers.Agent
             var now = DateTime.UtcNow;
             var clean = (text ?? string.Empty).Trim();
             var cleanClientMessageId = string.IsNullOrWhiteSpace(clientMessageId) ? null : clientMessageId.Trim();
-            var safeAttachments = NormalizeAttachments(attachments);
+            var safeAttachments = NormalizeAttachments(attachments, conversation.Id);
 
             if (!string.IsNullOrWhiteSpace(cleanClientMessageId))
             {
@@ -542,6 +607,66 @@ namespace taskforge.Controllers.Agent
 
             await _db.SaveChangesAsync();
             return (message, run);
+        }
+
+        private async Task<object> BuildDraftConversationContextAsync(Guid conversationId)
+        {
+            var rows = await _db.AgentMessages.AsNoTracking()
+                .Where(x => x.ConversationId == conversationId)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Take(40)
+                .OrderBy(x => x.CreatedAtUtc)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.Role,
+                    x.Source,
+                    x.Text,
+                    x.CreatedAtUtc,
+                    x.DataJson
+                })
+                .ToListAsync();
+
+            var styleHints = rows
+                .Where(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Text ?? string.Empty)
+                .Where(ContainsDraftStyleHint)
+                .TakeLast(12)
+                .ToList();
+
+            return new
+            {
+                purpose = "Preserve chat context for polishing the selected generated task into a hidden draft.",
+                instruction = "When building the hidden draft, follow relevant style, format, difficulty, language and course-placement requirements from previous chat messages. The latest explicit task selection is not the only source of instructions.",
+                recentMessages = rows.Select(x => new
+                {
+                    id = x.Id,
+                    role = x.Role,
+                    source = x.Source,
+                    text = x.Text,
+                    createdAtUtc = x.CreatedAtUtc,
+                    data = ParseJson(x.DataJson)
+                }).ToList(),
+                styleHints
+            };
+        }
+
+        private static bool ContainsDraftStyleHint(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var lower = text.ToLowerInvariant();
+            return lower.Contains("стиль")
+                   || lower.Contains("стилист")
+                   || lower.Contains("оформ")
+                   || lower.Contains("формат")
+                   || lower.Contains("сложност")
+                   || lower.Contains("тон")
+                   || lower.Contains("язык")
+                   || lower.Contains("требован")
+                   || lower.Contains("сделай")
+                   || lower.Contains("как раньше")
+                   || lower.Contains("так же")
+                   || lower.Contains("аналогично");
         }
 
         private async Task<Guid?> ResolvePolishCourseIdAsync(AgentConversation conversation, AgentPolishGeneratedTaskRequest request)
@@ -633,6 +758,312 @@ namespace taskforge.Controllers.Agent
             return courseId;
         }
 
+
+        private async Task AppendArtifactApplyHttpDebugStepAsync(AgentApplyArtifactResult result, AgentApplyArtifactRequest request, CancellationToken ct)
+        {
+            if (result.RunId == Guid.Empty) return;
+
+            var now = DateTime.UtcNow;
+            var step = new AgentStep
+            {
+                Id = Guid.NewGuid(),
+                RunId = result.RunId,
+                Seq = await NextStepSeqAsync(result.RunId),
+                Kind = "debug",
+                Status = result.Ok ? "completed" : "failed",
+                ActionName = "artifact_apply_http_request",
+                Title = result.Ok ? "Apply-запрос к AI artifact обработан" : "Apply-запрос к AI artifact отклонён",
+                Summary = result.Message,
+                InputJson = JsonSerializer.Serialize(new
+                {
+                    result.ArtifactId,
+                    result.ArtifactType,
+                    result.DryRun,
+                    request.Force,
+                    note = TrimForDebug(request.Note, 2000)
+                }),
+                OutputJson = JsonSerializer.Serialize(result),
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                IsVisibleToUser = false,
+            };
+
+            _db.AgentSteps.Add(step);
+            await _db.SaveChangesAsync(ct);
+
+            if (result.ConversationId != Guid.Empty)
+                await BroadcastAsync(result.ConversationId, "step.created", new { step = ToStepDto(step) });
+        }
+
+        private async Task<object> BuildAgentDebugDumpAsync(Guid conversationId, CancellationToken ct)
+        {
+            var conversation = await _db.AgentConversations
+                .AsNoTracking()
+                .FirstAsync(x => x.Id == conversationId, ct);
+
+            var messages = await _db.AgentMessages
+                .AsNoTracking()
+                .Where(x => x.ConversationId == conversationId)
+                .OrderBy(x => x.CreatedAtUtc)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.ConversationId,
+                    x.RunId,
+                    x.Role,
+                    x.Source,
+                    x.Text,
+                    x.ClientMessageId,
+                    x.CreatedAtUtc,
+                    RawDataJson = x.DataJson,
+                    Data = ParseJson(x.DataJson),
+                    Attachments = ExtractAttachments(x.DataJson)
+                })
+                .ToListAsync(ct);
+
+            var runs = await _db.AgentRuns
+                .AsNoTracking()
+                .Where(x => x.ConversationId == conversationId)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.ConversationId,
+                    x.RequestedByUserId,
+                    x.ActingOnBehalfOfUserId,
+                    x.Status,
+                    x.ScenarioId,
+                    x.WorkerId,
+                    x.Priority,
+                    x.Attempt,
+                    x.CreatedAtUtc,
+                    x.UpdatedAtUtc,
+                    x.StartedAtUtc,
+                    x.FinishedAtUtc,
+                    x.LeaseExpiresAtUtc,
+                    x.NextWakeAtUtc,
+                    x.CanceledAtUtc,
+                    RawRequestJson = x.RequestJson,
+                    Request = ParseJson(x.RequestJson),
+                    RawResultJson = x.ResultJson,
+                    Result = ParseJson(x.ResultJson),
+                    RawErrorJson = x.ErrorJson,
+                    Error = ParseJson(x.ErrorJson),
+                    RawDebugJson = x.DebugJson,
+                    Debug = ParseJson(x.DebugJson),
+                    DurMs = x.StartedAtUtc.HasValue && x.FinishedAtUtc.HasValue
+                        ? (double?)(x.FinishedAtUtc.Value - x.StartedAtUtc.Value).TotalMilliseconds
+                        : null
+                })
+                .ToListAsync(ct);
+
+            var runIds = runs.Select(x => x.Id).ToList();
+
+            var steps = await _db.AgentSteps
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.RunId))
+                .OrderBy(x => x.RunId)
+                .ThenBy(x => x.Seq)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.RunId,
+                    x.Seq,
+                    x.Kind,
+                    x.Status,
+                    x.ActionName,
+                    x.Title,
+                    x.Summary,
+                    x.IsVisibleToUser,
+                    x.CreatedAtUtc,
+                    x.StartedAtUtc,
+                    x.FinishedAtUtc,
+                    RawInputJson = x.InputJson,
+                    Input = ParseJson(x.InputJson),
+                    RawOutputJson = x.OutputJson,
+                    Output = ParseJson(x.OutputJson),
+                    RawErrorJson = x.ErrorJson,
+                    Error = ParseJson(x.ErrorJson),
+                    DurMs = x.StartedAtUtc.HasValue && x.FinishedAtUtc.HasValue
+                        ? (double?)(x.FinishedAtUtc.Value - x.StartedAtUtc.Value).TotalMilliseconds
+                        : null
+                })
+                .ToListAsync(ct);
+
+            var artifacts = await _db.AgentRunArtifacts
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.RunId))
+                .OrderBy(x => x.CreatedAtUtc)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.RunId,
+                    x.Type,
+                    x.Title,
+                    x.StorageKey,
+                    x.ContentHash,
+                    x.CreatedAtUtc,
+                    RawDataJson = x.DataJson,
+                    Data = ParseJson(x.DataJson),
+                    DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
+                })
+                .ToListAsync(ct);
+
+            var hiddenDrafts = await _db.TaskAssignments
+                .AsNoTracking()
+                .Where(x => x.SourceAgentRunId.HasValue && runIds.Contains(x.SourceAgentRunId.Value))
+                .OrderBy(x => x.CreatedAt)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.CourseId,
+                    x.Title,
+                    x.Type,
+                    x.Sort,
+                    x.Rating,
+                    x.Difficulty,
+                    x.IsHidden,
+                    x.LifecycleStatus,
+                    x.IsAiDraft,
+                    x.SourceAgentRunId,
+                    x.SourceAgentArtifactId,
+                    x.SourceAgentTaskIndex,
+                    x.CreatedAt,
+                    x.UpdatedAt,
+                    x.PolishedAtUtc,
+                    x.PublishedAtUtc,
+                    TestCount = x.TestCases.Count,
+                    AiDraftJsonLength = x.AiDraftJson == null ? 0 : x.AiDraftJson.Length
+                })
+                .ToListAsync(ct);
+
+            object? course = null;
+            if (conversation.CourseId.HasValue)
+            {
+                course = await _db.Courses
+                    .AsNoTracking()
+                    .Where(x => x.Id == conversation.CourseId.Value)
+                    .Select(x => new
+                    {
+                        x.Id,
+                        x.Title,
+                        x.Description,
+                        x.OwnerId,
+                        x.IsPublic,
+                        x.CreatedAt,
+                        x.UpdatedAt,
+                        AssignmentCount = x.Assignments.Count
+                    })
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            object? assignment = null;
+            if (conversation.AssignmentId.HasValue)
+            {
+                assignment = await _db.TaskAssignments
+                    .AsNoTracking()
+                    .Where(x => x.Id == conversation.AssignmentId.Value)
+                    .Select(x => new
+                    {
+                        x.Id,
+                        x.CourseId,
+                        x.Title,
+                        x.Type,
+                        x.Sort,
+                        x.Rating,
+                        x.Difficulty,
+                        x.IsHidden,
+                        x.LifecycleStatus,
+                        x.IsAiDraft,
+                        x.SourceAgentRunId,
+                        x.SourceAgentArtifactId,
+                        TestCount = x.TestCases.Count
+                    })
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            var runSummaries = runs.Select(r => new
+            {
+                r.Id,
+                r.Status,
+                r.ScenarioId,
+                r.WorkerId,
+                r.Attempt,
+                r.CreatedAtUtc,
+                r.StartedAtUtc,
+                r.FinishedAtUtc,
+                r.DurMs,
+                StepCount = steps.Count(s => s.RunId == r.Id),
+                ArtifactCount = artifacts.Count(a => a.RunId == r.Id),
+                VisibleStepCount = steps.Count(s => s.RunId == r.Id && s.IsVisibleToUser),
+                HiddenDebugStepCount = steps.Count(s => s.RunId == r.Id && !s.IsVisibleToUser),
+                LastStep = steps.Where(s => s.RunId == r.Id).OrderByDescending(s => s.Seq).Select(s => new { s.Seq, s.Kind, s.Status, s.ActionName, s.Title, s.Summary }).FirstOrDefault(),
+                ArtifactTypes = artifacts.Where(a => a.RunId == r.Id).GroupBy(a => a.Type).Select(g => new { Type = g.Key, Count = g.Count() }).ToList()
+            }).ToList();
+
+            return new
+            {
+                DebugSchemaVersion = 4,
+                GeneratedAtUtc = DateTime.UtcNow,
+                GeneratedByUserId = _current.GetUserId(),
+                GeneratedByRole = _current.GetRole(),
+                Conversation = new
+                {
+                    conversation.Id,
+                    conversation.UserId,
+                    conversation.CourseId,
+                    conversation.AssignmentId,
+                    conversation.SupportTicketId,
+                    conversation.Title,
+                    conversation.Mode,
+                    conversation.IsArchived,
+                    conversation.CreatedAtUtc,
+                    conversation.UpdatedAtUtc,
+                    RawMemoryJson = conversation.MemoryJson,
+                    Memory = ParseJson(conversation.MemoryJson)
+                },
+                Context = new { Course = course, Assignment = assignment },
+                Stats = new
+                {
+                    MessageCount = messages.Count,
+                    RunCount = runs.Count,
+                    StepCount = steps.Count,
+                    VisibleStepCount = steps.Count(x => x.IsVisibleToUser),
+                    HiddenDebugStepCount = steps.Count(x => !x.IsVisibleToUser),
+                    ArtifactCount = artifacts.Count,
+                    HiddenDraftCount = hiddenDrafts.Count,
+                    FailedRunCount = runs.Count(x => string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase)),
+                    WaitingApprovalRunCount = runs.Count(x => string.Equals(x.Status, "waiting_approval", StringComparison.OrdinalIgnoreCase))
+                },
+                RunSummaries = runSummaries,
+                Messages = messages,
+                Runs = runs,
+                Steps = steps,
+                Artifacts = artifacts,
+                HiddenDrafts = hiddenDrafts,
+                RealtimeNote = "Client-side SignalR events are appended by the React button after this backend dump."
+            };
+        }
+
+        private static string BuildAgentDebugDumpText(object dump)
+        {
+            var json = JsonSerializer.Serialize(dump, new JsonSerializerOptions { WriteIndented = true });
+            var sb = new StringBuilder();
+            sb.AppendLine("TASKFORGE AI DEBUG DUMP");
+            sb.AppendLine("Generated by /api/agent/conversations/{conversationId}/debug-dump");
+            sb.AppendLine("Contains raw AI request/result JSON, messages, runs, steps, artifacts, proposals, apply attempts and hidden drafts.");
+            sb.AppendLine(new string('=', 96));
+            sb.AppendLine(json);
+            return sb.ToString();
+        }
+
+        private static string? TrimForDebug(string? value, int max)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            value = value.Trim();
+            return value.Length <= max ? value : value[..max] + "…";
+        }
+
         private async Task<int> NextStepSeqAsync(Guid runId)
         {
             return (await _db.AgentSteps.Where(x => x.RunId == runId).Select(x => (int?)x.Seq).MaxAsync() ?? 0) + 1;
@@ -659,21 +1090,23 @@ namespace taskforge.Controllers.Agent
         }
 
 
-        private static List<AgentAttachmentDto> NormalizeAttachments(IEnumerable<AgentAttachmentDto>? attachments)
+        private static List<AgentAttachmentDto> NormalizeAttachments(IEnumerable<AgentAttachmentDto>? attachments, Guid conversationId)
         {
             var result = new List<AgentAttachmentDto>();
+            var expectedPrefix = $"agent-conversations/{conversationId:N}/";
             foreach (var item in attachments ?? Enumerable.Empty<AgentAttachmentDto>())
             {
                 if (string.IsNullOrWhiteSpace(item.Key)) continue;
                 var key = item.Key.Trim();
+                if (!key.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase)) continue;
                 result.Add(new AgentAttachmentDto
                 {
                     Key = key,
                     FileName = string.IsNullOrWhiteSpace(item.FileName) ? Path.GetFileName(key) : Path.GetFileName(item.FileName),
                     ContentType = string.IsNullOrWhiteSpace(item.ContentType) ? "application/octet-stream" : item.ContentType.Trim(),
                     SizeBytes = Math.Max(0, item.SizeBytes),
-                    Url = string.IsNullOrWhiteSpace(item.Url) ? $"/api/private-files/{Uri.EscapeDataString(key)}" : item.Url,
-                    ExtractedText = string.IsNullOrWhiteSpace(item.ExtractedText) ? null : item.ExtractedText,
+                    Url = $"/api/private-files/{Uri.EscapeDataString(key)}",
+                    ExtractedText = null,
                 });
             }
             return result.Take(10).ToList();
@@ -813,6 +1246,8 @@ namespace taskforge.Controllers.Agent
             ContentHash = artifact.ContentHash,
             CreatedAtUtc = artifact.CreatedAtUtc,
         };
+
+        private static object? ParseJson(string? json) => ParseJsonElement(json);
 
         private static JsonElement? ParseJsonElement(string? json)
         {

@@ -39,7 +39,7 @@ namespace taskforge.Controllers
             var uid = _current.GetUserId();
             var role = _current.GetRole();
 
-            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId))
+            if (!await _access.CanEditCourseAsync(uid, role, courseId))
                 return Forbid();
 
             var id = await _assignments.CreateAsync(courseId, req, uid);
@@ -90,7 +90,7 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             await _assignments.UpdateAsync(assignmentId, uid, req);
@@ -108,7 +108,7 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             await _assignments.DeleteAsync(assignmentId, uid);
@@ -124,7 +124,7 @@ namespace taskforge.Controllers
 
             var task = await _db.TaskAssignments.FirstOrDefaultAsync(a => a.Id == assignmentId);
             if (task == null) return NotFound();
-            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, task.CourseId))
+            if (!await _access.CanEditCourseAsync(uid, role, task.CourseId))
                 return Forbid();
 
             var status = (body.LifecycleStatus ?? (body.IsHidden ? "draft" : "published")).Trim().ToLowerInvariant();
@@ -157,7 +157,7 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             await _assignments.UpdateSortAsync(assignmentId, uid, body.Sort);
@@ -175,7 +175,7 @@ namespace taskforge.Controllers
                 .Select(a => (Guid?)a.CourseId)
                 .FirstOrDefaultAsync();
             if (courseId == null) return NotFound();
-            if (!string.Equals(role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase) && !await _access.CanEditCourseAsync(uid, role, courseId.Value))
+            if (!await _access.CanEditCourseAsync(uid, role, courseId.Value))
                 return Forbid();
 
             var ok = await _assignments.PlaceAfterAssignmentAsync(assignmentId, body.AfterAssignmentId, uid);
