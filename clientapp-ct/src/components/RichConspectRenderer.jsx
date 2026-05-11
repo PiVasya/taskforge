@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, PlayCircle, Sparkles } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, Maximize2, Minimize2, PlayCircle, Sparkles, X } from 'lucide-react';
 
 function safeJson(value, fallback) {
   if (!value) return fallback;
@@ -19,6 +19,126 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-seri
 img,video,iframe{max-width:100%}.tf-conspect{max-width:1040px;margin:0 auto}.tf-conspect h1{font-size:42px;line-height:1.1;margin:0 0 16px}.tf-conspect h2{font-size:26px;margin:30px 0 12px}.tf-conspect table{border-collapse:collapse;width:100%;margin:16px 0}.tf-conspect th,.tf-conspect td{border:1px solid #e5e7eb;padding:10px;text-align:left}.tf-conspect .card{border:1px solid #dbeafe;background:#eff6ff;border-radius:18px;padding:16px;margin:12px 0}
 a{color:#0369a1}button,a.button,.btn{display:inline-flex;align-items:center;gap:8px;border-radius:14px;background:#0284c7;color:white;text-decoration:none;padding:10px 14px;font-weight:600}
 </style></head><body>${html || '<p>Конспект пока пустой.</p>'}</body></html>`;
+}
+
+
+function HtmlConspectFrame({ html, title, conspect }) {
+  const shellRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [autoSuppressed, setAutoSuppressed] = useState(false);
+
+  useEffect(() => {
+    if (!isFullscreen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    const node = shellRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return undefined;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        if (entry.intersectionRatio < 0.12) {
+          setAutoSuppressed(false);
+          return;
+        }
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.55 && !autoSuppressed) {
+          setIsFullscreen(true);
+        }
+      },
+      { threshold: [0, 0.12, 0.35, 0.55, 0.75] },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [autoSuppressed]);
+
+  const openFullscreen = () => {
+    setAutoSuppressed(false);
+    setIsFullscreen(true);
+  };
+
+  const closeFullscreen = () => {
+    setAutoSuppressed(true);
+    setIsFullscreen(false);
+  };
+
+  const frame = (
+    <iframe
+      title={title || 'Конспект'}
+      className="h-full w-full rounded-[1.4rem] bg-white"
+      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={buildHtmlSrcDoc(html)}
+    />
+  );
+
+  return (
+    <>
+      <section ref={shellRef} className="rounded-[2rem] border border-neutral-200 bg-white p-2 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-2 pt-2 md:px-3 md:pt-3">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+              {conspect.sectionCode || 'Раздел'} · чтение
+            </div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400">Конспект можно открыть на весь экран</div>
+          </div>
+          <button
+            type="button"
+            onClick={openFullscreen}
+            className="inline-flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-4 py-2 text-sm font-bold shadow-sm transition hover:border-brand-300 hover:text-brand-700 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:text-brand-200"
+          >
+            <Maximize2 size={16} /> На весь экран
+          </button>
+        </div>
+        <div className="h-[80vh] overflow-hidden rounded-[1.6rem]">
+          {frame}
+        </div>
+      </section>
+
+      {isFullscreen && (
+        <div className="fixed inset-0 z-[100] bg-neutral-950/80 p-0 backdrop-blur-sm md:p-4" role="dialog" aria-modal="true" aria-label="Полноэкранный конспект">
+          <div className="flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl dark:bg-neutral-950 md:rounded-[2rem] md:border md:border-white/20">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95 md:px-5">
+              <div className="min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+                  {conspect.sectionCode || 'Раздел'} · полноэкранный конспект
+                </div>
+                <div className="truncate text-base font-black md:text-lg">{title || 'Конспект'}</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeFullscreen}
+                className="inline-flex items-center gap-2 rounded-2xl bg-neutral-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
+              >
+                <Minimize2 size={16} /> Закрыть в обычный вид
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 bg-white p-2 dark:bg-neutral-950 md:p-3">
+              <iframe
+                title={`${title || 'Конспект'} — полноэкранный режим`}
+                className="h-full w-full rounded-[1.2rem] bg-white"
+                sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+                srcDoc={buildHtmlSrcDoc(html)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={closeFullscreen}
+              aria-label="Закрыть полноэкранный конспект"
+              className="absolute right-3 top-3 hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-neutral-950/70 text-white shadow-lg backdrop-blur transition hover:bg-neutral-800 md:flex"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function toTasksHref(link, tasksBasePath = '/tasks') {
@@ -211,14 +331,7 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-neutral-200 bg-white p-2 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
-          <iframe
-            title={conspect.title || 'Конспект'}
-            className="h-[80vh] w-full rounded-[1.6rem] bg-white"
-            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
-            srcDoc={buildHtmlSrcDoc(html)}
-          />
-        </section>
+        <HtmlConspectFrame html={html} title={conspect.title || 'Конспект'} conspect={conspect} />
 
         {taskLinks.length > 0 && (
           <section className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-5">

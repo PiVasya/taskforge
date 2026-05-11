@@ -112,6 +112,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
     if (!form.prompt.trim()) return 'Заполни текст задания.';
     if (isChoice && options.length === 0) return 'Для задания с выбором ответа добавь варианты.';
     if (!form.correctAnswer.trim()) return 'Укажи правильный ответ.';
+    if (!form.explanation.trim()) return 'Заполни объяснение: ученик должен видеть, почему ответ правильный или неправильный.';
     if (isChoice && !options.some((x) => x.toLowerCase() === form.correctAnswer.trim().toLowerCase())) {
       return 'Правильный ответ должен совпадать с одним из вариантов.';
     }
@@ -204,7 +205,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
         ) : null}
         <Field label="Правильный ответ" required hint={isChoice ? 'Должен совпадать с одним из вариантов.' : 'Для краткого ответа регистр не важен, ё/е нормализуется на бэке.'}><Input value={form.correctAnswer} onChange={(e) => setField('correctAnswer', e.target.value)} /></Field>
         <Field label="Теги" hint="Через запятую: A1, орфография, ЦТ."><Input value={form.tagsText} onChange={(e) => setField('tagsText', e.target.value)} /></Field>
-        <div className="md:col-span-2"><Field label="Объяснение после проверки"><Textarea rows={3} value={form.explanation} onChange={(e) => setField('explanation', e.target.value)} /></Field></div>
+        <div className="md:col-span-2"><Field label="Объяснение после проверки" required hint="Показывается в решениях и после неправильного ответа."><Textarea rows={3} value={form.explanation} onChange={(e) => setField('explanation', e.target.value)} /></Field></div>
         <Field label="Источник"><Input value={form.sourceName} onChange={(e) => setField('sourceName', e.target.value)} placeholder="например: авторское / ЦТ 2023" /></Field>
         <Field label="Год источника"><Input type="number" value={form.sourceYear} onChange={(e) => setField('sourceYear', e.target.value)} /></Field>
         <label className="flex items-center gap-2 pt-2 md:col-span-2"><input type="checkbox" checked={form.isPublished} onChange={(e) => setField('isPublished', e.target.checked)} /><span className="text-sm font-semibold">Опубликовано</span><span className="text-xs text-neutral-500">видно ученику</span></label>

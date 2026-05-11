@@ -87,6 +87,20 @@ public sealed record QuizAttemptResultDto(
     QuizProgressDto Progress
 );
 
+public sealed record QuizSolutionDto(
+    QuizTaskDto Task,
+    Guid AttemptId,
+    Guid TaskVersionId,
+    string AnswerJson,
+    bool IsCorrect,
+    decimal Score,
+    decimal MaxScore,
+    decimal ScorePercent,
+    string ExplanationJson,
+    DateTime CreatedAt,
+    QuizProgressDto? Progress
+);
+
 public sealed record QuizProgressDto(
     Guid TaskId,
     bool Solved,

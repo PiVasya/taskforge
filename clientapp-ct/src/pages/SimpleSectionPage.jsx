@@ -1,10 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Loader2, PlayCircle, RefreshCcw, RotateCcw, XCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Loader2,
+  PlayCircle,
+  RefreshCcw,
+  RotateCcw,
+  XCircle,
+} from 'lucide-react';
 import Layout from '../components/Layout';
 import RichConspectRenderer from '../components/RichConspectRenderer';
 import { getLearningConspect, getLearningConspects } from '../api/learning';
-import { getQuizTask, getQuizTasks, submitQuizAttempt } from '../api/quiz';
+import {
+  getMyQuizProgress,
+  getMyQuizSolutions,
+  getQuizTask,
+  getQuizTasks,
+  submitQuizAttempt,
+} from '../api/quiz';
 import {
   CT_PARTS,
   RANDOM_TASKS_COUNT,
@@ -21,15 +35,6 @@ function safeJson(raw, fallback) {
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return fallback; }
 }
 
-function shuffle(items) {
-  const result = [...(items || [])];
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
-
 function randomAttemptId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random()}`;
@@ -39,7 +44,73 @@ function answerPayload(answer, hasOptions) {
   return hasOptions ? { selected: [answer] } : { value: answer };
 }
 
-function RandomTaskCard({ task }) {
+function progressMapFrom(progressItems) {
+  return new Map((progressItems || []).map((item) => [item.taskId, item]));
+}
+
+function taskStatus(task, progressMap) {
+  const progress = progressMap.get(task.id);
+  if (!progress) return 'new';
+  return progress.solved ? 'correct' : 'wrong';
+}
+
+function taskWeight(task, progressMap) {
+  const status = taskStatus(task, progressMap);
+  if (status === 'new') return 9;
+  if (status === 'wrong') return 5;
+  return 1;
+}
+
+function weightedRandomTasks(items, progressMap, count = RANDOM_TASKS_COUNT) {
+  return [...(items || [])]
+    .map((task) => {
+      const weight = taskWeight(task, progressMap);
+      const key = -Math.log(Math.random() || 0.000001) / weight;
+      return { task, key };
+    })
+    .sort((a, b) => a.key - b.key)
+    .slice(0, count)
+    .map((item) => item.task);
+}
+
+function explanationText(raw) {
+  const data = safeJson(raw, {});
+  if (typeof data === 'string') return data;
+  if (data.text) return data.text;
+  if (data.markdown) return data.markdown;
+  if (Array.isArray(data.blocks)) {
+    return data.blocks
+      .map((block) => block?.text || block?.content || '')
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
+function answerToText(raw) {
+  const data = safeJson(raw, raw || '');
+  if (typeof data === 'string') return data;
+  if (Array.isArray(data)) return data.join(', ');
+  if (Array.isArray(data.selected)) return data.selected.join(', ');
+  if (Array.isArray(data.values)) return data.values.join(', ');
+  if (Array.isArray(data.answers)) return data.answers.join(', ');
+  if (data.value) return data.value;
+  if (data.text) return data.text;
+  if (data.typedText) return data.typedText;
+  return JSON.stringify(data);
+}
+
+function StatusPill({ status }) {
+  if (status === 'new') {
+    return <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800 dark:bg-sky-950/40 dark:text-sky-100">новое</span>;
+  }
+  if (status === 'wrong') {
+    return <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800 dark:bg-red-950/40 dark:text-red-100">нужно повторить</span>;
+  }
+  return <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">решено</span>;
+}
+
+function RandomTaskCard({ task, progressMap, onAnswered }) {
   const [details, setDetails] = useState(null);
   const [answer, setAnswer] = useState('');
   const [result, setResult] = useState(null);
@@ -68,10 +139,11 @@ function RandomTaskCard({ task }) {
   }, [task.id, task.slug]);
 
   const taskInfo = details?.task || task;
+  const status = taskStatus(taskInfo, progressMap);
   const taskData = useMemo(() => safeJson(details?.dataJson, {}), [details]);
-  const explanation = useMemo(() => safeJson(result?.explanationJson || details?.explanationJson, {}), [result, details]);
   const options = Array.isArray(taskData.options) ? taskData.options : [];
   const answerText = taskData.answerText || taskData.hint || '';
+  const resultExplanation = explanationText(result?.explanationJson || details?.explanationJson);
 
   const handleSubmit = async () => {
     if (!details?.task?.id || !answer.trim()) return;
@@ -84,6 +156,7 @@ function RandomTaskCard({ task }) {
         { clientAttemptId: randomAttemptId() },
       );
       setResult(response);
+      onAnswered?.(details.task.id, response.progress);
     } catch (e) {
       setError(e?.userMessage || e?.message || 'Не удалось проверить ответ.');
     } finally {
@@ -93,8 +166,9 @@ function RandomTaskCard({ task }) {
 
   return (
     <article className="rounded-[1.75rem] border border-neutral-200/80 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-        {taskInfo.sectionCode || task.sectionCode} · сложность {taskInfo.difficulty || task.difficulty || 1}
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+        <span>{taskInfo.sectionCode || task.sectionCode} · сложность {taskInfo.difficulty || task.difficulty || 1}</span>
+        <StatusPill status={status} />
       </div>
       <h3 className="text-xl font-bold">{taskInfo.title}</h3>
       <p className="mt-3 whitespace-pre-line text-lg font-semibold leading-7">{taskInfo.prompt}</p>
@@ -148,20 +222,27 @@ function RandomTaskCard({ task }) {
             {result.isCorrect ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
             {result.isCorrect ? 'Верно' : 'Неверно'} · {result.scorePercent}%
           </div>
-          {explanation.text && <p className="mt-2 leading-7">{explanation.text}</p>}
+          <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">
+            Твой ответ: <span className="font-bold">{answer}</span>
+          </div>
+          {resultExplanation ? (
+            <div className="mt-3 rounded-2xl bg-white/70 p-3 leading-7 dark:bg-neutral-950/40">
+              <div className="mb-1 text-xs font-bold uppercase tracking-wide text-neutral-500">Почему</div>
+              <p className="whitespace-pre-line">{resultExplanation}</p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">Для этого задания объяснение пока не заполнено.</p>
+          )}
         </div>
       )}
     </article>
   );
 }
 
-function RandomTasksBlock({ sectionCode }) {
-  const [allTasks, setAllTasks] = useState([]);
-  const [visibleTasks, setVisibleTasks] = useState([]);
+function SolutionsPanel({ sectionCode, refreshKey }) {
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const chooseRandom = (items) => setVisibleTasks(shuffle(items).slice(0, RANDOM_TASKS_COUNT));
 
   useEffect(() => {
     let cancelled = false;
@@ -169,10 +250,106 @@ function RandomTasksBlock({ sectionCode }) {
       setLoading(true);
       setError('');
       try {
-        const tasks = await getQuizTasks({ subjectCode: SUBJECT_CODE, examCode: EXAM_CODE, sectionCode });
+        const data = await getMyQuizSolutions({ sectionCode });
+        if (!cancelled) setItems(data || []);
+      } catch (e) {
+        if (!cancelled) setError(e?.userMessage || e?.message || 'Не удалось загрузить решения.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [sectionCode, refreshKey]);
+
+  return (
+    <div className="mb-5 rounded-[1.75rem] border border-neutral-200 bg-white p-4 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 md:p-5">
+      <h3 className="text-2xl font-black tracking-tight">Решения {sectionCode}</h3>
+      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+        Здесь виден последний ответ по каждому заданию. Если ответить на то же задание ещё раз, старый ответ заменится новым.
+      </p>
+
+      {loading ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+          <Loader2 size={16} className="animate-spin" /> Загружаю решения...
+        </div>
+      ) : error ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">{error}</div>
+      ) : items.length === 0 ? (
+        <div className="mt-4 rounded-2xl border border-dashed border-neutral-200 p-4 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+          Пока нет решённых или проверенных заданий по {sectionCode}.
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-3">
+          {items.map((item) => {
+            const why = explanationText(item.explanationJson);
+            return (
+              <div key={item.attemptId} className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{item.task?.sectionCode}</div>
+                    <div className="font-bold">{item.task?.title}</div>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.isCorrect ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100' : 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-100'}`}>
+                    {item.isCorrect ? 'правильно' : 'неправильно'} · {item.scorePercent}%
+                  </span>
+                </div>
+                <p className="mt-3 whitespace-pre-line text-sm leading-6 text-neutral-700 dark:text-neutral-200">{item.task?.prompt}</p>
+                <div className="mt-3 rounded-2xl bg-white p-3 text-sm dark:bg-neutral-900">
+                  Твой ответ: <span className="font-bold">{answerToText(item.answerJson)}</span>
+                </div>
+                <div className="mt-3 rounded-2xl bg-white p-3 text-sm leading-6 dark:bg-neutral-900">
+                  <div className="mb-1 text-xs font-bold uppercase tracking-wide text-neutral-500">Почему</div>
+                  {why ? <p className="whitespace-pre-line">{why}</p> : <p className="text-neutral-500 dark:text-neutral-400">Объяснение для этого задания пока не заполнено.</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RandomTasksBlock({ sectionCode }) {
+  const [allTasks, setAllTasks] = useState([]);
+  const [visibleTasks, setVisibleTasks] = useState([]);
+  const [progress, setProgress] = useState([]);
+  const [solutionsOpen, setSolutionsOpen] = useState(false);
+  const [solutionsRefreshKey, setSolutionsRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const progressMap = useMemo(() => progressMapFrom(progress), [progress]);
+  const stats = useMemo(() => {
+    const map = progressMap;
+    return (allTasks || []).reduce((acc, task) => {
+      acc[taskStatus(task, map)] += 1;
+      return acc;
+    }, { new: 0, wrong: 0, correct: 0 });
+  }, [allTasks, progressMap]);
+
+  const chooseRandom = (items, map = progressMap) => {
+    setVisibleTasks(weightedRandomTasks(items, map));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError('');
+      try {
+        const [tasks, progressItems] = await Promise.all([
+          getQuizTasks({ subjectCode: SUBJECT_CODE, examCode: EXAM_CODE, sectionCode }),
+          getMyQuizProgress({ sectionCode }).catch(() => []),
+        ]);
         if (cancelled) return;
-        setAllTasks(tasks || []);
-        chooseRandom(tasks || []);
+        const normalizedTasks = tasks || [];
+        const normalizedProgress = progressItems || [];
+        const map = progressMapFrom(normalizedProgress);
+        setAllTasks(normalizedTasks);
+        setProgress(normalizedProgress);
+        setVisibleTasks(weightedRandomTasks(normalizedTasks, map));
       } catch (e) {
         if (!cancelled) setError(e?.userMessage || e?.message || 'Не удалось загрузить задания.');
       } finally {
@@ -183,17 +360,41 @@ function RandomTasksBlock({ sectionCode }) {
     return () => { cancelled = true; };
   }, [sectionCode]);
 
+  function handleAnswered(taskId, progressDto) {
+    if (progressDto) {
+      setProgress((prev) => {
+        const withoutCurrent = (prev || []).filter((item) => item.taskId !== taskId);
+        return [progressDto, ...withoutCurrent];
+      });
+    }
+    setSolutionsRefreshKey((prev) => prev + 1);
+  }
+
   return (
     <section className="mt-8 rounded-[2rem] border border-neutral-200/80 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950/40 md:p-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-3xl font-black tracking-tight">Случайные задания</h2>
-          <p className="mt-1 text-neutral-600 dark:text-neutral-300">Практика по {sectionCode} сразу после конспекта.</p>
+          <p className="mt-1 text-neutral-600 dark:text-neutral-300">
+            Сначала чаще выпадают новые, потом неправильные, потом уже решённые.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-neutral-600 dark:text-neutral-300">
+            <span className="rounded-full bg-sky-100 px-3 py-1 dark:bg-sky-950/40">новые: {stats.new}</span>
+            <span className="rounded-full bg-red-100 px-3 py-1 dark:bg-red-950/40">повторить: {stats.wrong}</span>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 dark:bg-emerald-950/40">решено: {stats.correct}</span>
+          </div>
         </div>
-        <button type="button" onClick={() => chooseRandom(allTasks)} disabled={allTasks.length === 0 || loading} className="btn-outline inline-flex items-center gap-2 disabled:opacity-60">
-          <RefreshCcw size={18} /> Другие
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setSolutionsOpen((value) => !value)} className="btn-outline inline-flex items-center gap-2">
+            <CheckCircle2 size={18} /> Решения
+          </button>
+          <button type="button" onClick={() => chooseRandom(allTasks)} disabled={allTasks.length === 0 || loading} className="btn-outline inline-flex items-center gap-2 disabled:opacity-60">
+            <RefreshCcw size={18} /> Другие
+          </button>
+        </div>
       </div>
+
+      {solutionsOpen ? <SolutionsPanel sectionCode={sectionCode} refreshKey={solutionsRefreshKey} /> : null}
 
       {loading ? (
         <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
@@ -208,7 +409,9 @@ function RandomTasksBlock({ sectionCode }) {
         </div>
       ) : (
         <div className="grid gap-4">
-          {visibleTasks.map((task) => <RandomTaskCard key={task.id} task={task} />)}
+          {visibleTasks.map((task) => (
+            <RandomTaskCard key={task.id} task={task} progressMap={progressMap} onAnswered={handleAnswered} />
+          ))}
         </div>
       )}
     </section>

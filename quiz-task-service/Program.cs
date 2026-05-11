@@ -147,12 +147,28 @@ app.MapPost("/api/quiz/tasks/{taskId:guid}/attempts", [Authorize] async (QuizDbC
     if (!userId.HasValue) return Results.Unauthorized();
 
     var clientAttemptId = req.ClientAttemptId ?? Guid.NewGuid();
-    var existing = await db.Attempts.FirstOrDefaultAsync(x => x.UserId == userId.Value && x.ClientAttemptId == clientAttemptId);
-    if (existing != null)
+    var existingByClientAttempt = await db.Attempts.AsNoTracking()
+        .FirstOrDefaultAsync(x => x.UserId == userId.Value && x.ClientAttemptId == clientAttemptId);
+    if (existingByClientAttempt != null)
     {
-        var existingProgress = await db.Progress.AsNoTracking().FirstAsync(x => x.UserId == userId.Value && x.TaskId == existing.TaskId);
-        var existingVersion = await db.TaskVersions.AsNoTracking().FirstAsync(x => x.Id == existing.TaskVersionId);
-        return Results.Ok(ToResult(existing, existingVersion.ExplanationJson, existingProgress));
+        var existingProgress = await db.Progress.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == userId.Value && x.TaskId == existingByClientAttempt.TaskId);
+        var existingVersion = await db.TaskVersions.AsNoTracking().FirstAsync(x => x.Id == existingByClientAttempt.TaskVersionId);
+
+        existingProgress ??= new QuizProgress
+        {
+            UserId = userId.Value,
+            TaskId = existingByClientAttempt.TaskId,
+            Solved = existingByClientAttempt.IsCorrect,
+            BestScore = existingByClientAttempt.Score,
+            BestScorePercent = existingByClientAttempt.MaxScore <= 0 ? 0 : existingByClientAttempt.Score / existingByClientAttempt.MaxScore * 100m,
+            AttemptsCount = 1,
+            LastAttemptId = existingByClientAttempt.Id,
+            FirstSolvedAt = existingByClientAttempt.IsCorrect ? existingByClientAttempt.CreatedAt : null,
+            LastAttemptAt = existingByClientAttempt.CreatedAt
+        };
+
+        return Results.Ok(ToResult(existingByClientAttempt, existingVersion.ExplanationJson, existingProgress));
     }
 
     var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == taskId && x.IsPublished);
@@ -166,6 +182,14 @@ app.MapPost("/api/quiz/tasks/{taskId:guid}/attempts", [Authorize] async (QuizDbC
     var isCorrect = QuizAnswerChecker.IsCorrect(req.Answer, version.CorrectAnswerJson);
     var score = isCorrect ? 1m : 0m;
     var now = DateTime.UtcNow;
+
+    var oldAttempts = await db.Attempts
+        .Where(x => x.UserId == userId.Value && x.TaskId == task.Id)
+        .ToListAsync();
+    if (oldAttempts.Count > 0)
+    {
+        db.Attempts.RemoveRange(oldAttempts);
+    }
 
     var attempt = new QuizAttempt
     {
@@ -189,36 +213,85 @@ app.MapPost("/api/quiz/tasks/{taskId:guid}/attempts", [Authorize] async (QuizDbC
         progress = new QuizProgress
         {
             UserId = userId.Value,
-            TaskId = task.Id,
-            Solved = isCorrect,
-            BestScore = score,
-            BestScorePercent = score * 100m,
-            AttemptsCount = 1,
-            LastAttemptId = attempt.Id,
-            FirstSolvedAt = isCorrect ? now : null,
-            LastAttemptAt = now
+            TaskId = task.Id
         };
         db.Progress.Add(progress);
     }
-    else
-    {
-        progress.AttemptsCount += 1;
-        progress.LastAttemptAt = now;
-        progress.LastAttemptId = attempt.Id;
-        if (score > progress.BestScore)
-        {
-            progress.BestScore = score;
-            progress.BestScorePercent = score * 100m;
-        }
-        if (isCorrect && !progress.Solved)
-        {
-            progress.Solved = true;
-            progress.FirstSolvedAt = now;
-        }
-    }
+
+    progress.Solved = isCorrect;
+    progress.BestScore = score;
+    progress.BestScorePercent = score * 100m;
+    progress.AttemptsCount = 1;
+    progress.LastAttemptId = attempt.Id;
+    progress.FirstSolvedAt = isCorrect ? now : null;
+    progress.LastAttemptAt = now;
 
     await db.SaveChangesAsync();
     return Results.Ok(ToResult(attempt, version.ExplanationJson, progress));
+});
+
+app.MapGet("/api/quiz/me/solutions", [Authorize] async (QuizDbContext db, ClaimsPrincipal user, string? sectionCode) =>
+{
+    var userId = TryGetUserId(user);
+    if (!userId.HasValue) return Results.Unauthorized();
+
+    var taskQuery = db.Tasks.AsNoTracking().Where(x => x.IsPublished).AsQueryable();
+    if (!string.IsNullOrWhiteSpace(sectionCode))
+    {
+        taskQuery = taskQuery.Where(x => x.SectionCode == sectionCode);
+    }
+
+    var tasks = await taskQuery.ToListAsync();
+    var taskIds = tasks.Select(x => x.Id).ToList();
+    if (taskIds.Count == 0) return Results.Ok(Array.Empty<QuizSolutionDto>());
+
+    var attempts = await db.Attempts.AsNoTracking()
+        .Where(x => x.UserId == userId.Value && taskIds.Contains(x.TaskId))
+        .OrderByDescending(x => x.CreatedAt)
+        .ToListAsync();
+
+    var latestAttempts = attempts
+        .GroupBy(x => x.TaskId)
+        .Select(x => x.First())
+        .OrderByDescending(x => x.CreatedAt)
+        .ToList();
+
+    if (latestAttempts.Count == 0) return Results.Ok(Array.Empty<QuizSolutionDto>());
+
+    var versionIds = latestAttempts.Select(x => x.TaskVersionId).Distinct().ToList();
+    var versions = await db.TaskVersions.AsNoTracking()
+        .Where(x => versionIds.Contains(x.Id))
+        .ToDictionaryAsync(x => x.Id);
+
+    var progressByTask = await db.Progress.AsNoTracking()
+        .Where(x => x.UserId == userId.Value && taskIds.Contains(x.TaskId))
+        .ToDictionaryAsync(x => x.TaskId);
+
+    var tasksById = tasks.ToDictionary(x => x.Id);
+    var result = new List<QuizSolutionDto>();
+
+    foreach (var attempt in latestAttempts)
+    {
+        if (!tasksById.TryGetValue(attempt.TaskId, out var task)) continue;
+        if (!versions.TryGetValue(attempt.TaskVersionId, out var version)) continue;
+        progressByTask.TryGetValue(attempt.TaskId, out var progress);
+
+        var percent = attempt.MaxScore <= 0 ? 0 : Math.Round(attempt.Score / attempt.MaxScore * 100m, 2);
+        result.Add(new QuizSolutionDto(
+            QuizTaskDto.FromEntity(task),
+            attempt.Id,
+            attempt.TaskVersionId,
+            attempt.AnswerJson,
+            attempt.IsCorrect,
+            attempt.Score,
+            attempt.MaxScore,
+            percent,
+            version.ExplanationJson,
+            attempt.CreatedAt,
+            progress == null ? null : QuizProgressDto.FromEntity(progress)));
+    }
+
+    return Results.Ok(result);
 });
 
 app.MapGet("/api/quiz/me/progress", [Authorize] async (QuizDbContext db, ClaimsPrincipal user, string? sectionCode) =>
@@ -259,6 +332,33 @@ app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")]
         return element.HasValue ? element.Value.GetRawText() : fallback;
     }
 
+    static string ExtractExplanationText(string explanationJson)
+    {
+        if (string.IsNullOrWhiteSpace(explanationJson) || explanationJson == "{}") return string.Empty;
+        try
+        {
+            using var doc = JsonDocument.Parse(explanationJson);
+            var root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.String) return root.GetString() ?? string.Empty;
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String) return text.GetString() ?? string.Empty;
+                if (root.TryGetProperty("markdown", out var markdown) && markdown.ValueKind == JsonValueKind.String) return markdown.GetString() ?? string.Empty;
+            }
+        }
+        catch
+        {
+            return explanationJson;
+        }
+        return string.Empty;
+    }
+
+    var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
+    if (string.IsNullOrWhiteSpace(ExtractExplanationText(explanationJson)))
+    {
+        return Results.BadRequest(new { message = "Explanation is required" });
+    }
+
     var task = new QuizTask
     {
         Slug = req.Slug.Trim(),
@@ -282,7 +382,7 @@ app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")]
         VersionNumber = 1,
         DataJson = JsonOrDefault(req.Data, req.DataJson, "{}"),
         CorrectAnswerJson = JsonOrDefault(req.CorrectAnswer, req.CorrectAnswerJson, "{}"),
-        ExplanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}"),
+        ExplanationJson = explanationJson,
         ChangeComment = "Initial version"
     };
 

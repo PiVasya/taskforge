@@ -24,6 +24,11 @@ export async function getMyQuizProgress(params = {}) {
   return res.data;
 }
 
+export async function getMyQuizSolutions(params = {}) {
+  const res = await api.get('/api/quiz/me/solutions', { params });
+  return res.data;
+}
+
 export async function createQuizTask(payload) {
   const res = await api.post('/api/admin/quiz/tasks', payload);
   return res.data;

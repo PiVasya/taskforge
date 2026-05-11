@@ -16,14 +16,11 @@ export default function Layout({ children, fullWidth = false }) {
     navigate('/login', { replace: true });
   };
 
-  const sectionMatch = location.pathname.match(/^\/([ab]\d{1,2})$/i) || location.pathname.match(/^\/editor\/([ab]\d{1,2})$/i);
-  const currentSectionPath = sectionMatch ? `/editor/${sectionMatch[1].toLowerCase()}` : '/editor/a1';
-
   const handleToggleEditor = () => {
     const next = !isEditorMode;
     toggle();
-    if (next) navigate(currentSectionPath);
-    else navigate(sectionMatch ? `/${sectionMatch[1].toLowerCase()}` : '/');
+    if (next) navigate('/editor');
+    else navigate('/');
   };
 
   return (
@@ -47,8 +44,8 @@ export default function Layout({ children, fullWidth = false }) {
                     {isEditorMode ? 'Просмотр' : 'Редактор'}
                   </button>
                 )}
-                {canEdit && isEditorMode && !location.pathname.startsWith('/editor') && (
-                  <Link to={currentSectionPath} className="hidden rounded-2xl px-3 py-2 font-semibold hover:bg-neutral-100 dark:hover:bg-neutral-900 md:inline-flex">
+                {canEdit && isEditorMode && location.pathname !== '/editor' && (
+                  <Link to="/editor" className="hidden rounded-2xl px-3 py-2 font-semibold hover:bg-neutral-100 dark:hover:bg-neutral-900 md:inline-flex">
                     Управление
                   </Link>
                 )}
