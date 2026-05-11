@@ -26,8 +26,9 @@ export default function App() {
         <Route path="/courses/:courseSlug/tasks" element={<QuizTasksPage />} />
         <Route path="/tasks" element={<Navigate to="/" replace />} />
         <Route path="/conspects/:slug" element={<LearningConspectPage />} />
-        <Route path="/editor" element={<LearningEditorPage />} />
-        <Route path="/editor/courses/:courseSlug" element={<LearningEditorPage />} />
+        <Route path="/editor" element={<Navigate to="/editor/a1" replace />} />
+        <Route path="/editor/:sectionCode" element={<LearningEditorPage />} />
+        <Route path="/editor/courses/:courseSlug" element={<Navigate to="/editor/a1" replace />} />
         <Route path="/:sectionCode" element={<SimpleSectionPage />} />
       </Route>
       <Route path="/admin/conspects" element={<Navigate to="/editor" replace />} />
