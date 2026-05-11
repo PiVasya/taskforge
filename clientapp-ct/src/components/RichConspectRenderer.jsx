@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, PlayCircle, Sparkles } from 'lucide-react';
 
@@ -186,6 +186,13 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
   const content = useMemo(() => safeJson(details?.contentJson, {}), [details]);
   const conspect = details?.conspect || {};
   const taskLinks = details?.taskLinks || [];
+  const tabs = Array.isArray(content.tabs) ? content.tabs : [];
+  const initialTab = content.startTabId || tabs[0]?.id || 'main';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab, details?.conspect?.id]);
 
   if (content?.mode === 'html' || typeof content?.html === 'string' || typeof content?.rawHtml === 'string') {
     const html = content.html || content.rawHtml || '';
@@ -223,9 +230,6 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
     );
   }
 
-  const tabs = Array.isArray(content.tabs) ? content.tabs : [];
-  const initialTab = content.startTabId || tabs[0]?.id || 'main';
-  const [activeTab, setActiveTab] = useState(initialTab);
   const currentTab = tabs.find((tab) => tab.id === activeTab) || tabs[0];
 
   return (
