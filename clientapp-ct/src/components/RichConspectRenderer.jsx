@@ -192,7 +192,7 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
 
   useEffect(() => {
     setActiveTab(initialTab);
-  }, [initialTab, details?.conspect?.id]);
+  }, [initialTab]);
 
   if (content?.mode === 'html' || typeof content?.html === 'string' || typeof content?.rawHtml === 'string') {
     const html = content.html || content.rawHtml || '';

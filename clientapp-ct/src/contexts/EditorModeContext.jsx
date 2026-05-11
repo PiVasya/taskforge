@@ -23,7 +23,7 @@ function getRoles(access) {
     .filter((v, i, a) => v && a.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i);
 }
 const Ctx = createContext(null);
-export const useEditorMode = () => useContext(Ctx) || { canEdit: false, isEditorMode: false, toggle: () => {}, roles: [], hasRole: () => false };
+export const useEditorMode = () => useContext(Ctx) || { canEdit: false, isEditorMode: false, setEditorMode: () => {}, toggle: () => {}, roles: [], hasRole: () => false };
 const KEY = 'ctEditorMode.v1';
 export default function EditorModeProvider({ children }) {
   const { access } = useAuth();
@@ -38,6 +38,11 @@ export default function EditorModeProvider({ children }) {
   useEffect(() => {
     if (canEdit) { try { localStorage.setItem(KEY, isEditorMode ? '1' : '0'); } catch {} }
   }, [canEdit, isEditorMode]);
-  const value = useMemo(() => ({ canEdit, isEditorMode, toggle: () => canEdit && setIsEditorMode((v) => !v), roles, hasRole }), [canEdit, isEditorMode, roles]);
+  const setEditorMode = (value) => {
+    if (!canEdit) return;
+    setIsEditorMode(Boolean(value));
+  };
+  const toggle = () => canEdit && setIsEditorMode((v) => !v);
+  const value = { canEdit, isEditorMode, setEditorMode, toggle, roles, hasRole };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
