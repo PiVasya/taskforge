@@ -12,6 +12,15 @@ function safeJson(value, fallback) {
   }
 }
 
+function buildHtmlSrcDoc(html) {
+  return `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;color:#111827;background:#fff;line-height:1.6}
+img,video,iframe{max-width:100%}.tf-conspect{max-width:1040px;margin:0 auto}.tf-conspect h1{font-size:42px;line-height:1.1;margin:0 0 16px}.tf-conspect h2{font-size:26px;margin:30px 0 12px}.tf-conspect table{border-collapse:collapse;width:100%;margin:16px 0}.tf-conspect th,.tf-conspect td{border:1px solid #e5e7eb;padding:10px;text-align:left}.tf-conspect .card{border:1px solid #dbeafe;background:#eff6ff;border-radius:18px;padding:16px;margin:12px 0}
+a{color:#0369a1}button,a.button,.btn{display:inline-flex;align-items:center;gap:8px;border-radius:14px;background:#0284c7;color:white;text-decoration:none;padding:10px 14px;font-weight:600}
+</style></head><body>${html || '<p>Конспект пока пустой.</p>'}</body></html>`;
+}
+
 function toTasksHref(link, tasksBasePath = '/tasks') {
   const filter = safeJson(link?.taskFilterJson, null);
   const params = new URLSearchParams();
@@ -45,6 +54,16 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
   if (!block || typeof block !== 'object') return null;
 
   switch (block.type) {
+    case 'heading':
+      return <h2 id={block.id || undefined} className="text-2xl font-bold tracking-tight">{block.text || block.title}</h2>;
+
+    case 'text':
+      return (
+        <BlockShell block={{ ...block, title: block.title || null }} icon={<BookOpen size={20} className="text-brand-600" />}>
+          <p className="whitespace-pre-line leading-7 text-neutral-700 dark:text-neutral-200">{block.text}</p>
+        </BlockShell>
+      );
+
     case 'rule-card':
       return (
         <BlockShell block={block} icon={<BookOpen size={20} className="text-brand-600" />}>
@@ -62,7 +81,7 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
     case 'warning':
       return (
         <BlockShell block={block} icon={<AlertTriangle size={20} className="text-amber-600" />} className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
-          <p className="text-base leading-7 text-neutral-800 dark:text-neutral-200">{block.text}</p>
+          <p className="whitespace-pre-line text-base leading-7 text-neutral-800 dark:text-neutral-200">{block.text}</p>
         </BlockShell>
       );
 
@@ -104,21 +123,9 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
         <BlockShell block={block} icon={<BookOpen size={20} className="text-brand-600" />}>
           <div className="overflow-x-auto rounded-2xl border border-neutral-200 dark:border-neutral-800">
             <table className="min-w-full text-sm">
-              <thead className="bg-neutral-100 dark:bg-neutral-950">
-                <tr>
-                  {(block.columns || []).map((col) => (
-                    <th key={col} className="px-4 py-3 text-left font-semibold">{col}</th>
-                  ))}
-                </tr>
-              </thead>
+              <thead className="bg-neutral-100 dark:bg-neutral-950"><tr>{(block.columns || []).map((col) => <th key={col} className="px-4 py-3 text-left font-semibold">{col}</th>)}</tr></thead>
               <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                {(block.rows || []).map((row, rowIndex) => (
-                  <tr key={rowIndex}>
-                    {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="px-4 py-3 align-top leading-6">{cell}</td>
-                    ))}
-                  </tr>
-                ))}
+                {(block.rows || []).map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className="px-4 py-3 align-top leading-6">{cell}</td>)}</tr>)}
               </tbody>
             </table>
           </div>
@@ -132,13 +139,10 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
             {(block.groups || []).map((group) => (
               <div key={group.title} className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-4">
                 <div className="font-semibold text-brand-700 dark:text-brand-200">{group.title}</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(group.words || []).map((word) => (
-                    <span key={word} className="rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-3 py-1 text-sm">{word}</span>
-                  ))}
-                </div>
+                <div className="mt-3 flex flex-wrap gap-2">{(group.words || block.words || []).map((word) => <span key={word} className="rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-3 py-1 text-sm">{word}</span>)}</div>
               </div>
             ))}
+            {!block.groups && (block.words || []).length > 0 ? <div className="flex flex-wrap gap-2 md:col-span-3">{block.words.map((word) => <span key={word} className="rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-3 py-1 text-sm">{word}</span>)}</div> : null}
           </div>
         </BlockShell>
       );
@@ -150,11 +154,7 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
             {(block.years || []).map((year) => (
               <div key={year.year} className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-4">
                 <div className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">{year.year}</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(year.words || []).map((word) => (
-                    <span key={word} className="rounded-full bg-brand-50 dark:bg-brand-900/20 border border-brand-200 dark:border-brand-800 px-3 py-1 text-sm">{word}</span>
-                  ))}
-                </div>
+                <div className="mt-2 flex flex-wrap gap-2">{(year.words || []).map((word) => <span key={word} className="rounded-full bg-brand-50 dark:bg-brand-900/20 border border-brand-200 dark:border-brand-800 px-3 py-1 text-sm">{word}</span>)}</div>
               </div>
             ))}
           </div>
@@ -167,18 +167,16 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
           <p className="leading-7 text-neutral-700 dark:text-neutral-200">{block.text}</p>
           {block.cta?.href && (
             <Link to={block.cta.href?.startsWith('/tasks') ? `${tasksBasePath}${block.cta.href.includes('?') ? block.cta.href.slice(block.cta.href.indexOf('?')) : ''}` : block.cta.href} className="btn-primary mt-4 inline-flex items-center gap-2">
-              <PlayCircle size={18} />
-              {block.cta.label || 'К заданиям'}
+              <PlayCircle size={18} />{block.cta.label || 'К заданиям'}
             </Link>
           )}
         </BlockShell>
       );
 
-    case 'note':
     default:
       return (
         <BlockShell block={block} icon={<BookOpen size={20} className="text-brand-600" />}>
-          {block.text && <p className="leading-7 text-neutral-700 dark:text-neutral-200">{block.text}</p>}
+          {block.text && <p className="whitespace-pre-line leading-7 text-neutral-700 dark:text-neutral-200">{block.text}</p>}
         </BlockShell>
       );
   }
@@ -186,83 +184,77 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
 
 export default function RichConspectRenderer({ details, tasksBasePath = '/tasks' }) {
   const content = useMemo(() => safeJson(details?.contentJson, {}), [details]);
+  const conspect = details?.conspect || {};
+  const taskLinks = details?.taskLinks || [];
+
+  if (content?.mode === 'html' || typeof content?.html === 'string' || typeof content?.rawHtml === 'string') {
+    const html = content.html || content.rawHtml || '';
+    return (
+      <article className="space-y-6">
+        <section className="relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-6 md:p-8">
+          <div className="absolute inset-0 bg-gradient-to-br from-brand-100/70 via-transparent to-transparent dark:from-brand-900/30 pointer-events-none" />
+          <div className="relative">
+            <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">{conspect.sectionCode || 'Раздел'} · HTML-конспект</div>
+            <h1 className="max-w-4xl text-3xl md:text-5xl font-bold tracking-tight">{conspect.title}</h1>
+            {conspect.lead && <p className="mt-4 max-w-3xl text-lg leading-8 text-neutral-700 dark:text-neutral-200">{conspect.lead}</p>}
+            <div className="mt-6 flex flex-wrap gap-3">
+              {conspect.estimatedMinutes ? <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">Время</div><div className="font-semibold">≈ {conspect.estimatedMinutes} мин.</div></div> : null}
+              {conspect.subtitle ? <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">Тип</div><div className="font-semibold">{conspect.subtitle}</div></div> : null}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-neutral-200 bg-white p-2 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
+          <iframe
+            title={conspect.title || 'Конспект'}
+            className="h-[80vh] w-full rounded-[1.6rem] bg-white"
+            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            srcDoc={buildHtmlSrcDoc(html)}
+          />
+        </section>
+
+        {taskLinks.length > 0 && (
+          <section className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-5">
+            <h3 className="text-xl font-semibold tracking-tight">Задания к конспекту</h3>
+            <div className="mt-4 flex flex-wrap gap-3">{taskLinks.map((link) => <Link key={link.id} to={toTasksHref(link, tasksBasePath)} className="btn-primary inline-flex items-center gap-2"><PlayCircle size={18} />{link.buttonText || link.title || 'К заданиям'}</Link>)}</div>
+          </section>
+        )}
+      </article>
+    );
+  }
+
   const tabs = Array.isArray(content.tabs) ? content.tabs : [];
   const initialTab = content.startTabId || tabs[0]?.id || 'main';
   const [activeTab, setActiveTab] = useState(initialTab);
   const currentTab = tabs.find((tab) => tab.id === activeTab) || tabs[0];
-  const taskLinks = details?.taskLinks || [];
-  const conspect = details?.conspect || {};
 
   return (
     <article className="space-y-6">
       <section className="relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-6 md:p-8">
         <div className="absolute inset-0 bg-gradient-to-br from-brand-100/70 via-transparent to-transparent dark:from-brand-900/30 pointer-events-none" />
         <div className="relative">
-          <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-            {content.hero?.eyebrow || `${conspect.sectionCode || 'Раздел'} · Конспект`}
-          </div>
+          <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">{content.hero?.eyebrow || `${conspect.sectionCode || 'Раздел'} · Конспект`}</div>
           <h1 className="max-w-4xl text-3xl md:text-5xl font-bold tracking-tight">{content.hero?.title || conspect.title}</h1>
-          {(content.hero?.description || conspect.lead) && (
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-neutral-700 dark:text-neutral-200">{content.hero?.description || conspect.lead}</p>
-          )}
+          {(content.hero?.description || conspect.lead) && <p className="mt-4 max-w-3xl text-lg leading-8 text-neutral-700 dark:text-neutral-200">{content.hero?.description || conspect.lead}</p>}
           <div className="mt-6 flex flex-wrap gap-3">
-            {(content.hero?.stats || []).map((stat) => (
-              <div key={`${stat.label}-${stat.value}`} className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3">
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">{stat.label}</div>
-                <div className="font-semibold">{stat.value}</div>
-              </div>
-            ))}
-            {conspect.estimatedMinutes ? (
-              <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3">
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">Время</div>
-                <div className="font-semibold">≈ {conspect.estimatedMinutes} мин.</div>
-              </div>
-            ) : null}
+            {(content.hero?.stats || []).map((stat) => <div key={`${stat.label}-${stat.value}`} className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">{stat.label}</div><div className="font-semibold">{stat.value}</div></div>)}
+            {conspect.estimatedMinutes ? <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">Время</div><div className="font-semibold">≈ {conspect.estimatedMinutes} мин.</div></div> : null}
           </div>
         </div>
       </section>
 
       {tabs.length > 0 && (
         <div className="sticky top-[57px] z-20 -mx-4 overflow-x-auto border-y border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/95 dark:bg-neutral-950/95 px-4 py-3 backdrop-blur md:mx-0 md:rounded-3xl md:border">
-          <div className="flex min-w-max gap-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${tab.id === currentTab?.id ? 'bg-brand-600 text-white shadow-soft' : 'bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-brand-300'}`}
-              >
-                {tab.title}
-              </button>
-            ))}
-          </div>
+          <div className="flex min-w-max gap-2">{tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${tab.id === currentTab?.id ? 'bg-brand-600 text-white shadow-soft' : 'bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-brand-300'}`}>{tab.title}</button>)}</div>
         </div>
       )}
 
-      <div className="space-y-4">
-        {(currentTab?.blocks || []).map((block, index) => (
-          <RenderBlock key={block.id || `${block.type}-${index}`} block={block} tasksBasePath={tasksBasePath} />
-        ))}
-      </div>
+      <div className="space-y-4">{(currentTab?.blocks || content.blocks || []).map((block, index) => <RenderBlock key={block.id || index} block={block} tasksBasePath={tasksBasePath} />)}</div>
 
       {taskLinks.length > 0 && (
-        <section className="rounded-[2rem] border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-900/20 p-5 md:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <PlayCircle size={21} className="text-brand-700 dark:text-brand-200" />
-            <h2 className="text-2xl font-semibold tracking-tight">Задания к конспекту</h2>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {taskLinks.map((link) => (
-              <Link key={link.id} to={toTasksHref(link, tasksBasePath)} className="group rounded-2xl border border-brand-200 dark:border-brand-800 bg-white dark:bg-neutral-900 p-4 transition hover:-translate-y-0.5 hover:shadow-soft">
-                <div className="text-sm text-neutral-500 dark:text-neutral-400">{link.groupTitle || link.sourceService}</div>
-                <div className="mt-1 font-semibold group-hover:text-brand-700 dark:group-hover:text-brand-200">{link.title}</div>
-                <div className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-200">
-                  <PlayCircle size={16} />
-                  {link.buttonText || 'К заданиям'}
-                </div>
-              </Link>
-            ))}
-          </div>
+        <section className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-5">
+          <h3 className="text-xl font-semibold tracking-tight">Задания к конспекту</h3>
+          <div className="mt-4 flex flex-wrap gap-3">{taskLinks.map((link) => <Link key={link.id} to={toTasksHref(link, tasksBasePath)} className="btn-primary inline-flex items-center gap-2"><PlayCircle size={18} />{link.buttonText || link.title || 'К заданиям'}</Link>)}</div>
         </section>
       )}
     </article>

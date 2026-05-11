@@ -62,6 +62,30 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Unhandled learning-content-service error. Path: {Path}", context.Request.Path);
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                status = 500,
+                message = "Внутренняя ошибка learning-content-service.",
+                detail = ex.Message,
+                hint = "Открой docker logs taskforge-learning-content-service и проверь эту же ошибку по времени."
+            });
+        }
+    }
+});
+
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -143,7 +167,7 @@ app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, bool inclu
 app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, string slug, bool includeDraft = false) =>
 {
     var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Slug == slug);
-    if (course == null || (!includeDraft && !course.IsPublished)) return Results.NotFound();
+    if (course == null || (!includeDraft && !course.IsPublished)) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"Slug: {slug}", "Проверь выбранный узел дерева или включи includeDraft=true для черновиков.");
 
     var childrenQuery = db.Courses.AsNoTracking().Where(x => x.ParentCourseId == course.Id);
     var pagesQuery = db.Pages.AsNoTracking().Where(x => x.CourseId == course.Id);
@@ -176,7 +200,7 @@ app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, 
 app.MapGet("/api/learning/courses/{slug}/conspects", async (LearningDbContext db, string slug, bool includeDraft = false) =>
 {
     var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Slug == slug);
-    if (course == null || (!includeDraft && !course.IsPublished)) return Results.NotFound();
+    if (course == null || (!includeDraft && !course.IsPublished)) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"Slug: {slug}", "Проверь выбранный узел дерева или включи includeDraft=true для черновиков.");
 
     var query = db.Conspects.AsNoTracking().Where(x => x.CourseId == course.Id);
     if (!includeDraft) query = query.Where(x => x.IsPublished);
@@ -229,12 +253,12 @@ app.MapGet("/api/learning/conspects/{idOrSlug}", async (LearningDbContext db, st
             .Where(x => x.Slug == courseSlug)
             .Select(x => (Guid?)x.Id)
             .FirstOrDefaultAsync();
-        if (!courseId.HasValue) return Results.NotFound();
+        if (!courseId.HasValue) return ApiError(StatusCodes.Status404NotFound, "Курс для конспекта не найден.", $"courseSlug: {courseSlug}", "Обнови дерево редактора и попробуй снова.");
         query = query.Where(x => x.CourseId == courseId.Value);
     }
 
     var conspect = await query.OrderBy(x => x.SortOrder).FirstOrDefaultAsync();
-    if (conspect == null) return Results.NotFound();
+    if (conspect == null) return ApiError(StatusCodes.Status404NotFound, "Конспект не найден.", $"idOrSlug: {idOrSlug}", "Проверь slug конспекта или открой его из списка в редакторе.");
 
     var taskLinks = await db.ConspectTaskLinks.AsNoTracking()
         .Where(x => x.ConspectId == conspect.Id)
@@ -253,11 +277,17 @@ app.MapPost("/api/admin/learning/courses", [Authorize(Roles = "Admin,LearningEdi
 {
     if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Title))
     {
-        return Results.BadRequest(new { message = "Slug and Title are required" });
+        return ApiError(StatusCodes.Status400BadRequest, "Нужно заполнить Slug и Title.", null, "Slug — это часть URL, Title — название в интерфейсе.");
+    }
+
+    if (req.ParentCourseId.HasValue)
+    {
+        var parentExists = await db.Courses.AnyAsync(x => x.Id == req.ParentCourseId.Value);
+        if (!parentExists) return ApiError(StatusCodes.Status404NotFound, "Родительский курс не найден.", $"parentCourseId: {req.ParentCourseId}", "Обнови дерево редактора и выбери родителя заново.");
     }
 
     var exists = await db.Courses.AnyAsync(x => x.Slug == req.Slug.Trim());
-    if (exists) return Results.Conflict(new { message = "Course slug already exists" });
+    if (exists) return ApiError(StatusCodes.Status409Conflict, "Курс с таким slug уже существует.", req.Slug.Trim(), "Выбери другой slug, например добавь -2 или код раздела.");
 
     var course = new LearningCourse
     {
@@ -282,9 +312,15 @@ app.MapPost("/api/admin/learning/courses", [Authorize(Roles = "Admin,LearningEdi
 app.MapPut("/api/admin/learning/courses/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id, [FromBody] UpdateLearningCourseRequest req) =>
 {
     var course = await db.Courses.FirstOrDefaultAsync(x => x.Id == id);
-    if (course == null) return Results.NotFound();
+    if (course == null) return ApiError(StatusCodes.Status404NotFound, "Курс / раздел не найден.", $"Id: {id}", "Обнови страницу редактора: возможно, объект был удалён или выбран старый id.");
 
-    if (!string.IsNullOrWhiteSpace(req.Slug)) course.Slug = req.Slug.Trim();
+    if (!string.IsNullOrWhiteSpace(req.Slug))
+    {
+        var newSlug = req.Slug.Trim();
+        var duplicate = await db.Courses.AnyAsync(x => x.Id != id && x.Slug == newSlug);
+        if (duplicate) return ApiError(StatusCodes.Status409Conflict, "Другой курс уже использует такой slug.", newSlug, "Slug должен быть уникальным во всём learning-дереве.");
+        course.Slug = newSlug;
+    }
     if (!string.IsNullOrWhiteSpace(req.Title)) course.Title = req.Title.Trim();
     if (req.ParentCourseId.HasValue) course.ParentCourseId = req.ParentCourseId;
     if (req.ShortTitle != null) course.ShortTitle = req.ShortTitle.Trim();
@@ -304,7 +340,7 @@ app.MapPut("/api/admin/learning/courses/{id:guid}", [Authorize(Roles = "Admin,Le
 app.MapPost("/api/admin/learning/courses/{courseId:guid}/pages", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid courseId, [FromBody] CreateLearningPageRequest req) =>
 {
     var courseExists = await db.Courses.AnyAsync(x => x.Id == courseId);
-    if (!courseExists) return Results.NotFound(new { message = "Course not found" });
+    if (!courseExists) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"courseId: {courseId}");
 
     var bodyJson = JsonOrDefault(req.Body, req.BodyJson, null);
 
@@ -328,14 +364,14 @@ app.MapPost("/api/admin/learning/courses/{courseId:guid}/pages", [Authorize(Role
 app.MapPost("/api/admin/learning/courses/{courseId:guid}/conspects", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid courseId, [FromBody] CreateLearningConspectRequest req) =>
 {
     var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == courseId);
-    if (course == null) return Results.NotFound(new { message = "Course not found" });
+    if (course == null) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"courseId: {courseId}", "Обнови дерево редактора и выбери курс заново.");
     if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Title))
     {
-        return Results.BadRequest(new { message = "Slug and Title are required" });
+        return ApiError(StatusCodes.Status400BadRequest, "Нужно заполнить Slug и Title.", null, "Slug — это часть URL, Title — название в интерфейсе.");
     }
 
     var exists = await db.Conspects.AnyAsync(x => x.CourseId == courseId && x.Slug == req.Slug.Trim());
-    if (exists) return Results.Conflict(new { message = "Conspect slug already exists in this course" });
+    if (exists) return ApiError(StatusCodes.Status409Conflict, "В этом курсе уже есть конспект с таким slug.", req.Slug.Trim(), "Открой существующий конспект из списка или задай новый slug.");
 
     var conspect = new LearningConspect
     {
@@ -364,9 +400,15 @@ app.MapPost("/api/admin/learning/courses/{courseId:guid}/conspects", [Authorize(
 app.MapPut("/api/admin/learning/conspects/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id, [FromBody] UpdateLearningConspectRequest req) =>
 {
     var conspect = await db.Conspects.FirstOrDefaultAsync(x => x.Id == id);
-    if (conspect == null) return Results.NotFound();
+    if (conspect == null) return ApiError(StatusCodes.Status404NotFound, "Конспект не найден.", $"Id: {id}", "Обнови список конспектов и выбери его заново.");
 
-    if (!string.IsNullOrWhiteSpace(req.Slug)) conspect.Slug = req.Slug.Trim();
+    if (!string.IsNullOrWhiteSpace(req.Slug))
+    {
+        var newSlug = req.Slug.Trim();
+        var duplicate = await db.Conspects.AnyAsync(x => x.Id != id && x.CourseId == conspect.CourseId && x.Slug == newSlug);
+        if (duplicate) return ApiError(StatusCodes.Status409Conflict, "В этом курсе уже есть другой конспект с таким slug.", newSlug, "Открой существующий конспект или задай новый slug.");
+        conspect.Slug = newSlug;
+    }
     if (!string.IsNullOrWhiteSpace(req.Title)) conspect.Title = req.Title.Trim();
     if (req.Subtitle != null) conspect.Subtitle = req.Subtitle.Trim();
     if (req.Lead != null) conspect.Lead = req.Lead;
@@ -400,8 +442,8 @@ app.MapPut("/api/admin/learning/conspects/{id:guid}", [Authorize(Roles = "Admin,
 app.MapPost("/api/admin/learning/conspects/{conspectId:guid}/task-links", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid conspectId, [FromBody] CreateLearningConspectTaskLinkRequest req) =>
 {
     var conspectExists = await db.Conspects.AnyAsync(x => x.Id == conspectId);
-    if (!conspectExists) return Results.NotFound(new { message = "Conspect not found" });
-    if (string.IsNullOrWhiteSpace(req.Title)) return Results.BadRequest(new { message = "Title is required" });
+    if (!conspectExists) return ApiError(StatusCodes.Status404NotFound, "Конспект не найден.", $"conspectId: {conspectId}", "Сначала сохрани конспект, затем добавляй связи с заданиями.");
+    if (string.IsNullOrWhiteSpace(req.Title)) return ApiError(StatusCodes.Status400BadRequest, "Нужно заполнить название связи с заданием.");
 
     var link = new LearningConspectTaskLink
     {
@@ -427,7 +469,7 @@ app.MapPost("/api/admin/learning/conspects/{conspectId:guid}/task-links", [Autho
 app.MapDelete("/api/admin/learning/conspect-task-links/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id) =>
 {
     var link = await db.ConspectTaskLinks.FirstOrDefaultAsync(x => x.Id == id);
-    if (link == null) return Results.NotFound();
+    if (link == null) return ApiError(StatusCodes.Status404NotFound, "Связь с заданием не найдена.", $"Id: {id}");
     db.ConspectTaskLinks.Remove(link);
     await db.SaveChangesAsync();
     return Results.NoContent();
@@ -436,7 +478,7 @@ app.MapDelete("/api/admin/learning/conspect-task-links/{id:guid}", [Authorize(Ro
 app.MapPost("/api/admin/learning/courses/{courseId:guid}/task-links", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid courseId, [FromBody] CreateLearningTaskLinkRequest req) =>
 {
     var courseExists = await db.Courses.AnyAsync(x => x.Id == courseId);
-    if (!courseExists) return Results.NotFound(new { message = "Course not found" });
+    if (!courseExists) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"courseId: {courseId}");
 
     var link = new LearningCourseTaskLink
     {
@@ -456,7 +498,25 @@ app.MapPost("/api/admin/learning/courses/{courseId:guid}/task-links", [Authorize
     return Results.Ok(LearningTaskLinkDto.FromEntity(link));
 });
 
+
+app.MapPost("/api/admin/learning/courses/{courseId}/conspects", [Authorize(Roles = "Admin,LearningEditor")] (string courseId) =>
+{
+    return ApiError(StatusCodes.Status400BadRequest, "Некорректный id курса в адресе создания конспекта.", courseId, "Фронт должен отправлять GUID выбранного LearningCourse, а не slug.");
+});
+
 app.Run();
+
+
+static IResult ApiError(int statusCode, string message, string? detail = null, string? hint = null)
+{
+    return Results.Json(new
+    {
+        status = statusCode,
+        message,
+        detail,
+        hint
+    }, statusCode: statusCode);
+}
 
 static string? JsonOrDefault(JsonElement? element, string? json, string? fallback)
 {
