@@ -16,6 +16,8 @@ import {
   Save,
 } from 'lucide-react';
 import Layout from '../components/Layout';
+import CtStructureBootstrapPanel from '../components/CtStructureBootstrapPanel';
+import SectionTaskAdminPanel from '../components/SectionTaskAdminPanel';
 import {
   createLearningConspect,
   createLearningCourse,
@@ -498,6 +500,7 @@ export default function LearningEditorPage() {
                 {!tree.length && <div className="rounded-2xl border border-dashed border-neutral-200 p-4 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">Дерево пустое.</div>}
               </div>
             </section>
+            <CtStructureBootstrapPanel allCourses={allCourses} onDone={loadTree} />
             <section className="rounded-[2rem] border border-neutral-200 bg-white p-4 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
               <div className="mb-2 font-semibold">Быстрый переход</div>
               <select value={selected} onChange={(e) => open(e.target.value)} className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 outline-none focus:border-brand-400 dark:border-neutral-800 dark:bg-neutral-950">
@@ -609,7 +612,7 @@ export default function LearningEditorPage() {
                     <Textarea rows={24} spellCheck={false} value={html} onChange={(e) => setHtml(e.target.value)} className="font-mono text-sm" />
                     <div className="mt-3 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
                       <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-                      HTML хранится отдельно от заданий. Кнопку к заданиям делай обычной ссылкой в HTML, например: &lt;a href=&quot;/courses/{selectedCourse.slug}/tasks&quot;&gt;Перейти к заданиям&lt;/a&gt;.
+                      HTML хранится отдельно от заданий. Кнопку к заданиям делать не нужно: фронт сам показывает задания под конспектом. Если ссылка нужна внутри HTML, веди на номер: &lt;a href=&quot;/{(selectedCourse.sectionCode || 'a1').toLowerCase()}&quot;&gt;Практика&lt;/a&gt;.
                     </div>
                     {showPreview ? <div className="mt-4"><HtmlPreview html={html} /></div> : null}
                   </div>
@@ -618,9 +621,11 @@ export default function LearningEditorPage() {
                     <button type="button" onClick={saveConspect} disabled={busy === 'conspect'} className="btn-primary inline-flex items-center gap-2 disabled:opacity-60">
                       {busy === 'conspect' ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Сохранить конспект
                     </button>
-                    {conspectForm.id ? <Link to={`/courses/${selectedCourse.slug}/conspects/${conspectForm.slug}`} className="btn-outline inline-flex items-center gap-2"><CheckCircle2 size={18} /> Открыть конспект</Link> : null}
+                    {conspectForm.id ? <Link to={`/${(conspectForm.sectionCode || selectedCourse.sectionCode || 'a1').toLowerCase()}`} className="btn-outline inline-flex items-center gap-2"><CheckCircle2 size={18} /> Открыть как ученик</Link> : null}
                   </div>
                 </section>
+
+                <SectionTaskAdminPanel selectedCourse={selectedCourse} />
               </>
             ) : (
               <Alert>Выбери элемент дерева слева.</Alert>
