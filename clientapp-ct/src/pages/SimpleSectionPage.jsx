@@ -466,7 +466,7 @@ export default function SimpleSectionPage({ sectionCode }) {
           if (!cancelled) setDetails(null);
           return;
         }
-        const data = await getLearningConspect(first.slug || first.id);
+        const data = await getLearningConspect(first.id || first.slug);
         if (!cancelled) setDetails(data);
       } catch (e) {
         if (!cancelled) setError(e?.userMessage || e?.message || 'Не удалось загрузить конспект.');
