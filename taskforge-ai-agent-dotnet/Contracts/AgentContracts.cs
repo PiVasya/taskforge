@@ -60,7 +60,7 @@ public sealed class AgentResultEnvelope
             ["status"] = Status,
             ["scenarioId"] = ScenarioId,
             ["assistantMessage"] = AssistantMessage,
-            ["memoryPatch"] = MemoryPatch,
+            ["memoryPatch"] = MemoryPatch.DeepClone(),
             ["artifacts"] = new JsonArray(Artifacts.Select(a => new JsonObject
             {
                 ["type"] = a.Type,

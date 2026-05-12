@@ -76,11 +76,13 @@ public sealed class ResultEnvelopeBuilder
             Status = node["status"]?.ToString() ?? "completed",
             ScenarioId = node["scenarioId"]?.ToString() ?? fallbackScenarioId,
             AssistantMessage = node["assistantMessage"]?.ToString() ?? node["assistant_message"]?.ToString() ?? "Готово.",
-            MemoryPatch = node["memoryPatch"] as JsonObject ?? new JsonObject
-            {
-                ["lastIntent"] = fallbackScenarioId,
-                ["activeCourseId"] = job.CourseId?.ToString()
-            }
+            MemoryPatch = node["memoryPatch"] is JsonObject memoryPatch
+                ? memoryPatch.DeepClone().AsObject()
+                : new JsonObject
+                {
+                    ["lastIntent"] = fallbackScenarioId,
+                    ["activeCourseId"] = job.CourseId?.ToString()
+                }
         };
 
         if (node["artifacts"] is JsonArray artifacts)
