@@ -55,10 +55,33 @@ public sealed class DraftAuthorExecutor
   "tags": ["AI", "черновик"]
 }
 """;
-        var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
-        await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+        string responseText;
+        try
+        {
+            var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
+            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+            responseText = response.Text ?? string.Empty;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            state.Notes.Add($"Draft author LLM call failed on attempt {attempt + 1}: {ex.GetType().Name}: {ex.Message}");
+            await _steps.TryReportAsync("draft", "failed", "Не удалось получить ответ LLM для черновика", ex.Message, new JsonObject
+            {
+                ["exceptionType"] = ex.GetType().Name,
+                ["message"] = ex.Message,
+                ["attempt"] = attempt + 1
+            });
 
-        var draft = ParseDraft(response.Text ?? string.Empty, state.Job, attempt);
+            if (state.Draft != null)
+                return state.Draft;
+
+            var fallbackDraft = ParseDraft(string.Empty, state.Job, attempt);
+            fallbackDraft.Extra["llmError"] = ex.Message;
+            state.Draft = fallbackDraft;
+            return fallbackDraft;
+        }
+
+        var draft = ParseDraft(responseText, state.Job, attempt);
         state.Draft = draft;
         await _steps.TryReportAsync("draft", "completed", "Черновик задания подготовлен", draft.Title, draft.ToArtifactData());
         return draft;

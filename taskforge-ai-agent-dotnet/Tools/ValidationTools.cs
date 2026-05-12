@@ -78,17 +78,19 @@ public sealed class ValidationTools
                 continue;
             }
 
-            var expected = test["expectedOutput"]?.ToString();
-            if (string.IsNullOrWhiteSpace(expected))
+            if (!test.ContainsKey("expectedOutput") && !test.ContainsKey("output"))
                 issues.Add($"{(hidden ? "hidden" : "public")} test #{i + 1} expectedOutput is required");
         }
     }
 
     private static string TestFingerprint(JsonObject test)
     {
-        var input = (test["input"]?.ToString() ?? string.Empty).Replace("\r\n", "\n").Trim();
-        var expected = (test["expectedOutput"]?.ToString() ?? string.Empty).Replace("\r\n", "\n").Trim();
-        return string.IsNullOrWhiteSpace(expected) ? string.Empty : $"{input}=>{expected}";
+        if (!test.ContainsKey("expectedOutput") && !test.ContainsKey("output"))
+            return string.Empty;
+
+        var input = (test["input"]?.ToString() ?? string.Empty).Replace("\r\n", "\n");
+        var expected = (test["expectedOutput"]?.ToString() ?? test["output"]?.ToString() ?? string.Empty).Replace("\r\n", "\n");
+        return $"{input}=>{expected}";
     }
 
     [Description("Run code tests through TaskForge backend compiler service. Use it for code-test draft validation, not for theoretical reasoning.")]
@@ -123,10 +125,13 @@ public sealed class ValidationTools
         var issues = new JsonArray();
         var description = draft["description"]?.ToString() ?? string.Empty;
         if (description.Length < 120) issues.Add("description is probably too short for a student-facing assignment");
-        if (!description.Contains("вход", StringComparison.OrdinalIgnoreCase) && (draft["assignmentType"]?.ToString() ?? "") == "code-test")
-            issues.Add("code-test description should explain input format");
-        if (!description.Contains("выход", StringComparison.OrdinalIgnoreCase) && (draft["assignmentType"]?.ToString() ?? "") == "code-test")
-            issues.Add("code-test description should explain output format");
+        if ((draft["assignmentType"]?.ToString() ?? "") == "code-test")
+        {
+            if (!ContainsAny(description, "ввод", "вход", "input", "stdin", "формат ввода"))
+                issues.Add("code-test description should explain input format");
+            if (!ContainsAny(description, "вывод", "выход", "output", "stdout", "формат вывода"))
+                issues.Add("code-test description should explain output format");
+        }
 
         return Task.FromResult(new JsonObject
         {
@@ -134,5 +139,10 @@ public sealed class ValidationTools
             ["score"] = issues.Count == 0 ? 92 : Math.Max(45, 90 - issues.Count * 15),
             ["issues"] = issues
         });
+    }
+
+    private static bool ContainsAny(string text, params string[] needles)
+    {
+        return needles.Any(needle => text.Contains(needle, StringComparison.OrdinalIgnoreCase));
     }
 }

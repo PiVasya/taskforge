@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
 using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Options;
@@ -70,7 +71,7 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
                 break;
             }
 
-            plan += $"\nRepair attempt {attempt + 1}: учти замечания критика: {critique.ToJsonString()}";
+            plan += $"\nRepair attempt {attempt + 1}: учти только эти замечания: {CompactCritiqueForRepair(critique)}";
             state.Notes.Add($"Draft attempt {attempt + 1} rejected by critique.");
         }
 
@@ -85,5 +86,30 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         await _approval.ExecuteForDraftAsync(state, acceptedDraft);
         state.AssistantMessage = "Я подготовил черновик задания, прогнал проверки качества и вынес результат в artifact. Для сохранения/публикации требуется подтверждение.";
         return _envelopes.FromWorkflowState(state);
+    }
+
+    private static string CompactCritiqueForRepair(JsonObject critique)
+    {
+        var issues = new List<string>();
+        AddArrayItems(issues, critique["staticCritique"]?["issues"] as JsonArray);
+        AddArrayItems(issues, critique["modelCritique"]?["issues"] as JsonArray);
+        AddArrayItems(issues, critique["modelCritique"]?["repairHints"] as JsonArray);
+        AddArrayItems(issues, critique["validation"]?["shape"]?["issues"] as JsonArray);
+
+        if (issues.Count == 0)
+            return "проверь форматы ввода/вывода, тесты и соответствие запросу пользователя.";
+
+        var compact = string.Join("; ", issues.Select(x => x.Length <= 240 ? x : x[..240] + "..."));
+        return compact.Length <= 2000 ? compact : compact[..2000] + "...";
+    }
+
+    private static void AddArrayItems(List<string> target, JsonArray? items)
+    {
+        if (items == null) return;
+        foreach (var item in items)
+        {
+            var text = item?.ToString();
+            if (!string.IsNullOrWhiteSpace(text)) target.Add(text);
+        }
     }
 }
