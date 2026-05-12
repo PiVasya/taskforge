@@ -132,7 +132,10 @@ public sealed class TaskForgeInternalApiClient
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogWarning("TaskForge internal API call failed: {Path} {Status} {Body}", path, response.StatusCode, raw);
-            response.EnsureSuccessStatusCode();
+            throw new HttpRequestException(
+                $"TaskForge internal API call failed: {(int)response.StatusCode} ({response.StatusCode}) for {path}. Response: {raw}",
+                null,
+                response.StatusCode);
         }
 
         if (string.IsNullOrWhiteSpace(raw))

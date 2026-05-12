@@ -189,7 +189,7 @@ namespace taskforge.Controllers.Agent
                 return Ok(new { ok = true, runId = run.Id, alreadyCompleted = true, status = run.Status });
 
             var now = DateTime.UtcNow;
-            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            var workerCheck = ValidateTerminalWorker(run, request.WorkerId, now, "complete");
             if (workerCheck != null) return workerCheck;
 
             var result = request.Result;
@@ -390,7 +390,7 @@ namespace taskforge.Controllers.Agent
                 return Ok(new { ok = true, runId = run.Id, alreadyCompleted = true, status = run.Status });
 
             var now = DateTime.UtcNow;
-            var workerCheck = ValidateActiveWorker(run, request.WorkerId, now);
+            var workerCheck = ValidateTerminalWorker(run, request.WorkerId, now, "fail");
             if (workerCheck != null) return workerCheck;
 
             var errorRaw = request.Error.ValueKind == JsonValueKind.Undefined ? "{}" : request.Error.GetRawText();
@@ -1207,6 +1207,37 @@ namespace taskforge.Controllers.Agent
             var headerBytes = Encoding.UTF8.GetBytes(header);
             return expectedBytes.Length == headerBytes.Length
                    && CryptographicOperations.FixedTimeEquals(expectedBytes, headerBytes);
+        }
+
+
+        private IActionResult? ValidateTerminalWorker(AgentRun run, string? workerId, DateTime now, string action)
+        {
+            var cleanWorkerId = CleanWorkerId(workerId);
+            if (!string.Equals(run.WorkerId, cleanWorkerId, StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    ok = false,
+                    message = "This worker does not own the AI run lease.",
+                    action,
+                    runId = run.Id,
+                    expectedWorkerId = run.WorkerId,
+                    actualWorkerId = cleanWorkerId
+                });
+            }
+
+            if (!string.Equals(run.Status, "running", StringComparison.OrdinalIgnoreCase))
+            {
+                return Conflict(new { ok = false, message = "AI run is not running.", action, runId = run.Id, status = run.Status });
+            }
+
+            // Completing/failing a run is the terminal write from the worker that currently
+            // owns the run. Do not reject it only because the soft lease timestamp is missing
+            // or slightly stale: heartbeats are best-effort, and rejecting the terminal write
+            // turns an already-generated answer into a visible 409 failure. If another worker
+            // has reclaimed the run, WorkerId changes and the ownership check above still
+            // protects against stale writes.
+            return null;
         }
 
         private IActionResult? ValidateActiveWorker(AgentRun run, string? workerId, DateTime now)
