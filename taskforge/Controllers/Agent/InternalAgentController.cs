@@ -21,11 +21,15 @@ namespace taskforge.Controllers.Agent
     [AllowAnonymous]
     public sealed class InternalAgentController : ControllerBase
     {
+        private const int AgentRunStatusMaxLength = 32;
+        private const int AgentRunScenarioIdMaxLength = 256;
         private const int AgentStepKindMaxLength = 64;
-        private const int AgentStepStatusMaxLength = 64;
+        private const int AgentStepStatusMaxLength = 32;
         private const int AgentStepActionNameMaxLength = 128;
-        private const int AgentStepTitleMaxLength = 240;
+        private const int AgentStepTitleMaxLength = 220;
         private const int AgentStepSummaryMaxLength = 1900;
+        private const int AgentArtifactTypeMaxLength = 80;
+        private const int AgentArtifactTitleMaxLength = 220;
 
         private readonly ApplicationDbContext _db;
         private readonly IConfiguration _config;
@@ -196,10 +200,14 @@ namespace taskforge.Controllers.Agent
             var rawResult = result.ValueKind == JsonValueKind.Undefined ? "{}" : result.GetRawText();
             var assistantText = GetString(result, "assistantMessage", "assistant_message", "summary")
                                 ?? "Готово. Я подготовил результат и приложил его к этому AI-run.";
-            var scenarioId = GetString(result, "scenarioId", "scenario_id") ?? run.ScenarioId;
-            var status = GetString(result, "status") ?? "completed";
+            var rawScenarioId = GetString(result, "scenarioId", "scenario_id");
+            var scenarioId = NormalizeScenarioId(rawScenarioId, run.ScenarioId);
+            var rawStatus = GetString(result, "status") ?? "completed";
+            var status = rawStatus.StartsWith("completed", StringComparison.OrdinalIgnoreCase)
+                ? LimitDbText(rawStatus, AgentRunStatusMaxLength) ?? "completed"
+                : "completed";
 
-            run.Status = status.StartsWith("completed", StringComparison.OrdinalIgnoreCase) ? status : "completed";
+            run.Status = status;
             run.ScenarioId = scenarioId;
             run.ResultJson = rawResult;
             run.UpdatedAtUtc = now;
@@ -239,7 +247,9 @@ namespace taskforge.Controllers.Agent
                 {
                     workerId = request.WorkerId,
                     scenarioId,
+                    rawScenarioId,
                     status,
+                    rawStatus,
                     rawResultLength = rawResult.Length,
                     assistantTextLength = assistantText.Length,
                     resultSha256 = Sha256Text(rawResult)
@@ -1315,6 +1325,19 @@ namespace taskforge.Controllers.Agent
             const string suffix = "... [truncated]";
             var take = Math.Max(0, maxLength - suffix.Length);
             return value.Substring(0, take).TrimEnd() + suffix;
+        }
+
+        private static string? NormalizeScenarioId(string? value, string? fallback)
+        {
+            var text = string.IsNullOrWhiteSpace(value) ? fallback : value;
+            return LimitDbIdentifier(text, AgentRunScenarioIdMaxLength);
+        }
+
+        private static string? LimitDbIdentifier(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            var text = value.Trim();
+            return text.Length <= maxLength ? text : text[..maxLength];
         }
 
         private async Task ReassignPendingAgentStepSeqsAsync(Guid runId)
@@ -2524,8 +2547,8 @@ namespace taskforge.Controllers.Agent
                 {
                     Id = Guid.NewGuid(),
                     RunId = runId,
-                    Type = Trim(type, 80),
-                    Title = Trim(title, 220),
+                    Type = Trim(type, AgentArtifactTypeMaxLength),
+                    Title = Trim(title, AgentArtifactTitleMaxLength),
                     DataJson = string.IsNullOrWhiteSpace(dataRaw) ? "{}" : dataRaw,
                     CreatedAtUtc = now,
                 };

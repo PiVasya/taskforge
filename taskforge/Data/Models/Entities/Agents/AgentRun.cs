@@ -22,7 +22,7 @@ namespace taskforge.Data.Models.Entities
         [Required, MaxLength(32)]
         public string Status { get; set; } = "queued";
 
-        [MaxLength(80)]
+        [MaxLength(256)]
         public string? ScenarioId { get; set; }
 
         [MaxLength(128)]

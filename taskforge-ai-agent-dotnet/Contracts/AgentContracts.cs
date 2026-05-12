@@ -57,14 +57,14 @@ public sealed class AgentResultEnvelope
     {
         var root = new JsonObject
         {
-            ["status"] = Status,
-            ["scenarioId"] = ScenarioId,
+            ["status"] = Limit(Status, 32, "completed"),
+            ["scenarioId"] = Limit(ScenarioId, 256, "dotnet_agent"),
             ["assistantMessage"] = AssistantMessage,
             ["memoryPatch"] = MemoryPatch.DeepClone(),
             ["artifacts"] = new JsonArray(Artifacts.Select(a => new JsonObject
             {
-                ["type"] = a.Type,
-                ["title"] = a.Title,
+                ["type"] = Limit(a.Type, 80, "artifact"),
+                ["title"] = Limit(a.Title, 220, "AI artifact"),
                 ["data"] = a.Data.DeepClone()
             }).ToArray<JsonNode?>())
         };
@@ -73,6 +73,12 @@ public sealed class AgentResultEnvelope
             root["debug"] = Debug.DeepClone();
 
         return root;
+    }
+
+    private static string Limit(string? value, int maxLength, string fallback)
+    {
+        var text = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        return text.Length <= maxLength ? text : text[..maxLength];
     }
 }
 

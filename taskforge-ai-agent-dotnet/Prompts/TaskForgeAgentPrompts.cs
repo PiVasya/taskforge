@@ -24,13 +24,14 @@ public static class TaskForgeAgentPrompts
 Верни строго JSON-объект TaskForge agent result:
 {
   "status": "completed",
-  "scenarioId": "dotnet_agent|course_audit|assignment_draft_workflow|polish_assignment_draft|course_edit_workflow|open_chat",
+  "scenarioId": "open_chat",
   "assistantMessage": "короткий полезный ответ пользователю",
   "memoryPatch": { "activeCourseId": null, "lastIntent": "...", "currentDraftBlueprint": null },
   "artifacts": [
     { "type": "assignment_draft_ready|polished_assignment_draft|course_gap_audit|course_edit_proposal|approval_request|agent_plan", "title": "...", "data": {} }
   ]
 }
+scenarioId должен быть идентификатором текущего сценария, не длиннее 256 символов: например "open_chat", "course_gap_audit", "assignment_draft_workflow", "polish_assignment_draft" или "course_edit_workflow".
 Не добавляй текст вне JSON.
 """;
 
