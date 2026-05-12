@@ -875,8 +875,8 @@ namespace taskforge.Controllers.Agent
                     Error = ParseJson(x.ErrorJson),
                     RawDebugJson = x.DebugJson,
                     Debug = ParseJson(x.DebugJson),
-                    DurMs = x.StartedAtUtc is DateTime runStartedAt && x.FinishedAtUtc is DateTime runFinishedAt
-                        ? (double?)(runFinishedAt - runStartedAt).TotalMilliseconds
+                    DurMs = x.StartedAtUtc.HasValue && x.FinishedAtUtc.HasValue
+                        ? (double?)(x.FinishedAtUtc.Value - x.StartedAtUtc.Value).TotalMilliseconds
                         : null
                 })
                 .ToListAsync(ct);
@@ -908,8 +908,8 @@ namespace taskforge.Controllers.Agent
                     Output = ParseJson(x.OutputJson),
                     RawErrorJson = x.ErrorJson,
                     Error = ParseJson(x.ErrorJson),
-                    DurMs = x.StartedAtUtc is DateTime stepStartedAt && x.FinishedAtUtc is DateTime stepFinishedAt
-                        ? (double?)(stepFinishedAt - stepStartedAt).TotalMilliseconds
+                    DurMs = x.StartedAtUtc.HasValue && x.FinishedAtUtc.HasValue
+                        ? (double?)(x.FinishedAtUtc.Value - x.StartedAtUtc.Value).TotalMilliseconds
                         : null
                 })
                 .ToListAsync(ct);
