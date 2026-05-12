@@ -79,6 +79,10 @@ public sealed class AgentCourseEditApplyService
             return result.AsFailed("Не удалось определить courseId для применения AI proposal.");
 
         result.CourseId = courseId.Value;
+        var beforeId = GetGuid(data, "beforeAssignmentId");
+        var afterId = GetGuid(data, "afterAssignmentId");
+        if (!await DraftPlacementBelongsToCourseAsync(courseId.Value, beforeId, afterId, ct))
+            return result.AsFailed("beforeAssignmentId/afterAssignmentId не относятся к выбранному курсу.");
         if (!await _courseAccess.CanEditCourseAsync(currentUserId, currentUserRole, courseId.Value))
             return result.AsFailed("У пользователя нет прав редактирования этого курса.");
 
@@ -247,6 +251,10 @@ public sealed class AgentCourseEditApplyService
             return result.AsFailed("Не удалось определить courseId для сохранения скрытого AI-черновика.");
 
         result.CourseId = courseId.Value;
+        var beforeId = GetGuid(data, "beforeAssignmentId");
+        var afterId = GetGuid(data, "afterAssignmentId");
+        if (!await DraftPlacementBelongsToCourseAsync(courseId.Value, beforeId, afterId, ct))
+            return result.AsFailed("beforeAssignmentId/afterAssignmentId не относятся к выбранному курсу.");
         if (!await _courseAccess.CanEditCourseAsync(currentUserId, currentUserRole, courseId.Value))
             return result.AsFailed("У пользователя нет прав редактирования этого курса.");
 
@@ -254,8 +262,10 @@ public sealed class AgentCourseEditApplyService
         var title = GetString(data, "title", "assignmentTitle");
         var description = GetString(data, "description", "condition", "body");
         var normalizedTitle = Trim(title ?? string.Empty, 200);
+        var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
+        var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? difficulty * 10);
 
-        var existing = await _db.TaskAssignments.AsNoTracking()
+        var existingEntity = await _db.TaskAssignments
             .Where(x =>
                 x.CourseId == courseId.Value
                 && x.IsAiDraft
@@ -265,30 +275,62 @@ public sealed class AgentCourseEditApplyService
                     || (x.SourceAgentRunId == artifact.RunId
                         && sourceTaskIndex.HasValue
                         && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
-                    || (x.SourceAgentRunId == artifact.RunId
-                        && !sourceTaskIndex.HasValue
-                        && x.Title == normalizedTitle)))
+                    || x.Title == normalizedTitle))
             .OrderByDescending(x => x.SourceAgentArtifactId == artifact.Id)
-            .ThenBy(x => x.CreatedAt)
-            .Select(x => new AgentHiddenDraftApplySummary
+            .ThenByDescending(x => x.SourceAgentRunId == artifact.RunId)
+            .ThenBy(x => x.Sort)
+            .FirstOrDefaultAsync(ct);
+        if (existingEntity != null)
+        {
+            if (!request.DryRun)
+            {
+                existingEntity.Title = Trim(title ?? existingEntity.Title, 200);
+                existingEntity.Description = ToTiptapDocumentJson(description ?? existingEntity.Title);
+                existingEntity.Type = NormalizeDraftAssignmentType(GetString(data, "assignmentType", "assignment_type", "taskType", "task_type"));
+                existingEntity.Difficulty = difficulty;
+                existingEntity.Rating = rating;
+                existingEntity.AllowedLanguagesCsv = existingEntity.Type == "code-test" ? NormalizeRunnerLanguage(GetString(data, "language") ?? "cpp") : (GetString(data, "allowedLanguagesCsv") ?? existingEntity.AllowedLanguagesCsv);
+                existingEntity.Tags = MergeCsvTags(GetString(data, "tags"), "AI,черновик");
+                existingEntity.SourceAgentRunId = artifact.RunId;
+                existingEntity.SourceAgentArtifactId = artifact.Id;
+                existingEntity.SourceAgentTaskIndex = sourceTaskIndex;
+                existingEntity.AiDraftJson = data.GetRawText();
+                existingEntity.UpdatedAt = now;
+                existingEntity.PolishedAtUtc = now;
+                var replacementTestCases = ExtractTestCases(data).ToList();
+                var oldTestCases = await _db.TaskTestCases.Where(x => x.TaskAssignmentId == existingEntity.Id).ToListAsync(ct);
+                _db.TaskTestCases.RemoveRange(oldTestCases);
+                foreach (var tc in replacementTestCases)
+                {
+                    _db.TaskTestCases.Add(new TaskTestCase
+                    {
+                        Id = Guid.NewGuid(),
+                        TaskAssignmentId = existingEntity.Id,
+                        Input = tc.Input,
+                        ExpectedOutput = tc.ExpectedOutput,
+                        IsHidden = tc.IsHidden,
+                    });
+                }
+                await ApplyDraftPlacementAsync(existingEntity, beforeId, afterId, now, ct);
+                await _db.SaveChangesAsync(ct);
+            }
+
+            var existingTestCount = await _db.TaskTestCases.CountAsync(x => x.TaskAssignmentId == existingEntity.Id, ct);
+            result.Message = "Скрытый AI-черновик уже существует; повторное создание не требуется.";
+            result.Updated.Add(new AgentHiddenDraftApplySummary
             {
                 Action = "hidden_assignment_draft_exists",
-                Id = x.Id,
-                CourseId = x.CourseId,
-                Title = x.Title,
-                AssignmentType = x.Type,
-                IsHidden = x.IsHidden,
-                LifecycleStatus = x.LifecycleStatus,
-                TestCount = x.TestCases.Count,
-                SourceAgentRunId = x.SourceAgentRunId,
-                SourceAgentArtifactId = x.SourceAgentArtifactId,
-                SourceAgentTaskIndex = x.SourceAgentTaskIndex
-            })
-            .FirstOrDefaultAsync(ct);
-        if (existing != null)
-        {
-            result.Message = "Скрытый AI-черновик уже существует; повторное создание не требуется.";
-            result.Updated.Add(existing);
+                Id = existingEntity.Id,
+                CourseId = existingEntity.CourseId,
+                Title = existingEntity.Title,
+                AssignmentType = existingEntity.Type,
+                IsHidden = existingEntity.IsHidden,
+                LifecycleStatus = existingEntity.LifecycleStatus,
+                TestCount = existingTestCount,
+                SourceAgentRunId = existingEntity.SourceAgentRunId,
+                SourceAgentArtifactId = existingEntity.SourceAgentArtifactId,
+                SourceAgentTaskIndex = existingEntity.SourceAgentTaskIndex
+            });
             return result;
         }
 
@@ -351,13 +393,6 @@ public sealed class AgentCourseEditApplyService
                 return result.AsFailed("Reference solution не прошёл предложенные тесты.");
         }
 
-        var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
-        var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? difficulty * 10);
-        var nextSort = (await _db.TaskAssignments.AsNoTracking()
-            .Where(x => x.CourseId == courseId.Value)
-            .Select(x => (int?)x.Sort)
-            .MaxAsync(ct) ?? -1) + 1;
-
         var assignment = new TaskAssignment
         {
             Id = Guid.NewGuid(),
@@ -367,7 +402,7 @@ public sealed class AgentCourseEditApplyService
             Type = assignmentType,
             Difficulty = difficulty,
             Rating = rating,
-            Sort = nextSort,
+            Sort = 0,
             AllowedLanguagesCsv = assignmentType == "code-test" ? language : (GetString(data, "allowedLanguagesCsv") ?? language),
             Tags = MergeCsvTags(GetString(data, "tags"), "AI,черновик"),
             IsHidden = true,
@@ -415,6 +450,7 @@ public sealed class AgentCourseEditApplyService
             return result;
         }
 
+        await ApplyDraftPlacementAsync(assignment, beforeId, afterId, now, ct);
         _db.TaskAssignments.Add(assignment);
         _db.AgentSteps.Add(new AgentStep
         {
@@ -828,7 +864,86 @@ public sealed class AgentCourseEditApplyService
     }
 
     private static string NormalizeTestFingerprint(DraftTestCase test)
-        => $"{(test.Input ?? string.Empty).Replace("\r\n", "\n").Trim()}=>{(test.ExpectedOutput ?? string.Empty).Replace("\r\n", "\n").Trim()}";
+        => $"{(test.Input ?? string.Empty).Replace("\r\n", "\n")}=>{(test.ExpectedOutput ?? string.Empty).Replace("\r\n", "\n")}";
+
+    private async Task<bool> DraftPlacementBelongsToCourseAsync(Guid courseId, Guid? beforeId, Guid? afterId, CancellationToken ct)
+    {
+        if (!beforeId.HasValue && !afterId.HasValue) return true;
+        var ids = new[] { beforeId, afterId }.Where(x => x.HasValue).Select(x => x!.Value).ToList();
+        var found = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => ids.Contains(x.Id) && x.CourseId == courseId)
+            .Select(x => x.Id)
+            .ToListAsync(ct);
+        return found.Count == ids.Count;
+    }
+
+    private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now, CancellationToken ct)
+    {
+        var ordered = await _db.TaskAssignments
+            .Where(x => x.CourseId == assignment.CourseId)
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct);
+
+        ordered.RemoveAll(x => x.Id == assignment.Id);
+
+        var insertIndex = ordered.Count;
+        if (beforeId.HasValue)
+        {
+            var beforeIndex = ordered.FindIndex(x => x.Id == beforeId.Value);
+            if (beforeIndex >= 0)
+            {
+                insertIndex = beforeIndex;
+                if (assignment.SourceAgentTaskIndex.HasValue)
+                {
+                    var groupStart = beforeIndex;
+                    while (groupStart > 0 && IsSameAgentDraftGroup(ordered[groupStart - 1], assignment))
+                        groupStart--;
+
+                    insertIndex = groupStart;
+                    while (insertIndex < beforeIndex
+                           && IsSameAgentDraftGroup(ordered[insertIndex], assignment)
+                           && ordered[insertIndex].SourceAgentTaskIndex.GetValueOrDefault(int.MaxValue) <= assignment.SourceAgentTaskIndex.Value)
+                        insertIndex++;
+                }
+            }
+        }
+        else if (afterId.HasValue)
+        {
+            var afterIndex = ordered.FindIndex(x => x.Id == afterId.Value);
+            if (afterIndex >= 0)
+            {
+                insertIndex = afterIndex + 1;
+                if (assignment.SourceAgentTaskIndex.HasValue)
+                {
+                    while (insertIndex < ordered.Count
+                           && IsSameAgentDraftGroup(ordered[insertIndex], assignment)
+                           && ordered[insertIndex].SourceAgentTaskIndex.GetValueOrDefault(int.MaxValue) <= assignment.SourceAgentTaskIndex.Value)
+                        insertIndex++;
+                }
+            }
+        }
+
+        ordered.Insert(Math.Clamp(insertIndex, 0, ordered.Count), assignment);
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            ordered[i].Sort = i;
+            ordered[i].UpdatedAt = now;
+        }
+    }
+
+    private static bool IsSameAgentDraftGroup(TaskAssignment existing, TaskAssignment candidate)
+    {
+        return existing.IsAiDraft
+               && candidate.IsAiDraft
+               && existing.IsHidden
+               && candidate.IsHidden
+               && existing.SourceAgentRunId.HasValue
+               && candidate.SourceAgentRunId.HasValue
+               && existing.SourceAgentRunId == candidate.SourceAgentRunId
+               && existing.SourceAgentTaskIndex.HasValue
+               && candidate.SourceAgentTaskIndex.HasValue;
+    }
 
     private static Dictionary<Guid, int> BuildSortOverrides(IEnumerable<JsonElement> updateItems, Dictionary<Guid, TaskAssignment> byId)
     {

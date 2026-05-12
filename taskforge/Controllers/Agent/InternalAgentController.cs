@@ -1656,7 +1656,9 @@ namespace taskforge.Controllers.Agent
 
             var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
             var normalizedTitle = Trim(title, 200);
-            var existingDraft = await _db.TaskAssignments.AsNoTracking()
+            var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
+            var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? (difficulty * 10));
+            var existingDraft = await _db.TaskAssignments
                 .Where(x =>
                     x.CourseId == courseId.Value
                     && x.IsAiDraft
@@ -1666,29 +1668,56 @@ namespace taskforge.Controllers.Agent
                         || (x.SourceAgentRunId == run.Id
                             && sourceTaskIndex.HasValue
                             && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
-                        || (x.SourceAgentRunId == run.Id
-                            && !sourceTaskIndex.HasValue
-                            && x.Title == normalizedTitle)))
+                        || x.Title == normalizedTitle))
                 .OrderByDescending(x => x.SourceAgentArtifactId == artifact.Id)
-                .ThenBy(x => x.CreatedAt)
-                .Select(x => new
-                {
-                    id = x.Id,
-                    courseId = x.CourseId,
-                    title = x.Title,
-                    type = x.Type,
-                    isHidden = x.IsHidden,
-                    lifecycleStatus = x.LifecycleStatus,
-                    testCount = x.TestCases.Count,
-                    sourceAgentRunId = x.SourceAgentRunId,
-                    sourceAgentArtifactId = x.SourceAgentArtifactId,
-                    sourceAgentTaskIndex = x.SourceAgentTaskIndex
-                })
+                .ThenByDescending(x => x.SourceAgentRunId == run.Id)
+                .ThenBy(x => x.Sort)
                 .FirstOrDefaultAsync();
-            if (existingDraft != null) return existingDraft;
-
-            var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
-            var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? (difficulty * 10));
+            if (existingDraft != null)
+            {
+                existingDraft.Title = Trim(title, 200);
+                existingDraft.Description = ToTiptapDocumentJson(description);
+                existingDraft.Type = assignmentType;
+                existingDraft.Difficulty = difficulty;
+                existingDraft.Rating = rating;
+                existingDraft.AllowedLanguagesCsv = assignmentType == "code-test" ? language : (GetString(data, "allowedLanguagesCsv") ?? language);
+                existingDraft.Tags = MergeTags(GetString(data, "tags"), "AI,черновик");
+                existingDraft.SourceAgentRunId = run.Id;
+                existingDraft.SourceAgentArtifactId = artifact.Id;
+                existingDraft.SourceAgentTaskIndex = sourceTaskIndex;
+                existingDraft.AiDraftJson = artifact.DataJson;
+                existingDraft.UpdatedAt = now;
+                existingDraft.PolishedAtUtc = now;
+                var oldTestCases = await _db.TaskTestCases.Where(x => x.TaskAssignmentId == existingDraft.Id).ToListAsync();
+                _db.TaskTestCases.RemoveRange(oldTestCases);
+                foreach (var tc in tests)
+                {
+                    _db.TaskTestCases.Add(new TaskTestCase
+                    {
+                        Id = Guid.NewGuid(),
+                        TaskAssignmentId = existingDraft.Id,
+                        Input = tc.Input,
+                        ExpectedOutput = tc.ExpectedOutput,
+                        IsHidden = tc.IsHidden,
+                    });
+                }
+                await ApplyDraftPlacementAsync(existingDraft, beforeId, afterId, now);
+                var existingTestCount = tests.Count;
+                return new
+                {
+                    id = existingDraft.Id,
+                    courseId = existingDraft.CourseId,
+                    title = existingDraft.Title,
+                    type = existingDraft.Type,
+                    isHidden = existingDraft.IsHidden,
+                    lifecycleStatus = existingDraft.LifecycleStatus,
+                    testCount = existingTestCount,
+                    reusedExisting = true,
+                    sourceAgentRunId = existingDraft.SourceAgentRunId,
+                    sourceAgentArtifactId = existingDraft.SourceAgentArtifactId,
+                    sourceAgentTaskIndex = existingDraft.SourceAgentTaskIndex
+                };
+            }
 
             var assignment = new TaskAssignment
             {
@@ -2227,7 +2256,7 @@ namespace taskforge.Controllers.Agent
             var ordered = await _db.TaskAssignments
                 .Where(x => x.CourseId == assignment.CourseId)
                 .OrderBy(x => x.Sort)
-                .ThenBy(x => x.CreatedAt)
+                .ThenBy(x => x.Id)
                 .ToListAsync();
 
             ordered.RemoveAll(x => x.Id == assignment.Id);
@@ -2236,46 +2265,59 @@ namespace taskforge.Controllers.Agent
             if (beforeId.HasValue)
             {
                 var beforeIndex = ordered.FindIndex(x => x.Id == beforeId.Value);
-                if (beforeIndex >= 0) insertIndex = beforeIndex;
+                if (beforeIndex >= 0)
+                {
+                    insertIndex = beforeIndex;
+                    if (assignment.SourceAgentTaskIndex.HasValue)
+                    {
+                        var groupStart = beforeIndex;
+                        while (groupStart > 0 && IsSameAgentDraftGroup(ordered[groupStart - 1], assignment))
+                            groupStart--;
+
+                        insertIndex = groupStart;
+                        while (insertIndex < beforeIndex
+                               && IsSameAgentDraftGroup(ordered[insertIndex], assignment)
+                               && ordered[insertIndex].SourceAgentTaskIndex.GetValueOrDefault(int.MaxValue) <= assignment.SourceAgentTaskIndex.Value)
+                            insertIndex++;
+                    }
+                }
             }
             else if (afterId.HasValue)
             {
                 var afterIndex = ordered.FindIndex(x => x.Id == afterId.Value);
-                if (afterIndex >= 0) insertIndex = afterIndex + 1;
+                if (afterIndex >= 0)
+                {
+                    insertIndex = afterIndex + 1;
+                    if (assignment.SourceAgentTaskIndex.HasValue)
+                    {
+                        while (insertIndex < ordered.Count
+                               && IsSameAgentDraftGroup(ordered[insertIndex], assignment)
+                               && ordered[insertIndex].SourceAgentTaskIndex.GetValueOrDefault(int.MaxValue) <= assignment.SourceAgentTaskIndex.Value)
+                            insertIndex++;
+                    }
+                }
             }
 
             ordered.Insert(Math.Clamp(insertIndex, 0, ordered.Count), assignment);
-
-            if (assignment.SourceAgentTaskIndex.HasValue && (beforeId.HasValue || afterId.HasValue))
-            {
-                var start = afterId.HasValue ? ordered.FindIndex(x => x.Id == afterId.Value) + 1 : 0;
-                if (start < 0) start = 0;
-
-                var endExclusive = beforeId.HasValue ? ordered.FindIndex(x => x.Id == beforeId.Value) : ordered.Count;
-                if (endExclusive < 0) endExclusive = ordered.Count;
-
-                if (start < endExclusive)
-                {
-                    var segment = ordered
-                        .Skip(start)
-                        .Take(endExclusive - start)
-                        .Select((item, originalIndex) => new { item, originalIndex })
-                        .OrderBy(x => x.item.IsAiDraft && x.item.SourceAgentTaskIndex.HasValue ? 0 : 1)
-                        .ThenBy(x => x.item.IsAiDraft && x.item.SourceAgentTaskIndex.HasValue ? x.item.SourceAgentTaskIndex.GetValueOrDefault() : int.MaxValue)
-                        .ThenBy(x => x.originalIndex)
-                        .Select(x => x.item)
-                        .ToList();
-
-                    for (var i = 0; i < segment.Count; i++)
-                        ordered[start + i] = segment[i];
-                }
-            }
 
             for (var i = 0; i < ordered.Count; i++)
             {
                 ordered[i].Sort = i;
                 ordered[i].UpdatedAt = now;
             }
+        }
+
+        private static bool IsSameAgentDraftGroup(TaskAssignment existing, TaskAssignment candidate)
+        {
+            return existing.IsAiDraft
+                   && candidate.IsAiDraft
+                   && existing.IsHidden
+                   && candidate.IsHidden
+                   && existing.SourceAgentRunId.HasValue
+                   && candidate.SourceAgentRunId.HasValue
+                   && existing.SourceAgentRunId == candidate.SourceAgentRunId
+                   && existing.SourceAgentTaskIndex.HasValue
+                   && candidate.SourceAgentTaskIndex.HasValue;
         }
 
         private async Task<int?> GetDraftInsertSortAsync(Guid courseId, Guid? beforeId, Guid? afterId)

@@ -10,12 +10,15 @@ public sealed class ApprovalGateExecutor
     public ApprovalGateExecutor(AgentStepReporter steps) => _steps = steps;
 
     public async Task ExecuteForDraftAsync(WorkflowState state, DraftSpec draft)
-        => await ExecuteForDraftAsync(state, draft, "assignment_draft_ready", "save_hidden_draft", "Требуется подтверждение сохранения черновика");
+        => await ExecuteForDraftAsync(state, draft, "assignment_draft_ready", "save_hidden_draft", "Требуется подтверждение сохранения черновика", addApprovalRequest: true);
+
+    public async Task ExecuteHiddenDraftArtifactAsync(WorkflowState state, DraftSpec draft)
+        => await ExecuteForDraftAsync(state, draft, "assignment_draft_ready", "save_hidden_draft", "Скрытый AI-черновик подготовлен", addApprovalRequest: false);
 
     public async Task ExecuteForPolishedDraftAsync(WorkflowState state, DraftSpec draft)
-        => await ExecuteForDraftAsync(state, draft, "polished_assignment_draft", "save_hidden_polished_draft", "Подготовлен скрытый вылизанный черновик");
+        => await ExecuteForDraftAsync(state, draft, "polished_assignment_draft", "save_hidden_polished_draft", "Подготовлен скрытый вылизанный черновик", addApprovalRequest: true);
 
-    private async Task ExecuteForDraftAsync(WorkflowState state, DraftSpec draft, string artifactType, string operation, string title)
+    private async Task ExecuteForDraftAsync(WorkflowState state, DraftSpec draft, string artifactType, string operation, string title, bool addApprovalRequest)
     {
         var artifactData = draft.ToArtifactData();
         state.Data.TryGetPropertyValue("draftShapeValidation", out var shape);
@@ -31,16 +34,19 @@ public sealed class ApprovalGateExecutor
             ["ok"] = validationOk
         };
         state.Artifacts.Add(new AgentArtifact(artifactType, draft.Title, artifactData));
-        state.Artifacts.Add(new AgentArtifact("approval_request", title, new JsonObject
+        if (addApprovalRequest)
         {
-            ["operation"] = operation,
-            ["reason"] = "AI подготовил задание. Оно сохраняется только как скрытый draft и требует ручной проверки перед публикацией.",
-            ["payload"] = artifactData.DeepClone(),
-            ["requiresHumanApproval"] = true,
-            ["autoPublish"] = false
-        }));
-        state.RequiresApproval = true;
-        await _steps.TryReportAsync("approval", "completed", "Подготовлен draft artifact", "Черновик не публикуется автоматически; backend может создать только скрытый draft из artifact после завершения run.", artifactData);
+            state.Artifacts.Add(new AgentArtifact("approval_request", title, new JsonObject
+            {
+                ["operation"] = operation,
+                ["reason"] = "AI подготовил задание. Оно сохраняется только как скрытый draft и требует ручной проверки перед публикацией.",
+                ["payload"] = artifactData.DeepClone(),
+                ["requiresHumanApproval"] = true,
+                ["autoPublish"] = false
+            }));
+            state.RequiresApproval = true;
+        }
+        await _steps.TryReportAsync("approval", "completed", addApprovalRequest ? "Подготовлен draft artifact" : "Подготовлен hidden-draft artifact", addApprovalRequest ? "Черновик вынесен на подтверждение." : "Backend создаст скрытый AI-черновик из artifact после завершения run.", artifactData);
     }
 
     public async Task ExecuteForCourseEditAsync(WorkflowState state, JsonObject patch)

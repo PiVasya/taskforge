@@ -845,7 +845,9 @@ namespace taskforge.Controllers.Agent
                     x.Source,
                     x.Text,
                     x.ClientMessageId,
-                    CreatedAtUtc = (DateTime?)x.CreatedAtUtc,
+                    // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
+                    // when the EF model has a non-null timestamp; projecting it through EF can throw
+                    // "Nullable object must have a value" and break the whole debug dump.
                     RawDataJson = x.DataJson,
                     Data = ParseJson(x.DataJson),
                     Attachments = ExtractAttachments(x.DataJson)
@@ -933,7 +935,9 @@ namespace taskforge.Controllers.Agent
                     x.Title,
                     x.StorageKey,
                     x.ContentHash,
-                    CreatedAtUtc = (DateTime?)x.CreatedAtUtc,
+                    // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
+                    // when the EF model has a non-null timestamp; projecting it through EF can throw
+                    // "Nullable object must have a value" and break the whole debug dump.
                     RawDataJson = x.DataJson,
                     Data = ParseJson(x.DataJson),
                     DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
@@ -944,7 +948,7 @@ namespace taskforge.Controllers.Agent
             var hiddenDrafts = await _db.TaskAssignments
                 .AsNoTracking()
                 .Where(x => nullableRunIds.Contains(x.SourceAgentRunId))
-                .OrderBy(x => x.CreatedAt)
+                .OrderBy(x => x.Id)
                 .Select(x => new
                 {
                     x.Id,
@@ -960,8 +964,7 @@ namespace taskforge.Controllers.Agent
                     x.SourceAgentRunId,
                     x.SourceAgentArtifactId,
                     x.SourceAgentTaskIndex,
-                    CreatedAt = (DateTime?)x.CreatedAt,
-                    UpdatedAt = (DateTime?)x.UpdatedAt,
+                    // CreatedAt/UpdatedAt are omitted from debug dump for old rows that may contain NULLs.
                     x.PolishedAtUtc,
                     x.PublishedAtUtc,
                     TestCount = x.TestCases.Count,
@@ -982,8 +985,7 @@ namespace taskforge.Controllers.Agent
                         x.Description,
                         x.OwnerId,
                         x.IsPublic,
-                        CreatedAt = (DateTime?)x.CreatedAt,
-                        UpdatedAt = (DateTime?)x.UpdatedAt,
+                        // CreatedAt/UpdatedAt omitted for dump robustness.
                         AssignmentCount = x.Assignments.Count
                     })
                     .FirstOrDefaultAsync(ct);
