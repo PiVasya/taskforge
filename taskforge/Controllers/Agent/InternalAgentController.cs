@@ -1505,9 +1505,18 @@ namespace taskforge.Controllers.Agent
         {
             var action = GetString(requestJson, "action", "scenarioId", "scenario_id");
             var createHiddenDraft = GetBool(requestJson, "createHiddenDraft", "create_hidden_draft") == true;
-            return createHiddenDraft
-                   && (string.Equals(run.ScenarioId, "polish_assignment_draft", StringComparison.OrdinalIgnoreCase)
-                       || string.Equals(action, "polish_assignment_draft", StringComparison.OrdinalIgnoreCase));
+
+            var isPolishDraftRun = string.Equals(run.ScenarioId, "polish_assignment_draft", StringComparison.OrdinalIgnoreCase)
+                                   || string.Equals(action, "polish_assignment_draft", StringComparison.OrdinalIgnoreCase);
+            if (createHiddenDraft && isPolishDraftRun)
+                return true;
+
+            // assignment_draft_workflow already produces an assignment_draft_ready artifact.
+            // It is a safe hidden draft candidate: it is not published and remains editable/reviewable.
+            // Previously this path was rejected by backend-gate, so the UI said "draft prepared"
+            // while no TaskAssignment was actually created.
+            return string.Equals(run.ScenarioId, "assignment_draft_workflow", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(action, "assignment_draft_workflow", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<bool> CanRunWriteCourseAsync(AgentRun run, Guid courseId)
@@ -1536,9 +1545,10 @@ namespace taskforge.Controllers.Agent
             if (!string.Equals(assignmentType, "code-test", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            var publicCount = tests.Count(x => !x.IsHidden && !string.IsNullOrWhiteSpace(x.ExpectedOutput));
-            var hiddenCount = tests.Count(x => x.IsHidden && !string.IsNullOrWhiteSpace(x.ExpectedOutput));
+            var publicCount = tests.Count(x => !x.IsHidden && x.HasExpectedOutput);
+            var hiddenCount = tests.Count(x => x.IsHidden && x.HasExpectedOutput);
             if (publicCount < 2 || hiddenCount < 2) return false;
+            if (tests.Any(x => !x.HasExpectedOutput)) return false;
 
             var normalizedPublic = tests.Where(x => !x.IsHidden).Select(NormalizeTestFingerprint).ToHashSet(StringComparer.Ordinal);
             var normalizedHidden = tests.Where(x => x.IsHidden).Select(NormalizeTestFingerprint).ToHashSet(StringComparer.Ordinal);
@@ -1560,7 +1570,7 @@ namespace taskforge.Controllers.Agent
 
         private static string NormalizeTestFingerprint(DraftTestCase test)
         {
-            return $"{(test.Input ?? string.Empty).Replace("\r\n", "\n").Trim()}=>{(test.ExpectedOutput ?? string.Empty).Replace("\r\n", "\n").Trim()}";
+            return $"{(test.Input ?? string.Empty).Replace("\r\n", "\n")}=>{(test.ExpectedOutput ?? string.Empty).Replace("\r\n", "\n")}";
         }
 
         private static bool TryGetObject(JsonElement element, out JsonElement obj, params string[] names)
@@ -2501,7 +2511,7 @@ namespace taskforge.Controllers.Agent
             nodes.Add(node);
         }
 
-        private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden);
+        private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden, bool HasExpectedOutput);
 
         private static IEnumerable<DraftTestCase> ExtractTestCases(JsonElement data)
         {
@@ -2512,9 +2522,13 @@ namespace taskforge.Controllers.Agent
                 {
                     if (item.ValueKind != JsonValueKind.Object) continue;
                     var input = GetString(item, "input") ?? string.Empty;
-                    var output = GetString(item, "expectedOutput", "output") ?? string.Empty;
+                    var hasExpectedOutput = item.TryGetProperty("expectedOutput", out var expectedProp)
+                                            || item.TryGetProperty("output", out expectedProp);
+                    var output = hasExpectedOutput && expectedProp.ValueKind != JsonValueKind.Null
+                        ? (expectedProp.ValueKind == JsonValueKind.String ? expectedProp.GetString() ?? string.Empty : expectedProp.ToString())
+                        : string.Empty;
                     var hidden = GetBool(item, "isHidden", "hidden") ?? group.Hidden;
-                    yield return new DraftTestCase(input, output, hidden);
+                    yield return new DraftTestCase(input, output, hidden, hasExpectedOutput);
                 }
             }
         }

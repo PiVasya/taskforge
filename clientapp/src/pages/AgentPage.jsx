@@ -142,7 +142,7 @@ function isApplyableArtifact(artifact) {
   if (['course_edit_proposal', 'assignment_update_batch', 'course_style_update'].includes(type)) return true;
   if (type !== 'approval_request') return false;
   const operation = String(artifact?.data?.operation || artifact?.operation || '').toLowerCase();
-  return ['apply_course_edit', 'apply_assignment_update_batch'].includes(operation);
+  return ['apply_course_edit', 'apply_assignment_update_batch', 'save_hidden_draft'].includes(operation);
 }
 
 function getArtifactStableKey({ persistedArtifact, message, artifactIndex, artifact }) {
@@ -1053,51 +1053,77 @@ export default function AgentPage() {
       return;
     }
 
+    const writeClipboard = async (text) => {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    };
+
+    const buildClientDump = (backendDumpError = null) => ({
+      generatedAtUtc: nowIso(),
+      page: 'AgentPage',
+      selectedId,
+      conversation,
+      messages,
+      runs,
+      realtimeEvents,
+      activeRun,
+      latestRun,
+      selectedDraftTasks,
+      artifactApplyResults,
+      applyingArtifacts,
+      polishingTasks,
+      pendingFiles: pendingFiles.map((file) => ({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified })),
+      context: { courseId, assignmentId, supportTicketId },
+      backendDumpError,
+    });
+
     setCopyingDebugDump(true);
     try {
       const backendDump = await getAgentConversationDebugDump(selectedId, { format: 'text' });
-      const clientDump = {
-        generatedAtUtc: nowIso(),
-        page: 'AgentPage',
-        selectedId,
-        conversation,
-        messages,
-        runs,
-        realtimeEvents,
-        activeRun,
-        latestRun,
-        selectedDraftTasks,
-        artifactApplyResults,
-        applyingArtifacts,
-        polishingTasks,
-        pendingFiles: pendingFiles.map((file) => ({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified })),
-        context: { courseId, assignmentId, supportTicketId },
-      };
       const textDump = [
         backendDump || 'BACKEND DEBUG DUMP EMPTY',
         '',
         'CLIENT SIDE AI DEBUG SNAPSHOT',
         '='.repeat(96),
-        JSON.stringify(clientDump, null, 2),
+        JSON.stringify(buildClientDump(), null, 2),
       ].join('\n');
 
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(textDump);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = textDump;
-        ta.setAttribute('readonly', 'readonly');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
-
+      await writeClipboard(textDump);
       notify.success(`AI debug dump скопирован (${Math.round(textDump.length / 1024)} KB).`);
     } catch (err) {
-      handleApiError(err, notify, 'Не удалось скопировать AI debug dump');
+      const backendDumpError = {
+        message: err?.message,
+        status: err?.response?.status,
+        data: err?.response?.data,
+      };
+      const textDump = [
+        'BACKEND DEBUG DUMP FAILED',
+        '='.repeat(96),
+        JSON.stringify(backendDumpError, null, 2),
+        '',
+        'CLIENT SIDE AI DEBUG SNAPSHOT',
+        '='.repeat(96),
+        JSON.stringify(buildClientDump(backendDumpError), null, 2),
+      ].join('\n');
+
+      try {
+        await writeClipboard(textDump);
+        notify.warn(`Backend dump не собрался, но клиентский AI snapshot скопирован (${Math.round(textDump.length / 1024)} KB).`);
+      } catch {
+        handleApiError(err, notify, 'Не удалось скопировать AI debug dump');
+      }
     } finally {
       setCopyingDebugDump(false);
     }

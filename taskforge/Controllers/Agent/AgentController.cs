@@ -147,7 +147,31 @@ namespace taskforge.Controllers.Agent
 
             if (!conversationExists) return NotFound(new { message = "AI-чат не найден." });
 
-            var dump = await BuildAgentDebugDumpAsync(conversationId, ct);
+            object dump;
+            try
+            {
+                dump = await BuildAgentDebugDumpAsync(conversationId, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // Debug dump must be best-effort: the Copy AI dump button should not fail just
+                // because one diagnostic projection hits bad/null data.
+                dump = new
+                {
+                    DebugSchemaVersion = 4,
+                    GeneratedAtUtc = DateTime.UtcNow,
+                    GeneratedByUserId = uid,
+                    ConversationId = conversationId,
+                    DumpBuildError = new
+                    {
+                        type = ex.GetType().Name,
+                        message = ex.Message,
+                        stackTrace = ex.ToString()
+                    },
+                    RealtimeNote = "Backend debug dump failed while collecting full data; client-side snapshot may still be appended by the React button."
+                };
+            }
+
             var asText = string.Equals(format, "text", StringComparison.OrdinalIgnoreCase)
                          || string.Equals(format, "txt", StringComparison.OrdinalIgnoreCase)
                          || string.Equals(format, "log", StringComparison.OrdinalIgnoreCase);
@@ -851,8 +875,8 @@ namespace taskforge.Controllers.Agent
                     Error = ParseJson(x.ErrorJson),
                     RawDebugJson = x.DebugJson,
                     Debug = ParseJson(x.DebugJson),
-                    DurMs = x.StartedAtUtc.HasValue && x.FinishedAtUtc.HasValue
-                        ? (double?)(x.FinishedAtUtc.Value - x.StartedAtUtc.Value).TotalMilliseconds
+                    DurMs = x.StartedAtUtc is DateTime runStartedAt && x.FinishedAtUtc is DateTime runFinishedAt
+                        ? (double?)(runFinishedAt - runStartedAt).TotalMilliseconds
                         : null
                 })
                 .ToListAsync(ct);
@@ -884,8 +908,8 @@ namespace taskforge.Controllers.Agent
                     Output = ParseJson(x.OutputJson),
                     RawErrorJson = x.ErrorJson,
                     Error = ParseJson(x.ErrorJson),
-                    DurMs = x.StartedAtUtc.HasValue && x.FinishedAtUtc.HasValue
-                        ? (double?)(x.FinishedAtUtc.Value - x.StartedAtUtc.Value).TotalMilliseconds
+                    DurMs = x.StartedAtUtc is DateTime stepStartedAt && x.FinishedAtUtc is DateTime stepFinishedAt
+                        ? (double?)(stepFinishedAt - stepStartedAt).TotalMilliseconds
                         : null
                 })
                 .ToListAsync(ct);
@@ -909,9 +933,10 @@ namespace taskforge.Controllers.Agent
                 })
                 .ToListAsync(ct);
 
+            var nullableRunIds = runIds.Select(x => (Guid?)x).ToList();
             var hiddenDrafts = await _db.TaskAssignments
                 .AsNoTracking()
-                .Where(x => x.SourceAgentRunId.HasValue && runIds.Contains(x.SourceAgentRunId.Value))
+                .Where(x => nullableRunIds.Contains(x.SourceAgentRunId))
                 .OrderBy(x => x.CreatedAt)
                 .Select(x => new
                 {
@@ -938,11 +963,11 @@ namespace taskforge.Controllers.Agent
                 .ToListAsync(ct);
 
             object? course = null;
-            if (conversation.CourseId.HasValue)
+            if (conversation.CourseId is Guid debugCourseId)
             {
                 course = await _db.Courses
                     .AsNoTracking()
-                    .Where(x => x.Id == conversation.CourseId.Value)
+                    .Where(x => x.Id == debugCourseId)
                     .Select(x => new
                     {
                         x.Id,
@@ -958,11 +983,11 @@ namespace taskforge.Controllers.Agent
             }
 
             object? assignment = null;
-            if (conversation.AssignmentId.HasValue)
+            if (conversation.AssignmentId is Guid debugAssignmentId)
             {
                 assignment = await _db.TaskAssignments
                     .AsNoTracking()
-                    .Where(x => x.Id == conversation.AssignmentId.Value)
+                    .Where(x => x.Id == debugAssignmentId)
                     .Select(x => new
                     {
                         x.Id,

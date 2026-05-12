@@ -55,10 +55,6 @@ public sealed class AgentCourseEditApplyService
             return AgentApplyArtifactResult.Fail(artifactId, "AI proposal слишком большой для безопасного применения.", artifact.Run.ConversationId, artifact.RunId);
 
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(artifact.DataJson) ? "{}" : artifact.DataJson);
-        var data = ExtractProposalPayload(artifact.Type, doc.RootElement);
-        if (data.ValueKind != JsonValueKind.Object)
-            return AgentApplyArtifactResult.Fail(artifactId, "Artifact не содержит JSON-patch правок курса.", artifact.Run.ConversationId, artifact.RunId);
-
         var result = new AgentApplyArtifactResult
         {
             Ok = true,
@@ -69,6 +65,13 @@ public sealed class AgentCourseEditApplyService
             ConversationId = artifact.Run.ConversationId,
             Message = dryRun ? "AI proposal проверен. Изменения не применялись." : "AI proposal применён."
         };
+
+        if (IsSaveHiddenDraftApprovalRequest(artifact.Type, doc.RootElement))
+            return await ApplySaveHiddenDraftApprovalAsync(artifact, doc.RootElement, result, currentUserId, currentUserRole, request, now, ct);
+
+        var data = ExtractProposalPayload(artifact.Type, doc.RootElement);
+        if (data.ValueKind != JsonValueKind.Object)
+            return AgentApplyArtifactResult.Fail(artifactId, "Artifact не содержит JSON-patch правок курса.", artifact.Run.ConversationId, artifact.RunId);
 
         var courseId = await ResolveCourseIdAsync(data, artifact.Run.Conversation.CourseId, ct);
         if (!courseId.HasValue)
@@ -224,6 +227,204 @@ public sealed class AgentCourseEditApplyService
         result.NormalizedRatings = normalizedRatings;
         return result;
     }
+
+    private async Task<AgentApplyArtifactResult> ApplySaveHiddenDraftApprovalAsync(
+        AgentRunArtifact artifact,
+        JsonElement root,
+        AgentApplyArtifactResult result,
+        Guid currentUserId,
+        string? currentUserRole,
+        AgentApplyArtifactRequest request,
+        DateTime now,
+        CancellationToken ct)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("payload", out var data) || data.ValueKind != JsonValueKind.Object)
+            return result.AsFailed("approval_request/save_hidden_draft не содержит payload с черновиком задания.");
+
+        var courseId = GetGuid(data, "courseId", "selectedCourseId") ?? artifact.Run.Conversation.CourseId;
+        if (!courseId.HasValue)
+            return result.AsFailed("Не удалось определить courseId для сохранения скрытого AI-черновика.");
+
+        result.CourseId = courseId.Value;
+        if (!await _courseAccess.CanEditCourseAsync(currentUserId, currentUserRole, courseId.Value))
+            return result.AsFailed("У пользователя нет прав редактирования этого курса.");
+
+        var existing = await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.SourceAgentArtifactId == artifact.Id)
+            .Select(x => new
+            {
+                id = x.Id,
+                courseId = x.CourseId,
+                title = x.Title,
+                type = x.Type,
+                isHidden = x.IsHidden,
+                lifecycleStatus = x.LifecycleStatus,
+                sourceAgentRunId = x.SourceAgentRunId,
+                sourceAgentArtifactId = x.SourceAgentArtifactId,
+                sourceAgentTaskIndex = x.SourceAgentTaskIndex
+            })
+            .FirstOrDefaultAsync(ct);
+        if (existing != null)
+        {
+            result.Message = "Скрытый AI-черновик уже существует.";
+            result.Updated.Add(existing);
+            return result;
+        }
+
+        var title = GetString(data, "title", "assignmentTitle");
+        var description = GetString(data, "description", "condition", "body");
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description))
+            return result.AsFailed("Для скрытого AI-черновика нужны title и description.");
+
+        var assignmentType = NormalizeDraftAssignmentType(GetString(data, "assignmentType", "assignment_type", "taskType", "task_type"));
+        if (assignmentType == "image-test")
+            return result.AsFailed("Создание image-test через save_hidden_draft пока запрещено backend-gate.");
+
+        var language = NormalizeRunnerLanguage(GetString(data, "language") ?? "cpp");
+        var testCases = assignmentType == "code-test" ? ExtractTestCases(data).ToList() : new List<DraftTestCase>();
+        var referenceSolution = assignmentType == "code-test" ? GetReferenceSolutionForLanguage(data, language) : null;
+
+        if (assignmentType == "code-test")
+        {
+            var shapeIssue = ValidateCodeTestsShape(testCases);
+            if (shapeIssue != null)
+                return result.AsFailed(shapeIssue);
+            if (string.IsNullOrWhiteSpace(referenceSolution))
+                return result.AsFailed("Для code-test нужен referenceSolution/solution.");
+
+            IList<TestResultDto> runResults;
+            try
+            {
+                runResults = await _compiler.RunTestsAsync(new TestRunRequestDto
+                {
+                    Language = language,
+                    Code = referenceSolution,
+                    TestCases = testCases.Select(x => new TestCaseDto
+                    {
+                        Input = x.Input,
+                        ExpectedOutput = x.ExpectedOutput,
+                        IsHidden = x.IsHidden
+                    }).ToList()
+                });
+            }
+            catch (Exception ex)
+            {
+                return result.AsFailed($"Runner не смог проверить referenceSolution: {ex.Message}");
+            }
+
+            var passed = runResults.Count == testCases.Count && runResults.All(x => x.Passed && string.Equals(x.Status, "ok", StringComparison.OrdinalIgnoreCase));
+            result.Validations.Add(new AgentPatchValidationResult
+            {
+                AssignmentId = Guid.Empty,
+                AssignmentTitle = title.Trim(),
+                Kind = "code-tests",
+                Ok = passed,
+                Message = passed ? "Reference solution passed all proposed tests." : "Reference solution did not pass all proposed tests; hidden draft was not created.",
+                Details = new
+                {
+                    language,
+                    testCount = testCases.Count,
+                    passedCount = runResults.Count(x => x.Passed),
+                    results = runResults
+                }
+            });
+            if (!passed)
+                return result.AsFailed("Reference solution не прошёл предложенные тесты.");
+        }
+
+        var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
+        var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
+        var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? difficulty * 10);
+        var nextSort = (await _db.TaskAssignments.AsNoTracking()
+            .Where(x => x.CourseId == courseId.Value)
+            .Select(x => (int?)x.Sort)
+            .MaxAsync(ct) ?? -1) + 1;
+
+        var assignment = new TaskAssignment
+        {
+            Id = Guid.NewGuid(),
+            CourseId = courseId.Value,
+            Title = Trim(title, 200),
+            Description = ToTiptapDocumentJson(description),
+            Type = assignmentType,
+            Difficulty = difficulty,
+            Rating = rating,
+            Sort = nextSort,
+            AllowedLanguagesCsv = assignmentType == "code-test" ? language : (GetString(data, "allowedLanguagesCsv") ?? language),
+            Tags = MergeCsvTags(GetString(data, "tags"), "AI,черновик"),
+            IsHidden = true,
+            LifecycleStatus = "ready",
+            IsAiDraft = true,
+            SourceAgentRunId = artifact.RunId,
+            SourceAgentArtifactId = artifact.Id,
+            SourceAgentTaskIndex = sourceTaskIndex,
+            AiDraftJson = data.GetRawText(),
+            CreatedAt = now,
+            UpdatedAt = now,
+            PolishedAtUtc = now,
+            PublishedAtUtc = null,
+        };
+
+        foreach (var tc in testCases)
+        {
+            assignment.TestCases.Add(new TaskTestCase
+            {
+                Id = Guid.NewGuid(),
+                Input = tc.Input,
+                ExpectedOutput = tc.ExpectedOutput,
+                IsHidden = tc.IsHidden,
+            });
+        }
+
+        result.Updated.Add(new
+        {
+            type = "hidden_assignment_draft",
+            id = assignment.Id,
+            courseId = assignment.CourseId,
+            title = assignment.Title,
+            assignment.Type,
+            assignment.IsHidden,
+            assignment.LifecycleStatus,
+            testCount = testCases.Count,
+            sourceAgentRunId = assignment.SourceAgentRunId,
+            sourceAgentArtifactId = assignment.SourceAgentArtifactId,
+            sourceAgentTaskIndex = assignment.SourceAgentTaskIndex
+        });
+
+        if (request.DryRun)
+        {
+            result.Message = "Скрытый AI-черновик проверен. Запись в БД не выполнялась.";
+            return result;
+        }
+
+        _db.TaskAssignments.Add(assignment);
+        _db.AgentSteps.Add(new AgentStep
+        {
+            Id = Guid.NewGuid(),
+            RunId = artifact.RunId,
+            Seq = await NextStepSeqAsync(artifact.RunId, ct),
+            Kind = "draft",
+            Status = "completed",
+            ActionName = "save_hidden_draft_from_approval_request",
+            Title = "Создан скрытый AI-черновик задания",
+            Summary = $"Создан скрытый черновик: {assignment.Title}",
+            InputJson = JsonSerializer.Serialize(new { artifactId = artifact.Id, artifact.Type, note = TrimNullable(request.Note, MaxApplyNoteChars), request.Force }),
+            OutputJson = JsonSerializer.Serialize(result),
+            CreatedAtUtc = now,
+            FinishedAtUtc = now,
+            IsVisibleToUser = true,
+        });
+        artifact.Run.UpdatedAtUtc = now;
+        artifact.Run.Conversation.UpdatedAtUtc = now;
+        await _db.SaveChangesAsync(ct);
+
+        result.Message = "Скрытый AI-черновик создан.";
+        return result;
+    }
+
+    private static bool IsSaveHiddenDraftApprovalRequest(string? artifactType, JsonElement root)
+        => string.Equals(artifactType, "approval_request", StringComparison.OrdinalIgnoreCase)
+           && string.Equals(GetString(root, "operation"), "save_hidden_draft", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSupportedProposalArtifact(string? type)
         => string.Equals(type, "course_edit_proposal", StringComparison.OrdinalIgnoreCase)
@@ -588,13 +789,13 @@ public sealed class AgentCourseEditApplyService
         if (cases.Any(x => (x.ExpectedOutput?.Length ?? 0) > MaxTestOutputChars))
             return $"Слишком большой expectedOutput в test case: максимум {MaxTestOutputChars} символов.";
 
-        var publicCount = cases.Count(x => !x.IsHidden && !string.IsNullOrWhiteSpace(x.ExpectedOutput));
-        var hiddenCount = cases.Count(x => x.IsHidden && !string.IsNullOrWhiteSpace(x.ExpectedOutput));
+        var publicCount = cases.Count(x => !x.IsHidden && x.HasExpectedOutput);
+        var hiddenCount = cases.Count(x => x.IsHidden && x.HasExpectedOutput);
         if (publicCount < 2 || hiddenCount < 2)
             return "Для изменения code-test нужно минимум 2 publicTests и 2 hiddenTests с expectedOutput.";
 
-        if (cases.Any(x => string.IsNullOrWhiteSpace(x.ExpectedOutput)))
-            return "Каждый test case должен содержать непустой expectedOutput.";
+        if (cases.Any(x => !x.HasExpectedOutput))
+            return "Каждый test case должен содержать expectedOutput. Пустая строка допустима, если это ожидаемый вывод.";
 
         var fingerprints = cases.Select(NormalizeTestFingerprint).ToList();
         if (fingerprints.Count != fingerprints.Distinct(StringComparer.Ordinal).Count())
@@ -736,7 +937,7 @@ public sealed class AgentCourseEditApplyService
     private sealed record DraftTestQuestionSpec(int Order, string Type, string Prompt, List<DraftOptionSpec> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool TrimAnswers);
     private sealed record DraftMathMatchPairSpec(string LeftKey, string RightKey);
     private sealed record DraftMathBlockSpec(int Order, string Kind, string Prompt, string? PromptContentJson, int Score, bool IsRequired, List<DraftOptionSpec> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool TrimAnswers, double? NumericTolerance, List<string> OrderItems, List<DraftOptionSpec> MatchLeftItems, List<DraftOptionSpec> MatchRightItems, List<DraftMathMatchPairSpec> MatchPairs);
-    private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden);
+    private sealed record DraftTestCase(string Input, string ExpectedOutput, bool IsHidden, bool HasExpectedOutput);
 
     private static IEnumerable<DraftTestQuestionSpec> ExtractDraftTestQuestionSpecs(JsonElement data)
     {
@@ -1106,9 +1307,13 @@ public sealed class AgentCourseEditApplyService
             {
                 if (item.ValueKind != JsonValueKind.Object) continue;
                 var input = GetString(item, "input") ?? string.Empty;
-                var output = GetString(item, "expectedOutput", "output") ?? string.Empty;
+                var hasExpectedOutput = item.TryGetProperty("expectedOutput", out var expectedProp)
+                                        || item.TryGetProperty("output", out expectedProp);
+                var output = hasExpectedOutput && expectedProp.ValueKind != JsonValueKind.Null
+                    ? (expectedProp.ValueKind == JsonValueKind.String ? expectedProp.GetString() ?? string.Empty : expectedProp.ToString())
+                    : string.Empty;
                 var hidden = GetBool(item, "isHidden", "hidden") ?? group.Hidden;
-                yield return new DraftTestCase(input, output, hidden);
+                yield return new DraftTestCase(input, output, hidden, hasExpectedOutput);
             }
         }
     }
@@ -1208,6 +1413,19 @@ public sealed class AgentCourseEditApplyService
         const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         if (index >= 0 && index < alphabet.Length) return alphabet[index].ToString();
         return $"K{index + 1}";
+    }
+
+    private static string MergeCsvTags(string? existing, string required)
+    {
+        var tags = new List<string>();
+        foreach (var raw in new[] { existing, required })
+        {
+            foreach (var part in (raw ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!tags.Contains(part, StringComparer.OrdinalIgnoreCase)) tags.Add(part);
+            }
+        }
+        return string.Join(',', tags);
     }
 
     private static string ToTiptapDocumentJson(string value)
