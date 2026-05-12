@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
@@ -190,8 +191,8 @@ public sealed class AgentCourseEditApplyService
                     ActionName = "apply_course_edit_proposal",
                     Title = "AI-правки курса применены",
                     Summary = $"Применено правок/действий: {result.Updated.Count}. Проверок runner: {result.Validations.Count(x => x.Kind == "code-tests")}." + (string.IsNullOrWhiteSpace(TrimNullable(request.Note, MaxApplyNoteChars)) ? string.Empty : $" Примечание: {TrimNullable(request.Note, MaxApplyNoteChars)}"),
-                    InputJson = JsonSerializer.Serialize(new { artifactId = artifact.Id, artifact.Type, note = TrimNullable(request.Note, MaxApplyNoteChars), request.Force }),
-                    OutputJson = JsonSerializer.Serialize(result),
+                    InputJson = SafeSerializeForLog(new { artifactId = artifact.Id, artifactType = artifact.Type, note = TrimNullable(request.Note, MaxApplyNoteChars), force = request.Force }),
+                    OutputJson = SafeSerializeForLog(result),
                     CreatedAtUtc = now,
                     FinishedAtUtc = now,
                     IsVisibleToUser = true,
@@ -249,30 +250,48 @@ public sealed class AgentCourseEditApplyService
         if (!await _courseAccess.CanEditCourseAsync(currentUserId, currentUserRole, courseId.Value))
             return result.AsFailed("У пользователя нет прав редактирования этого курса.");
 
+        var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
+        var title = GetString(data, "title", "assignmentTitle");
+        var description = GetString(data, "description", "condition", "body");
+        var normalizedTitle = Trim(title ?? string.Empty, 200);
+
         var existing = await _db.TaskAssignments.AsNoTracking()
-            .Where(x => x.SourceAgentArtifactId == artifact.Id)
-            .Select(x => new
+            .Where(x =>
+                x.CourseId == courseId.Value
+                && x.IsAiDraft
+                && x.IsHidden
+                && (
+                    x.SourceAgentArtifactId == artifact.Id
+                    || (x.SourceAgentRunId == artifact.RunId
+                        && sourceTaskIndex.HasValue
+                        && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
+                    || (x.SourceAgentRunId == artifact.RunId
+                        && !sourceTaskIndex.HasValue
+                        && x.Title == normalizedTitle)))
+            .OrderByDescending(x => x.SourceAgentArtifactId == artifact.Id)
+            .ThenBy(x => x.CreatedAt)
+            .Select(x => new AgentHiddenDraftApplySummary
             {
-                id = x.Id,
-                courseId = x.CourseId,
-                title = x.Title,
-                type = x.Type,
-                isHidden = x.IsHidden,
-                lifecycleStatus = x.LifecycleStatus,
-                sourceAgentRunId = x.SourceAgentRunId,
-                sourceAgentArtifactId = x.SourceAgentArtifactId,
-                sourceAgentTaskIndex = x.SourceAgentTaskIndex
+                Action = "hidden_assignment_draft_exists",
+                Id = x.Id,
+                CourseId = x.CourseId,
+                Title = x.Title,
+                AssignmentType = x.Type,
+                IsHidden = x.IsHidden,
+                LifecycleStatus = x.LifecycleStatus,
+                TestCount = x.TestCases.Count,
+                SourceAgentRunId = x.SourceAgentRunId,
+                SourceAgentArtifactId = x.SourceAgentArtifactId,
+                SourceAgentTaskIndex = x.SourceAgentTaskIndex
             })
             .FirstOrDefaultAsync(ct);
         if (existing != null)
         {
-            result.Message = "Скрытый AI-черновик уже существует.";
+            result.Message = "Скрытый AI-черновик уже существует; повторное создание не требуется.";
             result.Updated.Add(existing);
             return result;
         }
 
-        var title = GetString(data, "title", "assignmentTitle");
-        var description = GetString(data, "description", "condition", "body");
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description))
             return result.AsFailed("Для скрытого AI-черновика нужны title и description.");
 
@@ -332,7 +351,6 @@ public sealed class AgentCourseEditApplyService
                 return result.AsFailed("Reference solution не прошёл предложенные тесты.");
         }
 
-        var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
         var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
         var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? difficulty * 10);
         var nextSort = (await _db.TaskAssignments.AsNoTracking()
@@ -376,19 +394,19 @@ public sealed class AgentCourseEditApplyService
             });
         }
 
-        result.Updated.Add(new
+        result.Updated.Add(new AgentHiddenDraftApplySummary
         {
-            type = "hidden_assignment_draft",
-            id = assignment.Id,
-            courseId = assignment.CourseId,
-            title = assignment.Title,
-            assignment.Type,
-            assignment.IsHidden,
-            assignment.LifecycleStatus,
-            testCount = testCases.Count,
-            sourceAgentRunId = assignment.SourceAgentRunId,
-            sourceAgentArtifactId = assignment.SourceAgentArtifactId,
-            sourceAgentTaskIndex = assignment.SourceAgentTaskIndex
+            Action = "hidden_assignment_draft",
+            Id = assignment.Id,
+            CourseId = assignment.CourseId,
+            Title = assignment.Title,
+            AssignmentType = assignment.Type,
+            IsHidden = assignment.IsHidden,
+            LifecycleStatus = assignment.LifecycleStatus,
+            TestCount = testCases.Count,
+            SourceAgentRunId = assignment.SourceAgentRunId,
+            SourceAgentArtifactId = assignment.SourceAgentArtifactId,
+            SourceAgentTaskIndex = assignment.SourceAgentTaskIndex
         });
 
         if (request.DryRun)
@@ -408,8 +426,8 @@ public sealed class AgentCourseEditApplyService
             ActionName = "save_hidden_draft_from_approval_request",
             Title = "Создан скрытый AI-черновик задания",
             Summary = $"Создан скрытый черновик: {assignment.Title}",
-            InputJson = JsonSerializer.Serialize(new { artifactId = artifact.Id, artifact.Type, note = TrimNullable(request.Note, MaxApplyNoteChars), request.Force }),
-            OutputJson = JsonSerializer.Serialize(result),
+            InputJson = SafeSerializeForLog(new { artifactId = artifact.Id, artifactType = artifact.Type, note = TrimNullable(request.Note, MaxApplyNoteChars), force = request.Force }),
+            OutputJson = SafeSerializeForLog(result),
             CreatedAtUtc = now,
             FinishedAtUtc = now,
             IsVisibleToUser = true,
@@ -1356,6 +1374,15 @@ public sealed class AgentCourseEditApplyService
             if (!element.TryGetProperty(name, out var prop)) continue;
             if (prop.ValueKind == JsonValueKind.String) return prop.GetString();
             if (prop.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return prop.ToString();
+            if (prop.ValueKind == JsonValueKind.Array)
+            {
+                var values = prop.EnumerateArray()
+                    .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False ? x.ToString() : null)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!.Trim())
+                    .ToArray();
+                if (values.Length > 0) return string.Join(",", values);
+            }
         }
         return null;
     }
@@ -1465,12 +1492,64 @@ public sealed class AgentCourseEditApplyService
         return value.Length <= max ? value : value[..max];
     }
 
+    private static string SafeSerializeForLog(object? value)
+    {
+        try
+        {
+            return JsonSerializer.Serialize(value);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                serializationError = ex.GetType().Name,
+                message = ex.Message
+            });
+        }
+    }
+
     private static string? TrimNullable(string? value, int max)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         value = value.Trim();
         return value.Length <= max ? value : value[..max];
     }
+}
+
+public sealed class AgentHiddenDraftApplySummary
+{
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = string.Empty;
+
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; }
+
+    [JsonPropertyName("courseId")]
+    public Guid CourseId { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("assignmentType")]
+    public string AssignmentType { get; set; } = string.Empty;
+
+    [JsonPropertyName("isHidden")]
+    public bool IsHidden { get; set; }
+
+    [JsonPropertyName("lifecycleStatus")]
+    public string LifecycleStatus { get; set; } = string.Empty;
+
+    [JsonPropertyName("testCount")]
+    public int TestCount { get; set; }
+
+    [JsonPropertyName("sourceAgentRunId")]
+    public Guid? SourceAgentRunId { get; set; }
+
+    [JsonPropertyName("sourceAgentArtifactId")]
+    public Guid? SourceAgentArtifactId { get; set; }
+
+    [JsonPropertyName("sourceAgentTaskIndex")]
+    public int? SourceAgentTaskIndex { get; set; }
 }
 
 public sealed class AgentApplyArtifactRequest

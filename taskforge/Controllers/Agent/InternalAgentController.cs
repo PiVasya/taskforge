@@ -1655,25 +1655,37 @@ namespace taskforge.Controllers.Agent
             if (!await DraftPlacementBelongsToCourseAsync(courseId.Value, beforeId, afterId)) return null;
 
             var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
-            if (sourceTaskIndex.HasValue)
-            {
-                var existingDraft = await _db.TaskAssignments.AsNoTracking()
-                    .Where(x => x.SourceAgentRunId == run.Id && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
-                    .Select(x => new
-                    {
-                        id = x.Id,
-                        courseId = x.CourseId,
-                        title = x.Title,
-                        type = x.Type,
-                        isHidden = x.IsHidden,
-                        lifecycleStatus = x.LifecycleStatus,
-                        sourceAgentRunId = x.SourceAgentRunId,
-                        sourceAgentArtifactId = x.SourceAgentArtifactId,
-                        sourceAgentTaskIndex = x.SourceAgentTaskIndex
-                    })
-                    .FirstOrDefaultAsync();
-                if (existingDraft != null) return existingDraft;
-            }
+            var normalizedTitle = Trim(title, 200);
+            var existingDraft = await _db.TaskAssignments.AsNoTracking()
+                .Where(x =>
+                    x.CourseId == courseId.Value
+                    && x.IsAiDraft
+                    && x.IsHidden
+                    && (
+                        x.SourceAgentArtifactId == artifact.Id
+                        || (x.SourceAgentRunId == run.Id
+                            && sourceTaskIndex.HasValue
+                            && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
+                        || (x.SourceAgentRunId == run.Id
+                            && !sourceTaskIndex.HasValue
+                            && x.Title == normalizedTitle)))
+                .OrderByDescending(x => x.SourceAgentArtifactId == artifact.Id)
+                .ThenBy(x => x.CreatedAt)
+                .Select(x => new
+                {
+                    id = x.Id,
+                    courseId = x.CourseId,
+                    title = x.Title,
+                    type = x.Type,
+                    isHidden = x.IsHidden,
+                    lifecycleStatus = x.LifecycleStatus,
+                    testCount = x.TestCases.Count,
+                    sourceAgentRunId = x.SourceAgentRunId,
+                    sourceAgentArtifactId = x.SourceAgentArtifactId,
+                    sourceAgentTaskIndex = x.SourceAgentTaskIndex
+                })
+                .FirstOrDefaultAsync();
+            if (existingDraft != null) return existingDraft;
 
             var difficulty = Math.Clamp(GetInt(data, "difficulty") ?? 1, 1, 3);
             var rating = Math.Max(1, GetInt(data, "rating", "points", "score", "weight") ?? (difficulty * 10));
@@ -2736,10 +2748,18 @@ namespace taskforge.Controllers.Agent
                 if (!element.TryGetProperty(name, out var prop)) continue;
                 if (prop.ValueKind == JsonValueKind.String) return prop.GetString();
                 if (prop.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return prop.ToString();
+                if (prop.ValueKind == JsonValueKind.Array)
+                {
+                    var values = prop.EnumerateArray()
+                        .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False ? x.ToString() : null)
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x!.Trim())
+                        .ToArray();
+                    if (values.Length > 0) return string.Join(",", values);
+                }
             }
             return null;
         }
-
 
         private static Guid? GetGuid(JsonElement element, params string[] names)
         {

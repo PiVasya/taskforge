@@ -488,7 +488,14 @@ namespace taskforge.Controllers.Agent
             var role = _current.GetRole();
             var safeRequest = request ?? new AgentApplyArtifactRequest();
             var result = await _courseEditApplier.ApplyAsync(artifactId, runId, uid, role, safeRequest, ct);
-            await AppendArtifactApplyHttpDebugStepAsync(result, safeRequest, ct);
+            try
+            {
+                await AppendArtifactApplyHttpDebugStepAsync(result, safeRequest, ct);
+            }
+            catch
+            {
+                // Applying an artifact must not fail just because diagnostic logging failed.
+            }
 
             if (result.ConversationId != Guid.Empty)
                 await BroadcastAsync(result.ConversationId, result.Ok ? "artifact.applied" : "artifact.apply_failed", new { result });
@@ -798,15 +805,15 @@ namespace taskforge.Controllers.Agent
                 ActionName = "artifact_apply_http_request",
                 Title = result.Ok ? "Apply-запрос к AI artifact обработан" : "Apply-запрос к AI artifact отклонён",
                 Summary = result.Message,
-                InputJson = JsonSerializer.Serialize(new
+                InputJson = SafeSerializeForDebug(new
                 {
-                    result.ArtifactId,
-                    result.ArtifactType,
-                    result.DryRun,
-                    request.Force,
+                    artifactId = result.ArtifactId,
+                    artifactType = result.ArtifactType,
+                    dryRun = result.DryRun,
+                    force = request.Force,
                     note = TrimForDebug(request.Note, 2000)
                 }),
-                OutputJson = JsonSerializer.Serialize(result),
+                OutputJson = SafeSerializeForDebug(result),
                 CreatedAtUtc = now,
                 FinishedAtUtc = now,
                 IsVisibleToUser = false,
@@ -838,7 +845,7 @@ namespace taskforge.Controllers.Agent
                     x.Source,
                     x.Text,
                     x.ClientMessageId,
-                    x.CreatedAtUtc,
+                    CreatedAtUtc = (DateTime?)x.CreatedAtUtc,
                     RawDataJson = x.DataJson,
                     Data = ParseJson(x.DataJson),
                     Attachments = ExtractAttachments(x.DataJson)
@@ -860,8 +867,8 @@ namespace taskforge.Controllers.Agent
                     x.WorkerId,
                     x.Priority,
                     x.Attempt,
-                    x.CreatedAtUtc,
-                    x.UpdatedAtUtc,
+                    CreatedAtUtc = (DateTime?)x.CreatedAtUtc,
+                    UpdatedAtUtc = (DateTime?)x.UpdatedAtUtc,
                     x.StartedAtUtc,
                     x.FinishedAtUtc,
                     x.LeaseExpiresAtUtc,
@@ -899,7 +906,7 @@ namespace taskforge.Controllers.Agent
                     x.Title,
                     x.Summary,
                     x.IsVisibleToUser,
-                    x.CreatedAtUtc,
+                    CreatedAtUtc = (DateTime?)x.CreatedAtUtc,
                     x.StartedAtUtc,
                     x.FinishedAtUtc,
                     RawInputJson = x.InputJson,
@@ -917,7 +924,7 @@ namespace taskforge.Controllers.Agent
             var artifacts = await _db.AgentRunArtifacts
                 .AsNoTracking()
                 .Where(x => runIds.Contains(x.RunId))
-                .OrderBy(x => x.CreatedAtUtc)
+                .OrderBy(x => x.Id)
                 .Select(x => new
                 {
                     x.Id,
@@ -926,7 +933,7 @@ namespace taskforge.Controllers.Agent
                     x.Title,
                     x.StorageKey,
                     x.ContentHash,
-                    x.CreatedAtUtc,
+                    CreatedAtUtc = (DateTime?)x.CreatedAtUtc,
                     RawDataJson = x.DataJson,
                     Data = ParseJson(x.DataJson),
                     DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
@@ -953,8 +960,8 @@ namespace taskforge.Controllers.Agent
                     x.SourceAgentRunId,
                     x.SourceAgentArtifactId,
                     x.SourceAgentTaskIndex,
-                    x.CreatedAt,
-                    x.UpdatedAt,
+                    CreatedAt = (DateTime?)x.CreatedAt,
+                    UpdatedAt = (DateTime?)x.UpdatedAt,
                     x.PolishedAtUtc,
                     x.PublishedAtUtc,
                     TestCount = x.TestCases.Count,
@@ -975,8 +982,8 @@ namespace taskforge.Controllers.Agent
                         x.Description,
                         x.OwnerId,
                         x.IsPublic,
-                        x.CreatedAt,
-                        x.UpdatedAt,
+                        CreatedAt = (DateTime?)x.CreatedAt,
+                        UpdatedAt = (DateTime?)x.UpdatedAt,
                         AssignmentCount = x.Assignments.Count
                     })
                     .FirstOrDefaultAsync(ct);
@@ -1271,6 +1278,22 @@ namespace taskforge.Controllers.Agent
             ContentHash = artifact.ContentHash,
             CreatedAtUtc = artifact.CreatedAtUtc,
         };
+
+        private static string SafeSerializeForDebug(object? value)
+        {
+            try
+            {
+                return JsonSerializer.Serialize(value);
+            }
+            catch (Exception ex)
+            {
+                return JsonSerializer.Serialize(new
+                {
+                    serializationError = ex.GetType().Name,
+                    message = ex.Message
+                });
+            }
+        }
 
         private static object? ParseJson(string? json) => ParseJsonElement(json);
 
