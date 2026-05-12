@@ -1,7 +1,7 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
-// Импортируем useEffect отдельно, чтобы избежать проблем с BOM в первой строке
+
 import { useEffect } from "react";
 import { Card, Field, Input, Button } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
@@ -11,7 +11,7 @@ import { UserPlus, LogIn } from "lucide-react";
 
 export default function RegisterPage() {
     const nav = useNavigate();
-    // Получаем функции login и текущее значение access из контекста авторизации
+    
     const { login, access } = useAuth();
 
     const [email, setEmail] = useState("");
@@ -20,7 +20,7 @@ export default function RegisterPage() {
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
 
-    // Пользователь должен принять политику конфиденциальности перед регистрацией.
+    
     const [acceptedPolicy, setAcceptedPolicy] = useState(false);
 
     const [err, setErr] = useState("");
@@ -40,18 +40,18 @@ export default function RegisterPage() {
         setBusy(true);
         setErr("");
         try {
-            // Сначала пытаемся зарегистрировать пользователя
+            
             await registerUser({
                 email: email.trim(),
                 password,
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
             });
-            // После успешной регистрации пробуем залогиниться этими же данными
+            
             try {
                 await login(email.trim(), password);
             } catch (eLogin) {
-                // Если вход не удался, перенаправляем на страницу входа
+                
                 nav("/login", { replace: true });
             }
         } catch (e2) {
@@ -65,8 +65,8 @@ export default function RegisterPage() {
         }
     };
 
-    // Если после регистрации токен авторизации стал доступен,
-    // перенаправляем пользователя на страницу курсов.
+    
+    
     useEffect(() => {
         if (access) {
             nav("/courses", { replace: true });
@@ -135,7 +135,7 @@ export default function RegisterPage() {
                         </Button>
                     </form>
 
-                    {/* Политика конфиденциальности */}
+                    
                     <div className="mt-4 text-sm text-neutral-600 dark:text-neutral-400 flex items-start gap-2">
                         <input
                             id="policyAgreement"

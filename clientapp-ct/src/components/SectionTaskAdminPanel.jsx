@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, HelpCircle, Loader2, Plus, RefreshCcw } from 'lucide-react';
+import { CheckCircle2, HelpCircle, Loader2, Plus, RefreshCcw, Sparkles, Upload } from 'lucide-react';
 import { createQuizTask, getQuizTasks } from '../api/quiz';
 import { EXAM_CODE, SUBJECT_CODE, normalizeSectionCode } from '../data/ctSections';
 
@@ -20,6 +20,95 @@ function splitValues(value) {
     .split(/\n|,/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function cleanAiJson(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim();
+}
+
+function parseAiTasks(value) {
+  const cleaned = cleanAiJson(value);
+  if (!cleaned) throw new Error('Вставь JSON с заданиями.');
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const firstArray = cleaned.indexOf('[');
+    const lastArray = cleaned.lastIndexOf(']');
+    const firstObject = cleaned.indexOf('{');
+    const lastObject = cleaned.lastIndexOf('}');
+    const arrayCandidate = firstArray >= 0 && lastArray > firstArray ? cleaned.slice(firstArray, lastArray + 1) : '';
+    const objectCandidate = firstObject >= 0 && lastObject > firstObject ? cleaned.slice(firstObject, lastObject + 1) : '';
+    parsed = JSON.parse(arrayCandidate || objectCandidate);
+  }
+  const items = Array.isArray(parsed) ? parsed : parsed.tasks;
+  if (!Array.isArray(items) || !items.length) throw new Error('JSON должен быть массивом заданий или объектом { "tasks": [...] }.');
+  return items;
+}
+
+function pickText(item, names) {
+  for (const name of names) {
+    const value = item?.[name];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+function normalizeAiTask(item, index, sectionCode) {
+  const options = Array.isArray(item?.options)
+    ? item.options.map((option) => String(option).trim()).filter(Boolean)
+    : splitValues(item?.optionsText || item?.variants || item?.answers);
+  const type = item?.type === 'text-answer' || item?.type === 'text' || options.length === 0 ? 'text-answer' : 'single-choice';
+  const title = pickText(item, ['title', 'name']) || `${sectionCode}. Задание ${index + 1}`;
+  const prompt = pickText(item, ['prompt', 'question', 'text', 'body']);
+  const correctAnswer = pickText(item, ['correctAnswer', 'answer', 'correct', 'rightAnswer']);
+  const explanation = pickText(item, ['explanation', 'why', 'comment', 'explanationText']);
+  const tags = Array.isArray(item?.tags) ? item.tags.map((tag) => String(tag).trim()).filter(Boolean) : splitValues(item?.tags || `${sectionCode}, ЦТ`);
+  const difficulty = Number(item?.difficulty) || 1;
+  if (!prompt) throw new Error(`Задание ${index + 1}: нет текста задания.`);
+  if (!correctAnswer) throw new Error(`Задание ${index + 1}: нет правильного ответа.`);
+  if (!explanation) throw new Error(`Задание ${index + 1}: нет объяснения.`);
+  if (type !== 'text-answer' && !options.length) throw new Error(`Задание ${index + 1}: нет вариантов ответа.`);
+  if (type !== 'text-answer' && !options.some((option) => option.toLowerCase() === correctAnswer.toLowerCase())) {
+    throw new Error(`Задание ${index + 1}: правильный ответ должен совпадать с одним из вариантов.`);
+  }
+  return {
+    slug: pickText(item, ['slug']) || `${sectionCode.toLowerCase()}-${slugify(title)}-${Date.now()}-${index + 1}`,
+    type,
+    title,
+    prompt,
+    subjectCode: SUBJECT_CODE,
+    examCode: EXAM_CODE,
+    sectionCode,
+    difficulty,
+    tags,
+    sourceName: pickText(item, ['sourceName', 'source']) || null,
+    sourceYear: item?.sourceYear ? Number(item.sourceYear) : null,
+    data: type === 'text-answer' ? {} : { options },
+    correctAnswer: type === 'text-answer' ? { value: correctAnswer } : { selected: [correctAnswer] },
+    explanation: { text: explanation },
+    isPublished: item?.isPublished !== false,
+  };
+}
+
+function makeAiImportExample(sectionCode) {
+  return JSON.stringify([
+    {
+      title: `${sectionCode || 'A1'}. Безударная гласная в корне`,
+      prompt: 'Укажите слово, в котором пропущена проверяемая безударная гласная корня.\n1) р..сток\n2) прик..саться\n3) пол..гать\n4) л..сной',
+      type: 'single-choice',
+      options: ['1', '2', '3', '4'],
+      correctAnswer: '4',
+      explanation: 'В слове «лесной» гласная проверяется словом «лес». Остальные слова относятся к корням с чередованием.',
+      difficulty: 1,
+      tags: [sectionCode || 'A1', 'орфография']
+    }
+  ], null, 2);
 }
 
 function Field({ label, hint, children, required = false }) {
@@ -69,10 +158,12 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [bulkText, setBulkText] = useState(() => makeAiImportExample(sectionCode));
 
   const canUse = Boolean(sectionCode);
   const options = useMemo(() => splitValues(form.optionsText), [form.optionsText]);
   const isChoice = form.type !== 'text-answer';
+  const importExample = useMemo(() => makeAiImportExample(sectionCode), [sectionCode]);
 
   function setField(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -98,13 +189,33 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
   }
 
   useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      if (!sectionCode) return;
+      setBusy('load');
+      setError('');
+      try {
+        const data = await getQuizTasks({
+          subjectCode: selectedCourse?.subjectCode || SUBJECT_CODE,
+          examCode: selectedCourse?.examCode || EXAM_CODE,
+          sectionCode,
+          includeDraft: true,
+        });
+        if (!cancelled) setTasks(data || []);
+      } catch (e) {
+        if (!cancelled) setError(e?.userMessage || e?.message || 'Не удалось загрузить задания раздела.');
+      } finally {
+        if (!cancelled) setBusy('');
+      }
+    }
     setForm(makeForm(sectionCode));
     setTasks([]);
     setError('');
     setSuccess('');
-    if (sectionCode) loadTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionCode]);
+    setBulkText(makeAiImportExample(sectionCode));
+    refresh();
+    return () => { cancelled = true; };
+  }, [sectionCode, selectedCourse?.subjectCode, selectedCourse?.examCode]);
 
   function validate() {
     if (!sectionCode) return 'Выбери раздел с кодом A1, B5 и т.п.';
@@ -149,6 +260,26 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
       await loadTasks();
     } catch (e) {
       setError(e?.userMessage || e?.message || 'Не удалось создать задание.');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function importAiTasks() {
+    if (!sectionCode) return;
+    setBusy('bulk');
+    setError('');
+    setSuccess('');
+    try {
+      const parsed = parseAiTasks(bulkText);
+      const payloads = parsed.map((item, index) => normalizeAiTask(item, index, sectionCode));
+      for (const payload of payloads) {
+        await createQuizTask(payload);
+      }
+      setSuccess(`Импортировано заданий: ${payloads.length}. Они привязаны к ${sectionCode}.`);
+      await loadTasks();
+    } catch (e) {
+      setError(e?.userMessage || e?.message || 'Не удалось импортировать задания.');
     } finally {
       setBusy('');
     }
@@ -215,6 +346,29 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
         {busy === 'save' ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
         Создать задание для {sectionCode}
       </button>
+
+      <details className="mt-6 rounded-[1.5rem] border border-dashed border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/20">
+        <summary className="cursor-pointer list-none">
+          <span className="inline-flex items-center gap-2 text-base font-black"><Sparkles size={18} /> Импорт из нейронки</span>
+          <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">скрытый массовый ввод JSON</span>
+        </summary>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+          <div className="rounded-3xl bg-white p-4 text-sm leading-6 shadow-sm dark:bg-neutral-950">
+            <div className="font-bold">Формат</div>
+            <p className="mt-2 text-neutral-600 dark:text-neutral-300">Вставь массив JSON. Можно передать массив сразу или объект с полем tasks. Все задания будут записаны в текущий номер {sectionCode}.</p>
+            <pre className="mt-3 max-h-80 overflow-auto rounded-2xl bg-neutral-950 p-3 text-xs text-neutral-50">{importExample}</pre>
+          </div>
+          <div>
+            <Field label="JSON заданий" hint="Удобно попросить нейронку вернуть только JSON без Markdown. Объяснение обязательно для каждого задания.">
+              <Textarea rows={15} value={bulkText} onChange={(e) => setBulkText(e.target.value)} spellCheck={false} className="font-mono text-xs" />
+            </Field>
+            <button type="button" onClick={importAiTasks} disabled={busy === 'bulk'} className="btn-primary mt-3 inline-flex items-center gap-2 disabled:opacity-60">
+              {busy === 'bulk' ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+              Импортировать задания для {sectionCode}
+            </button>
+          </div>
+        </div>
+      </details>
     </section>
   );
 }

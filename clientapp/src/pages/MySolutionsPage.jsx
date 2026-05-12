@@ -1,4 +1,4 @@
-// modified MySolutionsPage.jsx improves theme styling for solution cards
+
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../components/Layout';
 import { Card, Button, Badge } from '../components/ui';
@@ -69,10 +69,10 @@ export default function MySolutionsPage() {
         setSolSkip((prev) => prev + arr.length);
       }
 
-      // если пришло меньше PAGE_SIZE — страниц больше нет
+      
       setSolHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      // логирование на фронте отключено
+      
     } finally {
       setListLoading(false);
     }
@@ -95,7 +95,7 @@ export default function MySolutionsPage() {
 
       setTestHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      // логирование на фронте отключено
+      
     } finally {
       setTestListLoading(false);
     }
@@ -118,7 +118,7 @@ export default function MySolutionsPage() {
 
       setMathHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      // логирование на фронте отключено
+      
     } finally {
       setMathListLoading(false);
     }
@@ -141,14 +141,14 @@ export default function MySolutionsPage() {
 
       setImageHasMore(arr.length === PAGE_SIZE);
     } catch (e) {
-      // логирование на фронте отключено
+      
     } finally {
       setImageListLoading(false);
     }
   };
 
   useEffect(() => {
-    // При смене фильтра начинаем с первой страницы.
+    
     setSolSkip(0);
     setSolHasMore(true);
     loadSolutions({ reset: true });
@@ -161,13 +161,13 @@ export default function MySolutionsPage() {
     setMathSkip(0);
     setMathHasMore(true);
     loadMathAttempts({ reset: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [filterDays]);
 
-  // Для типа "fill" (вставить пропущенное слово) — поле ввода прямо в тексте.
+  
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
-    // 3+ чтобы не ловить _ в идентификаторах кода.
+    
     const m = p.match(/_{3,}/);
     if (!m) return null;
     const blank = m[0];
@@ -213,7 +213,7 @@ export default function MySolutionsPage() {
         if (e?.response?.status === 403) {
           notify.warn('Просмотр результатов для этого math-задания отключён');
         } else {
-          // логирование на фронте отключено
+          
           notify.error('Не удалось загрузить просмотр math-попытки');
         }
         return;
@@ -234,7 +234,7 @@ export default function MySolutionsPage() {
         const full = await getMyImageSolutionDetails(id);
         setImageDetails((prev) => ({ ...prev, [id]: full }));
       } catch (e) {
-        // логирование на фронте отключено
+        
         notify.error('Не удалось загрузить решение по картинке');
         return;
       }
@@ -253,7 +253,7 @@ export default function MySolutionsPage() {
         const full = await getMySolutionDetails(id);
         setDetails((prev) => ({ ...prev, [id]: full }));
       } catch (e) {
-        // логирование на фронте отключено
+        
         return;
       }
     }
@@ -281,7 +281,7 @@ export default function MySolutionsPage() {
         if (e?.response?.status === 403) {
           notify.warn('Просмотр результатов для этого теста отключён');
         } else {
-          // логирование на фронте отключено
+          
           notify.error('Не удалось загрузить просмотр попытки');
         }
         return;

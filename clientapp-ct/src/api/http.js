@@ -34,7 +34,7 @@ function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
       },
     }));
   } catch {
-    // ignore UI-only telemetry errors
+    
   }
 }
 

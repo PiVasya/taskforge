@@ -118,7 +118,7 @@ export function QuotaProvider({ enabled = true, children }) {
       const payload = await getMyQuotas();
       setData(normalizePayload(payload));
     } catch {
-      // ignore
+      
     }
   }, [enabled]);
 

@@ -1,6 +1,6 @@
-// clientapp/src/pages/SupportTicketsPage.jsx
-// Страница «Мои обращения». Показывает список тикетов и позволяет
-// перейти к переписке или создать новое обращение.
+
+
+
 
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';

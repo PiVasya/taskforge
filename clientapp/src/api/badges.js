@@ -1,19 +1,12 @@
 import api from './http';
 
-/**
- * Получить список всех бейджей.
- * GET /api/badges
- */
+
 export async function getAllBadges() {
   const { data } = await api.get('/api/badges');
   return Array.isArray(data) ? data : [];
 }
 
-/**
- * Создать новый бейдж. Принимает FormData с полями name, description и file (svg).
- * POST /api/badges
- * @param {FormData} formData
- */
+
 export async function createBadge(formData) {
   const { data } = await api.post('/api/badges', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -21,42 +14,25 @@ export async function createBadge(formData) {
   return data;
 }
 
-/**
- * Выдать бейдж пользователю.
- * POST /api/badges/award
- * @param {string} userId
- * @param {string} badgeId
- */
+
 export async function awardBadge(userId, badgeId) {
   await api.post('/api/badges/award', { userId, badgeId });
   return true;
 }
 
-/**
- * Получить список бейджей пользователя.
- * GET /api/badges/user/{userId}
- */
+
 export async function getUserBadges(userId) {
   const { data } = await api.get(`/api/badges/user/${userId}`);
   return Array.isArray(data) ? data : [];
 }
 
-/**
- * Удалить существующий бейдж.
- * DELETE /api/badges/{badgeId}
- * @param {string} badgeId
- */
+
 export async function deleteBadge(badgeId) {
   await api.delete(`/api/badges/${badgeId}`);
   return true;
 }
 
-/**
- * Снять (отозвать) выданный бейдж у пользователя.
- * POST /api/badges/revoke
- * @param {string} userId
- * @param {string} badgeId
- */
+
 export async function revokeBadge(userId, badgeId) {
   await api.post('/api/badges/revoke', { userId, badgeId });
   return true;

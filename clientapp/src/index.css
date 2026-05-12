@@ -3,21 +3,15 @@
 @tailwind utilities;
 
 
-/* ====== Токены ======
 
-  Важно:
-  - "Цветовая тема" (blue/pink/apple) отвечает ТОЛЬКО за бренд-цвета и светлую палитру.
-  - "Режим" (light/dark) отвечает ТОЛЬКО за светлую/тёмную палитру.
-  - Тёмный режим НЕ должен перетира́ть бренд-цвет (иначе снова вылезет синий в apple/pink).
-*/
 
 :root {
-  /* light */
-  --page-bg: 248 250 252;  /* neutral-50 */
+  
+  --page-bg: 248 250 252;  
   --card: 255 255 255;
   --muted: 244 247 252;
 
-  /* brand (blue / sky) */
+  
   --brand-50: 240 249 255;
   --brand-100: 224 242 254;
   --brand-200: 186 230 253;
@@ -29,20 +23,19 @@
   --brand-800: 7 89 133;
   --brand-900: 12 74 110;
 
-  /* Accent tokens (used by focus rings, buttons, bootstrap overrides, etc.)
-     IMPORTANT: these MUST exist for every theme, otherwise browser/tailwind
-     fall back to default blue focus/links. */
+  
+
   --accent: var(--brand-600);
   --accent-700: var(--brand-700);
   --accent2: var(--brand-400);
   --accent3: var(--brand-200);
 
-  /* Нейтральные токены, чтобы нигде не «проскакивал» дефолтный синий */
+  
   --text: 15 23 42;
   --text-muted: 107 114 128;
   --border: 210 214 220;
 
-  /* Bootstrap overrides (если где-то используются bootstrap-классы/переменные) */
+  
   --bs-primary: rgb(var(--accent));
   --bs-primary-rgb: var(--accent);
   --bs-link-color: rgb(var(--accent));
@@ -51,28 +44,20 @@
   --bs-link-hover-color-rgb: var(--accent-700);
 }
 
-/* ===== Light: make neutral borders follow выбранную палитру =====
-   Сейчас большинство компонентов используют tailwind классы вида
-   border-neutral-200(/60,/70) и т.п. Из-за этого в светлой теме
-   палитра (blue/pink/apple) визуально почти не проявляется.
 
-   Ниже мы переопределяем самые частые нейтральные border-* классы,
-   подставляя "тематические" бордеры на базе brand-цвета.
-   (Только для light — в dark свои значения уже задаются через --border.)
-*/
 
-/* helper: theme border color (light) */
+
 html:not(.dark).blue,
 html:not(.dark).pink,
 html:not(.dark).apple,
 html:not(.dark).red,
 html:not(.dark).honey,
 html:not(.dark).violet {
-  /* базовый бордер = средний brand-тон */
+  
   --border: var(--brand-300);
 }
 
-/* Tailwind neutral borders -> theme border */
+
 html:not(.dark).blue .border-neutral-200,
 html:not(.dark).blue .border-neutral-200\/60,
 html:not(.dark).blue .border-neutral-200\/70,
@@ -145,7 +130,7 @@ html:not(.dark).violet .border-slate-200 {
   border-color: rgba(var(--border) / 0.60) !important;
 }
 
-/* Цветовая тема: BLUE (дефолт). Класс нужен для явного выбора в UI. */
+
 html.blue {
   --page-bg: 248 250 252;
   --card: 255 255 255;
@@ -161,18 +146,18 @@ html.blue {
   --brand-800: 7 89 133;
   --brand-900: 12 74 110;
 
-  /* фоновые блики (включаются переключателем) */
-  --fx-1: 14 165 233;   /* sky */
-  --fx-2: 34 211 238;   /* cyan */
-  --fx-3: 167 139 250;  /* violet */
-  --fg: 148 163 184;    /* slate-400 для частиц */
+  
+  --fx-1: 14 165 233;   
+  --fx-2: 34 211 238;   
+  --fx-3: 167 139 250;  
+  --fg: 148 163 184;    
 }
 
-/* Цветовая тема: PINK */
+
 html.pink {
-  --page-bg: 255 241 246;  /* rose-50 */
+  --page-bg: 255 241 246;  
   --card: 255 250 252;
-  --muted: 255 228 235;    /* rose-100 */
+  --muted: 255 228 235;    
   --brand-50: 253 242 248;
   --brand-100: 252 231 243;
   --brand-200: 251 207 232;
@@ -184,25 +169,25 @@ html.pink {
   --brand-800: 157 23 77;
   --brand-900: 131 24 67;
 
-  /* фоновые блики (включаются переключателем) */
-  --fx-1: 236 72 153;   /* pink */
-  --fx-2: 168 85 247;   /* purple */
-  --fx-3: 251 113 133;  /* rose */
-  --fg: 148 163 184;    /* slate-400 для частиц */
+  
+  --fx-1: 236 72 153;   
+  --fx-2: 168 85 247;   
+  --fx-3: 251 113 133;  
+  --fg: 148 163 184;    
 }
 
-/* Цветовая тема: APPLE */
+
 html.apple {
-  /* чуть более "холодный" (mint/emerald), чтобы не уходил в жёлтый */
-  --page-bg: 236 253 245; /* emerald-50 */
+  
+  --page-bg: 236 253 245; 
   --card: 248 255 252;
-  --muted: 209 250 229;   /* emerald-100 */
+  --muted: 209 250 229;   
 
   --brand-50: 236 253 245;
   --brand-100: 209 250 229;
   --brand-200: 167 243 208;
   --brand-300: 110 231 183;
-  /* более "холодный" зелёный (неспелое яблоко / mint), без желтизны */
+  
   --brand-400: 74 222 162;
   --brand-500: 34 211 151;
   --brand-600: 22 201 154;
@@ -210,18 +195,18 @@ html.apple {
   --brand-800: 6 95 70;
   --brand-900: 6 78 59;
 
-  /* Цвета для фоновых бликов */
+  
   --fx-1: 16 185 129;
   --fx-2: 52 211 153;
   --fx-3: 167 243 208;
-  --fg: 148 163 184;    /* slate-400 для частиц */
+  --fg: 148 163 184;    
 }
 
-/* Цветовая тема: RED */
+
 html.red {
-  --page-bg: 254 242 242; /* red-50 */
+  --page-bg: 254 242 242; 
   --card: 255 251 251;
-  --muted: 254 226 226;  /* red-100 */
+  --muted: 254 226 226;  
 
   --brand-50: 254 242 242;
   --brand-100: 254 226 226;
@@ -234,17 +219,17 @@ html.red {
   --brand-800: 153 27 27;
   --brand-900: 127 29 29;
 
-  --fx-1: 239 68 68;   /* red */
-  --fx-2: 251 113 133; /* rose */
-  --fx-3: 245 158 11;  /* amber for contrast */
+  --fx-1: 239 68 68;   
+  --fx-2: 251 113 133; 
+  --fx-3: 245 158 11;  
   --fg: 148 163 184;
 }
 
-/* Цветовая тема: HONEY (жёлтая, ближе к мёду) */
+
 html.honey {
-  --page-bg: 255 251 235; /* amber-50 */
+  --page-bg: 255 251 235; 
   --card: 255 253 245;
-  --muted: 254 243 199;   /* amber-100 */
+  --muted: 254 243 199;   
 
   --brand-50: 255 251 235;
   --brand-100: 254 243 199;
@@ -257,13 +242,13 @@ html.honey {
   --brand-800: 146 64 14;
   --brand-900: 120 53 15;
 
-  --fx-1: 245 158 11;  /* amber */
-  --fx-2: 251 191 36;  /* amber-400 */
-  --fx-3: 253 230 138; /* amber-200 */
+  --fx-1: 245 158 11;  
+  --fx-2: 251 191 36;  
+  --fx-3: 253 230 138; 
   --fg: 148 163 184;
 }
 
-/* Цветовая тема: VIOLET */
+
 html.violet {
   --page-bg: 250 245 255;
   --card: 253 249 255;
@@ -286,53 +271,45 @@ html.violet {
   --fg: 148 163 184;
 }
 
-/*
-  Режим: DARK.
-  Раньше здесь были neutral-900/800 для всех тем, из‑за чего PINK/APPLE выглядели «синими».
-  Теперь тёмные фоны подбираются под выбранную цветовую тему.
 
-  Порядок применения:
-    1) html.<theme> задаёт бренд‑палитру
-    2) html.dark.<theme> задаёт тёмные фоны/карточки
-*/
 html.dark.blue {
   --page-bg: 15 23 42;
   --card: 15 23 42;
   --muted: 30 41 59;
   --border: 40 50 70;
-  --fg: 203 213 225;    /* slate-300 для частиц в тёмной теме */
+  --fg: 203 213 225;    
 }
 
 html.dark.pink {
-  --page-bg: 28 16 26;   /* тёмный розово‑фиолетовый */
+  --page-bg: 28 16 26;   
   --card: 32 18 30;
   --muted: 44 26 41;
   --border: 70 48 68;
-  --fg: 253 224 239;    /* rose-100 для частиц в тёмной теме */
+  --fg: 253 224 239;    
 }
 
 html.dark.apple {
-  --page-bg: 12 22 17;   /* тёмный зелёный */
+  --page-bg: 12 22 17;   
   --card: 14 26 20;
   --muted: 22 38 30;
   --border: 52 72 62;
-  --fg: 209 250 229;    /* emerald-100 для частиц в тёмной теме */
+  --fg: 209 250 229;    
 }
 
 html.dark.red {
-  --page-bg: 26 12 12;   /* глубокий бордовый */
+  --page-bg: 26 12 12;   
   --card: 30 14 14;
   --muted: 44 20 20;
   --border: 78 40 40;
-  --fg: 254 226 226;    /* red-100 */
+  --fg: 254 226 226;    
 }
 
 html.dark.honey {
-  --page-bg: 20 14 8;   /* тёмный тёплый */
+  --page-bg: 20 14 8;   
   --card: 24 16 10;
   --muted: 40 26 14;
   --border: 84 62 28;
-  --fg: 254 243 199;    /* amber-100 */
+  --fg: 254 243 199;    
 }
 
 html.dark.violet {
@@ -343,19 +320,19 @@ html.dark.violet {
   --fg: 237 233 254;
 }
 
-/* запасной вариант, если вдруг на html нет theme-класса */
+
 html.dark:not(.blue):not(.pink):not(.apple):not(.red):not(.honey):not(.violet) {
   --page-bg: 15 23 42;
   --card: 15 23 42;
   --muted: 30 41 59;
 }
 
-/* Общие токены для dark (текст/бордеры/bs), не влияющие на фон темы */
+
 html.dark {
   --text: 245 247 250;
   --text-muted: 200 206 215;
-  /* border в dark лучше задавать в html.dark.<theme>, чтобы не получать
-     «синеву» на pink/apple. Здесь оставляем запасной дефолт. */
+  
+
   --border: 40 50 70;
 
   --bs-primary: rgb(var(--accent));
@@ -365,9 +342,7 @@ html.dark {
   --bs-link-hover-color: rgb(var(--accent-700));
 }
 
-/* ===== Tailwind dark:neutral-* подстраиваем под выбранную палитру =====
-   На pink/apple дефолтные neutral-700/800 визуально дают «синий» оттенок.
-   Здесь мы переопределяем самые частые классы бордеров в тёмном режиме. */
+
 html.dark.pink .dark\:border-neutral-700,
 html.dark.pink .dark\:border-neutral-800,
 html.dark.apple .dark\:border-neutral-700,
@@ -382,9 +357,9 @@ html.dark.honey .dark\:border-neutral-800 {
   border-color: rgba(var(--border) / 0.8) !important;
 }
 
-/* ====== База / типографика / фон ====== */
 
-/* Manrope по всему сайту (шире и «плотнее» визуально) */
+
+
 html, body {
   font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
                Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -399,23 +374,23 @@ html.dark body {
   color: rgb(var(--text));
 }
 
-/* Ссылки/hover/focus без дефолтного «синего» */
+
 a {
   color: inherit;
   text-decoration: none;
 }
 a:hover { color: rgb(var(--accent)); }
 
-/* Унифицированная подсветка фокуса под текущую цветовую тему */
+
 :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(var(--accent) / 0.35);
 }
 
-/* Заголовки — чуть плотнее и «короче» трекинг */
+
 h1, h2, h3, .h1, .h2, .h3 { @apply font-semibold tracking-tight; }
 
-/* Кнопки в хедере — стабильная жирность */
+
 header .btn-outline,
 header .btn-primary {
   @apply font-medium;
@@ -477,7 +452,7 @@ main .container-app .container-app {
   border: 1px solid rgba(var(--border) / 0.55);
 }
 
-/* ====== Контролы ====== */
+
 .btn { @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition select-none whitespace-nowrap min-h-[42px] min-w-[10ch]; }
 @media (max-width: 640px) {
   .btn { min-height: 44px; min-width: 0; max-width: 100%; }
@@ -498,7 +473,7 @@ main .container-app .container-app {
 .btn-outline { @apply btn; border: 1px solid rgba(var(--border) / 0.75); }
 .btn-outline:hover { background: rgba(var(--border) / 0.16); }
 
-/* ====== Badge ====== */
+
 .badge { 
   @apply inline-flex items-center rounded-full px-2 py-1 text-xs font-medium;
   border: 1px solid rgba(var(--border) / 0.7);
@@ -529,14 +504,14 @@ html.dark .badge-info {
   color: rgb(var(--accent3));
 }
 
-/* ЕДИНЫЙ фон для всех контролов: rgb(var(--card)) */
+
 .input {
   @apply w-full rounded-xl px-3 py-2 bg-[rgb(var(--card))];
   border: 1px solid rgba(var(--border) / 0.75);
 }
 .input::placeholder { opacity: .7; }
 
-/* ====== Нативные radio/checkbox/file — красим под тему ====== */
+
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: rgb(var(--accent));
@@ -560,11 +535,10 @@ input[type="file"]::file-selector-button:hover {
   filter: brightness(0.95);
 }
 
-/* ====== Fill question: поле В ТЕКСТЕ + ширина от количества _ ====== */
+
 .fill-line {
-  /* Вставляем input прямо в текст и даём строке вести себя как обычный текст.
-     Так корректно работают переносы строк/пробелы (в т.ч. в коде) и не появляется
-     "двойной" перенос/огромные отступы как при inline-flex+gap. */
+  
+
   display: inline;
   white-space: pre-wrap;
   line-height: 1.4;
@@ -574,13 +548,13 @@ input[type="file"]::file-selector-button:hover {
   display: inline-block;
   background: rgb(var(--card));
   color: inherit;
-  border: 1px solid rgba(100, 116, 139, 0.35); /* neutral-500/35 */
+  border: 1px solid rgba(100, 116, 139, 0.35); 
   border-radius: 10px;
-  /* компактнее, чтобы не выглядело "квадратом" */
+  
   padding: 2px 8px;
   height: 1.9em;
   vertical-align: baseline;
-  /* не добавляем свои пробелы через gap — делаем аккуратный отступ */
+  
   margin: 0 0.35em;
 }
 
@@ -588,7 +562,7 @@ input[type="file"]::file-selector-button:hover {
   border-color: rgba(148, 163, 184, 0.35);
 }
 
-/* Палитра влияет на brand/accent через CSS-переменные — отдельные правила по цветам не нужны */
+
 
 .fill-input:focus {
   outline: none;
@@ -598,12 +572,11 @@ input[type="file"]::file-selector-button:hover {
 
 .link { @apply underline underline-offset-2 hover:no-underline; }
 
-/* Акцентные ссылки: очень лёгкий оттенок от темы, не перекрашиваем весь UI */
+
 a.link { color: color-mix(in srgb, rgb(var(--text)) 85%, rgb(var(--accent)) 15%); }
 a.link:hover { color: color-mix(in srgb, rgb(var(--text)) 75%, rgb(var(--accent)) 25%); }
 
-/* ====== Select: единый стиль + темы
-   ВАЖНО: больше НЕ трогаем .select класс — только настоящие <select> ====== */
+
 select,
 select.input {
   @apply w-full rounded-xl px-3 py-2;
@@ -615,14 +588,10 @@ select.input {
   background-repeat: no-repeat;
   background-position: right .75rem center;
   background-size: 1rem 1rem;
-  padding-right: 2.25rem; /* место под стрелку */
+  padding-right: 2.25rem; 
 }
 
-/* =======================
-   Background FX (soft blurred blobs)
-   Enabled by `.bgfx` on the app root.
-   We keep this as raw CSS (not Tailwind) so it can't be purged.
-   ======================= */
+
 
 .bgfx .bgfx-blob {
   position: absolute;
@@ -633,14 +602,14 @@ select.input {
   will-change: transform;
 }
 
-/* Light: a bit calmer */
+
 :not(.dark) .bgfx .bgfx-blob {
   opacity: 0.35;
   filter: blur(90px);
   mix-blend-mode: multiply;
 }
 
-/* Dark: a bit brighter, add glow feel */
+
 .dark .bgfx .bgfx-blob {
   opacity: 0.50;
   filter: blur(75px);
@@ -703,7 +672,7 @@ select.input {
 
 
 
-/* Дополнительные варианты эффектов (рандомно, через html[data-fx="0|1|2"]) */
+
 .bg-fx__dna,
 .bg-fx__glitter,
 .bg-fx__ribbon {
@@ -712,8 +681,7 @@ select.input {
   pointer-events: none;
 }
 
-/* Canvas эффекты (туман / пыль+кометы / нейросвязи)
-   Рендерится React-компонентом BgFxCanvas. */
+
 .bgfx-canvas {
   position: absolute;
   inset: 0;
@@ -724,13 +692,13 @@ select.input {
   mix-blend-mode: screen;
 }
 
-/* В светлой теме чуть спокойнее */
+
 :not(.dark) .bgfx-canvas {
   opacity: 0.35;
   mix-blend-mode: multiply;
 }
 
-/* DNA: две размытые "спирали" из градиентов */
+
 .bg-fx__dna {
   opacity: 0.55;
   filter: blur(14px);
@@ -759,7 +727,7 @@ select.input {
   100% { transform: translate3d(4%, 2%, 0) rotate(360deg); }
 }
 
-/* Glitter: мягкие "блики" точки */
+
 .bg-fx__glitter {
   opacity: 0.45;
   filter: blur(1px);
@@ -777,7 +745,7 @@ select.input {
   100% { transform: translate3d(-2%, -1%, 0); }
 }
 
-/* Ribbon: "аврора" лента */
+
 .bg-fx__ribbon {
   opacity: 0.42;
   filter: blur(28px);
@@ -798,12 +766,7 @@ select.input {
   100% { transform: translate3d(-6%, -4%, 0) rotate(-6deg); }
 }
 
-/* Варианты:
-   0 = туман (canvas)
-   1 = пыль + кометы (canvas)
-   2 = нейронные связи (canvas)
-   3 = классика (DNA+glitter+ribbon)
-*/
+
 html[data-fx="0"] .bg-fx__dna,
 html[data-fx="0"] .bg-fx__glitter,
 html[data-fx="0"] .bg-fx__ribbon { display: none; }
@@ -816,7 +779,7 @@ html[data-fx="2"] .bg-fx__dna,
 html[data-fx="2"] .bg-fx__glitter,
 html[data-fx="2"] .bg-fx__ribbon { display: none; }
 
-/* классика */
+
 html[data-fx="3"] .bg-fx__dna,
 html[data-fx="3"] .bg-fx__glitter,
 html[data-fx="3"] .bg-fx__ribbon { display: block; }
@@ -831,21 +794,21 @@ select.input:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
 }
 
-/* Тёмная тема для select — тоже через var(--card) */
+
 .dark select,
 .dark select.input {
   @apply bg-[rgb(var(--card))];
   color: rgb(var(--text));
   border-color: rgba(var(--border) / 0.75);
 }
-/* dark/pink подхватываются автоматически через var(--accent) */
 
-/* Розовая тема для select — НЕ задаём фон, он уже из var(--card) */
+
+
 html.pink select,
 html.pink select.input { color: rgb(var(--text)); }
-/* pink подхватывается автоматически через var(--accent) */
 
-/* Firefox normalize for inputs */
+
+
 @-moz-document url-prefix() {
   .input {
     -moz-appearance: none; appearance: none;
@@ -854,7 +817,7 @@ html.pink select.input { color: rgb(var(--text)); }
   .input::placeholder { opacity: .7; }
 }
 
-/* ====== Брендовые утилиты через CSS-переменные (без "синих" хвостов) ====== */
+
 .bg-brand-500 { background-color: rgb(var(--brand-500)) !important; }
 .bg-brand-600 { background-color: rgb(var(--brand-600)) !important; }
 .bg-brand-700 { background-color: rgb(var(--brand-700)) !important; }
@@ -878,14 +841,14 @@ html.pink select.input { color: rgb(var(--text)); }
 .hover\:text-brand-600:hover { color: color-mix(in srgb, rgb(var(--text)) 80%, rgb(var(--accent)) 20%) !important; }
 .hover\:border-brand-600:hover { border-color: rgb(var(--brand-600)) !important; }
 
-/* Tailwind from-* утилиты должны оставаться градиентом, не background-color */
+
 .from-brand-600\/10 {
   --tw-gradient-from: rgb(var(--brand-600) / 0.10) !important;
   --tw-gradient-to: rgb(var(--brand-600) / 0) !important;
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
 
-/* ====== Инпуты/редакторы: гармонизация и автофилл ====== */
+
 input[type="text"],
 input[type="email"],
 input[type="password"],
@@ -895,14 +858,14 @@ textarea {
   border-color: rgba(var(--border) / 0.8);
 }
 
-/* Моноширинная гарнитура в кодовых редакторах/textarea */
+
 textarea,
 code, pre,
 .cm-editor, .cm-scroller, .monaco-editor, .monaco-editor * {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
 }
 
-/* Подложки редакторов под тему */
+
 :root {
   --editor-bg: var(--card);
 }
@@ -917,9 +880,9 @@ code, pre,
 .dark .cm-editor, .dark .cm-scroller {
   border-color: rgba(var(--border) / 0.8);
 }
-/* (оставлено пустым намеренно) */
 
-/* Monaco рисует фон внутренними слоями (background/margin), поэтому задаём их тоже */
+
+
 .monaco-editor,
 .monaco-editor-background,
 .monaco-editor .margin,
@@ -930,7 +893,7 @@ code, pre,
   background-color: rgb(var(--editor-bg)) !important;
 }
 
-/* Autofill (Chrome/Edge/Safari): полностью под переменные темы, без «синевы по умолчанию» */
+
 input:-webkit-autofill,
 textarea:-webkit-autofill,
 select:-webkit-autofill {
@@ -940,7 +903,7 @@ select:-webkit-autofill {
   transition: background-color 9999s ease-out 0s;
 }
 
-/* Фокус под тему (через var(--accent), без "синевы" в pink) */
+
 input:focus,
 textarea:focus,
 select:focus,
@@ -950,13 +913,13 @@ select:focus,
   box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
 }
 
-/* Monaco: убираем фокус-ринг у внутреннего textarea */
+
 .monaco-editor .inputarea:focus {
   outline: none !important;
-  box-shadow: none !important; /* гасит tailwind ring */
+  box-shadow: none !important; 
 }
 
-/* Monaco: подсветка текущей строки и выделения — строго под тему (без вечной «синевы») */
+
 .monaco-editor .view-overlays .current-line,
 .monaco-editor .margin-view-overlays .current-line {
   background: rgba(var(--accent) / 0.10) !important;
@@ -976,11 +939,11 @@ select:focus,
 }
 
 
-/* ====== Доп. классы для наших UI-компонентов ====== */
+
 .field { @apply w-full; }
 .field > .label { @apply block text-sm font-medium mb-1; color: rgb(var(--text-muted)); }
 
-/* алиасы под классы компонентов */
+
 .textarea {
   @apply w-full bg-[rgb(var(--card))] border rounded-xl px-3 py-2;
   color: rgb(var(--text));
@@ -1000,14 +963,12 @@ select:focus,
 .dark .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
 html.pink .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
 
-/* ===== Динамичные фоновые блики (опционально, через переключатель) ===== */
 
-/* Убираем глобальный outline (он ломает вид редакторов/карточек).
-   Фокус подсвечиваем только через унифицированный box-shadow выше. */
+
+
 *:focus-visible { outline: none; }
 
-/* Ссылки по умолчанию НЕ должны красить весь текст (карточки курсов — это <Link>).
-   Поэтому по умолчанию ссылки наследуют цвет. Акцентные ссылки используем через класс .link. */
+
 a {
   color: inherit;
   text-decoration: none;
@@ -1025,12 +986,12 @@ a:visited {
   color: rgb(var(--text));
 }
 
-/* Контейнер слоёв бликов */
+
 .bg-fx {
   position: absolute;
   inset: -25%;
   filter: blur(70px);
-  /* делаем заметнее: на тёмных темах раньше «терялось» и виделся только угол‑градиент */
+  
   opacity: 0.62;
 }
 
@@ -1039,7 +1000,7 @@ html.dark .bg-fx {
   filter: blur(65px);
 }
 
-/* Сами блики */
+
 .bg-fx__blob {
   position: absolute;
   width: 55vmax;
@@ -1051,7 +1012,7 @@ html.dark .bg-fx {
 }
 
 html.dark .bg-fx__blob {
-  /* в тёмной теме блики "светятся" чуть мягче */
+  
   mix-blend-mode: screen;
   opacity: 1;
 }
@@ -1088,7 +1049,7 @@ html.dark .bg-fx__blob {
   100% { transform: translate3d(-5%, 22%, 0) scale(1); }
 }
 
-/* ====== Layout polish / wider shell ====== */
+
 .layout-topbar-surface {
   background: linear-gradient(180deg, rgba(var(--card) / 0.86), rgba(var(--card) / 0.72));
 }
@@ -1129,7 +1090,7 @@ html.dark .bg-fx__blob {
   }
 }
 
-/* ====== Social-like layout helpers (без смены основной палитры) ====== */
+
 .side-nav-section-title {
   @apply px-2 text-[11px] font-semibold uppercase tracking-[0.18em];
   color: rgb(var(--text-muted));

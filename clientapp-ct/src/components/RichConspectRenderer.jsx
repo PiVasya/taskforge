@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, Maximize2, Minimize2, PlayCircle, Sparkles, X } from 'lucide-react';
 
@@ -23,9 +23,7 @@ a{color:#0369a1}button,a.button,.btn{display:inline-flex;align-items:center;gap:
 
 
 function HtmlConspectFrame({ html, title, conspect }) {
-  const shellRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [autoSuppressed, setAutoSuppressed] = useState(false);
 
   useEffect(() => {
     if (!isFullscreen) return undefined;
@@ -37,41 +35,22 @@ function HtmlConspectFrame({ html, title, conspect }) {
   }, [isFullscreen]);
 
   useEffect(() => {
-    const node = shellRef.current;
-    if (!node || typeof IntersectionObserver === 'undefined') return undefined;
+    if (!isFullscreen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsFullscreen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry) return;
-        if (entry.intersectionRatio < 0.12) {
-          setAutoSuppressed(false);
-          return;
-        }
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.55 && !autoSuppressed) {
-          setIsFullscreen(true);
-        }
-      },
-      { threshold: [0, 0.12, 0.35, 0.55, 0.75] },
-    );
+  const openFullscreen = () => setIsFullscreen(true);
 
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [autoSuppressed]);
-
-  const openFullscreen = () => {
-    setAutoSuppressed(false);
-    setIsFullscreen(true);
-  };
-
-  const closeFullscreen = () => {
-    setAutoSuppressed(true);
-    setIsFullscreen(false);
-  };
+  const closeFullscreen = () => setIsFullscreen(false);
 
   const frame = (
     <iframe
       title={title || 'Конспект'}
-      className="h-full w-full rounded-[1.4rem] bg-white"
+      className="h-full w-full rounded-[1.4rem] bg-white pointer-events-none"
       sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
       srcDoc={buildHtmlSrcDoc(html)}
     />
@@ -79,7 +58,7 @@ function HtmlConspectFrame({ html, title, conspect }) {
 
   return (
     <>
-      <section ref={shellRef} className="rounded-[2rem] border border-neutral-200 bg-white p-2 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="rounded-[2rem] border border-neutral-200 bg-white p-2 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-2 pt-2 md:px-3 md:pt-3">
           <div>
             <div className="text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
@@ -95,9 +74,14 @@ function HtmlConspectFrame({ html, title, conspect }) {
             <Maximize2 size={16} /> На весь экран
           </button>
         </div>
-        <div className="h-[80vh] overflow-hidden rounded-[1.6rem]">
+        <button
+          type="button"
+          onClick={openFullscreen}
+          aria-label="Открыть конспект на весь экран"
+          className="block h-[72vh] min-h-[420px] w-full overflow-hidden rounded-[1.6rem] text-left outline-none ring-brand-300 transition focus:ring-4 sm:h-[80vh]"
+        >
           {frame}
-        </div>
+        </button>
       </section>
 
       {isFullscreen && (

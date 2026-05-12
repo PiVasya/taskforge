@@ -4,10 +4,7 @@ import Layout from '../components/Layout';
 import { Button, Card } from '../components/ui';
 import { getAssignment, getTopSolutions } from '../api/assignments';
 
-/**
- * Displays a leaderboard of the best solutions submitted for a particular assignment.
- * Users can navigate back to the assignment solve page and see who has passed the most tests.
- */
+
 export default function AssignmentTopSolutionsPage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
@@ -20,7 +17,7 @@ export default function AssignmentTopSolutionsPage() {
     (async () => {
       try {
         setLoading(true);
-        // Fetch assignment details and top solutions concurrently
+        
         const [aData, sData] = await Promise.all([
           getAssignment(assignmentId),
           getTopSolutions(assignmentId),

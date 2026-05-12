@@ -13,46 +13,40 @@ import {
 } from '../../api/badges';
 import { handleApiError } from '../../utils/handleApiError';
 
-/**
- * Страница администрирования бейджей.
- * Позволяет:
- *  – загрузить новый бейдж (SVG-файл) с названием и описанием;
- *  – просмотреть список существующих бейджей;
- *  – найти пользователя и выдать ему выбранный бейдж.
- */
+
 export default function AdminBadgesPage() {
-  // поиск пользователя
+  
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
   const [userId, setUserId] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // список бейджей
+  
   const [badges, setBadges] = useState([]);
   const [badgesLoading, setBadgesLoading] = useState(true);
 
-  // бейджи выбранного пользователя
+  
   const [userBadges, setUserBadges] = useState([]);
   const [userBadgesLoading, setUserBadgesLoading] = useState(false);
 
-  // создание бейджа
+  
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newFile, setNewFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
-  // сообщения
+  
   const [message, setMessage] = useState('');
   const [pageError, setPageError] = useState('');
 
   useEffect(() => {
-    // загружаем список бейджей при монтировании
+    
     (async () => {
       await loadBadges();
     })();
   }, []);
 
-  // загружаем бейджи выбранного пользователя при смене userId
+  
   useEffect(() => {
     if (!userId) {
       setUserBadges([]);
@@ -63,9 +57,8 @@ export default function AdminBadgesPage() {
     })();
   }, [userId]);
 
-  /**
-   * Загрузить список доступных бейджей с бэка
-   */
+  
+
   const loadBadges = async () => {
     setBadgesLoading(true);
     try {
@@ -80,10 +73,8 @@ export default function AdminBadgesPage() {
     }
   };
 
-  /**
-   * Загрузить список бейджей выбранного пользователя
-   * @param {string} uid
-   */
+  
+
   const loadUserBadges = async (uid) => {
     if (!uid) return;
     setUserBadgesLoading(true);
@@ -99,9 +90,8 @@ export default function AdminBadgesPage() {
     }
   };
 
-  /**
-   * Поиск пользователей по строке q
-   */
+  
+
   const loadUsers = async () => {
     setSearchLoading(true);
     try {
@@ -116,9 +106,8 @@ export default function AdminBadgesPage() {
     }
   };
 
-  /**
-   * Создание нового бейджа
-   */
+  
+
   const handleCreateBadge = async () => {
     if (!newName || !newFile) return;
     const formData = new FormData();
@@ -143,9 +132,8 @@ export default function AdminBadgesPage() {
     }
   };
 
-  /**
-   * Выдача выбранного бейджа выбранному пользователю
-   */
+  
+
   const handleAward = async (badgeId) => {
     if (!userId) {
       setMessage('Сначала выберите пользователя');
@@ -163,9 +151,8 @@ export default function AdminBadgesPage() {
     }
   };
 
-  /**
-   * Удаление бейджа
-   */
+  
+
   const handleDelete = async (badgeId) => {
     const ok = window.confirm('Удалить этот бейдж?');
     if (!ok) return;
@@ -181,9 +168,8 @@ export default function AdminBadgesPage() {
     }
   };
 
-  /**
-   * Снятие (удаление) бейджа у выбранного пользователя
-   */
+  
+
   const handleRevoke = async (badgeId) => {
     if (!userId) {
       setMessage('Сначала выберите пользователя');
@@ -222,7 +208,7 @@ export default function AdminBadgesPage() {
           </Card>
         ) : null}
 
-        {/* поиск и выбор пользователя */}
+        
         <Card className="p-4 space-y-3">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.9fr)] items-end">
             <div className="space-y-1 min-w-0">
@@ -263,7 +249,7 @@ export default function AdminBadgesPage() {
           )}
         </Card>
 
-        {/* создание нового бейджа */}
+        
         <Card className="p-4 space-y-4">
           <h2 className="text-lg font-semibold">Создать новый бейдж</h2>
           <div className="grid gap-4 md:grid-cols-3">
@@ -309,7 +295,7 @@ export default function AdminBadgesPage() {
           </div>
         </Card>
 
-        {/* список бейджей и выдача */}
+        
         <Card className="p-4 space-y-4">
           <h2 className="text-lg font-semibold">Список бейджей</h2>
           {badgesLoading ? (
@@ -368,7 +354,7 @@ export default function AdminBadgesPage() {
           <div className="text-sm text-emerald-600 dark:text-emerald-400">{message}</div>
         )}
 
-        {/* бейджи выбранного пользователя */}
+        
         {selectedUser && (
           <Card className="p-4 space-y-4">
             <h2 className="text-lg font-semibold">

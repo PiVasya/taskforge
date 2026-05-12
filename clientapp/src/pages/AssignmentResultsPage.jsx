@@ -30,7 +30,7 @@ function parsePolicyText(raw) {
     if (!l.startsWith('- ')) continue;
     const body = l.replace(/^\-\s*/, '');
     if (inHits) {
-      // Пример: pos=62 needle='printf' id=... preview='...'
+      
       const mNeedle = body.match(/needle=\'?([^'\s]+)\'?/i);
       const mPos = body.match(/pos=(\d+)/i);
       const mPrev = body.match(/preview=\'([^']*)\'/i);
@@ -42,8 +42,8 @@ function parsePolicyText(raw) {
       continue;
     }
 
-    // Пример: forbidden_call: Запрещено: printf (pattern_id=...)
-    //        missing_required_call: Не найдено обязательное: cout (pattern_id=...)
+    
+    
     const cleaned = body
       .replace(/\(pattern_id=[^)]+\)/gi, '')
       .replace(/\s{2,}/g, ' ')
@@ -125,9 +125,9 @@ export default function AssignmentResultsPage() {
 
   const handleBack = (e) => {
     e.preventDefault();
-    // если вкладка открыта скриптом, закроется; если нельзя закрыть — fallback
+    
     window.close();
-    // небольшой резерв: если закрытие блокируется — просто уйти на страницу решения
+    
     setTimeout(() => {
       try { if (!window.closed) nav(`/assignment/${assignmentId}`); } catch {}
     }, 50);
@@ -258,8 +258,8 @@ export default function AssignmentResultsPage() {
                                 {p.hitLines.join('\n')}
                               </div>
                             )}
-                            {/* если нужно — можно раскомментировать, чтобы видеть сырой вывод */}
-                            {/* <pre className="whitespace-pre-wrap text-[11px] opacity-70">{p.raw}</pre> */}
+                            
+                            
                           </div>
                         );
                       })()}

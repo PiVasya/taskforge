@@ -31,7 +31,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
   };
 
   const addQuestion = () => {
-    // order в тестах храним 0-based (как в бэке). Первый вопрос должен иметь order = 0.
+    
     const nextOrder = qList.length
       ? Math.max(...qList.map(x => (Number.isFinite(x.order) ? x.order : 0))) + 1
       : 0;
@@ -69,8 +69,8 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     const t = copy[idx];
     copy[idx] = copy[j];
     copy[j] = t;
-    // пересчёт order
-    // Держим 0-based порядок. Иначе после первого перемещения все order "съезжают" на 1..N.
+    
+    
     const withOrder = copy.map((x, i) => ({ ...x, order: i }));
     setQuestions(withOrder);
   };
@@ -108,7 +108,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                     }
                     const next = new Set(correct);
                     const has = next.has(o.key);
-                    // не даём снять последнюю галочку — иначе сохранение упадёт на валидации
+                    
                     if (has && next.size === 1) return;
                     if (has) next.delete(o.key);
                     else next.add(o.key);
@@ -140,7 +140,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
           <Button
             variant="outline"
             onClick={() => {
-              const nextKey = String.fromCharCode(97 + opts.length); // a,b,c...
+              const nextKey = String.fromCharCode(97 + opts.length); 
               updateQuestion(idx, { options: [...opts, { key: nextKey, text: '' }] });
             }}
           >
@@ -150,7 +150,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
       );
     }
 
-    // fill / text
+    
     const answers = Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [];
     return (
       <div className="space-y-3">
@@ -160,8 +160,8 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         <Textarea
           rows={4}
           value={answers.join('\n')}
-          // ВАЖНО: не фильтруем пустые строки на лету, иначе Enter «не работает»
-          // (пользователь не сможет перейти на новую строку, т.к. последняя пустая строка сразу выкидывается).
+          
+          
           onChange={(e) => updateQuestion(idx, { acceptedAnswers: e.target.value.split(/\r?\n/).map((x) => x) })}
           placeholder={type === 'fill' ? 'Напр.: apple\nApple' : 'Напр.: 42'}
         />
@@ -324,7 +324,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                           ];
                           patch.correctOptionKeys = ['a'];
                         }
-                        // если переключились в single-choice — оставляем ровно 1 правильный вариант
+                        
                         if (t === 'single-choice') {
                           const cur = Array.isArray(q.correctOptionKeys) ? q.correctOptionKeys : [];
                           const one = cur[0] || 'a';

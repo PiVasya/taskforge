@@ -4,8 +4,8 @@ import { AuthApi } from '../api/auth';
 import { getMyUiSettings } from '../api/uiSettings';
 import { getProfile } from '../api/profile';
 
-// Persist UI settings in localStorage and notify Layout.
-// Layout reads both a combined JSON (uiSettings) and individual keys.
+
+
 const UI_LS_KEY = 'uiSettings';
 function persistUiSettingsFromBackend(s) {
   if (!s || typeof s !== 'object') return;
@@ -39,7 +39,7 @@ function persistUiSettingsFromBackend(s) {
   localStorage.setItem('codeSolveLayout', merged.codeSolveLayout);
   localStorage.setItem(UI_LS_KEY, JSON.stringify(merged));
 
-  // In the same tab, storage-event doesn't fire — notify Layout explicitly.
+  
   window.dispatchEvent(new Event('tf-ui-settings-changed'));
 }
 
@@ -51,7 +51,7 @@ export default function AuthProvider({ children }) {
   const [access, _setAccess] = useState(null);
   const [ready, setReady] = useState(false);
 
-  // Pull UI settings once per session (after first successful auth).
+  
   const uiLoadedRef = useRef(false);
 
   const applyAccess = (token) => {
@@ -76,7 +76,7 @@ export default function AuthProvider({ children }) {
       const s = await getMyUiSettings();
       persistUiSettingsFromBackend(s);
     } catch {
-      // ignore (endpoint may be unavailable or user not authorized)
+      
     }
   }, []);
 
@@ -84,7 +84,7 @@ export default function AuthProvider({ children }) {
     const res = await AuthApi.login({ email, password });
     applyAccess(res.accessToken || null);
     await pullProfileOnce();
-    // After we have an access token, pull UI settings chosen for this user.
+    
     await pullUiSettingsOnce();
   }, [pullProfileOnce, pullUiSettingsOnce]);
 
@@ -99,12 +99,12 @@ export default function AuthProvider({ children }) {
     const res = await AuthApi.refresh();
     applyAccess(res.accessToken || null);
     await pullProfileOnce();
-    // Refresh is executed on app load. If it succeeds, we are logged in.
+    
     await pullUiSettingsOnce();
     return res;
   }, [pullProfileOnce, pullUiSettingsOnce]);
 
-  // On app load: try to refresh using HttpOnly refresh cookie.
+  
   useEffect(() => {
     (async () => {
       try {
@@ -117,7 +117,7 @@ export default function AuthProvider({ children }) {
     })();
   }, [doRefresh]);
 
-  // Auto refresh every ~10 minutes while logged in.
+  
   useEffect(() => {
     if (!access) return;
     const id = setInterval(() => {

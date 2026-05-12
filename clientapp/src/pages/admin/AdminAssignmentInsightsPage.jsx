@@ -68,7 +68,7 @@ export default function AdminAssignmentInsightsPage() {
     }
   };
 
-  useEffect(() => { load(); }, [assignmentId]); // eslint-disable-line
+  useEffect(() => { load(); }, [assignmentId]); 
 
   const cards = useMemo(() => ({
     uniqueUsers: data?.uniqueUsers ?? 0,

@@ -1,5 +1,5 @@
-// clientapp/src/realtime/supportHub.js
-// Singleton SignalR connection for support notifications.
+
+
 
 import * as signalR from '@microsoft/signalr';
 
@@ -10,8 +10,8 @@ let startPromise = null;
 function build(tokenValue) {
   return new signalR.HubConnectionBuilder()
     .withUrl('/hubs/support', {
-      // When app is served from the same origin as the API, cookies are sent automatically.
-      // For cross-origin dev, this keeps credentials enabled.
+      
+      
       withCredentials: true,
       accessTokenFactory: () => tokenValue || null,
     })
@@ -21,10 +21,10 @@ function build(tokenValue) {
 }
 
 export function getSupportHub(accessToken) {
-  // If we already have a connection and token unchanged, reuse it.
+  
   if (conn && token === accessToken) return conn;
 
-  // Token changed -> recreate.
+  
   try {
     if (conn) conn.stop();
   } catch {}

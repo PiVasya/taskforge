@@ -49,8 +49,8 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
       for (const section of missingSections) {
         const sameSlug = (allCourses || []).find((course) => course.slug === section.code.toLowerCase());
         if (sameSlug) {
-          // Если такой slug уже был, но без sectionCode, дозаполняем метаданные вместо создания дубля.
-          // eslint-disable-next-line no-await-in-loop
+          
+          
           await updateLearningCourse(sameSlug.id, {
             parentCourseId: sameSlug.parentCourseId || parent.id,
             slug: sameSlug.slug,
@@ -68,7 +68,7 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
           continue;
         }
 
-        // eslint-disable-next-line no-await-in-loop
+        
         await createLearningCourse({
           parentCourseId: parent.id,
           slug: section.code.toLowerCase(),

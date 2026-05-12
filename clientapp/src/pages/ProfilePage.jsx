@@ -11,14 +11,7 @@ import AppErrorPanel from '../components/AppErrorPanel';
 import { handleApiError } from '../utils/handleApiError';
 import { useNotify } from '../components/notify/NotifyProvider';
 
-/**
- * Страница профиля для текущего пользователя.
- *
- * После сохранения мы не полагаемся на возвращаемое значение updateProfile,
- * потому что оно возвращает лишь булево значение. Вместо этого мы
- * обновляем локальное состояние теми же данными, что отправили на сервер,
- * чтобы поля в форме не очищались и пользователь видел актуальные значения.
- */
+
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -28,26 +21,26 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
   const [extra, setExtra] = useState(parseProfileExtra(null));
 
-  // state for email change form
+  
   const [emailForm, setEmailForm] = useState({ newEmail: '', password: '' });
   const [emailError, setEmailError] = useState(null);
   const [emailSuccess, setEmailSuccess] = useState(null);
   const [savingEmail, setSavingEmail] = useState(false);
 
-  // state for password change form
+  
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
   const [passwordError, setPasswordError] = useState(null);
   const [passwordSuccess, setPasswordSuccess] = useState(null);
   const [savingPassword, setSavingPassword] = useState(false);
 
-  // Telegram link
+  
   const [tgStatus, setTgStatus] = useState(null);
   const [tgCode, setTgCode] = useState(null);
   const [tgExpires, setTgExpires] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
   const [tgError, setTgError] = useState(null);
 
-  // Minecraft link
+  
   const [mcStatus, setMcStatus] = useState(null);
   const [mcNick, setMcNick] = useState('');
   const [mcGeneratedCode, setMcGeneratedCode] = useState('');
@@ -57,12 +50,12 @@ export default function ProfilePage() {
   const [mcLoading, setMcLoading] = useState(false);
   const [mcError, setMcError] = useState(null);
 
-  // навигация для перехода после сохранения
+  
   const navigate = useNavigate();
   const { refresh } = useAuth();
   const notify = useNotify();
 
-  // Загрузка профиля при монтировании
+  
   useEffect(() => {
     (async () => {
       try {
@@ -71,21 +64,21 @@ export default function ProfilePage() {
         setProfile(data);
         setExtra(parseProfileExtra(data.additionalDataJson));
 
-        // Telegram status (не мешаем загрузке профиля)
+        
         try {
           const st = await getTelegramStatus();
           setTgStatus(st);
         } catch {
-          // ignore
+          
         }
 
-        // Minecraft status (не мешаем загрузке профиля)
+        
         try {
           const st2 = await getMinecraftStatus();
           setMcStatus(st2);
           if (st2?.nick) setMcNick(st2.nick);
         } catch {
-          // ignore
+          
         }
       } catch (e) {
         const parsed = handleApiError(e, notify, 'Не удалось загрузить профиль');
@@ -101,7 +94,7 @@ export default function ProfilePage() {
       const st = await getTelegramStatus();
       setTgStatus(st);
     } catch {
-      // ignore
+      
     }
   };
 
@@ -111,7 +104,7 @@ export default function ProfilePage() {
       setMcStatus(st);
       if (st?.nick) setMcNick(st.nick);
     } catch {
-      // ignore
+      
     }
   };
 
@@ -127,7 +120,7 @@ export default function ProfilePage() {
       const dto = await requestMinecraftLink(nick);
       setMcInputCode('');
       setMcExpires(dto.expiresAtUtc);
-      // Код прилетает в игре. На сайте показываем только как запасной вариант.
+      
       setMcGeneratedCode(dto.code);
       setMcDelivery(dto.delivery || null);
       setMcStatus(dto.status);
@@ -150,7 +143,7 @@ export default function ProfilePage() {
       setMcError(null);
       const st = await confirmMinecraftLink(code);
       setMcStatus(st);
-      // очищаем, чтобы не светить код
+      
       setMcInputCode('');
       setMcExpires(null);
       setMcDelivery(null);
@@ -188,7 +181,7 @@ export default function ProfilePage() {
     try {
       await navigator.clipboard.writeText(mcGeneratedCode);
     } catch {
-      // ignore
+      
     }
   };
 
@@ -213,7 +206,7 @@ export default function ProfilePage() {
     try {
       await navigator.clipboard.writeText(tgCode);
     } catch {
-      // ignore
+      
     }
   };
 
@@ -234,7 +227,7 @@ export default function ProfilePage() {
     }
   };
 
-  // Универсальный обработчик изменений дополнительных полей
+  
   const handleChangeExtra = (field) => (eOrValue) => {
     const value =
       eOrValue && eOrValue.target !== undefined
@@ -248,7 +241,7 @@ export default function ProfilePage() {
     }));
   };
 
-  // Сохранение профиля
+  
   const handleSave = async (e) => {
     e.preventDefault();
     if (!profile) return;
@@ -256,20 +249,20 @@ export default function ProfilePage() {
     setError(null);
     setSaved(false);
     try {
-      // DTO для отправки
+      
       const dto = {
         ...profile,
         additionalDataJson: buildProfileExtra(extra),
       };
-      // Выполняем запрос на обновление; возвращаемый ответ — булево
+      
       await updateProfile(dto);
-      // Обновляем локальное состояние теми же данными
+      
       setProfile(dto);
       setExtra(parseProfileExtra(dto.additionalDataJson));
       setSaved(true);
 
-      // После успешного сохранения перенаправляем на главную страницу,
-      // чтобы форма не выглядела пустой и пользователь вернулся к задачам.
+      
+      
       navigate('/', { replace: true });
     } catch (err) {
       const parsed = handleApiError(err, notify, 'Не удалось сохранить профиль');
@@ -279,7 +272,7 @@ export default function ProfilePage() {
     }
   };
 
-  // Handler for email change submission
+  
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
     const { newEmail, password } = emailForm;
@@ -289,7 +282,7 @@ export default function ProfilePage() {
     setEmailSuccess(null);
     try {
       await changeEmail(newEmail.trim(), password);
-      // update local profile email so it reflects the change immediately
+      
       setProfile((p) => (p ? { ...p, email: newEmail.trim() } : p));
       setEmailSuccess('Email обновлён. Подтвердите новый адрес, если требуется.');
       setEmailForm({ newEmail: '', password: '' });
@@ -301,7 +294,7 @@ export default function ProfilePage() {
     }
   };
 
-  // Handler for password change submission
+  
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
     const { currentPassword, newPassword, confirmNewPassword } = passwordForm;
@@ -341,17 +334,12 @@ export default function ProfilePage() {
             </div>
           </Card>
           <form onSubmit={handleSave} className="space-y-6">
-            {/* Основное */}
+            
             <Card className="p-4 space-y-4">
               <h2 className="font-semibold">Основное</h2>
-              {/*
-                Размещаем основные поля пользователя в сетке. Помимо имени и
-                фамилии, сюда добавлены телефон и ссылка на аватар. Email
-                остаётся только для просмотра, поскольку его изменение
-                требует отдельного подтверждения на бэке.
-              */}
+              
               <div className="grid gap-4 md:grid-cols-2">
-                {/* Имя */}
+                
                 <div>
                   <label className="text-sm text-neutral-500">Имя</label>
                   <Input
@@ -361,7 +349,7 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
-                {/* Фамилия */}
+                
                 <div>
                   <label className="text-sm text-neutral-500">Фамилия</label>
                   <Input
@@ -371,12 +359,12 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
-                {/* Email (для просмотра) */}
+                
                 <div>
                   <label className="text-sm text-neutral-500">Email</label>
                   <Input type="email" value={profile.email || ''} disabled />
                 </div>
-                {/* Телефон */}
+                
                 <div>
                   <label className="text-sm text-neutral-500">Телефон</label>
                   <Input
@@ -387,7 +375,7 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
-                {/* Ссылка на аватар */}
+                
                 <div className="md:col-span-2">
                   <label className="text-sm text-neutral-500">Ссылка на аватар</label>
                   <Input
@@ -400,7 +388,7 @@ export default function ProfilePage() {
                 </div>
               </div>
             </Card>
-            {/* О себе */}
+            
             <Card className="p-4 space-y-4">
               <h2 className="font-semibold">О себе</h2>
               <div>
@@ -442,7 +430,7 @@ export default function ProfilePage() {
                 </p>
               </div>
             </Card>
-            {/* Ссылки */}
+            
             <Card className="p-4 space-y-4">
               <h2 className="font-semibold">Ссылки</h2>
               <div className="space-y-3">
@@ -465,7 +453,7 @@ export default function ProfilePage() {
               </div>
             </Card>
 
-            {/* Telegram */}
+            
             <Card className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="font-semibold">Telegram</h2>
@@ -532,7 +520,7 @@ export default function ProfilePage() {
               )}
             </Card>
 
-            {/* Minecraft */}
+            
             <Card className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="font-semibold">Minecraft</h2>
@@ -660,7 +648,7 @@ export default function ProfilePage() {
                 </div>
               )}
             </Card>
-            {/* Переключатель показа в топе */}
+            
             <Card className="p-4 flex items-center justify-between gap-4">
               <div>
                 <div className="font-medium">Показывать меня в топе</div>
@@ -685,7 +673,7 @@ export default function ProfilePage() {
             </div>
           </form>
 
-          {/* Change Email Section */}
+          
           <Card className="p-4 space-y-4 mt-6">
             <h2 className="font-semibold">Изменить email</h2>
             {emailError && (
@@ -728,7 +716,7 @@ export default function ProfilePage() {
             </form>
           </Card>
 
-          {/* Change Password Section */}
+          
           <Card className="p-4 space-y-4 mt-6">
             <h2 className="font-semibold">Изменить пароль</h2>
             {passwordError && (

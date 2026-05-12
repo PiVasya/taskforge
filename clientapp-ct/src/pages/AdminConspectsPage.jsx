@@ -140,7 +140,7 @@ export default function AdminConspectsPage() {
     }
     loadConspects();
     return () => { cancelled = true; };
-  }, [selectedCourse?.slug]);
+  }, [selectedCourse]);
 
   const changeField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 

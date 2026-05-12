@@ -1,6 +1,6 @@
 import { Extension } from "@tiptap/core";
 
-// Stores font size on TextStyle via inline style: font-size: XXpx
+
 export const FontSize = Extension.create({
   name: "fontSize",
 

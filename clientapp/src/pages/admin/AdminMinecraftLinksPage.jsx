@@ -28,7 +28,7 @@ export default function AdminMinecraftLinksPage() {
     }
   };
 
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { load(); }, []); 
 
   const stats = useMemo(() => ({
     total: items.length,

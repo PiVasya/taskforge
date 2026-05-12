@@ -42,7 +42,7 @@ export default function AdminFeatureRolesPage() {
         setLoading(false);
       }
     })();
-  }, []); // eslint-disable-line
+  }, []); 
 
   const filteredRoles = useMemo(() => {
     const qq = (q || '').trim().toLowerCase();

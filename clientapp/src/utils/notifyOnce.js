@@ -1,4 +1,4 @@
-const _shown = new Map(); // key -> timeoutId
+const _shown = new Map(); 
 
 export function notifyOnce(key, fireFn, ttlMs = 2500) {
   if (_shown.has(key)) return;

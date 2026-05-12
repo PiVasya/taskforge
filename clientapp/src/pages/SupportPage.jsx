@@ -1,5 +1,5 @@
-// clientapp/src/pages/SupportPage.jsx
-// Страница связи с техподдержкой: выбор типа вопроса и текст сообщения.
+
+
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';

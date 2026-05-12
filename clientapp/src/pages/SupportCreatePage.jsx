@@ -1,5 +1,5 @@
-// clientapp/src/pages/SupportCreatePage.jsx
-// Создание нового обращения.
+
+
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -39,8 +39,8 @@ export default function SupportCreatePage() {
       const ticketId = res?.ticketId || res?.id || res?.Id;
       notify.success('Обращение создано');
 
-      // По требованиям: после создания возвращаем на главную,
-      // чтобы пользователь мог потом открыть обращения и перейти в переписку.
+      
+      
       nav('/');
     } catch (err) {
       const parsed = handleApiError(err, notify, 'Не удалось создать обращение');

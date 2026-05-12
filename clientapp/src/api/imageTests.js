@@ -11,8 +11,8 @@ function imageRequestConfig(timeout) {
   };
 }
 
-// Загрузить/заменить эталонную картинку для image-test.
-// threshold — порог совпадения в процентах (0..100)
+
+
 export async function uploadImageTestReference(assignmentId, file, threshold = 90) {
   const fd = new FormData();
   fd.append('file', file);
@@ -22,7 +22,7 @@ export async function uploadImageTestReference(assignmentId, file, threshold = 9
   return res.data;
 }
 
-// Сравнить загруженную картинку с эталоном.
+
 export async function compareImageTest(assignmentId, file) {
   const fd = new FormData();
   fd.append('file', file);
@@ -31,7 +31,7 @@ export async function compareImageTest(assignmentId, file) {
   return res.data;
 }
 
-// Запустить код внутри image-runner, получить PNG и сравнить с эталоном.
+
 export async function compareImageTestCode(assignmentId, language, code, input = "", debug = false) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/compare-code`, {
     language,
@@ -43,7 +43,7 @@ export async function compareImageTestCode(assignmentId, language, code, input =
   return res.data;
 }
 
-// Пробный прогон: только рендер, без сравнения с эталоном.
+
 export async function runImageTestCode(assignmentId, language, code, input = "", debug = false) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/run-code`, {
     language,
@@ -55,7 +55,7 @@ export async function runImageTestCode(assignmentId, language, code, input = "",
   return res.data;
 }
 
-// Финальная отправка: рендер + сравнение (то же самое, что compare-code).
+
 export async function submitImageTestCode(assignmentId, language, code, input = "", debug = false) {
   const res = await api.post(`/api/assignments/${assignmentId}/image-test/submit-code`, {
     language,

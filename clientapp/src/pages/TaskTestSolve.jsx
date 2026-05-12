@@ -22,9 +22,9 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [result, setResult] = useState(null);
 
-  // Если лимит попыток достигнут, показываем предупреждение и блокируем "Начать тест".
-  // Важно именно для кейса: пользователь закрыл результаты, увидел кнопку "Начать тест",
-  // нажал её, получил 409, но UI может выглядеть как будто тест всё равно начался.
+  
+  
+  
   const [limitReached, setLimitReached] = useState(false);
 
   const timeLimit = startData?.timeLimitSeconds ?? null;
@@ -47,9 +47,9 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
     try {
       setLoading(true);
       setLimitReached(false);
-      // Важно: сбрасываем старые данные попытки ДО запроса.
-      // Иначе при 409 (лимит попыток) UI покажет старые вопросы как будто тест начался,
-      // но отправка уже не сработает (attemptId от старой попытки).
+      
+      
+      
       setStartData(null);
       setResult(null);
       setAnswers({});
@@ -65,12 +65,12 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
     }
   };
 
-  // Для типа "fill" (вставить пропущенное слово) поддерживаем плейсхолдер из подчёркиваний,
-  // например: "______ самый быстрый язык".
-  // В UI вставляем поле ввода прямо в текст вопроса.
+  
+  
+  
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
-    // Берём первую группу подчёркиваний (___). 3+ чтобы не ловить _ в идентификаторах кода.
+    
     const m = p.match(/_{3,}/);
     if (!m) return null;
     const blank = m[0];
@@ -86,9 +86,9 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
         attemptId: startData.attemptId,
         answers: Object.entries(answers).map(([questionId, v]) => ({
           questionId,
-          // single-choice: selectedOptionKey (и дублируем массивом)
+          
           selectedOptionKey: v?.selectedOptionKey ?? (v?.selectedOptionKeys?.[0] ?? null),
-          // multi-choice: selectedOptionKeys (и поддержка старого формата через selectedOptionKey)
+          
           selectedOptionKeys:
             v?.selectedOptionKeys ?? (v?.selectedOptionKey ? [v.selectedOptionKey] : null),
           text: v?.text ?? null,
@@ -97,8 +97,8 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
       const res = await submitTaskTest(assignmentId, payload);
       setResult(res);
 
-      // Если это была последняя попытка — запоминаем это, чтобы после закрытия
-      // результатов пользователь не мог "начать" тест повторно.
+      
+      
       if (
         Number.isFinite(startData?.attemptNumber) &&
         Number.isFinite(startData?.maxAttempts) &&
@@ -114,15 +114,15 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
     }
   };
 
-  // автосабмит при 0 (мягко)
+  
   useEffect(() => {
     if (!startData?.attemptId) return;
     if (secondsLeft == null) return;
     if (secondsLeft > 0) return;
-    // чтобы не заспамить
+    
     if (submitLoading || result) return;
     doSubmit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [secondsLeft]);
 
   const questions = startData?.questions ?? [];
@@ -220,7 +220,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
                       if (!parts) return q.prompt;
 
                       const val = answers[q.id]?.text || '';
-                      const ch = Math.min(30, Math.max(6, (parts.blankLen || 3) * 2)); // width = count * 2ch (c clamp)
+                      const ch = Math.min(30, Math.max(6, (parts.blankLen || 3) * 2)); 
                       return (
                         <span className="fill-line">
                           <span className="whitespace-pre-wrap">{parts.before}</span>

@@ -10,7 +10,7 @@ function fmtSeconds(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-// bucket: 'tasks' | 'top'
+
 export default function QuotaPill({ bucket = 'tasks', className = '' }) {
   const quota = useQuota();
   const view = bucket === 'top' ? quota.top : quota.tasks;

@@ -1,4 +1,4 @@
-/** @type {import('tailwindcss').Config} */
+
 export default {
     darkMode: 'class',
     content: [
@@ -8,9 +8,9 @@ export default {
     theme: {
         extend: {
             colors: {
-                // Theme-aware palette.
-                // Values are provided via CSS variables on <html> for each color theme.
-                // Tailwind then supports classes like bg-brand-600, ring-brand-500/30, from-brand-600/10, etc.
+                
+                
+                
                 brand: {
                     50: 'rgb(var(--brand-50) / <alpha-value>)',
                     100: 'rgb(var(--brand-100) / <alpha-value>)',

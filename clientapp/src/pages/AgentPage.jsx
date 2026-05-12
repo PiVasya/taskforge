@@ -793,7 +793,7 @@ export default function AgentPage() {
 
         conn.on('AgentEvent', handler);
       } catch {
-        // SignalR не обязателен: REST-история всё равно работает.
+        
       }
     };
 

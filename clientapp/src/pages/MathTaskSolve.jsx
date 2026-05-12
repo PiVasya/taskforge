@@ -83,7 +83,7 @@ export default function MathTaskSolve({ assignmentId, assignment }) {
   useEffect(() => {
     if (!startData?.attemptId || secondsLeft == null || secondsLeft > 0 || submitLoading || result) return;
     doSubmit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [secondsLeft]);
 
   const blocks = startData?.blocks ?? [];

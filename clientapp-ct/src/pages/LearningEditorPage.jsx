@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -269,15 +269,16 @@ export default function LearningEditorPage() {
 
   useEffect(() => { setEditorMode(true); }, [setEditorMode]);
 
-  async function loadTree(preferredSlug = selected) {
+  const loadTree = useCallback(async (preferredSlug = '') => {
     const data = await getLearningCourseTree({ includeDraft: true });
     setTree(data || []);
     const flat = flatten(data || []);
-    const next = preferredSlug && flat.some((x) => x.slug === preferredSlug) ? preferredSlug : flat[0]?.slug || '';
+    const targetSlug = preferredSlug || courseSlug || '';
+    const next = targetSlug && flat.some((x) => x.slug === targetSlug) ? targetSlug : flat[0]?.slug || '';
     setSelected(next);
     if (next && next !== courseSlug) navigate(`/editor/courses/${next}`, { replace: true });
     return next;
-  }
+  }, [courseSlug, navigate]);
 
   async function loadOutline(slug) {
     if (!slug) return;
@@ -291,8 +292,8 @@ export default function LearningEditorPage() {
     loadTree(courseSlug)
       .catch((e) => setError(getError(e)))
       .finally(() => setBusy(''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    
+  }, [courseSlug, loadTree]);
 
   useEffect(() => {
     if (!selectedCourse) return;
@@ -307,8 +308,8 @@ export default function LearningEditorPage() {
     loadOutline(selectedCourse.slug)
       .catch((e) => setError(getError(e)))
       .finally(() => setBusy(''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCourse?.id]);
+    
+  }, [selectedCourse]);
 
   function open(slug) {
     setSelected(slug);
@@ -422,7 +423,7 @@ export default function LearningEditorPage() {
       if (existingHtml) {
         setHtml(existingHtml);
       } else {
-        setHtml(`<!-- Этот конспект был создан в старом JSON-блочном формате.\nВставь сюда новый HTML и сохрани, если хочешь перевести его на простой режим. -->\n${defaultHtml(c.title)}`);
+        setHtml(defaultHtml(c.title));
       }
       setShowPreview(false);
     } catch (e) {
@@ -500,7 +501,7 @@ export default function LearningEditorPage() {
                 {!tree.length && <div className="rounded-2xl border border-dashed border-neutral-200 p-4 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">Дерево пустое.</div>}
               </div>
             </section>
-            <CtStructureBootstrapPanel allCourses={allCourses} onDone={loadTree} />
+            <CtStructureBootstrapPanel allCourses={allCourses} onDone={() => loadTree(selected)} />
             <section className="rounded-[2rem] border border-neutral-200 bg-white p-4 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
               <div className="mb-2 font-semibold">Быстрый переход</div>
               <select value={selected} onChange={(e) => open(e.target.value)} className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 outline-none focus:border-brand-400 dark:border-neutral-800 dark:bg-neutral-950">

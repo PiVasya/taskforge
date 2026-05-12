@@ -1,14 +1,10 @@
 :80 {
-	# где лежит собранный фронт
 	root * /usr/share/caddy
 
-	# компрессия
 	encode zstd gzip
 
-	# SPA fallback: если файла нет — отдаём index.html (чтобы /login и F5 работали)
 	try_files {path} {path}/ /index.html
 
-	# Кэш статики (immutable), но не index.html
 	@assets {
 		path_regexp static ^/static/.+\.(css|js|mjs|png|jpg|jpeg|svg|webp|ico|woff2?)$
 	}
@@ -17,7 +13,4 @@
 
 	file_server
 
-	# --- ЛОКАЛЬНЫЙ РЕЖИМ БЕЗ nginx (если нужно) ---
-	# Раскомментируй строку ниже, и Caddy сам будет проксировать API:
-	# reverse_proxy /api/* http://api:8080
 }

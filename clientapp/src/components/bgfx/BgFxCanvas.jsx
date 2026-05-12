@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 
-// Canvas-фоны (bgfx)
-// Варианты:
-// 0: Туман
-// 1: Пыль + кометы
-// 2: Нейросвязи (как в присланном HTML)
-// 3: Аврора
-// 4: Сердечки
-// 5: Matrix
-// 6: Соты (Honeycomb)
-// 7: Дым (Vorticity)
+
+
+
+
+
+
+
+
+
+
 
 function cssVar(name, fallback) {
   if (typeof window === 'undefined') return fallback;
@@ -18,7 +18,7 @@ function cssVar(name, fallback) {
 }
 
 function parseRgbTriplet(s, fallback = [255, 255, 255]) {
-  // ожидаем "r g b" или "r, g, b"
+  
   const clean = (s || '').replace(/,/g, ' ').trim();
   const parts = clean.split(/\s+/).map((x) => Number(x)).filter((n) => Number.isFinite(n));
   if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
@@ -75,7 +75,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
   const preset = useMemo(() => {
     if (variant === 'random') {
-      // 0..6
+      
       return Math.floor(Math.random() * 8);
     }
     const v = Number(variant);
@@ -90,7 +90,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
-    // На светлых темах нужен буст альфы, чтобы эффекты были видны.
+    
     const isDarkTheme = () => document.documentElement.classList.contains('dark');
     const alphaBoost = () => (isDarkTheme() ? 1.0 : 1.8);
     const rgbaB = (rgb, a) => rgba(rgb, Math.min(1, a * alphaBoost()));
@@ -99,9 +99,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     let h = 0;
     let dpr = 1;
 
-    // ВАЖНО: цвета читаем из CSS-переменных, которые зависят от классов темы на <html>.
-    // Если классы применились позже (например, после auto-refresh), компонент может
-    // стартовать со "старыми" цветами. Поэтому effect зависит от uiRev.
+    
+    
+    
     const fx1 = parseRgbTriplet(cssVar('--fx-1', '245 0 128'), [245, 0, 128]);
     const fx2 = parseRgbTriplet(cssVar('--fx-2', '14 165 233'), [14, 165, 233]);
     const fx3 = parseRgbTriplet(cssVar('--fx-3', '34 197 94'), [34, 197, 94]);
@@ -114,13 +114,13 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       blobs: [],
       aurora: [],
       hearts: [],
-      pulses: [],       // для нейросвязей
-      pulseTimer: 0,    // таймер создания импульсов
-      matrix: [],       // для Matrix темы
+      pulses: [],       
+      pulseTimer: 0,    
+      matrix: [],       
       honey: {
         phaseA: rand(0, 9999),
         phaseB: rand(0, 9999),
-        // медленные «переливы», которые иногда рандомизируются
+        
         driftA: rand(-0.00008, 0.00008),
         driftB: rand(-0.00008, 0.00008),
         nextJitter: rand(6, 14),
@@ -128,7 +128,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       },
 
       smoke: {
-        // fluid sim state is allocated on resize when preset==7
+        
         NX: 0, NY: 0, N: 0,
         u: null, v: null, u0: null, v0: null,
         dens: null, dens0: null,
@@ -139,7 +139,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       },
     };
 
-    // маленькие искры (используются в honeycomb)
+    
     const sparks = [];
     const spawnSpark = (x, y) => {
       sparks.push({
@@ -153,7 +153,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       if (sparks.length > 160) sparks.splice(0, sparks.length - 160);
     };
 
-    // зерно (для сот) — один раз на инициализацию
+    
     try {
       const grain = document.createElement('canvas');
       const gctx = grain.getContext('2d');
@@ -173,10 +173,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         state.honey.grain = grain;
       }
     } catch (e) {
-      // не критично
+      
     }
 
-    // rgb -> hsl (нужен для сот, чтобы подстраиваться под палитру)
+    
     const rgbToHsl = (rgb) => {
       const r = rgb[0] / 255;
       const g = rgb[1] / 255;
@@ -197,12 +197,12 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       return [h0, s, l];
     };
 
-    // Pointer tracking для нейросвязей (интерактивность)
+    
     const pointer = { x: w/2, y: h/2, vx: 0, vy: 0, down: false, rdown: false, has: false };
     
     const setPointer = (px, py) => {
       pointer.has = true;
-      // Для fixed canvas с inset:0, координаты относительно viewport
+      
       const nx = px * dpr;
       const ny = py * dpr;
       pointer.vx = nx - pointer.x;
@@ -232,7 +232,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     };
     const handleTouchEnd = () => { pointer.down = false; pointer.rdown = false; };
     
-    // Подписываемся на события window (чтобы работало даже с pointerEvents:none на canvas)
+    
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
     window.addEventListener('mousedown', handleMouseDown, { passive: true });
     window.addEventListener('mouseup', handleMouseUp, { passive: true });
@@ -244,7 +244,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       const rect = canvas.getBoundingClientRect();
       w = Math.max(1, Math.floor(rect.width));
       h = Math.max(1, Math.floor(rect.height));
-      // Для тяжёлых эффектов (например, «Соты»), держим DPR=1 — иначе лаги на слабых ПК.
+      
       dpr = clamp(window.devicePixelRatio || 1, 1, 2);
       if (preset === 6) dpr = 1;
       if (preset === 7) dpr = 1;
@@ -252,17 +252,17 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // пересоздаём частицы под текущий пресет
+      
       state.nodes = [];
       state.dust = [];
       state.blobs = [];
       state.aurora = [];
       state.hearts = [];
 
-      // matrix drops
+      
       state.matrix = [];
 
-      // honeycomb cache
+      
       state.honey.hexR = 0;
       state.honey.hexPts = null;
       state.honey._fpsAcc = 0;
@@ -270,10 +270,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
       state.smoke._fpsAcc = 0;
 
-      // Плотность зависит от площади
+      
       const area = w * h;
 
-      // Нейросвязи (по примеру Hello.html)
+      
       const nodeCount = clamp(Math.floor((area / 18000) * intensity), 50, 140);
       for (let i = 0; i < nodeCount; i += 1) {
         const s = rand(0.35, 1.25);
@@ -284,19 +284,19 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           vx: rand(-0.35, 0.35),
           vy: rand(-0.35, 0.35),
           r: rand(1.2, 2.9) * s,
-          // распределяем цвета между fx1, fx2, fx3
+          
           c: hueIdx === 0 ? fx1 : hueIdx === 1 ? fx2 : fx3,
-          core: rand(0.65, 1.0),      // яркость ядра
-          wob: rand(0, Math.PI * 2),  // фаза "дыхания"
-          wobSp: rand(0.002, 0.01),   // скорость "дыхания"
+          core: rand(0.65, 1.0),      
+          wob: rand(0, Math.PI * 2),  
+          wobSp: rand(0.002, 0.01),   
           mass: rand(0.5, 1.6) * (1/s),
         });
       }
-      // Импульсы (pulses) для нейросвязей
+      
       state.pulses = [];
       state.pulseTimer = 0;
 
-      // Пыль/кометы (замедленные)
+      
       const dustCount = clamp(Math.floor((area / 14000) * intensity), 40, 200);
       for (let i = 0; i < dustCount; i += 1) {
         const fast = Math.random() < 0.12;
@@ -312,7 +312,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         });
       }
 
-      // Туман (большие блюры)
+      
       const blobCount = clamp(Math.floor((area / 90000) * intensity), 6, 20);
       for (let i = 0; i < blobCount; i += 1) {
         state.blobs.push({
@@ -326,7 +326,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         });
       }
 
-      // Аврора (полосы)
+      
       const bandCount = 5;
       for (let i = 0; i < bandCount; i += 1) {
         state.aurora.push({
@@ -340,7 +340,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         });
       }
 
-      // Сердечки
+      
       const heartCount = clamp(Math.floor((area / 52000) * intensity), 10, 40);
       for (let i = 0; i < heartCount; i += 1) {
         state.hearts.push({
@@ -356,7 +356,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         });
       }
 
-      // Matrix (5) - падающие символы
+      
       state.matrix = [];
       const matrixCols = Math.floor(w / 18);
       for (let i = 0; i < matrixCols; i += 1) {
@@ -369,8 +369,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         });
       }
 
-      // Smoke (7) — интерактивный дым с вихрями (vorticity)
-      // ВАЖНО: аллокация должна жить в resize(), иначе sm.* будут null и кадры будут сразу return.
+      
+      
       if (preset === 7) {
         const sm = state.smoke;
         const target = clamp(Math.sqrt(w * h) / 6.2, 130, 260);
@@ -411,10 +411,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             sm.imgArr = sm.imgData.data;
           }
         } catch (e) {
-          // ignore
+          
         }
 
-        // если курсора ещё не было — ставим в центр (иначе первый кадр может быть без "сгустка")
+        
         if (!pointer.has) {
           pointer.has = true;
           pointer.x = (w * 0.5) * dpr;
@@ -424,7 +424,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
     };
 
-    // helper for honeycomb: flat-top hex points
+    
     const TAU = Math.PI * 2;
     const hexPoints = (cx, cy, r) => {
       const pts = [];
@@ -477,19 +477,19 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     const step = (dt) => {
       state.t += dt;
 
-      // общая мягкая очистка
+      
       ctx.clearRect(0, 0, w, h);
 
-      // 0: Туман
+      
       if (preset === 0) {
         ctx.save();
-        // В светлой теме lighter не работает, используем multiply
+        
         ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
         ctx.filter = 'blur(40px)';
         for (const b of state.blobs) {
           b.x += b.vx * (dt * 60);
           b.y += b.vy * (dt * 60);
-          // мягкий wrap
+          
           if (b.x < -b.r) b.x = w + b.r;
           if (b.x > w + b.r) b.x = -b.r;
           if (b.y < -b.r) b.y = h + b.r;
@@ -508,7 +508,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         return;
       }
 
-      // 1: Пыль + кометы
+      
       if (preset === 1) {
         ctx.save();
         ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
@@ -544,14 +544,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         return;
       }
 
-      // 2: Нейросвязи (Neural Beauty) — полная реализация по примеру Hello.html
+      
       if (preset === 2) {
         const TAU = Math.PI * 2;
         
-        // Очищаем canvas (прозрачный фон, чтобы видеть контент)
+        
         ctx.clearRect(0, 0, w, h);
         
-        // Лёгкая виньетка для атмосферы (но не перекрывает контент)
+        
         ctx.save();
         const gx = ctx.createRadialGradient(w*0.5, h*0.55, 0, w*0.5, h*0.55, Math.max(w,h)*0.75);
         if (isDarkTheme()) {
@@ -567,17 +567,17 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
         
-        // Параметры для pointer влияния
+        
         const pointerPull = pointer.has ? (pointer.down ? 0.024 : 0.012) : 0.0;
         const pointerBoost = pointer.has ? (pointer.down ? 1.55 : 1.15) : 1.0;
         
-        // Движение узлов
+        
         for (const p of state.nodes) {
-          // дыхание (wobble)
+          
           p.wob += p.wobSp * (dt * 1000);
           const wob = Math.sin(p.wob) * 0.12;
           
-          // гравитация к курсору
+          
           if (pointer.has) {
             const dx = pointer.x - p.x;
             const dy = pointer.y - p.y;
@@ -587,15 +587,15 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             p.vy += (dy / Math.sqrt(d2)) * f / p.mass;
           }
           
-          // затухание скорости
+          
           p.vx *= 0.992;
           p.vy *= 0.992;
           
-          // обновление позиции
+          
           p.x += (p.vx + wob) * (dt * 1000) * 0.06;
           p.y += (p.vy - wob) * (dt * 1000) * 0.06;
           
-          // wrap края (с запасом)
+          
           const margin = 40*dpr;
           if (p.x < -margin) p.x = w + margin;
           if (p.x > w + margin) p.x = -margin;
@@ -603,11 +603,11 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           if (p.y > h + margin) p.y = -margin;
         }
         
-        // Построение рёбер (edges) между близкими узлами
-        const LR = clamp(Math.sqrt(w*h) * 0.085, 140*dpr, 260*dpr); // радиус связи
+        
+        const LR = clamp(Math.sqrt(w*h) * 0.085, 140*dpr, 260*dpr); 
         const LR2 = LR*LR;
         const edges = [];
-        const nearPairs = []; // для импульсов
+        const nearPairs = []; 
         
         for (let i = 0; i < state.nodes.length; i += 1) {
           const a = state.nodes[i];
@@ -626,7 +626,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           }
         }
         
-        // Создание импульсов
+        
         state.pulseTimer += dt * 1000;
         if (state.pulseTimer > 40) {
           state.pulseTimer = 0;
@@ -634,7 +634,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           for (let k = 0; k < count; k += 1) {
             if (nearPairs.length) {
               const [a, b] = nearPairs[Math.floor(Math.random() * nearPairs.length)];
-              // спавним импульс
+              
               state.pulses.push({
                 a, b, t: 0,
                 speed: rand(0.006, 0.02),
@@ -653,11 +653,11 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
               });
             }
           }
-          // ограничение количества
+          
           if (state.pulses.length > 120) state.pulses.splice(0, state.pulses.length - 120);
         }
         
-        // Отрисовка рёбер (линий)
+        
         ctx.save();
         ctx.globalCompositeOperation = 'screen';
         ctx.lineCap = 'round';
@@ -666,7 +666,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           const a = state.nodes[e.i];
           const b = state.nodes[e.j];
           
-          // Подсветка от курсора
+          
           let hl = 1.0;
           if (pointer.has) {
             const mx = (a.x + b.x) * 0.5;
@@ -677,7 +677,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             hl = clamp(1.35 - d/(260*dpr), 1.0, 1.35);
           }
           
-          // Смешиваем цвета узлов
+          
           const [r1, g1, b1] = a.c;
           const [r2, g2, b2] = b.c;
           const r = Math.floor((r1+r2)/2);
@@ -695,7 +695,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           ctx.stroke();
         }
         
-        // Обновление и отрисовка импульсов
+        
         for (let k = state.pulses.length - 1; k >= 0; k -= 1) {
           const P = state.pulses[k];
           P.t += P.speed * (dt * 1000 / 16);
@@ -709,14 +709,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           const x = a.x + (b.x - a.x) * P.t;
           const y = a.y + (b.y - a.y) * P.t;
           
-          // искра
+          
           const [r, g, b_] = P.c;
           ctx.beginPath();
           ctx.fillStyle = `rgba(${r}, ${g}, ${b_}, ${P.alpha * alphaBoost()})`;
           ctx.arc(x, y, (2.2*dpr + P.w*0.6) * (0.7 + 0.6*Math.sin(P.t*TAU)), 0, TAU);
           ctx.fill();
           
-          // хвост
+          
           const backT = clamp(P.t - 0.03, 0, 1);
           const x2 = a.x + (b.x - a.x) * backT;
           const y2 = a.y + (b.y - a.y) * backT;
@@ -728,12 +728,12 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           ctx.stroke();
         }
         
-        // Отрисовка узлов (с красивым свечением)
+        
         for (const p of state.nodes) {
           const r_ = p.r * (1 + 0.15*Math.sin(p.wob*1.2));
           const [r, g, b_] = p.c;
           
-          // свечение (glow)
+          
           const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r_*10);
           glow.addColorStop(0, `rgba(${r}, ${g}, ${b_}, ${0.30*p.core*pointerBoost*alphaBoost()})`);
           glow.addColorStop(0.25, `rgba(${Math.min(255,r+25)}, ${Math.min(255,g+25)}, ${Math.min(255,b_+25)}, ${0.14*p.core*alphaBoost()})`);
@@ -743,14 +743,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           ctx.arc(p.x, p.y, r_*10, 0, TAU);
           ctx.fill();
           
-          // ядро
+          
           ctx.fillStyle = `rgba(${r}, ${g}, ${b_}, ${0.85*p.core*alphaBoost()})`;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r_*1.15, 0, TAU);
           ctx.fill();
         }
         
-        // Bloom эффект (fake) — повторная отрисовка с прозрачностью
+        
         ctx.globalAlpha = 0.25;
         ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(canvas, 0, 0, w*dpr, h*dpr, 0, 0, w, h);
@@ -759,7 +759,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         return;
       }
 
-      // 3: Аврора
+      
       if (preset === 3) {
         ctx.save();
         ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
@@ -774,7 +774,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
           g.addColorStop(1, rgba(band.c, 0));
           ctx.fillStyle = g;
 
-          // рисуем синусную полосу
+          
           ctx.beginPath();
           const stepX = 32;
           ctx.moveTo(0, y0);
@@ -797,7 +797,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         return;
       }
 
-      // 4: Сердечки
+      
       if (preset === 4) {
         ctx.save();
         ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
@@ -825,13 +825,13 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         return;
       }
 
-      // 5: Matrix - падающие символы
+      
       if (preset === 5) {
-        // Катакана и ASCII символы
+        
         const chars = 'アイウエオカキクケコサシスセソタチツテト0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$@%#&*+=<>[]{}|';
         
         ctx.save();
-        // Тёмная затемняющая маска (след от символов)
+        
         ctx.fillStyle = isDarkTheme() ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)';
         ctx.fillRect(0, 0, w, h);
         
@@ -839,10 +839,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
         
         for (const drop of state.matrix) {
-          // Движение вниз
+          
           drop.y += drop.speed * (dt * 60);
           
-          // Сброс наверх при выпадении за экран
+          
           if (drop.y > h + drop.length * 16) {
             drop.y = rand(-h * 0.5, 0);
             drop.x = Math.floor(rand(0, Math.floor(w / 18))) * 18 + rand(-4, 4);
@@ -850,26 +850,26 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             drop.length = Math.floor(rand(8, 25));
           }
           
-          // Рисуем символы
+          
           for (let i = 0; i < drop.length; i += 1) {
             const y = drop.y - i * 16;
             if (y < 0 || y > h) continue;
             
-            // Яркость убывает к хвосту
+            
             const alpha = (1 - i / drop.length) * 0.8;
             
-            // Голова дропа - белая/светлая
+            
             if (i === 0) {
               ctx.fillStyle = isDarkTheme() 
                 ? `rgba(${fg[0]}, ${fg[1]}, ${fg[2]}, ${alpha * 1.2})`
                 : `rgba(${fx1[0]}, ${fx1[1]}, ${fx1[2]}, ${alpha * 0.9})`;
             } else {
-              // Остальные - зелёные (или темные в светлой теме)
+              
               const [r, g, b] = isDarkTheme() ? [100, 255, 150] : fx1;
               ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * (isDarkTheme() ? 0.85 : 0.6)})`;
             }
             
-            // Случайный символ
+            
             const char = chars[Math.floor(Math.random() * chars.length)];
             ctx.fillText(char, drop.x, y);
           }
@@ -879,13 +879,13 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         return;
       }
 
-      // 6: Honeycomb — живые соты
+      
       if (preset === 6) {
         const now = state.t;
 
-        // Идея: упростить демо «Honeycomb», чтобы не лагало.
-        // Убираем blur+glow+sparks+bloom+grain, делаем один быстрый проход по сетке.
-        // Волны — в ~10 раз медленнее и с редкими случайными «перестройками».
+        
+        
+        
 
         state.honey.nextJitter -= dt;
         if (state.honey.nextJitter <= 0) {
@@ -899,7 +899,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
         ctx.save();
 
-        // фон (лёгкий)
+        
         const bg = ctx.createLinearGradient(0, 0, w, h);
         if (isDarkTheme()) {
           bg.addColorStop(0, 'rgba(6, 6, 9, 1)');
@@ -911,14 +911,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         ctx.fillStyle = bg;
         ctx.fillRect(0, 0, w, h);
 
-        // parallax (очень лёгкий)
+        
         const px = pointer.has ? (pointer.x - w * 0.5) : 0;
         const py = pointer.has ? (pointer.y - h * 0.5) : 0;
         const ox = -px * 0.02;
         const oy = -py * 0.02;
 
-        // делаем соты крупнее => меньше ячеек => быстрее
-        // В светлой теме делаем ещё крупнее (школьные ПК / слабые браузеры).
+        
+        
         const r = isDarkTheme()
           ? clamp(Math.sqrt(w * h) / 26, 30, 60)
           : clamp(Math.sqrt(w * h) / 18, 60, 120);
@@ -926,19 +926,19 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         const hh = 2 * r;
         const rowStep = 1.5 * r;
 
-        // кеш точек шестиугольника (без тригонометрии в цикле)
+        
         if (!state.honey.hexPts || state.honey.hexR !== r) {
           state.honey.hexR = r;
           const pts = [];
           for (let i = 0; i < 6; i += 1) {
-            const a = TAU * (i / 6) + Math.PI / 6; // flat-top
+            const a = TAU * (i / 6) + Math.PI / 6; 
             pts.push({ x: Math.cos(a) * (r * 0.94), y: Math.sin(a) * (r * 0.94) });
           }
           state.honey.hexPts = pts;
         }
 
-        // Цвет линии один, меняем только alpha/width
-        // В светлой теме стараемся быть максимально лёгкими по композитингу.
+        
+        
         ctx.globalCompositeOperation = isDarkTheme() ? 'screen' : 'source-over';
         ctx.strokeStyle = `hsla(${hue}, 92%, ${isDarkTheme() ? 60 : 38}%, 1)`;
 
@@ -953,18 +953,18 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
             const hx = x + xOff;
             const hy = y;
 
-            // лёгкая «волна» без sqrt — от положения клетки
+            
             const wave = Math.sin((hx * 0.014 + hy * 0.011) - now * 0.00018 + state.honey.phaseA) * 0.5 + 0.5;
 
-            // подсветка около курсора (без sqrt)
+            
             const dx = hx - cx;
             const dy = hy - cy;
             const d2 = dx * dx + dy * dy;
-            // exp() дорогой на большом количестве ячеек, используем более лёгкую аппроксимацию
-            // 1/(1 + d^2/k) — достаточно похоже для «пятна» вокруг курсора.
+            
+            
             const ring = pointer.has ? (1 / (1 + d2 / falloff2)) : 0.12;
 
-            // видимость по всей сетке + усиление возле курсора
+            
             const a = (0.06 + 0.10 * wave) + ring * (0.10 + 0.14 * wave);
             const width = 0.9 + ring * 1.6;
 
@@ -989,7 +989,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       }
 
 
-// 7: Дым (вихри / vorticity) — портировано из твоего HTML (Smoke Vorticity)
+
     if (preset === 7) {
   const sm = state.smoke;
   if (!sm || !sm.u || !sm.v || !sm.dens || !sm.sctx || !sm.imgData || !sm.imgArr) {
@@ -1181,14 +1181,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
   };
 
   const renderSmoke = () => {
-    // прозрачный фон, только дым
+    
     const arr = sm.imgArr;
     for (let j = 0; j < NY; j++) {
       for (let i = 0; i < NX; i++) {
         const id = idx(i, j);
         const d = clamp(sm.dens[id], 0, 1.35);
 
-        // цвет дыма под тему: mix fx1/fx2 + чуть fg
+        
         const mix = clamp(d * 0.55, 0, 0.85);
         const r = (fx1[0] * (1 - mix) + fx2[0] * mix) * 0.55 + fg[0] * 0.45;
         const g = (fx1[1] * (1 - mix) + fx2[1] * mix) * 0.55 + fg[1] * 0.45;
@@ -1209,7 +1209,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     ctx.globalCompositeOperation = 'screen';
     ctx.imageSmoothingEnabled = true;
 
-    // 3 прохода как в демке (fog/details/filaments), но без заливки bg
+    
     const blurA = 14;
     const blurB = 5;
     const blurC = 1.2;
@@ -1230,7 +1230,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     ctx.restore();
   };
 
-  // --- Simulation constants (с твоими значениями, чуть подстроено intensity) ---
+  
   const VISC = 0.00012;
   const DIFF = 0.00007;
   const DISSIP = 0.9935;
@@ -1239,7 +1239,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
   const dt2 = clamp(dt, 0.001, 0.03);
 
-  // ambient emitter (ниже центра)
+  
   const now = performance.now();
   const emitX = w * 0.5 + Math.sin(now * 0.00035) * w * 0.09;
   const emitY = h * 0.78 + Math.cos(now * 0.00031) * h * 0.05;
@@ -1256,7 +1256,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     else splat(pointer.x, pointer.y, fx0, fy0, add);
   }
 
-  // velocity
+  
   sm.u0.set(sm.u);
   sm.v0.set(sm.v);
   diffuse(1, sm.u, sm.u0, VISC, dt2);
@@ -1272,7 +1272,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
   advect(2, sm.v, sm.v0, sm.u0, sm.v0, dt2);
   project(sm.u, sm.v, sm.p, sm.div);
 
-  // density
+  
   sm.dens0.set(sm.dens);
   diffuse(0, sm.dens, sm.dens0, DIFF, dt2);
   sm.dens0.set(sm.dens);
@@ -1290,7 +1290,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     }
   };
 
-    // --- RAF loop ---
+    
     let last = performance.now();
     const tick = (now) => {
       const dt = clamp((now - last) / 1000, 0.001, 0.05);
@@ -1307,7 +1307,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     return () => {
       cancelAnimationFrame(rafRef.current);
       ro.disconnect();
-      // Отписываемся от событий
+      
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
@@ -1331,7 +1331,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         height: '100%',
         zIndex: 0,
         pointerEvents: 'none',
-        // чуть мягче на тёмной теме
+        
         opacity: 1,
       }}
     />

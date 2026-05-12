@@ -1,5 +1,5 @@
-// Компонент карточки участника топа.
-// Показывает аватар, имя, статистику и бейджи (иконки рядом с именем).
+
+
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,7 +11,7 @@ export default function LeaderboardCard({ entry }) {
     nav(`/users/${entry.userId}`);
   };
 
-  // градиенты для топ-3 мест
+  
   const rankColors = {
     1: 'from-amber-400 to-yellow-500',
     2: 'from-neutral-300 to-neutral-100',
@@ -29,7 +29,7 @@ export default function LeaderboardCard({ entry }) {
       onClick={handleOpenProfile}
       className="group relative w-full text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
     >
-      {/* Ранг */}
+      
       <div className="absolute -top-3 left-0">
         <div
           className={`inline-flex items-center gap-1 rounded-2xl bg-gradient-to-br ${rankBg} px-3 py-1 text-xs font-semibold text-neutral-900 shadow-md`}
@@ -39,7 +39,7 @@ export default function LeaderboardCard({ entry }) {
         </div>
       </div>
 
-      {/* Аватар */}
+      
       <div className="shrink-0">
         {entry.avatarUrl ? (
           <img
@@ -54,9 +54,9 @@ export default function LeaderboardCard({ entry }) {
         )}
       </div>
 
-      {/* Основной блок */}
+      
       <div className="flex-1 min-w-0 space-y-1">
-        {/* Имя + бейджи в одной строке (с переносами) */}
+        
         <div className="flex flex-wrap items-center gap-2">
           <div className="font-semibold break-words">
             {entry.displayName || entry.email}
@@ -77,7 +77,7 @@ export default function LeaderboardCard({ entry }) {
                       className="h-5 w-5 object-contain"
                     />
                   )}
-                  {/* скрытый текст для доступности */}
+                  
                   <span className="sr-only">{badge.name}</span>
                 </span>
               ))}
@@ -85,7 +85,7 @@ export default function LeaderboardCard({ entry }) {
           )}
         </div>
 
-        {/* Доп. инфа: локация / образование */}
+        
         {entry.location && (
           <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             <MapPin size={12} />
@@ -99,9 +99,9 @@ export default function LeaderboardCard({ entry }) {
           </div>
         )}
 
-        {/* Статистика */}
+        
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {/* Решённые задания */}
+          
           <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
             <span className="font-semibold text-neutral-700 dark:text-neutral-200">
               {entry.solvedAssignments}
@@ -111,7 +111,7 @@ export default function LeaderboardCard({ entry }) {
             </span>
           </span>
 
-          {/* Всего попыток */}
+          
           {typeof entry.totalAttempts === 'number' && (
             <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
               <span className="font-semibold text-neutral-700 dark:text-neutral-200">
@@ -121,7 +121,7 @@ export default function LeaderboardCard({ entry }) {
             </span>
           )}
 
-          {/* Последняя активность */}
+          
           {entry.lastSubmitAt && (
             <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
               <Clock size={12} />

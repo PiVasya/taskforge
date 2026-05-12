@@ -20,7 +20,7 @@ import { useRoleFlags } from "../contexts/EditorModeContext";
 
 
 
-// Разрешённые языки решения (настраиваются в задании)
+
 const LANGS_BY_TYPE = {
   "code-test": [
     { value: "cpp", label: "C++" },
@@ -30,7 +30,7 @@ const LANGS_BY_TYPE = {
     { value: "pascal", label: "Pascal" },
     { value: "java", label: "Java" },
   ],
-  // image-test поддерживает только языки, которые умеют рендерить картинку
+  
   "image-test": [
     { value: "python", label: "Python" },
     { value: "pascal", label: "Pascal" },
@@ -60,7 +60,7 @@ export default function AssignmentEditPage() {
   const [lifecycleStatus, setLifecycleStatus] = useState("published");
   const [testCases, setTestCases] = useState([]);
 
-  // code policy (per-task)
+  
   const [codeForbiddenCallsText, setCodeForbiddenCallsText] = useState("");
   const [codeRequiredCallsText, setCodeRequiredCallsText] = useState("");
 
@@ -84,11 +84,11 @@ export default function AssignmentEditPage() {
   });
   const [mathBlocks, setMathBlocks] = useState([]);
 
-  // image-test
+  
   const [imageTestReferenceKey, setImageTestReferenceKey] = useState("");
   const [imageTestThreshold, setImageTestThreshold] = useState(90);
 
-  // allowed languages
+  
   const [allowedLanguages, setAllowedLanguages] = useState([]);
   const [langToAdd, setLangToAdd] = useState("");
 
@@ -100,7 +100,7 @@ export default function AssignmentEditPage() {
 
         setLoading(true);
         setErr("");
-        const a = await getAssignment(assignmentId); // должен вернуть { ..., canEdit, testCases, ... }
+        const a = await getAssignment(assignmentId); 
 
         if (!a?.canEdit) {
           notifyOnce("no-edit-assignment", () =>
@@ -110,7 +110,7 @@ export default function AssignmentEditPage() {
           return;
         }
 
-        // заполняем форму
+        
         setCourseId(a.courseId || null);
         setTitle(a.title || "");
         setDescription(a.description || "");
@@ -123,7 +123,7 @@ export default function AssignmentEditPage() {
         setIsAiDraft(!!a.isAiDraft);
         setLifecycleStatus(a.lifecycleStatus || (a.isHidden ? "draft" : "published"));
 
-        // code policy
+        
         const forb = Array.isArray(a.codeForbiddenCalls) ? a.codeForbiddenCalls : [];
         const reqd = Array.isArray(a.codeRequiredCalls) ? a.codeRequiredCalls : [];
         setCodeForbiddenCallsText(forb.join("\n"));
@@ -144,7 +144,7 @@ export default function AssignmentEditPage() {
             : [{ input: "", expectedOutput: "", isHidden: false }]
         );
 
-        // если это тест — подтягиваем настройки/вопросы
+        
         if ((a.type || "").trim() === "test") {
           try {
             const te = await getTaskTestEdit(assignmentId);
@@ -158,7 +158,7 @@ export default function AssignmentEditPage() {
             });
             setTestQuestions(Array.isArray(te.questions) ? te.questions : []);
           } catch (e2) {
-            // не блокируем редактор базовых полей
+            
           }
         }
 
@@ -174,7 +174,7 @@ export default function AssignmentEditPage() {
             });
             setMathBlocks(Array.isArray(me.blocks) ? me.blocks : []);
           } catch (e2) {
-            // ignore
+            
           }
         }
       } catch (e) {
@@ -183,15 +183,15 @@ export default function AssignmentEditPage() {
         setLoading(false);
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignmentId, nav]); // убрали notify из зависимостей
+  
+  }, [assignmentId, nav]); 
 
 
-  // при смене типа — удаляем несовместимые языки
+  
   useEffect(() => {
     const opts = LANGS_BY_TYPE[type] || null;
     if (!opts) {
-      // для типа "test" языки не нужны
+      
       setAllowedLanguages([]);
       setLangToAdd("");
       return;
@@ -313,7 +313,7 @@ export default function AssignmentEditPage() {
       setSaveIssues([]);
       setErr('');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  
   }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
 
   const addTest = () =>
@@ -360,7 +360,7 @@ export default function AssignmentEditPage() {
         isAiDraft,
         lifecycleStatus: isHidden ? (lifecycleStatus === "published" ? "draft" : lifecycleStatus) : "published",
 
-        // code policy (applies to code-test & image-test)
+        
         codeForbiddenCalls: (["code-test", "image-test"].includes((type || "").trim()))
           ? (codeForbiddenCallsText || "")
               .replace(/\r/g, "")
@@ -375,8 +375,8 @@ export default function AssignmentEditPage() {
               .map((x) => x.trim())
               .filter((x) => x.length > 0)
           : [],
-        // для type=test на бэке тест-кейсы не нужны: просто отправляем пустой массив,
-        // чтобы при смене типа старые тест-кейсы были удалены
+        
+        
         testCases:
           (type || "").trim() === "code-test"
             ? testCases.map((t) => ({
@@ -386,7 +386,7 @@ export default function AssignmentEditPage() {
               }))
             : [],
 
-        // image-test
+        
         imageTestReferenceKey:
           (type || "").trim() === "image-test" ? imageTestReferenceKey || null : null,
         imageTestSimilarityThreshold:
@@ -395,10 +395,10 @@ export default function AssignmentEditPage() {
 
       await updateAssignment(assignmentId, payload);
 
-      // сохраняем тест (если type=test)
+      
       if ((type || "").trim() === "test") {
-        // В редакторе допустимых ответов мы не фильтруем пустые строки на лету (иначе Enter не работает),
-        // поэтому перед сохранением чистим список ответов.
+        
+        
         const cleanedQuestions = (testQuestions || []).map((q) => {
           const aa = Array.isArray(q?.acceptedAnswers)
             ? q.acceptedAnswers
@@ -438,7 +438,7 @@ export default function AssignmentEditPage() {
       notify.success("Изменения сохранены");
       nav(`/assignment/${assignmentId}`);
     } catch (e) {
-      // 403 — чужое задание
+      
       if (e?.response?.status === 403) {
         notifyOnce("no-edit-assignment", () =>
           notify.error(e.response?.data?.message || "Нельзя редактировать данное задание")
@@ -516,7 +516,7 @@ export default function AssignmentEditPage() {
 
       {err && <div className="text-red-500 font-medium mb-4">{err}</div>}
 
-      {/* верхнюю панель убрали: остаётся только нижняя (как просили) */}
+      
 
       <div className="space-y-5">
           <Card>
@@ -899,7 +899,7 @@ export default function AssignmentEditPage() {
           )}
         </div>
 
-      {/* нижняя панель (на всякий) */}
+      
       <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-neutral-200/60 dark:border-neutral-800/60 mt-6">
         <div className="flex items-center justify-end gap-2">
           <Button onClick={save} disabled={busy}>

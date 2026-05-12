@@ -1,14 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 
-/**
- * Пропсы:
- *  - language: 'cpp' | 'csharp' | 'python' | 'javascript' | 'pascal' | 'java'
- *  - value: string
- *  - onChange: (code: string) => void
- *  - height?: number | string
- *  - lineNumbers?: 'on' | 'off'
- */
+
 export default function CodeEditor({
   language = 'cpp',
   value,
@@ -21,11 +14,11 @@ export default function CodeEditor({
   );
 
   const wrapperRef = useRef(null);
-  const editorRef = useRef(null);   // monaco.editor.IStandaloneCodeEditor
-  const monacoRef = useRef(null);   // monaco namespace
-  const roRef = useRef(null);       // ResizeObserver
+  const editorRef = useRef(null);   
+  const monacoRef = useRef(null);   
+  const roRef = useRef(null);       
 
-  // соответствие языков Monaco
+  
   const monacoLang = useMemo(() => {
     switch (String(language || '').toLowerCase()) {
       case 'c++':
@@ -53,7 +46,7 @@ export default function CodeEditor({
     }
   }, [language]);
 
-  // имя темы по классам на <html>
+  
   const pickThemeName = useCallback(() => {
     const root = document.documentElement;
     const pink = root.classList.contains('pink');
@@ -64,9 +57,9 @@ export default function CodeEditor({
     return dark ? 'taskforge-brand-dark' : 'taskforge-brand-light';
   }, []);
 
-  // РЕГИСТРАЦИЯ ТЕМ — ДО создания редактора
+  
   const handleBeforeMount = useCallback((monaco) => {
-    // ---- Брендовая (синяя) пара тем ----
+    
     monaco.editor.defineTheme('taskforge-brand-dark', {
       base: 'vs-dark',
       inherit: true,
@@ -75,8 +68,8 @@ export default function CodeEditor({
         { token: 'comment', foreground: '7B8794' },
         { token: 'string', foreground: 'A3E635' },
         { token: 'number', foreground: 'F59E0B' },
-        { token: 'keyword', foreground: '60A5FA', fontStyle: 'bold' }, // blue-400
-        { token: 'type', foreground: '38BDF8' },                       // sky-400
+        { token: 'keyword', foreground: '60A5FA', fontStyle: 'bold' }, 
+        { token: 'type', foreground: '38BDF8' },                       
         { token: 'function', foreground: 'F8FAFC' },
         { token: 'identifier', foreground: 'D8DEE9' },
       ],
@@ -101,7 +94,7 @@ export default function CodeEditor({
         'editorSuggestWidget.border': '#2a2f3a',
         'editorSuggestWidget.selectedBackground': '#16243a',
         'list.hoverBackground': '#1a1f28',
-        'focusBorder': '#60A5FA', // blue-400
+        'focusBorder': '#60A5FA', 
       },
     });
 
@@ -111,9 +104,9 @@ export default function CodeEditor({
       rules: [
         { token: 'comment', foreground: '94A3B8' },
         { token: 'string', foreground: '10B981' },
-        { token: 'number', foreground: '2563EB' }, // blue-600
+        { token: 'number', foreground: '2563EB' }, 
         { token: 'keyword', foreground: '2563EB', fontStyle: 'bold' },
-        { token: 'type', foreground: '0EA5E9' },   // sky-500
+        { token: 'type', foreground: '0EA5E9' },   
       ],
       colors: {
         'editor.background': '#FFFFFF',
@@ -126,11 +119,11 @@ export default function CodeEditor({
         'editor.lineHighlightBackground': '#F6F8FA',
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
-        'focusBorder': '#2563EB', // blue-600
+        'focusBorder': '#2563EB', 
       },
     });
 
-    // ---- Розовая пара тем (для html.pink) ----
+    
     monaco.editor.defineTheme('taskforge-pink-dark', {
       base: 'vs-dark',
       inherit: true,
@@ -139,8 +132,8 @@ export default function CodeEditor({
         { token: 'comment', foreground: '7B8794' },
         { token: 'string', foreground: 'A3E635' },
         { token: 'number', foreground: 'F59E0B' },
-        { token: 'keyword', foreground: 'DB2777', fontStyle: 'bold' }, // rose-600
-        { token: 'type', foreground: 'F0ABFC' },                       // fuchsia-300
+        { token: 'keyword', foreground: 'DB2777', fontStyle: 'bold' }, 
+        { token: 'type', foreground: 'F0ABFC' },                       
         { token: 'function', foreground: 'F8FAFC' },
         { token: 'identifier', foreground: 'D8DEE9' },
       ],
@@ -165,7 +158,7 @@ export default function CodeEditor({
         'editorSuggestWidget.border': '#2a2f3a',
         'editorSuggestWidget.selectedBackground': '#16243a',
         'list.hoverBackground': '#1a1f28',
-        'focusBorder': '#DB2777', // rose-600
+        'focusBorder': '#DB2777', 
       },
     });
 
@@ -175,8 +168,8 @@ export default function CodeEditor({
       rules: [
         { token: 'comment', foreground: '94A3B8' },
         { token: 'string', foreground: '10B981' },
-        { token: 'number', foreground: 'DB2777' }, // rose-600
-        { token: 'keyword', foreground: 'BE185D', fontStyle: 'bold' }, // rose-700
+        { token: 'number', foreground: 'DB2777' }, 
+        { token: 'keyword', foreground: 'BE185D', fontStyle: 'bold' }, 
         { token: 'type', foreground: 'DB2777' },
       ],
       colors: {
@@ -190,11 +183,11 @@ export default function CodeEditor({
         'editor.lineHighlightBackground': '#F6F8FA',
         'editorIndentGuide.background': '#E5E7EB',
         'editorIndentGuide.activeBackground': '#CBD5E1',
-        'focusBorder': '#F472B6', // pink-400
+        'focusBorder': '#F472B6', 
       },
     });
 
-    // ---- Apple (salad / lime) пара тем (для html.apple) ----
+    
     monaco.editor.defineTheme('taskforge-apple-dark', {
       base: 'vs-dark',
       inherit: true,
@@ -203,8 +196,8 @@ export default function CodeEditor({
         { token: 'comment', foreground: '7B8794' },
         { token: 'string', foreground: 'A3E635' },
         { token: 'number', foreground: 'F59E0B' },
-        { token: 'keyword', foreground: '84CC16', fontStyle: 'bold' }, // lime-500
-        { token: 'type', foreground: 'BEF264' },                       // lime-300
+        { token: 'keyword', foreground: '84CC16', fontStyle: 'bold' }, 
+        { token: 'type', foreground: 'BEF264' },                       
         { token: 'function', foreground: 'F8FAFC' },
         { token: 'identifier', foreground: 'D8DEE9' },
       ],
@@ -239,8 +232,8 @@ export default function CodeEditor({
       rules: [
         { token: 'comment', foreground: '94A3B8' },
         { token: 'string', foreground: '10B981' },
-        { token: 'number', foreground: '65A30D' }, // lime-600
-        { token: 'keyword', foreground: '4D7C0F', fontStyle: 'bold' }, // lime-700
+        { token: 'number', foreground: '65A30D' }, 
+        { token: 'keyword', foreground: '4D7C0F', fontStyle: 'bold' }, 
         { token: 'type', foreground: '65A30D' },
       ],
       colors: {
@@ -259,7 +252,7 @@ export default function CodeEditor({
     });
   }, []);
 
-  // хелпер — безопасно перелэйаутить редактор
+  
   const relayout = useCallback(() => {
     const ed = editorRef.current;
     const el = wrapperRef.current;
@@ -269,7 +262,7 @@ export default function CodeEditor({
     requestAnimationFrame(() => ed.layout({ width: w, height: h }));
   }, [height]);
 
-  // ПРИ МАУНТЕ — запомним ссылки, установим тему, поднимем ResizeObserver
+  
   const handleMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
@@ -294,7 +287,7 @@ export default function CodeEditor({
     };
   }, [pickThemeName, relayout]);
 
-  // Реакция на переключение темы сайта (классы .dark / .pink на <html>)
+  
   useEffect(() => {
     const mo = new MutationObserver(() => {
       const dark = document.documentElement.classList.contains('dark');

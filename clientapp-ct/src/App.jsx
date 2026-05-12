@@ -19,7 +19,7 @@ export default function App() {
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<SimpleHomePage />} />
-        {/* Старые учебные страницы оставлены только как технический fallback. В обычной навигации их больше нет. */}
+        
         <Route path="/courses" element={<LearningHomePage />} />
         <Route path="/courses/:courseSlug" element={<LearningCoursePage />} />
         <Route path="/courses/:courseSlug/conspects/:slug" element={<LearningConspectPage />} />

@@ -44,7 +44,7 @@ export default function AdminGroupsPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   const filtered = useMemo(() => {
@@ -85,7 +85,7 @@ export default function AdminGroupsPage() {
       setCreating(false);
       setForm({ ...empty });
       await load();
-      // optional: scroll to created
+      
       if (created?.id) {
         const el = document.getElementById('group-' + created.id);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });

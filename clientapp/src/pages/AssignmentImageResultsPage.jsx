@@ -17,7 +17,7 @@ function toPercent(v) {
   const n = Number(v);
   if (Number.isNaN(n)) return null;
 
-  // Some backends return 0..1, some 0..100
+  
   const normalized = (n >= 0 && n <= 1) ? (n * 100) : n;
   return Math.round(normalized * 10) / 10;
 }
@@ -69,7 +69,7 @@ export default function AssignmentImageResultsPage() {
           });
           return;
         } catch {
-          // fallback to localStorage
+          
         }
       }
 
@@ -83,15 +83,15 @@ export default function AssignmentImageResultsPage() {
     };
   }, [storageKey, solutionId]);
 
-  // Если страница открыта в отдельной вкладке (из решения), то по нажатию браузерной "Назад"
-  // вкладка должна закрываться и пользователь должен оставаться на странице с кодом.
+  
+  
   useEffect(() => {
-    // Добавляем фиктивное состояние, чтобы "Назад" вызвал popstate внутри этой вкладки.
+    
     try { window.history.pushState({ tf_close_on_back: true }, '', window.location.href); } catch {}
 
     const onPop = () => {
       try { window.close(); } catch {}
-      // Если закрытие запрещено (вкладка открыта не скриптом) — fallback.
+      
       setTimeout(() => {
         try {
           if (window.history.length > 1) navigate(-1);
@@ -114,13 +114,13 @@ export default function AssignmentImageResultsPage() {
   const isTrial = Boolean(data?.isTrial);
 
   const onBack = () => {
-    // Как и у обычных результатов: сначала пробуем закрыть вкладку.
-    // Если закрытие блокируется (страница открыта не скриптом) — делаем навигационный fallback.
+    
+    
     try { window.close(); } catch {}
 
     setTimeout(() => {
       try {
-        // Если вкладка не закрылась — возвращаемся назад/к решению.
+        
         if (window.history.length > 1) navigate(-1);
         else navigate(`/assignment/${assignmentId}`);
       } catch {

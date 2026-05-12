@@ -1,4 +1,4 @@
-// PublicProfilePage.jsx – публичный профиль пользователя с бейджами
+
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
@@ -17,7 +17,7 @@ export default function PublicProfilePage() {
   const [badges, setBadges] = useState([]);
   const [badgesLoading, setBadgesLoading] = useState(false);
 
-  // Загрузка публичного профиля
+  
   useEffect(() => {
     (async () => {
       try {
@@ -26,7 +26,7 @@ export default function PublicProfilePage() {
         const { data } = await api.get(`/api/users/${userId}/public-profile`);
         setProfile(data);
       } catch (e) {
-        // логирование на фронте отключено
+        
         setError('Профиль не найден');
       } finally {
         setLoading(false);
@@ -34,7 +34,7 @@ export default function PublicProfilePage() {
     })();
   }, [userId]);
 
-  // Загрузка бейджей пользователя
+  
   useEffect(() => {
     if (!userId) return;
     (async () => {
@@ -43,7 +43,7 @@ export default function PublicProfilePage() {
         const list = await getUserBadges(userId);
         setBadges(Array.isArray(list) ? list : []);
       } catch (e) {
-        // логирование на фронте отключено
+        
         setBadges([]);
       } finally {
         setBadgesLoading(false);
@@ -65,7 +65,7 @@ export default function PublicProfilePage() {
         {profile && (
           <>
             <Card className="p-6 flex gap-4">
-              {/* Аватар */}
+              
               <div className="shrink-0">
                 {profile.avatarUrl ? (
                   <img
@@ -114,7 +114,7 @@ export default function PublicProfilePage() {
                   </p>
                 )}
 
-                {/* Маленькая полоска бейджей сразу под именем */}
+                
                 {badges.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1 mt-2">
                     {badges.map((b) => (

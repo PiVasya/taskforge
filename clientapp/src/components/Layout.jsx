@@ -196,7 +196,7 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
     try {
       logout();
     } catch {
-      // ignore
+      
     }
   };
 

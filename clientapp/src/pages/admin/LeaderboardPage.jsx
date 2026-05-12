@@ -1,4 +1,4 @@
-// LeaderboardPage.jsx — версия с фильтрами и сеткой максимум из 2 колонок
+
 
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
@@ -18,14 +18,14 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // filters
+  
   const [courses, setCourses] = useState([]);
   const [groups, setGroups] = useState([]);
   const [courseId, setCourseId] = useState('');
   const [days, setDays] = useState('');
   const [groupId, setGroupId] = useState('');
 
-  // load courses once
+  
   useEffect(() => {
     (async () => {
       try {
@@ -77,10 +77,10 @@ export default function LeaderboardPage() {
     }
   };
 
-  // initial load
+  
   useEffect(() => {
     loadEntries();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   return (
@@ -94,10 +94,10 @@ export default function LeaderboardPage() {
           Нажми на участника, чтобы открыть его профиль.
         </p>
 
-        {/* Фильтры */}
+        
         <Card className="p-4 space-y-2">
           <div className="flex flex-wrap gap-4 items-end">
-            {/* Курс */}
+            
             <div className="flex flex-col min-w-[140px]">
               <label htmlFor="course-filter" className="text-xs font-medium mb-1">
                 Курс
@@ -116,7 +116,7 @@ export default function LeaderboardPage() {
               </Select>
             </div>
 
-            {/* Дни */}
+            
             <div className="flex flex-col w-24">
               <label htmlFor="days-filter" className="text-xs font-medium mb-1">
                 За последние, дней
@@ -131,7 +131,7 @@ export default function LeaderboardPage() {
               />
             </div>
 
-            {/* Группа */}
+            
             <div className="flex flex-col min-w-[180px]">
               <label htmlFor="group-filter" className="text-xs font-medium mb-1">
                 Группа
@@ -151,7 +151,7 @@ export default function LeaderboardPage() {
               </Select>
             </div>
 
-            {/* Кнопка */}
+            
             <Button
               type="button"
               variant="primary"
@@ -175,7 +175,7 @@ export default function LeaderboardPage() {
         )}
 
         {!loading && !error && (
-          // максимум 2 человека в строку: 1 колонка на мобиле, 2 — на шире md
+          
           <div className="grid gap-4 md:grid-cols-2">
             {entries.map((e) => (
               <LeaderboardCard key={e.userId} entry={e} />

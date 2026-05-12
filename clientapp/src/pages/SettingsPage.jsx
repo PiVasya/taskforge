@@ -20,7 +20,7 @@ function readLocal() {
 }
 
 function writeLocal(v) {
-  // Держим совместимость: Layout читает и JSON, и отдельные ключи.
+  
   localStorage.setItem('colorTheme', v?.colorTheme || localStorage.getItem('colorTheme') || 'pink');
   localStorage.setItem('mode', v?.mode || localStorage.getItem('mode') || 'dark');
   localStorage.setItem('bgFx', v?.bgFx ? '1' : '0');
@@ -29,7 +29,7 @@ function writeLocal(v) {
   localStorage.setItem('codeSolveLayout', v?.codeSolveLayout || localStorage.getItem('codeSolveLayout') || 'split');
   localStorage.setItem(LS_KEY, JSON.stringify(v));
 
-  // уведомляем Layout, чтобы он применил настройки без перезагрузки
+  
   window.dispatchEvent(new Event('tf-ui-settings-changed'));
 }
 
@@ -49,7 +49,7 @@ export default function SettingsPage() {
       mode: localStorage.getItem('mode') || 'light',
       bgFx: localStorage.getItem('bgFx') === '1',
       fxMode: localStorage.getItem('fxMode') || 'random',
-      fxVariant: localStorage.getItem('fxVariant') || '2', // дефолт - нейросвязи
+      fxVariant: localStorage.getItem('fxVariant') || '2', 
       codeSolveLayout: localStorage.getItem('codeSolveLayout') || 'split',
     }
   );
@@ -75,15 +75,15 @@ export default function SettingsPage() {
         setLoading(true);
         setError(null);
 
-        // 1) профиль — для кнопки "просмотреть публично"
+        
         try {
           const p = await getProfile();
           setProfileId(p?.id ?? p?.userId ?? null);
         } catch {
-          // не критично
+          
         }
 
-        // 2) settings из БД имеют приоритет над localStorage
+        
         try {
           const s = await getMyUiSettings();
           if (s && typeof s === 'object') {
@@ -99,20 +99,20 @@ export default function SettingsPage() {
             writeLocal(merged);
           }
         } catch {
-          // если endpoint пока не раскатан — оставляем local
+          
         }
       } finally {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   const setField = (k, v) => {
     setSaved(false);
     setForm((p) => {
       const next = { ...p, [k]: v };
-      // мгновенно применяем в UI только изменённые поля
+      
       if (k === 'colorTheme') localStorage.setItem('colorTheme', v);
       if (k === 'mode') localStorage.setItem('mode', v);
       if (k === 'bgFx') localStorage.setItem('bgFx', v ? '1' : '0');
@@ -120,7 +120,7 @@ export default function SettingsPage() {
       if (k === 'fxVariant') localStorage.setItem('fxVariant', String(v));
       if (k === 'codeSolveLayout') localStorage.setItem('codeSolveLayout', v);
       writeLocal(next);
-      // В этом же табе событие 'storage' не срабатывает, поэтому шлём своё.
+      
       window.dispatchEvent(new Event('tf-ui-settings-changed'));
       return next;
     });

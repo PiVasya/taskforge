@@ -40,10 +40,10 @@ export default function UpdatePostPage() {
         setMeta(m);
 
         const dto = await getUpdatePost(m.file);
-        // преобразуем полученный JSON в строку для StatementViewer:
-        // если файл содержит contentJson (строку) — используем её
-        // если content — это уже строка — используем её
-        // если content является массивом (как у tiptap-doc) или тип "doc" находится на верхнем уровне — сериализуем весь объект в строку
+        
+        
+        
+        
         let nextValue = '';
         const rawContent = dto?.contentJson ?? dto?.content;
         if (typeof rawContent === 'string') {

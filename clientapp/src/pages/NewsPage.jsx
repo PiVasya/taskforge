@@ -74,14 +74,14 @@ export default function NewsPage() {
 
   const score = profile?.score ?? profile?.rating ?? profile?.points;
 
-  // Хотим показывать ФИО, а не почту.
+  
   const fio = `${profile?.lastName || ''} ${profile?.firstName || ''}`.trim();
   const displayName = fio || profile?.displayName || profile?.username || profile?.email || '';
 
   return (
     <Layout>
       <div className="flex flex-col gap-6">
-        {/* Hero */}
+        
         <Card className="relative overflow-hidden">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -119,7 +119,7 @@ export default function NewsPage() {
           </div>
         </Card>
 
-        {/* Filters */}
+        
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <div className="relative">
@@ -151,7 +151,7 @@ export default function NewsPage() {
           </div>
         </div>
 
-        {/* Content */}
+        
         {loading && <div className="text-neutral-500">Загрузка…</div>}
         {error && <div className="text-red-500">{error}</div>}
 

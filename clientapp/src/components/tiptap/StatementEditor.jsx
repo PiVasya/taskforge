@@ -52,7 +52,7 @@ function safeParseJson(str) {
     const o = JSON.parse(str);
     if (o && typeof o === "object" && o.type === "doc") return normalizeLegacyTiptapDoc(o);
   } catch {
-    // ignore
+    
   }
   return null;
 }
@@ -93,7 +93,7 @@ async function uploadAndInsertImageWithEditor(editor, file) {
 
   try {
     const res = await uploadImage(file);
-    // uploadImage() возвращает { key, url }
+    
     const url = res?.url;
     if (!url) return false;
 
@@ -106,12 +106,12 @@ async function uploadAndInsertImageWithEditor(editor, file) {
 
 function pickFirstImageFileFromDataTransfer(dt) {
   if (!dt) return null;
-  // 1) иногда браузер кладёт файлы сюда
+  
   if (dt.files && dt.files.length > 0) {
     const f = dt.files[0];
     if (f && f.type?.startsWith("image/")) return f;
   }
-  // 2) часто для Ctrl+V файлы лежат в items
+  
   if (dt.items && dt.items.length > 0) {
     for (const it of dt.items) {
       if (it.kind === "file") {
@@ -134,7 +134,7 @@ function StatementEditor({ value, onChange }) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        // Link добавляем отдельно (нужно custom конфиг), иначе будет duplicate extension names
+        
         link: false,
       }),
 
@@ -201,8 +201,8 @@ function StatementEditor({ value, onChange }) {
     },
   });
 
-  // Контекст-меню (ПКМ) — выносим туда «редкие» вещи (размер/цвет текста)
-  // ВАЖНО: hooks должны вызываться всегда в одном порядке, поэтому ранний return ниже.
+  
+  
   useEffect(() => {
     if (!ctxMenu.open) return;
 
@@ -304,7 +304,7 @@ function StatementEditor({ value, onChange }) {
             <option value="h3">H3</option>
           </select>
 
-          {/* Размер/цвет текста вынесены в контекст-меню по ПКМ */}
+          
         </div>
 
         <ToolbarButton

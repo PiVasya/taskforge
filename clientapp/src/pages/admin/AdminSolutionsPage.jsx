@@ -35,7 +35,7 @@ const FILTER_OPTIONS = [
 export default function AdminSolutionsPage() {
   const notify = useNotify();
   const [pageError, setPageError] = useState(null);
-  const [tab, setTab] = useState('code'); // 'code' | 'tests' | 'images' | 'math' | 'groups'
+  const [tab, setTab] = useState('code'); 
 
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
@@ -201,13 +201,13 @@ export default function AdminSolutionsPage() {
       loadMathAttempts();
       loadUserGroups();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [filterDays, userId]);
 
   useEffect(() => {
-    // список групп нужен только админке, подгружаем один раз
+    
     loadGroups();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   const displayedSolutions = useMemo(() => {
@@ -215,7 +215,7 @@ export default function AdminSolutionsPage() {
     if (filterDays) {
       const since = new Date();
       since.setDate(since.getDate() - filterDays);
-      // на всякий случай можно было бы фильтровать тут, но мы уже фильтруем на бэке
+      
     }
     list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     return list;
@@ -237,7 +237,7 @@ export default function AdminSolutionsPage() {
 
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
-    // 3+ чтобы не ловить _ в идентификаторах кода.
+    
     const m = p.match(/_{3,}/);
     if (!m) return null;
     const blank = m[0];

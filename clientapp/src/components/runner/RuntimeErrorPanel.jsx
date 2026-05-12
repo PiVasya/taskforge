@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 
 export default function RuntimeErrorPanel({ run, source }) {
-  if (!run || (run.exitCode === 0 && !run.exception)) return null;
   const [showRaw, setShowRaw] = useState(false);
+  if (!run || (run.exitCode === 0 && !run.exception)) return null;
 
   const line = run.exception?.line;
   const renderSnippet = () => {

@@ -1,6 +1,6 @@
-// clientapp/src/components/SupportNotifier.jsx
-// Глобальные уведомления по техподдержке через SignalR.
-// Без polling: подписываемся на события и показываем нотификации.
+
+
+
 
 import React, { useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
@@ -41,7 +41,7 @@ export default function SupportNotifier() {
             await conn.invoke('JoinUser');
             if (isAdmin) await conn.invoke('JoinAdmins');
           } catch {
-            // ignore
+            
           }
         };
 
@@ -58,7 +58,7 @@ export default function SupportNotifier() {
             const isFromAdmin = readBool(getMsgField(msg, 'isFromAdmin', 'IsFromAdmin'));
             const messageId = getMsgField(msg, 'id', 'Id') || getMsgField(msg, 'createdAt', 'CreatedAt');
 
-            // дедуп на клиенте
+            
             const key = `${SEEN_PREFIX}${ticketId}`;
             const lastSeen = localStorage.getItem(key);
             const cur = String(messageId || '');
@@ -67,7 +67,7 @@ export default function SupportNotifier() {
 
             const shortId = String(ticketId).slice(0, 8);
 
-            // Пользователю — только ответы админа. Админу — только сообщения пользователя.
+            
             if (!isAdmin && isFromAdmin) {
               notifyOnce(
                 `support_notify_${ticketId}_${cur}`,
@@ -83,13 +83,13 @@ export default function SupportNotifier() {
               );
             }
           } catch {
-            // ignore
+            
           }
         };
 
         conn.on('ReceiveMessage', onReceive);
       } catch {
-        // молча: уведомления не должны ломать приложение
+        
       }
     };
 

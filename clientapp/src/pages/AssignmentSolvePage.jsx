@@ -1,4 +1,4 @@
-// src/pages/AssignmentSolvePage.jsx
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
@@ -21,7 +21,7 @@ import { extractApiErrorMessages } from '../utils/handleApiError';
 import { ArrowLeft, Play, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { useRoleFlags } from '../contexts/EditorModeContext';
 
-// ===== Все языки, которые поддерживает система =====
+
 const ALL_LANGS = [
   { value: 'cpp',        label: 'C++' },
   { value: 'python',     label: 'Python' },
@@ -31,7 +31,7 @@ const ALL_LANGS = [
   { value: 'java',       label: 'Java' },
 ];
 
-// Быстрая нормализация, чтобы понимать "C++", "c++", "js", "node", "c#" и т.п.
+
 function normalizeLang(x) {
   if (!x) return '';
   const s = String(x).trim().toLowerCase();
@@ -41,19 +41,19 @@ function normalizeLang(x) {
   if (s === 'py' || s === 'python' || s === 'python3' || s === 'питон') return 'python';
   if (s === 'js' || s === 'node' || s === 'nodejs' || s === 'node.js' || s === 'javascript' || s === 'java-script') return 'javascript';
 
-  // Pascal: можно расширять алиасы как угодно
+  
   if (s === 'pas' || s === 'pascal' || s === 'pascalabc' || s === 'pascalabcnet') return 'pascal';
 
-  // Java
+  
   if (s === 'java' || s === 'джава') return 'java';
 
   return s;
 }
 
-// raw может быть:
-// - массивом: ["cpp","python"]
-// - строкой: "cpp, python, csharp"
-// - null/undefined
+
+
+
+
 function parseAllowedLanguages(raw) {
   let arr = [];
 
@@ -65,7 +65,7 @@ function parseAllowedLanguages(raw) {
     .map(normalizeLang)
     .filter(Boolean);
 
-  // оставляем только те, которые вообще есть в ALL_LANGS
+  
   const allowedSet = new Set(allowed);
   const knownSet = new Set(ALL_LANGS.map(x => x.value));
   const filtered = Array.from(allowedSet).filter(x => knownSet.has(x));
@@ -134,34 +134,34 @@ export default function AssignmentSolvePage() {
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Следующее задание в курсе (по Sort)
-  const [nextA, setNextA] = useState(null); // {id,title} | null
+  
+  const [nextA, setNextA] = useState(null); 
 
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
   const [plainMode, setPlainMode] = useState(false);
 
-  // UI-настройка: стиль страницы решения задач с кодом
+  
   const [codeSolveLayout, setCodeSolveLayout] = useState(
     () => localStorage.getItem('codeSolveLayout') || 'split'
   );
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null); // { results: [...], __allPassed?: bool }
+  const [result, setResult] = useState(null); 
 
-  // image-test state
+  
   const [imgBusy, setImgBusy] = useState(false);
   const [imgError, setImgError] = useState('');
-  const [imgCompare, setImgCompare] = useState(null); // {percent, passed, expectedUrl, actualUrl}
-  const [imgMode, setImgMode] = useState("code"); // code | upload
+  const [imgCompare, setImgCompare] = useState(null); 
+  const [imgMode, setImgMode] = useState("code"); 
   const [imgIsRunning, setImgIsRunning] = useState(false);
   const [imageInput, setImageInput] = useState('');
 
-  // Список языков, разрешённых для курса/задания (если есть ограничения)
+  
   const allowedLangs = useMemo(() => {
-    // Пытаемся найти ограничения в разных возможных полях,
-    // чтобы фронт не падал, даже если поле назовёшь иначе.
+    
+    
     const raw =
       a?.allowedLanguages ??
       a?.allowedLanguagesCsv ??
@@ -171,7 +171,7 @@ export default function AssignmentSolvePage() {
 
     const parsed = parseAllowedLanguages(raw);
 
-    // image-test: если ограничений нет — дефолт только python/pascal
+    
     if (String(a?.type || '').trim() === 'image-test') {
       return parsed.length > 0 ? parsed : ['python', 'pascal', 'cpp'];
     }
@@ -179,11 +179,11 @@ export default function AssignmentSolvePage() {
     return parsed;
   }, [a]);
 
-  // То, что показываем в Select
+  
   const langsForSelect = useMemo(() => {
     if (!allowedLangs || allowedLangs.length === 0) return ALL_LANGS;
 
-    // сохраняем порядок как в ALL_LANGS
+    
     const set = new Set(allowedLangs);
     return ALL_LANGS.filter(x => set.has(x.value));
   }, [allowedLangs]);
@@ -201,13 +201,13 @@ export default function AssignmentSolvePage() {
 
         const defaultLangFromApi = normalizeLang(data?.defaultLanguage) || 'cpp';
 
-        // Если API прислал ограничения — применяем их
+        
         const parsedAllowed = parseAllowedLanguages(
           data?.allowedLanguages ??
           data?.courseAllowedLanguages ??
           data?.course?.allowedLanguages
         );
-        // image-test: если ограничений нет — дефолт только python/pascal
+        
         const effectiveAllowed = (String(data?.type || '').trim() === 'image-test')
           ? (parsedAllowed.length > 0 ? parsedAllowed : ['python','pascal','cpp'])
           : parsedAllowed;
@@ -234,15 +234,15 @@ export default function AssignmentSolvePage() {
     return () => { alive = false; };
   }, [assignmentId]);
 
-  // Если пользователь поменял настройку в другом месте (SettingsPage), обновляемся без перезагрузки
+  
   useEffect(() => {
     const onUi = () => setCodeSolveLayout(localStorage.getItem('codeSolveLayout') || 'split');
     window.addEventListener('tf-ui-settings-changed', onUi);
     return () => window.removeEventListener('tf-ui-settings-changed', onUi);
   }, []);
 
-  // Вычисляем "следующее задание" в текущем курсе (по Sort).
-  // Если текущего уже нет в списке — просто скрываем кнопку.
+  
+  
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -279,8 +279,8 @@ export default function AssignmentSolvePage() {
     nav(`/assignment/${nextA.id}`);
   }, [nextA?.id, nav]);
 
-  // Если ограничения изменились (например, подгрузились),
-  // а выбранный язык теперь запрещён — переключаем на первый разрешённый.
+  
+  
   useEffect(() => {
     if (!allowedLangs || allowedLangs.length === 0) return;
     if (!allowedLangs.includes(language)) {
@@ -311,7 +311,7 @@ export default function AssignmentSolvePage() {
       if (allOk) {
         notify.success('Все тесты пройдены!');
       } else if (policyCase) {
-        // Показываем причину сразу на странице (и в тосте), чтобы не гадать «почему не засчитало».
+        
         const lines = policyText
           .split('\n')
           .map(s => s.trim())
@@ -412,11 +412,11 @@ export default function AssignmentSolvePage() {
     );
   }
 
-  // ===== Новый тип задания: тест =====
+  
   if (a.type === 'test') {
     return (
       <Layout>
-        {/* верхняя панель */}
+        
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Button
@@ -449,7 +449,7 @@ export default function AssignmentSolvePage() {
   }
 
 
-  // ===== Новый тип задания: math =====
+  
   if (a.type === 'math') {
     return (
       <Layout>
@@ -484,7 +484,7 @@ export default function AssignmentSolvePage() {
     );
   }
 
-  // ===== Новый тип задания: image-test =====
+  
   if (a.type === 'image-test') {
     const expectedUrl = a.imageTestReferenceKey
       ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
@@ -507,10 +507,10 @@ export default function AssignmentSolvePage() {
       try {
         const resp = await runImageTestCode(assignmentId, language, code, imageInput);
         
-        // Показываем результат inline
+        
         if (resp?.ok && resp?.renderedUrl) {
           setImgCompare({
-            passed: null, // пробник без сравнения
+            passed: null, 
             similarityPercent: null,
             thresholdPercent: null,
             expectedUrl: expectedUrl,
@@ -542,7 +542,7 @@ export default function AssignmentSolvePage() {
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, imageInput);
         
-        // Показываем результат inline
+        
         if (resp?.ok) {
           setImgCompare({
             passed: resp.passed,
@@ -553,7 +553,7 @@ export default function AssignmentSolvePage() {
             isTrial: false,
           });
           
-          // Показываем уведомление о результате
+          
           if (resp.passed) {
             notify.success(`Задание выполнено! Схожесть: ${Math.round(resp.similarityPercent)}%`);
           } else {
@@ -573,7 +573,7 @@ export default function AssignmentSolvePage() {
 
     return (
       <Layout>
-        {/* верхняя панель — как у code-test */}
+        
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Button
@@ -602,7 +602,7 @@ export default function AssignmentSolvePage() {
         {renderAdminQuickInsights()}
 
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* левая часть: текст задачи + эталон */}
+          
           <div className="lg:col-span-2 space-y-5">
             <Card>
               <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
@@ -640,7 +640,7 @@ export default function AssignmentSolvePage() {
             </Card>
           </div>
 
-          {/* правая часть: редактор и запуск — как у code-test */}
+          
           <div className="space-y-4">
             <Card>
               <div className="grid gap-3">
@@ -688,7 +688,7 @@ export default function AssignmentSolvePage() {
                   </div>
                 ) : null}
 
-                {/* Результаты выполнения */}
+                
                 {imgCompare && (
                   <Card className="p-4 space-y-3 border-emerald-400/30 bg-emerald-500/5">
                     <div className="flex items-center justify-between">
@@ -752,8 +752,7 @@ export default function AssignmentSolvePage() {
           </div>
         </div>
 
-        {/* Плавающие действия (как "Сохранить" в редакторе)
-            Важно: не должны залезать под нижнюю панель/футер ("Техподдержка"). */}
+        
         <div
           className="fixed right-6 z-50"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}
@@ -802,7 +801,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
   return (
     <Layout>
-      {/* верхняя панель */}
+      
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Button
@@ -829,10 +828,10 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
       {renderAdminQuickInsights()}
 
-      {/* Вариант 1: как сейчас (условие слева, редактор справа) */}
+      
       {codeSolveLayout !== 'editorTop' ? (
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* левая часть: текст задачи + публичные тесты */}
+          
           <div className="lg:col-span-2 space-y-5">
             <Card>
               <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
@@ -879,7 +878,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
             </Card>
           </div>
 
-          {/* правая часть: редактор и запуск */}
+          
           <div className="space-y-4">
             <Card>
               <div className="grid gap-3">
@@ -891,7 +890,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                     ))}
                   </Select>
 
-                  {/* маленькая подсказка, если ограничения включены */}
+                  
                   {allowedLangs && allowedLangs.length > 0 && (
                     <div className="text-xs text-neutral-500 mt-1">
                       Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
@@ -957,7 +956,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
           </div>
         </div>
       ) : (
-        /* Вариант 2: редактор сверху на всю ширину, условие и тесты снизу */
+        
         <div className="space-y-6">
           <Card>
             <div className="grid gap-3">
@@ -1082,8 +1081,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
         </div>
       )}
 
-      {/* Плавающие действия (как "Сохранить" в редакторе)
-          Важно: не должны залезать под нижнюю панель/футер ("Техподдержка"). */}
+      
       <div
         className="fixed right-6 z-50"
         style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}

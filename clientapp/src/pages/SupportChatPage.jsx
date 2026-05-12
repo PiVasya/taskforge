@@ -1,6 +1,6 @@
-// clientapp/src/pages/SupportChatPage.jsx
-// Переписка по конкретному обращению.
-// Без polling: подключаем SignalR и получаем новые сообщения push-ом.
+
+
+
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -16,7 +16,7 @@ import { ensureSupportHubStarted } from '../realtime/supportHub';
 
 function pickLastMessage(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return null;
-  // обычно сервер уже отдаёт по времени, но на всякий случай отсортируем.
+  
   return [...messages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).at(-1);
 }
 
@@ -49,7 +49,7 @@ export default function SupportChatPage() {
       const prev = lastMessageIdRef.current;
       lastMessageIdRef.current = lastId;
 
-      // уведомляем только если это не первая загрузка и пришёл ответ админа
+      
       if (prev && last && lastId !== prev && last.isFromAdmin) {
         notifyOnce(
           `support_msg_${ticketId}_${lastId}`,
@@ -89,7 +89,7 @@ export default function SupportChatPage() {
           try {
             await conn.invoke('JoinTicket', ticketId);
           } catch {
-            // ignore
+            
           }
         };
 
@@ -103,7 +103,7 @@ export default function SupportChatPage() {
           if (!isMountedRef.current) return;
           if (String(incomingTicketId) !== String(ticketId)) return;
 
-          // Сообщение приходит в формате payload, добавим его в список.
+          
           const m = {
             id: msg?.id ?? msg?.Id,
             text: msg?.text ?? msg?.Text,
@@ -113,7 +113,7 @@ export default function SupportChatPage() {
           };
 
           setMessages((prev) => {
-            // дедуп по id
+            
             if (m.id && prev.some((x) => x.id === m.id)) return prev;
             return [...prev, m].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
           });
@@ -122,7 +122,7 @@ export default function SupportChatPage() {
           const prev = lastMessageIdRef.current;
           lastMessageIdRef.current = lastId;
 
-          // уведомление если пришёл ответ админа
+          
           if (prev && m && m.isFromAdmin) {
             notifyOnce(
               `support_msg_${ticketId}_${lastId}`,
@@ -134,7 +134,7 @@ export default function SupportChatPage() {
 
         conn.on('ReceiveMessage', onReceive);
       } catch {
-        // если SignalR не завёлся, молча живём с ручным обновлением (кнопка/переоткрытие)
+        
       }
     };
 
@@ -150,7 +150,7 @@ export default function SupportChatPage() {
         }
       } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [ticketId, access]);
 
   const send = async (e) => {
@@ -163,7 +163,7 @@ export default function SupportChatPage() {
       await sendSupportMessage(ticketId, { message: txt });
       setNewMessage('');
       notify.success('Сообщение отправлено');
-      // после отправки сразу подтягиваем серверную версию (чтобы получить реальный id)
+      
       await fetchTicket({ silent: true });
     } catch (err) {
       const parsed = handleApiError(err, notify, 'Не удалось отправить сообщение');

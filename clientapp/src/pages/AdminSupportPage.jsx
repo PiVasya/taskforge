@@ -1,5 +1,5 @@
-// clientapp/src/pages/AdminSupportPage.jsx
-// Админская страница: список всех обращений.
+
+
 
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';

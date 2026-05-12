@@ -6,7 +6,7 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
-  const { login, access } = useAuth();      // забираем access из контекста
+  const { login, access } = useAuth();      
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -21,9 +21,9 @@ export default function LoginPage() {
     setErr("");
 
     try {
-      // ждём, пока login выполнится — он обновит access в контексте
+      
       await login(email, password);
-      // ❗️ навигировать сразу не нужно: это сделает useEffect
+      
     } catch (e) {
       const msg =
         e?.userMessage ||
@@ -38,7 +38,7 @@ export default function LoginPage() {
     }
   };
 
-  // Дожидаемся появления access и только потом перенаправляем
+  
   useEffect(() => {
     if (access) {
       nav(from, { replace: true });

@@ -2,8 +2,8 @@ export const SUBJECT_CODE = 'russian';
 export const EXAM_CODE = 'ct-ce-2026';
 export const RANDOM_TASKS_COUNT = 5;
 
-// Базовая сетка под классический формат ЦТ по русскому языку: A1-A30 и B1-B10.
-// Если под конкретный год/предмет нужна другая сетка, меняется только count ниже.
+
+
 export const CT_PARTS = [
   {
     code: 'A',

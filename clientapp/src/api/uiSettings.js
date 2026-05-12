@@ -1,6 +1,6 @@
 import api from './http';
 
-// UI settings for current user (persisted in DB).
+
 
 export async function getMyUiSettings() {
   const res = await api.get('/api/me/ui-settings');

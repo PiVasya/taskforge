@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 
 export default function CompileErrorPanel({ compile, source }) {
-  if (!compile || compile.ok) return null;
   const [showRaw, setShowRaw] = useState(false);
+  if (!compile || compile.ok) return null;
   const first = compile.diagnostics?.[0];
 
   const renderSnippet = (lineNum) => {

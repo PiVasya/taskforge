@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
@@ -74,7 +74,7 @@ export default function CourseAssignmentsPage() {
   const [err, setErr] = useState("");
 
 
-  // тип создаваемого задания (по умолчанию — code-test)
+  
   const [createType, setCreateType] = useState("code-test");
   const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
   const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
@@ -87,7 +87,7 @@ export default function CourseAssignmentsPage() {
       try {
         setLoading(true);
         setErr("");
-        const data = await getAssignmentsByCourse(courseId); // сервер теперь отдаёт canEdit
+        const data = await getAssignmentsByCourse(courseId); 
         const norm = (data || []).map((x, i) => ({
           ...x,
           sort: typeof x.sort === "number" ? x.sort : i,
@@ -107,7 +107,7 @@ export default function CourseAssignmentsPage() {
         const c = await getCourse(courseId);
         if (typeof c?.canEdit === 'boolean') setCourseCanEdit(!!c.canEdit);
       } catch {
-        // ignore
+        
       }
     })();
   }, [courseId]);
@@ -122,7 +122,7 @@ export default function CourseAssignmentsPage() {
       (a.title || "").localeCompare(b.title || "", undefined, {
         sensitivity: "base",
       }) * dir;
-    // важно: скобки — сначала разница дат, потом умножение на dir
+    
     const byCreated = (a, b, dir = 1) =>
       (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
     const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
@@ -142,8 +142,8 @@ export default function CourseAssignmentsPage() {
     }
   }, [items, q, sortMode]);
 
-  // Базовый порядок (позиции) всегда считаем по Sort и по ВСЕМ заданиям курса.
-  // Это даёт корректные позиции даже когда включён поиск или другой режим сортировки.
+  
+  
   const orderedAll = useMemo(() => {
     const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
     return [...(items || [])].sort(bySort);
@@ -155,9 +155,9 @@ export default function CourseAssignmentsPage() {
     return m;
   }, [orderedAll]);
 
-  // Единый флаг прав редактирования курса.
-  // Бэк отдаёт canEdit внутри каждого задания (как правило одинаковое для всех).
-  // Если заданий ещё нет — разрешаем UI, а бэк всё равно не даст не-owner менять данные.
+  
+  
+  
   const canEdit = useMemo(() => {
     if (!items || items.length === 0) return true;
     const any = items.find((x) => typeof x?.canEdit === "boolean");
@@ -176,7 +176,7 @@ export default function CourseAssignmentsPage() {
     const a = filtered[i];
     const b = filtered[j];
 
-    // если нет прав — предупреждаем и выходим
+    
     if (!a.canEdit || !b.canEdit) {
       notifyOnce("no-edit-sort", () =>
         notify.warn("Вы не владелец курса — менять порядок заданий нельзя")
@@ -209,8 +209,8 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  // Перемещение задания на заданную позицию (1..N) в курсе.
-  // Делается через пересчёт Sort для всех заданий курса (0..N-1).
+  
+  
   const moveToPosition = async (assignmentId, newPos1Based) => {
     if (!canEdit) {
       notify.error("Недостаточно прав");
@@ -239,7 +239,7 @@ export default function CourseAssignmentsPage() {
     const newSort = new Map();
     nextOrder.forEach((x, idx) => newSort.set(x.id, idx));
 
-    // Optimistic UI update
+    
     setItems((prev) =>
       prev.map((x) => (newSort.has(x.id) ? { ...x, sort: newSort.get(x.id) } : x))
     );
@@ -249,14 +249,14 @@ export default function CourseAssignmentsPage() {
       await moveAssignmentAfter(assignmentId, afterAssignmentId || null);
       notify.success("Позиция обновлена");
     } catch (e) {
-      // логирование на фронте отключено
+      
       notify.error("Не удалось изменить позицию");
-      // откат/перезагрузка
+      
       try {
         const list = await getAssignmentsByCourse(courseId);
         setItems(Array.isArray(list) ? list : []);
       } catch {
-        // ignore
+        
       }
     }
   };
@@ -281,7 +281,7 @@ export default function CourseAssignmentsPage() {
   };
 
   const handleCreate = async () => {
-    // быстрый UX-гард: по первому элементу понимаем, чужой курс или нет
+    
     if (items.length > 0 && items[0].canEdit === false) {
       notifyOnce("no-edit-course", () =>
         notify.warn("Вы не владелец курса — создавать задания нельзя")
@@ -296,8 +296,8 @@ export default function CourseAssignmentsPage() {
 	        type,
         difficulty: 1,
         rating: 1,
-	        // Для code-test всегда кладём 1 тест по умолчанию, чтобы редактор не был пустым.
-	        // Для остальных типов тест-кейсы не требуются.
+	        
+	        
 	        testCases:
 	          type === "code-test"
 	            ? [{ input: "2 4", expectedOutput: "6", isHidden: false }]

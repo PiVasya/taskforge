@@ -62,7 +62,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { load(); }, []); 
 
   const sortedItems = useMemo(() => {
     const valueFor = (user) => {

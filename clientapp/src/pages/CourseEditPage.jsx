@@ -1,4 +1,4 @@
-// clientapp/src/pages/CourseEditPage.jsx
+
 import React, { useEffect, useMemo, useState } from 'react';
 
 import Layout from '../components/Layout';
@@ -48,7 +48,7 @@ export default function CourseEditPage() {
 
         const [c, g] = await Promise.all([
           getCourse(courseId),
-          // группы могут быть недоступны для обычного пользователя
+          
           getGroups().catch(() => []),
         ]);
 
@@ -72,7 +72,7 @@ export default function CourseEditPage() {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [courseId, nav]);
 
   const toggleGroup = (id) => {

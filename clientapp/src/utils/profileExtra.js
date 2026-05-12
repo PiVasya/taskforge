@@ -1,4 +1,4 @@
-// Утилита для работы с AdditionalDataJson
+
 
 export function parseProfileExtra(json) {
   if (!json) {
@@ -18,7 +18,7 @@ export function parseProfileExtra(json) {
   try {
     obj = JSON.parse(json);
   } catch {
-    // Если вдруг сломан JSON — не роняем страницу
+    
     return {
       bio: '',
       location: '',
@@ -41,7 +41,7 @@ export function parseProfileExtra(json) {
     github: links.github || '',
     telegram: links.telegram || '',
     website: links.website || '',
-    // для формы удобно хранить навыки строкой "C#, C++, SQL"
+    
     skillsText: skills.join(', '),
     showInLeaderboard:
       typeof obj.showInLeaderboard === 'boolean'
