@@ -450,8 +450,8 @@ public sealed class AgentCourseEditApplyService
             return result;
         }
 
-        await ApplyDraftPlacementAsync(assignment, beforeId, afterId, now, ct);
         _db.TaskAssignments.Add(assignment);
+        await ApplyDraftPlacementAsync(assignment, beforeId, afterId, now, ct);
         _db.AgentSteps.Add(new AgentStep
         {
             Id = Guid.NewGuid(),
@@ -879,11 +879,7 @@ public sealed class AgentCourseEditApplyService
 
     private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now, CancellationToken ct)
     {
-        var ordered = await _db.TaskAssignments
-            .Where(x => x.CourseId == assignment.CourseId)
-            .OrderBy(x => x.Sort)
-            .ThenBy(x => x.Id)
-            .ToListAsync(ct);
+        var ordered = await LoadCourseAssignmentsWithPendingAsync(assignment.CourseId, ct);
 
         ordered.RemoveAll(x => x.Id == assignment.Id);
 
@@ -930,6 +926,26 @@ public sealed class AgentCourseEditApplyService
             ordered[i].Sort = i;
             ordered[i].UpdatedAt = now;
         }
+    }
+
+    private async Task<List<TaskAssignment>> LoadCourseAssignmentsWithPendingAsync(Guid courseId, CancellationToken ct)
+    {
+        var ordered = await _db.TaskAssignments
+            .Where(x => x.CourseId == courseId)
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct);
+
+        foreach (var local in _db.TaskAssignments.Local.Where(x => x.CourseId == courseId))
+        {
+            if (ordered.All(x => x.Id != local.Id))
+                ordered.Add(local);
+        }
+
+        return ordered
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.Id)
+            .ToList();
     }
 
     private static bool IsSameAgentDraftGroup(TaskAssignment existing, TaskAssignment candidate)
