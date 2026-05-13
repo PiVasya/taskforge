@@ -280,6 +280,17 @@ public sealed class AgentCourseEditApplyService
             .ThenByDescending(x => x.SourceAgentRunId == artifact.RunId)
             .ThenBy(x => x.Sort)
             .FirstOrDefaultAsync(ct);
+        if (existingEntity == null && sourceTaskIndex.HasValue && IsInputOnboardingDraftData(data))
+        {
+            var onboardingCandidates = await _db.TaskAssignments
+                .Where(x => x.CourseId == courseId.Value
+                            && x.IsAiDraft
+                            && x.IsHidden
+                            && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
+                .OrderBy(x => x.Sort)
+                .ToListAsync(ct);
+            existingEntity = onboardingCandidates.FirstOrDefault(x => IsLegacyInputOnboardingTitleMatch(x.Title, sourceTaskIndex.Value));
+        }
         if (existingEntity != null)
         {
             if (!request.DryRun)
@@ -877,9 +888,52 @@ public sealed class AgentCourseEditApplyService
         return found.Count == ids.Count;
     }
 
+    private static bool IsInputOnboardingDraftData(JsonElement data)
+    {
+        var text = string.Join(" ",
+            GetString(data, "title", "assignmentTitle"),
+            GetString(data, "description", "condition", "body"),
+            GetString(data, "tags"))
+            .ToLowerInvariant();
+        return text.Contains("input-onboarding")
+               || text.Contains("console.readline")
+               || text.Contains("readline")
+               || text.Contains("с клавиатур")
+               || text.Contains("ввод")
+               || text.Contains("split");
+    }
+
+    private static bool IsLegacyInputOnboardingTitleMatch(string? title, int sourceTaskIndex)
+    {
+        var text = (title ?? string.Empty).ToLowerInvariant();
+        return sourceTaskIndex switch
+        {
+            0 => text.Contains("строк") && !text.Contains("имя") && !text.Contains("привет"),
+            1 => text.Contains("имя") || text.Contains("привет"),
+            2 => text.Contains("числ") && (text.Contains("цел") || text.Contains("перв") || text.Contains("печата")),
+            3 => text.Contains("с разных строк") || (text.Contains("сумм") && text.Contains("строк")),
+            4 => text.Contains("split") || text.Contains("одной строк") || text.Contains("из одной строки"),
+            _ => false
+        };
+    }
+
     private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now, CancellationToken ct)
     {
-        var ordered = await LoadCourseAssignmentsWithPendingAsync(assignment.CourseId, ct);
+        var ordered = await _db.TaskAssignments
+            .Where(x => x.CourseId == assignment.CourseId)
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct);
+
+        var pending = _db.ChangeTracker.Entries<TaskAssignment>()
+            .Where(x => x.State == EntityState.Added && x.Entity.CourseId == assignment.CourseId)
+            .Select(x => x.Entity)
+            .ToList();
+        foreach (var pendingAssignment in pending)
+        {
+            if (ordered.All(x => x.Id != pendingAssignment.Id))
+                ordered.Add(pendingAssignment);
+        }
 
         ordered.RemoveAll(x => x.Id == assignment.Id);
 
@@ -926,26 +980,6 @@ public sealed class AgentCourseEditApplyService
             ordered[i].Sort = i;
             ordered[i].UpdatedAt = now;
         }
-    }
-
-    private async Task<List<TaskAssignment>> LoadCourseAssignmentsWithPendingAsync(Guid courseId, CancellationToken ct)
-    {
-        var ordered = await _db.TaskAssignments
-            .Where(x => x.CourseId == courseId)
-            .OrderBy(x => x.Sort)
-            .ThenBy(x => x.Id)
-            .ToListAsync(ct);
-
-        foreach (var local in _db.TaskAssignments.Local.Where(x => x.CourseId == courseId))
-        {
-            if (ordered.All(x => x.Id != local.Id))
-                ordered.Add(local);
-        }
-
-        return ordered
-            .OrderBy(x => x.Sort)
-            .ThenBy(x => x.Id)
-            .ToList();
     }
 
     private static bool IsSameAgentDraftGroup(TaskAssignment existing, TaskAssignment candidate)

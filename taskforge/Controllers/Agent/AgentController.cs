@@ -923,40 +923,26 @@ namespace taskforge.Controllers.Agent
                 })
                 .ToListAsync(ct);
 
-            var dumpSectionErrors = new List<object>();
-            var artifacts = new List<AgentDebugArtifactRow>();
-            try
-            {
-                artifacts = await _db.AgentRunArtifacts
-                    .AsNoTracking()
-                    .Where(x => runIds.Contains(x.RunId))
-                    .OrderBy(x => x.Id)
-                    .Select(x => new AgentDebugArtifactRow
-                    {
-                        Id = x.Id,
-                        RunId = x.RunId,
-                        Type = x.Type,
-                        Title = x.Title,
-                        StorageKey = x.StorageKey,
-                        ContentHash = x.ContentHash,
-                        // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
-                        // when the EF model has a non-null timestamp; projecting it through EF can throw
-                        // "Nullable object must have a value" and break the whole debug dump.
-                        RawDataJson = x.DataJson,
-                        Data = ParseJson(x.DataJson),
-                        DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
-                    })
-                    .ToListAsync(ct);
-            }
-            catch (Exception ex)
-            {
-                dumpSectionErrors.Add(new
+            var artifacts = await _db.AgentRunArtifacts
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.RunId))
+                .OrderBy(x => x.Id)
+                .Select(x => new
                 {
-                    section = "artifacts",
-                    type = ex.GetType().Name,
-                    message = ex.Message
-                });
-            }
+                    x.Id,
+                    x.RunId,
+                    x.Type,
+                    x.Title,
+                    x.StorageKey,
+                    x.ContentHash,
+                    // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
+                    // when the EF model has a non-null timestamp; projecting it through EF can throw
+                    // "Nullable object must have a value" and break the whole debug dump.
+                    RawDataJson = x.DataJson,
+                    Data = ParseJson(x.DataJson),
+                    DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
+                })
+                .ToListAsync(ct);
 
             var nullableRunIds = runIds.Select(x => (Guid?)x).ToList();
             var hiddenDrafts = await _db.TaskAssignments
@@ -1089,22 +1075,8 @@ namespace taskforge.Controllers.Agent
                 Steps = steps,
                 Artifacts = artifacts,
                 HiddenDrafts = hiddenDrafts,
-                DumpSectionErrors = dumpSectionErrors,
                 RealtimeNote = "Client-side SignalR events are appended by the React button after this backend dump."
             };
-        }
-
-        private sealed class AgentDebugArtifactRow
-        {
-            public Guid Id { get; set; }
-            public Guid RunId { get; set; }
-            public string? Type { get; set; }
-            public string? Title { get; set; }
-            public string? StorageKey { get; set; }
-            public string? ContentHash { get; set; }
-            public string? RawDataJson { get; set; }
-            public object? Data { get; set; }
-            public int DataJsonLength { get; set; }
         }
 
         private static string BuildAgentDebugDumpText(object dump)

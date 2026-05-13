@@ -282,9 +282,6 @@ namespace taskforge.Controllers.Agent
                     rejectedDraftArtifacts.Add(new { artifact.Id, artifact.Type, artifact.Title, dataJsonLength = artifact.DataJson?.Length ?? 0 });
             }
 
-            if (createdDrafts.Count > 0)
-                await NormalizeHiddenDraftBatchPlacementAsync(run, artifacts, now);
-
             if (rejectedDraftArtifacts.Count > 0)
             {
                 _db.AgentSteps.Add(new AgentStep
@@ -1676,6 +1673,17 @@ namespace taskforge.Controllers.Agent
                 .ThenByDescending(x => x.SourceAgentRunId == run.Id)
                 .ThenBy(x => x.Sort)
                 .FirstOrDefaultAsync();
+            if (existingDraft == null && sourceTaskIndex.HasValue && IsInputOnboardingDraftData(data))
+            {
+                var onboardingCandidates = await _db.TaskAssignments
+                    .Where(x => x.CourseId == courseId.Value
+                                && x.IsAiDraft
+                                && x.IsHidden
+                                && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
+                    .OrderBy(x => x.Sort)
+                    .ToListAsync();
+                existingDraft = onboardingCandidates.FirstOrDefault(x => IsLegacyInputOnboardingTitleMatch(x.Title, sourceTaskIndex.Value));
+            }
             if (existingDraft != null)
             {
                 existingDraft.Title = Trim(title, 200);
@@ -2254,9 +2262,52 @@ namespace taskforge.Controllers.Agent
             return $"v{index + 1}";
         }
 
+        private static bool IsInputOnboardingDraftData(JsonElement data)
+        {
+            var text = string.Join(" ",
+                GetString(data, "title", "assignmentTitle"),
+                GetString(data, "description", "condition", "body"),
+                GetString(data, "tags"))
+                .ToLowerInvariant();
+            return text.Contains("input-onboarding")
+                   || text.Contains("console.readline")
+                   || text.Contains("readline")
+                   || text.Contains("с клавиатур")
+                   || text.Contains("ввод")
+                   || text.Contains("split");
+        }
+
+        private static bool IsLegacyInputOnboardingTitleMatch(string? title, int sourceTaskIndex)
+        {
+            var text = (title ?? string.Empty).ToLowerInvariant();
+            return sourceTaskIndex switch
+            {
+                0 => text.Contains("строк") && !text.Contains("имя") && !text.Contains("привет"),
+                1 => text.Contains("имя") || text.Contains("привет"),
+                2 => text.Contains("числ") && (text.Contains("цел") || text.Contains("перв") || text.Contains("печата")),
+                3 => text.Contains("с разных строк") || (text.Contains("сумм") && text.Contains("строк")),
+                4 => text.Contains("split") || text.Contains("одной строк") || text.Contains("из одной строки"),
+                _ => false
+            };
+        }
+
         private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now)
         {
-            var ordered = await LoadCourseAssignmentsWithPendingAsync(assignment.CourseId);
+            var ordered = await _db.TaskAssignments
+                .Where(x => x.CourseId == assignment.CourseId)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.Id)
+                .ToListAsync();
+
+            var pending = _db.ChangeTracker.Entries<TaskAssignment>()
+                .Where(x => x.State == EntityState.Added && x.Entity.CourseId == assignment.CourseId)
+                .Select(x => x.Entity)
+                .ToList();
+            foreach (var pendingAssignment in pending)
+            {
+                if (ordered.All(x => x.Id != pendingAssignment.Id))
+                    ordered.Add(pendingAssignment);
+            }
 
             ordered.RemoveAll(x => x.Id == assignment.Id);
 
@@ -2317,117 +2368,6 @@ namespace taskforge.Controllers.Agent
                    && existing.SourceAgentRunId == candidate.SourceAgentRunId
                    && existing.SourceAgentTaskIndex.HasValue
                    && candidate.SourceAgentTaskIndex.HasValue;
-        }
-
-        private async Task NormalizeHiddenDraftBatchPlacementAsync(AgentRun run, IReadOnlyList<AgentRunArtifact> artifacts, DateTime now)
-        {
-            var requestJsonObj = ParseJson(run.RequestJson ?? "{}");
-            var requestJson = requestJsonObj is JsonElement requestEl ? requestEl : default;
-
-            var placementGroups = new Dictionary<string, (Guid CourseId, Guid? BeforeId, Guid? AfterId)>();
-            foreach (var artifact in artifacts)
-            {
-                if (!IsHiddenDraftArtifactType(artifact.Type)) continue;
-                var parsedData = ParseJson(artifact.DataJson);
-                if (parsedData is not JsonElement data || data.ValueKind != JsonValueKind.Object) continue;
-
-                var sourceTaskIndex = GetInt(data, "sourceTaskIndex", "source_task_index", "index");
-                if (!sourceTaskIndex.HasValue) continue;
-
-                var courseId = GetGuid(requestJson, "courseId")
-                               ?? run.Conversation.CourseId
-                               ?? GetGuid(data, "selectedCourseId", "courseId");
-                var beforeId = GetGuid(data, "beforeAssignmentId") ?? GetGuid(requestJson, "beforeAssignmentId");
-                var afterId = GetGuid(data, "afterAssignmentId") ?? GetGuid(requestJson, "afterAssignmentId");
-
-                if (!courseId.HasValue && beforeId.HasValue)
-                {
-                    courseId = await _db.TaskAssignments.AsNoTracking()
-                        .Where(x => x.Id == beforeId.Value)
-                        .Select(x => (Guid?)x.CourseId)
-                        .FirstOrDefaultAsync();
-                }
-                if (!courseId.HasValue && afterId.HasValue)
-                {
-                    courseId = await _db.TaskAssignments.AsNoTracking()
-                        .Where(x => x.Id == afterId.Value)
-                        .Select(x => (Guid?)x.CourseId)
-                        .FirstOrDefaultAsync();
-                }
-                if (!courseId.HasValue) continue;
-
-                var key = $"{courseId.Value:D}|{beforeId?.ToString("D") ?? ""}|{afterId?.ToString("D") ?? ""}";
-                placementGroups[key] = (courseId.Value, beforeId, afterId);
-            }
-
-            foreach (var group in placementGroups.Values)
-            {
-                var draftsFromDb = await _db.TaskAssignments
-                    .Where(x => x.CourseId == group.CourseId
-                                && x.IsAiDraft
-                                && x.IsHidden
-                                && x.SourceAgentRunId == run.Id
-                                && x.SourceAgentTaskIndex.HasValue)
-                    .ToListAsync();
-
-                var drafts = draftsFromDb
-                    .Concat(_db.TaskAssignments.Local.Where(x => x.CourseId == group.CourseId
-                                                                 && x.IsAiDraft
-                                                                 && x.IsHidden
-                                                                 && x.SourceAgentRunId == run.Id
-                                                                 && x.SourceAgentTaskIndex.HasValue))
-                    .GroupBy(x => x.Id)
-                    .Select(g => g.First())
-                    .OrderBy(x => x.SourceAgentTaskIndex.GetValueOrDefault(int.MaxValue))
-                    .ThenBy(x => x.Sort)
-                    .ThenBy(x => x.Id)
-                    .ToList();
-
-                if (drafts.Count == 0) continue;
-
-                var ordered = await LoadCourseAssignmentsWithPendingAsync(group.CourseId);
-                var draftIds = drafts.Select(x => x.Id).ToHashSet();
-                ordered.RemoveAll(x => draftIds.Contains(x.Id));
-
-                var insertIndex = ordered.Count;
-                if (group.BeforeId.HasValue)
-                {
-                    var beforeIndex = ordered.FindIndex(x => x.Id == group.BeforeId.Value);
-                    if (beforeIndex >= 0) insertIndex = beforeIndex;
-                }
-                else if (group.AfterId.HasValue)
-                {
-                    var afterIndex = ordered.FindIndex(x => x.Id == group.AfterId.Value);
-                    if (afterIndex >= 0) insertIndex = afterIndex + 1;
-                }
-
-                ordered.InsertRange(Math.Clamp(insertIndex, 0, ordered.Count), drafts);
-                for (var i = 0; i < ordered.Count; i++)
-                {
-                    ordered[i].Sort = i;
-                    ordered[i].UpdatedAt = now;
-                }
-            }
-        }
-
-        private async Task<List<TaskAssignment>> LoadCourseAssignmentsWithPendingAsync(Guid courseId)
-        {
-            var ordered = await _db.TaskAssignments
-                .Where(x => x.CourseId == courseId)
-                .OrderBy(x => x.Sort)
-                .ThenBy(x => x.Id)
-                .ToListAsync();
-
-            foreach (var local in _db.TaskAssignments.Local.Where(x => x.CourseId == courseId))
-            {
-                if (ordered.All(x => x.Id != local.Id))
-                    ordered.Add(local);
-            }
-
-            return ordered
-                .OrderBy(x => x.Sort)
-                .ThenBy(x => x.Id)
-                .ToList();
         }
 
         private async Task<int?> GetDraftInsertSortAsync(Guid courseId, Guid? beforeId, Guid? afterId)
