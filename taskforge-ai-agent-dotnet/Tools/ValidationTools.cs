@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Runtime;
@@ -123,8 +124,21 @@ public sealed class ValidationTools
     public Task<JsonObject> StaticDraftCritiqueAsync(JsonObject draft)
     {
         var issues = new JsonArray();
+        var title = draft["title"]?.ToString() ?? string.Empty;
         var description = draft["description"]?.ToString() ?? string.Empty;
         if (description.Length < 120) issues.Add("description is probably too short for a student-facing assignment");
+
+        if (ContainsAny(title, "Подготовка к заданию", "AI-черновик", "hidden draft"))
+            issues.Add("title contains service/debug wording instead of a student-facing assignment name");
+        if (Regex.IsMatch(title, @"задани[ея]\s+\d+\s+\d+\.", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            issues.Add("title looks like a technical insertion marker, not a course assignment title");
+
+        if (ContainsAny(description, "Место в курсе", "подготовительное задание после", "перед Задание", "после List<T>", "sourceAgent", "AI-черновик"))
+            issues.Add("description contains service/course-placement wording that should stay in metadata, not in the student-facing text");
+
+        if (HasUnwrappedCodeToken(description))
+            issues.Add("student-facing code tokens must be wrapped in backticks, for example `Console.ReadLine()` and `int.Parse(...)`");
+
         if ((draft["assignmentType"]?.ToString() ?? "") == "code-test")
         {
             if (!ContainsAny(description, "ввод", "вход", "input", "stdin", "формат ввода"))
@@ -136,9 +150,30 @@ public sealed class ValidationTools
         return Task.FromResult(new JsonObject
         {
             ["isAccepted"] = issues.Count == 0,
-            ["score"] = issues.Count == 0 ? 92 : Math.Max(45, 90 - issues.Count * 15),
+            ["score"] = issues.Count == 0 ? 92 : Math.Max(35, 92 - issues.Count * 18),
             ["issues"] = issues
         });
+    }
+
+    private static bool HasUnwrappedCodeToken(string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return false;
+        var withoutCodeSpans = Regex.Replace(description, @"`[^`]*`", string.Empty);
+        var patterns = new[]
+        {
+            @"\bConsole\.ReadLine\s*\(\s*\)",
+            @"\bConsole\.ReadLine\b",
+            @"\bConsole\.WriteLine\b",
+            @"\bConsole\.Write\b",
+            @"\bint\.Parse\b",
+            @"\bConvert\.ToInt32\b",
+            @"\bStringSplitOptions\.RemoveEmptyEntries\b",
+            @"\bSplit\b",
+            @"\bstring\b",
+            @"\bint\b"
+        };
+
+        return patterns.Any(pattern => Regex.IsMatch(withoutCodeSpans, pattern, RegexOptions.CultureInvariant));
     }
 
     private static bool ContainsAny(string text, params string[] needles)

@@ -118,7 +118,8 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
             var ok = critique["isAccepted"]?.ToString().Equals("true", StringComparison.OrdinalIgnoreCase) == true;
             if (!ok)
             {
-                state.Notes.Add($"Draft '{draft.Title}' was kept as hidden draft candidate despite critique: {CompactCritiqueForRepair(critique)}");
+                state.Notes.Add($"Draft '{draft.Title}' rejected and was not saved as hidden draft: {CompactCritiqueForRepair(critique)}");
+                continue;
             }
 
             accepted.Add(draft);

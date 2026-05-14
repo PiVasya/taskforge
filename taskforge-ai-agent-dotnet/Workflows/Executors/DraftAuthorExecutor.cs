@@ -56,11 +56,11 @@ public sealed class DraftAuthorExecutor
 4) несколько значений с разных строк;
 5) несколько значений в одной строке через Split.
 
-Названия и тексты должны выглядеть как продолжение соседних заданий курса, а не как абстрактные карточки.
+Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания: например "Считываем строку", "Считываем целое число".
 Точка вставки: перед заданием {{insertionContext.AnchorTitle ?? "не определено"}}.
 Предыдущее задание: {{insertionContext.PreviousTitle ?? "не определено"}}.
-Рекомендуемый стиль названий: {{insertionContext.TitleStyleHint}}.
-В каждом description коротко объясни, что это мостик после предыдущего блока и перед первым заданием на ввод.
+Связь с местом в курсе держи в metadata/логике, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
+Все code-token'ы в description оформляй inline-code через одиночные backticks: `Console.ReadLine()`, `Console.WriteLine(...)`, `string`, `int`, `int.Parse(...)`, `Convert.ToInt32(...)`, `Split(...)`.
 
 Контекст:
 {{contextPrompt}}
@@ -205,20 +205,15 @@ public sealed class DraftAuthorExecutor
     {
         if (!IsInputOnboardingRequest(job)) return new List<DraftSpec>();
 
-        var previous = string.IsNullOrWhiteSpace(insertionContext.PreviousTitle) ? "предыдущих заданий на вывод" : insertionContext.PreviousTitle;
-        var anchor = string.IsNullOrWhiteSpace(insertionContext.AnchorTitle) ? "первого задания на ввод" : insertionContext.AnchorTitle;
-        var bridge = $"Место в курсе. Это подготовительное задание после {previous} и перед {anchor}.\n\n";
-        string Title(int step, string text) => insertionContext.TitlePrefix.StartsWith("Задание ", StringComparison.OrdinalIgnoreCase)
-            ? $"{insertionContext.TitlePrefix}.{step}. {text}"
-            : $"{insertionContext.TitlePrefix} {step}. {text}";
+        static string Title(string text) => text;
 
         return new List<DraftSpec>
         {
             new()
             {
                 AssignmentType = "code-test",
-                Title = Title(1, "Считываем строку"),
-                Description = bridge + "Условие.\nСчитайте одну строку текста с клавиатуры и выведите её без изменений.\n\nТеория.\nConsole.ReadLine() считывает одну строку и возвращает значение типа string. Раньше в курсе строки уже выводились готовыми, а теперь строка сначала приходит от пользователя.\n\nФормат ввода.\nОдна строка текста.\n\nФормат вывода.\nОдна строка — тот же текст, без дополнительных слов. Стандартный перевод строки в конце допускается.\n\nПример.\nВвод:\nHello\nВывод:\nHello",
+                Title = Title("Считываем строку"),
+                Description = "Условие.\nСчитайте одну строку с клавиатуры и выведите её без изменений.\n\nПодсказка.\nМетод `Console.ReadLine()` считывает строку до нажатия Enter и возвращает значение типа `string`. Сохраните результат в переменную и выведите его через `Console.WriteLine(...)`.\n\nФормат ввода.\nОдна строка текста.\n\nФормат вывода.\nОдна строка — тот же текст, без дополнительных слов. Стандартный перевод строки в конце допускается.\n\nПример.\nВвод:\nHello\nВывод:\nHello",
                 Language = "csharp",
                 ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        string s = Console.ReadLine();\n        Console.WriteLine(s);\n    }\n}\n",
                 PublicTests = new List<TestCaseSpec>
@@ -236,8 +231,8 @@ public sealed class DraftAuthorExecutor
             new()
             {
                 AssignmentType = "code-test",
-                Title = Title(2, "Подставляем введённое имя"),
-                Description = bridge + "Условие.\nСчитайте имя пользователя и выведите приветствие в точном формате: Привет, <имя>!\n\nТеория.\nПосле Console.ReadLine() строку можно соединять с другим текстом. Используйте конкатенацию или интерполяцию строк: $\"Привет, {name}!\".\n\nФормат ввода.\nОдна строка — имя. Используется вся введённая строка.\n\nФормат вывода.\nОдна строка вида: Привет, <имя>! Запятая, пробел и восклицательный знак обязательны.\n\nПример.\nВвод:\nАнна\nВывод:\nПривет, Анна!",
+                Title = Title("Вставляем введённое имя в текст"),
+                Description = "Условие.\nСчитайте имя пользователя и выведите приветствие в точном формате: `Привет, <имя>!`\n\nПодсказка.\nМетод `Console.ReadLine()` возвращает строку. Её можно соединить с другим текстом через конкатенацию или интерполяцию строк, например `$\"Привет, {name}!\"`.\n\nФормат ввода.\nОдна строка — имя. Используется вся введённая строка.\n\nФормат вывода.\nОдна строка вида `Привет, <имя>!`. Запятая, пробел и восклицательный знак обязательны.\n\nПример.\nВвод:\nАнна\nВывод:\nПривет, Анна!",
                 Language = "csharp",
                 ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        string name = Console.ReadLine();\n        Console.WriteLine($\"Привет, {name}!\");\n    }\n}\n",
                 PublicTests = new List<TestCaseSpec>
@@ -254,8 +249,8 @@ public sealed class DraftAuthorExecutor
             new()
             {
                 AssignmentType = "code-test",
-                Title = Title(3, "Считываем целое число"),
-                Description = bridge + "Условие.\nСчитайте одно целое число и выведите его без дополнительных слов.\n\nТеория.\nConsole.ReadLine() всегда возвращает string. Чтобы работать с числом, строку нужно преобразовать: int.Parse(...) или Convert.ToInt32(...).\n\nФормат ввода.\nОдна строка с целым числом.\n\nФормат вывода.\nОдно целое число в отдельной строке — то же число, которое было введено.\n\nПример.\nВвод:\n7\nВывод:\n7",
+                Title = Title("Считываем целое число"),
+                Description = "Условие.\nСчитайте одно целое число и выведите его без дополнительных слов.\n\nПодсказка.\n`Console.ReadLine()` всегда возвращает `string`. Чтобы получить число, преобразуйте строку через `int.Parse(...)` или `Convert.ToInt32(...)`.\n\nФормат ввода.\nОдна строка с целым числом.\n\nФормат вывода.\nОдно целое число в отдельной строке — то же число, которое было введено.\n\nПример.\nВвод:\n7\nВывод:\n7",
                 Language = "csharp",
                 ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        int x = int.Parse(Console.ReadLine());\n        Console.WriteLine(x);\n    }\n}\n",
                 PublicTests = new List<TestCaseSpec>
@@ -273,8 +268,8 @@ public sealed class DraftAuthorExecutor
             new()
             {
                 AssignmentType = "code-test",
-                Title = Title(4, "Сумма чисел с разных строк"),
-                Description = bridge + "Условие.\nСчитайте два целых числа. Каждое число вводится с новой строки. Выведите их сумму.\n\nТеория.\nЕсли нужно считать несколько строк, Console.ReadLine() вызывается несколько раз. Каждую строку с числом нужно отдельно преобразовать в int.\n\nФормат ввода.\nДве строки, в каждой по одному целому числу.\n\nФормат вывода.\nОдно целое число — сумма двух введённых чисел, без дополнительного текста.\n\nПример.\nВвод:\n2\n3\nВывод:\n5",
+                Title = Title("Складываем числа с разных строк"),
+                Description = "Условие.\nСчитайте два целых числа. Каждое число вводится с новой строки. Выведите их сумму.\n\nПодсказка.\nЕсли нужно считать несколько строк, вызовите `Console.ReadLine()` несколько раз. Каждую строку с числом преобразуйте в `int` через `int.Parse(...)` или `Convert.ToInt32(...)`.\n\nФормат ввода.\nДве строки, в каждой по одному целому числу.\n\nФормат вывода.\nОдно целое число — сумма двух введённых чисел, без дополнительного текста.\n\nПример.\nВвод:\n2\n3\nВывод:\n5",
                 Language = "csharp",
                 ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        int a = int.Parse(Console.ReadLine());\n        int b = int.Parse(Console.ReadLine());\n        Console.WriteLine(a + b);\n    }\n}\n",
                 PublicTests = new List<TestCaseSpec>
@@ -291,8 +286,8 @@ public sealed class DraftAuthorExecutor
             new()
             {
                 AssignmentType = "code-test",
-                Title = Title(5, "Сумма чисел из одной строки"),
-                Description = bridge + "Условие.\nСчитайте два целых числа, записанных в одной строке через пробел, и выведите их сумму.\n\nТеория.\nКогда несколько значений находятся в одной строке, сначала считайте строку через Console.ReadLine(), затем разделите её на части методом Split.\n\nФормат ввода.\nОдна строка с двумя целыми числами. Между числами может быть один или несколько пробелов.\n\nФормат вывода.\nОдно целое число — сумма двух введённых чисел, без дополнительного текста.\n\nПример.\nВвод:\n2 3\nВывод:\n5",
+                Title = Title("Складываем числа из одной строки"),
+                Description = "Условие.\nСчитайте два целых числа, записанных в одной строке через пробел, и выведите их сумму.\n\nПодсказка.\nКогда несколько значений находятся в одной строке, сначала считайте всю строку через `Console.ReadLine()`, затем разделите её на части методом `Split(...)`. Каждую часть преобразуйте в `int`.\n\nФормат ввода.\nОдна строка с двумя целыми числами. Между числами может быть один или несколько пробелов.\n\nФормат вывода.\nОдно целое число — сумма двух введённых чисел, без дополнительного текста.\n\nПример.\nВвод:\n2 3\nВывод:\n5",
                 Language = "csharp",
                 ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        string[] p = Console.ReadLine()\n            .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);\n        int a = int.Parse(p[0]);\n        int b = int.Parse(p[1]);\n        Console.WriteLine(a + b);\n    }\n}\n",
                 PublicTests = new List<TestCaseSpec>
@@ -323,6 +318,8 @@ public sealed class DraftAuthorExecutor
                 : new[] { "AI", "черновик" };
             drafts[i].Tags = MergeTags(drafts[i].Tags, requiredTags);
             drafts[i].Language = NormalizeLanguage(drafts[i].Language);
+            drafts[i].Description = SanitizeStudentFacingDescription(drafts[i].Description);
+            drafts[i].Title = SanitizeStudentFacingTitle(drafts[i].Title);
             drafts[i].Difficulty = Math.Clamp(drafts[i].Difficulty, 1, 3);
             drafts[i].Rating = Math.Max(1, drafts[i].Rating);
         }
@@ -335,19 +332,73 @@ public sealed class DraftAuthorExecutor
         var canonicalTitles = new[]
         {
             "Считываем строку",
-            "Подставляем введённое имя",
+            "Вставляем введённое имя в текст",
             "Считываем целое число",
-            "Сумма чисел с разных строк",
-            "Сумма чисел из одной строки"
+            "Складываем числа с разных строк",
+            "Складываем числа из одной строки"
         };
 
         for (var i = 0; i < drafts.Count && i < canonicalTitles.Length; i++)
+            drafts[i].Title = canonicalTitles[i];
+    }
+
+    private static string SanitizeStudentFacingTitle(string? title)
+    {
+        var clean = (title ?? string.Empty).Trim();
+        clean = Regex.Replace(clean, @"^\s*Подготовка\s+к\s+заданию\s+\d+\s*[\.:\-–—]?\s*\d+[\.:\-–—]?\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        clean = Regex.Replace(clean, @"^\s*Задание\s+\d+(?:\.\d+)?[\.:\-–—]?\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        clean = Regex.Replace(clean, @"\s+", " ").Trim();
+        return string.IsNullOrWhiteSpace(clean) ? "AI-черновик задания" : clean;
+    }
+
+    private static string SanitizeStudentFacingDescription(string? description)
+    {
+        var clean = (description ?? string.Empty).Replace("\r\n", "\n").Trim();
+        clean = Regex.Replace(clean, @"^\s*Место\s+в\s+курсе\..*?(?:\n\s*\n|$)", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant).TrimStart();
+        clean = Regex.Replace(clean, @"^\s*Это\s+подготовительное\s+задание\s+после.*?(?:\n\s*\n|$)", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant).TrimStart();
+        clean = WrapKnownCodeTokens(clean);
+        return clean;
+    }
+
+    private static string WrapKnownCodeTokens(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+
+        var spans = new List<string>();
+        string Protect(string value)
         {
-            var title = insertionContext.TitlePrefix.StartsWith("Задание ", StringComparison.OrdinalIgnoreCase)
-                ? $"{insertionContext.TitlePrefix}.{i + 1}. {canonicalTitles[i]}"
-                : $"{insertionContext.TitlePrefix} {i + 1}. {canonicalTitles[i]}";
-            drafts[i].Title = title;
+            var marker = $"\u0001{spans.Count}\u0002";
+            spans.Add(value);
+            return marker;
         }
+
+        var result = Regex.Replace(text, @"`[^`]*`", m => Protect(m.Value), RegexOptions.CultureInvariant);
+
+        string WrapPattern(string input, string pattern, Func<Match, string> replacement)
+        {
+            return Regex.Replace(input, pattern, m => Protect(replacement(m)), RegexOptions.CultureInvariant);
+        }
+
+        result = result.Replace("$\"Привет, {name}!\"", Protect("`$\"Привет, {name}!\"`"));
+        result = WrapPattern(result, @"\bConsole\.ReadLine\s*\(\s*\)", m => "`Console.ReadLine()`");
+        result = WrapPattern(result, @"\bConsole\.WriteLine\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\bConsole\.WriteLine\b", m => "`Console.WriteLine(...)`");
+        result = WrapPattern(result, @"\bConsole\.Write\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\bConsole\.Write\b", m => "`Console.Write(...)`");
+        result = WrapPattern(result, @"\bint\.Parse\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\bint\.Parse\b", m => "`int.Parse(...)`");
+        result = WrapPattern(result, @"\bConvert\.ToInt32\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\bConvert\.ToInt32\b", m => "`Convert.ToInt32(...)`");
+        result = WrapPattern(result, @"\bStringSplitOptions\.RemoveEmptyEntries\b", m => "`StringSplitOptions.RemoveEmptyEntries`");
+        result = WrapPattern(result, @"\bSplit\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\bSplit\b", m => "`Split(...)`");
+        result = WrapPattern(result, @"\bstring\b", m => "`string`");
+        result = WrapPattern(result, @"\bint\b", m => "`int`");
+
+        for (var i = 0; i < spans.Count; i++)
+            result = result.Replace($"\u0001{i}\u0002", spans[i]);
+
+        return result;
     }
 
     private static List<string> MergeTags(List<string> tags, IEnumerable<string> required)

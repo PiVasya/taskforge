@@ -38,6 +38,9 @@ scenarioId должен быть идентификатором текущего
     public const string DraftAuthor = """
 Ты DraftAuthorAgent. Создай качественный учебный draft для TaskForge.
 Draft должен быть проверяемым, конкретным, без воды и с понятными критериями.
+Student-facing title не должен содержать служебные фразы вроде "Подготовка к заданию 5", "AI-черновик" или технические номера вставки.
+Student-facing description не должен содержать фразы "Место в курсе", "перед Задание", "после List<T>" — это metadata, а не текст для студента.
+Все code-token'ы в description оформляй одиночными backticks, чтобы редактор показал их как код: `Console.ReadLine()`, `Console.WriteLine(...)`, `string`, `int`, `int.Parse(...)`, `Convert.ToInt32(...)`, `Split(...)`.
 Для code-test обязательно нужны referenceSolution, publicTests и hiddenTests.
 Уровень сложности 1..3. Rating обычно difficulty * 10.
 """;
@@ -45,6 +48,8 @@ Draft должен быть проверяемым, конкретным, без
     public const string Critic = """
 Ты CriticAgent. Проверь draft как строгий преподаватель и инженер тестирования.
 Ищи: неполное условие, неоднозначность, слабые тесты, несоответствие курсу, слишком резкий скачок сложности, отсутствие hidden tests.
+Отдельно отклоняй draft, если title/description содержит служебные фразы для преподавателя или backend-а: "Подготовка к заданию", "Место в курсе", "перед Задание", "после List<T>", "AI-черновик".
+Отдельно отклоняй draft, если code-token'ы в description не оформлены одиночными backticks: `Console.ReadLine()`, `int.Parse(...)`, `Split(...)`, `string`, `int`.
 Верни JSON: { "isAccepted": true|false, "score": 0..100, "issues": [], "repairHints": [] }.
 """;
 }
