@@ -925,15 +925,31 @@ public sealed class AgentCourseEditApplyService
             .ThenBy(x => x.Id)
             .ToListAsync(ct);
 
-        var pending = _db.ChangeTracker.Entries<TaskAssignment>()
-            .Where(x => x.State == EntityState.Added && x.Entity.CourseId == assignment.CourseId)
+        // EF returns rows in database order, but previously processed hidden AI drafts in the
+        // same batch can already have modified Sort values in the ChangeTracker and may not be
+        // saved yet. If we keep the original database order, reused drafts from older runs can
+        // stay near the course end while newly created drafts are inserted near the anchor.
+        // Merge all tracked Added/Modified/Unchanged assignments for this course back into the
+        // list and sort in memory by the CURRENT entity Sort before computing the next insert.
+        var tracked = _db.ChangeTracker.Entries<TaskAssignment>()
+            .Where(x => x.State != EntityState.Deleted && x.Entity.CourseId == assignment.CourseId)
             .Select(x => x.Entity)
             .ToList();
-        foreach (var pendingAssignment in pending)
+        foreach (var trackedAssignment in tracked)
         {
-            if (ordered.All(x => x.Id != pendingAssignment.Id))
-                ordered.Add(pendingAssignment);
+            var existingIndex = ordered.FindIndex(x => x.Id == trackedAssignment.Id);
+            if (existingIndex >= 0)
+                ordered[existingIndex] = trackedAssignment;
+            else
+                ordered.Add(trackedAssignment);
         }
+
+        ordered = ordered
+            .GroupBy(x => x.Id)
+            .Select(g => g.First())
+            .OrderBy(x => x.Sort)
+            .ThenBy(x => x.Id)
+            .ToList();
 
         ordered.RemoveAll(x => x.Id == assignment.Id);
 
