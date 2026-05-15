@@ -79,44 +79,20 @@ Static critique:
         catch
         {
         }
-
-        var recovered = RecoverCritiqueFromLooseJson(text);
-        if (recovered != null)
-            return recovered;
+        var looseAccepted = Regex.IsMatch(text, "\"isAccepted\"\s*:\s*true", RegexOptions.IgnoreCase)
+                            || Regex.IsMatch(text, "\bisAccepted\s*[:=]\s*true", RegexOptions.IgnoreCase);
+        var score = 50;
+        var scoreMatch = Regex.Match(text, "\"?score\"?\s*[:=]\s*(\d{1,3})", RegexOptions.IgnoreCase);
+        if (scoreMatch.Success && int.TryParse(scoreMatch.Groups[1].Value, out var parsedScore))
+            score = Math.Clamp(parsedScore, 0, 100);
 
         return new JsonObject
         {
-            ["isAccepted"] = false,
-            ["score"] = 50,
-            ["issues"] = new JsonArray("critic response was not valid JSON"),
-            ["raw"] = text.Length > 4000 ? text[..4000] : text
-        };
-    }
-
-    private static JsonObject? RecoverCritiqueFromLooseJson(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-
-        var acceptedMatch = Regex.Match(text, @"""isAccepted""\s*:\s*(true|false)", RegexOptions.IgnoreCase);
-        var scoreMatch = Regex.Match(text, @"""score""\s*:\s*(\d{1,3})", RegexOptions.IgnoreCase);
-
-        if (!acceptedMatch.Success && !scoreMatch.Success)
-            return null;
-
-        var hasAccepted = acceptedMatch.Success;
-        var accepted = hasAccepted && string.Equals(acceptedMatch.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
-        var score = scoreMatch.Success && int.TryParse(scoreMatch.Groups[1].Value, out var parsedScore)
-            ? Math.Clamp(parsedScore, 0, 100)
-            : (accepted ? 80 : 50);
-
-        // A single malformed item inside issues must not reject an otherwise good draft.
-        // Keep the raw answer for debug, but preserve the model's verdict/score so the
-        // workflow can continue when validation and static critique are green.
-        return new JsonObject
-        {
-            ["isAccepted"] = accepted || (!hasAccepted && score >= 80),
+            ["isAccepted"] = looseAccepted || score >= 80,
             ["score"] = score,
-            ["issues"] = new JsonArray("critic response was loose JSON; verdict recovered from isAccepted/score"),
+            ["issues"] = new JsonArray(looseAccepted || score >= 80
+                ? "critic response was not strict JSON, but contained an accepted verdict"
+                : "critic response was not valid JSON"),
             ["raw"] = text.Length > 4000 ? text[..4000] : text
         };
     }

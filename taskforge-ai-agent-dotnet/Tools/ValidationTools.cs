@@ -139,6 +139,20 @@ public sealed class ValidationTools
         if (HasUnwrappedCodeToken(description))
             issues.Add("student-facing code tokens must be wrapped in backticks, for example `Console.ReadLine()` and `int.Parse(...)`");
 
+        var tags = draft["tags"]?.ToString() ?? string.Empty;
+        var extra = draft["extra"] as JsonObject;
+        var isLearningBridge = tags.Contains("learning-bridge", StringComparison.OrdinalIgnoreCase)
+                               || extra?["skillBridge"] is not null
+                               || extra?["missingBridgeSkills"] is not null;
+        if (isLearningBridge)
+        {
+            var introducedSkills = ReadStringArray(extra?["introducedSkills"]).ToList();
+            if (introducedSkills.Count == 0)
+                issues.Add("learning-bridge draft must declare introducedSkills in extra metadata");
+            if (introducedSkills.Count > 1)
+                issues.Add("learning-bridge draft should introduce one main new skill, not several at once");
+        }
+
         if ((draft["assignmentType"]?.ToString() ?? "") == "code-test")
         {
             if (!ContainsAny(description, "ввод", "вход", "input", "stdin", "формат ввода"))
@@ -153,6 +167,24 @@ public sealed class ValidationTools
             ["score"] = issues.Count == 0 ? 92 : Math.Max(35, 92 - issues.Count * 18),
             ["issues"] = issues
         });
+    }
+
+
+    private static IEnumerable<string> ReadStringArray(JsonNode? node)
+    {
+        if (node is JsonArray arr)
+        {
+            foreach (var item in arr)
+            {
+                var value = item?.ToString();
+                if (!string.IsNullOrWhiteSpace(value)) yield return value;
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(node?.ToString()))
+        {
+            foreach (var item in node!.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                yield return item;
+        }
     }
 
     private static bool HasUnwrappedCodeToken(string description)

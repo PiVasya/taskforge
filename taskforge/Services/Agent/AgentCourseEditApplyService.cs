@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using taskforge.Data;
 using taskforge.Data.Models.DTO;
@@ -280,16 +281,16 @@ public sealed class AgentCourseEditApplyService
             .ThenByDescending(x => x.SourceAgentRunId == artifact.RunId)
             .ThenBy(x => x.Sort)
             .FirstOrDefaultAsync(ct);
-        if (existingEntity == null && sourceTaskIndex.HasValue && IsInputOnboardingDraftData(data))
+        if (existingEntity == null && sourceTaskIndex.HasValue && IsLearningBridgeDraftData(data))
         {
-            var onboardingCandidates = await _db.TaskAssignments
+            var bridgeCandidates = await _db.TaskAssignments
                 .Where(x => x.CourseId == courseId.Value
                             && x.IsAiDraft
                             && x.IsHidden
                             && x.SourceAgentTaskIndex == sourceTaskIndex.Value)
                 .OrderBy(x => x.Sort)
                 .ToListAsync(ct);
-            existingEntity = onboardingCandidates.FirstOrDefault(x => IsLegacyInputOnboardingTitleMatch(x.Title, sourceTaskIndex.Value));
+            existingEntity = bridgeCandidates.FirstOrDefault(x => IsLikelySameLearningBridgeStep(x.Title, normalizedTitle, sourceTaskIndex.Value));
         }
         if (existingEntity != null)
         {
@@ -888,33 +889,48 @@ public sealed class AgentCourseEditApplyService
         return found.Count == ids.Count;
     }
 
-    private static bool IsInputOnboardingDraftData(JsonElement data)
-    {
-        var text = string.Join(" ",
-            GetString(data, "title", "assignmentTitle"),
-            GetString(data, "description", "condition", "body"),
-            GetString(data, "tags"))
-            .ToLowerInvariant();
-        return text.Contains("input-onboarding")
-               || text.Contains("console.readline")
-               || text.Contains("readline")
-               || text.Contains("с клавиатур")
-               || text.Contains("ввод")
-               || text.Contains("split");
-    }
-
-    private static bool IsLegacyInputOnboardingTitleMatch(string? title, int sourceTaskIndex)
-    {
-        var text = (title ?? string.Empty).ToLowerInvariant();
-        return sourceTaskIndex switch
+    private static bool IsLearningBridgeDraftData(JsonElement data)
         {
-            0 => text.Contains("строк") && !text.Contains("имя") && !text.Contains("привет"),
-            1 => text.Contains("имя") || text.Contains("привет"),
-            2 => text.Contains("числ") && (text.Contains("цел") || text.Contains("перв") || text.Contains("печата")),
-            3 => text.Contains("с разных строк") || (text.Contains("сумм") && text.Contains("строк")),
-            4 => text.Contains("split") || text.Contains("одной строк") || text.Contains("из одной строки"),
-            _ => false
-        };
+            var extra = data.ValueKind == JsonValueKind.Object && data.TryGetProperty("extra", out var extraElement)
+                ? extraElement.GetRawText()
+                : string.Empty;
+            var text = string.Join(" ",
+                GetString(data, "title", "assignmentTitle"),
+                GetString(data, "description", "condition", "body"),
+                GetString(data, "tags"),
+                extra)
+                .ToLowerInvariant();
+            return text.Contains("learning-bridge")
+                   || text.Contains("skillbridge")
+                   || text.Contains("introducedskills")
+                   || text.Contains("missingbridgeskills")
+                   || text.Contains("targetskills")
+                   || text.Contains("input-onboarding"); // legacy tag from older AI drafts only
+        }
+
+        private static bool IsLikelySameLearningBridgeStep(string? existingTitle, string? candidateTitle, int sourceTaskIndex)
+        {
+            var existing = NormalizeBridgeText(existingTitle);
+            var candidate = NormalizeBridgeText(candidateTitle);
+            if (string.IsNullOrWhiteSpace(existing) || string.IsNullOrWhiteSpace(candidate)) return false;
+            if (string.Equals(existing, candidate, StringComparison.OrdinalIgnoreCase)) return true;
+
+            var candidateTokens = candidate.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(x => x.Length >= 4)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (candidateTokens.Count == 0) return false;
+
+            var existingTokens = existing.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var overlap = candidateTokens.Count(existingTokens.Contains);
+            return overlap >= Math.Min(2, candidateTokens.Count);
+        }
+
+        private static string NormalizeBridgeText(string? value)
+        {
+            var text = (value ?? string.Empty).ToLowerInvariant();
+            text = Regex.Replace(text, @"[^a-zа-я0-9+#<>.]+", " ", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return Regex.Replace(text, @"\s+", " ").Trim();
     }
 
     private async Task ApplyDraftPlacementAsync(TaskAssignment assignment, Guid? beforeId, Guid? afterId, DateTime now, CancellationToken ct)
@@ -925,28 +941,19 @@ public sealed class AgentCourseEditApplyService
             .ThenBy(x => x.Id)
             .ToListAsync(ct);
 
-        // EF returns rows in database order, but previously processed hidden AI drafts in the
-        // same batch can already have modified Sort values in the ChangeTracker and may not be
-        // saved yet. If we keep the original database order, reused drafts from older runs can
-        // stay near the course end while newly created drafts are inserted near the anchor.
-        // Merge all tracked Added/Modified/Unchanged assignments for this course back into the
-        // list and sort in memory by the CURRENT entity Sort before computing the next insert.
         var tracked = _db.ChangeTracker.Entries<TaskAssignment>()
-            .Where(x => x.State != EntityState.Deleted && x.Entity.CourseId == assignment.CourseId)
+            .Where(x => x.State != EntityState.Detached
+                        && x.State != EntityState.Deleted
+                        && x.Entity.CourseId == assignment.CourseId)
             .Select(x => x.Entity)
             .ToList();
         foreach (var trackedAssignment in tracked)
         {
             var existingIndex = ordered.FindIndex(x => x.Id == trackedAssignment.Id);
-            if (existingIndex >= 0)
-                ordered[existingIndex] = trackedAssignment;
-            else
-                ordered.Add(trackedAssignment);
+            if (existingIndex >= 0) ordered[existingIndex] = trackedAssignment;
+            else ordered.Add(trackedAssignment);
         }
-
         ordered = ordered
-            .GroupBy(x => x.Id)
-            .Select(g => g.First())
             .OrderBy(x => x.Sort)
             .ThenBy(x => x.Id)
             .ToList();

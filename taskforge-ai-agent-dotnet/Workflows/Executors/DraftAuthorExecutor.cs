@@ -39,8 +39,9 @@ public sealed class DraftAuthorExecutor
         await _steps.TryReportAsync("draft", "running", attempt == 0 ? "Генерирую черновики заданий" : $"Перегенерирую черновики, попытка {attempt + 1}", plan);
 
         var count = Math.Clamp(requestedCount, 1, 6);
-        var insertionContext = BuildInsertionContext(state.Job.Payload);
-        var beforeAssignmentId = insertionContext.BeforeAssignmentId;
+        var bridge = CourseSkillAnalyzer.Analyze(state.Job.Payload, state.UserText);
+        var beforeAssignmentId = bridge.BeforeAssignmentId;
+        var bridgeJson = bridge.ToJsonObject().ToJsonString();
         var prompt = $$"""
 {{TaskForgeAgentPrompts.DraftAuthor}}
 
@@ -49,18 +50,19 @@ public sealed class DraftAuthorExecutor
 
 Сгенерируй {{count}} TaskForge draft-ов как JSON.
 Если пользователь просит "задачки", "обучалки", "серия", "несколько" — верни массив drafts по возрастанию сложности.
-Для обучалок по вводу в C# порядок должен быть методическим:
-1) Console.ReadLine как строка;
-2) строковый ввод в фразе;
-3) int.Parse/Convert.ToInt32;
-4) несколько значений с разных строк;
-5) несколько значений в одной строке через Split.
 
-Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания: например "Считываем строку", "Считываем целое число".
-Точка вставки: перед заданием {{insertionContext.AnchorTitle ?? "не определено"}}.
-Предыдущее задание: {{insertionContext.PreviousTitle ?? "не определено"}}.
-Связь с местом в курсе держи в metadata/логике, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
-Все code-token'ы в description оформляй inline-code через одиночные backticks: `Console.ReadLine()`, `Console.WriteLine(...)`, `string`, `int`, `int.Parse(...)`, `Convert.ToInt32(...)`, `Split(...)`.
+Педагогическая модель вставки — skill bridge:
+{{bridgeJson}}
+
+Правила skill bridge:
+1. Не используй заранее зашитую лестницу под конкретную тему. Сначала смотри на acquiredSkillsBeforeAnchor, targetSkillsAtAnchor и missingBridgeSkills.
+2. Каждое новое задание должно добавлять один маленький новый навык. Не используй навык, которого нет в acquiredSkillsBeforeAnchor или в introducedSkills текущего/предыдущих bridge-заданий.
+3. Если для следующего задания нужен навык, который студент ещё не видел, сначала сделай микрозадание именно на этот навык.
+4. Первое bridge-задание должно быть проще целевого anchor-задания и не должно требовать больше одного нового умения.
+5. Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания.
+6. Связь с местом в курсе держи в extra/metadata, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
+7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
+8. Для code-test обязательно нужны referenceSolution, publicTests и hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим шагом.
 
 Контекст:
 {{contextPrompt}}
@@ -76,9 +78,17 @@ public sealed class DraftAuthorExecutor
       "referenceSolution": "...",
       "difficulty": 1,
       "rating": 10,
+      "sourceTaskIndex": 0,
       "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
       "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
-      "tags": ["AI", "черновик"]
+      "tags": ["AI", "черновик", "learning-bridge"],
+      "extra": {
+        "assumedSkills": ["skills already known before this step"],
+        "introducedSkills": ["exactly one main new skill for this step"],
+        "targetSkills": ["skills needed by the anchor task"],
+        "missingBridgeSkills": ["skills this bridge is trying to cover"],
+        "skillBridgeReason": "why this draft belongs here"
+      }
     }
   ]
 }
@@ -101,24 +111,18 @@ public sealed class DraftAuthorExecutor
                 ["message"] = ex.Message,
                 ["attempt"] = attempt + 1
             });
-            var fallback = BuildFallbackDraftsForInputOnboarding(state.Job, insertionContext);
-            if (fallback.Count == 0) fallback.Add(BuildFallbackDraft(state.Job, attempt, string.Empty));
-            ApplyBatchMetadata(fallback, state.Job, insertionContext);
+            var fallback = new List<DraftSpec> { BuildFallbackDraft(state.Job, attempt, string.Empty) };
+            ApplyBatchMetadata(fallback, state.Job, bridge);
             state.Draft = fallback.FirstOrDefault();
             return fallback;
         }
 
-        var useDeterministicInputLadder = count > 1 && IsInputOnboardingRequest(state.Job);
-        var drafts = useDeterministicInputLadder
-            ? BuildFallbackDraftsForInputOnboarding(state.Job, insertionContext)
-            : ParseDrafts(responseText, state.Job);
-        if (drafts.Count < Math.Min(2, count) && IsInputOnboardingRequest(state.Job))
-            drafts = BuildFallbackDraftsForInputOnboarding(state.Job, insertionContext);
+        var drafts = ParseDrafts(responseText, state.Job);
         if (drafts.Count == 0)
             drafts.Add(BuildFallbackDraft(state.Job, attempt, responseText));
 
-        drafts = NormalizeDraftOrder(drafts, state.Job).Take(count).ToList();
-        ApplyBatchMetadata(drafts, state.Job, insertionContext);
+        drafts = NormalizeDraftOrder(drafts).Take(count).ToList();
+        ApplyBatchMetadata(drafts, state.Job, bridge);
         state.Draft = drafts.FirstOrDefault();
         await _steps.TryReportAsync("draft", "completed", "Черновики заданий подготовлены", $"Черновиков: {drafts.Count}", new JsonObject
         {
@@ -164,6 +168,7 @@ public sealed class DraftAuthorExecutor
 
     private DraftSpec ParseDraftObject(JsonObject node, ClaimedAgentJob job, string rawText)
     {
+        var extra = BuildDraftExtra(node, rawText);
         return new DraftSpec
         {
             AssignmentType = node["assignmentType"]?.ToString() ?? node["assignment_type"]?.ToString() ?? "code-test",
@@ -174,11 +179,44 @@ public sealed class DraftAuthorExecutor
             Difficulty = int.TryParse(node["difficulty"]?.ToString(), out var d) ? Math.Clamp(d, 1, 3) : 1,
             Rating = int.TryParse(node["rating"]?.ToString(), out var r) ? Math.Max(1, r) : 10,
             CourseId = job.CourseId,
+            SourceTaskIndex = int.TryParse(node["sourceTaskIndex"]?.ToString() ?? node["source_task_index"]?.ToString(), out var idx) ? idx : null,
             Tags = ReadStringArray(node["tags"]).DefaultIfEmpty("AI").ToList(),
             PublicTests = ReadTests(node["publicTests"] ?? node["tests"], false),
             HiddenTests = ReadTests(node["hiddenTests"], true),
-            Extra = new JsonObject { ["rawModelDraft"] = rawText.Length > 6000 ? rawText[..6000] : rawText }
+            Extra = extra
         };
+    }
+
+    private static JsonObject BuildDraftExtra(JsonObject node, string rawText)
+    {
+        JsonObject extra;
+        if (node["extra"] is JsonObject modelExtra)
+            extra = modelExtra.DeepClone() as JsonObject ?? new JsonObject();
+        else
+            extra = new JsonObject();
+
+        CopySkillArray(node, extra, "assumedSkills");
+        CopySkillArray(node, extra, "introducedSkills");
+        CopySkillArray(node, extra, "targetSkills");
+        CopySkillArray(node, extra, "missingBridgeSkills");
+        CopySkillArray(node, extra, "missingSkills", "missingBridgeSkills");
+
+        if (node["skillBridgeReason"] is not null && extra["skillBridgeReason"] is null)
+            extra["skillBridgeReason"] = node["skillBridgeReason"]!.ToString();
+
+        extra["rawModelDraft"] = rawText.Length > 6000 ? rawText[..6000] : rawText;
+        return extra;
+    }
+
+    private static void CopySkillArray(JsonObject source, JsonObject target, string sourceName, string? targetName = null)
+    {
+        targetName ??= sourceName;
+        if (target[targetName] is not null || source[sourceName] is null) return;
+        var values = ReadStringArray(source[sourceName]).ToList();
+        if (values.Count == 0) return;
+        var arr = new JsonArray();
+        foreach (var value in values) arr.Add(value);
+        target[targetName] = arr;
     }
 
     private static bool IsDraftUseful(DraftSpec draft)
@@ -201,145 +239,52 @@ public sealed class DraftAuthorExecutor
         };
     }
 
-    private static List<DraftSpec> BuildFallbackDraftsForInputOnboarding(ClaimedAgentJob job, CourseInsertionContext insertionContext)
+    private static void ApplyBatchMetadata(List<DraftSpec> drafts, ClaimedAgentJob job, CourseSkillBridgeContext bridge)
     {
-        if (!IsInputOnboardingRequest(job)) return new List<DraftSpec>();
-
-        static string Title(string text) => text;
-
-        return new List<DraftSpec>
-        {
-            new()
-            {
-                AssignmentType = "code-test",
-                Title = Title("Считываем строку"),
-                Description = "Условие.\nСчитайте одну строку с клавиатуры и выведите её без изменений.\n\nПодсказка.\nМетод `Console.ReadLine()` считывает строку до нажатия Enter и возвращает значение типа `string`. Сохраните результат в переменную и выведите его через `Console.WriteLine(...)`.\n\nФормат ввода.\nОдна строка текста.\n\nФормат вывода.\nОдна строка — тот же текст, без дополнительных слов. Стандартный перевод строки в конце допускается.\n\nПример.\nВвод:\nHello\nВывод:\nHello",
-                Language = "csharp",
-                ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        string s = Console.ReadLine();\n        Console.WriteLine(s);\n    }\n}\n",
-                PublicTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "Hello\n", ExpectedOutput = "Hello\n" },
-                    new() { Input = "C# is cool\n", ExpectedOutput = "C# is cool\n" },
-                    new() { Input = "12345\n", ExpectedOutput = "12345\n" }
-                },
-                HiddenTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "одна строка\n", ExpectedOutput = "одна строка\n", IsHidden = true },
-                    new() { Input = "   пробелы\n", ExpectedOutput = "   пробелы\n", IsHidden = true }
-                }
-            },
-            new()
-            {
-                AssignmentType = "code-test",
-                Title = Title("Вставляем введённое имя в текст"),
-                Description = "Условие.\nСчитайте имя пользователя и выведите приветствие в точном формате: `Привет, <имя>!`\n\nПодсказка.\nМетод `Console.ReadLine()` возвращает строку. Её можно соединить с другим текстом через конкатенацию или интерполяцию строк, например `$\"Привет, {name}!\"`.\n\nФормат ввода.\nОдна строка — имя. Используется вся введённая строка.\n\nФормат вывода.\nОдна строка вида `Привет, <имя>!`. Запятая, пробел и восклицательный знак обязательны.\n\nПример.\nВвод:\nАнна\nВывод:\nПривет, Анна!",
-                Language = "csharp",
-                ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        string name = Console.ReadLine();\n        Console.WriteLine($\"Привет, {name}!\");\n    }\n}\n",
-                PublicTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "Анна\n", ExpectedOutput = "Привет, Анна!\n" },
-                    new() { Input = "Ivan\n", ExpectedOutput = "Привет, Ivan!\n" }
-                },
-                HiddenTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "Матвей\n", ExpectedOutput = "Привет, Матвей!\n", IsHidden = true },
-                    new() { Input = "Оля\n", ExpectedOutput = "Привет, Оля!\n", IsHidden = true }
-                }
-            },
-            new()
-            {
-                AssignmentType = "code-test",
-                Title = Title("Считываем целое число"),
-                Description = "Условие.\nСчитайте одно целое число и выведите его без дополнительных слов.\n\nПодсказка.\n`Console.ReadLine()` всегда возвращает `string`. Чтобы получить число, преобразуйте строку через `int.Parse(...)` или `Convert.ToInt32(...)`.\n\nФормат ввода.\nОдна строка с целым числом.\n\nФормат вывода.\nОдно целое число в отдельной строке — то же число, которое было введено.\n\nПример.\nВвод:\n7\nВывод:\n7",
-                Language = "csharp",
-                ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        int x = int.Parse(Console.ReadLine());\n        Console.WriteLine(x);\n    }\n}\n",
-                PublicTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "7\n", ExpectedOutput = "7\n" },
-                    new() { Input = "-15\n", ExpectedOutput = "-15\n" },
-                    new() { Input = "0\n", ExpectedOutput = "0\n" }
-                },
-                HiddenTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "123\n", ExpectedOutput = "123\n", IsHidden = true },
-                    new() { Input = "-999\n", ExpectedOutput = "-999\n", IsHidden = true }
-                }
-            },
-            new()
-            {
-                AssignmentType = "code-test",
-                Title = Title("Складываем числа с разных строк"),
-                Description = "Условие.\nСчитайте два целых числа. Каждое число вводится с новой строки. Выведите их сумму.\n\nПодсказка.\nЕсли нужно считать несколько строк, вызовите `Console.ReadLine()` несколько раз. Каждую строку с числом преобразуйте в `int` через `int.Parse(...)` или `Convert.ToInt32(...)`.\n\nФормат ввода.\nДве строки, в каждой по одному целому числу.\n\nФормат вывода.\nОдно целое число — сумма двух введённых чисел, без дополнительного текста.\n\nПример.\nВвод:\n2\n3\nВывод:\n5",
-                Language = "csharp",
-                ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        int a = int.Parse(Console.ReadLine());\n        int b = int.Parse(Console.ReadLine());\n        Console.WriteLine(a + b);\n    }\n}\n",
-                PublicTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "2\n3\n", ExpectedOutput = "5\n" },
-                    new() { Input = "10\n-4\n", ExpectedOutput = "6\n" }
-                },
-                HiddenTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "0\n0\n", ExpectedOutput = "0\n", IsHidden = true },
-                    new() { Input = "-5\n12\n", ExpectedOutput = "7\n", IsHidden = true }
-                }
-            },
-            new()
-            {
-                AssignmentType = "code-test",
-                Title = Title("Складываем числа из одной строки"),
-                Description = "Условие.\nСчитайте два целых числа, записанных в одной строке через пробел, и выведите их сумму.\n\nПодсказка.\nКогда несколько значений находятся в одной строке, сначала считайте всю строку через `Console.ReadLine()`, затем разделите её на части методом `Split(...)`. Каждую часть преобразуйте в `int`.\n\nФормат ввода.\nОдна строка с двумя целыми числами. Между числами может быть один или несколько пробелов.\n\nФормат вывода.\nОдно целое число — сумма двух введённых чисел, без дополнительного текста.\n\nПример.\nВвод:\n2 3\nВывод:\n5",
-                Language = "csharp",
-                ReferenceSolution = "using System;\n\npublic class Program\n{\n    public static void Main()\n    {\n        string[] p = Console.ReadLine()\n            .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);\n        int a = int.Parse(p[0]);\n        int b = int.Parse(p[1]);\n        Console.WriteLine(a + b);\n    }\n}\n",
-                PublicTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "2 3\n", ExpectedOutput = "5\n" },
-                    new() { Input = "10 -4\n", ExpectedOutput = "6\n" }
-                },
-                HiddenTests = new List<TestCaseSpec>
-                {
-                    new() { Input = "-5 -7\n", ExpectedOutput = "-12\n", IsHidden = true },
-                    new() { Input = "0 0\n", ExpectedOutput = "0\n", IsHidden = true },
-                    new() { Input = "8   9\n", ExpectedOutput = "17\n", IsHidden = true }
-                }
-            }
-        };
-    }
-
-    private static void ApplyBatchMetadata(List<DraftSpec> drafts, ClaimedAgentJob job, CourseInsertionContext insertionContext)
-    {
-        ApplyContextualInputOnboardingNaming(drafts, job, insertionContext);
         for (var i = 0; i < drafts.Count; i++)
         {
             drafts[i].CourseId = job.CourseId;
-            drafts[i].BeforeAssignmentId ??= insertionContext.BeforeAssignmentId;
-            drafts[i].SourceTaskIndex = i;
-            var requiredTags = IsInputOnboardingRequest(job)
-                ? new[] { "AI", "черновик", "input-onboarding", $"input-onboarding-step-{i + 1}" }
-                : new[] { "AI", "черновик" };
+            drafts[i].BeforeAssignmentId ??= bridge.BeforeAssignmentId;
+            drafts[i].SourceTaskIndex ??= i;
+
+            var requiredTags = new List<string> { "AI", "черновик" };
+            if (bridge.IsBridgeRequest || drafts.Count > 1)
+            {
+                requiredTags.Add("learning-bridge");
+                requiredTags.Add($"learning-bridge-step-{i + 1}");
+            }
+            foreach (var skill in ReadStringArray(drafts[i].Extra["introducedSkills"]).Concat(bridge.MissingBridgeSkills).Distinct(StringComparer.OrdinalIgnoreCase).Take(6))
+                requiredTags.Add($"skill:{skill}");
+
             drafts[i].Tags = MergeTags(drafts[i].Tags, requiredTags);
             drafts[i].Language = NormalizeLanguage(drafts[i].Language);
             drafts[i].Description = SanitizeStudentFacingDescription(drafts[i].Description);
             drafts[i].Title = SanitizeStudentFacingTitle(drafts[i].Title);
             drafts[i].Difficulty = Math.Clamp(drafts[i].Difficulty, 1, 3);
             drafts[i].Rating = Math.Max(1, drafts[i].Rating);
+            AddBridgeExtra(drafts[i], bridge, i);
         }
     }
 
-    private static void ApplyContextualInputOnboardingNaming(List<DraftSpec> drafts, ClaimedAgentJob job, CourseInsertionContext insertionContext)
+    private static void AddBridgeExtra(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
     {
-        if (!IsInputOnboardingRequest(job) || drafts.Count <= 1) return;
+        draft.Extra["bridgeStepIndex"] ??= stepIndex;
+        draft.Extra["insertBeforeAssignmentId"] ??= bridge.BeforeAssignmentId?.ToString();
+        draft.Extra["previousAssignmentTitle"] ??= bridge.PreviousTitle;
+        draft.Extra["anchorAssignmentTitle"] ??= bridge.AnchorTitle;
+        draft.Extra["requestedSkills"] ??= ToJsonArray(bridge.RequestedSkills);
+        draft.Extra["acquiredSkillsBeforeAnchor"] ??= ToJsonArray(bridge.AcquiredSkills);
+        draft.Extra["targetSkills"] ??= ToJsonArray(bridge.TargetSkills);
+        draft.Extra["missingBridgeSkills"] ??= ToJsonArray(bridge.MissingBridgeSkills);
+        draft.Extra["skillBridge"] ??= bridge.ToJsonObject();
+    }
 
-        var canonicalTitles = new[]
-        {
-            "Считываем строку",
-            "Вставляем введённое имя в текст",
-            "Считываем целое число",
-            "Складываем числа с разных строк",
-            "Складываем числа из одной строки"
-        };
-
-        for (var i = 0; i < drafts.Count && i < canonicalTitles.Length; i++)
-            drafts[i].Title = canonicalTitles[i];
+    private static JsonArray ToJsonArray(IEnumerable<string> values)
+    {
+        var arr = new JsonArray();
+        foreach (var value in values.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            arr.Add(value);
+        return arr;
     }
 
     private static string SanitizeStudentFacingTitle(string? title)
@@ -413,128 +358,29 @@ public sealed class DraftAuthorExecutor
         return result;
     }
 
-    private static List<DraftSpec> NormalizeDraftOrder(List<DraftSpec> drafts, ClaimedAgentJob job)
+    private static List<DraftSpec> NormalizeDraftOrder(List<DraftSpec> drafts)
     {
-        if (!IsInputOnboardingRequest(job)) return drafts;
         return drafts
-            .Select((draft, index) => new { draft, index, rank = InputDraftRank(draft) })
-            .OrderBy(x => x.rank)
+            .Select((draft, index) => new { draft, index })
+            .OrderBy(x => x.draft.SourceTaskIndex ?? x.index)
             .ThenBy(x => x.index)
             .Select(x => x.draft)
             .ToList();
     }
 
-    private static int InputDraftRank(DraftSpec draft)
-    {
-        var text = $"{draft.Title} {draft.Description}".ToLowerInvariant();
-        if (text.Contains("split")) return 50;
-        if (text.Contains("с разных строк") || text.Contains("две строки") || text.Contains("два целых")) return 40;
-        if (text.Contains("int.parse") || text.Contains("convert.toint32") || text.Contains("целое число") || text.Contains("числа")) return 30;
-        if (text.Contains("имя") || text.Contains("привет")) return 20;
-        if (text.Contains("строк")) return 10;
-        return 100;
-    }
-
-    private static bool IsInputOnboardingRequest(ClaimedAgentJob job)
-    {
-        var text = job.UserText.ToLowerInvariant();
-        return text.Contains("ввод") || text.Contains("readline") || text.Contains("input") || text.Contains("с клавиатур");
-    }
-
     public static bool LooksLikeMultipleDraftRequest(string text)
     {
         var t = text.ToLowerInvariant();
-        return t.Contains("задачки") || t.Contains("обучалки") || t.Contains("несколько") || t.Contains("серия") || t.Contains("набор") || t.Contains("лестниц") || t.Contains("guided ladder");
-    }
-
-    private static CourseInsertionContext BuildInsertionContext(JsonElement payload)
-    {
-        var candidates = new List<AssignmentAnchorCandidate>();
-        CollectAssignmentCandidates(payload, candidates, 0);
-        var ordered = candidates
-            .Where(x => !x.IsHidden && !x.IsAiDraft)
-            .OrderBy(x => x.Index ?? int.MaxValue)
-            .ThenBy(x => x.Sort ?? int.MaxValue)
-            .ToList();
-
-        var anchor = ordered.FirstOrDefault(x => IsExistingInputTask(x.Text));
-        var previous = anchor == null
-            ? ordered.LastOrDefault()
-            : ordered.TakeWhile(x => x.Id != anchor.Id).LastOrDefault();
-
-        var prefix = BuildTitlePrefix(previous, anchor);
-        var styleHint = prefix.StartsWith("Задание ", StringComparison.OrdinalIgnoreCase)
-            ? $"{prefix}.1. Короткое название, {prefix}.2. Короткое название ..."
-            : $"{prefix} 1. Короткое название, {prefix} 2. Короткое название ...";
-
-        return new CourseInsertionContext(
-            anchor?.Id,
-            previous?.Title,
-            anchor?.Title,
-            prefix,
-            styleHint);
-    }
-
-    private static string BuildTitlePrefix(AssignmentAnchorCandidate? previous, AssignmentAnchorCandidate? anchor)
-    {
-        var prevNumber = ExtractAssignmentNumber(previous?.Title);
-        var anchorNumber = ExtractAssignmentNumber(anchor?.Title);
-        if (prevNumber.HasValue && anchorNumber.HasValue && anchorNumber.Value == prevNumber.Value + 1)
-            return $"Задание {prevNumber.Value}";
-        if (anchorNumber.HasValue)
-            return $"Подготовка к заданию {anchorNumber.Value}";
-        return "Подготовка к вводу";
-    }
-
-    private static int? ExtractAssignmentNumber(string? title)
-    {
-        if (string.IsNullOrWhiteSpace(title)) return null;
-        var match = Regex.Match(title, @"Задание\s+(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        return match.Success && int.TryParse(match.Groups[1].Value, out var number) ? number : null;
-    }
-
-    private static bool IsExistingInputTask(string text)
-    {
-        var t = text.ToLowerInvariant();
-        return t.Contains("console.readline")
-               || t.Contains("readline")
-               || t.Contains("стандартного ввода")
-               || t.Contains("с клавиатур")
-               || t.Contains("считайте")
-               || t.Contains("считать")
-               || t.Contains("вводится")
-               || t.Contains("введите");
-    }
-
-    private static void CollectAssignmentCandidates(JsonElement element, List<AssignmentAnchorCandidate> result, int depth)
-    {
-        if (depth > 10) return;
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var id = GetGuid(element, "id", "assignmentId");
-            var title = GetString(element, "title", "name");
-            var description = GetString(element, "description", "descriptionPreview", "condition", "body");
-            var tags = GetString(element, "tags");
-            if (id.HasValue && !string.IsNullOrWhiteSpace(title) && (HasAnyProperty(element, "sort", "index", "type", "assignmentType", "description", "descriptionPreview", "tags")))
-            {
-                result.Add(new AssignmentAnchorCandidate(
-                    id.Value,
-                    GetInt(element, "index"),
-                    GetInt(element, "sort", "order"),
-                    title!,
-                    $"{title} {description} {tags}",
-                    GetBool(element, "isHidden") == true,
-                    GetBool(element, "isAiDraft") == true));
-            }
-
-            foreach (var prop in element.EnumerateObject())
-                CollectAssignmentCandidates(prop.Value, result, depth + 1);
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-                CollectAssignmentCandidates(item, result, depth + 1);
-        }
+        return t.Contains("задачки")
+               || t.Contains("обучалки")
+               || t.Contains("несколько")
+               || t.Contains("серия")
+               || t.Contains("набор")
+               || t.Contains("лестниц")
+               || t.Contains("guided ladder")
+               || t.Contains("learning bridge")
+               || t.Contains("bridge task")
+               || CourseSkillAnalyzer.LooksLikeLearningBridgeRequest(text);
     }
 
     private static string? ExtractJson(string text)
@@ -603,58 +449,5 @@ public sealed class DraftAuthorExecutor
         };
     }
 
-    private static string? GetString(JsonElement element, params string[] names)
-    {
-        if (element.ValueKind != JsonValueKind.Object) return null;
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var prop)) continue;
-            if (prop.ValueKind == JsonValueKind.String) return prop.GetString();
-            if (prop.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return prop.ToString();
-        }
-        return null;
-    }
 
-    private static Guid? GetGuid(JsonElement element, params string[] names)
-    {
-        var raw = GetString(element, names);
-        return Guid.TryParse(raw, out var id) ? id : null;
-    }
-
-    private static int? GetInt(JsonElement element, params string[] names)
-    {
-        if (element.ValueKind != JsonValueKind.Object) return null;
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var prop)) continue;
-            if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var n)) return n;
-            if (prop.ValueKind == JsonValueKind.String && int.TryParse(prop.GetString(), out var parsed)) return parsed;
-        }
-        return null;
-    }
-
-    private static bool? GetBool(JsonElement element, params string[] names)
-    {
-        if (element.ValueKind != JsonValueKind.Object) return null;
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var prop)) continue;
-            if (prop.ValueKind == JsonValueKind.True) return true;
-            if (prop.ValueKind == JsonValueKind.False) return false;
-            if (prop.ValueKind == JsonValueKind.String && bool.TryParse(prop.GetString(), out var parsed)) return parsed;
-        }
-        return null;
-    }
-
-    private static bool HasAnyProperty(JsonElement element, params string[] names)
-    {
-        if (element.ValueKind != JsonValueKind.Object) return false;
-        foreach (var name in names)
-            if (element.TryGetProperty(name, out _)) return true;
-        return false;
-    }
-
-    private sealed record AssignmentAnchorCandidate(Guid Id, int? Index, int? Sort, string Title, string Text, bool IsHidden, bool IsAiDraft);
-
-    private sealed record CourseInsertionContext(Guid? BeforeAssignmentId, string? PreviousTitle, string? AnchorTitle, string TitlePrefix, string TitleStyleHint);
 }
