@@ -11,7 +11,7 @@ internal static class CourseSkillAnalyzer
         new("program-structure", "каркас программы", new[] { "using system", "public class program", "static void main", "int main", "#include", "namespace" }),
         new("console-output", "вывод на экран", new[] { "console.writeline", "console.write", "cout", "printf", "print", "вывод", "выведите", "напечат" }),
         new("string-literals", "строковые литералы", new[] { "hello", "hi", "строка", "текст", "символ", "кавыч" }),
-        new("variables", "переменные", new[] { "переменн", "тип", "значение переменной", "re:(^|[^a-zа-я0-9_])var\s+", "re:(^|[^a-zа-я0-9_])int\s+", "re:(^|[^a-zа-я0-9_])string\s+", "re:(^|[^a-zа-я0-9_])double\s+", "re:(^|[^a-zа-я0-9_])bool\s+" }),
+        new("variables", "переменные", new[] { "переменн", "тип", "значение переменной", @"re:(^|[^a-zа-я0-9_])var\s+", @"re:(^|[^a-zа-я0-9_])int\s+", @"re:(^|[^a-zа-я0-9_])string\s+", @"re:(^|[^a-zа-я0-9_])double\s+", @"re:(^|[^a-zа-я0-9_])bool\s+" }),
         new("arithmetic", "арифметика", new[] { "арифмет", "сумм", "слож", "разност", "произвед", "делен", "остат", "+", "-", "*", "/", "%" }),
         new("comparison", "сравнения", new[] { "сравн", "больше", "меньше", "равн", "не равн", ">", "<", "==", "!=" }),
         new("conditions", "условия", new[] { "re:(^|[^a-zа-я0-9_])if([^a-zа-я0-9_]|$)", "else", "услов", "если", "иначе", "ветв" }),

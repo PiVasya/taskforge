@@ -79,10 +79,10 @@ Static critique:
         catch
         {
         }
-        var looseAccepted = Regex.IsMatch(text, "\"isAccepted\"\s*:\s*true", RegexOptions.IgnoreCase)
-                            || Regex.IsMatch(text, "\bisAccepted\s*[:=]\s*true", RegexOptions.IgnoreCase);
+        var looseAccepted = Regex.IsMatch(text, "\"isAccepted\"\\s*:\\s*true", RegexOptions.IgnoreCase)
+                            || Regex.IsMatch(text, "\\bisAccepted\\s*[:=]\\s*true", RegexOptions.IgnoreCase);
         var score = 50;
-        var scoreMatch = Regex.Match(text, "\"?score\"?\s*[:=]\s*(\d{1,3})", RegexOptions.IgnoreCase);
+        var scoreMatch = Regex.Match(text, "\"?score\"?\\s*[:=]\\s*(\\d{1,3})", RegexOptions.IgnoreCase);
         if (scoreMatch.Success && int.TryParse(scoreMatch.Groups[1].Value, out var parsedScore))
             score = Math.Clamp(parsedScore, 0, 100);
 
