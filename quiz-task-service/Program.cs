@@ -439,6 +439,58 @@ app.MapPut("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,Learning
     return Results.Ok(ToAdminDto(task, version));
 });
 
+
+app.MapDelete("/api/admin/quiz/tasks/by-section", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, string? subjectCode, string? examCode, string? sectionCode) =>
+{
+    if (string.IsNullOrWhiteSpace(sectionCode))
+    {
+        return Results.BadRequest(new { message = "sectionCode is required" });
+    }
+
+    var normalizedSectionCode = sectionCode.Trim().ToUpperInvariant();
+    if (!System.Text.RegularExpressions.Regex.IsMatch(normalizedSectionCode, "^[AB][0-9]+$"))
+    {
+        return Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
+    }
+
+    var query = db.Tasks.Where(x => x.SectionCode == normalizedSectionCode).AsQueryable();
+    if (!string.IsNullOrWhiteSpace(subjectCode)) query = query.Where(x => x.SubjectCode == subjectCode.Trim());
+    if (!string.IsNullOrWhiteSpace(examCode)) query = query.Where(x => x.ExamCode == examCode.Trim());
+
+    var tasks = await query.ToListAsync();
+    var taskIds = tasks.Select(x => x.Id).ToList();
+    if (taskIds.Count == 0)
+    {
+        return Results.Ok(new
+        {
+            sectionCode = normalizedSectionCode,
+            tasksDeleted = 0,
+            versionsDeleted = 0,
+            attemptsDeleted = 0,
+            progressDeleted = 0
+        });
+    }
+
+    var attempts = await db.Attempts.Where(x => taskIds.Contains(x.TaskId)).ToListAsync();
+    var progress = await db.Progress.Where(x => taskIds.Contains(x.TaskId)).ToListAsync();
+    var versions = await db.TaskVersions.Where(x => taskIds.Contains(x.TaskId)).ToListAsync();
+
+    db.Attempts.RemoveRange(attempts);
+    db.Progress.RemoveRange(progress);
+    db.TaskVersions.RemoveRange(versions);
+    db.Tasks.RemoveRange(tasks);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        sectionCode = normalizedSectionCode,
+        tasksDeleted = tasks.Count,
+        versionsDeleted = versions.Count,
+        attemptsDeleted = attempts.Count,
+        progressDeleted = progress.Count
+    });
+});
+
 app.MapDelete("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id) =>
 {
     var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id);

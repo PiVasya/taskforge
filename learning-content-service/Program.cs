@@ -343,6 +343,57 @@ app.MapPut("/api/admin/learning/courses/{id:guid}", [Authorize(Roles = "Admin,Le
     return Results.Ok(LearningCourseDto.FromEntity(course));
 });
 
+
+app.MapDelete("/api/admin/learning/courses/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id) =>
+{
+    var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+    if (course == null) return ApiError(StatusCodes.Status404NotFound, "Раздел не найден.", $"Id: {id}", "Обнови страницу редактора: возможно, раздел уже удалён.");
+    if (string.IsNullOrWhiteSpace(course.SectionCode))
+    {
+        return ApiError(StatusCodes.Status400BadRequest, "Нельзя удалить корневой курс через эту кнопку.", course.Title, "Удалять полностью можно только конкретные номера A/B, у которых заполнен SectionCode.");
+    }
+
+    var allCourses = await db.Courses.AsNoTracking().ToListAsync();
+    var ids = new HashSet<Guid> { id };
+    var changed = true;
+    while (changed)
+    {
+        changed = false;
+        foreach (var child in allCourses.Where(x => x.ParentCourseId.HasValue && ids.Contains(x.ParentCourseId.Value)))
+        {
+            if (ids.Add(child.Id)) changed = true;
+        }
+    }
+
+    var courseIds = ids.ToList();
+    var conspects = await db.Conspects.Where(x => courseIds.Contains(x.CourseId)).ToListAsync();
+    var conspectIds = conspects.Select(x => x.Id).ToList();
+    var pages = await db.Pages.Where(x => courseIds.Contains(x.CourseId)).ToListAsync();
+    var courseTaskLinks = await db.CourseTaskLinks.Where(x => courseIds.Contains(x.CourseId)).ToListAsync();
+    var conspectTaskLinks = conspectIds.Count == 0
+        ? new List<LearningConspectTaskLink>()
+        : await db.ConspectTaskLinks.Where(x => conspectIds.Contains(x.ConspectId)).ToListAsync();
+    var courses = await db.Courses.Where(x => courseIds.Contains(x.Id)).ToListAsync();
+
+    db.ConspectTaskLinks.RemoveRange(conspectTaskLinks);
+    db.CourseTaskLinks.RemoveRange(courseTaskLinks);
+    db.Pages.RemoveRange(pages);
+    db.Conspects.RemoveRange(conspects);
+    db.Courses.RemoveRange(courses);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        courseIdDeleted = id,
+        sectionCode = course.SectionCode,
+        coursesDeleted = courses.Count,
+        conspectsDeleted = conspects.Count,
+        pagesDeleted = pages.Count,
+        courseTaskLinksDeleted = courseTaskLinks.Count,
+        conspectTaskLinksDeleted = conspectTaskLinks.Count
+    });
+});
+
 app.MapPost("/api/admin/learning/courses/{courseId:guid}/pages", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid courseId, [FromBody] CreateLearningPageRequest req) =>
 {
     var courseExists = await db.Courses.AnyAsync(x => x.Id == courseId);
