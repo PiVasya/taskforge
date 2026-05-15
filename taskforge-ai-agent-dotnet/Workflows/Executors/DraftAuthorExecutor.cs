@@ -64,7 +64,7 @@ public sealed class DraftAuthorExecutor
 Правила генерации по COURSE_SKILL_MAP:
 0. COURSE_SKILL_MAP — источник истины. Не выбирай anchor самостоятельно по ключевым словам и не переоценивай курс заново. Не используй заранее зашитую предметную лестницу; следуй только bridgePlan.
 1. Если bridgePlan не пустой, сгенерируй задания строго по bridgePlan: один draft на один step, в том же порядке. Не добавляй лишние шаги сверх bridgePlan и не заменяй план своими любимыми темами.
-2. В extra.assumedSkills/introducedSkills/targetSkills/missingBridgeSkills используй навыки из COURSE_SKILL_MAP. Они могут быть человеческими названиями, а не только заранее известными id.
+2. В extra.assumedSkills/introducedSkills/targetSkills/missingBridgeSkills используй навыки из COURSE_SKILL_MAP. Также добавляй extra.bridgeSkillId = bridgePlan.step.skillId. Навыки могут быть человеческими названиями, но skillId должен быть стабильным идентификатором.
 3. Каждое новое задание должно добавлять один маленький новый навык из bridgePlan.step.introducedSkills. Не используй навыки из mustNotUse и не добавляй темы, которых нет в bridgePlan/targetSkillsAtAnchor.
 4. Первое bridge-задание должно быть проще целевого anchor-задания и не должно требовать больше одного нового умения.
 5. Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания.
@@ -93,6 +93,7 @@ public sealed class DraftAuthorExecutor
       "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
       "tags": ["AI", "черновик"],
       "extra": {
+        "bridgeSkillId": "same value as bridgePlan step.skillId",
         "assumedSkills": ["skills already known before this step"],
         "introducedSkills": ["exactly one main new skill for this step"],
         "targetSkills": ["skills needed by the anchor task"],
@@ -286,13 +287,25 @@ public sealed class DraftAuthorExecutor
             ? bridge.BridgePlan[stepIndex]
             : null;
 
-        draft.Extra["bridgeStepIndex"] ??= stepIndex;
+        draft.Extra["bridgeStepIndex"] = stepIndex;
         if (plannedStep is not null)
         {
-            draft.Extra["courseSkillMapStep"] ??= plannedStep.DeepClone();
-            draft.Extra["assumedSkills"] ??= plannedStep["assumedSkills"]?.DeepClone();
-            draft.Extra["introducedSkills"] ??= plannedStep["introducedSkills"]?.DeepClone();
-            draft.Extra["skillBridgeReason"] ??= plannedStep["reason"]?.DeepClone();
+            if (draft.Extra["introducedSkills"] is not null && draft.Extra["modelIntroducedSkills"] is null)
+                draft.Extra["modelIntroducedSkills"] = draft.Extra["introducedSkills"]!.DeepClone();
+
+            draft.Extra["courseSkillMapStep"] = plannedStep.DeepClone();
+            draft.Extra["assumedSkills"] = plannedStep["assumedSkills"]?.DeepClone();
+            draft.Extra["introducedSkills"] = plannedStep["introducedSkills"]?.DeepClone();
+            draft.Extra["skillBridgeReason"] = plannedStep["reason"]?.DeepClone();
+
+            var skillId = plannedStep["skillId"]?.ToString();
+            if (string.IsNullOrWhiteSpace(skillId))
+                skillId = CourseSkillAnalyzer.NormalizeSkillId(string.Join(" ", ReadStringArray(plannedStep["introducedSkills"])));
+            if (!string.IsNullOrWhiteSpace(skillId))
+            {
+                draft.Extra["bridgeSkillId"] = skillId;
+                draft.Extra["introducedSkillIds"] = ToJsonArray(new[] { skillId });
+            }
         }
         draft.Extra["insertBeforeAssignmentId"] ??= bridge.BeforeAssignmentId?.ToString();
         draft.Extra["previousAssignmentTitle"] ??= bridge.PreviousTitle;
@@ -401,9 +414,11 @@ public sealed class DraftAuthorExecutor
 
     private static List<DraftSpec> NormalizeDraftOrder(List<DraftSpec> drafts)
     {
+        var sourceIndexes = drafts.Where(x => x.SourceTaskIndex.HasValue).Select(x => x.SourceTaskIndex!.Value).ToList();
+        var looksOneBased = sourceIndexes.Count > 0 && sourceIndexes.Min() == 1 && !sourceIndexes.Contains(0);
         return drafts
-            .Select((draft, index) => new { draft, index })
-            .OrderBy(x => x.draft.SourceTaskIndex ?? x.index)
+            .Select((draft, index) => new { draft, index, sort = draft.SourceTaskIndex.HasValue ? (looksOneBased ? draft.SourceTaskIndex.Value - 1 : draft.SourceTaskIndex.Value) : index })
+            .OrderBy(x => x.sort)
             .ThenBy(x => x.index)
             .Select(x => x.draft)
             .ToList();

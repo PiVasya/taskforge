@@ -138,7 +138,22 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
 
     private async Task RunMultiDraftAsync(WorkflowState state, string context, string plan, CancellationToken cancellationToken)
     {
-        var drafts = await _author.ExecuteManyAsync(state, context, plan, 0, 5, cancellationToken);
+        List<DraftSpec> drafts;
+        try
+        {
+            drafts = await _author.ExecuteManyAsync(state, context, plan, 0, 5, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            state.Notes.Add($"Draft generation failed before validation: {ex.GetType().Name}: {ex.Message}");
+            state.Data["draftGenerationError"] = new JsonObject
+            {
+                ["type"] = ex.GetType().Name,
+                ["message"] = ex.Message
+            };
+            return;
+        }
+
         var accepted = new List<DraftSpec>();
 
         foreach (var draft in drafts)
@@ -164,6 +179,8 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
     {
         var issues = new List<string>();
         AddArrayItems(issues, critique["staticCritique"]?["issues"] as JsonArray);
+        AddArrayItems(issues, critique["bridgeCritique"]?["blockingIssues"] as JsonArray);
+        AddArrayItems(issues, critique["bridgeCritique"]?["advisoryIssues"] as JsonArray);
         AddArrayItems(issues, critique["modelCritique"]?["issues"] as JsonArray);
         AddArrayItems(issues, critique["modelCritique"]?["repairHints"] as JsonArray);
         AddArrayItems(issues, critique["validation"]?["shape"]?["issues"] as JsonArray);

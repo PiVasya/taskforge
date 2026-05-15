@@ -81,7 +81,64 @@ internal static class CourseSkillAnalyzer
             .ToList();
     }
 
+    public static IReadOnlyList<string> DetectCanonicalSkillIds(string? text)
+    {
+        var normalized = NormalizeForSkillId(text);
+        if (string.IsNullOrWhiteSpace(normalized)) return Array.Empty<string>();
 
+        var result = new List<string>();
+        void AddIf(bool condition, string id)
+        {
+            if (condition && !result.Contains(id, StringComparer.OrdinalIgnoreCase)) result.Add(id);
+        }
+
+        AddIf(ContainsAny(normalized, "tryparse", "try parse", "валидац", "некоррект", "ошибк ввода", "безопасн"), "input-validation");
+        AddIf(ContainsAny(normalized, "split", "через пробел", "одной строке", "в одной строке", "раздел", "токен"), "split-input");
+        AddIf(ContainsAny(normalized, "две строки", "три строки", "несколько строк", "каждое на отдельной", "последовательн ввод", "нескольких значений"), "multi-line-input");
+        AddIf(ContainsAny(normalized, "int.parse", "convert.toint32", "parse", "парсинг", "преобразован", "строки в int", "строку в int", "строку в число", "целое число"), "parse-int");
+        AddIf(ContainsAny(normalized, "console.readline", "readline", "stdin", "с клавиатур", "стандартного ввода", "читать входную строку", "прочитай строк", "считай строк", "ввод строк", "входную строку", "ввода данных"), "console-input-line");
+        AddIf(ContainsAny(normalized, "console.writeline", "console.write", "stdout", "вывод", "вывести", "напечат"), "console-output");
+        AddIf(ContainsAny(normalized, "string.length", "длин", "length"), "string-length");
+        AddIf(ContainsAny(normalized, "переменн", "variable", "var ", " int ", " string ", "сохран", "значение"), "variables");
+        AddIf(ContainsAny(normalized, "арифмет", "сумм", "слож", "прибав", "вычит", "умнож", "делен", "остат", "+1"), "arithmetic");
+        AddIf(ContainsAny(normalized, "услов", "если", "иначе", " if ", " else "), "conditions");
+        AddIf(ContainsAny(normalized, "цикл", " for ", " while ", "повтор"), "loops");
+        AddIf(ContainsAny(normalized, "массив", "array", "элемент", "индекс"), "arrays");
+        AddIf(ContainsAny(normalized, "строков", "литерал", "кавыч", "конкатенац", "интерполяц", "текст"), "strings");
+        return result;
+    }
+
+    public static string NormalizeSkillId(string? text)
+    {
+        var direct = NormalizeForSkillId(text).Trim();
+        if (string.IsNullOrWhiteSpace(direct)) return string.Empty;
+        var detected = DetectCanonicalSkillIds(text);
+        if (detected.Count > 0) return detected[0];
+
+        var alias = direct switch
+        {
+            "input" or "stdin" or "readline" => "console-input-line",
+            "output" or "stdout" => "console-output",
+            "parse" or "int-parse" or "numeric-parse" => "parse-int",
+            "string-input" => "console-input-line",
+            _ => null
+        };
+        if (!string.IsNullOrWhiteSpace(alias)) return alias;
+
+        if (Regex.IsMatch(direct, @"^[a-z][a-z0-9-]{2,}$", RegexOptions.CultureInvariant))
+            return direct;
+
+        var slug = Regex.Replace(direct, @"[^a-z0-9а-я+#<>.]+", "-").Trim('-');
+        return slug.Length <= 60 ? slug : slug[..60].Trim('-');
+    }
+
+    private static JsonArray ToSkillIdArray(IEnumerable<string> values)
+    {
+        var arr = new JsonArray();
+        foreach (var id in values.Select(NormalizeSkillId).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            arr.Add(id);
+        return arr;
+    }
 
     public static JsonObject BuildSkillMapInput(JsonElement payload, string userText, int maxAssignments = 120)
     {
@@ -92,10 +149,11 @@ internal static class CourseSkillAnalyzer
             ["course"] = CloneOrNull(payload.GetPropertyOrDefault("course")),
             ["selectedCourse"] = CloneOrNull(payload.GetPropertyOrDefault("courseDigest").GetPropertyOrDefault("selectedCourse")),
             ["targetConcepts"] = CloneOrNull(payload.GetPropertyOrDefault("targetConcepts")),
-            ["note"] = "This is the only context the skill-map step should use. Ignore courseCatalog/courseContexts from the full payload."
+            ["note"] = "This is the only context the skill-map step should use. Ignore courseCatalog/courseContexts from the full payload. assignments excludes hidden/AI drafts; existingAiDrafts are warnings only and must not count as acquired student skills."
         };
 
         var assignments = new JsonArray();
+        var existingAiDrafts = new JsonArray();
         var seen = new HashSet<Guid>();
         foreach (var item in EnumeratePreferredAssignments(payload))
         {
@@ -106,7 +164,10 @@ internal static class CourseSkillAnalyzer
             if (!seen.Add(id.Value)) continue;
             if (LooksLikeCourseCatalogItem(item)) continue;
 
-            assignments.Add(new JsonObject
+            var isHidden = GetBool(item, "isHidden") == true;
+            var isAiDraft = GetBool(item, "isAiDraft") == true;
+            var descriptionPreview = Preview(PlainText(GetString(item, "descriptionPreview", "description", "condition", "body")), 700);
+            var row = new JsonObject
             {
                 ["assignmentId"] = id.Value.ToString(),
                 ["position"] = GetInt(item, "index", "position", "sort") ?? assignments.Count,
@@ -117,16 +178,36 @@ internal static class CourseSkillAnalyzer
                 ["rating"] = GetInt(item, "rating"),
                 ["tags"] = GetString(item, "tags"),
                 ["allowedLanguages"] = CloneOrNull(item.GetPropertyOrDefault("allowedLanguages")),
-                ["descriptionPreview"] = Preview(PlainText(GetString(item, "descriptionPreview", "description", "condition", "body")), 700),
+                ["descriptionPreview"] = descriptionPreview,
                 ["conceptHints"] = CloneOrNull(item.GetPropertyOrDefault("conceptHints")),
                 ["contentSummary"] = CloneOrNull(item.GetPropertyOrDefault("contentSummary")),
                 ["testCases"] = CompactTestCases(item.GetPropertyOrDefault("testCases")),
-                ["isHidden"] = GetBool(item, "isHidden") == true,
-                ["isAiDraft"] = GetBool(item, "isAiDraft") == true
-            });
+                ["isHidden"] = isHidden,
+                ["isAiDraft"] = isAiDraft
+            };
+
+            // AI drafts are useful as dedupe/context warnings, but they must not become
+            // the canonical course sequence used for skill-map reasoning. Otherwise the
+            // agent learns from its own previous mistakes and rejects/places new drafts
+            // based on stale hidden material.
+            if (isHidden || isAiDraft)
+            {
+                existingAiDrafts.Add(new JsonObject
+                {
+                    ["assignmentId"] = id.Value.ToString(),
+                    ["position"] = row["position"]?.DeepClone(),
+                    ["title"] = title,
+                    ["descriptionPreview"] = descriptionPreview,
+                    ["reason"] = isAiDraft ? "existing AI draft; do not count as acquired student skill" : "hidden assignment; do not count as canonical visible course step"
+                });
+                continue;
+            }
+
+            assignments.Add(row);
         }
 
         root["assignments"] = assignments;
+        root["existingAiDrafts"] = existingAiDrafts;
         root["assignmentCount"] = assignments.Count;
         root["fallbackWarning"] = assignments.Count == 0
             ? "No assignments were found in courseDigest/courseOutline/focusAssignments. Do not invent an anchor."
@@ -156,7 +237,7 @@ internal static class CourseSkillAnalyzer
             var acquiredSkills = ReadStringArrayOrFallback(root["acquiredSkillsBeforeAnchor"], fallback.AcquiredSkills);
             var targetSkills = ReadStringArrayOrFallback(root["targetSkillsAtAnchor"] ?? root["targetSkills"], fallback.TargetSkills);
             var missingSkills = ReadStringArrayOrFallback(root["missingBridgeSkills"] ?? root["missingSkills"], fallback.MissingBridgeSkills);
-            var bridgePlan = ReadObjectArray(root["bridgePlan"]).ToList();
+            var bridgePlan = NormalizeBridgePlan(ReadObjectArray(root["bridgePlan"]).ToList()).ToList();
 
             if (missingSkills.Count == 0 && bridgePlan.Count > 0)
             {
@@ -191,7 +272,26 @@ internal static class CourseSkillAnalyzer
     {
         var candidates = new List<AssignmentSkillCandidate>();
         CollectAssignmentCandidates(payload, candidates, 0);
-        return candidates.Select(x => x.Id).ToHashSet();
+        return candidates.Where(x => !x.IsHidden && !x.IsAiDraft).Select(x => x.Id).ToHashSet();
+    }
+
+    private static IReadOnlyList<JsonObject> NormalizeBridgePlan(IReadOnlyList<JsonObject> steps)
+    {
+        var result = new List<JsonObject>();
+        foreach (var source in steps)
+        {
+            var step = source.DeepClone().AsObject();
+            var introduced = ReadStringArray(step["introducedSkills"]).ToList();
+            var skillSeed = string.Join(" ", introduced.Concat(ReadStringArray(step["titleHint"])).Concat(ReadStringArray(step["reason"])));
+            var skillId = step["skillId"]?.ToString();
+            if (string.IsNullOrWhiteSpace(skillId)) skillId = NormalizeSkillId(skillSeed);
+
+            step["step"] = result.Count;
+            if (!string.IsNullOrWhiteSpace(skillId)) step["skillId"] = skillId;
+            step["introducedSkillIds"] = ToSkillIdArray(!string.IsNullOrWhiteSpace(skillId) ? new[] { skillId } : (introduced.Count > 0 ? introduced : new[] { skillSeed }));
+            result.Add(step);
+        }
+        return result;
     }
 
     private static List<JsonObject> BuildModelNeighborhood(JsonObject root, CourseSkillBridgeContext fallback)
@@ -209,6 +309,7 @@ internal static class CourseSkillAnalyzer
                     ["summary"] = item["summary"]?.ToString(),
                     ["requiresSkills"] = ToJsonArray(ReadStringArray(item["requiresSkills"])),
                     ["introducesSkills"] = ToJsonArray(ReadStringArray(item["introducesSkills"])),
+                    ["introducedSkillIds"] = ToSkillIdArray(ReadStringArray(item["introducesSkills"])),
                     ["studentHasAfter"] = ToJsonArray(ReadStringArray(item["studentHasAfter"])),
                     ["isRelevantToRequest"] = item["isRelevantToRequest"]?.ToString()
                 });
@@ -238,6 +339,7 @@ internal static class CourseSkillAnalyzer
                     ["title"] = item["title"]?.ToString(),
                     ["summary"] = item["summary"]?.ToString(),
                     ["introducesSkills"] = ToJsonArray(ReadStringArray(item["introducesSkills"])),
+                    ["introducedSkillIds"] = ToSkillIdArray(ReadStringArray(item["introducesSkills"])),
                     ["studentHasAfter"] = ToJsonArray(ReadStringArray(item["studentHasAfter"]))
                 });
             }
@@ -430,6 +532,7 @@ internal static class CourseSkillAnalyzer
 
     private static IEnumerable<JsonElement> EnumeratePreferredAssignments(JsonElement payload)
     {
+        var selectedCourseId = GetCurrentCourseId(payload);
         foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("courseDigest").GetPropertyOrDefault("assignments"))) yield return item;
         foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("courseOutline"))) yield return item;
         foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("focusAssignments"))) yield return item;
@@ -437,8 +540,21 @@ internal static class CourseSkillAnalyzer
         foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("assignments"))) yield return item;
         foreach (var context in EnumerateArray(payload.GetPropertyOrDefault("courseContexts")))
         {
+            var contextCourseId = GetGuid(context, "courseId", "id")
+                                  ?? GetGuid(context.GetPropertyOrDefault("course"), "id")
+                                  ?? GetGuid(context.GetPropertyOrDefault("selectedCourse"), "id");
+            if (selectedCourseId.HasValue && contextCourseId.HasValue && selectedCourseId.Value != contextCourseId.Value)
+                continue;
+
             foreach (var item in EnumerateArray(context.GetPropertyOrDefault("assignments"))) yield return item;
         }
+    }
+
+    private static Guid? GetCurrentCourseId(JsonElement payload)
+    {
+        return GetGuid(payload, "courseId")
+               ?? GetGuid(payload.GetPropertyOrDefault("course"), "id")
+               ?? GetGuid(payload.GetPropertyOrDefault("courseDigest").GetPropertyOrDefault("selectedCourse"), "id");
     }
 
     private static IEnumerable<JsonElement> EnumerateArray(JsonElement element)
@@ -544,6 +660,15 @@ internal static class CourseSkillAnalyzer
 
     private static bool ContainsAny(string text, params string[] needles)
         => needles.Any(needle => text.Contains(Normalize(needle), StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeForSkillId(string? value)
+    {
+        var text = Normalize(value);
+        // Common OCR/model mix-ups in Russian words, for example "читaть" with Latin a.
+        text = text.Replace("читa", "чита").Replace("считa", "счита");
+        text = text.Replace("`", string.Empty);
+        return $" {text} ";
+    }
 
     private static string Normalize(string? value)
     {

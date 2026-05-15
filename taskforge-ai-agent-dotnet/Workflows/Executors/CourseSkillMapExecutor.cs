@@ -68,9 +68,11 @@ public sealed class CourseSkillMapExecutor
 - Backend может дать контекст и fallback, но источником истины является твоя COURSE_SKILL_MAP.
 - Не путай похожие по написанию термины; оценивай действие задания по смыслу, формату ввода/вывода и тестам.
 - Если в контексте есть мусорные/чужие соседние элементы, укажи их в warnings и не используй как основу для педагогического мостика.
-- Используй только assignmentId из контекста. Если не уверен в точке вставки, поставь insertBeforeAssignmentId = null и объясни reason.
+- Используй только assignmentId из COURSE_SKILL_MAP_INPUT.assignments. Если не уверен в точке вставки, поставь insertBeforeAssignmentId = null и объясни reason.
+- COURSE_SKILL_MAP_INPUT.existingAiDrafts — это уже существующие скрытые/AI-черновики. Не считай их частью основного курса и не добавляй их навыки в acquiredSkillsBeforeAnchor; используй их только как предупреждение против дублей.
 - Bridge-план должен быть настолько коротким, насколько нужно. Не надо делать 5 шагов, если достаточно 2-3.
 - Каждый bridge-шаг вводит один маленький новый навык и не использует будущие навыки.
+- В каждом bridgePlan step обязательно добавь стабильный skillId: короткий kebab-case идентификатор навыка, например console-input-line, parse-int, multi-line-input. step нумеруй с 0.
 - Если пользователь просит обучалки/мостик, сначала явно опиши acquiredSkillsBeforeAnchor и targetSkillsAtAnchor, потом missingBridgeSkills, потом bridgePlan.
 - Если курс уже содержит нужные подготовительные задания или точка вставки не ясна, верни пустой bridgePlan и предупреждение; не притягивай задания силой.
 
@@ -111,6 +113,7 @@ COURSE_SKILL_MAP_INPUT:
   "bridgePlan": [
     {
       "step": 0,
+      "skillId": "stable-kebab-case-skill-id",
       "titleHint": "короткое student-facing название",
       "assumedSkills": ["что уже можно использовать"],
       "introducedSkills": ["ровно один главный новый навык"],

@@ -123,21 +123,22 @@ public sealed class ValidationTools
     [Description("Critique a draft deterministically for common educational quality problems before asking the model critic.")]
     public Task<JsonObject> StaticDraftCritiqueAsync(JsonObject draft)
     {
-        var issues = new JsonArray();
+        var blocking = new JsonArray();
+        var advisory = new JsonArray();
         var title = draft["title"]?.ToString() ?? string.Empty;
         var description = draft["description"]?.ToString() ?? string.Empty;
-        if (description.Length < 120) issues.Add("description is probably too short for a student-facing assignment");
+        if (description.Length < 120) advisory.Add("description is short; consider adding clearer input/output notes, but this is not a blocker if tests and runner pass");
 
         if (ContainsAny(title, "Подготовка к заданию", "AI-черновик", "hidden draft"))
-            issues.Add("title contains service/debug wording instead of a student-facing assignment name");
+            blocking.Add("title contains service/debug wording instead of a student-facing assignment name");
         if (Regex.IsMatch(title, @"задани[ея]\s+\d+\s+\d+\.", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            issues.Add("title looks like a technical insertion marker, not a course assignment title");
+            blocking.Add("title looks like a technical insertion marker, not a course assignment title");
 
         if (ContainsAny(description, "Место в курсе", "подготовительное задание после", "перед Задание", "после List<T>", "sourceAgent", "AI-черновик"))
-            issues.Add("description contains service/course-placement wording that should stay in metadata, not in the student-facing text");
+            blocking.Add("description contains service/course-placement wording that should stay in metadata, not in the student-facing text");
 
         if (HasUnwrappedCodeToken(description))
-            issues.Add("student-facing code tokens must be wrapped in backticks, for example `Console.ReadLine()` and `int.Parse(...)`");
+            blocking.Add("student-facing code tokens must be wrapped in backticks, for example `Console.ReadLine()` and `int.Parse(...)`");
 
         var tags = draft["tags"]?.ToString() ?? string.Empty;
         var extra = draft["extra"] as JsonObject;
@@ -148,24 +149,30 @@ public sealed class ValidationTools
         {
             var introducedSkills = ReadStringArray(extra?["introducedSkills"]).ToList();
             if (introducedSkills.Count == 0)
-                issues.Add("learning-bridge draft must declare introducedSkills in extra metadata");
+                blocking.Add("learning-bridge draft must declare introducedSkills in extra metadata");
             if (introducedSkills.Count > 1)
-                issues.Add("learning-bridge draft should introduce one main new skill, not several at once");
+                advisory.Add("learning-bridge draft declares several introducedSkills strings; bridge critic will normalize them to skill ids before deciding whether this is blocking");
         }
 
         if ((draft["assignmentType"]?.ToString() ?? "") == "code-test")
         {
             if (!ContainsAny(description, "ввод", "вход", "input", "stdin", "формат ввода"))
-                issues.Add("code-test description should explain input format");
+                advisory.Add("code-test description should explain input format");
             if (!ContainsAny(description, "вывод", "выход", "output", "stdout", "формат вывода"))
-                issues.Add("code-test description should explain output format");
+                advisory.Add("code-test description should explain output format");
         }
+
+        var issues = new JsonArray();
+        foreach (var item in blocking) issues.Add(item?.DeepClone());
+        foreach (var item in advisory) issues.Add(item?.DeepClone());
 
         return Task.FromResult(new JsonObject
         {
-            ["isAccepted"] = issues.Count == 0,
-            ["score"] = issues.Count == 0 ? 92 : Math.Max(35, 92 - issues.Count * 18),
-            ["issues"] = issues
+            ["isAccepted"] = blocking.Count == 0,
+            ["score"] = blocking.Count == 0 ? (advisory.Count == 0 ? 92 : 82) : Math.Max(35, 92 - blocking.Count * 22 - advisory.Count * 4),
+            ["issues"] = issues,
+            ["blockingIssues"] = blocking,
+            ["advisoryIssues"] = advisory
         });
     }
 

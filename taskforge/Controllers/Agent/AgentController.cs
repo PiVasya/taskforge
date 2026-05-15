@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Data;
+using System.Data.Common;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -839,6 +841,79 @@ namespace taskforge.Controllers.Agent
             public int DataJsonLength { get; set; }
         }
 
+        private async Task<List<DebugAgentArtifactRow>> LoadDebugAgentArtifactsAsync(IReadOnlyList<Guid> runIds, CancellationToken ct)
+        {
+            var result = new List<DebugAgentArtifactRow>();
+            if (runIds.Count == 0) return result;
+
+            var connection = _db.Database.GetDbConnection();
+            var shouldClose = connection.State != ConnectionState.Open;
+            if (shouldClose) await connection.OpenAsync(ct);
+            try
+            {
+                await using var command = connection.CreateCommand();
+                var parameterNames = new List<string>();
+                for (var i = 0; i < runIds.Count; i++)
+                {
+                    var parameter = command.CreateParameter();
+                    parameter.ParameterName = "@p" + i;
+                    parameter.Value = runIds[i];
+                    command.Parameters.Add(parameter);
+                    parameterNames.Add(parameter.ParameterName);
+                }
+
+                command.CommandText = $"""
+                    SELECT "Id", "RunId", "Type", "Title", "StorageKey", "ContentHash", "DataJson"
+                    FROM "AgentRunArtifacts"
+                    WHERE "RunId" IN ({string.Join(",", parameterNames)})
+                    ORDER BY "Id"
+                    """;
+
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    var id = ReadGuidOrDefault(reader, "Id");
+                    if (id == Guid.Empty) continue;
+                    var dataJson = ReadStringOrNull(reader, "DataJson") ?? "{}";
+                    result.Add(new DebugAgentArtifactRow
+                    {
+                        Id = id,
+                        RunId = ReadGuidOrNull(reader, "RunId"),
+                        Type = ReadStringOrNull(reader, "Type"),
+                        Title = ReadStringOrNull(reader, "Title"),
+                        StorageKey = ReadStringOrNull(reader, "StorageKey"),
+                        ContentHash = ReadStringOrNull(reader, "ContentHash"),
+                        RawDataJson = dataJson,
+                        Data = ParseJson(dataJson),
+                        DataJsonLength = dataJson.Length
+                    });
+                }
+            }
+            finally
+            {
+                if (shouldClose) await connection.CloseAsync();
+            }
+
+            return result;
+        }
+
+        private static Guid ReadGuidOrDefault(DbDataReader reader, string name)
+            => ReadGuidOrNull(reader, name) ?? Guid.Empty;
+
+        private static Guid? ReadGuidOrNull(DbDataReader reader, string name)
+        {
+            var ordinal = reader.GetOrdinal(name);
+            if (reader.IsDBNull(ordinal)) return null;
+            return reader.GetGuid(ordinal);
+        }
+
+        private static string? ReadStringOrNull(DbDataReader reader, string name)
+        {
+            var ordinal = reader.GetOrdinal(name);
+            if (reader.IsDBNull(ordinal)) return null;
+            return reader.GetString(ordinal);
+        }
+
         private async Task<object> BuildAgentDebugDumpAsync(Guid conversationId, CancellationToken ct)
         {
             var conversation = await _db.AgentConversations
@@ -940,26 +1015,7 @@ namespace taskforge.Controllers.Agent
             List<DebugAgentArtifactRow> artifacts;
             try
             {
-                artifacts = await _db.AgentRunArtifacts
-                    .AsNoTracking()
-                    .Where(x => runIds.Contains(x.RunId))
-                    .OrderBy(x => x.Id)
-                    .Select(x => new DebugAgentArtifactRow
-                    {
-                        Id = x.Id,
-                        RunId = (Guid?)x.RunId,
-                        Type = x.Type,
-                        Title = x.Title,
-                        StorageKey = x.StorageKey,
-                        ContentHash = x.ContentHash,
-                        // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
-                        // when the EF model has a non-null timestamp; projecting it through EF can throw
-                        // "Nullable object must have a value" and break the whole debug dump.
-                        RawDataJson = x.DataJson,
-                        Data = ParseJson(x.DataJson),
-                        DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
-                    })
-                    .ToListAsync(ct);
+                artifacts = await LoadDebugAgentArtifactsAsync(runIds, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {

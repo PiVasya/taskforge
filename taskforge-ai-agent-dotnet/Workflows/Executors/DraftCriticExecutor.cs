@@ -81,55 +81,146 @@ Static critique:
 
     private static JsonObject EvaluateBridgeConsistency(WorkflowState state)
     {
-        var issues = new JsonArray();
+        var blocking = new JsonArray();
+        var advisory = new JsonArray();
         var draft = state.Draft;
         var bridge = state.CourseSkillBridge;
         if (draft == null || bridge == null || !bridge.IsBridgeRequest)
         {
-            return new JsonObject { ["isAccepted"] = true, ["score"] = 100, ["issues"] = issues };
+            return new JsonObject { ["isAccepted"] = true, ["score"] = 100, ["issues"] = blocking, ["advisoryIssues"] = advisory };
         }
 
         var hasPlan = bridge.BridgePlan is { Count: > 0 };
         if (!hasPlan)
         {
-            issues.Add("learning-bridge requires a COURSE_SKILL_MAP bridgePlan; draft generation must not invent tasks without it");
-            return new JsonObject { ["isAccepted"] = false, ["score"] = 20, ["issues"] = issues };
+            blocking.Add("learning-bridge requires a COURSE_SKILL_MAP bridgePlan; draft generation must not invent tasks without it");
+            return new JsonObject { ["isAccepted"] = false, ["score"] = 20, ["issues"] = blocking, ["blockingIssues"] = blocking.DeepClone(), ["advisoryIssues"] = advisory };
         }
 
-        var stepIndex = ReadInt(draft.Extra["bridgeStepIndex"]) ?? draft.SourceTaskIndex ?? 0;
+        var stepIndex = NormalizeBridgeStepIndex(ReadInt(draft.Extra["bridgeStepIndex"]) ?? draft.SourceTaskIndex ?? 0, bridge.BridgePlan!.Count);
         JsonObject? plannedStep = null;
         if (stepIndex >= 0 && stepIndex < bridge.BridgePlan!.Count)
             plannedStep = bridge.BridgePlan[stepIndex];
         if (plannedStep == null)
         {
-            issues.Add($"draft bridgeStepIndex {stepIndex} does not exist in COURSE_SKILL_MAP bridgePlan");
-            return new JsonObject { ["isAccepted"] = false, ["score"] = 20, ["issues"] = issues };
+            blocking.Add($"draft bridgeStepIndex {stepIndex} does not exist in COURSE_SKILL_MAP bridgePlan");
+            return new JsonObject { ["isAccepted"] = false, ["score"] = 20, ["issues"] = blocking, ["blockingIssues"] = blocking.DeepClone(), ["advisoryIssues"] = advisory };
         }
 
         var introduced = ReadStringArray(draft.Extra["introducedSkills"]).ToList();
+        var modelIntroduced = ReadStringArray(draft.Extra["modelIntroducedSkills"]).ToList();
         var plannedIntroduced = ReadStringArray(plannedStep["introducedSkills"]).ToList();
-        if (introduced.Count == 0)
-            issues.Add("learning-bridge draft must declare introducedSkills from its COURSE_SKILL_MAP step");
-        if (introduced.Count > 1)
-            issues.Add("learning-bridge draft introduces more than one main skill");
-        if (plannedIntroduced.Count > 0 && introduced.Count > 0 && !introduced.Any(x => plannedIntroduced.Contains(x, StringComparer.OrdinalIgnoreCase)))
-            issues.Add("draft introducedSkills do not match the planned COURSE_SKILL_MAP step");
+        var plannedSkillIds = BuildSkillIdSet(
+            ReadStringArray(plannedStep["introducedSkillIds"])
+                .Concat(ReadStringArray(plannedStep["skillId"]))
+                .Concat(plannedIntroduced)
+                .Concat(ReadStringArray(plannedStep["titleHint"]))
+                .Concat(ReadStringArray(plannedStep["reason"])));
 
-        var text = $"{draft.Title} {draft.Description} {draft.ReferenceSolution}".ToLowerInvariant();
+        var draftSkillIds = BuildSkillIdSet(
+            ReadStringArray(draft.Extra["introducedSkillIds"])
+                .Concat(ReadStringArray(draft.Extra["bridgeSkillId"]))
+                .Concat(introduced)
+                .Concat(modelIntroduced)
+                .Concat(CourseSkillAnalyzer.DetectCanonicalSkillIds($"{draft.Title} {draft.Description} {draft.ReferenceSolution}")));
+
+        if (introduced.Count == 0 && modelIntroduced.Count == 0 && draftSkillIds.Count == 0)
+            blocking.Add("learning-bridge draft must declare or clearly demonstrate introducedSkills from its COURSE_SKILL_MAP step");
+
+        if (draftSkillIds.Count > 1)
+        {
+            var allowedExtra = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "console-output", "variables", "strings", "arithmetic" };
+            var newSkillIds = draftSkillIds.Where(id => !allowedExtra.Contains(id) || plannedSkillIds.Contains(id)).ToList();
+            if (newSkillIds.Count(id => !plannedSkillIds.Contains(id)) > 0)
+                blocking.Add("learning-bridge draft appears to introduce extra future skills beyond the planned step");
+            else if (plannedSkillIds.Count <= 1)
+                advisory.Add("draft mentions support skills together with the main bridge skill; accepted because they are already allowed/basic skills");
+        }
+
+        if (plannedSkillIds.Count > 0 && draftSkillIds.Count > 0 && !draftSkillIds.Overlaps(plannedSkillIds))
+            blocking.Add($"draft skill ids [{string.Join(", ", draftSkillIds)}] do not match planned skill ids [{string.Join(", ", plannedSkillIds)}]");
+
+        var usedSkillIds = BuildSkillIdSet(CourseSkillAnalyzer.DetectCanonicalSkillIds($"{draft.Title} {draft.Description} {draft.ReferenceSolution}"));
+        var normalizedText = NormalizeForLooseContains($"{draft.Title} {draft.Description} {draft.ReferenceSolution}");
         foreach (var forbidden in ReadStringArray(plannedStep["mustNotUse"]))
         {
-            var needle = NormalizeForLooseContains(forbidden);
-            if (needle.Length >= 4 && NormalizeForLooseContains(text).Contains(needle, StringComparison.OrdinalIgnoreCase))
-                issues.Add($"draft appears to use future/forbidden skill from mustNotUse: {forbidden}");
+            var forbiddenIds = BuildSkillIdSet(CourseSkillAnalyzer.DetectCanonicalSkillIds(forbidden));
+            if (forbiddenIds.Count > 0)
+            {
+                foreach (var id in forbiddenIds)
+                {
+                    if (!plannedSkillIds.Contains(id) && usedSkillIds.Contains(id))
+                        blocking.Add($"draft appears to use future/forbidden skill from mustNotUse: {forbidden}");
+                }
+                continue;
+            }
+
+            foreach (var token in ExtractSignificantForbiddenTokens(forbidden))
+            {
+                if (normalizedText.Contains(token, StringComparison.OrdinalIgnoreCase))
+                    blocking.Add($"draft appears to use future/forbidden token from mustNotUse: {forbidden}");
+            }
         }
+
+        var accepted = blocking.Count == 0;
+        var issues = new JsonArray();
+        foreach (var item in blocking) issues.Add(item?.DeepClone());
+        foreach (var item in advisory) issues.Add(item?.DeepClone());
 
         return new JsonObject
         {
-            ["isAccepted"] = issues.Count == 0,
-            ["score"] = issues.Count == 0 ? 96 : Math.Max(25, 96 - issues.Count * 22),
+            ["isAccepted"] = accepted,
+            ["score"] = accepted ? (advisory.Count == 0 ? 96 : 88) : Math.Max(25, 96 - blocking.Count * 24 - advisory.Count * 4),
             ["issues"] = issues,
+            ["blockingIssues"] = blocking,
+            ["advisoryIssues"] = advisory,
+            ["plannedSkillIds"] = ToJsonArray(plannedSkillIds),
+            ["draftSkillIds"] = ToJsonArray(draftSkillIds),
             ["plannedStep"] = plannedStep.DeepClone()
         };
+    }
+
+    private static int NormalizeBridgeStepIndex(int stepIndex, int planCount)
+    {
+        if (stepIndex >= 0 && stepIndex < planCount) return stepIndex;
+        if (stepIndex > 0 && stepIndex <= planCount) return stepIndex - 1;
+        return stepIndex;
+    }
+
+    private static HashSet<string> BuildSkillIdSet(IEnumerable<string> values)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in values)
+        {
+            var detectedValues = CourseSkillAnalyzer.DetectCanonicalSkillIds(value).ToList();
+            if (detectedValues.Count > 0)
+            {
+                foreach (var detected in detectedValues)
+                    if (!string.IsNullOrWhiteSpace(detected)) result.Add(detected);
+                continue;
+            }
+
+            var direct = CourseSkillAnalyzer.NormalizeSkillId(value);
+            if (!string.IsNullOrWhiteSpace(direct)) result.Add(direct);
+        }
+        return result;
+    }
+
+    private static JsonArray ToJsonArray(IEnumerable<string> values)
+    {
+        var arr = new JsonArray();
+        foreach (var value in values.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase)) arr.Add(value);
+        return arr;
+    }
+
+    private static IEnumerable<string> ExtractSignificantForbiddenTokens(string value)
+    {
+        var normalized = NormalizeForLooseContains(value);
+        foreach (var token in Regex.Split(normalized, @"[^a-zа-я0-9_.]+", RegexOptions.IgnoreCase))
+        {
+            var clean = token.Trim();
+            if (clean.Length >= 6) yield return clean;
+        }
     }
 
     private static int? ReadInt(JsonNode? node)
@@ -213,15 +304,12 @@ Static critique:
         var text = string.Join(" ", ReadIssueTexts(obj["issues"] as JsonArray)).ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(text)) return false;
 
-        return text.Contains("больше одного нового навыка")
-               || text.Contains("не соответствует course_skill_map")
-               || text.Contains("не соответствует skill")
-               || text.Contains("mustnotuse")
+        return text.Contains("mustnotuse")
                || text.Contains("must not use")
-               || text.Contains("слишком слож")
-               || text.Contains("резкий скачок")
                || text.Contains("использует будущ")
-               || text.Contains("не вход") && text.Contains("bridgeplan");
+               || text.Contains("future skill")
+               || text.Contains("forbidden skill")
+               || text.Contains("запрещ") && text.Contains("навык");
     }
 
     private static IEnumerable<string> ReadIssueTexts(JsonArray? arr)
