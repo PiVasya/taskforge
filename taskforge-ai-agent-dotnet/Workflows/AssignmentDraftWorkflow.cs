@@ -98,8 +98,6 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         var bridge = state.CourseSkillBridge;
         if (bridge == null) return false;
         if (!bridge.IsBridgeRequest) return false;
-        if (state.Job.CourseId == null) return false;
-
         var hasLlmMap = string.Equals(bridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase);
         var hasBridgePlan = bridge.BridgePlan is { Count: > 0 };
         var hasAnchor = bridge.BeforeAssignmentId.HasValue;

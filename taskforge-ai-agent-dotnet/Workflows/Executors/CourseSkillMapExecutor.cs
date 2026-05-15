@@ -45,66 +45,137 @@ public sealed class CourseSkillMapExecutor
         var skillMapInput = CourseSkillAnalyzer.BuildSkillMapInput(state.Job.Payload, state.UserText);
         state.Data["skillMapInput"] = skillMapInput.DeepClone();
         var skillMapContext = skillMapInput.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = false });
-        var prompt = $$"""
+        try
+        {
+            var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
+
+            // Stage 1: build a neutral semantic map of the course. This stage is
+            // deliberately NOT allowed to pick an insertion point. It only studies
+            // the actual assignments, examples and tests so the next stage is not
+            // tempted to anchor on a tag, a single keyword, or a hardcoded topic.
+            var semanticPrompt = $$"""
 {{TaskForgeAgentPrompts.Coordinator}}
 
-Задача: оцени курс как педагог и верни COURSE_SKILL_MAP для последующей генерации заданий.
-Это главный reasoning-этап: именно ты строишь модель навыков студента, а не backend-эвристики.
+Ты не генерируешь задания и не выбираешь точку вставки.
+Сначала внимательно изучи задания курса и построй нейтральную карту: что делает каждое задание, какие умения оно требует, какие умения вводит, насколько оно сложное и какие соседние задания образуют смысловые группы.
+
+Запрос пользователя нужен только как контекст, но НЕ подгоняй карту под него:
+{{state.UserText}}
+
+Педагогические предпочтения преподавателя:
+{{teacherPreferences}}
+
+TASKS_ONLY_CONTEXT:
+{{skillMapContext}}
+
+Правила stage 1:
+- Не выбирай anchor / insertBeforeAssignmentId.
+- Не строй bridgePlan.
+- Не опирайся на conceptHints/tags как на доказательство. Это слабые метаданные. Главные доказательства: текст задания, примеры, тесты, reference/summary, формат результата и соседние задания.
+- Если задание только упоминает тему, но не требует её применения, раздели это в evidence: mentionOnly=true.
+- Оценивай все темы одинаково гибко: любая тема курса должна проходить через одну и ту же схему анализа, без специальных веток под конкретную тему.
+
+Верни строго JSON без markdown:
+{
+  "language": "ru|en|...",
+  "courseSummary": "логика курса без выбора anchor",
+  "taskMap": [
+    {
+      "assignmentId": "guid",
+      "position": 0,
+      "title": "...",
+      "studentFacingSummary": "что реально должен сделать студент",
+      "requiresSkills": ["..."],
+      "introducesSkills": ["..."],
+      "mentionsButDoesNotRequire": ["..."],
+      "studentHasAfter": ["..."],
+      "difficulty": 1,
+      "evidence": ["краткие факты из условия/тестов/примеров"],
+      "semanticGroup": "короткое имя группы"
+    }
+  ],
+  "semanticGroups": [
+    {"name":"...", "assignmentIds":["..."], "goal":"...", "startsAtAssignmentId":"guid"}
+  ],
+  "warnings": ["..."]
+}
+""";
+
+            var semanticResponse = await _agent.RunAsync(semanticPrompt, session, cancellationToken: cancellationToken);
+            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+            var semanticText = semanticResponse.Text ?? string.Empty;
+            state.Data["courseSemanticMapRaw"] = semanticText.Length <= 20000 ? semanticText : semanticText[..20000] + "...";
+
+            // Stage 2: choose placement and bridge plan from the neutral map. This
+            // is a separate reasoning step so the model must compare candidate
+            // gaps instead of returning the first superficially matching task.
+            var placementPrompt = $$"""
+{{TaskForgeAgentPrompts.Coordinator}}
+
+Теперь выбери точку вставки и bridgePlan для запроса пользователя.
+Ты получаешь нейтральную карту курса из stage 1 и исходные задания. Не используй hardcoded предметную лестницу и не выбирай первую задачу по тегу/слову.
 
 Запрос пользователя:
 {{state.UserText}}
 
-Педагогические предпочтения преподавателя / память агента:
+Педагогические предпочтения преподавателя:
 {{teacherPreferences}}
 
-Нужно НЕ генерировать задания. Нужно только понять структуру курса:
-1. Какие задания уже идут до точки вставки.
-2. Какие навыки студент уже должен иметь после каждого задания.
-3. В каком задании впервые появляется новый навык из запроса пользователя.
-4. Какие маленькие bridge-шаги нужны перед этой точкой.
+COURSE_SEMANTIC_MAP_FROM_STAGE_1:
+{{semanticText}}
 
-Правила:
-- Не выбирай anchor по одному слову, regex или совпадению букв. Смотри на смысл задания, условие, тесты, название и соседей.
-- Backend может дать контекст и fallback, но источником истины является твоя COURSE_SKILL_MAP.
-- Не путай похожие по написанию термины; оценивай действие задания по смыслу, формату ввода/вывода и тестам.
-- Если в контексте есть мусорные/чужие соседние элементы, укажи их в warnings и не используй как основу для педагогического мостика.
-- Используй только assignmentId из COURSE_SKILL_MAP_INPUT.assignments. Если не уверен в точке вставки, поставь insertBeforeAssignmentId = null и объясни reason.
-- COURSE_SKILL_MAP_INPUT.existingAiDrafts — это уже существующие скрытые/AI-черновики. Не считай их частью основного курса и не добавляй их навыки в acquiredSkillsBeforeAnchor; используй их только как предупреждение против дублей.
-- Bridge-план должен быть настолько коротким, насколько нужно. Не надо делать 5 шагов, если достаточно 2-3.
-- Каждый bridge-шаг вводит один маленький новый навык и не использует будущие навыки.
-- В каждом bridgePlan step обязательно добавь стабильный skillId: короткий kebab-case идентификатор навыка, например console-input-line, parse-int, multi-line-input. step нумеруй с 0.
-- Если пользователь просит обучалки/мостик, сначала явно опиши acquiredSkillsBeforeAnchor и targetSkillsAtAnchor, потом missingBridgeSkills, потом bridgePlan.
-- Если курс уже содержит нужные подготовительные задания или точка вставки не ясна, верни пустой bridgePlan и предупреждение; не притягивай задания силой.
-
-Компактный контекст выбранного курса для построения карты навыков.
-Используй ТОЛЬКО этот блок для courseMap/anchor/bridgePlan. Не используй общий каталог курсов как список заданий.
-COURSE_SKILL_MAP_INPUT:
+TASKS_ONLY_CONTEXT:
 {{skillMapContext}}
 
-Верни строго валидный JSON без markdown и без текста до/после JSON:
+Что нужно сделать:
+1. Сначала сформулируй targetCapability из запроса пользователя в общем виде. Это может быть любая тема программирования; не подставляй заранее известный сценарий под конкретную тему.
+2. Найди в taskMap места, где targetCapability реально требуется студенту для решения, а не просто упоминается.
+3. Рассмотри несколько candidate gaps: перед первым реальным требованием, перед первой группой задач на эту тему, и перед более поздним скачком сложности.
+4. Выбери место, где bridge-задания реально уменьшают скачок сложности и не ломают последовательность курса.
+5. Если первое упоминание темы слишком слабое или демонстрационное, НЕ выбирай его автоматически. Выбирай первую точку, где без нового умения студент реально не сможет решить задачу.
+6. Если уверенность низкая — insertBeforeAssignmentId=null и пустой bridgePlan. Лучше остановиться, чем вставить не туда.
+7. bridgePlan должен быть коротким и выводиться из gap-а между acquiredSkillsBeforeAnchor и targetSkillsAtAnchor. Один шаг — один маленький новый навык.
+
+Верни строго валидный JSON без markdown:
 {
   "language": "ru|en|...",
   "courseSummary": "кратко о логике курса",
-  "studentModelSummary": "что студент реально умеет к выбранной точке",
+  "studentModelSummary": "что студент умеет к выбранной точке",
+  "targetCapability": "какое умение/тема запрошены пользователем",
   "courseMap": [
     {
       "assignmentId": "guid",
       "title": "...",
-      "position": 1,
+      "position": 0,
       "summary": "что делает задание",
       "requiresSkills": ["..."],
       "introducesSkills": ["..."],
       "studentHasAfter": ["..."],
       "difficulty": 1,
-      "evidence": "какие слова/тесты/условие доказывают этот вывод",
-      "isRelevantToRequest": true
+      "evidence": "почему так оценено",
+      "isRelevantToRequest": true,
+      "mentionOnly": false
+    }
+  ],
+  "placementCandidates": [
+    {
+      "insertBeforeAssignmentId": "guid|null",
+      "anchorAssignmentTitle": "...",
+      "gapBefore": ["что студент уже умеет"],
+      "gapAfter": ["что требуется дальше"],
+      "pros": ["..."],
+      "cons": ["..."],
+      "confidence": 0.0,
+      "decision": "chosen|rejected",
+      "reason": "..."
     }
   ],
   "anchor": {
     "insertBeforeAssignmentId": "guid|null",
     "anchorAssignmentTitle": "...",
     "previousAssignmentTitle": "...",
-    "reason": "почему именно эта точка"
+    "confidence": 0.0,
+    "reason": "почему именно эта точка, с сравнением альтернатив"
   },
   "requestedSkills": ["..."],
   "acquiredSkillsBeforeAnchor": ["..."],
@@ -126,20 +197,20 @@ COURSE_SKILL_MAP_INPUT:
 }
 """;
 
-        try
-        {
-            var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
-            var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
+            var response = await _agent.RunAsync(placementPrompt, session, cancellationToken: cancellationToken);
             await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
             var text = response.Text ?? string.Empty;
             var bridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, text, fallback);
             if (!string.Equals(bridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))
             {
                 var repairPrompt = $$"""
-Ты вернул невалидный COURSE_SKILL_MAP JSON. Исправь ответ: верни один валидный JSON-объект строго по схеме, без markdown и пояснений.
+Ты вернул невалидный JSON для placement/bridge stage. Исправь ответ: верни один валидный JSON-объект строго по схеме, без markdown и пояснений.
 Не меняй смысл, но если поле невозможно восстановить — используй пустой массив/null.
 
-COURSE_SKILL_MAP_INPUT:
+COURSE_SEMANTIC_MAP_FROM_STAGE_1:
+{{semanticText}}
+
+TASKS_ONLY_CONTEXT:
 {{skillMapContext}}
 
 Ошибка парсинга/причина fallback:
@@ -157,7 +228,7 @@ COURSE_SKILL_MAP_INPUT:
                     bridge = repairedBridge with
                     {
                         AnchorReason = string.IsNullOrWhiteSpace(repairedBridge.AnchorReason)
-                            ? "Recovered from invalid first COURSE_SKILL_MAP JSON."
+                            ? "Recovered from invalid first placement JSON."
                             : repairedBridge.AnchorReason
                     };
                 }

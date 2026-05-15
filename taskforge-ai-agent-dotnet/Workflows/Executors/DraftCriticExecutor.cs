@@ -55,10 +55,24 @@ Static critique:
 Педагогические предпочтения преподавателя / память агента:
 {{state.TeacherPreferences.ToJsonString()}}
 """;
-        var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
-        await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
-
-        var modelCritique = ParseCritique(response.Text ?? string.Empty);
+        JsonObject modelCritique;
+        try
+        {
+            var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
+            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+            modelCritique = ParseCritique(response.Text ?? string.Empty);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            state.Notes.Add($"Model critic call failed: {ex.GetType().Name}: {ex.Message}. Deterministic validation and bridge/static critique will decide.");
+            modelCritique = new JsonObject
+            {
+                ["isAccepted"] = true,
+                ["score"] = 82,
+                ["issues"] = new JsonArray($"model critic unavailable: {ex.GetType().Name}: {ex.Message}"),
+                ["advisoryOnly"] = true
+            };
+        }
         var bridgeCritique = EvaluateBridgeConsistency(state);
         var validationOk = IsOk(validationResult);
         var staticOk = IsAccepted(staticCritique);

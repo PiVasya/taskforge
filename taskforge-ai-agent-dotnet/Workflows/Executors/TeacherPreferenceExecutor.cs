@@ -82,7 +82,8 @@ public sealed class TeacherPreferenceExecutor
             var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
             await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
             var parsed = ParseProfile(response.Text ?? string.Empty) ?? defaults;
-            var merged = MergeDefaults(defaults, parsed);
+            state.Data["requestSpecificTeacherProfileRaw"] = parsed.DeepClone();
+            var merged = SanitizeGenericProfile(MergeDefaults(defaults, parsed), defaults);
             SaveToState(state, merged, "llm");
             await _steps.TryReportAsync("teacher_preferences", "completed", "Педагогический профиль обновлён", "Агент будет опираться на карту навыков курса, а не на зашитую тему.", merged);
             return merged;
@@ -165,6 +166,79 @@ public sealed class TeacherPreferenceExecutor
         result["memoryNotes"] ??= defaults["memoryNotes"]?.DeepClone();
         result["confidence"] ??= defaults["confidence"]?.DeepClone();
         return result;
+    }
+
+    private static JsonObject SanitizeGenericProfile(JsonObject profile, JsonObject defaults)
+    {
+        var result = defaults.DeepClone().AsObject();
+
+        if (profile["confidence"] is not null)
+            result["confidence"] = profile["confidence"]?.DeepClone();
+        result["source"] = profile["source"]?.DeepClone() ?? JsonValue.Create("llm");
+
+        if (profile["teachingPreferences"] is JsonObject parsedPrefs && result["teachingPreferences"] is JsonObject prefs)
+        {
+            var allowed = new HashSet<string>(prefs.Select(kvp => kvp.Key), StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in parsedPrefs)
+            {
+                if (allowed.Contains(kvp.Key))
+                    prefs[kvp.Key] = kvp.Value?.DeepClone();
+            }
+        }
+
+        // Never persist request-specific topic plans in teacher memory. The user text
+        // remains available to the current workflow, but preferences should describe
+        // how the agent thinks for any topic, not a ladder for today's topic.
+        result["styleRules"] = FilterGenericRuleArray(profile["styleRules"], defaults["styleRules"]);
+        result["qualityGateRules"] = FilterGenericRuleArray(profile["qualityGateRules"], defaults["qualityGateRules"]);
+        result["memoryNotes"] = FilterGenericRuleArray(profile["memoryNotes"], defaults["memoryNotes"]);
+        return result;
+    }
+
+    private static JsonArray FilterGenericRuleArray(JsonNode? parsed, JsonNode? fallback)
+    {
+        var arr = new JsonArray();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            if (!seen.Add(text.Trim())) return;
+            arr.Add(text.Trim());
+        }
+
+        if (fallback is JsonArray fallbackArr)
+        {
+            foreach (var item in fallbackArr)
+                Add(item?.ToString());
+        }
+
+        if (parsed is JsonArray parsedArr)
+        {
+            foreach (var item in parsedArr)
+            {
+                var text = item?.ToString();
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                if (LooksRequestSpecificRule(text)) continue;
+                Add(text);
+            }
+        }
+
+        return arr;
+    }
+
+    private static bool LooksRequestSpecificRule(string text)
+    {
+        var t = text.ToLowerInvariant();
+        // Generic preferences should not contain concrete APIs, method calls, type
+        // names or numbered task ladders. Those belong in the current request plan,
+        // not in long-lived teacher memory.
+        if (t.Contains("task a") || t.Contains("task b") || t.Contains("task c")) return true;
+        if (t.Contains("suggested") || t.Contains("preferredinput") || t.Contains("preferred input")) return true;
+        if (t.Contains("`") || t.Contains("()") || t.Contains("<") && t.Contains(">")) return true;
+        if (t.Contains("console.") || t.Contains("parse") || t.Contains("tryparse") || t.Contains("split") || t.Contains("linq")) return true;
+        if (t.Contains("double") || t.Contains("float") || t.Contains("int ") || t.Contains("string ") || t.Contains("bool")) return true;
+        return false;
     }
 
     private static JsonObject? ParseProfile(string text)

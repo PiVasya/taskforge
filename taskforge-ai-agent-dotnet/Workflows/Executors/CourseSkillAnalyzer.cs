@@ -149,7 +149,7 @@ internal static class CourseSkillAnalyzer
             ["course"] = CloneOrNull(payload.GetPropertyOrDefault("course")),
             ["selectedCourse"] = CloneOrNull(payload.GetPropertyOrDefault("courseDigest").GetPropertyOrDefault("selectedCourse")),
             ["targetConcepts"] = CloneOrNull(payload.GetPropertyOrDefault("targetConcepts")),
-            ["note"] = "This is the only context the skill-map step should use. Ignore courseCatalog/courseContexts from the full payload. assignments excludes hidden/AI drafts; existingAiDrafts are warnings only and must not count as acquired student skills."
+            ["note"] = "This is the only context the skill-map step should use. Ignore courseCatalog/courseContexts from the full payload. assignments excludes hidden/AI drafts; existingAiDrafts are warnings only and must not count as acquired student skills. Metadata hints are weak and must never be the only placement evidence."
         };
 
         var assignments = new JsonArray();
@@ -179,7 +179,8 @@ internal static class CourseSkillAnalyzer
                 ["tags"] = GetString(item, "tags"),
                 ["allowedLanguages"] = CloneOrNull(item.GetPropertyOrDefault("allowedLanguages")),
                 ["descriptionPreview"] = descriptionPreview,
-                ["conceptHints"] = CloneOrNull(item.GetPropertyOrDefault("conceptHints")),
+                ["assignmentTextForStudy"] = Preview($"{title} {descriptionPreview}", 1200),
+                ["weakMetadataConceptHints"] = CloneOrNull(item.GetPropertyOrDefault("conceptHints")),
                 ["contentSummary"] = CloneOrNull(item.GetPropertyOrDefault("contentSummary")),
                 ["testCases"] = CompactTestCases(item.GetPropertyOrDefault("testCases")),
                 ["isHidden"] = isHidden,
@@ -238,6 +239,12 @@ internal static class CourseSkillAnalyzer
             var targetSkills = ReadStringArrayOrFallback(root["targetSkillsAtAnchor"] ?? root["targetSkills"], fallback.TargetSkills);
             var missingSkills = ReadStringArrayOrFallback(root["missingBridgeSkills"] ?? root["missingSkills"], fallback.MissingBridgeSkills);
             var bridgePlan = NormalizeBridgePlan(ReadObjectArray(root["bridgePlan"]).ToList()).ToList();
+            var confidence = ReadDouble(anchor?["confidence"] ?? root["confidence"] ?? root["anchorConfidence"]);
+            if (confidence.HasValue && confidence.Value < 0.6)
+            {
+                beforeId = null;
+                bridgePlan.Clear();
+            }
 
             if (missingSkills.Count == 0 && bridgePlan.Count > 0)
             {
@@ -325,7 +332,10 @@ internal static class CourseSkillAnalyzer
         {
             ["courseSummary"] = root["courseSummary"]?.DeepClone(),
             ["language"] = root["language"]?.DeepClone(),
-            ["warnings"] = root["warnings"]?.DeepClone()
+            ["warnings"] = root["warnings"]?.DeepClone(),
+            ["targetCapability"] = root["targetCapability"]?.DeepClone(),
+            ["placementCandidates"] = root["placementCandidates"]?.DeepClone(),
+            ["anchor"] = root["anchor"]?.DeepClone()
         };
 
         if (root["courseMap"] is JsonArray map)
@@ -413,6 +423,11 @@ internal static class CourseSkillAnalyzer
         }
 
         return null;
+    }
+
+    private static double? ReadDouble(JsonNode? node)
+    {
+        return double.TryParse(node?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : null;
     }
 
     private static Guid? ParseGuid(string? value)
