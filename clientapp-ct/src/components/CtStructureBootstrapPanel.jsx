@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Layers3, Loader2, Plus, Wand2 } from 'lucide-react';
 import { createLearningCourse, updateLearningCourse } from '../api/learning';
-import { CT_SECTIONS, EXAM_CODE, SUBJECT_CODE, normalizeSectionCode, sectionSortOrder } from '../data/ctSections';
+import { CT_SECTIONS, EXAM_CODE, SUBJECT_CODE, normalizeSectionCode, getSectionSortOrder } from '../data/ctSections';
 
 const ROOT_SLUG = `${SUBJECT_CODE}-${EXAM_CODE}`;
 const ROOT_TITLE = 'Русский язык — ЦТ/ЦЭ';
@@ -17,7 +17,7 @@ function buildSectionPayload(sectionCode, parentId, sameSlug = null) {
     subjectCode: sameSlug?.subjectCode || SUBJECT_CODE,
     examCode: sameSlug?.examCode || EXAM_CODE,
     sectionCode,
-    sortOrder: sameSlug?.sortOrder ?? sectionSortOrder(sectionCode),
+    sortOrder: sameSlug?.sortOrder ?? getSectionSortOrder(sectionCode),
     isPublished: sameSlug?.isPublished !== false,
   };
 }
