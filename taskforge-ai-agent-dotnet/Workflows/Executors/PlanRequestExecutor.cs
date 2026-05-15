@@ -24,6 +24,15 @@ public sealed class PlanRequestExecutor
         _agent ??= _agentFactory.CreateCoordinatorAgent();
         await _steps.TryReportAsync("planning", "running", "Планирую действия агента", "Агент выберет tools/workflow strategy, а не один жёсткий Python-сценарий.");
 
+        if (string.Equals(state.WorkflowName, "assignment_draft_workflow", StringComparison.OrdinalIgnoreCase))
+        {
+            var deterministicPlan = "Определи точку вставки в курсе, построй skill bridge между уже освоенными и целевыми умениями, сгенерируй короткие student-facing черновики по возрастанию сложности, нормализуй тесты, прогони runner и статическую/модельную критику. Не пиши служебные фразы в условие; связь с курсом храни в metadata.";
+            state.Data["plan"] = deterministicPlan;
+            state.Notes.Add("Plan generated deterministically for assignment draft workflow.");
+            await _steps.TryReportAsync("planning", "completed", "План готов", deterministicPlan);
+            return deterministicPlan;
+        }
+
         var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
         var prompt = $$"""
 {{TaskForgeAgentPrompts.Coordinator}}

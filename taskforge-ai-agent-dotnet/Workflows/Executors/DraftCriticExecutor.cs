@@ -53,7 +53,10 @@ Static critique:
         await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
 
         var modelCritique = ParseCritique(response.Text ?? string.Empty);
-        var accepted = IsAccepted(staticCritique) && IsAccepted(modelCritique) && IsOk(validationResult);
+        var validationOk = IsOk(validationResult);
+        var staticOk = IsAccepted(staticCritique);
+        var modelOk = IsAccepted(modelCritique) || IsAdvisoryModelCritique(modelCritique, validationOk, staticOk);
+        var accepted = staticOk && modelOk && validationOk;
         var combined = new JsonObject
         {
             ["isAccepted"] = accepted,
@@ -95,6 +98,21 @@ Static critique:
                 : "critic response was not valid JSON"),
             ["raw"] = text.Length > 4000 ? text[..4000] : text
         };
+    }
+
+
+    private static bool IsAdvisoryModelCritique(JsonObject obj, bool validationOk, bool staticOk)
+    {
+        if (!validationOk || !staticOk) return false;
+
+        // The model critic is useful for hints, but it should not veto a draft that
+        // already passed deterministic shape checks, runner tests and static
+        // student-facing checks unless it is clearly low quality. This avoids the
+        // "0 hidden drafts" failure mode caused by over-strict or stale model advice.
+        if (int.TryParse(obj["score"]?.ToString(), out var score) && score >= 70)
+            return true;
+
+        return false;
     }
 
     private static bool IsAccepted(JsonObject obj)

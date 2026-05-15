@@ -50,6 +50,7 @@ public sealed class DraftAuthorExecutor
 
 Сгенерируй {{count}} TaskForge draft-ов как JSON.
 Если пользователь просит "задачки", "обучалки", "серия", "несколько" — верни массив drafts по возрастанию сложности.
+Пиши title и description на языке пользователя/курса. Если пользователь пишет по-русски, title и description тоже должны быть по-русски.
 
 Педагогическая модель вставки — skill bridge:
 {{bridgeJson}}
@@ -62,7 +63,7 @@ public sealed class DraftAuthorExecutor
 5. Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания.
 6. Связь с местом в курсе держи в extra/metadata, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
 7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
-8. Для code-test обязательно нужны referenceSolution, publicTests и hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим шагом.
+8. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим шагом.
 
 Контекст:
 {{contextPrompt}}

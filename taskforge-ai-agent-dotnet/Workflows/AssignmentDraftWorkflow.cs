@@ -68,9 +68,11 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         }
 
         var draftCount = state.Artifacts.Count(a => string.Equals(a.Type, "assignment_draft_ready", StringComparison.OrdinalIgnoreCase));
-        state.AssistantMessage = draftCount == 1
-            ? "Я подготовил скрытый AI-черновик задания и прогнал проверки качества. Он появится в курсе как скрытый черновик; перед публикацией его нужно вручную проверить."
-            : $"Я подготовил {draftCount} скрытых AI-черновиков заданий, расставил их по порядку и прогнал проверки качества. Они появятся в курсе как скрытые черновики; перед публикацией их нужно вручную проверить.";
+        state.AssistantMessage = draftCount == 0
+            ? "Я не сохранил AI-черновики: все подготовленные варианты были отклонены проверками качества. Подробности есть в AI dump/logs."
+            : draftCount == 1
+                ? "Я подготовил скрытый AI-черновик задания и прогнал проверки качества. Он появится в курсе как скрытый черновик; перед публикацией его нужно вручную проверить."
+                : $"Я подготовил {draftCount} скрытых AI-черновиков заданий, расставил их по порядку и прогнал проверки качества. Они появятся в курсе как скрытые черновики; перед публикацией их нужно вручную проверить.";
         state.RequiresApproval = false;
         return _envelopes.FromWorkflowState(state);
     }
