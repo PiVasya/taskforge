@@ -43,6 +43,8 @@ public sealed class DraftAuthorExecutor
         var beforeAssignmentId = bridge.BeforeAssignmentId;
         var bridgeJson = bridge.ToJsonObject().ToJsonString();
         var teacherPreferences = state.TeacherPreferences.ToJsonString();
+        var generationContext = state.Data["skillMapInput"]?.ToJsonString()
+            ?? CourseSkillAnalyzer.BuildSkillMapInput(state.Job.Payload, state.UserText).ToJsonString();
         var prompt = $$"""
 {{TaskForgeAgentPrompts.DraftAuthor}}
 
@@ -72,10 +74,10 @@ public sealed class DraftAuthorExecutor
 9. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её ни в условии, ни в решении, ни в тестах.
 10. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
 
-Контекст:
-{{contextPrompt}}
+Компактный контекст выбранного курса. Используй его только для стиля соседних заданий и примеров формата; не выбирай anchor заново:
+{{generationContext}}
 
-Верни строго JSON без markdown:
+Верни строго валидный JSON без markdown:
 {
   "drafts": [
     {
@@ -431,12 +433,55 @@ public sealed class DraftAuthorExecutor
             var last = t.LastIndexOf("```", StringComparison.Ordinal);
             if (first >= 0 && last > first) t = t[(first + 1)..last].Trim();
         }
+
+        var balancedObject = ExtractFirstBalanced(t, '{', '}');
+        var balancedArray = ExtractFirstBalanced(t, '[', ']');
+        if (balancedObject != null && (balancedArray == null || t.IndexOf('{') < t.IndexOf('['))) return balancedObject;
+        if (balancedArray != null) return balancedArray;
+
         var objectStart = t.IndexOf('{');
         var objectEnd = t.LastIndexOf('}');
         var arrayStart = t.IndexOf('[');
         var arrayEnd = t.LastIndexOf(']');
         if (objectStart >= 0 && objectEnd > objectStart && (arrayStart < 0 || objectStart < arrayStart)) return t[objectStart..(objectEnd + 1)];
         if (arrayStart >= 0 && arrayEnd > arrayStart) return t[arrayStart..(arrayEnd + 1)];
+        return null;
+    }
+
+    private static string? ExtractFirstBalanced(string text, char open, char close)
+    {
+        var start = text.IndexOf(open);
+        if (start < 0) return null;
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var i = start; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            if (inString)
+            {
+                if (ch == '\\') escaped = true;
+                else if (ch == '"') inString = false;
+                continue;
+            }
+            if (ch == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (ch == open) depth++;
+            else if (ch == close)
+            {
+                depth--;
+                if (depth == 0) return text[start..(i + 1)];
+                if (depth < 0) return null;
+            }
+        }
         return null;
     }
 

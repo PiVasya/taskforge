@@ -42,6 +42,9 @@ public sealed class CourseSkillMapExecutor
             AnchorReason = "Fallback only lists course structure; it does not infer skills or insertion anchors."
         };
         var teacherPreferences = state.TeacherPreferences.ToJsonString();
+        var skillMapInput = CourseSkillAnalyzer.BuildSkillMapInput(state.Job.Payload, state.UserText);
+        state.Data["skillMapInput"] = skillMapInput.DeepClone();
+        var skillMapContext = skillMapInput.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = false });
         var prompt = $$"""
 {{TaskForgeAgentPrompts.Coordinator}}
 
@@ -71,10 +74,12 @@ public sealed class CourseSkillMapExecutor
 - Если пользователь просит обучалки/мостик, сначала явно опиши acquiredSkillsBeforeAnchor и targetSkillsAtAnchor, потом missingBridgeSkills, потом bridgePlan.
 - Если курс уже содержит нужные подготовительные задания или точка вставки не ясна, верни пустой bridgePlan и предупреждение; не притягивай задания силой.
 
-Контекст TaskForge:
-{{contextPrompt}}
+Компактный контекст выбранного курса для построения карты навыков.
+Используй ТОЛЬКО этот блок для courseMap/anchor/bridgePlan. Не используй общий каталог курсов как список заданий.
+COURSE_SKILL_MAP_INPUT:
+{{skillMapContext}}
 
-Верни строго JSON без markdown:
+Верни строго валидный JSON без markdown и без текста до/после JSON:
 {
   "language": "ru|en|...",
   "courseSummary": "кратко о логике курса",
@@ -125,6 +130,39 @@ public sealed class CourseSkillMapExecutor
             await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
             var text = response.Text ?? string.Empty;
             var bridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, text, fallback);
+            if (!string.Equals(bridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))
+            {
+                var repairPrompt = $$"""
+Ты вернул невалидный COURSE_SKILL_MAP JSON. Исправь ответ: верни один валидный JSON-объект строго по схеме, без markdown и пояснений.
+Не меняй смысл, но если поле невозможно восстановить — используй пустой массив/null.
+
+COURSE_SKILL_MAP_INPUT:
+{{skillMapContext}}
+
+Ошибка парсинга/причина fallback:
+{{bridge.AnchorReason}}
+
+Исходный ответ модели:
+{{text}}
+""";
+                var repaired = await _agent.RunAsync(repairPrompt, session, cancellationToken: cancellationToken);
+                await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+                var repairedText = repaired.Text ?? string.Empty;
+                var repairedBridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, repairedText, fallback);
+                if (string.Equals(repairedBridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))
+                {
+                    bridge = repairedBridge with
+                    {
+                        AnchorReason = string.IsNullOrWhiteSpace(repairedBridge.AnchorReason)
+                            ? "Recovered from invalid first COURSE_SKILL_MAP JSON."
+                            : repairedBridge.AnchorReason
+                    };
+                }
+                else
+                {
+                    state.Notes.Add($"Course skill map repair failed: {repairedBridge.AnchorReason}");
+                }
+            }
             state.CourseSkillBridge = bridge;
             state.Data["courseSkillMap"] = bridge.ToJsonObject();
             AddSkillMapArtifact(state, bridge);

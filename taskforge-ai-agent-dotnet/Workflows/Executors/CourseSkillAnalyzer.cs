@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using TaskForge.AiAgent.Contracts;
 
 namespace TaskForge.AiAgent.Workflows.Executors;
 
@@ -80,6 +81,58 @@ internal static class CourseSkillAnalyzer
             .ToList();
     }
 
+
+
+    public static JsonObject BuildSkillMapInput(JsonElement payload, string userText, int maxAssignments = 120)
+    {
+        var root = new JsonObject
+        {
+            ["userRequest"] = userText,
+            ["courseId"] = payload.GetPropertyOrDefault("courseId").ToString(),
+            ["course"] = CloneOrNull(payload.GetPropertyOrDefault("course")),
+            ["selectedCourse"] = CloneOrNull(payload.GetPropertyOrDefault("courseDigest").GetPropertyOrDefault("selectedCourse")),
+            ["targetConcepts"] = CloneOrNull(payload.GetPropertyOrDefault("targetConcepts")),
+            ["note"] = "This is the only context the skill-map step should use. Ignore courseCatalog/courseContexts from the full payload."
+        };
+
+        var assignments = new JsonArray();
+        var seen = new HashSet<Guid>();
+        foreach (var item in EnumeratePreferredAssignments(payload))
+        {
+            if (assignments.Count >= maxAssignments) break;
+            var id = GetGuid(item, "id", "assignmentId");
+            var title = GetString(item, "title", "name");
+            if (!id.HasValue || string.IsNullOrWhiteSpace(title)) continue;
+            if (!seen.Add(id.Value)) continue;
+            if (LooksLikeCourseCatalogItem(item)) continue;
+
+            assignments.Add(new JsonObject
+            {
+                ["assignmentId"] = id.Value.ToString(),
+                ["position"] = GetInt(item, "index", "position", "sort") ?? assignments.Count,
+                ["sort"] = GetInt(item, "sort", "order"),
+                ["title"] = title,
+                ["type"] = GetString(item, "type", "assignmentType"),
+                ["difficulty"] = GetInt(item, "difficulty"),
+                ["rating"] = GetInt(item, "rating"),
+                ["tags"] = GetString(item, "tags"),
+                ["allowedLanguages"] = CloneOrNull(item.GetPropertyOrDefault("allowedLanguages")),
+                ["descriptionPreview"] = Preview(PlainText(GetString(item, "descriptionPreview", "description", "condition", "body")), 700),
+                ["conceptHints"] = CloneOrNull(item.GetPropertyOrDefault("conceptHints")),
+                ["contentSummary"] = CloneOrNull(item.GetPropertyOrDefault("contentSummary")),
+                ["testCases"] = CompactTestCases(item.GetPropertyOrDefault("testCases")),
+                ["isHidden"] = GetBool(item, "isHidden") == true,
+                ["isAiDraft"] = GetBool(item, "isAiDraft") == true
+            });
+        }
+
+        root["assignments"] = assignments;
+        root["assignmentCount"] = assignments.Count;
+        root["fallbackWarning"] = assignments.Count == 0
+            ? "No assignments were found in courseDigest/courseOutline/focusAssignments. Do not invent an anchor."
+            : null;
+        return root;
+    }
 
 
     public static CourseSkillBridgeContext FromModelMap(JsonElement payload, string userText, string modelText, CourseSkillBridgeContext fallback)
@@ -204,10 +257,58 @@ internal static class CourseSkillAnalyzer
             clean = Regex.Replace(clean, @"\s*```$", string.Empty).Trim();
         }
 
+        var balanced = ExtractFirstBalancedObject(clean);
+        if (!string.IsNullOrWhiteSpace(balanced))
+            return balanced;
+
         var firstObject = clean.IndexOf('{');
         var lastObject = clean.LastIndexOf('}');
         if (firstObject >= 0 && lastObject > firstObject)
             return clean[firstObject..(lastObject + 1)];
+
+        return null;
+    }
+
+    private static string? ExtractFirstBalancedObject(string text)
+    {
+        var start = text.IndexOf('{');
+        if (start < 0) return null;
+
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var i = start; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (inString)
+            {
+                if (ch == '\\') escaped = true;
+                else if (ch == '"') inString = false;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (ch == '{') depth++;
+            else if (ch == '}')
+            {
+                depth--;
+                if (depth == 0)
+                    return text[start..(i + 1)];
+                if (depth < 0)
+                    return null;
+            }
+        }
 
         return null;
     }
@@ -302,7 +403,7 @@ internal static class CourseSkillAnalyzer
             var title = GetString(element, "title", "name");
             var description = GetString(element, "description", "descriptionPreview", "condition", "body");
             var tags = GetString(element, "tags");
-            if (id.HasValue && !string.IsNullOrWhiteSpace(title) && HasAnyProperty(element, "sort", "index", "type", "assignmentType", "description", "descriptionPreview", "tags"))
+            if (id.HasValue && !string.IsNullOrWhiteSpace(title) && IsAssignmentLike(element))
             {
                 var text = $"{title} {description} {tags}";
                 result.Add(new AssignmentSkillCandidate(
@@ -323,6 +424,99 @@ internal static class CourseSkillAnalyzer
         {
             foreach (var item in element.EnumerateArray())
                 CollectAssignmentCandidates(item, result, depth + 1);
+        }
+    }
+
+
+    private static IEnumerable<JsonElement> EnumeratePreferredAssignments(JsonElement payload)
+    {
+        foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("courseDigest").GetPropertyOrDefault("assignments"))) yield return item;
+        foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("courseOutline"))) yield return item;
+        foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("focusAssignments"))) yield return item;
+        foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("targetAssignments"))) yield return item;
+        foreach (var item in EnumerateArray(payload.GetPropertyOrDefault("assignments"))) yield return item;
+        foreach (var context in EnumerateArray(payload.GetPropertyOrDefault("courseContexts")))
+        {
+            foreach (var item in EnumerateArray(context.GetPropertyOrDefault("assignments"))) yield return item;
+        }
+    }
+
+    private static IEnumerable<JsonElement> EnumerateArray(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array) yield break;
+        foreach (var item in element.EnumerateArray()) yield return item;
+    }
+
+    private static JsonNode? CloneOrNull(JsonElement element)
+    {
+        if (element.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return null;
+        try { return JsonNode.Parse(element.GetRawText()); }
+        catch { return element.ToString(); }
+    }
+
+    private static JsonArray CompactTestCases(JsonElement testCases)
+    {
+        var arr = new JsonArray();
+        foreach (var tc in EnumerateArray(testCases).Take(4))
+        {
+            arr.Add(new JsonObject
+            {
+                ["input"] = Preview(GetString(tc, "input"), 160),
+                ["expectedOutput"] = Preview(GetString(tc, "expectedOutput"), 160),
+                ["isHidden"] = GetBool(tc, "isHidden") == true
+            });
+        }
+        return arr;
+    }
+
+    private static bool LooksLikeCourseCatalogItem(JsonElement element)
+    {
+        return HasAnyProperty(element, "isPublic", "assignmentCount") && !HasAnyProperty(element, "courseId", "assignmentType", "descriptionPreview", "conceptHints", "testCases", "allowedLanguages");
+    }
+
+    private static bool IsAssignmentLike(JsonElement element)
+    {
+        if (LooksLikeCourseCatalogItem(element)) return false;
+        return HasAnyProperty(element, "courseId", "sort", "index", "type", "assignmentType", "descriptionPreview", "tags", "conceptHints", "testCases", "allowedLanguages", "isAiDraft");
+    }
+
+    private static string PlainText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        var text = value!;
+        if (text.TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            try
+            {
+                var node = JsonNode.Parse(text);
+                var chunks = new List<string>();
+                CollectText(node, chunks);
+                if (chunks.Count > 0) return string.Join(" ", chunks);
+            }
+            catch
+            {
+                // Keep the original text below.
+            }
+        }
+        return text;
+    }
+
+    private static void CollectText(JsonNode? node, List<string> chunks)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj.TryGetPropertyValue("text", out var textNode))
+            {
+                var text = textNode?.ToString();
+                if (!string.IsNullOrWhiteSpace(text)) chunks.Add(text);
+            }
+            foreach (var property in obj)
+                CollectText(property.Value, chunks);
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var item in arr)
+                CollectText(item, chunks);
         }
     }
 

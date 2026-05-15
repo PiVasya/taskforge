@@ -826,6 +826,19 @@ namespace taskforge.Controllers.Agent
                 await BroadcastAsync(result.ConversationId, "step.created", new { step = ToStepDto(step) });
         }
 
+        private sealed class DebugAgentArtifactRow
+        {
+            public Guid Id { get; set; }
+            public Guid? RunId { get; set; }
+            public string? Type { get; set; }
+            public string? Title { get; set; }
+            public string? StorageKey { get; set; }
+            public string? ContentHash { get; set; }
+            public string? RawDataJson { get; set; }
+            public object? Data { get; set; }
+            public int DataJsonLength { get; set; }
+        }
+
         private async Task<object> BuildAgentDebugDumpAsync(Guid conversationId, CancellationToken ct)
         {
             var conversation = await _db.AgentConversations
@@ -923,26 +936,41 @@ namespace taskforge.Controllers.Agent
                 })
                 .ToListAsync(ct);
 
-            var artifacts = await _db.AgentRunArtifacts
-                .AsNoTracking()
-                .Where(x => runIds.Contains(x.RunId))
-                .OrderBy(x => x.Id)
-                .Select(x => new
+            var dumpSectionErrors = new List<object>();
+            List<DebugAgentArtifactRow> artifacts;
+            try
+            {
+                artifacts = await _db.AgentRunArtifacts
+                    .AsNoTracking()
+                    .Where(x => runIds.Contains(x.RunId))
+                    .OrderBy(x => x.Id)
+                    .Select(x => new DebugAgentArtifactRow
+                    {
+                        Id = x.Id,
+                        RunId = (Guid?)x.RunId,
+                        Type = x.Type,
+                        Title = x.Title,
+                        StorageKey = x.StorageKey,
+                        ContentHash = x.ContentHash,
+                        // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
+                        // when the EF model has a non-null timestamp; projecting it through EF can throw
+                        // "Nullable object must have a value" and break the whole debug dump.
+                        RawDataJson = x.DataJson,
+                        Data = ParseJson(x.DataJson),
+                        DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
+                    })
+                    .ToListAsync(ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                artifacts = new List<DebugAgentArtifactRow>();
+                dumpSectionErrors.Add(new
                 {
-                    x.Id,
-                    x.RunId,
-                    x.Type,
-                    x.Title,
-                    x.StorageKey,
-                    x.ContentHash,
-                    // CreatedAtUtc is intentionally omitted here. Some historic rows may contain NULL even
-                    // when the EF model has a non-null timestamp; projecting it through EF can throw
-                    // "Nullable object must have a value" and break the whole debug dump.
-                    RawDataJson = x.DataJson,
-                    Data = ParseJson(x.DataJson),
-                    DataJsonLength = x.DataJson == null ? 0 : x.DataJson.Length
-                })
-                .ToListAsync(ct);
+                    section = "AgentRunArtifacts",
+                    type = ex.GetType().Name,
+                    message = ex.Message
+                });
+            }
 
             var nullableRunIds = runIds.Select(x => (Guid?)x).ToList();
             var hiddenDrafts = await _db.TaskAssignments
@@ -1069,6 +1097,7 @@ namespace taskforge.Controllers.Agent
                     FailedRunCount = runs.Count(x => string.Equals(x.Status, "failed", StringComparison.OrdinalIgnoreCase)),
                     WaitingApprovalRunCount = runs.Count(x => string.Equals(x.Status, "waiting_approval", StringComparison.OrdinalIgnoreCase))
                 },
+                DumpSectionErrors = dumpSectionErrors,
                 RunSummaries = runSummaries,
                 Messages = messages,
                 Runs = runs,
