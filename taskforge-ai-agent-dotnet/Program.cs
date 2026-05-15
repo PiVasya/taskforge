@@ -49,6 +49,8 @@ builder.Services.AddTransient<PersistenceTools>();
 
 builder.Services.AddTransient<LoadRunContextExecutor>();
 builder.Services.AddTransient<PlanRequestExecutor>();
+builder.Services.AddTransient<TeacherPreferenceExecutor>();
+builder.Services.AddTransient<CourseSkillMapExecutor>();
 builder.Services.AddTransient<DraftAuthorExecutor>();
 builder.Services.AddTransient<DraftCriticExecutor>();
 builder.Services.AddTransient<DraftValidationExecutor>();

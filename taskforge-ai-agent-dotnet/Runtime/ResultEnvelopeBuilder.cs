@@ -29,6 +29,9 @@ public sealed class ResultEnvelopeBuilder
             }
         };
 
+        foreach (var kvp in state.MemoryPatch)
+            envelope.MemoryPatch[kvp.Key] = kvp.Value?.DeepClone();
+
         foreach (var artifact in state.Artifacts)
             envelope.Artifacts.Add(artifact);
 

@@ -11,6 +11,8 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
 {
     private readonly LoadRunContextExecutor _loadContext;
     private readonly PlanRequestExecutor _planner;
+    private readonly TeacherPreferenceExecutor _preferences;
+    private readonly CourseSkillMapExecutor _skillMap;
     private readonly DraftAuthorExecutor _author;
     private readonly DraftValidationExecutor _validator;
     private readonly DraftCriticExecutor _critic;
@@ -21,6 +23,8 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
     public AssignmentDraftWorkflow(
         LoadRunContextExecutor loadContext,
         PlanRequestExecutor planner,
+        TeacherPreferenceExecutor preferences,
+        CourseSkillMapExecutor skillMap,
         DraftAuthorExecutor author,
         DraftValidationExecutor validator,
         DraftCriticExecutor critic,
@@ -30,6 +34,8 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
     {
         _loadContext = loadContext;
         _planner = planner;
+        _preferences = preferences;
+        _skillMap = skillMap;
         _author = author;
         _validator = validator;
         _critic = critic;
@@ -56,7 +62,16 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
     {
         var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = "assignment_draft_workflow" };
         var context = await _loadContext.ExecuteAsync(state);
+        await _preferences.ExecuteAsync(state, context, cancellationToken);
         var plan = await _planner.ExecuteAsync(state, context, cancellationToken);
+        await _skillMap.ExecuteAsync(state, context, cancellationToken);
+
+        if (NeedsCourseSkillMapBeforeDrafting(state))
+        {
+            state.AssistantMessage = "Я не стал сохранять AI-черновики: агент не смог достаточно уверенно построить карту навыков курса и точку вставки. Это лучше, чем снова сгенерировать задания не туда. Подробности есть в артефакте карты навыков и AI dump/logs.";
+            state.RequiresApproval = false;
+            return _envelopes.FromWorkflowState(state);
+        }
 
         if (DraftAuthorExecutor.LooksLikeMultipleDraftRequest(job.UserText))
         {
@@ -75,6 +90,20 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
                 : $"Я подготовил {draftCount} скрытых AI-черновиков заданий, расставил их по порядку и прогнал проверки качества. Они появятся в курсе как скрытые черновики; перед публикацией их нужно вручную проверить.";
         state.RequiresApproval = false;
         return _envelopes.FromWorkflowState(state);
+    }
+
+
+    private static bool NeedsCourseSkillMapBeforeDrafting(WorkflowState state)
+    {
+        var bridge = state.CourseSkillBridge;
+        if (bridge == null) return false;
+        if (!bridge.IsBridgeRequest) return false;
+        if (state.Job.CourseId == null) return false;
+
+        var hasLlmMap = string.Equals(bridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase);
+        var hasBridgePlan = bridge.BridgePlan is { Count: > 0 };
+        var hasAnchor = bridge.BeforeAssignmentId.HasValue;
+        return !hasLlmMap || !hasBridgePlan || !hasAnchor;
     }
 
     private async Task RunSingleDraftAsync(WorkflowState state, string context, string plan, CancellationToken cancellationToken)

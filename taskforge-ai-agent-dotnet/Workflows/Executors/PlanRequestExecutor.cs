@@ -26,7 +26,7 @@ public sealed class PlanRequestExecutor
 
         if (string.Equals(state.WorkflowName, "assignment_draft_workflow", StringComparison.OrdinalIgnoreCase))
         {
-            var deterministicPlan = "Определи точку вставки в курсе, построй skill bridge между уже освоенными и целевыми умениями, сгенерируй короткие student-facing черновики по возрастанию сложности, нормализуй тесты, прогони runner и статическую/модельную критику. Не пиши служебные фразы в условие; связь с курсом храни в metadata.";
+            var deterministicPlan = "Сначала обнови teacherPreferences, затем построй LLM COURSE_SKILL_MAP: что студент умеет до точки вставки, что требует anchor-задание и какие missing bridge skills нужны. Генерируй черновики только по bridgePlan, без зашитых предметных лестниц и без keyword/regex anchor. Затем нормализуй тесты, прогони runner и статическую/модельную критику. Не пиши служебные фразы в условие; связь с курсом храни в metadata.";
             state.Data["plan"] = deterministicPlan;
             state.Notes.Add("Plan generated deterministically for assignment draft workflow.");
             await _steps.TryReportAsync("planning", "completed", "План готов", deterministicPlan);

@@ -38,10 +38,11 @@ public sealed class DraftAuthorExecutor
         _agent ??= _agentFactory.CreateCoordinatorAgent();
         await _steps.TryReportAsync("draft", "running", attempt == 0 ? "Генерирую черновики заданий" : $"Перегенерирую черновики, попытка {attempt + 1}", plan);
 
-        var count = Math.Clamp(requestedCount, 1, 6);
-        var bridge = CourseSkillAnalyzer.Analyze(state.Job.Payload, state.UserText);
+        var bridge = state.CourseSkillBridge ?? CourseSkillAnalyzer.Analyze(state.Job.Payload, state.UserText);
+        var count = ResolveDraftCount(requestedCount, bridge);
         var beforeAssignmentId = bridge.BeforeAssignmentId;
         var bridgeJson = bridge.ToJsonObject().ToJsonString();
+        var teacherPreferences = state.TeacherPreferences.ToJsonString();
         var prompt = $$"""
 {{TaskForgeAgentPrompts.DraftAuthor}}
 
@@ -52,18 +53,24 @@ public sealed class DraftAuthorExecutor
 Если пользователь просит "задачки", "обучалки", "серия", "несколько" — верни массив drafts по возрастанию сложности.
 Пиши title и description на языке пользователя/курса. Если пользователь пишет по-русски, title и description тоже должны быть по-русски.
 
-Педагогическая модель вставки — skill bridge:
+Педагогическая модель вставки — COURSE_SKILL_MAP, уже построенная отдельным LLM-этапом:
 {{bridgeJson}}
 
-Правила skill bridge:
-1. Не используй заранее зашитую лестницу под конкретную тему. Сначала смотри на acquiredSkillsBeforeAnchor, targetSkillsAtAnchor и missingBridgeSkills.
-2. Каждое новое задание должно добавлять один маленький новый навык. Не используй навык, которого нет в acquiredSkillsBeforeAnchor или в introducedSkills текущего/предыдущих bridge-заданий.
-3. Если для следующего задания нужен навык, который студент ещё не видел, сначала сделай микрозадание именно на этот навык.
+Педагогические предпочтения преподавателя / память агента:
+{{teacherPreferences}}
+
+Правила генерации по COURSE_SKILL_MAP:
+0. COURSE_SKILL_MAP — источник истины. Не выбирай anchor самостоятельно по ключевым словам и не переоценивай курс заново. Не используй заранее зашитую предметную лестницу; следуй только bridgePlan.
+1. Если bridgePlan не пустой, сгенерируй задания строго по bridgePlan: один draft на один step, в том же порядке. Не добавляй лишние шаги сверх bridgePlan и не заменяй план своими любимыми темами.
+2. В extra.assumedSkills/introducedSkills/targetSkills/missingBridgeSkills используй навыки из COURSE_SKILL_MAP. Они могут быть человеческими названиями, а не только заранее известными id.
+3. Каждое новое задание должно добавлять один маленький новый навык из bridgePlan.step.introducedSkills. Не используй навыки из mustNotUse и не добавляй темы, которых нет в bridgePlan/targetSkillsAtAnchor.
 4. Первое bridge-задание должно быть проще целевого anchor-задания и не должно требовать больше одного нового умения.
 5. Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания.
 6. Связь с местом в курсе держи в extra/metadata, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
 7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
-8. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим шагом.
+8. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
+9. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её ни в условии, ни в решении, ни в тестах.
+10. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
 
 Контекст:
 {{contextPrompt}}
@@ -82,7 +89,7 @@ public sealed class DraftAuthorExecutor
       "sourceTaskIndex": 0,
       "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
       "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
-      "tags": ["AI", "черновик", "learning-bridge"],
+      "tags": ["AI", "черновик"],
       "extra": {
         "assumedSkills": ["skills already known before this step"],
         "introducedSkills": ["exactly one main new skill for this step"],
@@ -132,6 +139,14 @@ public sealed class DraftAuthorExecutor
             ["titles"] = new JsonArray(drafts.Select(d => JsonValue.Create(d.Title)).ToArray<JsonNode?>())
         });
         return drafts;
+    }
+
+    private static int ResolveDraftCount(int requestedCount, CourseSkillBridgeContext bridge)
+    {
+        var requested = Math.Clamp(requestedCount, 1, 6);
+        var planned = bridge.BridgePlan?.Count ?? 0;
+        if (planned > 0) return Math.Clamp(planned, 1, Math.Min(6, requested));
+        return requested;
     }
 
     private List<DraftSpec> ParseDrafts(string text, ClaimedAgentJob job)
@@ -246,18 +261,14 @@ public sealed class DraftAuthorExecutor
         {
             drafts[i].CourseId = job.CourseId;
             drafts[i].BeforeAssignmentId ??= bridge.BeforeAssignmentId;
-            drafts[i].SourceTaskIndex ??= i;
+            if (bridge.BridgePlan is { Count: > 0 })
+                drafts[i].SourceTaskIndex = i;
+            else
+                drafts[i].SourceTaskIndex ??= i;
 
+            // Public tags stay clean. Learning-bridge and skill details are kept in Extra metadata, not in course cards.
             var requiredTags = new List<string> { "AI", "черновик" };
-            if (bridge.IsBridgeRequest || drafts.Count > 1)
-            {
-                requiredTags.Add("learning-bridge");
-                requiredTags.Add($"learning-bridge-step-{i + 1}");
-            }
-            foreach (var skill in ReadStringArray(drafts[i].Extra["introducedSkills"]).Concat(bridge.MissingBridgeSkills).Distinct(StringComparer.OrdinalIgnoreCase).Take(6))
-                requiredTags.Add($"skill:{skill}");
-
-            drafts[i].Tags = MergeTags(drafts[i].Tags, requiredTags);
+            drafts[i].Tags = BuildPublicTags(MergeTags(drafts[i].Tags, requiredTags));
             drafts[i].Language = NormalizeLanguage(drafts[i].Language);
             drafts[i].Description = SanitizeStudentFacingDescription(drafts[i].Description);
             drafts[i].Title = SanitizeStudentFacingTitle(drafts[i].Title);
@@ -269,7 +280,18 @@ public sealed class DraftAuthorExecutor
 
     private static void AddBridgeExtra(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
     {
+        var plannedStep = bridge.BridgePlan != null && stepIndex >= 0 && stepIndex < bridge.BridgePlan.Count
+            ? bridge.BridgePlan[stepIndex]
+            : null;
+
         draft.Extra["bridgeStepIndex"] ??= stepIndex;
+        if (plannedStep is not null)
+        {
+            draft.Extra["courseSkillMapStep"] ??= plannedStep.DeepClone();
+            draft.Extra["assumedSkills"] ??= plannedStep["assumedSkills"]?.DeepClone();
+            draft.Extra["introducedSkills"] ??= plannedStep["introducedSkills"]?.DeepClone();
+            draft.Extra["skillBridgeReason"] ??= plannedStep["reason"]?.DeepClone();
+        }
         draft.Extra["insertBeforeAssignmentId"] ??= bridge.BeforeAssignmentId?.ToString();
         draft.Extra["previousAssignmentTitle"] ??= bridge.PreviousTitle;
         draft.Extra["anchorAssignmentTitle"] ??= bridge.AnchorTitle;
@@ -344,6 +366,22 @@ public sealed class DraftAuthorExecutor
         for (var i = 0; i < spans.Count; i++)
             result = result.Replace($"\u0001{i}\u0002", spans[i]);
 
+        return result;
+    }
+
+
+    private static List<string> BuildPublicTags(IEnumerable<string> tags)
+    {
+        var result = new List<string>();
+        foreach (var tag in tags)
+        {
+            var clean = (tag ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(clean)) continue;
+            var lower = clean.ToLowerInvariant();
+            if (lower == "learning-bridge" || lower.StartsWith("learning-bridge-step-", StringComparison.Ordinal) || lower.StartsWith("skill:", StringComparison.Ordinal) || lower.StartsWith("input-onboarding", StringComparison.Ordinal))
+                continue;
+            if (!result.Contains(clean, StringComparer.OrdinalIgnoreCase)) result.Add(clean);
+        }
         return result;
     }
 

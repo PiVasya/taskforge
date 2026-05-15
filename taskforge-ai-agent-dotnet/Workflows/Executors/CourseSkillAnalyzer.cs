@@ -32,6 +32,10 @@ internal static class CourseSkillAnalyzer
 
     public static CourseSkillBridgeContext Analyze(JsonElement payload, string userText)
     {
+        // Neutral fallback only. It intentionally does NOT infer skills or choose
+        // an anchor by keyword/regex. The LLM course-skill-map stage is the
+        // source of truth for pedagogy. This fallback exists so logs/artifacts
+        // can still show the course outline when the LLM map fails.
         var candidates = new List<AssignmentSkillCandidate>();
         CollectAssignmentCandidates(payload, candidates, 0);
         var ordered = candidates
@@ -39,49 +43,23 @@ internal static class CourseSkillAnalyzer
             .OrderBy(x => x.Index ?? int.MaxValue)
             .ThenBy(x => x.Sort ?? int.MaxValue)
             .ThenBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x with { Skills = new List<string>() })
             .ToList();
 
-        var requestedSkills = DetectSkills(userText).ToList();
-        var anchor = FindAnchor(ordered, requestedSkills, userText);
-        var previous = anchor == null
-            ? ordered.LastOrDefault()
-            : ordered.TakeWhile(x => x.Id != anchor.Id).LastOrDefault();
-
-        var beforeAnchor = anchor == null
-            ? ordered
-            : ordered.TakeWhile(x => x.Id != anchor.Id).ToList();
-
-        var acquiredSkills = beforeAnchor
-            .SelectMany(x => x.Skills)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var targetSkills = (anchor?.Skills ?? new List<string>())
-            .Concat(requestedSkills)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var missingSkills = targetSkills
-            .Where(x => !acquiredSkills.Contains(x, StringComparer.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (missingSkills.Count == 0 && requestedSkills.Count > 0)
-            missingSkills = requestedSkills.ToList();
-
-        var neighborhood = BuildNeighborhood(ordered, anchor);
-        var isBridgeRequest = LooksLikeLearningBridgeRequest(userText) || requestedSkills.Count > 0;
-
+        var previous = ordered.LastOrDefault();
         return new CourseSkillBridgeContext(
-            BeforeAssignmentId: anchor?.Id,
+            BeforeAssignmentId: null,
             PreviousTitle: previous?.Title,
-            AnchorTitle: anchor?.Title,
-            RequestedSkills: requestedSkills,
-            AcquiredSkills: acquiredSkills,
-            TargetSkills: targetSkills,
-            MissingBridgeSkills: missingSkills,
-            Neighborhood: neighborhood,
-            IsBridgeRequest: isBridgeRequest);
+            AnchorTitle: null,
+            RequestedSkills: Array.Empty<string>(),
+            AcquiredSkills: Array.Empty<string>(),
+            TargetSkills: Array.Empty<string>(),
+            MissingBridgeSkills: Array.Empty<string>(),
+            Neighborhood: BuildNeighborhood(ordered, null),
+            IsBridgeRequest: LooksLikeLearningBridgeRequest(userText),
+            BridgePlan: Array.Empty<JsonObject>(),
+            Source: "neutral-fallback",
+            AnchorReason: "Structure-only fallback; no keyword/regex skill inference was used.");
     }
 
     public static bool LooksLikeLearningBridgeRequest(string text)
@@ -100,6 +78,176 @@ internal static class CourseSkillAnalyzer
             .Select(rule => rule.Id)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+
+
+    public static CourseSkillBridgeContext FromModelMap(JsonElement payload, string userText, string modelText, CourseSkillBridgeContext fallback)
+    {
+        try
+        {
+            var json = ExtractJson(modelText);
+            if (string.IsNullOrWhiteSpace(json))
+                return fallback with { Source = "static-fallback", AnchorReason = "LLM course skill map returned no JSON." };
+
+            if (JsonNode.Parse(json) is not JsonObject root)
+                return fallback with { Source = "static-fallback", AnchorReason = "LLM course skill map root was not an object." };
+
+            var anchor = root["anchor"] as JsonObject;
+            var validAssignmentIds = CollectAssignmentIds(payload);
+            var beforeId = ParseGuid(anchor?["insertBeforeAssignmentId"]?.ToString() ?? root["insertBeforeAssignmentId"]?.ToString());
+            if (beforeId.HasValue && validAssignmentIds.Count > 0 && !validAssignmentIds.Contains(beforeId.Value))
+                beforeId = null;
+
+            var requestedSkills = ReadStringArrayOrFallback(root["requestedSkills"], fallback.RequestedSkills);
+            var acquiredSkills = ReadStringArrayOrFallback(root["acquiredSkillsBeforeAnchor"], fallback.AcquiredSkills);
+            var targetSkills = ReadStringArrayOrFallback(root["targetSkillsAtAnchor"] ?? root["targetSkills"], fallback.TargetSkills);
+            var missingSkills = ReadStringArrayOrFallback(root["missingBridgeSkills"] ?? root["missingSkills"], fallback.MissingBridgeSkills);
+            var bridgePlan = ReadObjectArray(root["bridgePlan"]).ToList();
+
+            if (missingSkills.Count == 0 && bridgePlan.Count > 0)
+            {
+                missingSkills = bridgePlan
+                    .SelectMany(step => ReadStringArray(step["introducedSkills"]))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            return new CourseSkillBridgeContext(
+                BeforeAssignmentId: beforeId,
+                PreviousTitle: anchor?["previousAssignmentTitle"]?.ToString() ?? root["previousAssignmentTitle"]?.ToString() ?? fallback.PreviousTitle,
+                AnchorTitle: anchor?["anchorAssignmentTitle"]?.ToString() ?? root["anchorAssignmentTitle"]?.ToString() ?? fallback.AnchorTitle,
+                RequestedSkills: requestedSkills,
+                AcquiredSkills: acquiredSkills,
+                TargetSkills: targetSkills,
+                MissingBridgeSkills: missingSkills,
+                Neighborhood: BuildModelNeighborhood(root, fallback),
+                IsBridgeRequest: fallback.IsBridgeRequest || bridgePlan.Count > 0,
+                BridgePlan: bridgePlan,
+                Source: "llm-course-skill-map",
+                AnchorReason: anchor?["reason"]?.ToString() ?? root["reason"]?.ToString(),
+                RawModelMap: BuildCompactModelMap(root));
+        }
+        catch (Exception ex)
+        {
+            return fallback with { Source = "static-fallback", AnchorReason = $"LLM course skill map parse failed: {ex.GetType().Name}: {ex.Message}" };
+        }
+    }
+
+    private static HashSet<Guid> CollectAssignmentIds(JsonElement payload)
+    {
+        var candidates = new List<AssignmentSkillCandidate>();
+        CollectAssignmentCandidates(payload, candidates, 0);
+        return candidates.Select(x => x.Id).ToHashSet();
+    }
+
+    private static List<JsonObject> BuildModelNeighborhood(JsonObject root, CourseSkillBridgeContext fallback)
+    {
+        var result = new List<JsonObject>();
+        if (root["courseMap"] is JsonArray map)
+        {
+            foreach (var item in map.OfType<JsonObject>().Take(24))
+            {
+                result.Add(new JsonObject
+                {
+                    ["relativePosition"] = int.TryParse(item["position"]?.ToString(), out var p) ? p : result.Count,
+                    ["assignmentId"] = item["assignmentId"]?.ToString(),
+                    ["title"] = item["title"]?.ToString(),
+                    ["summary"] = item["summary"]?.ToString(),
+                    ["requiresSkills"] = ToJsonArray(ReadStringArray(item["requiresSkills"])),
+                    ["introducesSkills"] = ToJsonArray(ReadStringArray(item["introducesSkills"])),
+                    ["studentHasAfter"] = ToJsonArray(ReadStringArray(item["studentHasAfter"])),
+                    ["isRelevantToRequest"] = item["isRelevantToRequest"]?.ToString()
+                });
+            }
+        }
+
+        return result.Count > 0 ? result : fallback.Neighborhood.Select(x => x.DeepClone().AsObject()).ToList();
+    }
+
+    private static JsonObject BuildCompactModelMap(JsonObject root)
+    {
+        var compact = new JsonObject
+        {
+            ["courseSummary"] = root["courseSummary"]?.DeepClone(),
+            ["language"] = root["language"]?.DeepClone(),
+            ["warnings"] = root["warnings"]?.DeepClone()
+        };
+
+        if (root["courseMap"] is JsonArray map)
+        {
+            var arr = new JsonArray();
+            foreach (var item in map.OfType<JsonObject>().Take(24))
+            {
+                arr.Add(new JsonObject
+                {
+                    ["assignmentId"] = item["assignmentId"]?.ToString(),
+                    ["title"] = item["title"]?.ToString(),
+                    ["summary"] = item["summary"]?.ToString(),
+                    ["introducesSkills"] = ToJsonArray(ReadStringArray(item["introducesSkills"])),
+                    ["studentHasAfter"] = ToJsonArray(ReadStringArray(item["studentHasAfter"]))
+                });
+            }
+            compact["courseMap"] = arr;
+        }
+
+        return compact;
+    }
+
+    private static string? ExtractJson(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var clean = text.Trim();
+        if (clean.StartsWith("```", StringComparison.Ordinal))
+        {
+            clean = Regex.Replace(clean, @"^```[a-zA-Z0-9_-]*\s*", string.Empty);
+            clean = Regex.Replace(clean, @"\s*```$", string.Empty).Trim();
+        }
+
+        var firstObject = clean.IndexOf('{');
+        var lastObject = clean.LastIndexOf('}');
+        if (firstObject >= 0 && lastObject > firstObject)
+            return clean[firstObject..(lastObject + 1)];
+
+        return null;
+    }
+
+    private static Guid? ParseGuid(string? value)
+        => Guid.TryParse(value, out var id) ? id : null;
+
+
+    private static List<string> ReadStringArrayOrFallback(JsonNode? node, IReadOnlyList<string> fallback)
+    {
+        var values = ReadStringArray(node)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return values.Count > 0 ? values : fallback.ToList();
+    }
+
+    private static IEnumerable<string> ReadStringArray(JsonNode? node)
+    {
+        if (node is JsonArray arr)
+        {
+            foreach (var item in arr)
+            {
+                var text = item?.ToString();
+                if (!string.IsNullOrWhiteSpace(text)) yield return text.Trim();
+            }
+        }
+        else if (node is not null)
+        {
+            foreach (var item in node.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!string.IsNullOrWhiteSpace(item)) yield return item;
+            }
+        }
+    }
+
+    private static IEnumerable<JsonObject> ReadObjectArray(JsonNode? node)
+    {
+        if (node is not JsonArray arr) yield break;
+        foreach (var item in arr.OfType<JsonObject>()) yield return item.DeepClone().AsObject();
     }
 
     private static AssignmentSkillCandidate? FindAnchor(IReadOnlyList<AssignmentSkillCandidate> ordered, IReadOnlyList<string> requestedSkills, string userText)
@@ -286,7 +434,7 @@ internal static class CourseSkillAnalyzer
     private sealed record AssignmentSkillCandidate(Guid Id, int? Index, int? Sort, string Title, string Text, bool IsHidden, bool IsAiDraft, List<string> Skills);
 }
 
-internal sealed record CourseSkillBridgeContext(
+public sealed record CourseSkillBridgeContext(
     Guid? BeforeAssignmentId,
     string? PreviousTitle,
     string? AnchorTitle,
@@ -295,7 +443,11 @@ internal sealed record CourseSkillBridgeContext(
     IReadOnlyList<string> TargetSkills,
     IReadOnlyList<string> MissingBridgeSkills,
     IReadOnlyList<JsonObject> Neighborhood,
-    bool IsBridgeRequest)
+    bool IsBridgeRequest,
+    IReadOnlyList<JsonObject>? BridgePlan = null,
+    string Source = "static",
+    string? AnchorReason = null,
+    JsonObject? RawModelMap = null)
 {
     public JsonObject ToJsonObject()
     {
@@ -310,6 +462,9 @@ internal sealed record CourseSkillBridgeContext(
         var neighborhood = new JsonArray();
         foreach (var item in Neighborhood) neighborhood.Add(item.DeepClone());
 
+        var bridgePlan = new JsonArray();
+        foreach (var item in BridgePlan ?? Array.Empty<JsonObject>()) bridgePlan.Add(item.DeepClone());
+
         return new JsonObject
         {
             ["insertBeforeAssignmentId"] = BeforeAssignmentId?.ToString(),
@@ -320,6 +475,10 @@ internal sealed record CourseSkillBridgeContext(
             ["targetSkillsAtAnchor"] = ToStringArray(TargetSkills),
             ["missingBridgeSkills"] = ToStringArray(MissingBridgeSkills),
             ["neighborhood"] = neighborhood,
+            ["bridgePlan"] = bridgePlan,
+            ["source"] = Source,
+            ["anchorReason"] = AnchorReason,
+            ["rawModelMap"] = RawModelMap?.DeepClone(),
             ["isBridgeRequest"] = IsBridgeRequest
         };
     }
