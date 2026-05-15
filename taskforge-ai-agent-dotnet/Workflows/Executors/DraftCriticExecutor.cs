@@ -33,7 +33,6 @@ public sealed class DraftCriticExecutor
 
         var staticCritique = await _validationTools.StaticDraftCritiqueAsync(state.Draft.ToArtifactData());
         _agent ??= _agentFactory.CreateCoordinatorAgent();
-        var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
         var prompt = $$"""
 {{TaskForgeAgentPrompts.Critic}}
 
@@ -58,8 +57,11 @@ Static critique:
         JsonObject modelCritique;
         try
         {
-            var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
-            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+            // The critic is advisory on top of deterministic checks, so use a fresh
+            // short-lived session. This avoids carrying huge author/skill-map history
+            // into provider adapters that may fail when converting long histories.
+            var criticSession = await _agent.CreateSessionAsync(cancellationToken);
+            var response = await _agent.RunAsync(prompt, criticSession, cancellationToken: cancellationToken);
             modelCritique = ParseCritique(response.Text ?? string.Empty);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)

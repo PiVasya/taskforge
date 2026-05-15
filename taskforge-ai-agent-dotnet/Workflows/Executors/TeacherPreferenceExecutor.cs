@@ -78,9 +78,12 @@ public sealed class TeacherPreferenceExecutor
 
         try
         {
-            var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
+            // Preference extraction also gets a fresh short-lived session. The current
+            // context is explicitly present in the prompt, and storing request-specific
+            // topic chatter in the long conversation session made later workflow stages
+            // less stable.
+            var session = await _agent.CreateSessionAsync(cancellationToken);
             var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
-            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
             var parsed = ParseProfile(response.Text ?? string.Empty) ?? defaults;
             state.Data["requestSpecificTeacherProfileRaw"] = parsed.DeepClone();
             var merged = SanitizeGenericProfile(MergeDefaults(defaults, parsed), defaults);
@@ -238,8 +241,18 @@ public sealed class TeacherPreferenceExecutor
         if (t.Contains("`") || t.Contains("()") || t.Contains("<") && t.Contains(">")) return true;
         if (t.Contains("console.") || t.Contains("parse") || t.Contains("tryparse") || t.Contains("split") || t.Contains("linq")) return true;
         if (t.Contains("double") || t.Contains("float") || t.Contains("int ") || t.Contains("string ") || t.Contains("bool")) return true;
+
+        // Do not persist concrete topic notes from the current request. These words
+        // are not used for placement; they only prevent turning today's bridge topic
+        // into long-lived teacher memory. The current workflow still sees the full
+        // user request separately.
+        if (ContainsAny(t, "ввод", "вывод", "парс", "readline", "строк", "числ", "массив", "цикл", "услов", "метод", "класс", "файл", "коллекц", "регуляр")) return true;
+        if (t.Contains("сначала") && t.Contains("затем")) return true;
         return false;
     }
+
+    private static bool ContainsAny(string text, params string[] needles)
+        => needles.Any(needle => text.Contains(needle, StringComparison.OrdinalIgnoreCase));
 
     private static JsonObject? ParseProfile(string text)
     {

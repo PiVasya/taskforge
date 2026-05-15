@@ -47,7 +47,10 @@ public sealed class CourseSkillMapExecutor
         var skillMapContext = skillMapInput.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = false });
         try
         {
-            var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
+            // Each LLM substage gets a fresh short-lived session. The prompts carry
+            // the complete explicit context, while reusing a huge conversation session
+            // can break OpenAI-compatible providers with malformed assistant-role
+            // conversions.
 
             // Stage 1: build a neutral semantic map of the course. This stage is
             // deliberately NOT allowed to pick an insertion point. It only studies
@@ -101,8 +104,8 @@ TASKS_ONLY_CONTEXT:
 }
 """;
 
-            var semanticResponse = await _agent.RunAsync(semanticPrompt, session, cancellationToken: cancellationToken);
-            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+            var semanticSession = await _agent.CreateSessionAsync(cancellationToken);
+            var semanticResponse = await _agent.RunAsync(semanticPrompt, semanticSession, cancellationToken: cancellationToken);
             var semanticText = semanticResponse.Text ?? string.Empty;
             state.Data["courseSemanticMapRaw"] = semanticText.Length <= 20000 ? semanticText : semanticText[..20000] + "...";
 
@@ -197,8 +200,8 @@ TASKS_ONLY_CONTEXT:
 }
 """;
 
-            var response = await _agent.RunAsync(placementPrompt, session, cancellationToken: cancellationToken);
-            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+            var placementSession = await _agent.CreateSessionAsync(cancellationToken);
+            var response = await _agent.RunAsync(placementPrompt, placementSession, cancellationToken: cancellationToken);
             var text = response.Text ?? string.Empty;
             var bridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, text, fallback);
             if (!string.Equals(bridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))
@@ -219,8 +222,8 @@ TASKS_ONLY_CONTEXT:
 Исходный ответ модели:
 {{text}}
 """;
-                var repaired = await _agent.RunAsync(repairPrompt, session, cancellationToken: cancellationToken);
-                await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
+                var repairSession = await _agent.CreateSessionAsync(cancellationToken);
+                var repaired = await _agent.RunAsync(repairPrompt, repairSession, cancellationToken: cancellationToken);
                 var repairedText = repaired.Text ?? string.Empty;
                 var repairedBridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, repairedText, fallback);
                 if (string.Equals(repairedBridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))

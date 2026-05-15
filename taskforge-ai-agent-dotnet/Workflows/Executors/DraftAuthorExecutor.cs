@@ -105,32 +105,27 @@ public sealed class DraftAuthorExecutor
 }
 """;
 
-        string responseText;
-        try
+        var fallbackPrompt = BuildCompactDraftPrompt(state, bridgeJson, teacherPreferences, count);
+        var responseText = await TryRunAuthorPromptAsync(state, prompt, fallbackPrompt, attempt, cancellationToken);
+        if (string.IsNullOrWhiteSpace(responseText))
         {
-            var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
-            var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
-            await _sessionStore.SaveAsync(_agent, session, state.Job.ConversationId, cancellationToken);
-            responseText = response.Text ?? string.Empty;
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            state.Notes.Add($"Draft author LLM call failed on attempt {attempt + 1}: {ex.GetType().Name}: {ex.Message}");
-            await _steps.TryReportAsync("draft", "failed", "Не удалось получить ответ LLM для черновиков", ex.Message, new JsonObject
-            {
-                ["exceptionType"] = ex.GetType().Name,
-                ["message"] = ex.Message,
-                ["attempt"] = attempt + 1
-            });
-            var fallback = new List<DraftSpec> { BuildFallbackDraft(state.Job, attempt, string.Empty) };
-            ApplyBatchMetadata(fallback, state.Job, bridge);
-            state.Draft = fallback.FirstOrDefault();
-            return fallback;
+            state.Notes.Add($"Draft author returned no usable LLM response on attempt {attempt + 1}; no invalid fallback draft will be saved.");
+            return new List<DraftSpec>();
         }
 
         var drafts = ParseDrafts(responseText, state.Job);
         if (drafts.Count == 0)
-            drafts.Add(BuildFallbackDraft(state.Job, attempt, responseText));
+        {
+            state.Notes.Add($"Draft author response could not be parsed on attempt {attempt + 1}; no invalid fallback draft will be saved.");
+            state.Data["draftGenerationError"] = new JsonObject
+            {
+                ["type"] = "DraftParseFailed",
+                ["message"] = "LLM returned no parseable drafts JSON.",
+                ["rawPreview"] = responseText.Length <= 4000 ? responseText : responseText[..4000] + "..."
+            };
+            await _steps.TryReportAsync("draft", "failed", "Не удалось разобрать черновики из ответа LLM", "Ответ модели не содержал валидный JSON drafts.", state.Data["draftGenerationError"]?.DeepClone());
+            return new List<DraftSpec>();
+        }
 
         drafts = NormalizeDraftOrder(drafts).Take(count).ToList();
         ApplyBatchMetadata(drafts, state.Job, bridge);
@@ -150,6 +145,121 @@ public sealed class DraftAuthorExecutor
         var planned = bridge.BridgePlan?.Count ?? 0;
         if (planned > 0) return Math.Clamp(planned, 1, Math.Min(6, requested));
         return requested;
+    }
+
+    private async Task<string?> TryRunAuthorPromptAsync(WorkflowState state, string primaryPrompt, string fallbackPrompt, int attempt, CancellationToken cancellationToken)
+    {
+        var errors = new JsonArray();
+
+        async Task<string?> TryOneAsync(string label, string candidatePrompt, int retry)
+        {
+            try
+            {
+                // Use a fresh short-lived session for draft generation. The workflow
+                // already passes all required context explicitly, and reusing the
+                // long conversation session has caused OpenAI-compatible SDK role
+                // conversion failures on some providers.
+                var agent = retry == 0 ? _agent! : _agentFactory.CreateCoordinatorAgent();
+                var session = await agent.CreateSessionAsync(cancellationToken);
+                var response = await agent.RunAsync(candidatePrompt, session, cancellationToken: cancellationToken);
+                var text = response.Text ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(text)) return text;
+
+                errors.Add(new JsonObject
+                {
+                    ["prompt"] = label,
+                    ["retry"] = retry,
+                    ["type"] = "EmptyResponse",
+                    ["message"] = "LLM response text was empty."
+                });
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                errors.Add(new JsonObject
+                {
+                    ["prompt"] = label,
+                    ["retry"] = retry,
+                    ["type"] = ex.GetType().Name,
+                    ["message"] = ex.Message
+                });
+            }
+
+            return null;
+        }
+
+        foreach (var (label, candidatePrompt) in new[] { ("primary", primaryPrompt), ("compact", fallbackPrompt) })
+        {
+            for (var retry = 0; retry < 2; retry++)
+            {
+                var text = await TryOneAsync(label, candidatePrompt, retry);
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+        }
+
+        state.Data["draftAuthorErrors"] = errors;
+        state.Data["draftGenerationError"] = new JsonObject
+        {
+            ["type"] = "DraftAuthorUnavailable",
+            ["message"] = "All draft-author LLM attempts failed.",
+            ["attempt"] = attempt + 1,
+            ["errors"] = errors.DeepClone()
+        };
+        await _steps.TryReportAsync("draft", "failed", "Не удалось получить ответ LLM для черновиков", "Все попытки draft-author завершились ошибкой; не создаю невалидный fallback-черновик.", state.Data["draftGenerationError"]?.DeepClone());
+        return null;
+    }
+
+    private static string BuildCompactDraftPrompt(WorkflowState state, string bridgeJson, string teacherPreferences, int count)
+    {
+        return $$"""
+Ты — TaskForge draft author. Сгенерируй до {{count}} учебных draft-ов строго по COURSE_SKILL_MAP.bridgePlan.
+Не выбирай место вставки и не переоценивай курс: placement уже решён отдельной стадией.
+Тема может быть любой темой программирования; не используй зашитые предметные лестницы.
+
+Запрос пользователя:
+{{state.UserText}}
+
+COURSE_SKILL_MAP:
+{{bridgeJson}}
+
+Педагогические правила:
+{{teacherPreferences}}
+
+Требования:
+- Один draft на один bridgePlan step, в том же порядке.
+- Один главный новый навык на draft.
+- Не использовать mustNotUse текущего step.
+- Student-facing title/description, без служебной metadata.
+- Если это code-test, дай referenceSolution, 2 publicTests и 2 hiddenTests, которые проходят решение.
+- Если для какого-то step невозможно дать корректный draft с тестами, просто пропусти этот step, не выдумывай fallback.
+
+Верни только валидный JSON без markdown:
+{
+  "drafts": [
+    {
+      "assignmentType": "code-test",
+      "title": "...",
+      "description": "...",
+      "language": "csharp",
+      "referenceSolution": "...",
+      "difficulty": 1,
+      "rating": 10,
+      "sourceTaskIndex": 0,
+      "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
+      "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
+      "tags": ["AI", "черновик"],
+      "extra": {
+        "bridgeSkillId": "same as bridgePlan step.skillId",
+        "assumedSkills": [],
+        "introducedSkills": [],
+        "targetSkills": [],
+        "missingBridgeSkills": [],
+        "skillBridgeReason": "..."
+      }
+    }
+  ]
+}
+""";
     }
 
     private List<DraftSpec> ParseDrafts(string text, ClaimedAgentJob job)
