@@ -12,7 +12,11 @@ import {
 import Layout from "../components/Layout";
 import InlineSectionEditor from "../components/InlineSectionEditor";
 import RichConspectRenderer from "../components/RichConspectRenderer";
-import { getLearningConspect, getLearningConspects } from "../api/learning";
+import {
+  getLearningConspect,
+  getLearningConspects,
+  getLearningCourseTree,
+} from "../api/learning";
 import {
   getMyQuizProgress,
   getMyQuizSolutions,
@@ -25,10 +29,10 @@ import {
   RANDOM_TASKS_COUNT,
   SUBJECT_CODE,
   EXAM_CODE,
+  findSectionCourse,
+  getCreatedSectionsByPart,
   getSectionPath,
-  getSectionsByPart,
   normalizeSectionCode,
-  parseSectionCode,
 } from "../data/ctSections";
 import { useEditorMode } from "../contexts/EditorModeContext";
 
@@ -557,35 +561,50 @@ function RandomTasksBlock({ sectionCode }) {
   );
 }
 
-function SectionNav({ active }) {
+function flattenCourses(nodes, result = []) {
+  (nodes || []).forEach((node) => {
+    result.push(node);
+    flattenCourses(node.children, result);
+  });
+  return result;
+}
+
+function SectionNav({ active, courses, loading }) {
+  if (loading) {
+    return (
+      <div className="rounded-[2rem] border border-neutral-200/80 bg-white p-4 text-sm text-neutral-500 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
+        <Loader2 size={16} className="mr-2 inline animate-spin" />
+        Загружаю созданные номера...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3 rounded-[2rem] border border-neutral-200/80 bg-white p-4 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
       {CT_PARTS.map((part) => {
-        const activeParsed = parseSectionCode(active);
-        const baseSections = getSectionsByPart(part.code);
-        const sections =
-          activeParsed?.partCode === part.code &&
-          !baseSections.some((section) => section.code === activeParsed.code)
-            ? [...baseSections, activeParsed].sort(
-                (a, b) => a.number - b.number,
-              )
-            : baseSections;
+        const sections = getCreatedSectionsByPart(courses, part.code);
         return (
           <div key={part.code}>
             <div className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">
-              {part.title}
+              {part.title} · создано {sections.length}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {sections.map((section) => (
-                <Link
-                  key={section.code}
-                  to={getSectionPath(section.code)}
-                  className={`rounded-2xl border px-3 py-2 text-sm font-bold transition ${section.code === active ? "border-brand-500 bg-brand-600 text-white" : "border-neutral-200 bg-neutral-50 hover:border-brand-300 dark:border-neutral-800 dark:bg-neutral-950"}`}
-                >
-                  {section.code}
-                </Link>
-              ))}
-            </div>
+            {sections.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400">
+                Пока нет созданных номеров.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {sections.map((section) => (
+                  <Link
+                    key={section.code}
+                    to={getSectionPath(section.code)}
+                    className={`rounded-2xl border px-3 py-2 text-sm font-bold transition ${section.code === active ? "border-brand-500 bg-brand-600 text-white" : "border-neutral-200 bg-neutral-50 hover:border-brand-300 dark:border-neutral-800 dark:bg-neutral-950"}`}
+                  >
+                    {section.code}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
@@ -599,15 +618,60 @@ export default function SimpleSectionPage({ sectionCode }) {
     sectionCode || params.sectionCode || "",
   );
   const { canEdit, isEditorMode } = useEditorMode();
+  const [courseTree, setCourseTree] = useState([]);
+  const [courseLoading, setCourseLoading] = useState(true);
+  const [courseError, setCourseError] = useState("");
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
 
+  const includeDraft = canEdit && isEditorMode;
+  const allCourses = useMemo(() => flattenCourses(courseTree), [courseTree]);
+  const sectionCourse = useMemo(
+    () => findSectionCourse(allCourses, normalizedSectionCode),
+    [allCourses, normalizedSectionCode],
+  );
+  const sectionExists = Boolean(sectionCourse?.id);
+  const canCreateHere = canEdit && isEditorMode;
+
   useEffect(() => {
     if (!normalizedSectionCode) return;
     let cancelled = false;
+    async function loadCourses() {
+      setCourseLoading(true);
+      setCourseError("");
+      try {
+        const data = await getLearningCourseTree({ includeDraft });
+        if (!cancelled) setCourseTree(data || []);
+      } catch (e) {
+        if (!cancelled)
+          setCourseError(
+            e?.userMessage ||
+              e?.message ||
+              "Не удалось загрузить список созданных номеров.",
+          );
+      } finally {
+        if (!cancelled) setCourseLoading(false);
+      }
+    }
+    loadCourses();
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedSectionCode, includeDraft, reloadKey]);
+
+  useEffect(() => {
+    if (!normalizedSectionCode || courseLoading) return;
+    let cancelled = false;
     async function load() {
+      if (!sectionExists) {
+        setDetails(null);
+        setLoading(false);
+        setError("");
+        return;
+      }
+
       setLoading(true);
       setError("");
       setDetails(null);
@@ -616,6 +680,7 @@ export default function SimpleSectionPage({ sectionCode }) {
           subjectCode: SUBJECT_CODE,
           examCode: EXAM_CODE,
           sectionCode: normalizedSectionCode,
+          includeDraft,
         });
         const first = [...(conspects || [])].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
@@ -624,7 +689,9 @@ export default function SimpleSectionPage({ sectionCode }) {
           if (!cancelled) setDetails(null);
           return;
         }
-        const data = await getLearningConspect(first.id || first.slug);
+        const data = await getLearningConspect(first.id || first.slug, {
+          includeDraft,
+        });
         if (!cancelled) setDetails(data);
       } catch (e) {
         if (!cancelled)
@@ -639,7 +706,13 @@ export default function SimpleSectionPage({ sectionCode }) {
     return () => {
       cancelled = true;
     };
-  }, [normalizedSectionCode, reloadKey]);
+  }, [
+    normalizedSectionCode,
+    sectionExists,
+    courseLoading,
+    includeDraft,
+    reloadKey,
+  ]);
 
   if (!normalizedSectionCode) {
     return <Navigate to="/" replace />;
@@ -666,11 +739,23 @@ export default function SimpleSectionPage({ sectionCode }) {
               {normalizedSectionCode}
             </h1>
             <p className="mt-3 max-w-2xl text-lg text-neutral-600 dark:text-neutral-300">
-              Сначала HTML-конспект, ниже случайные задания по этому же номеру.
+              {sectionExists
+                ? "Сначала HTML-конспект, ниже случайные задания по этому же номеру."
+                : "Такой номер ещё не создан как полноценный раздел."}
             </p>
           </section>
 
-          <SectionNav active={normalizedSectionCode} />
+          {courseError ? (
+            <div className="mb-5 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">
+              {courseError}
+            </div>
+          ) : null}
+
+          <SectionNav
+            active={normalizedSectionCode}
+            courses={allCourses}
+            loading={courseLoading}
+          />
 
           {canEdit && isEditorMode ? (
             <InlineSectionEditor
@@ -679,32 +764,43 @@ export default function SimpleSectionPage({ sectionCode }) {
             />
           ) : null}
 
-          <div className="mt-6">
-            {loading ? (
-              <div className="rounded-[2rem] border border-neutral-200 bg-white p-10 text-center shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
-                <Loader2 className="mx-auto animate-spin text-brand-600" />
-                <div className="mt-3 text-neutral-600 dark:text-neutral-300">
-                  Загружаю конспект...
-                </div>
-              </div>
-            ) : error ? (
-              <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">
-                {error}
-              </div>
-            ) : details ? (
-              <RichConspectRenderer
-                details={details}
-                tasksBasePath={getSectionPath(normalizedSectionCode)}
-              />
-            ) : (
-              <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 text-neutral-600 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-                Для {normalizedSectionCode} пока нет опубликованного
-                HTML-конспекта.
-              </div>
-            )}
-          </div>
+          {!courseLoading && !sectionExists && !canCreateHere ? (
+            <div className="mt-6 rounded-[2rem] border border-neutral-200 bg-white p-8 text-neutral-600 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+              Номер {normalizedSectionCode} пока не создан. Он появится в списке
+              только после того, как редактор создаст полноценный раздел.
+            </div>
+          ) : null}
 
-          <RandomTasksBlock sectionCode={normalizedSectionCode} />
+          {sectionExists ? (
+            <>
+              <div className="mt-6">
+                {loading ? (
+                  <div className="rounded-[2rem] border border-neutral-200 bg-white p-10 text-center shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
+                    <Loader2 className="mx-auto animate-spin text-brand-600" />
+                    <div className="mt-3 text-neutral-600 dark:text-neutral-300">
+                      Загружаю конспект...
+                    </div>
+                  </div>
+                ) : error ? (
+                  <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">
+                    {error}
+                  </div>
+                ) : details ? (
+                  <RichConspectRenderer
+                    details={details}
+                    tasksBasePath={getSectionPath(normalizedSectionCode)}
+                  />
+                ) : (
+                  <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 text-neutral-600 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                    Для {normalizedSectionCode} пока нет опубликованного
+                    HTML-конспекта.
+                  </div>
+                )}
+              </div>
+
+              <RandomTasksBlock sectionCode={normalizedSectionCode} />
+            </>
+          ) : null}
         </div>
       </div>
     </Layout>

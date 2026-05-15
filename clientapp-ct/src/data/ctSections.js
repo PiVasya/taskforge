@@ -7,26 +7,30 @@ export const CT_PARTS = [
     code: "A",
     title: "Часть A",
     description:
-      "Задания с выбором ответа. Для ученика: открыл номер, прочитал HTML-конспект, решил случайные задания.",
-    count: 30,
+      "Задания с выбором ответа. В списке отображаются только реально созданные номера.",
   },
   {
     code: "B",
     title: "Часть B",
     description:
-      "Задания с кратким ответом. Такая же страница: конспект сверху, практика снизу.",
-    count: 10,
+      "Задания с кратким ответом. Новые номера добавляются вручную через плюс в этой части.",
   },
 ];
 
-export const CT_SECTIONS = CT_PARTS.flatMap((part) =>
-  Array.from({ length: part.count }, (_, index) => ({
-    code: `${part.code}${index + 1}`,
-    partCode: part.code,
+export const CT_SECTIONS = [
+  ...Array.from({ length: 30 }, (_, index) => ({
+    code: `A${index + 1}`,
+    partCode: "A",
     number: index + 1,
-    isDefault: true,
+    isTemplate: true,
   })),
-);
+  ...Array.from({ length: 10 }, (_, index) => ({
+    code: `B${index + 1}`,
+    partCode: "B",
+    number: index + 1,
+    isTemplate: true,
+  })),
+];
 
 export function normalizeSectionCode(raw) {
   const value = String(raw || "")
@@ -51,7 +55,6 @@ export function parseSectionCode(raw) {
     code,
     partCode: match[1],
     number: Number(match[2]),
-    isDefault: isKnownSectionCode(code),
   };
 }
 
@@ -60,8 +63,7 @@ export function getSectionPath(sectionCode) {
 }
 
 export function isKnownSectionCode(sectionCode) {
-  const normalized = normalizeSectionCode(sectionCode);
-  return CT_SECTIONS.some((section) => section.code === normalized);
+  return Boolean(parseSectionCode(sectionCode));
 }
 
 export function getPartConfig(partCode) {
@@ -73,13 +75,48 @@ export function getPartConfig(partCode) {
 }
 
 export function getSectionsByPart(partCode) {
-  return CT_SECTIONS.filter((section) => section.partCode === partCode);
+  const part = String(partCode || "").toUpperCase();
+  return CT_SECTIONS.filter((section) => section.partCode === part);
 }
 
 export function getSectionSortOrder(sectionCode) {
   const section = parseSectionCode(sectionCode);
   if (!section) return 999999;
   return section.partCode === "A" ? section.number : 1000 + section.number;
+}
+
+export function sectionFromCourse(course) {
+  const parsed = parseSectionCode(course?.sectionCode);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    courseId: course.id,
+    isPublished: course.isPublished !== false,
+    course,
+  };
+}
+
+export function getCreatedSectionsByPart(courses, partCode) {
+  const part = String(partCode || "").toUpperCase();
+  const byCode = new Map();
+
+  (courses || []).forEach((course) => {
+    const section = sectionFromCourse(course);
+    if (!section || section.partCode !== part) return;
+    byCode.set(section.code, section);
+  });
+
+  return [...byCode.values()].sort((a, b) => a.number - b.number);
+}
+
+export function findSectionCourse(courses, sectionCode) {
+  const normalized = normalizeSectionCode(sectionCode);
+  if (!normalized) return null;
+  return (
+    (courses || []).find(
+      (course) => normalizeSectionCode(course.sectionCode) === normalized,
+    ) || null
+  );
 }
 
 export function getNextSectionCode(partCode, sections = []) {
@@ -93,25 +130,6 @@ export function getNextSectionCode(partCode, sections = []) {
   return `${part}${max + 1}`;
 }
 
-export function mergeSectionsWithCourses(defaultSections, courses, partCode) {
-  const byCode = new Map();
-
-  (defaultSections || []).forEach((section) => {
-    const parsed = parseSectionCode(section.code);
-    if (parsed?.partCode === partCode)
-      byCode.set(parsed.code, { ...parsed, isDefault: true });
-  });
-
-  (courses || []).forEach((course) => {
-    const parsed = parseSectionCode(course.sectionCode);
-    if (parsed?.partCode !== partCode) return;
-    byCode.set(parsed.code, {
-      ...parsed,
-      isDefault: byCode.get(parsed.code)?.isDefault || false,
-      courseId: course.id,
-      course,
-    });
-  });
-
-  return [...byCode.values()].sort((a, b) => a.number - b.number);
+export function mergeSectionsWithCourses(_defaultSections, courses, partCode) {
+  return getCreatedSectionsByPart(courses, partCode);
 }

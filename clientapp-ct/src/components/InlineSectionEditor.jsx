@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertTriangle,
   CheckCircle2,
   Code2,
   Eye,
@@ -14,7 +13,6 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
-import CtStructureBootstrapPanel from "./CtStructureBootstrapPanel";
 import SectionTaskAdminPanel from "./SectionTaskAdminPanel";
 import {
   createLearningConspect,
@@ -476,6 +474,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
     try {
       await createCtSectionCourse(normalizedSectionCode, allCourses);
       await loadSection();
+      onConspectSaved?.();
       setSuccess(
         `Раздел ${normalizedSectionCode} создан. Теперь можно сохранять конспект и задания.`,
       );
@@ -830,20 +829,15 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
         </div>
       </div>
 
-      <SectionTaskAdminPanel selectedCourse={taskCourse} />
+      {sectionCourse?.id ? (
+        <SectionTaskAdminPanel selectedCourse={taskCourse} />
+      ) : (
+        <Alert type="warning">
+          Сначала создай полноценный раздел {normalizedSectionCode}. После этого
+          здесь появится редактор заданий для этого номера.
+        </Alert>
+      )}
 
-      <details className="rounded-[1.75rem] border border-dashed border-neutral-300 bg-white/70 p-4 dark:border-neutral-800 dark:bg-neutral-900/70">
-        <summary className="cursor-pointer list-none text-sm font-bold">
-          <AlertTriangle size={16} className="mr-2 inline" />
-          Служебно: создать основу A1-A30 / B1-B10
-        </summary>
-        <div className="mt-4">
-          <CtStructureBootstrapPanel
-            allCourses={allCourses}
-            onDone={() => loadSection()}
-          />
-        </div>
-      </details>
     </section>
   );
 }
