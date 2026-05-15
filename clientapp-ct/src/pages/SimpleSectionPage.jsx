@@ -10,6 +10,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import Layout from '../components/Layout';
+import InlineSectionEditor from '../components/InlineSectionEditor';
 import RichConspectRenderer from '../components/RichConspectRenderer';
 import { getLearningConspect, getLearningConspects } from '../api/learning';
 import {
@@ -29,6 +30,7 @@ import {
   isKnownSectionCode,
   normalizeSectionCode,
 } from '../data/ctSections';
+import { useEditorMode } from '../contexts/EditorModeContext';
 
 function safeJson(raw, fallback) {
   if (!raw) return fallback;
@@ -444,9 +446,11 @@ function SectionNav({ active }) {
 export default function SimpleSectionPage({ sectionCode }) {
   const params = useParams();
   const normalizedSectionCode = normalizeSectionCode(sectionCode || params.sectionCode || '');
+  const { canEdit, isEditorMode } = useEditorMode();
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!normalizedSectionCode) return;
@@ -476,7 +480,7 @@ export default function SimpleSectionPage({ sectionCode }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [normalizedSectionCode]);
+  }, [normalizedSectionCode, reloadKey]);
 
   if (!normalizedSectionCode || !isKnownSectionCode(normalizedSectionCode)) {
     return <Navigate to="/" replace />;
@@ -501,6 +505,13 @@ export default function SimpleSectionPage({ sectionCode }) {
           </section>
 
           <SectionNav active={normalizedSectionCode} />
+
+          {canEdit && isEditorMode ? (
+            <InlineSectionEditor
+              sectionCode={normalizedSectionCode}
+              onConspectSaved={() => setReloadKey((value) => value + 1)}
+            />
+          ) : null}
 
           <div className="mt-6">
             {loading ? (

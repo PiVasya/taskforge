@@ -51,7 +51,7 @@ function HtmlConspectFrame({ html, title, conspect }) {
     <iframe
       title={title || 'Конспект'}
       className="h-full w-full rounded-[1.4rem] bg-white pointer-events-none"
-      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+      sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox"
       srcDoc={buildHtmlSrcDoc(html)}
     />
   );
@@ -106,7 +106,7 @@ function HtmlConspectFrame({ html, title, conspect }) {
               <iframe
                 title={`${title || 'Конспект'} — полноэкранный режим`}
                 className="h-full w-full rounded-[1.2rem] bg-white"
-                sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+                sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox"
                 srcDoc={buildHtmlSrcDoc(html)}
               />
             </div>
@@ -198,7 +198,6 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
                 <div className="text-sm text-neutral-500 dark:text-neutral-400">Пример</div>
                 <div className="mt-1 text-lg font-semibold">{item.source}</div>
                 <div className="mt-2 text-brand-700 dark:text-brand-200 font-medium">{item.answer}</div>
-                {item.comment && <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">{item.comment}</p>}
               </div>
             ))}
           </div>

@@ -120,8 +120,9 @@ app.MapGet("/health/ready", async (LearningDbContext db) =>
     return canConnect ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503);
 });
 
-app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, bool includeDraft = false) =>
+app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, ClaimsPrincipal user, bool includeDraft = false) =>
 {
+    includeDraft = includeDraft && CanEditLearning(user);
     var query = db.Courses.AsNoTracking();
     if (!includeDraft) query = query.Where(x => x.IsPublished);
 
@@ -164,8 +165,9 @@ app.MapGet("/api/learning/courses/tree", async (LearningDbContext db, bool inclu
     return Results.Ok(roots);
 });
 
-app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, string slug, bool includeDraft = false) =>
+app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, ClaimsPrincipal user, string slug, bool includeDraft = false) =>
 {
+    includeDraft = includeDraft && CanEditLearning(user);
     var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Slug == slug);
     if (course == null || (!includeDraft && !course.IsPublished)) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"Slug: {slug}", "Проверь выбранный узел дерева или включи includeDraft=true для черновиков.");
 
@@ -197,8 +199,9 @@ app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, 
     return Results.Ok(new LearningCourseOutlineDto(LearningCourseDto.FromEntity(course), children, pages, conspects, tasks));
 });
 
-app.MapGet("/api/learning/courses/{slug}/conspects", async (LearningDbContext db, string slug, bool includeDraft = false) =>
+app.MapGet("/api/learning/courses/{slug}/conspects", async (LearningDbContext db, ClaimsPrincipal user, string slug, bool includeDraft = false) =>
 {
+    includeDraft = includeDraft && CanEditLearning(user);
     var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Slug == slug);
     if (course == null || (!includeDraft && !course.IsPublished)) return ApiError(StatusCodes.Status404NotFound, "Курс не найден.", $"Slug: {slug}", "Проверь выбранный узел дерева или включи includeDraft=true для черновиков.");
 
@@ -211,12 +214,14 @@ app.MapGet("/api/learning/courses/{slug}/conspects", async (LearningDbContext db
 
 app.MapGet("/api/learning/conspects", async (
     LearningDbContext db,
+    ClaimsPrincipal user,
     string? subjectCode,
     string? examCode,
     string? sectionCode,
     string? courseSlug,
     bool includeDraft = false) =>
 {
+    includeDraft = includeDraft && CanEditLearning(user);
     var query = db.Conspects.AsNoTracking().AsQueryable();
     if (!includeDraft) query = query.Where(x => x.IsPublished);
     if (!string.IsNullOrWhiteSpace(subjectCode)) query = query.Where(x => x.SubjectCode == subjectCode);
@@ -237,8 +242,9 @@ app.MapGet("/api/learning/conspects", async (
     return Results.Ok(items.Select(LearningConspectDto.FromEntity).ToList());
 });
 
-app.MapGet("/api/learning/conspects/{idOrSlug}", async (LearningDbContext db, string idOrSlug, string? courseSlug, bool includeDraft = false) =>
+app.MapGet("/api/learning/conspects/{idOrSlug}", async (LearningDbContext db, ClaimsPrincipal user, string idOrSlug, string? courseSlug, bool includeDraft = false) =>
 {
+    includeDraft = includeDraft && CanEditLearning(user);
     var isGuid = Guid.TryParse(idOrSlug, out var id);
     var query = db.Conspects.AsNoTracking().AsQueryable();
 
@@ -505,6 +511,11 @@ app.MapPost("/api/admin/learning/courses/{courseId}/conspects", [Authorize(Roles
 });
 
 app.Run();
+
+static bool CanEditLearning(ClaimsPrincipal user)
+{
+    return user.IsInRole("Admin") || user.IsInRole("LearningEditor");
+}
 
 
 static IResult ApiError(int statusCode, string message, string? detail = null, string? hint = null)

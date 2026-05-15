@@ -47,6 +47,15 @@ public sealed record QuizTaskDetailsDto(
     decimal BestScorePercent
 );
 
+public sealed record AdminQuizTaskDetailsDto(
+    QuizTaskDto Task,
+    Guid VersionId,
+    int VersionNumber,
+    string DataJson,
+    string CorrectAnswerJson,
+    string ExplanationJson
+);
+
 public sealed record CreateQuizTaskRequest(
     string Slug,
     string Type,

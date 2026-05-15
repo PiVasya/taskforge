@@ -1,14 +1,13 @@
 import React from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, LogOut, PencilLine } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useEditorMode } from '../contexts/EditorModeContext';
 
 export default function Layout({ children, fullWidth = false }) {
   const { access, user, logout } = useAuth();
-  const { canEdit, isEditorMode, toggle } = useEditorMode();
+  const { canEdit, isEditorMode, setEditorMode } = useEditorMode();
   const navigate = useNavigate();
-  const location = useLocation();
   const displayName = [user?.lastName, user?.firstName].filter(Boolean).join(' ') || user?.email || 'Пользователь';
 
   const handleLogout = async () => {
@@ -17,10 +16,7 @@ export default function Layout({ children, fullWidth = false }) {
   };
 
   const handleToggleEditor = () => {
-    const next = !isEditorMode;
-    toggle();
-    if (next) navigate('/editor');
-    else navigate('/');
+    setEditorMode(!isEditorMode);
   };
 
   return (
@@ -38,16 +34,11 @@ export default function Layout({ children, fullWidth = false }) {
                   <button
                     type="button"
                     onClick={handleToggleEditor}
-                    className={`hidden items-center gap-2 rounded-2xl px-3 py-2 font-semibold sm:inline-flex ${isEditorMode ? 'bg-brand-600 text-white hover:bg-brand-700' : 'hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+                    className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 font-semibold transition ${isEditorMode ? 'bg-brand-600 text-white hover:bg-brand-700' : 'hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
                   >
                     {isEditorMode ? <Eye size={16} /> : <PencilLine size={16} />}
-                    {isEditorMode ? 'Просмотр' : 'Редактор'}
+                    {isEditorMode ? 'Выйти из редактора' : 'Редактор'}
                   </button>
-                )}
-                {canEdit && isEditorMode && location.pathname !== '/editor' && (
-                  <Link to="/editor" className="hidden rounded-2xl px-3 py-2 font-semibold hover:bg-neutral-100 dark:hover:bg-neutral-900 md:inline-flex">
-                    Управление
-                  </Link>
                 )}
                 <span className="hidden max-w-[220px] truncate text-neutral-500 dark:text-neutral-400 md:inline">{displayName}</span>
                 <button type="button" onClick={handleLogout} className="btn-outline inline-flex items-center gap-2">

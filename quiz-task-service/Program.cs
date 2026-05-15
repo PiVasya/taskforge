@@ -96,10 +96,11 @@ app.MapGet("/health/ready", async (QuizDbContext db) =>
     return canConnect ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503);
 });
 
-app.MapGet("/api/quiz/tasks", async (QuizDbContext db, string? subjectCode, string? examCode, string? sectionCode, string? type, bool includeDraft = false) =>
+app.MapGet("/api/quiz/tasks", async (QuizDbContext db, ClaimsPrincipal user, string? subjectCode, string? examCode, string? sectionCode, string? type, bool includeDraft = false) =>
 {
     var query = db.Tasks.AsNoTracking().AsQueryable();
-    if (!includeDraft) query = query.Where(x => x.IsPublished);
+    var canSeeDrafts = includeDraft && CanEditQuiz(user);
+    if (!canSeeDrafts) query = query.Where(x => x.IsPublished);
     if (!string.IsNullOrWhiteSpace(subjectCode)) query = query.Where(x => x.SubjectCode == subjectCode);
     if (!string.IsNullOrWhiteSpace(examCode)) query = query.Where(x => x.ExamCode == examCode);
     if (!string.IsNullOrWhiteSpace(sectionCode)) query = query.Where(x => x.SectionCode == sectionCode);
@@ -117,8 +118,9 @@ app.MapGet("/api/quiz/tasks", async (QuizDbContext db, string? subjectCode, stri
 app.MapGet("/api/quiz/tasks/{idOrSlug}", async (QuizDbContext db, ClaimsPrincipal user, string idOrSlug) =>
 {
     var isGuid = Guid.TryParse(idOrSlug, out var id);
+    var canSeeDrafts = CanEditQuiz(user);
     var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => isGuid ? x.Id == id : x.Slug == idOrSlug);
-    if (task == null || !task.IsPublished) return Results.NotFound();
+    if (task == null || (!task.IsPublished && !canSeeDrafts)) return Results.NotFound();
 
     var version = await db.TaskVersions.AsNoTracking()
         .Where(x => x.TaskId == task.Id && x.VersionNumber == task.CurrentVersion)
@@ -316,49 +318,44 @@ app.MapGet("/api/quiz/me/progress", [Authorize] async (QuizDbContext db, ClaimsP
     return Results.Ok(progressEntities.Select(QuizProgressDto.FromEntity).ToList());
 });
 
+app.MapGet("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, string? subjectCode, string? examCode, string? sectionCode, string? type) =>
+{
+    var query = db.Tasks.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(subjectCode)) query = query.Where(x => x.SubjectCode == subjectCode);
+    if (!string.IsNullOrWhiteSpace(examCode)) query = query.Where(x => x.ExamCode == examCode);
+    if (!string.IsNullOrWhiteSpace(sectionCode)) query = query.Where(x => x.SectionCode == sectionCode);
+    if (!string.IsNullOrWhiteSpace(type)) query = query.Where(x => x.Type == type);
+
+    var tasks = await query
+        .OrderBy(x => x.SectionCode)
+        .ThenBy(x => x.Difficulty)
+        .ThenBy(x => x.Title)
+        .ToListAsync();
+
+    var versions = await LoadCurrentVersionsAsync(db, tasks);
+    return Results.Ok(tasks.Select(task => ToAdminDto(task, versions.GetValueOrDefault(task.Id))).ToList());
+});
+
+app.MapGet("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id) =>
+{
+    var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+    if (task == null) return Results.NotFound(new { message = "Task not found" });
+    var version = await db.TaskVersions.AsNoTracking()
+        .Where(x => x.TaskId == task.Id && x.VersionNumber == task.CurrentVersion)
+        .FirstOrDefaultAsync();
+    if (version == null) return Results.NotFound(new { message = "Task version not found" });
+    return Results.Ok(ToAdminDto(task, version));
+});
+
 app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, [FromBody] CreateQuizTaskRequest req) =>
 {
-    if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Prompt))
-    {
-        return Results.BadRequest(new { message = "Slug, Title and Prompt are required" });
-    }
+    var validation = ValidateTaskRequest(req);
+    if (validation != null) return validation;
 
     var exists = await db.Tasks.AnyAsync(x => x.Slug == req.Slug.Trim());
     if (exists) return Results.Conflict(new { message = "Task slug already exists" });
 
-    static string JsonOrDefault(JsonElement? element, string? json, string fallback)
-    {
-        if (!string.IsNullOrWhiteSpace(json)) return json;
-        return element.HasValue ? element.Value.GetRawText() : fallback;
-    }
-
-    static string ExtractExplanationText(string explanationJson)
-    {
-        if (string.IsNullOrWhiteSpace(explanationJson) || explanationJson == "{}") return string.Empty;
-        try
-        {
-            using var doc = JsonDocument.Parse(explanationJson);
-            var root = doc.RootElement;
-            if (root.ValueKind == JsonValueKind.String) return root.GetString() ?? string.Empty;
-            if (root.ValueKind == JsonValueKind.Object)
-            {
-                if (root.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String) return text.GetString() ?? string.Empty;
-                if (root.TryGetProperty("markdown", out var markdown) && markdown.ValueKind == JsonValueKind.String) return markdown.GetString() ?? string.Empty;
-            }
-        }
-        catch
-        {
-            return explanationJson;
-        }
-        return string.Empty;
-    }
-
     var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
-    if (string.IsNullOrWhiteSpace(ExtractExplanationText(explanationJson)))
-    {
-        return Results.BadRequest(new { message = "Explanation is required" });
-    }
-
     var task = new QuizTask
     {
         Slug = req.Slug.Trim(),
@@ -390,10 +387,129 @@ app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")]
     db.TaskVersions.Add(version);
     await db.SaveChangesAsync();
 
-    return Results.Ok(new QuizTaskDetailsDto(QuizTaskDto.FromEntity(task), version.Id, version.VersionNumber, version.DataJson, version.ExplanationJson, false, 0));
+    return Results.Ok(ToAdminDto(task, version));
+});
+
+app.MapPut("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id, [FromBody] CreateQuizTaskRequest req) =>
+{
+    var validation = ValidateTaskRequest(req);
+    if (validation != null) return validation;
+
+    var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id);
+    if (task == null) return Results.NotFound(new { message = "Task not found" });
+
+    var newSlug = req.Slug.Trim();
+    var duplicate = await db.Tasks.AnyAsync(x => x.Id != id && x.Slug == newSlug);
+    if (duplicate) return Results.Conflict(new { message = "Task slug already exists" });
+
+    task.Slug = newSlug;
+    task.Type = string.IsNullOrWhiteSpace(req.Type) ? "single-choice" : req.Type.Trim();
+    task.Title = req.Title.Trim();
+    task.Prompt = req.Prompt.Trim();
+    task.SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim();
+    task.ExamCode = string.IsNullOrWhiteSpace(req.ExamCode) ? "ct-ce-2026" : req.ExamCode.Trim();
+    task.SectionCode = req.SectionCode?.Trim();
+    task.Difficulty = req.Difficulty <= 0 ? 1 : req.Difficulty;
+    task.TagsJson = JsonOrDefault(req.Tags, req.TagsJson, "[]");
+    task.SourceName = req.SourceName;
+    task.SourceYear = req.SourceYear;
+    task.IsPublished = req.IsPublished;
+    task.UpdatedAt = DateTime.UtcNow;
+
+    var nextVersionNumber = await db.TaskVersions
+        .Where(x => x.TaskId == task.Id)
+        .Select(x => (int?)x.VersionNumber)
+        .MaxAsync() ?? 0;
+    nextVersionNumber += 1;
+    task.CurrentVersion = nextVersionNumber;
+
+    var version = new QuizTaskVersion
+    {
+        TaskId = task.Id,
+        VersionNumber = nextVersionNumber,
+        DataJson = JsonOrDefault(req.Data, req.DataJson, "{}"),
+        CorrectAnswerJson = JsonOrDefault(req.CorrectAnswer, req.CorrectAnswerJson, "{}"),
+        ExplanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}"),
+        ChangeComment = "Edited from CT editor"
+    };
+
+    db.TaskVersions.Add(version);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(ToAdminDto(task, version));
+});
+
+app.MapDelete("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id) =>
+{
+    var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id);
+    if (task == null) return Results.NotFound(new { message = "Task not found" });
+
+    var attempts = await db.Attempts.Where(x => x.TaskId == id).ToListAsync();
+    var progress = await db.Progress.Where(x => x.TaskId == id).ToListAsync();
+    var versions = await db.TaskVersions.Where(x => x.TaskId == id).ToListAsync();
+
+    db.Attempts.RemoveRange(attempts);
+    db.Progress.RemoveRange(progress);
+    db.TaskVersions.RemoveRange(versions);
+    db.Tasks.Remove(task);
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
 });
 
 app.Run();
+
+static bool CanEditQuiz(ClaimsPrincipal user)
+{
+    return user.IsInRole("Admin") || user.IsInRole("LearningEditor");
+}
+
+static IResult? ValidateTaskRequest(CreateQuizTaskRequest req)
+{
+    if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Prompt))
+    {
+        return Results.BadRequest(new { message = "Slug, Title and Prompt are required" });
+    }
+
+    var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
+    if (string.IsNullOrWhiteSpace(ExtractExplanationText(explanationJson)))
+    {
+        return Results.BadRequest(new { message = "Explanation is required" });
+    }
+
+    var correctAnswerJson = JsonOrDefault(req.CorrectAnswer, req.CorrectAnswerJson, "{}");
+    if (string.IsNullOrWhiteSpace(ExtractAnswerText(correctAnswerJson)))
+    {
+        return Results.BadRequest(new { message = "Correct answer is required" });
+    }
+
+    return null;
+}
+
+static async Task<Dictionary<Guid, QuizTaskVersion?>> LoadCurrentVersionsAsync(QuizDbContext db, IReadOnlyCollection<QuizTask> tasks)
+{
+    var taskIds = tasks.Select(x => x.Id).ToList();
+    if (taskIds.Count == 0) return new Dictionary<Guid, QuizTaskVersion?>();
+
+    var versions = await db.TaskVersions.AsNoTracking()
+        .Where(x => taskIds.Contains(x.TaskId))
+        .ToListAsync();
+
+    return tasks.ToDictionary(
+        task => task.Id,
+        task => versions.FirstOrDefault(version => version.TaskId == task.Id && version.VersionNumber == task.CurrentVersion));
+}
+
+static AdminQuizTaskDetailsDto ToAdminDto(QuizTask task, QuizTaskVersion? version)
+{
+    return new AdminQuizTaskDetailsDto(
+        QuizTaskDto.FromEntity(task),
+        version?.Id ?? Guid.Empty,
+        version?.VersionNumber ?? task.CurrentVersion,
+        version?.DataJson ?? "{}",
+        version?.CorrectAnswerJson ?? "{}",
+        version?.ExplanationJson ?? "{}");
+}
 
 static Guid? TryGetUserId(ClaimsPrincipal user)
 {
@@ -414,4 +530,56 @@ static QuizAttemptResultDto ToResult(QuizAttempt attempt, string explanationJson
         percent,
         explanationJson,
         QuizProgressDto.FromEntity(progress));
+}
+
+static string JsonOrDefault(JsonElement? element, string? json, string fallback)
+{
+    if (!string.IsNullOrWhiteSpace(json)) return json;
+    return element.HasValue && element.Value.ValueKind != JsonValueKind.Undefined ? element.Value.GetRawText() : fallback;
+}
+
+static string ExtractExplanationText(string explanationJson)
+{
+    if (string.IsNullOrWhiteSpace(explanationJson) || explanationJson == "{}") return string.Empty;
+    try
+    {
+        using var doc = JsonDocument.Parse(explanationJson);
+        var root = doc.RootElement;
+        if (root.ValueKind == JsonValueKind.String) return root.GetString() ?? string.Empty;
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            if (root.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String) return text.GetString() ?? string.Empty;
+            if (root.TryGetProperty("markdown", out var markdown) && markdown.ValueKind == JsonValueKind.String) return markdown.GetString() ?? string.Empty;
+        }
+    }
+    catch
+    {
+        return explanationJson;
+    }
+    return string.Empty;
+}
+
+static string ExtractAnswerText(string answerJson)
+{
+    if (string.IsNullOrWhiteSpace(answerJson) || answerJson == "{}") return string.Empty;
+    try
+    {
+        using var doc = JsonDocument.Parse(answerJson);
+        var root = doc.RootElement;
+        if (root.ValueKind == JsonValueKind.String) return root.GetString() ?? string.Empty;
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String) return value.GetString() ?? string.Empty;
+            if (root.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String) return text.GetString() ?? string.Empty;
+            if (root.TryGetProperty("selected", out var selected) && selected.ValueKind == JsonValueKind.Array)
+            {
+                return string.Join(',', selected.EnumerateArray().Select(x => x.ToString()).Where(x => !string.IsNullOrWhiteSpace(x)));
+            }
+        }
+    }
+    catch
+    {
+        return answerJson;
+    }
+    return string.Empty;
 }

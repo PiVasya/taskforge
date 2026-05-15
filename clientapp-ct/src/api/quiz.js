@@ -29,7 +29,26 @@ export async function getMyQuizSolutions(params = {}) {
   return res.data;
 }
 
+export async function getAdminQuizTasks(params = {}) {
+  const res = await api.get('/api/admin/quiz/tasks', { params });
+  return res.data;
+}
+
+export async function getAdminQuizTask(id) {
+  const res = await api.get(`/api/admin/quiz/tasks/${encodeURIComponent(id)}`);
+  return res.data;
+}
+
 export async function createQuizTask(payload) {
   const res = await api.post('/api/admin/quiz/tasks', payload);
   return res.data;
+}
+
+export async function updateQuizTask(taskId, payload) {
+  const res = await api.put(`/api/admin/quiz/tasks/${encodeURIComponent(taskId)}`, payload);
+  return res.data;
+}
+
+export async function deleteQuizTask(taskId) {
+  await api.delete(`/api/admin/quiz/tasks/${encodeURIComponent(taskId)}`);
 }

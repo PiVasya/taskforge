@@ -1,10 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, ChevronRight } from 'lucide-react';
+import { BookOpen, ChevronRight, PencilLine } from 'lucide-react';
 import Layout from '../components/Layout';
 import { CT_PARTS, getSectionPath, getSectionsByPart } from '../data/ctSections';
+import { useEditorMode } from '../contexts/EditorModeContext';
 
 export default function SimpleHomePage() {
+  const { canEdit, isEditorMode } = useEditorMode();
+
   return (
     <Layout fullWidth>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
@@ -19,6 +22,13 @@ export default function SimpleHomePage() {
               Без лишней платформы: номер → HTML-конспект → случайные задания по этому же номеру.
             </p>
           </section>
+
+          {canEdit && isEditorMode ? (
+            <div className="mb-6 rounded-[1.5rem] border border-brand-200 bg-brand-50 p-4 text-sm font-semibold text-brand-900 shadow-soft dark:border-brand-900 dark:bg-brand-950/30 dark:text-brand-100">
+              <PencilLine size={18} className="mr-2 inline" />
+              Режим редактора включён. Открой любой номер — редактор появится на этой же странице, без отдельного интерфейса и без перестройки сайта.
+            </div>
+          ) : null}
 
           <div className="space-y-6">
             {CT_PARTS.map((part) => (
@@ -40,7 +50,7 @@ export default function SimpleHomePage() {
                     >
                       <div className="text-2xl font-black tracking-tight text-brand-700 dark:text-brand-200">{section.code}</div>
                       <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-neutral-500 group-hover:text-brand-700 dark:text-neutral-400 dark:group-hover:text-brand-200">
-                        Открыть <ChevronRight size={13} />
+                        {canEdit && isEditorMode ? 'Открыть и править' : 'Открыть'} <ChevronRight size={13} />
                       </div>
                     </Link>
                   ))}

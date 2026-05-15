@@ -30,7 +30,7 @@ export default function EditorModeProvider({ children }) {
   const [isEditorMode, setIsEditorMode] = useState(false);
   const roles = useMemo(() => getRoles(access), [access]);
   const hasRole = (role) => roles.some((x) => x.toLowerCase() === String(role).toLowerCase());
-  const canEdit = hasRole('Admin') || hasRole('Editor') || hasRole('LearningEditor');
+  const canEdit = hasRole('Admin') || hasRole('LearningEditor');
   useEffect(() => {
     if (!canEdit) { setIsEditorMode(false); return; }
     try { setIsEditorMode(localStorage.getItem(KEY) === '1'); } catch { setIsEditorMode(false); }

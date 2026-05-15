@@ -9,7 +9,7 @@ import LearningHomePage from './pages/LearningHomePage';
 import LearningCoursePage from './pages/LearningCoursePage';
 import LearningConspectPage from './pages/LearningConspectPage';
 import QuizTasksPage from './pages/QuizTasksPage';
-import LearningEditorPage from './pages/LearningEditorPage';
+import EditorRedirectPage from './pages/EditorRedirectPage';
 
 export default function App() {
   return (
@@ -26,9 +26,9 @@ export default function App() {
         <Route path="/courses/:courseSlug/tasks" element={<QuizTasksPage />} />
         <Route path="/tasks" element={<Navigate to="/" replace />} />
         <Route path="/conspects/:slug" element={<LearningConspectPage />} />
-        <Route path="/editor" element={<Navigate to="/editor/a1" replace />} />
-        <Route path="/editor/:sectionCode" element={<LearningEditorPage />} />
-        <Route path="/editor/courses/:courseSlug" element={<Navigate to="/editor/a1" replace />} />
+        <Route path="/editor" element={<EditorRedirectPage />} />
+        <Route path="/editor/:sectionCode" element={<EditorRedirectPage />} />
+        <Route path="/editor/courses/:courseSlug" element={<EditorRedirectPage />} />
         <Route path="/:sectionCode" element={<SimpleSectionPage />} />
       </Route>
       <Route path="/admin/conspects" element={<Navigate to="/editor/a1" replace />} />
