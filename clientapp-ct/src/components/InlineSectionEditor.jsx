@@ -16,13 +16,40 @@ import CtStructureBootstrapPanel from './CtStructureBootstrapPanel';
 import SectionTaskAdminPanel from './SectionTaskAdminPanel';
 import {
   createLearningConspect,
+  createLearningCourse,
   getLearningConspect,
   getLearningConspects,
   getLearningCourseTree,
   updateLearningConspect,
 } from '../api/learning';
 import { getApiErrorMessage } from '../api/http';
-import { EXAM_CODE, SUBJECT_CODE, normalizeSectionCode } from '../data/ctSections';
+import { EXAM_CODE, SUBJECT_CODE, normalizeSectionCode, sectionSortOrder } from '../data/ctSections';
+
+
+const ROOT_SLUG = `${SUBJECT_CODE}-${EXAM_CODE}`;
+const ROOT_TITLE = 'Русский язык — ЦТ/ЦЭ';
+
+function findRootCourse(courses) {
+  return (courses || []).find((course) => course.slug === ROOT_SLUG)
+    || (courses || []).find((course) => course.subjectCode === SUBJECT_CODE && course.examCode === EXAM_CODE && !course.sectionCode)
+    || null;
+}
+
+function buildSectionCoursePayload(sectionCode, parentId) {
+  return {
+    parentCourseId: parentId,
+    slug: sectionCode.toLowerCase(),
+    title: sectionCode,
+    shortTitle: sectionCode,
+    summary: `HTML-конспект и задания для ${sectionCode}.`,
+    description: '',
+    subjectCode: SUBJECT_CODE,
+    examCode: EXAM_CODE,
+    sectionCode,
+    sortOrder: sectionSortOrder(sectionCode),
+    isPublished: true,
+  };
+}
 
 function slugify(text) {
   const map = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ы:'y',э:'e',ю:'yu',я:'ya',ь:'',ъ:'' };
@@ -259,6 +286,45 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
     loadSection();
   }, [loadSection]);
 
+  async function ensureSectionCourse() {
+    if (sectionCourse?.id) return sectionCourse;
+
+    setBusy('course');
+    setError('');
+    setSuccess('');
+    try {
+      const currentTree = tree?.length ? tree : (await getLearningCourseTree({ includeDraft: true }) || []);
+      const currentCourses = flattenCourses(currentTree);
+      let rootCourse = findRootCourse(currentCourses);
+
+      if (!rootCourse) {
+        rootCourse = await createLearningCourse({
+          parentCourseId: null,
+          slug: ROOT_SLUG,
+          title: ROOT_TITLE,
+          shortTitle: 'ЦТ/ЦЭ',
+          summary: 'Основа под подготовку к ЦТ/ЦЭ. Номера A/B можно добавлять вручную без жёсткого лимита.',
+          description: 'Служебный корень для второго фронта. Обычный пользователь его не видит как дерево.',
+          subjectCode: SUBJECT_CODE,
+          examCode: EXAM_CODE,
+          sectionCode: null,
+          sortOrder: 10,
+          isPublished: true,
+        });
+      }
+
+      const course = await createLearningCourse(buildSectionCoursePayload(normalizedSectionCode, rootCourse.id));
+      await loadSection();
+      setSuccess(`Служебный раздел ${normalizedSectionCode} создан. Теперь можно сохранять конспект и задания.`);
+      return course;
+    } catch (e) {
+      setError(getError(e));
+      return null;
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function openConspect(idOrSlug) {
     setBusy('conspect-load');
     setError('');
@@ -282,9 +348,6 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
     if (!conspectForm.slug.trim()) return 'Заполни slug конспекта.';
     if (!conspectForm.sectionCode.trim()) return 'У конспекта должен быть sectionCode.';
     if (!html.trim()) return 'Вставь HTML конспекта.';
-    if (!conspectForm.id && !sectionCourse?.id) {
-      return `Для создания нового конспекта нужен служебный раздел ${normalizedSectionCode}. Открой блок «Служебно» ниже и нажми создание основы.`;
-    }
     return '';
   }
 
@@ -314,9 +377,12 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
         isPublished: conspectForm.isPublished,
       };
 
+      const courseForSave = conspectForm.id ? sectionCourse : (sectionCourse || await ensureSectionCourse());
+      if (!conspectForm.id && !courseForSave?.id) return;
+
       const saved = conspectForm.id
         ? await updateLearningConspect(conspectForm.id, payload)
-        : await createLearningConspect(sectionCourse.id, payload);
+        : await createLearningConspect(courseForSave.id, payload);
 
       const savedConspect = saved.conspect || {};
       setConspectForm((prev) => ({
@@ -363,6 +429,15 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
       {error ? <Alert type="error">{error}</Alert> : null}
       {success ? <Alert type="success">{success}</Alert> : null}
       {busy === 'load' ? <Alert>Загружаю данные редактора для {normalizedSectionCode}...</Alert> : null}
+      {!sectionCourse ? (
+        <Alert type="warning">
+          В базе ещё нет служебного раздела {normalizedSectionCode}. Это нормально для новых A/B-номеров: нажми кнопку ниже или просто сохрани новый конспект, и раздел создастся автоматически.
+          <button type="button" onClick={ensureSectionCourse} disabled={busy === 'course'} className="btn-primary mt-3 inline-flex items-center gap-2 disabled:opacity-60">
+            {busy === 'course' ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+            Создать раздел {normalizedSectionCode}
+          </button>
+        </Alert>
+      ) : null}
       {contentWarning ? <Alert type="warning">{contentWarning}</Alert> : null}
 
       <div className="rounded-[1.75rem] border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900 md:p-5">
@@ -457,7 +532,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
       <SectionTaskAdminPanel selectedCourse={taskCourse} />
 
       <details className="rounded-[1.75rem] border border-dashed border-neutral-300 bg-white/70 p-4 dark:border-neutral-800 dark:bg-neutral-900/70">
-        <summary className="cursor-pointer list-none text-sm font-bold"><AlertTriangle size={16} className="mr-2 inline" />Служебно: создать основу A1-A30 / B1-B10</summary>
+        <summary className="cursor-pointer list-none text-sm font-bold"><AlertTriangle size={16} className="mr-2 inline" />Служебно: стартовая основа и ручные A/B-номера</summary>
         <div className="mt-4">
           <CtStructureBootstrapPanel allCourses={allCourses} onDone={() => loadSection()} />
         </div>

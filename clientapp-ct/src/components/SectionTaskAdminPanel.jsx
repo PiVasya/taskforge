@@ -94,18 +94,23 @@ function tagsToText(tagsJson) {
   return Array.isArray(tags) ? tags.join(', ') : '';
 }
 
+function defaultTaskType(sectionCode) {
+  return String(sectionCode || '').startsWith('B') ? 'text-answer' : 'single-choice';
+}
+
 function makeForm(sectionCode) {
+  const type = defaultTaskType(sectionCode);
   return {
     id: '',
     slug: '',
-    type: 'single-choice',
+    type,
     title: '',
     prompt: '',
     subjectCode: SUBJECT_CODE,
     examCode: EXAM_CODE,
     sectionCode,
     difficulty: '1',
-    optionsText: '1\n2\n3\n4',
+    optionsText: type === 'text-answer' ? '' : '1\n2\n3\n4',
     correctAnswer: '',
     explanation: '',
     tagsText: `${sectionCode}, ЦТ`,
@@ -484,7 +489,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
   if (!canUse) {
     return (
       <section className="rounded-[2rem] border border-neutral-200 bg-white p-5 text-sm text-neutral-500 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
-        Чтобы создавать задания, выбери слева конкретный номер с sectionCode: A1, A2, B5 и т.п.
+        Чтобы создавать задания, открой конкретный номер части A или B: A1, A31, B5, B11 и т.п.
       </section>
     );
   }
@@ -495,7 +500,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
         <div>
           <div className="flex items-center gap-2"><Plus className="text-brand-600" /><h2 className="text-2xl font-bold tracking-tight">Задания для {sectionCode}</h2></div>
           <p className="mt-1 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-            Тут редактируются задания выбранного номера. Обычные пользователи эту панель и черновики не получают.
+            Тут редактируются задания выбранного номера. Количество заданий не ограничено: можно создавать сколько угодно карточек для A или B. Обычные пользователи эту панель и черновики не получают.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -558,7 +563,20 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
 
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Название" required hint="Короткое понятное название карточки."><Input value={form.title} onChange={(e) => setField('title', e.target.value)} /></Field>
-            <Field label="Тип задания"><select value={form.type} onChange={(e) => setField('type', e.target.value)} className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 outline-none focus:border-brand-400 dark:border-neutral-800 dark:bg-neutral-950"><option value="single-choice">Выбор ответа</option><option value="text-answer">Краткий ответ</option></select></Field>
+            <Field label="Тип задания">
+              <select
+                value={form.type}
+                onChange={(e) => setForm((prev) => ({
+                  ...prev,
+                  type: e.target.value,
+                  optionsText: e.target.value === 'text-answer' ? '' : (prev.optionsText || '1\n2\n3\n4'),
+                }))}
+                className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 outline-none focus:border-brand-400 dark:border-neutral-800 dark:bg-neutral-950"
+              >
+                <option value="single-choice">Выбор ответа</option>
+                <option value="text-answer">Краткий ответ</option>
+              </select>
+            </Field>
             <div className="md:col-span-2"><Field label="Текст задания" required><Textarea rows={5} value={form.prompt} onChange={(e) => setField('prompt', e.target.value)} /></Field></div>
             {isChoice ? (
               <div className="md:col-span-2"><Field label="Варианты ответа" required hint={`Каждый вариант с новой строки или через запятую. Сейчас вариантов: ${options.length}.`}><Textarea rows={5} value={form.optionsText} onChange={(e) => setField('optionsText', e.target.value)} /></Field></div>

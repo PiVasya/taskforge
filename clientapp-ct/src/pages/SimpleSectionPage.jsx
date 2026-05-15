@@ -427,7 +427,7 @@ function SectionNav({ active }) {
         <div key={part.code}>
           <div className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">{part.title}</div>
           <div className="flex flex-wrap gap-2">
-            {getSectionsByPart(part.code).map((section) => (
+            {getSectionsByPart(part.code, [active]).map((section) => (
               <Link
                 key={section.code}
                 to={getSectionPath(section.code)}

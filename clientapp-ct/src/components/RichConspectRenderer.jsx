@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, Maximize2, Minimize2, PlayCircle, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, Maximize2, PlayCircle, Sparkles, X } from 'lucide-react';
 
 function safeJson(value, fallback) {
   if (!value) return fallback;
@@ -97,9 +97,10 @@ function HtmlConspectFrame({ html, title, conspect }) {
               <button
                 type="button"
                 onClick={closeFullscreen}
-                className="inline-flex items-center gap-2 rounded-2xl bg-neutral-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
+                aria-label="Закрыть полноэкранный конспект"
+                className="inline-flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm font-bold text-neutral-900 shadow-sm transition hover:border-brand-300 hover:text-brand-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:text-brand-200"
               >
-                <Minimize2 size={16} /> Закрыть в обычный вид
+                <X size={18} /> Выйти
               </button>
             </div>
             <div className="min-h-0 flex-1 bg-white p-2 dark:bg-neutral-950 md:p-3">
@@ -110,14 +111,6 @@ function HtmlConspectFrame({ html, title, conspect }) {
                 srcDoc={buildHtmlSrcDoc(html)}
               />
             </div>
-            <button
-              type="button"
-              onClick={closeFullscreen}
-              aria-label="Закрыть полноэкранный конспект"
-              className="absolute right-3 top-3 hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-neutral-950/70 text-white shadow-lg backdrop-blur transition hover:bg-neutral-800 md:flex"
-            >
-              <X size={20} />
-            </button>
           </div>
         </div>
       )}
