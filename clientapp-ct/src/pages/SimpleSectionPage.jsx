@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   Loader2,
   PlayCircle,
   RefreshCcw,
@@ -12,6 +13,7 @@ import {
 import Layout from "../components/Layout";
 import InlineSectionEditor from "../components/InlineSectionEditor";
 import RichConspectRenderer from "../components/RichConspectRenderer";
+import { exportSectionPdf } from "../utils/learningExport";
 import {
   getLearningConspect,
   getLearningConspects,
@@ -625,6 +627,8 @@ export default function SimpleSectionPage({ sectionCode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const includeDraft = canEdit && isEditorMode;
   const allCourses = useMemo(() => flattenCourses(courseTree), [courseTree]);
@@ -714,6 +718,22 @@ export default function SimpleSectionPage({ sectionCode }) {
     reloadKey,
   ]);
 
+  const handleExportSection = async () => {
+    setExporting(true);
+    setExportError("");
+    try {
+      await exportSectionPdf({
+        sectionCode: normalizedSectionCode,
+        details,
+        includeDraft,
+      });
+    } catch (e) {
+      setExportError(e?.message || "Не удалось подготовить PDF.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (!normalizedSectionCode) {
     return <Navigate to="/" replace />;
   }
@@ -729,7 +749,22 @@ export default function SimpleSectionPage({ sectionCode }) {
             >
               <ArrowLeft size={16} /> Все номера
             </Link>
+            <button
+              type="button"
+              onClick={handleExportSection}
+              disabled={!sectionExists || exporting || courseLoading}
+              className="btn-outline inline-flex items-center gap-2 disabled:opacity-60"
+            >
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              Экспорт PDF
+            </button>
           </div>
+
+          {exportError ? (
+            <div className="mb-5 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">
+              {exportError}
+            </div>
+          ) : null}
 
           <section className="mb-5 rounded-[2rem] border border-neutral-200/80 bg-white p-6 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 md:p-8">
             <div className="text-sm font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
@@ -789,6 +824,7 @@ export default function SimpleSectionPage({ sectionCode }) {
                   <RichConspectRenderer
                     details={details}
                     tasksBasePath={getSectionPath(normalizedSectionCode)}
+                    includeDraft={includeDraft}
                   />
                 ) : (
                   <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 text-neutral-600 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">

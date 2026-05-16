@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, BookOpen, CheckCircle2, Clock, Layers, ListChecks, Maximize2, PlayCircle, Sparkles, X } from 'lucide-react';
+import { exportConspectPdf } from '../utils/learningExport';
+import { AlertTriangle, BookOpen, CheckCircle2, Clock, Download, Layers, ListChecks, Loader2, Maximize2, PlayCircle, Sparkles, X } from 'lucide-react';
 
 function safeJson(value, fallback) {
   if (!value) return fallback;
@@ -278,13 +279,27 @@ function RenderBlock({ block, tasksBasePath = '/tasks' }) {
   }
 }
 
-export default function RichConspectRenderer({ details, tasksBasePath = '/tasks' }) {
+export default function RichConspectRenderer({ details, tasksBasePath = '/tasks', includeDraft = false }) {
   const content = useMemo(() => safeJson(details?.contentJson, {}), [details]);
   const conspect = details?.conspect || {};
   const taskLinks = details?.taskLinks || [];
   const tabs = Array.isArray(content.tabs) ? content.tabs : [];
   const initialTab = content.startTabId || tabs[0]?.id || 'main';
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError('');
+    try {
+      await exportConspectPdf(details, { includeDraft });
+    } catch (error) {
+      setExportError(error?.message || 'Не удалось подготовить PDF.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -303,7 +318,11 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
             <div className="mt-6 flex flex-wrap gap-3">
               {conspect.estimatedMinutes ? <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">Время</div><div className="font-semibold">≈ {conspect.estimatedMinutes} мин.</div></div> : null}
               {conspect.subtitle ? <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">Тип</div><div className="font-semibold">{conspect.subtitle}</div></div> : null}
+              <button type="button" onClick={handleExport} disabled={exporting} className="btn-outline inline-flex items-center gap-2 bg-white/90 disabled:opacity-60 dark:bg-neutral-950/80">
+                {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Экспорт PDF
+              </button>
             </div>
+            {exportError ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">{exportError}</div> : null}
           </div>
         </section>
 
@@ -332,7 +351,11 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
           <div className="mt-6 flex flex-wrap gap-3">
             {(content.hero?.stats || []).map((stat) => <div key={`${stat.label}-${stat.value}`} className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">{stat.label}</div><div className="font-semibold">{stat.value}</div></div>)}
             {conspect.estimatedMinutes ? <div className="rounded-2xl border border-white/70 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/70 px-4 py-3"><div className="text-xs text-neutral-500 dark:text-neutral-400">Время</div><div className="font-semibold">≈ {conspect.estimatedMinutes} мин.</div></div> : null}
+            <button type="button" onClick={handleExport} disabled={exporting} className="btn-outline inline-flex items-center gap-2 bg-white/90 disabled:opacity-60 dark:bg-neutral-950/80">
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Экспорт PDF
+            </button>
           </div>
+          {exportError ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">{exportError}</div> : null}
         </div>
       </section>
 

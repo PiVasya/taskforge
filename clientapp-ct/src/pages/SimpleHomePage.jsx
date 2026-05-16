@@ -4,12 +4,14 @@ import {
   AlertTriangle,
   BookOpen,
   ChevronRight,
+  Download,
   Loader2,
   PencilLine,
   Plus,
   RefreshCcw,
 } from "lucide-react";
 import Layout from "../components/Layout";
+import { exportAllCtPdf } from "../utils/learningExport";
 import {
   CT_PARTS,
   getCreatedSectionsByPart,
@@ -109,6 +111,8 @@ export default function SimpleHomePage() {
   const [busy, setBusy] = useState("tree");
   const [error, setError] = useState("");
   const [activeAddPart, setActiveAddPart] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const includeDraft = canEdit && isEditorMode;
   const allCourses = useMemo(() => flattenCourses(tree), [tree]);
@@ -130,6 +134,18 @@ export default function SimpleHomePage() {
     loadCourseTree();
     if (!canEdit || !isEditorMode) setActiveAddPart("");
   }, [canEdit, isEditorMode, loadCourseTree]);
+
+  async function handleExportAll() {
+    setExporting(true);
+    setExportError("");
+    try {
+      await exportAllCtPdf(allCourses, { includeDraft });
+    } catch (e) {
+      setExportError(e?.message || "Не удалось подготовить PDF по частям A и B.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function createSection(partCode, rawCode) {
     const code = normalizeSectionCode(rawCode);
@@ -173,7 +189,25 @@ export default function SimpleHomePage() {
               В списке только реально созданные номера: номер → HTML-конспект →
               случайные задания по этому же номеру.
             </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleExportAll}
+                disabled={busy === "tree" || exporting || allCourses.length === 0}
+                className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
+              >
+                {exporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                Экспорт A+B в PDF
+              </button>
+            </div>
           </section>
+
+          {exportError ? (
+            <div className="mb-6 rounded-[1.5rem] border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-soft dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
+              <AlertTriangle size={17} className="mr-2 inline" />
+              {exportError}
+            </div>
+          ) : null}
 
           {canEdit && isEditorMode ? (
             <div className="mb-6 rounded-[1.5rem] border border-brand-200 bg-brand-50 p-4 text-sm font-semibold text-brand-900 shadow-soft dark:border-brand-900 dark:bg-brand-950/30 dark:text-brand-100">
