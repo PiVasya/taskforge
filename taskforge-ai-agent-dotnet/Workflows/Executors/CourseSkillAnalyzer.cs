@@ -93,7 +93,7 @@ internal static class CourseSkillAnalyzer
         }
 
         AddIf(ContainsAny(normalized, "tryparse", "try parse", "валидац", "некоррект", "ошибк ввода", "безопасн"), "input-validation");
-        AddIf(ContainsAny(normalized, "split", "через пробел", "одной строке", "в одной строке", "раздел", "токен"), "split-input");
+        AddIf(ContainsAny(normalized, "split", "split(", "stringsplitoptions", "разбить строку", "разбор строки", "разделить строку", "токен"), "split-input");
         AddIf(ContainsAny(normalized, "две строки", "три строки", "несколько строк", "каждое на отдельной", "последовательн ввод", "нескольких значений"), "multi-line-input");
         AddIf(ContainsAny(normalized, "int.parse", "convert.toint32", "parse", "парсинг", "преобразован", "строки в int", "строку в int", "строку в число", "целое число"), "parse-int");
         AddIf(ContainsAny(normalized, "console.readline", "readline", "stdin", "с клавиатур", "стандартного ввода", "читать входную строку", "прочитай строк", "считай строк", "ввод строк", "входную строку", "ввода данных"), "console-input-line");
@@ -102,7 +102,7 @@ internal static class CourseSkillAnalyzer
         AddIf(ContainsAny(normalized, "переменн", "variable", "var ", " int ", " string ", "сохран", "значение"), "variables");
         AddIf(ContainsAny(normalized, "арифмет", "сумм", "слож", "прибав", "вычит", "умнож", "делен", "остат", "+1"), "arithmetic");
         AddIf(ContainsAny(normalized, "услов", "если", "иначе", " if ", " else "), "conditions");
-        AddIf(ContainsAny(normalized, "цикл", " for ", " while ", "повтор"), "loops");
+        AddIf(ContainsAny(normalized, "цикл", " for ", " while ", "foreach", "do while"), "loops");
         AddIf(ContainsAny(normalized, "массив", "array", "элемент", "индекс"), "arrays");
         AddIf(ContainsAny(normalized, "строков", "литерал", "кавыч", "конкатенац", "интерполяц", "текст"), "strings");
         return result;

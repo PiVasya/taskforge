@@ -841,6 +841,27 @@ namespace taskforge.Controllers.Agent
             public int DataJsonLength { get; set; }
         }
 
+        private sealed class DebugHiddenDraftRow
+        {
+            public Guid Id { get; set; }
+            public Guid? CourseId { get; set; }
+            public string? Title { get; set; }
+            public string? Type { get; set; }
+            public int? Sort { get; set; }
+            public int? Rating { get; set; }
+            public int? Difficulty { get; set; }
+            public bool? IsHidden { get; set; }
+            public string? LifecycleStatus { get; set; }
+            public bool? IsAiDraft { get; set; }
+            public Guid? SourceAgentRunId { get; set; }
+            public Guid? SourceAgentArtifactId { get; set; }
+            public int? SourceAgentTaskIndex { get; set; }
+            public DateTime? PolishedAtUtc { get; set; }
+            public DateTime? PublishedAtUtc { get; set; }
+            public int TestCount { get; set; }
+            public int AiDraftJsonLength { get; set; }
+        }
+
         private async Task<List<DebugAgentArtifactRow>> LoadDebugAgentArtifactsAsync(IReadOnlyList<Guid> runIds, CancellationToken ct)
         {
             var result = new List<DebugAgentArtifactRow>();
@@ -897,6 +918,73 @@ namespace taskforge.Controllers.Agent
             return result;
         }
 
+        private async Task<List<DebugHiddenDraftRow>> LoadDebugHiddenDraftsAsync(IReadOnlyList<Guid> runIds, CancellationToken ct)
+        {
+            var result = new List<DebugHiddenDraftRow>();
+            if (runIds.Count == 0) return result;
+
+            var connection = _db.Database.GetDbConnection();
+            var shouldClose = connection.State != ConnectionState.Open;
+            if (shouldClose) await connection.OpenAsync(ct);
+            try
+            {
+                await using var command = connection.CreateCommand();
+                var parameterNames = new List<string>();
+                for (var i = 0; i < runIds.Count; i++)
+                {
+                    var parameter = command.CreateParameter();
+                    parameter.ParameterName = "@p" + i;
+                    parameter.Value = runIds[i];
+                    command.Parameters.Add(parameter);
+                    parameterNames.Add(parameter.ParameterName);
+                }
+
+                command.CommandText = $"""
+                    SELECT ta."Id", ta."CourseId", ta."Title", ta."Type", ta."Sort", ta."Rating", ta."Difficulty",
+                           ta."IsHidden", ta."LifecycleStatus", ta."IsAiDraft", ta."SourceAgentRunId",
+                           ta."SourceAgentArtifactId", ta."SourceAgentTaskIndex", ta."PolishedAtUtc", ta."PublishedAtUtc",
+                           COALESCE((SELECT COUNT(*) FROM "TaskTestCases" tc WHERE tc."TaskAssignmentId" = ta."Id"), 0) AS "TestCount",
+                           COALESCE(length(ta."AiDraftJson"::text), 0) AS "AiDraftJsonLength"
+                    FROM "TaskAssignments" ta
+                    WHERE ta."SourceAgentRunId" IN ({string.Join(",", parameterNames)})
+                    ORDER BY ta."Id"
+                    """;
+
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    var id = ReadGuidOrDefault(reader, "Id");
+                    if (id == Guid.Empty) continue;
+                    result.Add(new DebugHiddenDraftRow
+                    {
+                        Id = id,
+                        CourseId = ReadGuidOrNull(reader, "CourseId"),
+                        Title = ReadStringOrNull(reader, "Title"),
+                        Type = ReadStringOrNull(reader, "Type"),
+                        Sort = ReadIntOrNull(reader, "Sort"),
+                        Rating = ReadIntOrNull(reader, "Rating"),
+                        Difficulty = ReadIntOrNull(reader, "Difficulty"),
+                        IsHidden = ReadBoolOrNull(reader, "IsHidden"),
+                        LifecycleStatus = ReadStringOrNull(reader, "LifecycleStatus"),
+                        IsAiDraft = ReadBoolOrNull(reader, "IsAiDraft"),
+                        SourceAgentRunId = ReadGuidOrNull(reader, "SourceAgentRunId"),
+                        SourceAgentArtifactId = ReadGuidOrNull(reader, "SourceAgentArtifactId"),
+                        SourceAgentTaskIndex = ReadIntOrNull(reader, "SourceAgentTaskIndex"),
+                        PolishedAtUtc = ReadDateTimeOrNull(reader, "PolishedAtUtc"),
+                        PublishedAtUtc = ReadDateTimeOrNull(reader, "PublishedAtUtc"),
+                        TestCount = ReadIntOrNull(reader, "TestCount") ?? 0,
+                        AiDraftJsonLength = ReadIntOrNull(reader, "AiDraftJsonLength") ?? 0
+                    });
+                }
+            }
+            finally
+            {
+                if (shouldClose) await connection.CloseAsync();
+            }
+
+            return result;
+        }
+
         private static Guid ReadGuidOrDefault(DbDataReader reader, string name)
             => ReadGuidOrNull(reader, name) ?? Guid.Empty;
 
@@ -912,6 +1000,27 @@ namespace taskforge.Controllers.Agent
             var ordinal = reader.GetOrdinal(name);
             if (reader.IsDBNull(ordinal)) return null;
             return reader.GetString(ordinal);
+        }
+
+        private static int? ReadIntOrNull(DbDataReader reader, string name)
+        {
+            var ordinal = reader.GetOrdinal(name);
+            if (reader.IsDBNull(ordinal)) return null;
+            return Convert.ToInt32(reader.GetValue(ordinal));
+        }
+
+        private static bool? ReadBoolOrNull(DbDataReader reader, string name)
+        {
+            var ordinal = reader.GetOrdinal(name);
+            if (reader.IsDBNull(ordinal)) return null;
+            return Convert.ToBoolean(reader.GetValue(ordinal));
+        }
+
+        private static DateTime? ReadDateTimeOrNull(DbDataReader reader, string name)
+        {
+            var ordinal = reader.GetOrdinal(name);
+            if (reader.IsDBNull(ordinal)) return null;
+            return reader.GetDateTime(ordinal);
         }
 
         private async Task<object> BuildAgentDebugDumpAsync(Guid conversationId, CancellationToken ct)
@@ -1028,33 +1137,21 @@ namespace taskforge.Controllers.Agent
                 });
             }
 
-            var nullableRunIds = runIds.Select(x => (Guid?)x).ToList();
-            var hiddenDrafts = await _db.TaskAssignments
-                .AsNoTracking()
-                .Where(x => nullableRunIds.Contains(x.SourceAgentRunId))
-                .OrderBy(x => x.Id)
-                .Select(x => new
+            List<DebugHiddenDraftRow> hiddenDrafts;
+            try
+            {
+                hiddenDrafts = await LoadDebugHiddenDraftsAsync(runIds, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                hiddenDrafts = new List<DebugHiddenDraftRow>();
+                dumpSectionErrors.Add(new
                 {
-                    x.Id,
-                    x.CourseId,
-                    x.Title,
-                    x.Type,
-                    x.Sort,
-                    x.Rating,
-                    x.Difficulty,
-                    x.IsHidden,
-                    x.LifecycleStatus,
-                    x.IsAiDraft,
-                    x.SourceAgentRunId,
-                    x.SourceAgentArtifactId,
-                    x.SourceAgentTaskIndex,
-                    // CreatedAt/UpdatedAt are omitted from debug dump for old rows that may contain NULLs.
-                    x.PolishedAtUtc,
-                    x.PublishedAtUtc,
-                    TestCount = x.TestCases.Count,
-                    AiDraftJsonLength = x.AiDraftJson == null ? 0 : x.AiDraftJson.Length
-                })
-                .ToListAsync(ct);
+                    section = "HiddenDrafts",
+                    type = ex.GetType().Name,
+                    message = ex.Message
+                });
+            }
 
             object? course = null;
             if (conversation.CourseId is Guid debugCourseId)
