@@ -163,18 +163,42 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
 
         foreach (var draft in drafts)
         {
-            state.Draft = draft;
-            var validation = await _validator.ExecuteAsync(state, draft);
-            var critique = await _critic.ExecuteAsync(state, validation, cancellationToken);
-            var ok = critique["isAccepted"]?.ToString().Equals("true", StringComparison.OrdinalIgnoreCase) == true;
-            if (!ok)
+            var current = draft;
+            var saved = false;
+
+            for (var repairAttempt = 0; repairAttempt <= _options.MaxDraftRepairAttempts; repairAttempt++)
             {
-                state.Notes.Add($"Draft '{draft.Title}' rejected and was not saved as hidden draft: {CompactCritiqueForRepair(critique)}");
-                continue;
+                state.Draft = current;
+                var validation = await _validator.ExecuteAsync(state, current);
+                var critique = await _critic.ExecuteAsync(state, validation, cancellationToken);
+                var ok = critique["isAccepted"]?.ToString().Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+                if (ok)
+                {
+                    accepted.Add(current);
+                    await _approval.ExecuteHiddenDraftArtifactAsync(state, current);
+                    saved = true;
+                    break;
+                }
+
+                var compactCritique = CompactCritiqueForRepair(critique);
+                if (repairAttempt >= _options.MaxDraftRepairAttempts)
+                {
+                    state.Notes.Add($"Draft '{current.Title}' rejected after {repairAttempt + 1} validation attempt(s) and was not saved: {compactCritique}");
+                    break;
+                }
+
+                var repaired = await _author.RepairDraftAsync(state, current, validation, critique, repairAttempt + 1, cancellationToken);
+                if (repaired == null)
+                {
+                    state.Notes.Add($"Draft '{current.Title}' rejected and repair failed; it was not saved: {compactCritique}");
+                    break;
+                }
+
+                current = repaired;
             }
 
-            accepted.Add(draft);
-            await _approval.ExecuteHiddenDraftArtifactAsync(state, draft);
+            if (!saved)
+                state.Draft = accepted.FirstOrDefault();
         }
 
         state.Draft = accepted.FirstOrDefault();

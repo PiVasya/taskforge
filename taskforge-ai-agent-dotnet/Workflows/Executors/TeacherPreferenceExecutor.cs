@@ -18,13 +18,15 @@ public sealed class TeacherPreferenceExecutor
     private readonly TaskForgeAgentFactory _agentFactory;
     private readonly AgentSessionStore _sessionStore;
     private readonly AgentStepReporter _steps;
+    private readonly DirectLlmTextClient _textClient;
     private AIAgent? _agent;
 
-    public TeacherPreferenceExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps)
+    public TeacherPreferenceExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, DirectLlmTextClient textClient)
     {
         _agentFactory = agentFactory;
         _sessionStore = sessionStore;
         _steps = steps;
+        _textClient = textClient;
     }
 
     public async Task<JsonObject> ExecuteAsync(WorkflowState state, string contextPrompt, CancellationToken cancellationToken)
@@ -36,7 +38,6 @@ public sealed class TeacherPreferenceExecutor
             "Агент отделяет стиль преподавателя от конкретного тестового запроса и сохраняет это как правила работы.");
 
         var defaults = BuildDefaultProfile();
-        _agent ??= _agentFactory.CreateCoordinatorAgent();
         var prompt = $$"""
 {{TaskForgeAgentPrompts.Coordinator}}
 
@@ -78,13 +79,10 @@ public sealed class TeacherPreferenceExecutor
 
         try
         {
-            // Preference extraction also gets a fresh short-lived session. The current
-            // context is explicitly present in the prompt, and storing request-specific
-            // topic chatter in the long conversation session made later workflow stages
-            // less stable.
-            var session = await _agent.CreateSessionAsync(cancellationToken);
-            var response = await _agent.RunAsync(prompt, session, cancellationToken: cancellationToken);
-            var parsed = ParseProfile(response.Text ?? string.Empty) ?? defaults;
+            // Preference extraction is tool-less and uses the direct chat-completions client.
+            // The current context is explicitly present in the prompt, so no agent session is needed.
+            var responseText = await _textClient.CompleteAsync(prompt, cancellationToken);
+            var parsed = ParseProfile(responseText) ?? defaults;
             state.Data["requestSpecificTeacherProfileRaw"] = parsed.DeepClone();
             var merged = SanitizeGenericProfile(MergeDefaults(defaults, parsed), defaults);
             SaveToState(state, merged, "llm");

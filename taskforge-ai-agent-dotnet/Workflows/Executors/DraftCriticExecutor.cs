@@ -14,14 +14,16 @@ public sealed class DraftCriticExecutor
     private readonly TaskForgeAgentFactory _agentFactory;
     private readonly AgentSessionStore _sessionStore;
     private readonly AgentStepReporter _steps;
+    private readonly DirectLlmTextClient _textClient;
     private AIAgent? _agent;
 
-    public DraftCriticExecutor(ValidationTools validationTools, TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps)
+    public DraftCriticExecutor(ValidationTools validationTools, TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, DirectLlmTextClient textClient)
     {
         _validationTools = validationTools;
         _agentFactory = agentFactory;
         _sessionStore = sessionStore;
         _steps = steps;
+        _textClient = textClient;
     }
 
     public async Task<JsonObject> ExecuteAsync(WorkflowState state, JsonObject validationResult, CancellationToken cancellationToken)
@@ -32,7 +34,6 @@ public sealed class DraftCriticExecutor
         await _steps.TryReportAsync("critic", "running", "Критик проверяет качество задания", state.Draft.Title);
 
         var staticCritique = await _validationTools.StaticDraftCritiqueAsync(state.Draft.ToArtifactData());
-        _agent ??= _agentFactory.CreateCoordinatorAgent();
         var prompt = $$"""
 {{TaskForgeAgentPrompts.Critic}}
 
@@ -57,12 +58,10 @@ Static critique:
         JsonObject modelCritique;
         try
         {
-            // The critic is advisory on top of deterministic checks, so use a fresh
-            // short-lived session. This avoids carrying huge author/skill-map history
-            // into provider adapters that may fail when converting long histories.
-            var criticSession = await _agent.CreateSessionAsync(cancellationToken);
-            var response = await _agent.RunAsync(prompt, criticSession, cancellationToken: cancellationToken);
-            modelCritique = ParseCritique(response.Text ?? string.Empty);
+            // The critic is advisory on top of deterministic checks and does not need tools.
+            // Use direct chat-completions to avoid agent-session/provider-adapter role conversion failures.
+            var responseText = await _textClient.CompleteAsync(prompt, cancellationToken);
+            modelCritique = ParseCritique(responseText);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

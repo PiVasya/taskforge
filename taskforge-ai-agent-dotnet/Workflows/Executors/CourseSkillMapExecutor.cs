@@ -18,18 +18,19 @@ public sealed class CourseSkillMapExecutor
     private readonly TaskForgeAgentFactory _agentFactory;
     private readonly AgentSessionStore _sessionStore;
     private readonly AgentStepReporter _steps;
+    private readonly DirectLlmTextClient _textClient;
     private AIAgent? _agent;
 
-    public CourseSkillMapExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps)
+    public CourseSkillMapExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, DirectLlmTextClient textClient)
     {
         _agentFactory = agentFactory;
         _sessionStore = sessionStore;
         _steps = steps;
+        _textClient = textClient;
     }
 
     public async Task<CourseSkillBridgeContext> ExecuteAsync(WorkflowState state, string contextPrompt, CancellationToken cancellationToken)
     {
-        _agent ??= _agentFactory.CreateCoordinatorAgent();
         await _steps.TryReportAsync(
             "skill_map",
             "running",
@@ -104,9 +105,7 @@ TASKS_ONLY_CONTEXT:
 }
 """;
 
-            var semanticSession = await _agent.CreateSessionAsync(cancellationToken);
-            var semanticResponse = await _agent.RunAsync(semanticPrompt, semanticSession, cancellationToken: cancellationToken);
-            var semanticText = semanticResponse.Text ?? string.Empty;
+            var semanticText = await _textClient.CompleteAsync(semanticPrompt, cancellationToken);
             state.Data["courseSemanticMapRaw"] = semanticText.Length <= 20000 ? semanticText : semanticText[..20000] + "...";
 
             // Stage 2: choose placement and bridge plan from the neutral map. This
@@ -200,9 +199,7 @@ TASKS_ONLY_CONTEXT:
 }
 """;
 
-            var placementSession = await _agent.CreateSessionAsync(cancellationToken);
-            var response = await _agent.RunAsync(placementPrompt, placementSession, cancellationToken: cancellationToken);
-            var text = response.Text ?? string.Empty;
+            var text = await _textClient.CompleteAsync(placementPrompt, cancellationToken);
             var bridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, text, fallback);
             if (!string.Equals(bridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))
             {
@@ -222,9 +219,7 @@ TASKS_ONLY_CONTEXT:
 Исходный ответ модели:
 {{text}}
 """;
-                var repairSession = await _agent.CreateSessionAsync(cancellationToken);
-                var repaired = await _agent.RunAsync(repairPrompt, repairSession, cancellationToken: cancellationToken);
-                var repairedText = repaired.Text ?? string.Empty;
+                var repairedText = await _textClient.CompleteAsync(repairPrompt, cancellationToken);
                 var repairedBridge = CourseSkillAnalyzer.FromModelMap(state.Job.Payload, state.UserText, repairedText, fallback);
                 if (string.Equals(repairedBridge.Source, "llm-course-skill-map", StringComparison.OrdinalIgnoreCase))
                 {

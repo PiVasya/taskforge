@@ -39,6 +39,7 @@ builder.Services.AddSingleton<PromptContextComposer>();
 builder.Services.AddSingleton<AgentMemoryStore>();
 
 builder.Services.AddSingleton<ITaskForgeChatClientFactory, OpenAiCompatibleChatClientFactory>();
+builder.Services.AddHttpClient<DirectLlmTextClient>();
 builder.Services.AddSingleton<TaskForgeAgentFactory>();
 
 builder.Services.AddTransient<CourseContextTools>();

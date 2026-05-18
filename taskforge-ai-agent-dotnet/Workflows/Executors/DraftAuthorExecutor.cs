@@ -17,14 +17,16 @@ public sealed class DraftAuthorExecutor
     private readonly AgentSessionStore _sessionStore;
     private readonly AgentStepReporter _steps;
     private readonly TaskForgeAgentOptions _options;
+    private readonly DirectLlmTextClient _textClient;
     private AIAgent? _agent;
 
-    public DraftAuthorExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, IOptions<TaskForgeAgentOptions> options)
+    public DraftAuthorExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, IOptions<TaskForgeAgentOptions> options, DirectLlmTextClient textClient)
     {
         _agentFactory = agentFactory;
         _sessionStore = sessionStore;
         _steps = steps;
         _options = options.Value;
+        _textClient = textClient;
     }
 
     public async Task<DraftSpec> ExecuteAsync(WorkflowState state, string contextPrompt, string plan, int attempt, CancellationToken cancellationToken)
@@ -35,7 +37,6 @@ public sealed class DraftAuthorExecutor
 
     public async Task<List<DraftSpec>> ExecuteManyAsync(WorkflowState state, string contextPrompt, string plan, int attempt, int requestedCount, CancellationToken cancellationToken)
     {
-        _agent ??= _agentFactory.CreateCoordinatorAgent();
         await _steps.TryReportAsync("draft", "running", attempt == 0 ? "Генерирую черновики заданий" : $"Перегенерирую черновики, попытка {attempt + 1}", plan);
 
         var bridge = state.CourseSkillBridge ?? CourseSkillAnalyzer.Analyze(state.Job.Payload, state.UserText);
@@ -139,6 +140,102 @@ public sealed class DraftAuthorExecutor
         return drafts;
     }
 
+
+    public async Task<DraftSpec?> RepairDraftAsync(WorkflowState state, DraftSpec original, JsonObject validation, JsonObject critique, int repairAttempt, CancellationToken cancellationToken)
+    {
+        var bridge = state.CourseSkillBridge ?? CourseSkillAnalyzer.Analyze(state.Job.Payload, state.UserText);
+        var bridgeJson = bridge.ToJsonObject().ToJsonString();
+        var teacherPreferences = state.TeacherPreferences.ToJsonString();
+        var prompt = $$"""
+Ты — TaskForge draft repair agent. Исправь ОДИН черновик задания так, чтобы он прошёл проверки.
+Не меняй точку вставки и не меняй педагогический step. Не придумывай новую тему.
+Работай универсально для любой темы программирования: опирайся только на COURSE_SKILL_MAP и замечания проверок.
+
+Запрос пользователя:
+{{state.UserText}}
+
+COURSE_SKILL_MAP:
+{{bridgeJson}}
+
+Педагогические правила:
+{{teacherPreferences}}
+
+Исходный draft:
+{{original.ToArtifactData().ToJsonString()}}
+
+Validation:
+{{validation.ToJsonString()}}
+
+Critique:
+{{critique.ToJsonString()}}
+
+Исправь только то, что мешает сохранить черновик:
+- если нет referenceSolution — добавь рабочее решение;
+- если мало publicTests/hiddenTests — добавь тесты, которые проходят referenceSolution;
+- если title/description содержит служебный текст — сделай student-facing формулировку;
+- если не хватает формата ввода/вывода — добавь его;
+- не используй future skills из mustNotUse;
+- оставь extra.bridgeSkillId и bridgeStepIndex совместимыми с исходным step.
+
+Верни строго JSON без markdown:
+{
+  "assignmentType": "code-test|test|math",
+  "title": "...",
+  "description": "...",
+  "language": "cpp|csharp|java|python|javascript|pascal",
+  "referenceSolution": "...",
+  "difficulty": 1,
+  "rating": 10,
+  "sourceTaskIndex": {{original.SourceTaskIndex ?? 0}},
+  "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
+  "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
+  "tags": ["AI", "черновик"],
+  "extra": {
+    "bridgeSkillId": "{{original.Extra["bridgeSkillId"]?.ToString() ?? string.Empty}}",
+    "assumedSkills": [],
+    "introducedSkills": [],
+    "targetSkills": [],
+    "missingBridgeSkills": [],
+    "skillBridgeReason": "..."
+  }
+}
+""";
+
+        try
+        {
+            await _steps.TryReportAsync("draft_repair", "running", $"Исправляю черновик, попытка {repairAttempt}", original.Title);
+            var responseText = await _textClient.CompleteAsync(prompt, cancellationToken);
+            var repaired = ParseDrafts(responseText, state.Job).FirstOrDefault();
+            if (repaired == null)
+            {
+                state.Notes.Add($"Draft repair attempt {repairAttempt} returned no parseable draft for '{original.Title}'.");
+                await _steps.TryReportAsync("draft_repair", "failed", "Не удалось разобрать исправленный черновик", original.Title);
+                return null;
+            }
+
+            repaired.SourceTaskIndex = original.SourceTaskIndex;
+            if (original.Extra["bridgeStepIndex"] is not null)
+                repaired.Extra["bridgeStepIndex"] = original.Extra["bridgeStepIndex"]!.DeepClone();
+            if (original.Extra["bridgeSkillId"] is not null)
+                repaired.Extra["bridgeSkillId"] = original.Extra["bridgeSkillId"]!.DeepClone();
+
+            var stepIndex = ReadInt(original.Extra["bridgeStepIndex"]) ?? original.SourceTaskIndex ?? 0;
+            ApplyDraftMetadata(repaired, state.Job, bridge, stepIndex);
+            await _steps.TryReportAsync("draft_repair", "completed", "Черновик исправлен", repaired.Title, new JsonObject
+            {
+                ["sourceTaskIndex"] = repaired.SourceTaskIndex,
+                ["title"] = repaired.Title
+            });
+            return repaired;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            state.Notes.Add($"Draft repair attempt {repairAttempt} failed for '{original.Title}': {ex.GetType().Name}: {ex.Message}");
+            await _steps.TryReportAsync("draft_repair", "failed", "Не удалось исправить черновик", ex.Message);
+            return null;
+        }
+    }
+
     private static int ResolveDraftCount(int requestedCount, CourseSkillBridgeContext bridge)
     {
         var requested = Math.Clamp(requestedCount, 1, 6);
@@ -155,14 +252,10 @@ public sealed class DraftAuthorExecutor
         {
             try
             {
-                // Use a fresh short-lived session for draft generation. The workflow
-                // already passes all required context explicitly, and reusing the
-                // long conversation session has caused OpenAI-compatible SDK role
-                // conversion failures on some providers.
-                var agent = retry == 0 ? _agent! : _agentFactory.CreateCoordinatorAgent();
-                var session = await agent.CreateSessionAsync(cancellationToken);
-                var response = await agent.RunAsync(candidatePrompt, session, cancellationToken: cancellationToken);
-                var text = response.Text ?? string.Empty;
+                // Tool-less draft generation goes through the direct chat-completions
+                // client. It avoids Microsoft.Agents.AI session/history conversion
+                // failures seen with some OpenAI-compatible providers.
+                var text = await _textClient.CompleteAsync(candidatePrompt, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(text)) return text;
 
                 errors.Add(new JsonObject
@@ -372,23 +465,29 @@ COURSE_SKILL_MAP:
     {
         for (var i = 0; i < drafts.Count; i++)
         {
-            drafts[i].CourseId = job.CourseId;
-            drafts[i].BeforeAssignmentId ??= bridge.BeforeAssignmentId;
-            if (bridge.BridgePlan is { Count: > 0 })
-                drafts[i].SourceTaskIndex = i;
-            else
-                drafts[i].SourceTaskIndex ??= i;
-
-            // Public tags stay clean. Learning-bridge and skill details are kept in Extra metadata, not in course cards.
-            var requiredTags = new List<string> { "AI", "черновик" };
-            drafts[i].Tags = BuildPublicTags(MergeTags(drafts[i].Tags, requiredTags));
-            drafts[i].Language = NormalizeLanguage(drafts[i].Language);
-            drafts[i].Description = SanitizeStudentFacingDescription(drafts[i].Description);
-            drafts[i].Title = SanitizeStudentFacingTitle(drafts[i].Title);
-            drafts[i].Difficulty = Math.Clamp(drafts[i].Difficulty, 1, 3);
-            drafts[i].Rating = Math.Max(1, drafts[i].Rating);
-            AddBridgeExtra(drafts[i], bridge, i);
+            var stepIndex = bridge.BridgePlan is { Count: > 0 } ? i : drafts[i].SourceTaskIndex ?? i;
+            ApplyDraftMetadata(drafts[i], job, bridge, stepIndex);
         }
+    }
+
+    private static void ApplyDraftMetadata(DraftSpec draft, ClaimedAgentJob job, CourseSkillBridgeContext bridge, int stepIndex)
+    {
+        draft.CourseId = job.CourseId;
+        draft.BeforeAssignmentId ??= bridge.BeforeAssignmentId;
+        if (bridge.BridgePlan is { Count: > 0 })
+            draft.SourceTaskIndex = stepIndex;
+        else
+            draft.SourceTaskIndex ??= stepIndex;
+
+        // Public tags stay clean. Learning-bridge and skill details are kept in Extra metadata, not in course cards.
+        var requiredTags = new List<string> { "AI", "черновик" };
+        draft.Tags = BuildPublicTags(MergeTags(draft.Tags, requiredTags));
+        draft.Language = NormalizeLanguage(draft.Language);
+        draft.Description = SanitizeStudentFacingDescription(draft.Description);
+        draft.Title = SanitizeStudentFacingTitle(draft.Title);
+        draft.Difficulty = Math.Clamp(draft.Difficulty, 1, 3);
+        draft.Rating = Math.Max(1, draft.Rating);
+        AddBridgeExtra(draft, bridge, stepIndex);
     }
 
     private static void AddBridgeExtra(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
@@ -608,6 +707,12 @@ COURSE_SKILL_MAP:
             }
         }
         return null;
+    }
+
+    private static int? ReadInt(JsonNode? node)
+    {
+        if (node == null) return null;
+        return int.TryParse(node.ToString(), out var value) ? value : null;
     }
 
     private static IEnumerable<string> ReadStringArray(JsonNode? node)
