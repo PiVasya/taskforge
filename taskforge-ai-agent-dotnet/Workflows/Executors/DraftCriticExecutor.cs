@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Agents.AI;
-using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Llm;
 using TaskForge.AiAgent.Prompts;
 using TaskForge.AiAgent.Runtime;
@@ -129,23 +128,16 @@ Static critique:
         var plannedSkillIds = BuildSkillIdSet(
             ReadStringArray(plannedStep["introducedSkillIds"])
                 .Concat(ReadStringArray(plannedStep["skillId"]))
-                .Concat(plannedIntroduced));
-        if (plannedSkillIds.Count == 0)
-        {
-            // Title/reason fields are explanatory text and often mention future skills
-            // ("before parsing", "do not use arrays"). Use them only as a last-resort
-            // fallback, never as the normal source of planned skill ids.
-            plannedSkillIds = BuildSkillIdSet(ReadStringArray(plannedStep["titleHint"]));
-        }
+                .Concat(plannedIntroduced)
+                .Concat(ReadStringArray(plannedStep["titleHint"]))
+                .Concat(ReadStringArray(plannedStep["reason"])));
 
-        var implementationSkillIds = BuildSkillIdSet(DetectImplementationSkillIds(draft));
-        var studentFacingSkillIds = BuildSkillIdSet(DetectStudentFacingSkillIds(draft));
         var draftSkillIds = BuildSkillIdSet(
             ReadStringArray(draft.Extra["introducedSkillIds"])
                 .Concat(ReadStringArray(draft.Extra["bridgeSkillId"]))
                 .Concat(introduced)
                 .Concat(modelIntroduced)
-                .Concat(implementationSkillIds));
+                .Concat(CourseSkillAnalyzer.DetectCanonicalSkillIds($"{draft.Title} {draft.Description} {draft.ReferenceSolution}")));
 
         if (introduced.Count == 0 && modelIntroduced.Count == 0 && draftSkillIds.Count == 0)
             blocking.Add("learning-bridge draft must declare or clearly demonstrate introducedSkills from its COURSE_SKILL_MAP step");
@@ -183,13 +175,12 @@ Static critique:
         else if (plannedSkillIds.Count > 0 && draftSkillIds.Count > 0 && !draftSkillIds.Overlaps(plannedSkillIds))
             advisory.Add($"inferred draft skill ids [{string.Join(", ", draftSkillIds)}] do not directly mention planned skill ids [{string.Join(", ", plannedSkillIds)}]");
 
-        // Hard future-skill and mustNotUse checks must be based on executable evidence,
-        // not on the statement/review text. Statements often say "do not use Split()"
-        // or explain a future topic; scanning that text created false blockers and hid
-        // good drafts. Student-facing text can still produce advisory hints, but it is
-        // not a blocker unless the actual reference solution uses the forbidden skill.
-        var usedSkillIds = implementationSkillIds;
-        var normalizedText = NormalizeForLooseContains(draft.ReferenceSolution);
+        // Hard mustNotUse checks are based on executable evidence only.
+        // The student-facing description may mention a forbidden API as a warning or hint;
+        // that must not be counted as actual usage.
+        var executableEvidence = draft.ReferenceSolution ?? string.Empty;
+        var usedSkillIds = BuildSkillIdSet(CourseSkillAnalyzer.DetectCanonicalSkillIds(executableEvidence));
+        var normalizedText = NormalizeForLooseContains(executableEvidence);
         foreach (var forbidden in ReadStringArray(plannedStep["mustNotUse"]))
         {
             if (!HasExplicitForbiddenUsage(forbidden, normalizedText, usedSkillIds, plannedSkillIds, allowedSkillIds))
@@ -212,53 +203,8 @@ Static critique:
             ["advisoryIssues"] = advisory,
             ["plannedSkillIds"] = ToJsonArray(plannedSkillIds),
             ["draftSkillIds"] = ToJsonArray(draftSkillIds),
-            ["implementationSkillIds"] = ToJsonArray(implementationSkillIds),
-            ["studentFacingSkillIds"] = ToJsonArray(studentFacingSkillIds),
             ["plannedStep"] = plannedStep.DeepClone()
         };
-    }
-
-
-    private static IEnumerable<string> DetectImplementationSkillIds(DraftSpec draft)
-    {
-        // Scope matters. This detector intentionally looks only at executable/reference
-        // code. The description may mention forbidden or future APIs as negative examples
-        // ("do not use Split()"), and repair hints may mention loops/arrays as things to
-        // avoid. Those words are not evidence that the draft teaches or uses the skill.
-        if (string.IsNullOrWhiteSpace(draft.ReferenceSolution))
-            return Array.Empty<string>();
-
-        return CourseSkillAnalyzer.DetectCanonicalSkillIds(draft.ReferenceSolution);
-    }
-
-    private static IEnumerable<string> DetectStudentFacingSkillIds(DraftSpec draft)
-    {
-        var text = RemoveProhibitedSentences($"{draft.Title}. {draft.Description}");
-        return CourseSkillAnalyzer.DetectCanonicalSkillIds(text);
-    }
-
-    private static string RemoveProhibitedSentences(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        var pieces = Regex.Split(value, @"(?<=[.!?。！？]|\n)", RegexOptions.CultureInvariant);
-        var kept = new List<string>();
-        foreach (var piece in pieces)
-        {
-            var n = NormalizeForLooseContains(piece);
-            if (n.Contains("не использу", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("нельзя", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("запрещ", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("do not use", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("must not use", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("without using", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            kept.Add(piece);
-        }
-
-        return string.Join(" ", kept);
     }
 
     private static int NormalizeBridgeStepIndex(int stepIndex, int planCount)
@@ -273,9 +219,6 @@ Static critique:
     {
         var allowed = new HashSet<string>(plannedSkillIds, StringComparer.OrdinalIgnoreCase);
 
-        // Acquired/assumed skills are allowed. Target skills are intentionally NOT
-        // globally allowed: in a bridge, target skills are often future skills that
-        // should appear only in the planned step where they are introduced.
         foreach (var id in BuildSkillIdSet(bridge.AcquiredSkills))
             allowed.Add(id);
         foreach (var id in BuildSkillIdSet(ReadStringArray(plannedStep["assumedSkills"])))
@@ -286,8 +229,8 @@ Static critique:
         // valid bridge draft to be rejected even when the runner and model critic passed.
         foreach (var id in new[]
                  {
-                     "program-structure", "console-output", "variables",
-                     "strings", "string-literals", "arithmetic"
+                     "program-structure", "console-output", "console-input-line", "variables",
+                     "strings", "string-literals", "arithmetic", "parse-int"
                  })
             allowed.Add(id);
 

@@ -71,9 +71,11 @@ public sealed class DraftAuthorExecutor
 5. Названия должны быть короткими student-facing названиями, без служебных префиксов вроде "Подготовка к заданию 5" и без повторения номера задания.
 6. Связь с местом в курсе держи в extra/metadata, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
 7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
-8. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
-9. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её ни в условии, ни в решении, ни в тестах.
-10. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
+8. Description — это ТОЛЬКО текст для ученика. Не выводи туда внутренние quality gates, acceptanceCriteria, mustNotUse, список запрещённых будущих тем, фразы "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют". Эти ограничения держи в extra/metadata и referenceSolution/tests.
+9. Для обучающих bridge-задач description должен быть простым: короткое условие, при необходимости короткая "Подсказка", затем формат ввода/вывода и 1 пример. Не превращай условие в чек-лист валидатора.
+10. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
+11. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её в решении и тестах; в description не перечисляй это как запрет для ученика, если преподаватель явно не попросил ограничения в видимом тексте.
+12. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
 
 Компактный контекст выбранного курса. Используй его только для стиля соседних заданий и примеров формата; не выбирай anchor заново:
 {{generationContext}}
@@ -173,8 +175,9 @@ Critique:
 - если нет referenceSolution — добавь рабочее решение;
 - если мало publicTests/hiddenTests — добавь тесты, которые проходят referenceSolution;
 - если title/description содержит служебный текст — сделай student-facing формулировку;
+- если description содержит внутренний чек-лист, acceptanceCriteria, mustNotUse, "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют" — убери это из видимого текста и оставь только понятное условие для ученика;
 - если не хватает формата ввода/вывода — добавь его;
-- не используй future skills из mustNotUse;
+- не используй future skills из mustNotUse в решении и тестах;
 - оставь extra.bridgeSkillId и bridgeStepIndex совместимыми с исходным step.
 
 Верни строго JSON без markdown:
@@ -323,6 +326,8 @@ COURSE_SKILL_MAP:
 - Один главный новый навык на draft.
 - Не использовать mustNotUse текущего step.
 - Student-facing title/description, без служебной metadata.
+- Description не должен содержать внутренние требования валидатора, acceptanceCriteria, mustNotUse, списки запретов и фразы вроде "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять".
+- Пиши условие как учебное задание: что сделать, короткая подсказка при необходимости, формат ввода/вывода, пример.
 - Если это code-test, дай referenceSolution, 2 publicTests и 2 hiddenTests, которые проходят решение.
 - Если для какого-то step невозможно дать корректный draft с тестами, просто пропусти этот step, не выдумывай fallback.
 
@@ -545,11 +550,96 @@ COURSE_SKILL_MAP:
 
     private static string SanitizeStudentFacingDescription(string? description)
     {
-        var clean = (description ?? string.Empty).Replace("\r\n", "\n").Trim();
+        var original = (description ?? string.Empty).Replace("\r\n", "\n").Trim();
+        var clean = original;
         clean = Regex.Replace(clean, @"^\s*Место\s+в\s+курсе\..*?(?:\n\s*\n|$)", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant).TrimStart();
         clean = Regex.Replace(clean, @"^\s*Это\s+подготовительное\s+задание\s+после.*?(?:\n\s*\n|$)", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant).TrimStart();
+        clean = RemoveInternalRubricSections(clean);
+        clean = RemoveInternalRequirementLines(clean);
+        clean = CollapseBlankLines(clean).Trim();
+        if (string.IsNullOrWhiteSpace(clean))
+            clean = FirstStudentFacingParagraph(original);
         clean = WrapKnownCodeTokens(clean);
         return clean;
+    }
+
+    private static string RemoveInternalRubricSections(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+
+        var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
+        var kept = new List<string>();
+        var skipping = false;
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (IsInternalRubricHeading(line))
+            {
+                skipping = true;
+                continue;
+            }
+
+            if (skipping && IsStudentFacingHeading(line))
+                skipping = false;
+
+            if (!skipping)
+                kept.Add(rawLine);
+        }
+
+        return string.Join("\n", kept);
+    }
+
+    private static string RemoveInternalRequirementLines(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+
+        var kept = new List<string>();
+        foreach (var rawLine in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (LooksLikeInternalRequirementLine(line))
+                continue;
+            kept.Add(rawLine);
+        }
+
+        return string.Join("\n", kept);
+    }
+
+    private static bool IsInternalRubricHeading(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        return Regex.IsMatch(line, @"^(требования\s+и\s+критерии|критерии\s+при[её]ма|критерии\s+проверки|acceptance\s+criteria|requirements|must\s*not\s*use|ограничения|запрещ[её]нные\s+при[её]мы)\s*[:.]?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsStudentFacingHeading(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        return Regex.IsMatch(line, @"^(условие|задача|что\s+нужно\s+сделать|подсказка|формат\s+ввода|формат\s+вывода|ввод|вывод|пример|примеры|пояснение)\s*[:.]?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool LooksLikeInternalRequirementLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        var clean = Regex.Replace(line, @"^[\-•*\d.)\s]+", string.Empty).Trim();
+        return Regex.IsMatch(clean, @"^(программа\s+должна\s+использовать|тесты\s+проверяют|нельзя\s+(применять|использовать)|не\s+используйте|запрещается|запрещено|do\s+not\s+use|must\s+not\s+use|use\s+only)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static string FirstStudentFacingParagraph(string text)
+    {
+        foreach (var part in Regex.Split(text.Replace("\r\n", "\n"), @"\n\s*\n"))
+        {
+            var candidate = part.Trim();
+            if (!string.IsNullOrWhiteSpace(candidate) && !IsInternalRubricHeading(candidate))
+                return candidate;
+        }
+        return text.Trim();
+    }
+
+    private static string CollapseBlankLines(string text)
+    {
+        var normalized = Regex.Replace(text.Replace("\r\n", "\n"), @"[ \t]+\n", "\n", RegexOptions.CultureInvariant);
+        normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n", RegexOptions.CultureInvariant);
+        return normalized;
     }
 
     private static string WrapKnownCodeTokens(string text)

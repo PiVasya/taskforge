@@ -137,6 +137,9 @@ public sealed class ValidationTools
         if (ContainsAny(description, "Место в курсе", "подготовительное задание после", "перед Задание", "после List<T>", "sourceAgent", "AI-черновик"))
             blocking.Add("description contains service/course-placement wording that should stay in metadata, not in the student-facing text");
 
+        if (LooksLikeInternalRubric(description))
+            blocking.Add("description exposes internal validator/rubric wording; keep acceptanceCriteria, mustNotUse and hard restrictions in metadata, not in the student-facing text");
+
         if (HasUnwrappedCodeToken(description))
             blocking.Add("student-facing code tokens must be wrapped in backticks, for example `Console.ReadLine()` and `int.Parse(...)`");
 
@@ -192,6 +195,19 @@ public sealed class ValidationTools
             foreach (var item in node!.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 yield return item;
         }
+    }
+
+    private static bool LooksLikeInternalRubric(string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return false;
+        var withoutCodeSpans = Regex.Replace(description, @"`[^`]*`", string.Empty);
+        if (Regex.IsMatch(withoutCodeSpans, @"\b(acceptance\s+criteria|must\s*not\s*use|quality\s+gate)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return true;
+        if (Regex.IsMatch(withoutCodeSpans, @"(^|\n)\s*(требования\s+и\s+критерии|критерии\s+при[её]ма|критерии\s+проверки|ограничения)\s*[:.]?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return true;
+        if (Regex.IsMatch(withoutCodeSpans, @"(^|\n)\s*[-•*\d.)\s]*(программа\s+должна\s+использовать|тесты\s+проверяют|нельзя\s+(применять|использовать)|не\s+используйте|запрещается|запрещено)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return true;
+        return false;
     }
 
     private static bool HasUnwrappedCodeToken(string description)
