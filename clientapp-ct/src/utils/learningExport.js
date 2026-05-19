@@ -151,10 +151,9 @@ function renderTask(details, index) {
     </article>`;
 }
 
-function renderTaskGroup(title, taskDetails, { renderEmpty = true } = {}) {
+function renderTaskGroup(title, taskDetails, { hideEmpty = true } = {}) {
   const tasks = taskDetails || [];
-  if (!tasks.length && !renderEmpty) return '';
-
+  if (!tasks.length && hideEmpty) return '';
   return `
     <section class="tasks-section">
       <h2>${escapeHtml(title)}</h2>
@@ -162,240 +161,254 @@ function renderTaskGroup(title, taskDetails, { renderEmpty = true } = {}) {
     </section>`;
 }
 
-const A4_SCREEN_WIDTH_MM = 196;
-
-function exportLayoutOverrideStyle() {
-  return `<style id="tf-export-layout-override">
-    @page { size: A4 portrait; margin: 6mm; }
-
-    html, body {
-      width: auto !important;
-      min-width: 0 !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      background: #ffffff !important;
-    }
-
-    body {
-      color: #111827 !important;
-      font-family: Arial, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-      font-size: 9.2pt !important;
-      line-height: 1.28 !important;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-    }
-
-    .page {
-      width: 100% !important;
-      max-width: none !important;
-      min-width: 0 !important;
-      min-height: auto !important;
-      margin: 0 auto !important;
-      padding: 0 !important;
-      background: #ffffff !important;
-      box-shadow: none !important;
-      overflow: visible !important;
-    }
-
-    .print-content {
-      width: 100% !important;
-      max-width: none !important;
-      margin: 0 !important;
-      padding: 0 !important;
-    }
-
-    .cover {
-      margin: 0 0 5mm !important;
-      padding: 4.5mm 5mm !important;
-      border: .25mm solid #d1d5db !important;
-      border-radius: 3.5mm !important;
-      background: #f8fafc !important;
-    }
-
-    .cover h1 { font-size: 17pt !important; line-height: 1.08 !important; margin: 0 !important; }
-    .cover p { margin: 1.5mm 0 0 !important; font-size: 8.5pt !important; color: #4b5563 !important; }
-
-    .eyebrow, .task-meta {
-      margin: 0 0 1.5mm !important;
-      color: #0369a1 !important;
-      font-size: 7.2pt !important;
-      font-weight: 800 !important;
-      letter-spacing: .06em !important;
-      text-transform: uppercase !important;
-    }
-
-    h1, h2, h3 { color: #111827 !important; break-after: avoid !important; page-break-after: avoid !important; }
-    h1 { font-size: 18pt !important; line-height: 1.12 !important; margin: 0 0 3mm !important; }
-    h2 {
-      margin: 5mm 0 2.5mm !important;
-      padding-bottom: 1.2mm !important;
-      font-size: 13pt !important;
-      line-height: 1.15 !important;
-      border-bottom: .25mm solid #e5e7eb !important;
-    }
-    h3 { font-size: 10.5pt !important; line-height: 1.18 !important; margin: 3mm 0 1.5mm !important; }
-    p { margin: 1.2mm 0 !important; }
-    .lead { font-size: 9pt !important; color: #374151 !important; }
-
-    .conspect-section, .tasks-section { margin-bottom: 5mm !important; }
-    .block, .task-card, .example, .word-group { break-inside: avoid !important; page-break-inside: avoid !important; }
-    .block, .task-card {
-      margin: 2.5mm 0 !important;
-      padding: 3mm !important;
-      border: .25mm solid #e5e7eb !important;
-      border-radius: 3mm !important;
-      background: #ffffff !important;
-    }
-
-    .task-prompt { font-size: 9.5pt !important; font-weight: 700 !important; white-space: pre-line !important; }
-    .task-extra { color: #4b5563 !important; white-space: pre-line !important; }
-    .explanation { margin-top: 2mm !important; padding: 2mm 2.5mm !important; border-radius: 2.5mm !important; background: #f3f4f6 !important; }
-    ul, ol { padding-left: 5mm !important; margin: 1.5mm 0 !important; }
-    table { border-collapse: collapse !important; width: 100% !important; margin: 2mm 0 !important; font-size: 8pt !important; table-layout: fixed !important; }
-    th, td { border: .25mm solid #d1d5db !important; padding: 1.6mm !important; vertical-align: top !important; text-align: left !important; overflow-wrap: anywhere !important; }
-    th { background: #f3f4f6 !important; }
-
-    img, video, canvas, svg { max-width: 100% !important; height: auto !important; }
-
-    .html-conspect {
-      width: 100% !important;
-      max-width: none !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      overflow: visible !important;
-      font-size: 9.2pt !important;
-      line-height: 1.28 !important;
-    }
-
-    .html-conspect *,
-    .html-conspect *::before,
-    .html-conspect *::after {
-      box-sizing: border-box !important;
-      max-width: none !important;
-    }
-
-    .html-conspect > div,
-    .html-conspect > section,
-    .html-conspect > main,
-    .html-conspect > article,
-    .html-conspect .tf-conspect,
-    .html-conspect .tf-conspect > div,
-    .html-conspect .tf-conspect > section,
-    .html-conspect main,
-    .html-conspect article,
-    .html-conspect .container,
-    .html-conspect .wrapper,
-    .html-conspect .content,
-    .html-conspect .page,
-    .html-conspect .sheet,
-    .html-conspect .screen,
-    .html-conspect .lesson,
-    .html-conspect .lesson-page,
-    .html-conspect .conspect,
-    .html-conspect .conspect-page {
-      width: 100% !important;
-      max-width: none !important;
-      min-width: 0 !important;
-      margin-left: 0 !important;
-      margin-right: 0 !important;
-    }
-
-    .html-conspect [class*="max-w"],
-    .html-conspect [class*="mx-auto"],
-    .html-conspect [style*="max-width"] {
-      max-width: none !important;
-    }
-
-    .html-conspect [class*="mx-auto"] {
-      margin-left: 0 !important;
-      margin-right: 0 !important;
-    }
-
-    .html-conspect [style*="width"] {
-      max-width: 100% !important;
-    }
-
-    .html-conspect [style*="min-height"] { min-height: auto !important; }
-    .html-conspect [style*="height"] { min-height: auto !important; }
-    .html-conspect [style*="position: fixed"],
-    .html-conspect [style*="position:fixed"] { position: static !important; }
-    .html-conspect [style*="transform"] { transform: none !important; }
-
-    .html-conspect [class*="shadow"],
-    .html-conspect [style*="box-shadow"] {
-      box-shadow: 0 1.5mm 5mm rgba(15, 23, 42, .08) !important;
-    }
-
-    .html-conspect h1 { font-size: 18pt !important; line-height: 1.08 !important; margin: 0 0 3mm !important; }
-    .html-conspect h2 { font-size: 13pt !important; line-height: 1.13 !important; margin: 5mm 0 2.5mm !important; }
-    .html-conspect h3 { font-size: 10.5pt !important; line-height: 1.18 !important; margin: 3mm 0 1.5mm !important; }
-    .html-conspect p,
-    .html-conspect li,
-    .html-conspect td,
-    .html-conspect th,
-    .html-conspect span {
-      font-size: 8.8pt !important;
-      line-height: 1.28 !important;
-    }
-
-    .html-conspect section,
-    .html-conspect article,
-    .html-conspect .card,
-    .html-conspect [class*="card"],
-    .html-conspect [class*="rounded"] {
-      border-radius: 3mm !important;
-    }
-
-    .html-conspect [class*="p-"],
-    .html-conspect [style*="padding"] {
-      padding: 3mm !important;
-    }
-
-    .html-conspect img,
-    .html-conspect video,
-    .html-conspect canvas,
-    .html-conspect svg {
-      max-width: 100% !important;
-      height: auto !important;
-    }
-
-    .html-conspect [class*="gap"] { gap: 2mm !important; }
-
-    .html-conspect [style*="grid-template-columns"],
-    .html-conspect .grid {
-      display: grid !important;
-      grid-template-columns: repeat(auto-fit, minmax(45mm, 1fr)) !important;
-      gap: 2mm !important;
-    }
-
-    .html-conspect table { width: 100% !important; table-layout: fixed !important; }
-    .html-conspect pre, .html-conspect code { white-space: pre-wrap !important; overflow-wrap: anywhere !important; }
-
-    .muted { color: #6b7280 !important; }
-    .section-break { break-before: page !important; page-break-before: always !important; }
-
-    @media screen {
-      body { padding: 7mm 0 !important; background: #e5e7eb !important; }
-      .page { width: ${A4_SCREEN_WIDTH_MM}mm !important; max-width: ${A4_SCREEN_WIDTH_MM}mm !important; padding: 0 !important; box-shadow: 0 8mm 20mm rgba(15, 23, 42, .16) !important; }
-    }
-
-    @media print {
-      html, body { background: #ffffff !important; }
-      .page { width: 100% !important; max-width: none !important; margin: 0 !important; box-shadow: none !important; }
-      a { color: #111827 !important; text-decoration: none !important; }
-    }
-  </style>`;
-}
+const PRINT_PAGE_PADDING = '8mm 9mm 9mm';
 
 function documentHtml({ title, subtitle, sections }) {
-  const layoutOverride = exportLayoutOverrideStyle();
-
   return `<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
-  ${layoutOverride}
+  <style>
+    @page { size: A4 portrait; margin: 0; }
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; }
+    body {
+      color: #101827;
+      background: #e8edf5;
+      font-family: Arial, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 9.6pt;
+      line-height: 1.34;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      text-rendering: geometricPrecision;
+    }
+    .page {
+      width: 210mm;
+      max-width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: ${PRINT_PAGE_PADDING};
+      background: #ffffff;
+      box-shadow: 0 16px 48px rgba(15, 23, 42, 0.14);
+      overflow: visible;
+    }
+    .print-content { width: 100%; max-width: 100%; }
+    .cover {
+      margin: 0 0 6mm;
+      padding: 5mm 6mm;
+      border: .25mm solid #d8e0ea;
+      border-radius: 4mm;
+      background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .cover h1 { margin: 0; font-size: 17.5pt; line-height: 1.1; letter-spacing: -.03em; }
+    .cover p { margin: 2mm 0 0; color: #475569; font-size: 9.2pt; }
+    .eyebrow, .task-meta {
+      margin: 0 0 2mm;
+      color: #0369a1;
+      font-size: 7.4pt;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 {
+      color: #111827;
+      break-after: avoid;
+      page-break-after: avoid;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+    h1 { font-size: 18pt; line-height: 1.08; margin: 0 0 4mm; letter-spacing: -.03em; }
+    h2 {
+      margin: 6mm 0 3mm;
+      font-size: 13.6pt;
+      line-height: 1.14;
+      border-bottom: .25mm solid #e2e8f0;
+      padding-bottom: 1.6mm;
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 4mm 0 2mm; font-size: 10.8pt; line-height: 1.18; }
+    p { margin: 1.3mm 0; }
+    .lead { font-size: 9.4pt; color: #475569; }
+    .conspect-section, .tasks-section { margin-bottom: 6mm; }
+    .task-card, .cover { break-inside: avoid; page-break-inside: avoid; }
+    .block, .task-card {
+      margin: 3mm 0;
+      padding: 3.2mm 3.8mm;
+      border: .25mm solid #e2e8f0;
+      border-radius: 3.5mm;
+      background: #ffffff;
+    }
+    .task-card { background: #fbfdff; }
+    .task-prompt { font-size: 10pt; font-weight: 700; white-space: pre-line; }
+    .task-extra { color: #475569; white-space: pre-line; }
+    .explanation { margin-top: 2mm; padding: 2.2mm 3mm; border-radius: 3mm; background: #f1f5f9; }
+    ul, ol { padding-left: 5.5mm; margin: 2mm 0; }
+    li { margin: .6mm 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 3mm 0;
+      font-size: 8.5pt;
+      table-layout: fixed;
+    }
+    th, td {
+      border: .25mm solid #d1d5db;
+      padding: 1.8mm;
+      vertical-align: top;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    th { background: #f1f5f9; }
+    img, video, canvas, svg { max-width: 100% !important; height: auto !important; }
+
+    .html-conspect {
+      margin-top: 4mm;
+      width: 100%;
+      max-width: 100%;
+      overflow: visible;
+      color: #111827;
+      font-size: 8.9pt !important;
+      line-height: 1.3 !important;
+      word-spacing: .08em !important;
+    }
+    .html-conspect, .html-conspect * {
+      box-sizing: border-box !important;
+      max-width: 100% !important;
+      text-rendering: geometricPrecision !important;
+    }
+    .html-conspect .tf-conspect,
+    .html-conspect main,
+    .html-conspect section,
+    .html-conspect article {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+    .html-conspect [class*="max-w-"],
+    .html-conspect [style*="max-width"],
+    .html-conspect [style*="width: min"],
+    .html-conspect [style*="width:min"] {
+      max-width: 100% !important;
+      width: 100% !important;
+    }
+    .html-conspect [class*="mx-auto"],
+    .html-conspect [style*="margin: 0 auto"],
+    .html-conspect [style*="margin:0 auto"] {
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+    .html-conspect [style*="min-height"] { min-height: auto !important; }
+    .html-conspect [style*="height"] { min-height: auto !important; }
+    .html-conspect [style*="position: fixed"],
+    .html-conspect [style*="position:fixed"] { position: static !important; }
+    .html-conspect [style*="transform"] { transform: none !important; }
+    .html-conspect [class*="shadow"],
+    .html-conspect [style*="box-shadow"] {
+      box-shadow: 0 3mm 9mm rgba(15, 23, 42, .08) !important;
+    }
+    .html-conspect [class*="rounded"],
+    .html-conspect [style*="border-radius"] { border-radius: 3.2mm !important; }
+    .html-conspect [class*="p-"],
+    .html-conspect [style*="padding"] { }
+    .html-conspect h1 {
+      font-size: 18pt !important;
+      line-height: 1.08 !important;
+      margin: 0 0 3.4mm !important;
+      letter-spacing: -.035em !important;
+      word-spacing: .1em !important;
+    }
+    .html-conspect h2 {
+      font-size: 13.2pt !important;
+      line-height: 1.12 !important;
+      margin: 5.5mm 0 2.7mm !important;
+      letter-spacing: -.025em !important;
+      word-spacing: .09em !important;
+    }
+    .html-conspect h3,
+    .html-conspect h4 {
+      font-size: 10.4pt !important;
+      line-height: 1.16 !important;
+      margin: 3.4mm 0 1.8mm !important;
+      word-spacing: .08em !important;
+    }
+    .html-conspect p,
+    .html-conspect li,
+    .html-conspect td,
+    .html-conspect th,
+    .html-conspect span,
+    .html-conspect small {
+      font-size: 8.7pt !important;
+      line-height: 1.28 !important;
+      word-spacing: .08em !important;
+      white-space: normal !important;
+    }
+    .html-conspect ul,
+    .html-conspect ol { margin: 1.6mm 0 !important; padding-left: 5mm !important; }
+    .html-conspect table { font-size: 8.2pt !important; margin: 2.4mm 0 !important; }
+    .html-conspect th,
+    .html-conspect td { padding: 1.5mm !important; }
+    .html-conspect div,
+    .html-conspect section,
+    .html-conspect article {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .html-conspect .card,
+    .html-conspect [class*="card"],
+    .html-conspect [class*="rounded"] {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .html-conspect .card,
+    .html-conspect [class*="card"] {
+      padding: 3mm !important;
+      margin: 2.2mm 0 !important;
+    }
+    .html-conspect [class*="gap-"] { gap: 2mm !important; }
+    .html-conspect [class*="grid"] {
+      column-gap: 2.6mm !important;
+      row-gap: 2.4mm !important;
+    }
+    .html-conspect [class*="text-4xl"],
+    .html-conspect [class*="text-5xl"],
+    .html-conspect [class*="text-6xl"] { font-size: 18pt !important; }
+    .html-conspect [class*="text-3xl"] { font-size: 15pt !important; }
+    .html-conspect [class*="text-2xl"] { font-size: 12.5pt !important; }
+    .html-conspect [class*="text-xl"] { font-size: 10.5pt !important; }
+    .html-conspect [class*="text-lg"] { font-size: 9.4pt !important; }
+    .html-conspect .export-inline-gap > * + *::before { content: " "; }
+
+    .muted { color: #64748b; }
+    .section-break { break-before: page; page-break-before: always; }
+
+    @media screen {
+      body { padding: 10mm 0; }
+    }
+
+    @media print {
+      html, body { width: 210mm; min-height: auto; background: #ffffff; }
+      body { font-size: 9.3pt; }
+      .page {
+        width: 210mm;
+        max-width: 210mm;
+        min-height: 297mm;
+        margin: 0;
+        padding: ${PRINT_PAGE_PADDING};
+        box-shadow: none;
+      }
+      .print-content { padding: 0; }
+      .cover, .block, .task-card { border-color: #d7dee8; }
+      .section-break:first-of-type { break-before: auto; page-break-before: auto; }
+      a { color: #111827; text-decoration: none; }
+    }
+  </style>
 </head>
 <body>
   <main class="page">
@@ -404,10 +417,166 @@ function documentHtml({ title, subtitle, sections }) {
         <h1>${escapeHtml(title)}</h1>
         ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
       </section>
-      ${sections.join('\n')}
+      ${sections.filter(Boolean).join('\n')}
     </div>
   </main>
-  ${layoutOverride}
+  <script>
+    (function () {
+      function isWordChar(ch) {
+        return /[A-Za-zА-Яа-яЁё0-9»)]/.test(ch || '');
+      }
+      function startsWord(ch) {
+        return /[A-Za-zА-Яа-яЁё0-9«(]/.test(ch || '');
+      }
+      function tailText(node) {
+        if (!node) return '';
+        var text = node.textContent || '';
+        return text.trim().slice(-1);
+      }
+      function headText(node) {
+        if (!node) return '';
+        var text = node.textContent || '';
+        return text.trim().charAt(0);
+      }
+      function addSpacesBetweenInlineChildren() {
+        var selector = 'h1,h2,h3,h4,p,li,a,button,label,span,strong,b,em,small';
+        document.querySelectorAll(selector).forEach(function (el) {
+          var nodes = Array.prototype.slice.call(el.childNodes);
+          for (var i = nodes.length - 1; i > 0; i -= 1) {
+            var prev = nodes[i - 1];
+            var next = nodes[i];
+            if (!prev || !next) continue;
+            if (prev.nodeType === 3 && /\\s$/.test(prev.nodeValue || '')) continue;
+            if (next.nodeType === 3 && /^\\s/.test(next.nodeValue || '')) continue;
+            if (isWordChar(tailText(prev)) && startsWord(headText(next))) {
+              el.insertBefore(document.createTextNode(' '), next);
+            }
+          }
+        });
+      }
+      function fixCommonJoinedRussianHeadings() {
+        var replacements = [
+          ['конспектыизадания', 'конспекты и задания'],
+          ['Порядокрешения', 'Порядок решения'],
+          ['Быстроеправило', 'Быстрое правило'],
+          ['Главноеразличие', 'Главное различие'],
+          ['Корнисчередующимисягласными', 'Корни с чередующимися гласными'],
+          ['Проверяемыегласные', 'Проверяемые гласные'],
+          ['Словарныеслова', 'Словарные слова'],
+          ['Запомнитьзначения', 'Запомнить значения'],
+          ['Запомнитьгласную', 'Запомнить гласную'],
+          ['Какопределитьспряжение', 'Как определить спряжение'],
+          ['Причастиянастоящеговремени', 'Причастия настоящего времени'],
+          ['Опасныеинфинитивы', 'Опасные инфинитивы'],
+          ['КогдапишемНЕ', 'Когда пишем НЕ'],
+          ['КогдапишемНИ', 'Когда пишем НИ'],
+          ['ФразеологизмыиустойчивыевыражениясНИ', 'Фразеологизмы и устойчивые выражения с НИ'],
+          ['НЕснаречиями', 'НЕ с наречиями'],
+          ['НЕссуществительнымииприлагательными', 'НЕ с существительными и прилагательными'],
+          ['НЕскраткимиприлагательными', 'НЕ с краткими прилагательными'],
+          ['НЕспричастиями', 'НЕ с причастиями'],
+          ['НЕсместоимениями', 'НЕ с местоимениями'],
+          ['НЕвсегдараздельно', 'НЕ всегда раздельно'],
+          ['Первыечастислова', 'Первые части слова'],
+          ['Вашесловоприлагательное', 'Ваше слово прилагательное'],
+          ['Дефис: еслиперваячастьслова', 'Дефис: если первая часть слова'],
+          ['Слитноираздельно', 'Слитно и раздельно'],
+          ['Вкоторыхможноошибиться', 'В которых можно ошибиться'],
+          ['Зависитотзначения', 'Зависит от значения'],
+          ['еслислованебыловсписках', 'если слова не было в списках'],
+          ['Запомнитьслитно', 'Запомнить слитно'],
+          ['Запомнитьраздельно', 'Запомнить раздельно'],
+          ['Быстраясхема', 'Быстрая схема'],
+          ['Тиреставится', 'Тире ставится'],
+          ['Тиренеставится', 'Тире не ставится'],
+          ['Короткаяпроверка', 'Короткая проверка'],
+          ['Двадеепричастныхоборота', 'Два деепричастных оборота'],
+          ['Выделяемзапятымивпредложении', 'Выделяем запятыми в предложении'],
+          ['Выделяемзапятыми', 'Выделяем запятыми'],
+          ['Вводноеилиневводное', 'Вводное или невводное'],
+          ['Неявляютсявводными', 'Не являются вводными'],
+          ['Особыеслучаи', 'Особые случаи'],
+          ['Запятаяставится', 'Запятая ставится'],
+          ['Запятаянеставится', 'Запятая не ставится'],
+          ['Запятаямеждучастямисложногопредложения', 'Запятая между частями сложного предложения'],
+          ['Когдавсложномпредложениизапятаяненужна', 'Когда в сложном предложении запятая не нужна'],
+          ['ЗапятаявССП', 'Запятая в ССП'],
+          ['ЗапятаявССПнеставится', 'Запятая в ССП не ставится'],
+          ['ЗапятаявСПП', 'Запятая в СПП'],
+          ['ЗапятаявСППнеставится', 'Запятая в СПП не ставится'],
+          ['Правилолюбовницы', 'Правило любовницы'],
+          ['Двоеточиеставится', 'Двоеточие ставится'],
+          ['Тиреставится', 'Тире ставится'],
+          ['Основныесхемы', 'Основные схемы'],
+          ['Случаисзапятой', 'Случаи с запятой'],
+          ['Случаибеззапятой', 'Случаи без запятой'],
+          ['Разговорныйиписьменный', 'Разговорный и письменный'],
+          ['Письменныестили', 'Письменные стили'],
+          ['Основныеспособысвязи', 'Основные способы связи'],
+          ['Местоимениякаксредствосвязи', 'Местоимения как средство связи'],
+          ['Союзы, наречияипорядокслов', 'Союзы, наречия и порядок слов'],
+          ['Словапозначению', 'Слова по значению'],
+          ['Контекстныеантонимыисинонимы', 'Контекстные антонимы и синонимы'],
+          ['Однозначныеимногозначныеслова', 'Однозначные и многозначные слова'],
+          ['БуквыЯ, Е, Ё, Юобозначают', 'Буквы Я, Е, Ё, Ю обозначают'],
+          ['Звонкиеиглухиесогласные', 'Звонкие и глухие согласные'],
+          ['Всегдамягкиеивсегдатвёрдые', 'Всегда мягкие и всегда твёрдые'],
+          ['Оглушениеиозвончение', 'Оглушение и озвончение'],
+          ['Группыдлязапоминания', 'Группы для запоминания'],
+          ['Видысвязивсловосочетаниях', 'Виды связи в словосочетаниях'],
+          ['Несловосочетания', 'Не словосочетания'],
+          ['Типыречевыхошибок', 'Типы речевых ошибок'],
+          ['Морфологическиенормы', 'Морфологические нормы'],
+          ['Степенисравнения', 'Степени сравнения'],
+          ['Формымножественногочисла', 'Формы множественного числа'],
+          ['Множественноечисло', 'Множественное число'],
+          ['Родительныйпадежмножественногочисла', 'Родительный падеж множественного числа'],
+          ['Настоящее, будущееипрошедшеевремя', 'Настоящее, будущее и прошедшее время'],
+          ['гласнаявкорнеслова', 'гласная в корне слова'],
+          ['гласнаявкорнеиприставкипре/при', 'гласная в корне и приставки пре/при'],
+          ['Е/Ивкорнеипре/при', 'Е/И в корне и пре/при'],
+          ['причастияиопасныеинфинитивы', 'причастия и опасные инфинитивы'],
+          ['НЕиНИ', 'НЕ и НИ'],
+          ['НЕсразнымичастямиречи', 'НЕ с разными частями речи'],
+          ['тиремеждуподлежащимисказуемым', 'тире между подлежащим и сказуемым'],
+          ['обособленныеобстоятельстваи', 'обособленные обстоятельства и'],
+          ['вводныеилжевводныеслова', 'вводные и лжевводные слова'],
+          ['запятаямеждуоднороднымиичастями', 'запятая между однородными и частями'],
+          ['сложногопредложения', 'сложного предложения'],
+          ['запятаявССПиСПП', 'запятая в ССП и СПП'],
+          ['знакивбессоюзномсложномпредложении', 'знаки в бессоюзном сложном предложении'],
+          ['прямаяречь, цитатыидиалог', 'прямая речь, цитаты и диалог'],
+          ['стилиитипыречи', 'стили и типы речи'],
+          ['средствасвязипредложенийвтексте', 'средства связи предложений в тексте'],
+          ['антонимы, синонимыизначенияслов', 'антонимы, синонимы и значения слов'],
+          ['фонетикаизвуки', 'фонетика и звуки'],
+          ['разрядыместоимений', 'разряды местоимений'],
+          ['речевыенормы', 'речевые нормы'],
+          ['синтаксическиеошибки', 'синтаксические ошибки'],
+          ['морфологическиенормы', 'морфологические нормы'],
+          ['Всезадания', 'Все задания']
+        ];
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        var nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        nodes.forEach(function (node) {
+          var value = node.nodeValue;
+          replacements.forEach(function (pair) {
+            value = value.split(pair[0]).join(pair[1]);
+          });
+          value = value
+            .replace(/([А-ЯЁA-Z0-9])\\.([А-ЯЁA-Z0-9])/g, '$1. $2')
+            .replace(/([а-яё])([A-ZА-ЯЁ][a-zа-яё])/g, '$1 $2')
+            .replace(/(A\\d+|B\\d+):\\s*([^\\s]{4,})/g, function (match, code, rest) {
+              return code + ': ' + rest;
+            });
+          node.nodeValue = value;
+        });
+      }
+      addSpacesBetweenInlineChildren();
+      fixCommonJoinedRussianHeadings();
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -430,7 +599,7 @@ function writeAndPrint(printWindow, html) {
   printWindow.focus();
   window.setTimeout(() => {
     printWindow.print();
-  }, 800);
+  }, 1200);
 }
 
 async function mapLimit(items, limit, mapper) {
@@ -532,7 +701,7 @@ export async function exportConspectPdf(details, { includeDraft = false } = {}) 
       subtitle: `Конспект${tasks.length ? ` + задания: ${tasks.length}` : ''}`,
       sections: [
         renderConspect(details),
-        renderTaskGroup(`Задания${conspect.sectionCode ? ` ${conspect.sectionCode}` : ''}`, tasks, { renderEmpty: false }),
+        renderTaskGroup(`Задания${conspect.sectionCode ? ` ${conspect.sectionCode}` : ''}`, tasks),
       ],
     });
     writeAndPrint(printWindow, html);
@@ -565,7 +734,7 @@ export async function exportSectionPdf({ sectionCode, details, includeDraft = fa
 
     const sections = [];
     if (nextDetails) sections.push(renderConspect(nextDetails));
-    if (tasks.length) sections.push(renderTaskGroup(`Все задания ${normalized}`, tasks, { renderEmpty: false }));
+    sections.push(renderTaskGroup(`Все задания ${normalized}`, tasks));
 
     writeAndPrint(printWindow, documentHtml({
       title: `${normalized}. Конспект и задания`,
@@ -589,7 +758,6 @@ export async function exportAllCtPdf(courses, { includeDraft = false } = {}) {
 
     const blocks = [];
     let totalTasks = 0;
-    let exportedSections = 0;
 
     for (const course of sections) {
       const code = course.sectionCode;
@@ -610,25 +778,24 @@ export async function exportAllCtPdf(courses, { includeDraft = false } = {}) {
         sectionCode: code,
         includeDraft,
       }));
+      totalTasks += tasks.length;
+
       if (!conspectDetails.length && !tasks.length) {
         continue;
       }
 
-      exportedSections += 1;
-      totalTasks += tasks.length;
-
       blocks.push(`
         <section class="section-break">
           <div class="eyebrow">Раздел ${escapeHtml(code)}</div>
-          <h1>${escapeHtml(code)}. ${escapeHtml(course.title || 'Конспект и задания')}</h1>
-          ${conspectDetails.length ? conspectDetails.map(renderConspect).join('') : '<p class="muted">Конспектов пока нет.</p>'}
-          ${renderTaskGroup(`Все задания ${code}`, tasks, { renderEmpty: false })}
+          <h1>${escapeHtml(code)}. ${escapeHtml(course.title || code)}</h1>
+          ${conspectDetails.map(renderConspect).join('')}
+          ${renderTaskGroup(`Все задания ${code}`, tasks)}
         </section>`);
     }
 
     writeAndPrint(printWindow, documentHtml({
       title: 'ЦТ / ЦЭ: конспекты и задания A+B',
-      subtitle: `Разделов: ${exportedSections}. Заданий: ${totalTasks}.`,
+      subtitle: `Разделов: ${blocks.length}. Заданий: ${totalTasks}.`,
       sections: blocks.length ? blocks : ['<p class="muted">Созданных разделов A/B пока нет.</p>'],
     }));
   } catch (error) {
