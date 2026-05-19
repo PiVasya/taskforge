@@ -151,8 +151,10 @@ function renderTask(details, index) {
     </article>`;
 }
 
-function renderTaskGroup(title, taskDetails) {
+function renderTaskGroup(title, taskDetails, { renderEmpty = true } = {}) {
   const tasks = taskDetails || [];
+  if (!tasks.length && !renderEmpty) return '';
+
   return `
     <section class="tasks-section">
       <h2>${escapeHtml(title)}</h2>
@@ -160,159 +162,240 @@ function renderTaskGroup(title, taskDetails) {
     </section>`;
 }
 
-const A4_PRINT_WIDTH_MM = 182;
+const A4_SCREEN_WIDTH_MM = 196;
 
-function documentHtml({ title, subtitle, sections }) {
-  return `<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <title>${escapeHtml(title)}</title>
-  <style>
-    @page { size: A4 portrait; margin: 12mm 14mm; }
-    :root { color-scheme: light; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; }
+function exportLayoutOverrideStyle() {
+  return `<style id="tf-export-layout-override">
+    @page { size: A4 portrait; margin: 6mm; }
+
+    html, body {
+      width: auto !important;
+      min-width: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+    }
+
     body {
-      color: #111827;
-      background: #e5e7eb;
-      font-family: Arial, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 11pt;
-      line-height: 1.45;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
+      color: #111827 !important;
+      font-family: Arial, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font-size: 9.2pt !important;
+      line-height: 1.28 !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
+
     .page {
-      width: ${A4_PRINT_WIDTH_MM}mm;
-      max-width: ${A4_PRINT_WIDTH_MM}mm;
-      min-height: 273mm;
-      margin: 0 auto;
-      padding: 0;
-      background: #ffffff;
-      box-shadow: 0 16px 48px rgba(15, 23, 42, 0.16);
-      overflow: visible;
-    }
-    .print-content { width: 100%; max-width: 100%; padding: 0; }
-    .cover {
-      margin: 0 0 10mm;
-      padding: 8mm;
-      border: 1px solid #d1d5db;
-      border-radius: 6mm;
-      background: #f8fafc;
-    }
-    .cover h1 { margin: 0; font-size: 22pt; line-height: 1.12; }
-    .cover p { margin: 3mm 0 0; color: #4b5563; font-size: 10.5pt; }
-    .eyebrow, .task-meta {
-      margin-bottom: 3mm;
-      color: #0369a1;
-      font-size: 8.5pt;
-      font-weight: 800;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-    h1, h2, h3 { color: #111827; break-after: avoid; page-break-after: avoid; }
-    h1 { font-size: 22pt; line-height: 1.15; margin: 0 0 5mm; }
-    h2 {
-      margin: 9mm 0 4mm;
-      font-size: 16pt;
-      line-height: 1.2;
-      border-bottom: .4mm solid #e5e7eb;
-      padding-bottom: 2mm;
-    }
-    h3 { margin: 6mm 0 3mm; font-size: 13pt; line-height: 1.25; }
-    p { margin: 2mm 0; }
-    .lead { font-size: 11pt; color: #374151; }
-    .conspect-section, .tasks-section { margin-bottom: 10mm; }
-    .block, .task-card, .example, .word-group { break-inside: avoid; page-break-inside: avoid; }
-    .block, .task-card {
-      margin: 4mm 0;
-      padding: 5mm;
-      border: 1px solid #e5e7eb;
-      border-radius: 5mm;
-      background: #ffffff;
-    }
-    .task-prompt { font-size: 11.5pt; font-weight: 700; white-space: pre-line; }
-    .task-extra { color: #4b5563; white-space: pre-line; }
-    .explanation { margin-top: 3mm; padding: 3mm 4mm; border-radius: 4mm; background: #f3f4f6; }
-    ul, ol { padding-left: 7mm; margin: 3mm 0; }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      margin: 4mm 0;
-      font-size: 9.5pt;
-      table-layout: fixed;
-    }
-    th, td {
-      border: 1px solid #d1d5db;
-      padding: 2.5mm;
-      vertical-align: top;
-      text-align: left;
-      overflow-wrap: anywhere;
-    }
-    th { background: #f3f4f6; }
-    img, video, canvas, svg { max-width: 100% !important; height: auto !important; }
-    .html-conspect {
-      margin-top: 6mm;
-      width: 100%;
-      max-width: 100%;
-      overflow: hidden;
-    }
-    .html-conspect, .html-conspect * {
-      box-sizing: border-box !important;
-      max-width: 100% !important;
-    }
-    .html-conspect .tf-conspect,
-    .html-conspect main,
-    .html-conspect section,
-    .html-conspect article,
-    .html-conspect div {
-      max-width: 100% !important;
-    }
-    .html-conspect .tf-conspect {
       width: 100% !important;
+      max-width: none !important;
+      min-width: 0 !important;
+      min-height: auto !important;
+      margin: 0 auto !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+      box-shadow: none !important;
+      overflow: visible !important;
+    }
+
+    .print-content {
+      width: 100% !important;
+      max-width: none !important;
       margin: 0 !important;
       padding: 0 !important;
     }
-    .html-conspect [style*="width"] { max-width: 100% !important; }
+
+    .cover {
+      margin: 0 0 5mm !important;
+      padding: 4.5mm 5mm !important;
+      border: .25mm solid #d1d5db !important;
+      border-radius: 3.5mm !important;
+      background: #f8fafc !important;
+    }
+
+    .cover h1 { font-size: 17pt !important; line-height: 1.08 !important; margin: 0 !important; }
+    .cover p { margin: 1.5mm 0 0 !important; font-size: 8.5pt !important; color: #4b5563 !important; }
+
+    .eyebrow, .task-meta {
+      margin: 0 0 1.5mm !important;
+      color: #0369a1 !important;
+      font-size: 7.2pt !important;
+      font-weight: 800 !important;
+      letter-spacing: .06em !important;
+      text-transform: uppercase !important;
+    }
+
+    h1, h2, h3 { color: #111827 !important; break-after: avoid !important; page-break-after: avoid !important; }
+    h1 { font-size: 18pt !important; line-height: 1.12 !important; margin: 0 0 3mm !important; }
+    h2 {
+      margin: 5mm 0 2.5mm !important;
+      padding-bottom: 1.2mm !important;
+      font-size: 13pt !important;
+      line-height: 1.15 !important;
+      border-bottom: .25mm solid #e5e7eb !important;
+    }
+    h3 { font-size: 10.5pt !important; line-height: 1.18 !important; margin: 3mm 0 1.5mm !important; }
+    p { margin: 1.2mm 0 !important; }
+    .lead { font-size: 9pt !important; color: #374151 !important; }
+
+    .conspect-section, .tasks-section { margin-bottom: 5mm !important; }
+    .block, .task-card, .example, .word-group { break-inside: avoid !important; page-break-inside: avoid !important; }
+    .block, .task-card {
+      margin: 2.5mm 0 !important;
+      padding: 3mm !important;
+      border: .25mm solid #e5e7eb !important;
+      border-radius: 3mm !important;
+      background: #ffffff !important;
+    }
+
+    .task-prompt { font-size: 9.5pt !important; font-weight: 700 !important; white-space: pre-line !important; }
+    .task-extra { color: #4b5563 !important; white-space: pre-line !important; }
+    .explanation { margin-top: 2mm !important; padding: 2mm 2.5mm !important; border-radius: 2.5mm !important; background: #f3f4f6 !important; }
+    ul, ol { padding-left: 5mm !important; margin: 1.5mm 0 !important; }
+    table { border-collapse: collapse !important; width: 100% !important; margin: 2mm 0 !important; font-size: 8pt !important; table-layout: fixed !important; }
+    th, td { border: .25mm solid #d1d5db !important; padding: 1.6mm !important; vertical-align: top !important; text-align: left !important; overflow-wrap: anywhere !important; }
+    th { background: #f3f4f6 !important; }
+
+    img, video, canvas, svg { max-width: 100% !important; height: auto !important; }
+
+    .html-conspect {
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+      font-size: 9.2pt !important;
+      line-height: 1.28 !important;
+    }
+
+    .html-conspect *,
+    .html-conspect *::before,
+    .html-conspect *::after {
+      box-sizing: border-box !important;
+      max-width: none !important;
+    }
+
+    .html-conspect > div,
+    .html-conspect > section,
+    .html-conspect > main,
+    .html-conspect > article,
+    .html-conspect .tf-conspect,
+    .html-conspect .tf-conspect > div,
+    .html-conspect .tf-conspect > section,
+    .html-conspect main,
+    .html-conspect article,
+    .html-conspect .container,
+    .html-conspect .wrapper,
+    .html-conspect .content,
+    .html-conspect .page,
+    .html-conspect .sheet,
+    .html-conspect .screen,
+    .html-conspect .lesson,
+    .html-conspect .lesson-page,
+    .html-conspect .conspect,
+    .html-conspect .conspect-page {
+      width: 100% !important;
+      max-width: none !important;
+      min-width: 0 !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+
+    .html-conspect [class*="max-w"],
+    .html-conspect [class*="mx-auto"],
+    .html-conspect [style*="max-width"] {
+      max-width: none !important;
+    }
+
+    .html-conspect [class*="mx-auto"] {
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+
+    .html-conspect [style*="width"] {
+      max-width: 100% !important;
+    }
+
     .html-conspect [style*="min-height"] { min-height: auto !important; }
     .html-conspect [style*="height"] { min-height: auto !important; }
     .html-conspect [style*="position: fixed"],
     .html-conspect [style*="position:fixed"] { position: static !important; }
     .html-conspect [style*="transform"] { transform: none !important; }
-    .html-conspect h1 {
-      font-size: 22pt !important;
-      line-height: 1.12 !important;
-      margin: 0 0 5mm !important;
+
+    .html-conspect [class*="shadow"],
+    .html-conspect [style*="box-shadow"] {
+      box-shadow: 0 1.5mm 5mm rgba(15, 23, 42, .08) !important;
     }
-    .html-conspect h2 {
-      font-size: 16pt !important;
-      line-height: 1.2 !important;
-      margin: 8mm 0 4mm !important;
-    }
-    .html-conspect h3 { font-size: 12pt !important; line-height: 1.25 !important; }
+
+    .html-conspect h1 { font-size: 18pt !important; line-height: 1.08 !important; margin: 0 0 3mm !important; }
+    .html-conspect h2 { font-size: 13pt !important; line-height: 1.13 !important; margin: 5mm 0 2.5mm !important; }
+    .html-conspect h3 { font-size: 10.5pt !important; line-height: 1.18 !important; margin: 3mm 0 1.5mm !important; }
     .html-conspect p,
-    .html-conspect li { font-size: 10.5pt !important; line-height: 1.45 !important; }
-    .muted { color: #6b7280; }
-    .section-break { break-before: page; page-break-before: always; }
+    .html-conspect li,
+    .html-conspect td,
+    .html-conspect th,
+    .html-conspect span {
+      font-size: 8.8pt !important;
+      line-height: 1.28 !important;
+    }
+
+    .html-conspect section,
+    .html-conspect article,
+    .html-conspect .card,
+    .html-conspect [class*="card"],
+    .html-conspect [class*="rounded"] {
+      border-radius: 3mm !important;
+    }
+
+    .html-conspect [class*="p-"],
+    .html-conspect [style*="padding"] {
+      padding: 3mm !important;
+    }
+
+    .html-conspect img,
+    .html-conspect video,
+    .html-conspect canvas,
+    .html-conspect svg {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+
+    .html-conspect [class*="gap"] { gap: 2mm !important; }
+
+    .html-conspect [style*="grid-template-columns"],
+    .html-conspect .grid {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fit, minmax(45mm, 1fr)) !important;
+      gap: 2mm !important;
+    }
+
+    .html-conspect table { width: 100% !important; table-layout: fixed !important; }
+    .html-conspect pre, .html-conspect code { white-space: pre-wrap !important; overflow-wrap: anywhere !important; }
+
+    .muted { color: #6b7280 !important; }
+    .section-break { break-before: page !important; page-break-before: always !important; }
 
     @media screen {
-      body { padding: 16mm 0; }
+      body { padding: 7mm 0 !important; background: #e5e7eb !important; }
+      .page { width: ${A4_SCREEN_WIDTH_MM}mm !important; max-width: ${A4_SCREEN_WIDTH_MM}mm !important; padding: 0 !important; box-shadow: 0 8mm 20mm rgba(15, 23, 42, .16) !important; }
     }
 
     @media print {
-      html, body { width: auto; min-height: auto; background: #ffffff; }
-      .page {
-        width: 100%;
-        max-width: none;
-        min-height: auto;
-        margin: 0;
-        box-shadow: none;
-      }
-      .print-content { padding: 0; }
-      .cover, .block, .task-card { border-color: #d1d5db; }
-      a { color: #111827; text-decoration: none; }
+      html, body { background: #ffffff !important; }
+      .page { width: 100% !important; max-width: none !important; margin: 0 !important; box-shadow: none !important; }
+      a { color: #111827 !important; text-decoration: none !important; }
     }
-  </style>
+  </style>`;
+}
+
+function documentHtml({ title, subtitle, sections }) {
+  const layoutOverride = exportLayoutOverrideStyle();
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  ${layoutOverride}
 </head>
 <body>
   <main class="page">
@@ -324,6 +407,7 @@ function documentHtml({ title, subtitle, sections }) {
       ${sections.join('\n')}
     </div>
   </main>
+  ${layoutOverride}
 </body>
 </html>`;
 }
@@ -448,7 +532,7 @@ export async function exportConspectPdf(details, { includeDraft = false } = {}) 
       subtitle: `Конспект${tasks.length ? ` + задания: ${tasks.length}` : ''}`,
       sections: [
         renderConspect(details),
-        renderTaskGroup(`Задания${conspect.sectionCode ? ` ${conspect.sectionCode}` : ''}`, tasks),
+        renderTaskGroup(`Задания${conspect.sectionCode ? ` ${conspect.sectionCode}` : ''}`, tasks, { renderEmpty: false }),
       ],
     });
     writeAndPrint(printWindow, html);
@@ -481,7 +565,7 @@ export async function exportSectionPdf({ sectionCode, details, includeDraft = fa
 
     const sections = [];
     if (nextDetails) sections.push(renderConspect(nextDetails));
-    sections.push(renderTaskGroup(`Все задания ${normalized}`, tasks));
+    if (tasks.length) sections.push(renderTaskGroup(`Все задания ${normalized}`, tasks, { renderEmpty: false }));
 
     writeAndPrint(printWindow, documentHtml({
       title: `${normalized}. Конспект и задания`,
@@ -505,6 +589,7 @@ export async function exportAllCtPdf(courses, { includeDraft = false } = {}) {
 
     const blocks = [];
     let totalTasks = 0;
+    let exportedSections = 0;
 
     for (const course of sections) {
       const code = course.sectionCode;
@@ -525,6 +610,11 @@ export async function exportAllCtPdf(courses, { includeDraft = false } = {}) {
         sectionCode: code,
         includeDraft,
       }));
+      if (!conspectDetails.length && !tasks.length) {
+        continue;
+      }
+
+      exportedSections += 1;
       totalTasks += tasks.length;
 
       blocks.push(`
@@ -532,13 +622,13 @@ export async function exportAllCtPdf(courses, { includeDraft = false } = {}) {
           <div class="eyebrow">Раздел ${escapeHtml(code)}</div>
           <h1>${escapeHtml(code)}. ${escapeHtml(course.title || 'Конспект и задания')}</h1>
           ${conspectDetails.length ? conspectDetails.map(renderConspect).join('') : '<p class="muted">Конспектов пока нет.</p>'}
-          ${renderTaskGroup(`Все задания ${code}`, tasks)}
+          ${renderTaskGroup(`Все задания ${code}`, tasks, { renderEmpty: false })}
         </section>`);
     }
 
     writeAndPrint(printWindow, documentHtml({
       title: 'ЦТ / ЦЭ: конспекты и задания A+B',
-      subtitle: `Разделов: ${sections.length}. Заданий: ${totalTasks}.`,
+      subtitle: `Разделов: ${exportedSections}. Заданий: ${totalTasks}.`,
       sections: blocks.length ? blocks : ['<p class="muted">Созданных разделов A/B пока нет.</p>'],
     }));
   } catch (error) {

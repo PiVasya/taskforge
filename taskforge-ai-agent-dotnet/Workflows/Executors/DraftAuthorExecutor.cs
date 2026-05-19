@@ -73,10 +73,11 @@ public sealed class DraftAuthorExecutor
 7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
 8. Description — это ТОЛЬКО текст для ученика. Не выводи туда внутренние quality gates, acceptanceCriteria, mustNotUse, список запрещённых будущих тем, фразы "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют". Эти ограничения держи в extra/metadata и referenceSolution/tests.
 9. Для обучающих bridge-задач description должен быть именно обучалкой, а не обычным условием. Стиль: дружелюбная вводная фраза, блок "Следуй шагам:", 3-5 нумерованных маленьких действий, короткое пояснение зачем это делается, мини-проверка на примере. Пример тона: "Давай научимся...", "Напиши...", "Запусти и проверь...".
-10. Не ограничивайся сухим текстом вида "Считать X и вывести Y". Если задача должна чему-то научить, покажи ученику последовательность действий, как в маленьком туториале. Кодовые элементы в шагах обязательно пиши в `backticks`.
-11. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
-12. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её в решении и тестах; в description не перечисляй это как запрет для ученика, если преподаватель явно не попросил ограничения в видимом тексте.
-13. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
+10. Обучалка должна быть предельно простой. Если микрошаг можно показать одной строкой кода — покажи одну строку. Не вводи переменные, проверки ошибок, `TryParse`, условия, префиксы в выводе, массивы или `Split()` раньше, чем они нужны текущему step.
+11. Не ограничивайся сухим текстом вида "Считать X и вывести Y". Если задача должна чему-то научить, покажи ученику последовательность действий, как в маленьком туториале. Кодовые элементы в шагах обязательно пиши в `backticks`.
+12. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
+13. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её в решении и тестах; в description не перечисляй это как запрет для ученика, если преподаватель явно не попросил ограничения в видимом тексте.
+14. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
 
 Компактный контекст выбранного курса. Используй его только для стиля соседних заданий и примеров формата; не выбирай anchor заново:
 {{generationContext}}
@@ -178,6 +179,7 @@ Critique:
 - если title/description содержит служебный текст — сделай student-facing формулировку;
 - если description содержит внутренний чек-лист, acceptanceCriteria, mustNotUse, "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют" — убери это из видимого текста;
 - если это learning-bridge/обучалка, сделай текст именно обучающим: дружелюбная вводная, "Следуй шагам:", 3-5 маленьких шагов, короткое пояснение и мини-проверка на примере;
+- если микрошаг можно показать одной строкой кода — сделай именно так; не добавляй переменные, `TryParse`, условия, проверки ошибок и префиксы вывода без необходимости текущего step;
 - если не хватает формата ввода/вывода — добавь его через понятный пример, а не сухой чек-лист;
 - не используй future skills из mustNotUse в решении и тестах;
 - оставь extra.bridgeSkillId и bridgeStepIndex совместимыми с исходным step.
@@ -330,6 +332,7 @@ COURSE_SKILL_MAP:
 - Student-facing title/description, без служебной metadata.
 - Description не должен содержать внутренние требования валидатора, acceptanceCriteria, mustNotUse, списки запретов и фразы вроде "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять".
 - Пиши learning-bridge как маленький туториал: дружелюбная вводная, "Следуй шагам:", 3-5 нумерованных действий, мини-проверка на примере. Не пиши сухое "Считать X и вывести Y" без обучения.
+- Делай обучалку максимально простой: если можно одной строкой кода — используй одну строку. Не добавляй переменные, `TryParse`, условия, проверки ошибок, префиксы вывода или будущие темы без необходимости текущего step.
 - Если это code-test, дай referenceSolution, 2 publicTests и 2 hiddenTests, которые проходят решение.
 - Если для какого-то step невозможно дать корректный draft с тестами, просто пропусти этот step, не выдумывай fallback.
 
@@ -495,7 +498,14 @@ COURSE_SKILL_MAP:
         draft.Rating = Math.Max(1, draft.Rating);
         AddBridgeExtra(draft, bridge, stepIndex);
         draft.Description = SanitizeStudentFacingDescription(draft.Description);
-        draft.Description = EnsureLearningBridgeTutorialStyle(draft, bridge, stepIndex);
+
+        // For bridge tasks we do not trust a "tutorial-looking" LLM text blindly.
+        // The model often writes a friendly lesson, but still sneaks in a prefix,
+        // variables, TryParse/validation, or other future concepts. For the first
+        // C# input micro-steps, normalize the whole draft to the smallest runnable
+        // exercise; otherwise fall back to the generic tutorial shaper.
+        if (!TryNormalizeSimpleCSharpLearningBridgeDraft(draft, bridge, stepIndex))
+            draft.Description = EnsureLearningBridgeTutorialStyle(draft, bridge, stepIndex);
     }
 
     private static void AddBridgeExtra(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
@@ -549,29 +559,207 @@ COURSE_SKILL_MAP:
         if (!LooksLikeLearningBridgeDraft(draft, bridge))
             return clean;
 
+        var language = (draft.Language ?? string.Empty).Trim().ToLowerInvariant();
+        if (language == "csharp" || language == "cs" || language == "c#")
+        {
+            var kind = DetectCSharpBridgeTutorialKind(draft, bridge, stepIndex);
+            if (kind == CSharpBridgeTutorialKind.Split)
+                return BuildCSharpSplitTutorialDescription(draft);
+            if (kind == CSharpBridgeTutorialKind.IntParse)
+                return BuildCSharpIntParseTutorialDescription(draft);
+            if (kind == CSharpBridgeTutorialKind.ReadLine)
+                return BuildCSharpReadLineTutorialDescription(draft);
+        }
+
         if (LooksLikeTutorialStyle(clean))
             return WrapKnownCodeTokens(CollapseBlankLines(clean));
 
+        return EnsureGenericTutorialShape(clean, draft);
+    }
+
+    private enum CSharpBridgeTutorialKind
+    {
+        ReadLine,
+        IntParse,
+        Split
+    }
+
+    private static CSharpBridgeTutorialKind? DetectCSharpBridgeTutorialKind(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
+    {
+        // Prefer the current COURSE_SKILL_MAP step. Title/description/reference solution are
+        // model-produced and may already contain future concepts, so they are only a fallback.
+        var stepText = CollectPlannedStepText(draft, bridge, stepIndex).ToLowerInvariant();
+        if (ContainsAny(stepText, "split", "раздел", "разбить", "несколько знач", "двумя числами", "два числа из одной строки"))
+            return CSharpBridgeTutorialKind.Split;
+        if (ContainsAny(stepText, "parse", "convert.toint32", "int.parse", "целое число", "число", "int", "парсинг"))
+            return CSharpBridgeTutorialKind.IntParse;
+        if (ContainsAny(stepText, "readline", "console.readline", "строк", "ввод"))
+            return CSharpBridgeTutorialKind.ReadLine;
+
+        var fallback = CollectSkillText(draft, bridge, stepIndex).ToLowerInvariant();
+        if (ContainsAny(fallback, "split", "раздел", "разбить", "несколько знач", "двумя числами", "два числа из одной строки"))
+            return CSharpBridgeTutorialKind.Split;
+        if (ContainsAny(fallback, "parse", "convert.toint32", "int.parse", "целое число", "число", "int", "парсинг"))
+            return CSharpBridgeTutorialKind.IntParse;
+        if (ContainsAny(fallback, "readline", "console.readline", "строк", "ввод"))
+            return CSharpBridgeTutorialKind.ReadLine;
+
+        return null;
+    }
+
+    private static string CollectPlannedStepText(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
+    {
+        var parts = new List<string>
+        {
+            draft.Extra["bridgeSkillId"]?.ToString() ?? string.Empty
+        };
+
+        if (bridge.BridgePlan != null && stepIndex >= 0 && stepIndex < bridge.BridgePlan.Count)
+        {
+            var step = bridge.BridgePlan[stepIndex];
+            parts.Add(step["skillId"]?.ToString() ?? string.Empty);
+            parts.Add(step["titleHint"]?.ToString() ?? string.Empty);
+            parts.Add(step["reason"]?.ToString() ?? string.Empty);
+            AddJsonText(parts, step["introducedSkills"]);
+            AddJsonText(parts, step["introducedSkillIds"]);
+            AddJsonText(parts, step["assumedSkills"]);
+        }
+
+        AddJsonText(parts, draft.Extra["introducedSkills"]);
+        AddJsonText(parts, draft.Extra["introducedSkillIds"]);
+        return string.Join(" ", parts.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    private static bool TryNormalizeSimpleCSharpLearningBridgeDraft(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
+    {
+        if (!LooksLikeLearningBridgeDraft(draft, bridge))
+            return false;
+
         var language = (draft.Language ?? string.Empty).Trim().ToLowerInvariant();
         if (language != "csharp" && language != "cs" && language != "c#")
-            return EnsureGenericTutorialShape(clean, draft);
+            return false;
 
-        var skillText = CollectSkillText(draft, bridge, stepIndex).ToLowerInvariant();
-        var title = (draft.Title ?? string.Empty).ToLowerInvariant();
-        var solution = (draft.ReferenceSolution ?? string.Empty).ToLowerInvariant();
-        var description = clean.ToLowerInvariant();
-        var combined = string.Join(" ", skillText, title, solution, description);
+        var kind = DetectCSharpBridgeTutorialKind(draft, bridge, stepIndex);
+        if (kind == null)
+            return false;
 
-        if (ContainsAny(combined, "split", "раздел", "разбить", "несколько знач", "двумя числами", "два числа из одной строки"))
-            return BuildCSharpSplitTutorialDescription(draft);
+        draft.Language = "csharp";
+        switch (kind.Value)
+        {
+            case CSharpBridgeTutorialKind.ReadLine:
+                ApplyCSharpReadLineMicroDraft(draft);
+                break;
+            case CSharpBridgeTutorialKind.IntParse:
+                ApplyCSharpIntParseMicroDraft(draft);
+                break;
+            case CSharpBridgeTutorialKind.Split:
+                ApplyCSharpSplitMicroDraft(draft);
+                break;
+        }
 
-        if (ContainsAny(combined, "parse", "convert.toint32", "целое число", "число", "int"))
-            return BuildCSharpIntParseTutorialDescription(draft);
+        return true;
+    }
 
-        if (ContainsAny(combined, "readline", "console.readline", "строк", "ввод"))
-            return BuildCSharpReadLineTutorialDescription(draft);
+    private static void ApplyCSharpReadLineMicroDraft(DraftSpec draft)
+    {
+        draft.Title = "Повторить введённую строку";
+        draft.Description = BuildCSharpReadLineTutorialDescription(draft);
+        draft.ReferenceSolution = """
+using System;
 
-        return EnsureGenericTutorialShape(clean, draft);
+class Program
+{
+    static void Main()
+    {
+        Console.WriteLine(Console.ReadLine());
+    }
+}
+""".Trim();
+        draft.PublicTests = new List<TestCaseSpec>
+        {
+            new() { Input = "Hello", ExpectedOutput = "Hello", IsHidden = false },
+            new() { Input = "Привет", ExpectedOutput = "Привет", IsHidden = false }
+        };
+        draft.HiddenTests = new List<TestCaseSpec>
+        {
+            new() { Input = "C#", ExpectedOutput = "C#", IsHidden = true },
+            new() { Input = "123", ExpectedOutput = "123", IsHidden = true }
+        };
+        SetBridgeSkillMetadata(draft,
+            "console-input-line",
+            "использовать `Console.ReadLine()` как значение внутри вывода",
+            "Самый маленький шаг: без переменных, парсинга, условий и лишнего текста.");
+    }
+
+    private static void ApplyCSharpIntParseMicroDraft(DraftSpec draft)
+    {
+        draft.Title = "Прочитать целое число";
+        draft.Description = BuildCSharpIntParseTutorialDescription(draft);
+        draft.ReferenceSolution = """
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Console.WriteLine(int.Parse(Console.ReadLine()));
+    }
+}
+""".Trim();
+        draft.PublicTests = new List<TestCaseSpec>
+        {
+            new() { Input = "7", ExpectedOutput = "7", IsHidden = false },
+            new() { Input = "-3", ExpectedOutput = "-3", IsHidden = false }
+        };
+        draft.HiddenTests = new List<TestCaseSpec>
+        {
+            new() { Input = "0", ExpectedOutput = "0", IsHidden = true },
+            new() { Input = "42", ExpectedOutput = "42", IsHidden = true }
+        };
+        SetBridgeSkillMetadata(draft,
+            "parse-int",
+            "преобразовать результат `Console.ReadLine()` в `int` через `int.Parse(...)`",
+            "Без проверки ошибок, условий, `TryParse`, массивов и `Split()` — только первый шаг к числовому вводу.");
+    }
+
+    private static void ApplyCSharpSplitMicroDraft(DraftSpec draft)
+    {
+        draft.Title = "Два числа из одной строки";
+        draft.Description = BuildCSharpSplitTutorialDescription(draft);
+        draft.ReferenceSolution = """
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string[] parts = Console.ReadLine().Split(' ');
+        Console.WriteLine(int.Parse(parts[0]) + int.Parse(parts[1]));
+    }
+}
+""".Trim();
+        draft.PublicTests = new List<TestCaseSpec>
+        {
+            new() { Input = "3 4", ExpectedOutput = "7", IsHidden = false },
+            new() { Input = "-2 5", ExpectedOutput = "3", IsHidden = false }
+        };
+        draft.HiddenTests = new List<TestCaseSpec>
+        {
+            new() { Input = "0 0", ExpectedOutput = "0", IsHidden = true },
+            new() { Input = "10 -3", ExpectedOutput = "7", IsHidden = true }
+        };
+        SetBridgeSkillMetadata(draft,
+            "split-input",
+            "разделить одну строку на части через `Split(' ')`",
+            "Микрошаг после одиночного числового ввода: только два числа, без циклов, LINQ и коллекций.");
+    }
+
+    private static void SetBridgeSkillMetadata(DraftSpec draft, string skillId, string introducedSkill, string reason)
+    {
+        draft.Extra["bridgeSkillId"] = skillId;
+        draft.Extra["introducedSkillIds"] = ToJsonArray(new[] { skillId });
+        draft.Extra["introducedSkills"] = ToJsonArray(new[] { introducedSkill });
+        draft.Extra["skillBridgeReason"] = reason;
     }
 
     private static bool LooksLikeLearningBridgeDraft(DraftSpec draft, CourseSkillBridgeContext bridge)
@@ -642,45 +830,38 @@ COURSE_SKILL_MAP:
         var sample = FirstPublicTestInput(draft, "Hello");
         var expected = FirstPublicTestOutput(draft, sample);
         var text = $$"""
-Давай сделаем маленький шаг: научимся читать текст, который пользователь вводит в консоль.
+Давай сделаем самый маленький шаг: программа сразу выведет то, что пользователь ввёл.
 
 Следуй шагам:
-1. Создай переменную `string s`.
-2. Справа от неё вызови `Console.ReadLine()`. Эта команда ждёт, пока пользователь введёт строку и нажмёт Enter.
-3. Выведи переменную через `Console.WriteLine(s)`.
-4. Запусти программу: введи `{{sample}}` и проверь, что программа напечатала `{{expected}}`.
+1. Внутри `Main` напиши одну строку: `Console.WriteLine(Console.ReadLine());`
+2. Запусти программу.
+3. Введи `{{sample}}` и нажми `Enter`.
+4. Проверь: программа вывела `{{expected}}`.
 
-В этой задаче не нужно менять текст, считать числа или разбивать строку. Нужно только прочитать одну строку и вывести её обратно.
+Что происходит: `Console.ReadLine()` ждёт ввод с клавиатуры, а `Console.WriteLine(...)` сразу печатает полученное значение.
+
+Пока не нужны переменные, числа, `int.Parse(...)`, условия или `Split(...)`.
 """;
         return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
     }
 
     private static string BuildCSharpIntParseTutorialDescription(DraftSpec draft)
     {
-        var doubles = Regex.IsMatch(draft.ReferenceSolution ?? string.Empty, @"\*\s*2\b", RegexOptions.CultureInvariant)
-                      || (draft.Title ?? string.Empty).Contains("удво", StringComparison.OrdinalIgnoreCase)
-                      || (draft.Description ?? string.Empty).Contains("удво", StringComparison.OrdinalIgnoreCase);
-
-        var sample = FirstPublicTestInput(draft, doubles ? "5" : "7");
-        var expected = FirstPublicTestOutput(draft, doubles && int.TryParse(sample.Trim(), out var value) ? (value * 2).ToString() : sample.Trim());
-
-        var operationStep = doubles
-            ? "Умножь число на 2 и выведи результат: `Console.WriteLine(n * 2)`."
-            : "Выведи полученное число через `Console.WriteLine(n)`.";
-        var goal = doubles
-            ? "превращать введённый текст в число и использовать его в вычислении"
-            : "читать число с клавиатуры и хранить его как `int`";
+        var sample = FirstPublicTestInput(draft, "7");
+        var expected = FirstPublicTestOutput(draft, sample.Trim());
 
         var text = $$"""
-Давай научимся {{goal}}.
+Давай сделаем следующий маленький шаг: прочитаем число и выведем его обратно.
 
 Следуй шагам:
-1. Считай строку через `Console.ReadLine()` и сохрани её в переменную `line`.
-2. Преврати строку в целое число: `int n = int.Parse(line)`.
-3. {{operationStep}}
-4. Запусти программу: введи `{{sample}}` и проверь, что программа вывела `{{expected}}`.
+1. Внутри `Main` напиши одну строку: `Console.WriteLine(int.Parse(Console.ReadLine()));`
+2. Запусти программу.
+3. Введи `{{sample}}` и нажми `Enter`.
+4. Проверь: программа вывела `{{expected}}`.
 
-Главная идея: `Console.ReadLine()` всегда возвращает текст (`string`). Чтобы выполнять арифметику, этот текст сначала нужно преобразовать в число типа `int`.
+Что происходит: `Console.ReadLine()` получает текст, `int.Parse(...)` превращает этот текст в целое число, а `Console.WriteLine(...)` печатает число.
+
+Пока вводим только корректное целое число. Не нужны условия, `TryParse`, массивы или `Split(...)`.
 """;
         return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
     }
@@ -690,16 +871,16 @@ COURSE_SKILL_MAP:
         var sample = FirstPublicTestInput(draft, "3 4");
         var expected = FirstPublicTestOutput(draft, "7");
         var text = $$"""
-Давай научимся читать несколько значений из одной строки.
+Давай сделаем маленький шаг: прочитаем два числа из одной строки.
 
 Следуй шагам:
-1. Считай всю строку через `Console.ReadLine()`.
-2. Раздели её по пробелу: `string[] parts = line.Split(' ')`.
-3. Преврати первую и вторую части в числа: `int a = int.Parse(parts[0])`, `int b = int.Parse(parts[1])`.
-4. Выведи нужный результат через `Console.WriteLine(...)`.
+1. Считай строку и сразу раздели её по пробелу: `string[] parts = Console.ReadLine().Split(' ');`
+2. Возьми первое число: `int.Parse(parts[0])`.
+3. Возьми второе число: `int.Parse(parts[1])`.
+4. Выведи их сумму через `Console.WriteLine(...)`.
 5. Запусти программу: введи `{{sample}}` и проверь, что программа вывела `{{expected}}`.
 
-Главная идея: когда несколько чисел записаны в одной строке, сначала строку делят на части, а потом каждую часть превращают в число.
+Главная идея: `Split(' ')` делит строку на кусочки, а `int.Parse(...)` превращает каждый кусочек в число.
 """;
         return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
     }
