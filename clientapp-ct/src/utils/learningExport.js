@@ -160,6 +160,8 @@ function renderTaskGroup(title, taskDetails) {
     </section>`;
 }
 
+const A4_PRINT_WIDTH_MM = 182;
+
 function documentHtml({ title, subtitle, sections }) {
   return `<!doctype html>
 <html lang="ru">
@@ -167,37 +169,146 @@ function documentHtml({ title, subtitle, sections }) {
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
   <style>
-    @page { size: A4; margin: 16mm 14mm; }
+    @page { size: A4 portrait; margin: 12mm 14mm; }
+    :root { color-scheme: light; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #111827; background: #ffffff; font-family: Arial, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
-    .page { max-width: 980px; margin: 0 auto; padding: 24px; }
-    .cover { margin-bottom: 28px; padding: 28px; border: 1px solid #d1d5db; border-radius: 22px; background: #f8fafc; }
-    .cover h1 { margin: 0; font-size: 34px; line-height: 1.12; }
-    .cover p { margin: 10px 0 0; color: #4b5563; font-size: 15px; }
-    .eyebrow, .task-meta { margin-bottom: 8px; color: #0369a1; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-    h1, h2, h3 { color: #111827; page-break-after: avoid; }
-    h1 { font-size: 30px; margin: 0 0 12px; }
-    h2 { margin: 30px 0 14px; font-size: 24px; border-bottom: 2px solid #e5e7eb; padding-bottom: 7px; }
-    h3 { margin: 18px 0 9px; font-size: 18px; }
-    p { margin: 7px 0; }
-    .lead { font-size: 16px; color: #374151; }
-    .conspect-section, .tasks-section { margin-bottom: 28px; }
+    html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; }
+    body {
+      color: #111827;
+      background: #e5e7eb;
+      font-family: Arial, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 11pt;
+      line-height: 1.45;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page {
+      width: ${A4_PRINT_WIDTH_MM}mm;
+      max-width: ${A4_PRINT_WIDTH_MM}mm;
+      min-height: 273mm;
+      margin: 0 auto;
+      padding: 0;
+      background: #ffffff;
+      box-shadow: 0 16px 48px rgba(15, 23, 42, 0.16);
+      overflow: visible;
+    }
+    .print-content { width: 100%; max-width: 100%; padding: 0; }
+    .cover {
+      margin: 0 0 10mm;
+      padding: 8mm;
+      border: 1px solid #d1d5db;
+      border-radius: 6mm;
+      background: #f8fafc;
+    }
+    .cover h1 { margin: 0; font-size: 22pt; line-height: 1.12; }
+    .cover p { margin: 3mm 0 0; color: #4b5563; font-size: 10.5pt; }
+    .eyebrow, .task-meta {
+      margin-bottom: 3mm;
+      color: #0369a1;
+      font-size: 8.5pt;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { color: #111827; break-after: avoid; page-break-after: avoid; }
+    h1 { font-size: 22pt; line-height: 1.15; margin: 0 0 5mm; }
+    h2 {
+      margin: 9mm 0 4mm;
+      font-size: 16pt;
+      line-height: 1.2;
+      border-bottom: .4mm solid #e5e7eb;
+      padding-bottom: 2mm;
+    }
+    h3 { margin: 6mm 0 3mm; font-size: 13pt; line-height: 1.25; }
+    p { margin: 2mm 0; }
+    .lead { font-size: 11pt; color: #374151; }
+    .conspect-section, .tasks-section { margin-bottom: 10mm; }
     .block, .task-card, .example, .word-group { break-inside: avoid; page-break-inside: avoid; }
-    .block, .task-card { margin: 12px 0; padding: 14px; border: 1px solid #e5e7eb; border-radius: 16px; background: #ffffff; }
-    .task-prompt { font-size: 16px; font-weight: 700; white-space: pre-line; }
+    .block, .task-card {
+      margin: 4mm 0;
+      padding: 5mm;
+      border: 1px solid #e5e7eb;
+      border-radius: 5mm;
+      background: #ffffff;
+    }
+    .task-prompt { font-size: 11.5pt; font-weight: 700; white-space: pre-line; }
     .task-extra { color: #4b5563; white-space: pre-line; }
-    .explanation { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f3f4f6; }
-    ul, ol { padding-left: 24px; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
-    th, td { border: 1px solid #d1d5db; padding: 8px; vertical-align: top; text-align: left; }
+    .explanation { margin-top: 3mm; padding: 3mm 4mm; border-radius: 4mm; background: #f3f4f6; }
+    ul, ol { padding-left: 7mm; margin: 3mm 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 4mm 0;
+      font-size: 9.5pt;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 2.5mm;
+      vertical-align: top;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
     th { background: #f3f4f6; }
-    img, video { max-width: 100%; }
-    .html-conspect { margin-top: 16px; }
-    .html-conspect .tf-conspect { max-width: none; }
+    img, video, canvas, svg { max-width: 100% !important; height: auto !important; }
+    .html-conspect {
+      margin-top: 6mm;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .html-conspect, .html-conspect * {
+      box-sizing: border-box !important;
+      max-width: 100% !important;
+    }
+    .html-conspect .tf-conspect,
+    .html-conspect main,
+    .html-conspect section,
+    .html-conspect article,
+    .html-conspect div {
+      max-width: 100% !important;
+    }
+    .html-conspect .tf-conspect {
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .html-conspect [style*="width"] { max-width: 100% !important; }
+    .html-conspect [style*="min-height"] { min-height: auto !important; }
+    .html-conspect [style*="height"] { min-height: auto !important; }
+    .html-conspect [style*="position: fixed"],
+    .html-conspect [style*="position:fixed"] { position: static !important; }
+    .html-conspect [style*="transform"] { transform: none !important; }
+    .html-conspect h1 {
+      font-size: 22pt !important;
+      line-height: 1.12 !important;
+      margin: 0 0 5mm !important;
+    }
+    .html-conspect h2 {
+      font-size: 16pt !important;
+      line-height: 1.2 !important;
+      margin: 8mm 0 4mm !important;
+    }
+    .html-conspect h3 { font-size: 12pt !important; line-height: 1.25 !important; }
+    .html-conspect p,
+    .html-conspect li { font-size: 10.5pt !important; line-height: 1.45 !important; }
     .muted { color: #6b7280; }
     .section-break { break-before: page; page-break-before: always; }
+
+    @media screen {
+      body { padding: 16mm 0; }
+    }
+
     @media print {
-      .page { padding: 0; }
+      html, body { width: auto; min-height: auto; background: #ffffff; }
+      .page {
+        width: 100%;
+        max-width: none;
+        min-height: auto;
+        margin: 0;
+        box-shadow: none;
+      }
+      .print-content { padding: 0; }
       .cover, .block, .task-card { border-color: #d1d5db; }
       a { color: #111827; text-decoration: none; }
     }
@@ -205,11 +316,13 @@ function documentHtml({ title, subtitle, sections }) {
 </head>
 <body>
   <main class="page">
-    <section class="cover">
-      <h1>${escapeHtml(title)}</h1>
-      ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
-    </section>
-    ${sections.join('\n')}
+    <div class="print-content">
+      <section class="cover">
+        <h1>${escapeHtml(title)}</h1>
+        ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
+      </section>
+      ${sections.join('\n')}
+    </div>
   </main>
 </body>
 </html>`;
@@ -233,7 +346,7 @@ function writeAndPrint(printWindow, html) {
   printWindow.focus();
   window.setTimeout(() => {
     printWindow.print();
-  }, 500);
+  }, 800);
 }
 
 async function mapLimit(items, limit, mapper) {
