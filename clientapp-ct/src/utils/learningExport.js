@@ -30,6 +30,50 @@ function stripUnsafeHtml(html) {
     .replace(/javascript:/gi, '');
 }
 
+function scopeCssSelector(selector, scope) {
+  return selector
+    .split(',')
+    .map((part) => {
+      const item = part.trim();
+      if (!item || item.startsWith('@')) return item;
+      if (item === ':root' || item === 'html' || item === 'body' || item === 'html body' || item === 'html, body') {
+        return scope;
+      }
+      if (item.startsWith(`${scope} `) || item === scope) return item;
+      if (item.startsWith(':root')) return item.replace(':root', scope);
+      if (item.startsWith('body.')) return `${scope}${item.slice(4)}`;
+      if (item.startsWith('body ')) return `${scope} ${item.slice(5)}`;
+      if (item.startsWith('html ')) return `${scope} ${item.slice(5)}`;
+      return `${scope} ${item}`;
+    })
+    .join(', ');
+}
+
+function scopeStyleText(css, scope = '.html-conspect') {
+  return String(css || '').replace(/(^|[{}])([^{}@][^{}]*?)\{/g, (match, prefix, selector) => {
+    const trimmed = selector.trim();
+    if (!trimmed || trimmed.startsWith('@')) return match;
+    return `${prefix}${scopeCssSelector(trimmed, scope)} {`;
+  });
+}
+
+function prepareHtmlConspectForExport(html) {
+  const safe = stripUnsafeHtml(html || '<p>Конспект пока пустой.</p>');
+  const styles = [];
+  const withoutStyles = safe.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => {
+    styles.push(`<style>${scopeStyleText(css)}</style>`);
+    return '';
+  });
+  const bodyMatch = withoutStyles.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  const body = (bodyMatch ? bodyMatch[1] : withoutStyles)
+    .replace(/<!doctype[^>]*>/gi, '')
+    .replace(/<\/?(?:html|head|body)[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*>/gi, '')
+    .replace(/<title\b[^<]*(?:(?!<\/title>)<[^<]*)*<\/title>/gi, '');
+
+  return `${styles.join('\n')}\n${body}`;
+}
+
 function textFromUnknown(value) {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -111,7 +155,7 @@ function renderConspect(details) {
         <div class="eyebrow">${escapeHtml(conspect.sectionCode || 'Конспект')}</div>
         <h1>${escapeHtml(conspect.title || 'Конспект')}</h1>
         ${conspect.lead ? `<p class="lead">${escapeHtml(conspect.lead)}</p>` : ''}
-        <div class="html-conspect">${stripUnsafeHtml(html || '<p>Конспект пока пустой.</p>')}</div>
+        <div class="html-conspect">${prepareHtmlConspectForExport(html)}</div>
       </section>`;
   }
 
@@ -161,7 +205,7 @@ function renderTaskGroup(title, taskDetails, { hideEmpty = true } = {}) {
     </section>`;
 }
 
-const PRINT_PAGE_PADDING = '8mm 9mm 9mm';
+const PRINT_PAGE_PADDING = '3mm 4mm 4mm';
 
 function documentHtml({ title, subtitle, sections }) {
   return `<!doctype html>
@@ -184,7 +228,7 @@ function documentHtml({ title, subtitle, sections }) {
       print-color-adjust: exact;
       text-rendering: geometricPrecision;
     }
-    .page {
+    .tf-export-page {
       width: 210mm;
       max-width: 210mm;
       min-height: 297mm;
@@ -280,6 +324,73 @@ function documentHtml({ title, subtitle, sections }) {
       max-width: 100% !important;
       text-rendering: geometricPrecision !important;
     }
+    body.tf-print-export .html-conspect {
+      margin: 2mm 0 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+    }
+    body.tf-print-export .html-conspect .page {
+      width: 100% !important;
+      max-width: none !important;
+      min-height: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+    }
+    body.tf-print-export .html-conspect .sheet {
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+    }
+    body.tf-print-export .html-conspect .hero {
+      padding: 7mm 8mm 6mm !important;
+      border-radius: 0 !important;
+    }
+    body.tf-print-export .html-conspect .mini-map {
+      padding: 4mm 8mm !important;
+      gap: 2mm !important;
+    }
+    body.tf-print-export .html-conspect section {
+      padding: 5mm 8mm !important;
+    }
+    body.tf-print-export .html-conspect .footer {
+      padding: 4mm 8mm !important;
+    }
+    body.tf-print-export .html-conspect .brand { margin-bottom: 5mm !important; }
+    body.tf-print-export .html-conspect .brand-mark {
+      width: 13mm !important;
+      height: 13mm !important;
+      border-radius: 3mm !important;
+      font-size: 15pt !important;
+    }
+    body.tf-print-export .html-conspect .brand-title { font-size: 10.5pt !important; }
+    body.tf-print-export .html-conspect .brand-sub { font-size: 7.5pt !important; }
+    body.tf-print-export .html-conspect .hero-text {
+      max-width: none !important;
+      font-size: 8.8pt !important;
+      margin-top: 2mm !important;
+    }
+    body.tf-print-export .html-conspect .flower {
+      right: 7mm !important;
+      bottom: 6mm !important;
+      transform: scale(.72) !important;
+      transform-origin: center !important;
+    }
+    body.tf-print-export .html-conspect .mini-map { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+    body.tf-print-export .html-conspect .steps { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+    body.tf-print-export .html-conspect .root-list { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+    body.tf-print-export .html-conspect .exception-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+    body.tf-print-export .html-conspect .check-line { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+    body.tf-print-export .html-conspect .dictionary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    body.tf-print-export .html-conspect .word-list { columns: 2 !important; column-gap: 3mm !important; }
+    body.tf-print-export .html-conspect .letter-card { min-height: auto !important; }
     .html-conspect .tf-conspect,
     .html-conspect main,
     .html-conspect section,
@@ -389,13 +500,13 @@ function documentHtml({ title, subtitle, sections }) {
     .section-break { break-before: page; page-break-before: always; }
 
     @media screen {
-      body { padding: 10mm 0; }
+      body.tf-print-export { padding: 6mm 0; }
     }
 
     @media print {
       html, body { width: 210mm; min-height: auto; background: #ffffff; }
-      body { font-size: 9.3pt; }
-      .page {
+      body.tf-print-export { font-size: 9.3pt; background: #ffffff !important; }
+      .tf-export-page {
         width: 210mm;
         max-width: 210mm;
         min-height: 297mm;
@@ -404,14 +515,17 @@ function documentHtml({ title, subtitle, sections }) {
         box-shadow: none;
       }
       .print-content { padding: 0; }
+      body.tf-print-export .html-conspect .page,
+      body.tf-print-export .html-conspect .sheet { width: 100% !important; max-width: none !important; }
+      body.tf-print-export .html-conspect section { padding-top: 4.5mm !important; padding-bottom: 4.5mm !important; }
       .cover, .block, .task-card { border-color: #d7dee8; }
       .section-break:first-of-type { break-before: auto; page-break-before: auto; }
       a { color: #111827; text-decoration: none; }
     }
   </style>
 </head>
-<body>
-  <main class="page">
+<body class="tf-print-export">
+  <main class="tf-export-page">
     <div class="print-content">
       <section class="cover">
         <h1>${escapeHtml(title)}</h1>
