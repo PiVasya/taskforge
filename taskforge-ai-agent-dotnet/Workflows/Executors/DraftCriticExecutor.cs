@@ -94,7 +94,7 @@ Static critique:
         return combined;
     }
 
-    private static JsonObject EvaluateBridgeConsistency(WorkflowState state)
+    internal static JsonObject EvaluateBridgeConsistency(WorkflowState state)
     {
         var blocking = new JsonArray();
         var advisory = new JsonArray();
@@ -257,14 +257,39 @@ Static critique:
         // These are dependency relationships between abstract skill ids, not canned
         // assignment templates. They only expand the current planned step; they never
         // create a new topic on their own.
+        if (plannedSkillIds.Contains("read-single-value-from-console"))
+        {
+            // A bridge step named "read one value from console" is a composite
+            // micro-skill: the visible task may use the concrete C# operations below
+            // without introducing a future topic. This is intentionally generic at
+            // the skill-taxonomy level, not hardcoded to a particular assignment.
+            yield return "console-input-line";
+            yield return "parse-int";
+            yield return "variables";
+        }
+
+        if (plannedSkillIds.Contains("parse-int"))
+        {
+            yield return "console-input-line";
+            yield return "variables";
+        }
+
+        if (plannedSkillIds.Contains("console-input-line"))
+        {
+            yield return "variables";
+        }
+
         if (plannedSkillIds.Contains("input-validation"))
         {
+            yield return "console-input-line";
+            yield return "parse-int";
             yield return "conditions";
             yield return "comparison";
         }
 
         if (plannedSkillIds.Contains("split-input"))
         {
+            yield return "console-input-line";
             yield return "arrays";
         }
     }

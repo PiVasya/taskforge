@@ -86,25 +86,47 @@ internal static class CourseSkillAnalyzer
         var normalized = NormalizeForSkillId(text);
         if (string.IsNullOrWhiteSpace(normalized)) return Array.Empty<string>();
 
+        // LLMs often pass skill ids as Russian slugs, for example
+        // "input-считать-одну-строку-из-консоли".  Keep the raw text for
+        // concrete APIs such as int.Parse, but use a separator-normalized copy
+        // for semantic Russian/English phrases.
+        var searchable = Regex.Replace(normalized, @"[-_/]+", " ", RegexOptions.CultureInvariant);
+
         var result = new List<string>();
         void AddIf(bool condition, string id)
         {
             if (condition && !result.Contains(id, StringComparer.OrdinalIgnoreCase)) result.Add(id);
         }
 
-        AddIf(ContainsAny(normalized, "tryparse", "try parse", "валидац", "некоррект", "ошибк ввода", "безопасн"), "input-validation");
-        AddIf(ContainsAny(normalized, "split", "split(", "stringsplitoptions", "разбить строку", "разбор строки", "разделить строку", "токен"), "split-input");
-        AddIf(ContainsAny(normalized, "две строки", "три строки", "несколько строк", "каждое на отдельной", "последовательн ввод", "нескольких значений"), "multi-line-input");
-        AddIf(ContainsAny(normalized, "int.parse", "convert.toint32", "parse", "парсинг", "преобразован", "строки в int", "строку в int", "строку в число", "целое число"), "parse-int");
-        AddIf(ContainsAny(normalized, "console.readline", "readline", "stdin", "с клавиатур", "стандартного ввода", "читать входную строку", "прочитай строк", "считай строк", "ввод строк", "входную строку", "ввода данных"), "console-input-line");
-        AddIf(ContainsAny(normalized, "console.writeline", "console.write", "stdout", "вывод", "вывести", "напечат"), "console-output");
-        AddIf(ContainsAny(normalized, "string.length", "длин", "length"), "string-length");
-        AddIf(ContainsAny(normalized, "переменн", "variable", "var ", " int ", " string ", "сохран", "значение"), "variables");
-        AddIf(ContainsAny(normalized, "арифмет", "сумм", "слож", "прибав", "вычит", "умнож", "делен", "остат", "+1"), "arithmetic");
-        AddIf(ContainsAny(normalized, "услов", "если", "иначе", " if ", " else "), "conditions");
-        AddIf(ContainsAny(normalized, "цикл", " for ", " while ", "foreach", "do while"), "loops");
-        AddIf(ContainsAny(normalized, "массив", "array", "элемент", "индекс"), "arrays");
-        AddIf(ContainsAny(normalized, "строков", "литерал", "кавыч", "конкатенац", "интерполяц", "текст"), "strings");
+        AddIf(ContainsAny(searchable, "tryparse", "try parse", "валидац", "некоррект", "ошибк ввода", "безопасн"), "input-validation");
+        AddIf(ContainsAny(searchable, "regex", "regular expression", "регулярн", "регулярные выражения"), "regex");
+        AddIf(ContainsAny(searchable, "split", "split(", "stringsplitoptions", "разбить строку", "разбор строки", "разделить строку", "токен", "в одной строке", "через пробел"), "split-input");
+        AddIf(ContainsAny(searchable, "две строки", "три строки", "несколько строк", "каждое на отдельной", "последовательн ввод", "нескольких значений"), "multi-line-input");
+
+        // Do not map generic words like "parse" / "парсинг" to parse-int.
+        // In bridge plans "сложный парсинг/регулярные выражения" means
+        // advanced parsing must stay forbidden; it must not forbid a simple
+        // int.Parse/Convert.ToInt32 step explicitly required by the plan.
+        AddIf(ContainsAny(searchable,
+            "int.parse", "int tryparse", "int.tryparse", "convert.toint32",
+            "строки в int", "строку в int", "строку в число", "строки в число",
+            "преобразовать в int", "преобразовать ее в число", "преобразовать её в число",
+            "преобразовать строку в число", "преобразовать введенную строку", "преобразовать введённую строку",
+            "целое число", "число из консоли", "распарсить число"), "parse-int");
+
+        AddIf(ContainsAny(searchable,
+            "console.readline", "readline", "stdin", "с клавиатур", "из консоли", "стандартного ввода",
+            "читать входную строку", "прочитай строк", "прочитать строк", "считай строк", "считать строк",
+            "считать одну строк", "считать одно значение", "прочитать одно значение", "ввод строк",
+            "входную строку", "ввода данных", "ввод данных"), "console-input-line");
+        AddIf(ContainsAny(searchable, "console.writeline", "console.write", "stdout", "вывод", "вывести", "напечат"), "console-output");
+        AddIf(ContainsAny(searchable, "string.length", "длин", "length"), "string-length");
+        AddIf(ContainsAny(searchable, "переменн", "variable", "var ", " int ", " string ", "сохран", "значение"), "variables");
+        AddIf(ContainsAny(searchable, "арифмет", "сумм", "слож", "прибав", "вычит", "умнож", "делен", "остат", "+1"), "arithmetic");
+        AddIf(ContainsAny(searchable, "услов", "если", "иначе", " if ", " else "), "conditions");
+        AddIf(ContainsAny(searchable, "цикл", " for ", " while ", "foreach", "do while"), "loops");
+        AddIf(ContainsAny(searchable, "массив", "array", "элемент", "индекс"), "arrays");
+        AddIf(ContainsAny(searchable, "строков", "литерал", "кавыч", "конкатенац", "интерполяц", "текст"), "strings");
         return result;
     }
 
