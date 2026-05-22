@@ -141,7 +141,7 @@ public sealed class ValidationTools
             blocking.Add("description exposes internal validator/rubric wording; keep acceptanceCriteria, mustNotUse and hard restrictions in metadata, not in the student-facing text");
 
         if (HasUnwrappedCodeToken(description))
-            blocking.Add("student-facing code tokens must be wrapped in backticks, for example `Console.ReadLine()` and `int.Parse(...)`");
+            blocking.Add("student-facing code/API tokens must be wrapped in backticks");
 
         var tags = draft["tags"]?.ToString() ?? string.Empty;
         var extra = draft["extra"] as JsonObject;
@@ -216,16 +216,11 @@ public sealed class ValidationTools
         var withoutCodeSpans = Regex.Replace(description, @"`[^`]*`", string.Empty);
         var patterns = new[]
         {
-            @"\bConsole\.ReadLine\s*\(\s*\)",
-            @"\bConsole\.ReadLine\b",
-            @"\bConsole\.WriteLine\b",
-            @"\bConsole\.Write\b",
-            @"\bint\.Parse\b",
-            @"\bConvert\.ToInt32\b",
-            @"\bStringSplitOptions\.RemoveEmptyEntries\b",
-            @"\bSplit\b",
-            @"\bstring\b",
-            @"\bint\b"
+            @"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\s*\(",
+            @"\b(?:std::)?(?:cin|cout|printf|scanf|println|print|input|read|readln|writeln)\b",
+            @"\b(?:String|Scanner|string|int|long|double|float|bool|char|var|auto)\b",
+            @"\b[A-Za-z_][A-Za-z0-9_]*\s*\([^\n`]*?\)",
+            @"\b[A-Za-z_][A-Za-z0-9_]*\[[^\n`]*?\]"
         };
 
         return patterns.Any(pattern => Regex.IsMatch(withoutCodeSpans, pattern, RegexOptions.CultureInvariant));

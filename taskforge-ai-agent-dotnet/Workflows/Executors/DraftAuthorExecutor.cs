@@ -29,10 +29,10 @@ public sealed class DraftAuthorExecutor
         _textClient = textClient;
     }
 
-    public async Task<DraftSpec> ExecuteAsync(WorkflowState state, string contextPrompt, string plan, int attempt, CancellationToken cancellationToken)
+    public async Task<DraftSpec?> ExecuteAsync(WorkflowState state, string contextPrompt, string plan, int attempt, CancellationToken cancellationToken)
     {
         var drafts = await ExecuteManyAsync(state, contextPrompt, plan, attempt, 1, cancellationToken);
-        return drafts.FirstOrDefault() ?? BuildFallbackDraft(state.Job, attempt, string.Empty);
+        return drafts.FirstOrDefault();
     }
 
     public async Task<List<DraftSpec>> ExecuteManyAsync(WorkflowState state, string contextPrompt, string plan, int attempt, int requestedCount, CancellationToken cancellationToken)
@@ -73,7 +73,7 @@ public sealed class DraftAuthorExecutor
 7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
 8. Description — это ТОЛЬКО текст для ученика. Не выводи туда внутренние quality gates, acceptanceCriteria, mustNotUse, список запрещённых будущих тем, фразы "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют". Эти ограничения держи в extra/metadata и referenceSolution/tests.
 9. Для обучающих bridge-задач description должен быть именно обучалкой, а не обычным условием. Стиль: дружелюбная вводная фраза, блок "Следуй шагам:", 3-5 нумерованных маленьких действий, короткое пояснение зачем это делается, мини-проверка на примере. Пример тона: "Давай научимся...", "Напиши...", "Запусти и проверь...".
-10. Обучалка должна быть предельно простой. Если микрошаг можно показать одной строкой кода — покажи одну строку. Не вводи переменные, проверки ошибок, `TryParse`, условия, префиксы в выводе, массивы или `Split()` раньше, чем они нужны текущему step.
+10. Обучалка должна быть предельно простой. Если микрошаг можно показать одной строкой кода — покажи одну строку. Не вводи переменные, проверки ошибок, условия, префиксы в выводе, массивы, разбор строки на части или другие будущие конструкции раньше, чем они нужны текущему step.
 11. Не ограничивайся сухим текстом вида "Считать X и вывести Y". Если задача должна чему-то научить, покажи ученику последовательность действий, как в маленьком туториале. Кодовые элементы в шагах обязательно пиши в `backticks`.
 12. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
 13. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её в решении и тестах; в description не перечисляй это как запрет для ученика, если преподаватель явно не попросил ограничения в видимом тексте.
@@ -132,7 +132,7 @@ public sealed class DraftAuthorExecutor
             return new List<DraftSpec>();
         }
 
-        drafts = NormalizeDraftOrder(drafts).Take(count).ToList();
+        drafts = AlignDraftsToBridgePlan(NormalizeDraftOrder(drafts), bridge, count);
         ApplyBatchMetadata(drafts, state.Job, bridge);
         state.Draft = drafts.FirstOrDefault();
         await _steps.TryReportAsync("draft", "completed", "Черновики заданий подготовлены", $"Черновиков: {drafts.Count}", new JsonObject
@@ -179,7 +179,7 @@ Critique:
 - если title/description содержит служебный текст — сделай student-facing формулировку;
 - если description содержит внутренний чек-лист, acceptanceCriteria, mustNotUse, "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют" — убери это из видимого текста;
 - если это learning-bridge/обучалка, сделай текст именно обучающим: дружелюбная вводная, "Следуй шагам:", 3-5 маленьких шагов, короткое пояснение и мини-проверка на примере;
-- если микрошаг можно показать одной строкой кода — сделай именно так; не добавляй переменные, `TryParse`, условия, проверки ошибок и префиксы вывода без необходимости текущего step;
+- если микрошаг можно показать одной строкой кода — сделай именно так; не добавляй переменные, условия, проверки ошибок, префиксы вывода и будущие конструкции без необходимости текущего step;
 - если не хватает формата ввода/вывода — добавь его через понятный пример, а не сухой чек-лист;
 - не используй future skills из mustNotUse в решении и тестах;
 - оставь extra.bridgeSkillId и bridgeStepIndex совместимыми с исходным step.
@@ -332,9 +332,10 @@ COURSE_SKILL_MAP:
 - Student-facing title/description, без служебной metadata.
 - Description не должен содержать внутренние требования валидатора, acceptanceCriteria, mustNotUse, списки запретов и фразы вроде "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять".
 - Пиши learning-bridge как маленький туториал: дружелюбная вводная, "Следуй шагам:", 3-5 нумерованных действий, мини-проверка на примере. Не пиши сухое "Считать X и вывести Y" без обучения.
-- Делай обучалку максимально простой: если можно одной строкой кода — используй одну строку. Не добавляй переменные, `TryParse`, условия, проверки ошибок, префиксы вывода или будущие темы без необходимости текущего step.
+- Делай обучалку максимально простой: если можно одной строкой кода — используй одну строку. Не добавляй переменные, проверки ошибок, условия, префиксы вывода или будущие темы без необходимости текущего step.
 - Если это code-test, дай referenceSolution, 2 publicTests и 2 hiddenTests, которые проходят решение.
 - Если для какого-то step невозможно дать корректный draft с тестами, просто пропусти этот step, не выдумывай fallback.
+- language выбирай из языка соседних/целевых заданий или allowedLanguages из COURSE_SKILL_MAP. Не подставляй конкретный язык, если он не следует из курса.
 
 Верни только валидный JSON без markdown:
 {
@@ -343,7 +344,7 @@ COURSE_SKILL_MAP:
       "assignmentType": "code-test",
       "title": "...",
       "description": "...",
-      "language": "csharp",
+      "language": "cpp|csharp|java|python|javascript|pascal",
       "referenceSolution": "...",
       "difficulty": 1,
       "rating": 10,
@@ -454,23 +455,6 @@ COURSE_SKILL_MAP:
     private static bool IsDraftUseful(DraftSpec draft)
         => !string.IsNullOrWhiteSpace(draft.Title) && !string.IsNullOrWhiteSpace(draft.Description);
 
-    private DraftSpec BuildFallbackDraft(ClaimedAgentJob job, int attempt, string text)
-    {
-        return new DraftSpec
-        {
-            AssignmentType = "code-test",
-            Title = "AI-черновик задания",
-            Description = $"Подготовить задание по запросу: {job.UserText}",
-            Language = NormalizeLanguage(_options.DefaultLanguage),
-            Difficulty = 1,
-            Rating = 10,
-            CourseId = job.CourseId,
-            SourceTaskIndex = attempt,
-            Tags = new List<string> { "AI", "черновик", "needs-review" },
-            Extra = new JsonObject { ["parseFallback"] = true, ["rawModelText"] = text.Length > 6000 ? text[..6000] : text }
-        };
-    }
-
     private static void ApplyBatchMetadata(List<DraftSpec> drafts, ClaimedAgentJob job, CourseSkillBridgeContext bridge)
     {
         for (var i = 0; i < drafts.Count; i++)
@@ -499,13 +483,10 @@ COURSE_SKILL_MAP:
         AddBridgeExtra(draft, bridge, stepIndex);
         draft.Description = SanitizeStudentFacingDescription(draft.Description);
 
-        // For bridge tasks we do not trust a "tutorial-looking" LLM text blindly.
-        // The model often writes a friendly lesson, but still sneaks in a prefix,
-        // variables, TryParse/validation, or other future concepts. For the first
-        // C# input micro-steps, normalize the whole draft to the smallest runnable
-        // exercise; otherwise fall back to the generic tutorial shaper.
-        if (!TryNormalizeSimpleCSharpLearningBridgeDraft(draft, bridge, stepIndex))
-            draft.Description = EnsureLearningBridgeTutorialStyle(draft, bridge, stepIndex);
+        // Do not replace model output with subject/language-specific canned code.
+        // The author LLM must generate the actual solution from COURSE_SKILL_MAP;
+        // this normalizer only keeps the visible text in tutorial form.
+        draft.Description = EnsureLearningBridgeTutorialStyle(draft, bridge, stepIndex);
     }
 
     private static void AddBridgeExtra(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
@@ -525,11 +506,17 @@ COURSE_SKILL_MAP:
             draft.Extra["introducedSkills"] = plannedStep["introducedSkills"]?.DeepClone();
             draft.Extra["skillBridgeReason"] = plannedStep["reason"]?.DeepClone();
 
+            if (draft.Extra["bridgeSkillId"] is not null && draft.Extra["modelBridgeSkillId"] is null)
+                draft.Extra["modelBridgeSkillId"] = draft.Extra["bridgeSkillId"]!.DeepClone();
+            if (draft.Extra["introducedSkillIds"] is not null && draft.Extra["modelIntroducedSkillIds"] is null)
+                draft.Extra["modelIntroducedSkillIds"] = draft.Extra["introducedSkillIds"]!.DeepClone();
+
             var skillId = plannedStep["skillId"]?.ToString();
             if (string.IsNullOrWhiteSpace(skillId))
                 skillId = CourseSkillAnalyzer.NormalizeSkillId(string.Join(" ", ReadStringArray(plannedStep["introducedSkills"])));
             if (!string.IsNullOrWhiteSpace(skillId))
             {
+                draft.Extra["plannedBridgeSkillId"] = skillId;
                 draft.Extra["bridgeSkillId"] = skillId;
                 draft.Extra["introducedSkillIds"] = ToJsonArray(new[] { skillId });
             }
@@ -557,209 +544,12 @@ COURSE_SKILL_MAP:
     {
         var clean = (draft.Description ?? string.Empty).Trim();
         if (!LooksLikeLearningBridgeDraft(draft, bridge))
-            return clean;
-
-        var language = (draft.Language ?? string.Empty).Trim().ToLowerInvariant();
-        if (language == "csharp" || language == "cs" || language == "c#")
-        {
-            var kind = DetectCSharpBridgeTutorialKind(draft, bridge, stepIndex);
-            if (kind == CSharpBridgeTutorialKind.Split)
-                return BuildCSharpSplitTutorialDescription(draft);
-            if (kind == CSharpBridgeTutorialKind.IntParse)
-                return BuildCSharpIntParseTutorialDescription(draft);
-            if (kind == CSharpBridgeTutorialKind.ReadLine)
-                return BuildCSharpReadLineTutorialDescription(draft);
-        }
+            return WrapKnownCodeTokens(CollapseBlankLines(clean));
 
         if (LooksLikeTutorialStyle(clean))
             return WrapKnownCodeTokens(CollapseBlankLines(clean));
 
-        return EnsureGenericTutorialShape(clean, draft);
-    }
-
-    private enum CSharpBridgeTutorialKind
-    {
-        ReadLine,
-        IntParse,
-        Split
-    }
-
-    private static CSharpBridgeTutorialKind? DetectCSharpBridgeTutorialKind(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
-    {
-        // Prefer the current COURSE_SKILL_MAP step. Title/description/reference solution are
-        // model-produced and may already contain future concepts, so they are only a fallback.
-        var stepText = CollectPlannedStepText(draft, bridge, stepIndex).ToLowerInvariant();
-        if (ContainsAny(stepText, "split", "раздел", "разбить", "несколько знач", "двумя числами", "два числа из одной строки"))
-            return CSharpBridgeTutorialKind.Split;
-        if (ContainsAny(stepText, "parse", "convert.toint32", "int.parse", "целое число", "число", "int", "парсинг"))
-            return CSharpBridgeTutorialKind.IntParse;
-        if (ContainsAny(stepText, "readline", "console.readline", "строк", "ввод"))
-            return CSharpBridgeTutorialKind.ReadLine;
-
-        var fallback = CollectSkillText(draft, bridge, stepIndex).ToLowerInvariant();
-        if (ContainsAny(fallback, "split", "раздел", "разбить", "несколько знач", "двумя числами", "два числа из одной строки"))
-            return CSharpBridgeTutorialKind.Split;
-        if (ContainsAny(fallback, "parse", "convert.toint32", "int.parse", "целое число", "число", "int", "парсинг"))
-            return CSharpBridgeTutorialKind.IntParse;
-        if (ContainsAny(fallback, "readline", "console.readline", "строк", "ввод"))
-            return CSharpBridgeTutorialKind.ReadLine;
-
-        return null;
-    }
-
-    private static string CollectPlannedStepText(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
-    {
-        var parts = new List<string>
-        {
-            draft.Extra["bridgeSkillId"]?.ToString() ?? string.Empty
-        };
-
-        if (bridge.BridgePlan != null && stepIndex >= 0 && stepIndex < bridge.BridgePlan.Count)
-        {
-            var step = bridge.BridgePlan[stepIndex];
-            parts.Add(step["skillId"]?.ToString() ?? string.Empty);
-            parts.Add(step["titleHint"]?.ToString() ?? string.Empty);
-            parts.Add(step["reason"]?.ToString() ?? string.Empty);
-            AddJsonText(parts, step["introducedSkills"]);
-            AddJsonText(parts, step["introducedSkillIds"]);
-            AddJsonText(parts, step["assumedSkills"]);
-        }
-
-        AddJsonText(parts, draft.Extra["introducedSkills"]);
-        AddJsonText(parts, draft.Extra["introducedSkillIds"]);
-        return string.Join(" ", parts.Where(x => !string.IsNullOrWhiteSpace(x)));
-    }
-
-    private static bool TryNormalizeSimpleCSharpLearningBridgeDraft(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
-    {
-        if (!LooksLikeLearningBridgeDraft(draft, bridge))
-            return false;
-
-        var language = (draft.Language ?? string.Empty).Trim().ToLowerInvariant();
-        if (language != "csharp" && language != "cs" && language != "c#")
-            return false;
-
-        var kind = DetectCSharpBridgeTutorialKind(draft, bridge, stepIndex);
-        if (kind == null)
-            return false;
-
-        draft.Language = "csharp";
-        switch (kind.Value)
-        {
-            case CSharpBridgeTutorialKind.ReadLine:
-                ApplyCSharpReadLineMicroDraft(draft);
-                break;
-            case CSharpBridgeTutorialKind.IntParse:
-                ApplyCSharpIntParseMicroDraft(draft);
-                break;
-            case CSharpBridgeTutorialKind.Split:
-                ApplyCSharpSplitMicroDraft(draft);
-                break;
-        }
-
-        return true;
-    }
-
-    private static void ApplyCSharpReadLineMicroDraft(DraftSpec draft)
-    {
-        draft.Title = "Повторить введённую строку";
-        draft.Description = BuildCSharpReadLineTutorialDescription(draft);
-        draft.ReferenceSolution = """
-using System;
-
-class Program
-{
-    static void Main()
-    {
-        Console.WriteLine(Console.ReadLine());
-    }
-}
-""".Trim();
-        draft.PublicTests = new List<TestCaseSpec>
-        {
-            new() { Input = "Hello", ExpectedOutput = "Hello", IsHidden = false },
-            new() { Input = "Привет", ExpectedOutput = "Привет", IsHidden = false }
-        };
-        draft.HiddenTests = new List<TestCaseSpec>
-        {
-            new() { Input = "C#", ExpectedOutput = "C#", IsHidden = true },
-            new() { Input = "123", ExpectedOutput = "123", IsHidden = true }
-        };
-        SetBridgeSkillMetadata(draft,
-            "console-input-line",
-            "использовать `Console.ReadLine()` как значение внутри вывода",
-            "Самый маленький шаг: без переменных, парсинга, условий и лишнего текста.");
-    }
-
-    private static void ApplyCSharpIntParseMicroDraft(DraftSpec draft)
-    {
-        draft.Title = "Прочитать целое число";
-        draft.Description = BuildCSharpIntParseTutorialDescription(draft);
-        draft.ReferenceSolution = """
-using System;
-
-class Program
-{
-    static void Main()
-    {
-        Console.WriteLine(int.Parse(Console.ReadLine()));
-    }
-}
-""".Trim();
-        draft.PublicTests = new List<TestCaseSpec>
-        {
-            new() { Input = "7", ExpectedOutput = "7", IsHidden = false },
-            new() { Input = "-3", ExpectedOutput = "-3", IsHidden = false }
-        };
-        draft.HiddenTests = new List<TestCaseSpec>
-        {
-            new() { Input = "0", ExpectedOutput = "0", IsHidden = true },
-            new() { Input = "42", ExpectedOutput = "42", IsHidden = true }
-        };
-        SetBridgeSkillMetadata(draft,
-            "parse-int",
-            "преобразовать результат `Console.ReadLine()` в `int` через `int.Parse(...)`",
-            "Без проверки ошибок, условий, `TryParse`, массивов и `Split()` — только первый шаг к числовому вводу.");
-    }
-
-    private static void ApplyCSharpSplitMicroDraft(DraftSpec draft)
-    {
-        draft.Title = "Два числа из одной строки";
-        draft.Description = BuildCSharpSplitTutorialDescription(draft);
-        draft.ReferenceSolution = """
-using System;
-
-class Program
-{
-    static void Main()
-    {
-        string[] parts = Console.ReadLine().Split(' ');
-        Console.WriteLine(int.Parse(parts[0]) + int.Parse(parts[1]));
-    }
-}
-""".Trim();
-        draft.PublicTests = new List<TestCaseSpec>
-        {
-            new() { Input = "3 4", ExpectedOutput = "7", IsHidden = false },
-            new() { Input = "-2 5", ExpectedOutput = "3", IsHidden = false }
-        };
-        draft.HiddenTests = new List<TestCaseSpec>
-        {
-            new() { Input = "0 0", ExpectedOutput = "0", IsHidden = true },
-            new() { Input = "10 -3", ExpectedOutput = "7", IsHidden = true }
-        };
-        SetBridgeSkillMetadata(draft,
-            "split-input",
-            "разделить одну строку на части через `Split(' ')`",
-            "Микрошаг после одиночного числового ввода: только два числа, без циклов, LINQ и коллекций.");
-    }
-
-    private static void SetBridgeSkillMetadata(DraftSpec draft, string skillId, string introducedSkill, string reason)
-    {
-        draft.Extra["bridgeSkillId"] = skillId;
-        draft.Extra["introducedSkillIds"] = ToJsonArray(new[] { skillId });
-        draft.Extra["introducedSkills"] = ToJsonArray(new[] { introducedSkill });
-        draft.Extra["skillBridgeReason"] = reason;
+        return EnsureGenericTutorialShape(clean, draft, bridge, stepIndex);
     }
 
     private static bool LooksLikeLearningBridgeDraft(DraftSpec draft, CourseSkillBridgeContext bridge)
@@ -780,131 +570,46 @@ class Program
         return hasSteps && hasTeachingTone;
     }
 
-    private static string CollectSkillText(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
-    {
-        var parts = new List<string>
-        {
-            draft.Title ?? string.Empty,
-            draft.Description ?? string.Empty,
-            draft.ReferenceSolution ?? string.Empty,
-            draft.Extra["bridgeSkillId"]?.ToString() ?? string.Empty,
-            draft.Extra["skillBridgeReason"]?.ToString() ?? string.Empty
-        };
-
-        // Classify the CURRENT bridge step only. Do not read targetSkills/mustNotUse here:
-        // those often describe future skills and can make a ReadLine tutorial look like a Parse/Split task.
-        AddJsonText(parts, draft.Extra["introducedSkills"]);
-        AddJsonText(parts, draft.Extra["assumedSkills"]);
-
-        if (bridge.BridgePlan != null && stepIndex >= 0 && stepIndex < bridge.BridgePlan.Count)
-        {
-            var step = bridge.BridgePlan[stepIndex];
-            parts.Add(step["skillId"]?.ToString() ?? string.Empty);
-            parts.Add(step["titleHint"]?.ToString() ?? string.Empty);
-            parts.Add(step["reason"]?.ToString() ?? string.Empty);
-            AddJsonText(parts, step["introducedSkills"]);
-            AddJsonText(parts, step["introducedSkillIds"]);
-            AddJsonText(parts, step["assumedSkills"]);
-        }
-
-        return string.Join(" ", parts.Where(x => !string.IsNullOrWhiteSpace(x)));
-    }
-
-    private static void AddJsonText(List<string> parts, JsonNode? node)
-    {
-        if (node == null) return;
-        if (node is JsonArray arr)
-        {
-            foreach (var item in arr)
-                if (!string.IsNullOrWhiteSpace(item?.ToString())) parts.Add(item!.ToString());
-            return;
-        }
-        parts.Add(node.ToJsonString());
-    }
-
-    private static bool ContainsAny(string text, params string[] fragments)
-        => fragments.Any(fragment => text.Contains(fragment, StringComparison.OrdinalIgnoreCase));
-
-    private static string BuildCSharpReadLineTutorialDescription(DraftSpec draft)
-    {
-        var sample = FirstPublicTestInput(draft, "Hello");
-        var expected = FirstPublicTestOutput(draft, sample);
-        var text = $$"""
-Давай сделаем самый маленький шаг: программа сразу выведет то, что пользователь ввёл.
-
-Следуй шагам:
-1. Внутри `Main` напиши одну строку: `Console.WriteLine(Console.ReadLine());`
-2. Запусти программу.
-3. Введи `{{sample}}` и нажми `Enter`.
-4. Проверь: программа вывела `{{expected}}`.
-
-Что происходит: `Console.ReadLine()` ждёт ввод с клавиатуры, а `Console.WriteLine(...)` сразу печатает полученное значение.
-
-Пока не нужны переменные, числа, `int.Parse(...)`, условия или `Split(...)`.
-""";
-        return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
-    }
-
-    private static string BuildCSharpIntParseTutorialDescription(DraftSpec draft)
-    {
-        var sample = FirstPublicTestInput(draft, "7");
-        var expected = FirstPublicTestOutput(draft, sample.Trim());
-
-        var text = $$"""
-Давай сделаем следующий маленький шаг: прочитаем число и выведем его обратно.
-
-Следуй шагам:
-1. Внутри `Main` напиши одну строку: `Console.WriteLine(int.Parse(Console.ReadLine()));`
-2. Запусти программу.
-3. Введи `{{sample}}` и нажми `Enter`.
-4. Проверь: программа вывела `{{expected}}`.
-
-Что происходит: `Console.ReadLine()` получает текст, `int.Parse(...)` превращает этот текст в целое число, а `Console.WriteLine(...)` печатает число.
-
-Пока вводим только корректное целое число. Не нужны условия, `TryParse`, массивы или `Split(...)`.
-""";
-        return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
-    }
-
-    private static string BuildCSharpSplitTutorialDescription(DraftSpec draft)
-    {
-        var sample = FirstPublicTestInput(draft, "3 4");
-        var expected = FirstPublicTestOutput(draft, "7");
-        var text = $$"""
-Давай сделаем маленький шаг: прочитаем два числа из одной строки.
-
-Следуй шагам:
-1. Считай строку и сразу раздели её по пробелу: `string[] parts = Console.ReadLine().Split(' ');`
-2. Возьми первое число: `int.Parse(parts[0])`.
-3. Возьми второе число: `int.Parse(parts[1])`.
-4. Выведи их сумму через `Console.WriteLine(...)`.
-5. Запусти программу: введи `{{sample}}` и проверь, что программа вывела `{{expected}}`.
-
-Главная идея: `Split(' ')` делит строку на кусочки, а `int.Parse(...)` превращает каждый кусочек в число.
-""";
-        return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
-    }
-
-    private static string EnsureGenericTutorialShape(string description, DraftSpec draft)
+    private static string EnsureGenericTutorialShape(string description, DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
     {
         if (LooksLikeTutorialStyle(description))
             return WrapKnownCodeTokens(CollapseBlankLines(description));
 
-        var firstSentence = FirstSentence(description);
+        var stepHint = DescribeBridgeStep(bridge, stepIndex, description);
         var sample = FirstPublicTestInput(draft, "пример");
         var expected = FirstPublicTestOutput(draft, "результат");
         var text = $$"""
 Давай сделаем маленький шаг перед следующей задачей.
 
 Следуй шагам:
-1. Прочитай условие: {{firstSentence}}
-2. Напиши самый простой вариант решения без лишних действий.
+1. Разбери новый приём: {{stepHint}}.
+2. Напиши самый короткий рабочий вариант решения без лишних действий.
 3. Запусти программу и проверь её на маленьком примере.
 4. Для ввода `{{sample}}` ожидаемый вывод — `{{expected}}`.
 
-Главная идея: это учебная задача на один новый навык, поэтому решение должно быть коротким и понятным.
+Главная идея: это учебная задача на один новый навык, поэтому решение должно оставаться коротким и понятным.
 """;
         return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
+    }
+
+    private static string DescribeBridgeStep(CourseSkillBridgeContext bridge, int stepIndex, string fallbackDescription)
+    {
+        var step = bridge.BridgePlan != null && stepIndex >= 0 && stepIndex < bridge.BridgePlan.Count
+            ? bridge.BridgePlan[stepIndex]
+            : null;
+        var candidates = new List<string>();
+        if (step is not null)
+        {
+            candidates.Add(step["titleHint"]?.ToString() ?? string.Empty);
+            candidates.AddRange(ReadStringArray(step["introducedSkills"]));
+            candidates.Add(step["reason"]?.ToString() ?? string.Empty);
+        }
+        candidates.Add(FirstSentence(fallbackDescription));
+
+        return candidates
+            .Select(x => Regex.Replace(x ?? string.Empty, @"\s+", " ").Trim().TrimEnd('.', ':', ';'))
+            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
+            ?? "нужно выполнить маленькое действие из текущей темы";
     }
 
     private static string FirstSentence(string text)
@@ -1044,28 +749,20 @@ class Program
             return Regex.Replace(input, pattern, m => Protect(replacement(m)), RegexOptions.CultureInvariant);
         }
 
-        result = result.Replace("$\"Привет, {name}!\"", Protect("`$\"Привет, {name}!\"`"));
-        result = WrapPattern(result, @"\bConsole\.ReadLine\s*\(\s*\)", m => "`Console.ReadLine()`");
-        result = WrapPattern(result, @"\bConsole\.WriteLine\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
-        result = WrapPattern(result, @"\bConsole\.WriteLine\b", m => "`Console.WriteLine(...)`");
-        result = WrapPattern(result, @"\bConsole\.Write\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
-        result = WrapPattern(result, @"\bConsole\.Write\b", m => "`Console.Write(...)`");
-        result = WrapPattern(result, @"\bint\.Parse\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
-        result = WrapPattern(result, @"\bint\.Parse\b", m => "`int.Parse(...)`");
-        result = WrapPattern(result, @"\bConvert\.ToInt32\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
-        result = WrapPattern(result, @"\bConvert\.ToInt32\b", m => "`Convert.ToInt32(...)`");
-        result = WrapPattern(result, @"\bStringSplitOptions\.RemoveEmptyEntries\b", m => "`StringSplitOptions.RemoveEmptyEntries`");
-        result = WrapPattern(result, @"\bSplit\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
-        result = WrapPattern(result, @"\bSplit\b", m => "`Split(...)`");
-        result = WrapPattern(result, @"\bstring\b", m => "`string`");
-        result = WrapPattern(result, @"\bint\b", m => "`int`");
+        // Formatting helper only: it does not generate or replace solutions. Keep it
+        // broad enough for multiple programming languages so student-facing text gets
+        // readable inline-code styling without forcing a C#-specific template.
+        result = WrapPattern(result, @"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\b[A-Za-z_][A-Za-z0-9_]*\s*\([^\n`]*?\)", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\b(?:std::)?(?:cin|cout|printf|scanf|println|print|input|read|readln|writeln)\b", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\b(?:string|int|long|double|float|bool|char|var|auto|String|Scanner)\b", m => "`" + m.Value + "`");
+        result = WrapPattern(result, @"\b[A-Za-z_][A-Za-z0-9_]*\[[^\n`]*?\]", m => "`" + m.Value + "`");
 
         for (var i = 0; i < spans.Count; i++)
             result = result.Replace($"\u0001{i}\u0002", spans[i]);
 
         return result;
     }
-
 
     private static List<string> BuildPublicTags(IEnumerable<string> tags)
     {
@@ -1092,6 +789,96 @@ class Program
             if (!result.Contains(clean, StringComparer.OrdinalIgnoreCase)) result.Add(clean);
         }
         return result;
+    }
+
+
+    private static List<DraftSpec> AlignDraftsToBridgePlan(List<DraftSpec> drafts, CourseSkillBridgeContext bridge, int count)
+    {
+        var planCount = bridge.BridgePlan?.Count ?? 0;
+        if (planCount == 0)
+            return drafts.Take(count).ToList();
+
+        var targetCount = Math.Min(count, planCount);
+        var remaining = drafts.ToList();
+        var aligned = new List<DraftSpec>();
+        for (var stepIndex = 0; stepIndex < targetCount && remaining.Count > 0; stepIndex++)
+        {
+            var step = bridge.BridgePlan![stepIndex];
+            var bestIndex = -1;
+            var bestScore = int.MinValue;
+            for (var i = 0; i < remaining.Count; i++)
+            {
+                var score = ScoreDraftForBridgeStep(remaining[i], step, stepIndex, planCount);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex < 0)
+                break;
+
+            // If there is no semantic match, still pass the draft through the validator
+            // under the planned step. The critic can then reject it or repair can target
+            // the correct step. What we must not do is silently treat its own model skill
+            // as the planned skill; AddBridgeExtra keeps modelBridgeSkillId for this reason.
+            aligned.Add(remaining[bestIndex]);
+            remaining.RemoveAt(bestIndex);
+        }
+
+        return aligned;
+    }
+
+    private static int ScoreDraftForBridgeStep(DraftSpec draft, JsonObject plannedStep, int stepIndex, int planCount)
+    {
+        var plannedIds = BuildSkillIdSet(
+            ReadStringArray(plannedStep["skillId"])
+                .Concat(ReadStringArray(plannedStep["introducedSkillIds"]))
+                .Concat(ReadStringArray(plannedStep["introducedSkills"]))
+                .Concat(ReadStringArray(plannedStep["titleHint"])));
+        var draftIds = BuildSkillIdSet(
+            ReadStringArray(draft.Extra["bridgeSkillId"])
+                .Concat(ReadStringArray(draft.Extra["introducedSkillIds"]))
+                .Concat(ReadStringArray(draft.Extra["introducedSkills"]))
+                .Concat(new[] { draft.Title ?? string.Empty })
+                .Concat(new[] { draft.Description ?? string.Empty }));
+
+        var score = 0;
+        if (plannedIds.Count > 0 && draftIds.Overlaps(plannedIds)) score += 20;
+        if (draft.SourceTaskIndex.HasValue)
+        {
+            var normalized = NormalizeBridgeStepIndex(draft.SourceTaskIndex.Value, planCount);
+            if (normalized == stepIndex) score += 4;
+        }
+        if (draftIds.Count == 0) score += 1;
+        return score;
+    }
+
+    private static HashSet<string> BuildSkillIdSet(IEnumerable<string> values)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in values)
+        {
+            var detected = CourseSkillAnalyzer.DetectCanonicalSkillIds(value).ToList();
+            if (detected.Count > 0)
+            {
+                foreach (var id in detected)
+                    if (!string.IsNullOrWhiteSpace(id)) result.Add(id);
+                continue;
+            }
+
+            var direct = CourseSkillAnalyzer.NormalizeSkillId(value);
+            if (!string.IsNullOrWhiteSpace(direct)) result.Add(direct);
+        }
+        return result;
+    }
+
+    private static int NormalizeBridgeStepIndex(int stepIndex, int planCount)
+    {
+        if (stepIndex >= 0 && stepIndex < planCount) return stepIndex;
+        if (stepIndex > 0 && stepIndex <= planCount) return stepIndex - 1;
+        return stepIndex;
     }
 
     private static List<DraftSpec> NormalizeDraftOrder(List<DraftSpec> drafts)

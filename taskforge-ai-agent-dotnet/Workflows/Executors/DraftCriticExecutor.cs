@@ -146,6 +146,8 @@ Static critique:
         var declaredSkillIds = BuildSkillIdSet(
             ReadStringArray(draft.Extra["introducedSkillIds"])
                 .Concat(ReadStringArray(draft.Extra["bridgeSkillId"]))
+                .Concat(ReadStringArray(draft.Extra["modelIntroducedSkillIds"]))
+                .Concat(ReadStringArray(draft.Extra["modelBridgeSkillId"]))
                 .Concat(introduced)
                 .Concat(modelIntroduced));
         var inferredExtraSkillIds = draftSkillIds
@@ -161,13 +163,20 @@ Static critique:
         {
             blocking.Add($"learning-bridge draft declares extra future skills beyond the planned step: {string.Join(", ", declaredExtraSkillIds)}");
         }
-        else if (inferredExtraSkillIds.Any(IsHardFutureSkill))
-        {
-            blocking.Add($"learning-bridge draft appears to use hard future skills beyond the planned step: {string.Join(", ", inferredExtraSkillIds.Where(IsHardFutureSkill))}");
-        }
         else if (inferredExtraSkillIds.Count > 0)
         {
-            advisory.Add($"draft uses implementation/support skills in addition to the planned step: {string.Join(", ", inferredExtraSkillIds)}");
+            var blockingExtra = inferredExtraSkillIds
+                .Where(id => !IsImplementationSupportSkill(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (blockingExtra.Count > 0)
+                blocking.Add($"learning-bridge draft appears to use skills beyond the planned/current step: {string.Join(", ", blockingExtra)}");
+            var supportExtra = inferredExtraSkillIds
+                .Where(IsImplementationSupportSkill)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (supportExtra.Count > 0)
+                advisory.Add($"draft uses implementation/support skills in addition to the planned step: {string.Join(", ", supportExtra)}");
         }
 
         if (plannedSkillIds.Count > 0 && declaredSkillIds.Count > 0 && !declaredSkillIds.Overlaps(plannedSkillIds) && !declaredSkillIds.All(allowedSkillIds.Contains))
@@ -224,41 +233,44 @@ Static critique:
         foreach (var id in BuildSkillIdSet(ReadStringArray(plannedStep["assumedSkills"])))
             allowed.Add(id);
 
-        // These skills are usually implementation glue for small code-test tasks, not
-        // separate pedagogical goals. Counting them as blockers caused every otherwise
-        // valid bridge draft to be rejected even when the runner and model critic passed.
-        foreach (var id in new[]
-                 {
-                     "program-structure", "console-output", "console-input-line", "variables",
-                     "strings", "string-literals", "arithmetic", "parse-int"
-                 })
-            allowed.Add(id);
+        var forbidden = BuildSkillIdSet(ReadStringArray(plannedStep["mustNotUse"]));
 
+        // Only language-agnostic scaffolding is treated as support by default.
+        // Topic skills such as parsing, splitting, arrays, conditions or loops must
+        // come from the current planned step or from explicit assumed/acquired skills.
+        foreach (var id in new[] { "program-structure", "console-output" })
+        {
+            if (!forbidden.Contains(id)) allowed.Add(id);
+        }
+
+        foreach (var id in BuildPlannedDependencySkillIds(plannedSkillIds))
+        {
+            if (!forbidden.Contains(id)) allowed.Add(id);
+        }
+
+        allowed.ExceptWith(forbidden);
+        return allowed;
+    }
+
+    private static IEnumerable<string> BuildPlannedDependencySkillIds(HashSet<string> plannedSkillIds)
+    {
+        // These are dependency relationships between abstract skill ids, not canned
+        // assignment templates. They only expand the current planned step; they never
+        // create a new topic on their own.
         if (plannedSkillIds.Contains("input-validation"))
         {
-            allowed.Add("conditions");
-            allowed.Add("comparison");
-            allowed.Add("parse-int");
+            yield return "conditions";
+            yield return "comparison";
         }
 
         if (plannedSkillIds.Contains("split-input"))
         {
-            allowed.Add("arrays");
-            allowed.Add("parse-int");
-            allowed.Add("arithmetic");
+            yield return "arrays";
         }
-
-        if (plannedSkillIds.Contains("multi-line-input"))
-        {
-            allowed.Add("parse-int");
-            allowed.Add("arithmetic");
-        }
-
-        return allowed;
     }
 
-    private static bool IsHardFutureSkill(string id)
-        => id is "loops" or "collections" or "classes" or "files" or "linq" or "methods";
+    private static bool IsImplementationSupportSkill(string id)
+        => id is "program-structure" or "console-output" or "string-literals";
 
     private static bool HasExplicitForbiddenUsage(
         string forbidden,
@@ -270,7 +282,7 @@ Static critique:
         var normalizedForbidden = NormalizeForLooseContains(forbidden);
 
         // Abstract labels from the LLM plan are not APIs. For example,
-        // "advanced-parsers" must not be interpreted as "any parse/int.Parse usage".
+        // "advanced-parsers" must not be interpreted as "any parsing API usage".
         // Only concrete forbidden APIs/tokens should veto a draft.
         if (IsAbstractForbiddenLabel(normalizedForbidden))
             return false;

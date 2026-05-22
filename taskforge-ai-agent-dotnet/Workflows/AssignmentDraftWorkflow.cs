@@ -117,6 +117,12 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         for (var attempt = 0; attempt <= _options.MaxDraftRepairAttempts; attempt++)
         {
             var draft = await _author.ExecuteAsync(state, context, plan, attempt, cancellationToken);
+            if (draft == null)
+            {
+                state.Notes.Add($"Draft attempt {attempt + 1} produced no usable draft; nothing will be saved for this attempt.");
+                break;
+            }
+
             var validation = await _validator.ExecuteAsync(state, draft);
             var critique = await _critic.ExecuteAsync(state, validation, cancellationToken);
 
@@ -130,13 +136,15 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
             state.Notes.Add($"Draft attempt {attempt + 1} rejected by critique.");
         }
 
-        acceptedDraft ??= state.Draft ?? new DraftSpec
+        if (acceptedDraft == null)
         {
-            Title = "AI-черновик задания",
-            Description = "Черновик был подготовлен, но требует ручной доработки.",
-            CourseId = state.Job.CourseId,
-            Tags = new List<string> { "AI", "needs-review" }
-        };
+            state.Data["draftGenerationError"] ??= new JsonObject
+            {
+                ["type"] = "DraftRejected",
+                ["message"] = "No single draft passed validation and critique; rejected drafts are not saved as hidden course drafts."
+            };
+            return;
+        }
 
         await _approval.ExecuteHiddenDraftArtifactAsync(state, acceptedDraft);
     }
