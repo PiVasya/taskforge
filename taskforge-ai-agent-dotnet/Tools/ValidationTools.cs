@@ -155,6 +155,13 @@ public sealed class ValidationTools
                 blocking.Add("learning-bridge draft must declare introducedSkills in extra metadata");
             if (introducedSkills.Count > 1)
                 advisory.Add("learning-bridge draft declares several introducedSkills strings; bridge critic will normalize them to skill ids before deciding whether this is blocking");
+
+            if (!LooksLikeLearningTutorial(description))
+                blocking.Add("learning-bridge description must be a small tutorial with visible steps, not a dry problem statement");
+            if (HasDryLearningTaskSections(description))
+                blocking.Add("learning-bridge tutorial must not expose dry input/output/problem sections; explain the format inside the lesson text");
+            if (ContainsAny(description, "самый короткий", "короткий короткий", "code golf", "гольфинг"))
+                blocking.Add("learning-bridge tutorial must ask for a clear minimal solution, not the shortest/code-golf solution");
         }
 
         if ((draft["assignmentType"]?.ToString() ?? "") == "code-test")
@@ -195,6 +202,29 @@ public sealed class ValidationTools
             foreach (var item in node!.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 yield return item;
         }
+    }
+
+
+    private static bool LooksLikeLearningTutorial(string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return false;
+        var lower = description.ToLowerInvariant();
+        var hasSteps = lower.Contains("следуй шагам")
+                       || lower.Contains("шаг 1")
+                       || Regex.IsMatch(lower, @"(^|\n)\s*1\.\s+", RegexOptions.CultureInvariant);
+        var hasTeachingTone = lower.Contains("давай")
+                              || lower.Contains("научимся")
+                              || lower.Contains("научись")
+                              || lower.Contains("запусти")
+                              || lower.Contains("проверь")
+                              || lower.Contains("попробуй");
+        return hasSteps && hasTeachingTone;
+    }
+
+    private static bool HasDryLearningTaskSections(string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return false;
+        return Regex.IsMatch(description, @"(^|\n)\s*(формат\s+ввода|формат\s+вывода|пример|ввод|вывод|критерии|тесты\s+проверяют)\s*:?\s*(\n|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static bool LooksLikeInternalRubric(string description)

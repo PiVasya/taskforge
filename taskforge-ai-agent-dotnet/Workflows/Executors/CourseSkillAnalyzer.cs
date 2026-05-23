@@ -98,6 +98,17 @@ internal static class CourseSkillAnalyzer
             if (condition && !result.Contains(id, StringComparer.OrdinalIgnoreCase)) result.Add(id);
         }
 
+        // Common LLM-produced bridge skill ids. Keep this as taxonomy aliases,
+        // not task templates: a composite id expands to the atomic skills it
+        // logically contains, so critic/author do not fight over aliases.
+        AddIf(ContainsAny(searchable, "console readline echo"), "console-input-line");
+        AddIf(ContainsAny(searchable, "parse int from readline", "readline parse int"), "console-input-line");
+        AddIf(ContainsAny(searchable, "parse int from readline", "readline parse int"), "parse-int");
+        AddIf(ContainsAny(searchable, "sum two ints from input", "sum two integers from input"), "console-input-line");
+        AddIf(ContainsAny(searchable, "sum two ints from input", "sum two integers from input"), "parse-int");
+        AddIf(ContainsAny(searchable, "sum two ints from input", "sum two integers from input"), "multi-line-input");
+        AddIf(ContainsAny(searchable, "sum two ints from input", "sum two integers from input"), "arithmetic");
+
         AddIf(ContainsAny(searchable, "tryparse", "try parse", "валидац", "некоррект", "ошибк ввода", "безопасн"), "input-validation");
         AddIf(ContainsAny(searchable, "regex", "regular expression", "регулярн", "регулярные выражения"), "regex");
         AddIf(ContainsAny(searchable, "split", "split(", "stringsplitoptions", "разбить строку", "разбор строки", "разделить строку", "токен", "в одной строке", "через пробел"), "split-input");

@@ -101,6 +101,72 @@ class Program
         Assert.Contains(critique["blockingIssues"]!.AsArray().Select(x => x?.ToString() ?? string.Empty), x => x.Contains("парсинг", StringComparison.OrdinalIgnoreCase));
     }
 
+
+
+    [Fact]
+    public void ConsoleReadLineEchoBridge_AllowsTemporaryStringVariable()
+    {
+        var bridge = new CourseSkillBridgeContext(
+            BeforeAssignmentId: Guid.NewGuid(),
+            PreviousTitle: "Задание 5",
+            AnchorTitle: "Задание 6",
+            RequestedSkills: ["console input"],
+            AcquiredSkills: ["console output", "strings"],
+            TargetSkills: ["console input"],
+            MissingBridgeSkills: ["console input"],
+            Neighborhood: [],
+            IsBridgeRequest: true,
+            BridgePlan:
+            [
+                new JsonObject
+                {
+                    ["step"] = 0,
+                    ["skillId"] = "console-readline-echo",
+                    ["titleHint"] = "Прочитай строку и выведи её",
+                    ["mustNotUse"] = new JsonArray("парсинг в число (`int.Parse`, `int.TryParse`, `Convert.ToInt32`)", "Split()", "массивы"),
+                    ["assumedSkills"] = new JsonArray("console output", "strings"),
+                    ["introducedSkills"] = new JsonArray("console input (чтение строки через `Console.ReadLine()` )"),
+                    ["introducedSkillIds"] = new JsonArray("console-input-line")
+                }
+            ],
+            Source: "test");
+
+        var state = new WorkflowState
+        {
+            Job = new ClaimedAgentJob(Guid.Empty, Guid.Empty, "test", JsonDocument.Parse("{}").RootElement.Clone(), "Сгенерируй обучалку", Guid.Empty, "Основы C#"),
+            CourseSkillBridge = bridge,
+            Draft = new DraftSpec
+            {
+                AssignmentType = "code-test",
+                Title = "Прочитай строку и выведи её",
+                Description = "Давай научимся читать строку. Следуй шагам: 1. `Console.ReadLine()` 2. `Console.WriteLine(...)`.",
+                Language = "csharp",
+                ReferenceSolution = "using System; class Program { static void Main() { string? s = Console.ReadLine(); Console.WriteLine(s); } }",
+                Extra = new JsonObject
+                {
+                    ["bridgeStepIndex"] = 0,
+                    ["bridgeSkillId"] = "console-readline-echo",
+                    ["introducedSkillIds"] = new JsonArray("console-input-line"),
+                    ["introducedSkills"] = new JsonArray("console input")
+                }
+            }
+        };
+
+        var critique = DraftCriticExecutor.EvaluateBridgeConsistency(state);
+
+        Assert.True(string.Equals("true", critique["isAccepted"]?.ToString(), StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(critique["blockingIssues"]!.AsArray());
+    }
+
+    [Fact]
+    public void CanonicalSkillDetection_ExpandsCommonBridgeSkillAliases()
+    {
+        var ids = CourseSkillAnalyzer.DetectCanonicalSkillIds("parse-int-from-readline");
+
+        Assert.Contains("console-input-line", ids);
+        Assert.Contains("parse-int", ids);
+    }
+
     [Fact]
     public void CanonicalSkillDetection_DoesNotTreatAdvancedParsingLabelAsSimpleParseInt()
     {

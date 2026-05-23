@@ -82,4 +82,47 @@ public sealed class ValidationToolsTests
         Assert.False(bool.TryParse(result["isAccepted"]?.ToString(), out var isAccepted) && isAccepted);
     }
 
+    [Fact]
+    public void StaticDraftCritique_RejectsDrySectionsInLearningBridgeTutorial()
+    {
+        var tools = new ValidationTools(new AgentRunContextAccessor());
+        var draft = new JsonObject
+        {
+            ["assignmentType"] = "code-test",
+            ["title"] = "Считываем два числа",
+            ["description"] = "Давай научимся вводить числа.\n\nСледуй шагам:\n1. Напиши `Console.ReadLine()`.\n(Так мы читаем строку.)\n\nФормат ввода\nДва числа.",
+            ["extra"] = new JsonObject
+            {
+                ["skillBridge"] = new JsonObject(),
+                ["introducedSkills"] = new JsonArray("console input")
+            }
+        };
+
+        var result = tools.StaticDraftCritiqueAsync(draft).GetAwaiter().GetResult();
+
+        Assert.False(bool.TryParse(result["isAccepted"]?.ToString(), out var isAccepted) && isAccepted);
+        Assert.Contains(result["blockingIssues"]!.AsArray().Select(x => x?.ToString() ?? string.Empty), x => x.Contains("dry input/output", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void StaticDraftCritique_AcceptsCleanLearningBridgeTutorial()
+    {
+        var tools = new ValidationTools(new AgentRunContextAccessor());
+        var draft = new JsonObject
+        {
+            ["assignmentType"] = "code-test",
+            ["title"] = "Считываем два числа",
+            ["description"] = "Давай научимся вводить числа.\n\nБудем считать, что каждое число вводится с новой строки.\n\nСледуй шагам:\n1. Напиши `Console.ReadLine()`.\n(Так мы читаем строку.)\n2. Напиши `Console.WriteLine(...)`.\n(Так мы выводим результат.)\n\nЗапусти код и проверь результат.",
+            ["extra"] = new JsonObject
+            {
+                ["skillBridge"] = new JsonObject(),
+                ["introducedSkills"] = new JsonArray("console input")
+            }
+        };
+
+        var result = tools.StaticDraftCritiqueAsync(draft).GetAwaiter().GetResult();
+
+        Assert.True(bool.TryParse(result["isAccepted"]?.ToString(), out var isAccepted) && isAccepted);
+    }
+
 }

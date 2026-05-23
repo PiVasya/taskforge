@@ -72,12 +72,14 @@ public sealed class DraftAuthorExecutor
 6. Связь с местом в курсе держи в extra/metadata, но НЕ пиши в description фразы вроде "Место в курсе", "перед Задание 5", "после List<T>".
 7. Все code-token'ы в description оформляй inline-code через одиночные backticks, чтобы редактор показал фон.
 8. Description — это ТОЛЬКО текст для ученика. Не выводи туда внутренние quality gates, acceptanceCriteria, mustNotUse, список запрещённых будущих тем, фразы "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют". Эти ограничения держи в extra/metadata и referenceSolution/tests.
-9. Для обучающих bridge-задач description должен быть именно обучалкой, а не обычным условием. Стиль: дружелюбная вводная фраза, блок "Следуй шагам:", 3-5 нумерованных маленьких действий, короткое пояснение зачем это делается, мини-проверка на примере. Пример тона: "Давай научимся...", "Напиши...", "Запусти и проверь...".
-10. Обучалка должна быть предельно простой. Если микрошаг можно показать одной строкой кода — покажи одну строку. Не вводи переменные, проверки ошибок, условия, префиксы в выводе, массивы, разбор строки на части или другие будущие конструкции раньше, чем они нужны текущему step.
-11. Не ограничивайся сухим текстом вида "Считать X и вывести Y". Если задача должна чему-то научить, покажи ученику последовательность действий, как в маленьком туториале. Кодовые элементы в шагах обязательно пиши в `backticks`.
-12. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
-13. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её в решении и тестах; в description не перечисляй это как запрет для ученика, если преподаватель явно не попросил ограничения в видимом тексте. Важно: формулировка "сложный парсинг/регулярные выражения" запрещает Regex, Split, разбор нескольких токенов и нестандартные парсеры, но НЕ запрещает простой parse одного значения, если текущий step сам вводит чтение/преобразование одного значения.
-14. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
+9. Для обучающих bridge-задач description должен быть именно обучалкой, а не обычным условием. Стиль: дружелюбная вводная фраза, блок "Следуй шагам:", 3-5 нумерованных маленьких действий, пояснение каждой важной строки и финальная фраза "Запусти код и проверь...".
+10. Не пиши в обучалке сухие секции олимпиадной задачи: "Формат ввода", "Формат вывода", отдельные блоки "Ввод"/"Вывод", "Критерии", "Тесты проверяют". Формат ввода объясняй одной простой фразой внутри урока, например: "Будем считать, что каждое число вводится с новой строки".
+11. Обучалка должна быть предельно простой. Если микрошаг можно показать одной строкой кода — покажи одну строку. Не вводи проверки ошибок, условия, префиксы в выводе, массивы, разбор строки на части или другие будущие конструкции раньше, чем они нужны текущему step.
+12. Не используй фразы "самый короткий", "короткий короткий" и не поощряй code golf. Проси понятное минимально необходимое решение.
+13. Не ограничивайся сухим текстом вида "Считать X и вывести Y". Если задача должна чему-то научить, покажи ученику последовательность действий, как в маленьком туториале. Кодовые элементы в шагах обязательно пиши в `backticks`.
+14. Для code-test обязательно нужны referenceSolution, минимум 2 publicTests и минимум 2 hiddenTests. Тесты должны соответствовать только тем умениям, которые уже разрешены этим step.
+15. Если bridgePlan.step.mustNotUse запрещает переменные, методы, массивы, парсинг или любую другую тему — не используй её в решении и тестах; в description не перечисляй это как запрет для ученика, если преподаватель явно не попросил ограничения в видимом тексте. Важно: формулировка "сложный парсинг/регулярные выражения" запрещает Regex, Split, разбор нескольких токенов и нестандартные парсеры, но НЕ запрещает простой parse одного значения, если текущий step сам вводит чтение/преобразование одного значения.
+16. Если не можешь выполнить step без будущих навыков, верни меньше drafts и объясни причину в extra.generationWarning, но не подменяй step другой темой.
 
 Компактный контекст выбранного курса. Используй его только для стиля соседних заданий и примеров формата; не выбирай anchor заново:
 {{generationContext}}
@@ -178,9 +180,10 @@ Critique:
 - если мало publicTests/hiddenTests — добавь тесты, которые проходят referenceSolution;
 - если title/description содержит служебный текст — сделай student-facing формулировку;
 - если description содержит внутренний чек-лист, acceptanceCriteria, mustNotUse, "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять", "тесты проверяют" — убери это из видимого текста;
-- если это learning-bridge/обучалка, сделай текст именно обучающим: дружелюбная вводная, "Следуй шагам:", 3-5 маленьких шагов, короткое пояснение и мини-проверка на примере;
-- если микрошаг можно показать одной строкой кода — сделай именно так; не добавляй переменные, условия, проверки ошибок, префиксы вывода и будущие конструкции без необходимости текущего step;
-- если не хватает формата ввода/вывода — добавь его через понятный пример, а не сухой чек-лист;
+- если это learning-bridge/обучалка, сделай текст именно обучающим: дружелюбная вводная, "Следуй шагам:", 3-5 маленьких шагов, пояснение каждой важной строки и финальная фраза "Запусти код и проверь...";
+- не используй сухие секции "Формат ввода", "Формат вывода", отдельные блоки "Ввод"/"Вывод"; объясни формат ввода одной простой фразой внутри урока;
+- не пиши "самый короткий" или "короткий короткий"; проси понятное минимально необходимое решение;
+- если микрошаг можно показать одной строкой кода — сделай именно так; не добавляй условия, проверки ошибок, префиксы вывода и будущие конструкции без необходимости текущего step;
 - не используй future skills из mustNotUse в решении и тестах;
 - оставь extra.bridgeSkillId и bridgeStepIndex совместимыми с исходным step.
 
@@ -331,8 +334,10 @@ COURSE_SKILL_MAP:
 - Не использовать mustNotUse текущего step.
 - Student-facing title/description, без служебной metadata.
 - Description не должен содержать внутренние требования валидатора, acceptanceCriteria, mustNotUse, списки запретов и фразы вроде "Требования и критерии приёма", "Программа должна использовать", "Нельзя применять".
-- Пиши learning-bridge как маленький туториал: дружелюбная вводная, "Следуй шагам:", 3-5 нумерованных действий, мини-проверка на примере. Не пиши сухое "Считать X и вывести Y" без обучения.
-- Делай обучалку максимально простой: если можно одной строкой кода — используй одну строку. Не добавляй переменные, проверки ошибок, условия, префиксы вывода или будущие темы без необходимости текущего step.
+- Пиши learning-bridge как маленький туториал: дружелюбная вводная, "Следуй шагам:", 3-5 нумерованных действий, пояснение каждой важной строки и финал "Запусти код и проверь...". Не пиши сухое "Считать X и вывести Y" без обучения.
+- Не добавляй сухие секции "Формат ввода", "Формат вывода", "Ввод", "Вывод", "Критерии". Формат ввода объясни одной простой фразой внутри урока.
+- Не пиши "самый короткий" и не поощряй code golf; проси понятное минимально необходимое решение.
+- Делай обучалку максимально простой: если можно одной строкой кода — используй одну строку. Не добавляй проверки ошибок, условия, префиксы вывода или будущие темы без необходимости текущего step.
 - Если это code-test, дай referenceSolution, 2 publicTests и 2 hiddenTests, которые проходят решение.
 - Если для какого-то step невозможно дать корректный draft с тестами, просто пропусти этот step, не выдумывай fallback.
 - language выбирай из языка соседних/целевых заданий или allowedLanguages из COURSE_SKILL_MAP. Не подставляй конкретный язык, если он не следует из курса.
@@ -437,7 +442,10 @@ COURSE_SKILL_MAP:
         if (node["skillBridgeReason"] is not null && extra["skillBridgeReason"] is null)
             extra["skillBridgeReason"] = node["skillBridgeReason"]!.ToString();
 
-        extra["rawModelDraft"] = rawText.Length > 6000 ? rawText[..6000] : rawText;
+        // Keep raw LLM text out of draft metadata. It is noisy, can leak internal
+        // prompt/repair text into debug artifacts, and may confuse the model critic
+        // into critiquing stale rawModelDraft content instead of the normalized
+        // student-facing assignment.
         return extra;
     }
 
@@ -540,13 +548,14 @@ COURSE_SKILL_MAP:
     }
 
 
-    private static string EnsureLearningBridgeTutorialStyle(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
+    internal static string EnsureLearningBridgeTutorialStyle(DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
     {
         var clean = (draft.Description ?? string.Empty).Trim();
         if (!LooksLikeLearningBridgeDraft(draft, bridge))
             return WrapKnownCodeTokens(CollapseBlankLines(clean));
 
-        if (LooksLikeTutorialStyle(clean))
+        clean = StripDryTaskSections(clean);
+        if (LooksLikeTutorialStyle(clean) && !NeedsTutorialRewrite(clean))
             return WrapKnownCodeTokens(CollapseBlankLines(clean));
 
         return EnsureGenericTutorialShape(clean, draft, bridge, stepIndex);
@@ -566,30 +575,288 @@ COURSE_SKILL_MAP:
         if (string.IsNullOrWhiteSpace(text)) return false;
         var lower = text.ToLowerInvariant();
         var hasSteps = lower.Contains("следуй шагам") || lower.Contains("шаг 1") || Regex.IsMatch(lower, @"(^|\n)\s*1\.\s+", RegexOptions.CultureInvariant);
-        var hasTeachingTone = lower.Contains("давай") || lower.Contains("научимся") || lower.Contains("запусти") || lower.Contains("проверь");
+        var hasTeachingTone = lower.Contains("давай") || lower.Contains("научимся") || lower.Contains("научись") || lower.Contains("запусти") || lower.Contains("проверь") || lower.Contains("попробуй");
         return hasSteps && hasTeachingTone;
+    }
+
+    private static bool NeedsTutorialRewrite(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        var lower = text.ToLowerInvariant();
+        if (lower.Contains("самый короткий") || lower.Contains("короткий короткий") || lower.Contains("code golf") || lower.Contains("гольф"))
+            return true;
+        if (!lower.Contains("запусти") && !lower.Contains("проверь"))
+            return true;
+        if (HasDryTaskHeading(text)) return true;
+        if (Regex.IsMatch(text, @"для\s+ввода\s+`[^`]*\n[^`]*`", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return true;
+        return false;
     }
 
     private static string EnsureGenericTutorialShape(string description, DraftSpec draft, CourseSkillBridgeContext bridge, int stepIndex)
     {
-        if (LooksLikeTutorialStyle(description))
-            return WrapKnownCodeTokens(CollapseBlankLines(description));
-
         var stepHint = DescribeBridgeStep(bridge, stepIndex, description);
-        var sample = FirstPublicTestInput(draft, "пример");
-        var expected = FirstPublicTestOutput(draft, "результат");
+        var inputNote = BuildFriendlyInputNote(draft);
+        var steps = BuildTutorialStepsFromReferenceSolution(draft.ReferenceSolution, draft.Language).ToList();
+        if (steps.Count == 0)
+        {
+            steps.Add($"1. Разбери новый приём: {WrapInline(stepHint)}.");
+            steps.Add("(Это маленький шаг, который понадобится в следующей задаче.)");
+            steps.Add("2. Напиши понятное минимально необходимое решение.");
+            steps.Add("(Не добавляй лишние проверки и темы, которые здесь ещё не нужны.)");
+        }
+
+        var check = BuildFriendlyCheckSentence(draft);
+        var intro = BuildFriendlyIntro(bridge, stepIndex, stepHint);
+        var noteBlock = string.IsNullOrWhiteSpace(inputNote) ? string.Empty : inputNote + "\n\n";
         var text = $$"""
-Давай сделаем маленький шаг перед следующей задачей.
+{{intro}}
 
-Следуй шагам:
-1. Разбери новый приём: {{stepHint}}.
-2. Напиши самый короткий рабочий вариант решения без лишних действий.
-3. Запусти программу и проверь её на маленьком примере.
-4. Для ввода `{{sample}}` ожидаемый вывод — `{{expected}}`.
+{{noteBlock}}Следуй шагам:
+{{string.Join("\n", steps)}}
 
-Главная идея: это учебная задача на один новый навык, поэтому решение должно оставаться коротким и понятным.
+{{check}}
 """;
         return WrapKnownCodeTokens(CollapseBlankLines(text.Trim()));
+    }
+
+    private static string BuildFriendlyIntro(CourseSkillBridgeContext bridge, int stepIndex, string stepHint)
+    {
+        var normalized = NormalizeForTutorialText(stepHint);
+        if (normalized.Contains("readline") || normalized.Contains("ввод") || normalized.Contains("считать") || normalized.Contains("прочит"))
+            return "Давай научимся получать данные из консоли маленькими шагами.";
+        if (normalized.Contains("parse") || normalized.Contains("числ") || normalized.Contains("преобраз"))
+            return "Давай научимся превращать введённый текст в число.";
+        return "Давай сделаем маленький учебный шаг перед следующей задачей.";
+    }
+
+    private static string BuildFriendlyInputNote(DraftSpec draft)
+    {
+        var input = draft.PublicTests.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.Input))?.Input;
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+        var lines = SplitInputLines(input).ToList();
+        if (lines.Count > 1)
+            return lines.Count == 2
+                ? "Будем считать, что пользователь вводит два корректных значения: первое с новой строки и второе с новой строки."
+                : $"Будем считать, что пользователь вводит {lines.Count} корректных значения, каждое с новой строки.";
+        return "Будем считать, что пользователь вводит корректное значение.";
+    }
+
+    private static string BuildFriendlyCheckSentence(DraftSpec draft)
+    {
+        var sampleInput = draft.PublicTests.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.Input))?.Input;
+        var expected = draft.PublicTests.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ExpectedOutput))?.ExpectedOutput;
+        if (string.IsNullOrWhiteSpace(sampleInput) || string.IsNullOrWhiteSpace(expected))
+            return "Запусти код и проверь, что программа делает именно этот маленький шаг.";
+
+        var inputText = DescribeInputForStudent(sampleInput);
+        var outputText = ToInlineCode(CleanOneLineValue(expected));
+        return $"Запусти код и проверь: если ввести {inputText}, на экране появится {outputText}.";
+    }
+
+    private static IEnumerable<string> BuildTutorialStepsFromReferenceSolution(string? solution, string? language)
+    {
+        var groups = BuildCodeGroups(solution).ToList();
+        if (groups.Count == 0) yield break;
+
+        if (groups.Count > 5)
+            groups = CompactCodeGroups(groups);
+        if (groups.Count > 5)
+            groups = groups.Take(5).ToList();
+
+        for (var i = 0; i < groups.Count; i++)
+        {
+            var group = groups[i];
+            yield return $"{i + 1}. {BuildStepAction(group)}";
+            yield return $"({BuildStepExplanation(group)})";
+        }
+    }
+
+    private sealed record CodeGroup(string Kind, List<string> Lines);
+
+    private static IEnumerable<CodeGroup> BuildCodeGroups(string? solution)
+    {
+        if (string.IsNullOrWhiteSpace(solution)) yield break;
+        var groups = new List<CodeGroup>();
+        foreach (var raw in solution.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = NormalizeCodeLine(raw);
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (IsCommentOnlyCodeLine(line)) continue;
+            if (line is "{" or "}" or "};") continue;
+
+            var kind = ClassifyCodeLine(line);
+            var last = groups.LastOrDefault();
+            if (last is not null && last.Kind == kind && CanGroupCodeLines(kind))
+            {
+                last.Lines.Add(line);
+                continue;
+            }
+
+            groups.Add(new CodeGroup(kind, new List<string> { line }));
+        }
+
+        foreach (var group in groups)
+            yield return group;
+    }
+
+    private static List<CodeGroup> CompactCodeGroups(List<CodeGroup> groups)
+    {
+        var result = new List<CodeGroup>();
+        foreach (var group in groups)
+        {
+            var last = result.LastOrDefault();
+            if (last is not null && (last.Kind == group.Kind || group.Kind == "start" && last.Kind == "start"))
+            {
+                last.Lines.AddRange(group.Lines);
+                continue;
+            }
+            result.Add(new CodeGroup(group.Kind, group.Lines.ToList()));
+        }
+
+        if (result.Count <= 5) return result;
+
+        var import = result.FirstOrDefault(x => x.Kind == "import");
+        var start = result.FirstOrDefault(x => x.Kind == "start");
+        if (import is not null && start is not null)
+        {
+            start.Lines.InsertRange(0, import.Lines);
+            result.Remove(import);
+        }
+
+        return result;
+    }
+
+    private static string BuildStepAction(CodeGroup group)
+    {
+        var code = JoinCodeChips(group.Lines);
+        return group.Kind switch
+        {
+            "import" => $"Подключи нужную библиотеку: {code}",
+            "start" => $"Напиши начало программы: {code}",
+            "input" => $"Считай данные из консоли: {code}",
+            "parse" => $"Преобразуй введённый текст в число: {code}",
+            "compute" => $"Выполни вычисление: {code}",
+            "output" => $"Выведи результат: {code}",
+            _ => $"Напиши строку: {code}"
+        };
+    }
+
+    private static string BuildStepExplanation(CodeGroup group)
+    {
+        return group.Kind switch
+        {
+            "import" => "Эта строка подключает команды, которые нужны программе.",
+            "start" => "Так начинается основная часть программы.",
+            "input" => group.Lines.Count > 1 ? "Эти строки получают значения, которые пользователь вводит с клавиатуры." : "Эта строка получает значение, которое пользователь вводит с клавиатуры.",
+            "parse" => group.Lines.Count > 1 ? "Эти строки превращают введённый текст в числа." : "Эта строка превращает введённый текст в число.",
+            "compute" => "Здесь выполняется простое вычисление.",
+            "output" => "Эта строка показывает результат на экране.",
+            _ => "Эта строка нужна для текущего маленького шага."
+        };
+    }
+
+    private static string NormalizeCodeLine(string raw)
+    {
+        var line = raw.Trim();
+        line = Regex.Replace(line, @"\s+", " ", RegexOptions.CultureInvariant);
+        return line;
+    }
+
+    private static bool IsCommentOnlyCodeLine(string line)
+        => line.StartsWith("//", StringComparison.Ordinal) || line.StartsWith("# ", StringComparison.Ordinal) || line.StartsWith("/*", StringComparison.Ordinal);
+
+    private static string ClassifyCodeLine(string line)
+    {
+        var normalized = NormalizeForTutorialText(line);
+        if (normalized.Contains("#include") || normalized.StartsWith("using ") || normalized.StartsWith("import ") || normalized.StartsWith("from "))
+            return "import";
+        if (normalized.Contains("main") || normalized.Contains("class program") || normalized.Contains("namespace") || normalized.Contains("public class"))
+            return "start";
+        if (normalized.Contains("readline") || normalized.Contains("readln") || normalized.Contains("scanf") || normalized.Contains("cin") || normalized.Contains("input("))
+            return "input";
+        if (normalized.Contains("parse") || normalized.Contains("toint") || normalized.Contains("convert.") || normalized.Contains("int(input") || normalized.Contains("stoi") || normalized.Contains("strconv"))
+            return "parse";
+        if (normalized.Contains("writeline") || normalized.Contains("write(") || normalized.Contains("cout") || normalized.Contains("printf") || normalized.Contains("println") || normalized.StartsWith("print"))
+            return "output";
+        if (Regex.IsMatch(line, @"=.+[+\-*/%]", RegexOptions.CultureInvariant))
+            return "compute";
+        return "other";
+    }
+
+    private static bool CanGroupCodeLines(string kind)
+        => kind is "import" or "start" or "input" or "parse" or "output" or "compute";
+
+    private static string JoinCodeChips(IEnumerable<string> lines)
+    {
+        var chips = lines.Select(ToInlineCode).ToList();
+        if (chips.Count == 0) return "`...`";
+        if (chips.Count == 1) return chips[0];
+        if (chips.Count == 2) return chips[0] + " и " + chips[1];
+        return string.Join(", ", chips.Take(chips.Count - 1)) + " и " + chips[^1];
+    }
+
+    private static string DescribeInputForStudent(string input)
+    {
+        var lines = SplitInputLines(input).ToList();
+        if (lines.Count > 1 && lines.Count <= 4)
+            return string.Join(" и ", lines.Select(ToInlineCode)) + " с новой строки";
+        return ToInlineCode(CleanOneLineValue(input));
+    }
+
+    private static IEnumerable<string> SplitInputLines(string input)
+    {
+        foreach (var line in input.Replace("\r\n", "\n").Trim('\r', '\n').Split('\n'))
+        {
+            var clean = line.Trim();
+            if (!string.IsNullOrEmpty(clean)) yield return clean;
+        }
+    }
+
+    private static string CleanOneLineValue(string value)
+        => value.Replace("\r\n", "\n").Replace("\n", "\\n").Trim();
+
+    private static string ToInlineCode(string value)
+        => "`" + EscapeBackticks(value) + "`";
+
+    private static string WrapInline(string value)
+        => value.Contains('`') ? value : ToInlineCode(value);
+
+    private static string EscapeBackticks(string value)
+        => (value ?? string.Empty).Replace("`", "' ");
+
+    private static string NormalizeForTutorialText(string? value)
+        => Regex.Replace((value ?? string.Empty).ToLowerInvariant(), @"\s+", " ", RegexOptions.CultureInvariant).Trim();
+
+    private static bool HasDryTaskHeading(string text)
+        => Regex.IsMatch(text ?? string.Empty, @"(^|\n)\s*(формат\s+ввода|формат\s+вывода|пример|ввод|вывод|критерии|тесты\s+проверяют)\s*:?\s*(\n|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static string StripDryTaskSections(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var kept = new List<string>();
+        var skipping = false;
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (Regex.IsMatch(line, @"^(формат\s+ввода|формат\s+вывода|пример|ввод|вывод|критерии|тесты\s+проверяют)\s*:?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            {
+                skipping = true;
+                continue;
+            }
+
+            if (skipping && (Regex.IsMatch(line, @"^\d+\.\s+", RegexOptions.CultureInvariant) || line.Contains("следуй шагам", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(line)))
+            {
+                if (!string.IsNullOrWhiteSpace(line)) skipping = false;
+            }
+
+            if (!skipping)
+                kept.Add(raw);
+        }
+
+        var clean = string.Join("\n", kept).Trim();
+        return string.IsNullOrWhiteSpace(clean) ? text : clean;
     }
 
     private static string DescribeBridgeStep(CourseSkillBridgeContext bridge, int stepIndex, string fallbackDescription)
@@ -620,12 +887,6 @@ COURSE_SKILL_MAP:
         if (match.Success) return match.Groups[1].Value.Trim();
         return clean.Length <= 220 ? clean : clean[..220].TrimEnd() + "...";
     }
-
-    private static string FirstPublicTestInput(DraftSpec draft, string fallback)
-        => draft.PublicTests.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.Input))?.Input.TrimEnd('\r', '\n') ?? fallback;
-
-    private static string FirstPublicTestOutput(DraftSpec draft, string fallback)
-        => draft.PublicTests.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ExpectedOutput))?.ExpectedOutput.TrimEnd('\r', '\n') ?? fallback;
 
     private static string SanitizeStudentFacingTitle(string? title)
     {

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Agents.AI;
+using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Llm;
 using TaskForge.AiAgent.Prompts;
 using TaskForge.AiAgent.Runtime;
@@ -44,7 +45,7 @@ COURSE_SKILL_MAP / педагогический план вставки:
 {{state.CourseSkillBridge?.ToJsonObject().ToJsonString() ?? "{}"}}
 
 Draft:
-{{state.Draft.ToArtifactData().ToJsonString()}}
+{{BuildModelCriticDraftPayload(state.Draft).ToJsonString()}}
 
 Validation result:
 {{validationResult.ToJsonString()}}
@@ -92,6 +93,30 @@ Static critique:
 
         await _steps.TryReportAsync("critic", accepted ? "completed" : "failed", accepted ? "Черновик принят критиком" : "Критик нашёл проблемы", null, combined);
         return combined;
+    }
+
+
+    private static JsonObject BuildModelCriticDraftPayload(DraftSpec draft)
+    {
+        var obj = draft.ToArtifactData().DeepClone() as JsonObject ?? new JsonObject();
+        if (obj["extra"] is not JsonObject extra)
+            return obj;
+
+        var compact = new JsonObject();
+        foreach (var key in new[]
+                 {
+                     "bridgeSkillId", "bridgeStepIndex", "plannedBridgeSkillId",
+                     "assumedSkills", "introducedSkills", "introducedSkillIds",
+                     "targetSkills", "missingBridgeSkills", "skillBridgeReason",
+                     "insertBeforeAssignmentId", "previousAssignmentTitle", "anchorAssignmentTitle"
+                 })
+        {
+            if (extra[key] is not null)
+                compact[key] = extra[key]!.DeepClone();
+        }
+
+        obj["extra"] = compact;
+        return obj;
     }
 
     internal static JsonObject EvaluateBridgeConsistency(WorkflowState state)
