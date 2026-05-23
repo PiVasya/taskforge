@@ -132,7 +132,16 @@ internal static class CourseSkillAnalyzer
             "входную строку", "ввода данных", "ввод данных"), "console-input-line");
         AddIf(ContainsAny(searchable, "console.writeline", "console.write", "stdout", "вывод", "вывести", "напечат"), "console-output");
         AddIf(ContainsAny(searchable, "string.length", "длин", "length"), "string-length");
-        AddIf(ContainsAny(searchable, "переменн", "variable", "var ", " int ", " string ", "сохран", "значение"), "variables");
+        // Keep variable detection precise.  Previously ContainsAny normalized
+        // needles such as " int " to "int", so labels like "int.Parse" in
+        // mustNotUse were incorrectly classified as the "variables" skill and
+        // later removed variables from the allowed support skills.  A variable
+        // is detected either by an explicit variable-related word or by a real
+        // declaration-like token followed by an identifier.
+        var hasVariableDeclaration = Regex.IsMatch(searchable,
+            @"(^|[^a-zа-я0-9_])(var|int|string|double|bool)\s+[a-zа-я_][a-zа-я0-9_]*",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        AddIf(ContainsAny(searchable, "переменн", "variable", "сохран") || hasVariableDeclaration, "variables");
         AddIf(ContainsAny(searchable, "арифмет", "сумм", "слож", "прибав", "вычит", "умнож", "делен", "остат", "+1"), "arithmetic");
         AddIf(ContainsAny(searchable, "услов", "если", "иначе", " if ", " else "), "conditions");
         AddIf(ContainsAny(searchable, "цикл", " for ", " while ", "foreach", "do while"), "loops");
