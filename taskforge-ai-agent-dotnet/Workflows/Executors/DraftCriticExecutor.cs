@@ -263,7 +263,7 @@ Static critique:
         // Only language-agnostic scaffolding is treated as support by default.
         // Topic skills such as parsing, splitting, arrays, conditions or loops must
         // come from the current planned step or from explicit assumed/acquired skills.
-        foreach (var id in new[] { "program-structure", "console-output" })
+        foreach (var id in new[] { "program-structure", "console-output", "variables" })
         {
             if (!forbidden.Contains(id)) allowed.Add(id);
         }
@@ -320,7 +320,7 @@ Static critique:
     }
 
     private static bool IsImplementationSupportSkill(string id)
-        => id is "program-structure" or "console-output" or "string-literals";
+        => id is "program-structure" or "console-output" or "string-literals" or "variables";
 
     private static bool HasExplicitForbiddenUsage(
         string forbidden,
@@ -377,14 +377,45 @@ Static critique:
             if (detectedValues.Count > 0)
             {
                 foreach (var detected in detectedValues)
-                    if (!string.IsNullOrWhiteSpace(detected)) result.Add(detected);
+                    AddCanonicalSkillId(result, detected);
                 continue;
             }
 
             var direct = CourseSkillAnalyzer.NormalizeSkillId(value);
-            if (!string.IsNullOrWhiteSpace(direct)) result.Add(direct);
+            AddCanonicalSkillId(result, direct);
         }
         return result;
+    }
+
+    private static void AddCanonicalSkillId(HashSet<string> result, string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return;
+        var normalized = id.Trim().ToLowerInvariant();
+        switch (normalized)
+        {
+            case "console-input":
+            case "console input":
+            case "console-readline":
+            case "console-readline-echo":
+                result.Add("console-input-line");
+                return;
+            case "parse-int-from-readline":
+                result.Add("console-input-line");
+                result.Add("parse-int");
+                return;
+            case "sum-two-ints-from-input":
+                result.Add("console-input-line");
+                result.Add("parse-int");
+                result.Add("multi-line-input");
+                result.Add("arithmetic");
+                return;
+            case "strings":
+                result.Add("string-literals");
+                return;
+            default:
+                result.Add(normalized);
+                return;
+        }
     }
 
     private static JsonArray ToJsonArray(IEnumerable<string> values)

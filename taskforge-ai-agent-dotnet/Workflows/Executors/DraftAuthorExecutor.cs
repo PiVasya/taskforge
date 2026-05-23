@@ -1125,14 +1125,45 @@ COURSE_SKILL_MAP:
             if (detected.Count > 0)
             {
                 foreach (var id in detected)
-                    if (!string.IsNullOrWhiteSpace(id)) result.Add(id);
+                    AddCanonicalSkillId(result, id);
                 continue;
             }
 
             var direct = CourseSkillAnalyzer.NormalizeSkillId(value);
-            if (!string.IsNullOrWhiteSpace(direct)) result.Add(direct);
+            AddCanonicalSkillId(result, direct);
         }
         return result;
+    }
+
+    private static void AddCanonicalSkillId(HashSet<string> result, string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return;
+        var normalized = id.Trim().ToLowerInvariant();
+        switch (normalized)
+        {
+            case "console-input":
+            case "console input":
+            case "console-readline":
+            case "console-readline-echo":
+                result.Add("console-input-line");
+                return;
+            case "parse-int-from-readline":
+                result.Add("console-input-line");
+                result.Add("parse-int");
+                return;
+            case "sum-two-ints-from-input":
+                result.Add("console-input-line");
+                result.Add("parse-int");
+                result.Add("multi-line-input");
+                result.Add("arithmetic");
+                return;
+            case "strings":
+                result.Add("string-literals");
+                return;
+            default:
+                result.Add(normalized);
+                return;
+        }
     }
 
     private static int NormalizeBridgeStepIndex(int stepIndex, int planCount)
