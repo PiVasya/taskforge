@@ -53,8 +53,16 @@ function randomAttemptId() {
   return `${Date.now()}-${Math.random()}`;
 }
 
-function answerPayload(answer, hasOptions) {
-  return hasOptions ? { selected: [answer] } : { value: answer };
+function isBSection(sectionCode) {
+  return String(sectionCode || '').trim().toUpperCase().startsWith('B');
+}
+
+function isTextAnswerTask(task) {
+  return task?.type === 'text-answer' || task?.type === 'text' || isBSection(task?.sectionCode);
+}
+
+function answerPayload(answer, task, hasOptions) {
+  return isTextAnswerTask(task) || !hasOptions ? { value: answer } : { selected: [answer] };
 }
 
 function progressMapFrom(progressItems) {
@@ -171,7 +179,8 @@ function RandomTaskCard({ task, progressMap, onAnswered }) {
   const taskInfo = details?.task || task;
   const status = taskStatus(taskInfo, progressMap);
   const taskData = useMemo(() => safeJson(details?.dataJson, {}), [details]);
-  const options = Array.isArray(taskData.options) ? taskData.options : [];
+  const rawOptions = Array.isArray(taskData.options) ? taskData.options : [];
+  const options = isTextAnswerTask(taskInfo) ? [] : rawOptions;
   const answerText = taskData.answerText || taskData.hint || "";
   const resultExplanation = explanationText(
     result?.explanationJson || details?.explanationJson,
@@ -184,7 +193,7 @@ function RandomTaskCard({ task, progressMap, onAnswered }) {
     try {
       const response = await submitQuizAttempt(
         details.task.id,
-        answerPayload(answer.trim(), options.length > 0),
+        answerPayload(answer.trim(), details.task, options.length > 0),
         { clientAttemptId: randomAttemptId() },
       );
       setResult(response);

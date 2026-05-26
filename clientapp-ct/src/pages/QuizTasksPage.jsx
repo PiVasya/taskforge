@@ -15,6 +15,18 @@ function safeJson(value, fallback) {
   }
 }
 
+function isBSection(sectionCode) {
+  return String(sectionCode || '').trim().toUpperCase().startsWith('B');
+}
+
+function isTextAnswerTask(task) {
+  return task?.type === 'text-answer' || task?.type === 'text' || isBSection(task?.sectionCode);
+}
+
+function answerPayload(answer, task, hasOptions) {
+  return isTextAnswerTask(task) || !hasOptions ? { value: answer } : { selected: [answer] };
+}
+
 export default function QuizTasksPage() {
   const { courseSlug } = useParams();
   const [searchParams] = useSearchParams();
@@ -101,18 +113,19 @@ export default function QuizTasksPage() {
 
   const taskData = useMemo(() => safeJson(details?.dataJson, {}), [details]);
   const explanation = useMemo(() => safeJson(result?.explanationJson || details?.explanationJson, {}), [result, details]);
-  const options = Array.isArray(taskData.options) ? taskData.options : [];
+  const rawOptions = Array.isArray(taskData.options) ? taskData.options : [];
+  const options = isTextAnswerTask(details?.task) ? [] : rawOptions;
 
   const backTo = courseSlug ? `/courses/${courseSlug}` : '/';
   const backLabel = course ? `Назад в ${course.title}` : 'Назад к учебным курсам';
 
   const handleSubmit = async () => {
-    if (!details?.task?.id || !answer) return;
+    if (!details?.task?.id || !answer.trim()) return;
     setSubmitting(true);
     setError('');
     try {
       const randomId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-      const res = await submitQuizAttempt(details.task.id, { selected: [answer] }, { clientAttemptId: randomId });
+      const res = await submitQuizAttempt(details.task.id, answerPayload(answer.trim(), details.task, options.length > 0), { clientAttemptId: randomId });
       setResult(res);
     } catch (e) {
       setError(e?.userMessage || e?.message || 'Не удалось отправить ответ.');
@@ -203,7 +216,7 @@ export default function QuizTasksPage() {
                     </div>
 
                     <div className="mt-6 flex flex-wrap gap-3">
-                      <button type="button" onClick={handleSubmit} disabled={!answer || submitting} className="btn-primary inline-flex items-center gap-2 disabled:opacity-60">
+                      <button type="button" onClick={handleSubmit} disabled={!answer.trim() || submitting} className="btn-primary inline-flex items-center gap-2 disabled:opacity-60">
                         {submitting ? <Loader2 size={18} className="animate-spin" /> : <PlayCircle size={18} />}
                         Проверить
                       </button>

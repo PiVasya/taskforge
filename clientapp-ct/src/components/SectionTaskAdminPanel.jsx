@@ -94,8 +94,26 @@ function tagsToText(tagsJson) {
   return Array.isArray(tags) ? tags.join(', ') : '';
 }
 
+function isBSection(sectionCode) {
+  return String(sectionCode || '').trim().toUpperCase().startsWith('B');
+}
+
+function isTextAnswerType(type, sectionCode) {
+  return isBSection(sectionCode) || type === 'text-answer' || type === 'text';
+}
+
+function normalizeTextForCompare(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replace(/[.,;:!?]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function defaultTaskType(sectionCode) {
-  return String(sectionCode || '').startsWith('B') ? 'text-answer' : 'single-choice';
+  return isBSection(sectionCode) ? 'text-answer' : 'single-choice';
 }
 
 function makeForm(sectionCode) {
@@ -126,17 +144,18 @@ function formFromDetails(details, sectionCode) {
   const correctAnswer = details?.correctAnswerJson || task.correctAnswerJson || task.correctAnswer;
   const explanation = details?.explanationJson || task.explanationJson || task.explanation;
   const options = Array.isArray(data.options) ? data.options : [];
+  const type = isTextAnswerType(task.type, sectionCode) ? 'text-answer' : (task.type || 'single-choice');
   return {
     id: task.id || '',
     slug: task.slug || '',
-    type: task.type || 'single-choice',
+    type,
     title: task.title || '',
     prompt: task.prompt || '',
     subjectCode: task.subjectCode || SUBJECT_CODE,
     examCode: task.examCode || EXAM_CODE,
     sectionCode: normalizeSectionCode(task.sectionCode || sectionCode) || sectionCode,
     difficulty: String(task.difficulty || 1),
-    optionsText: options.join('\n') || '1\n2\n3\n4',
+    optionsText: type === 'text-answer' ? '' : (options.join('\n') || '1\n2\n3\n4'),
     correctAnswer: answerToText(correctAnswer),
     explanation: explanationToText(explanation),
     tagsText: tagsToText(task.tagsJson),
@@ -147,8 +166,8 @@ function formFromDetails(details, sectionCode) {
 }
 
 function payloadFromForm(form, sectionCode) {
-  const type = form.type || 'single-choice';
-  const isChoice = type !== 'text-answer';
+  const type = isTextAnswerType(form.type, sectionCode) ? 'text-answer' : (form.type || 'single-choice');
+  const isChoice = !isTextAnswerType(type, sectionCode);
   const options = splitValues(form.optionsText);
   const slug = form.slug.trim() || `${sectionCode.toLowerCase()}-${slugify(form.title)}`;
   return {
@@ -172,7 +191,7 @@ function payloadFromForm(form, sectionCode) {
 
 function validateForm(form, sectionCode) {
   const type = form.type || 'single-choice';
-  const isChoice = type !== 'text-answer';
+  const isChoice = !isTextAnswerType(type, sectionCode);
   const options = splitValues(form.optionsText);
   if (!sectionCode) return 'Выбери раздел с кодом A1, B5 и т.п.';
   if (!form.title.trim()) return 'Заполни название задания.';
@@ -180,7 +199,7 @@ function validateForm(form, sectionCode) {
   if (isChoice && options.length === 0) return 'Для задания с выбором ответа добавь варианты.';
   if (!form.correctAnswer.trim()) return 'Укажи правильный ответ.';
   if (!form.explanation.trim()) return 'Заполни объяснение: ученик должен видеть, почему ответ правильный или неправильный.';
-  if (isChoice && !options.some((x) => x.toLowerCase() === form.correctAnswer.trim().toLowerCase())) {
+  if (isChoice && !options.some((x) => normalizeTextForCompare(x) === normalizeTextForCompare(form.correctAnswer))) {
     return 'Правильный ответ должен совпадать с одним из вариантов.';
   }
   return '';
@@ -216,7 +235,7 @@ function normalizeImportedTask(item, index, sectionCode) {
     : Array.isArray(item?.options)
       ? item.options.map((option) => String(option).trim()).filter(Boolean)
       : splitValues(item?.optionsText || item?.variants || item?.answers);
-  const type = task?.type === 'text-answer' || task?.type === 'text' || options.length === 0 ? 'text-answer' : 'single-choice';
+  const type = isTextAnswerType(task?.type, sectionCode) || options.length === 0 ? 'text-answer' : 'single-choice';
   const title = pickText(task, ['title', 'name']) || `${sectionCode}. Задание ${index + 1}`;
   const prompt = pickText(task, ['prompt', 'question', 'text', 'body']);
   const correctAnswer = answerToText(correct) || pickText(item, ['correctAnswer', 'answer', 'correct', 'rightAnswer']);
@@ -229,7 +248,7 @@ function normalizeImportedTask(item, index, sectionCode) {
   if (!correctAnswer) throw new Error(`Задание ${index + 1}: нет правильного ответа.`);
   if (!explanation) throw new Error(`Задание ${index + 1}: нет объяснения.`);
   if (type !== 'text-answer' && !options.length) throw new Error(`Задание ${index + 1}: нет вариантов ответа.`);
-  if (type !== 'text-answer' && !options.some((option) => option.toLowerCase() === correctAnswer.toLowerCase())) {
+  if (type !== 'text-answer' && !options.some((option) => normalizeTextForCompare(option) === normalizeTextForCompare(correctAnswer))) {
     throw new Error(`Задание ${index + 1}: правильный ответ должен совпадать с одним из вариантов.`);
   }
 
@@ -274,24 +293,41 @@ function exportItem(details) {
 }
 
 function makeImportExample(sectionCode) {
+  const normalizedSection = String(sectionCode || 'A1').toUpperCase();
+  const textAnswer = isBSection(normalizedSection);
+
   return stringifyPretty({
+    schemaVersion: 1,
+    sectionCode: normalizedSection,
     tasks: [
-      {
-        slug: `${String(sectionCode || 'A1').toLowerCase()}-task-1`,
-        title: `${sectionCode || 'A1'}. Задание 1`,
-        prompt: 'Текст задания. Варианты можно писать в prompt или отдельно в data.options.',
-        type: 'single-choice',
-        difficulty: 1,
-        tags: [sectionCode || 'A1', 'ЦТ'],
-        data: { options: ['1', '2', '3', '4'] },
-        correctAnswer: { selected: ['1'] },
-        explanation: { text: 'Короткое объяснение правильного ответа.' },
-        isPublished: true,
-      },
+      textAnswer
+        ? {
+          slug: `${normalizedSection.toLowerCase()}-task-1`,
+          title: `${normalizedSection}. Задание 1`,
+          prompt: 'Запишите ответ словом или буквами.',
+          type: 'text-answer',
+          difficulty: 1,
+          tags: [normalizedSection, 'ЦТ'],
+          data: {},
+          correctAnswer: { value: 'пример' },
+          explanation: { text: 'Краткое объяснение правильного ответа.' },
+          isPublished: true,
+        }
+        : {
+          slug: `${normalizedSection.toLowerCase()}-task-1`,
+          title: `${normalizedSection}. Задание 1`,
+          prompt: 'Текст задания. Варианты можно писать в prompt или отдельно в data.options.',
+          type: 'single-choice',
+          difficulty: 1,
+          tags: [normalizedSection, 'ЦТ'],
+          data: { options: ['1', '2', '3', '4'] },
+          correctAnswer: { selected: ['1'] },
+          explanation: { text: 'Короткое объяснение правильного ответа.' },
+          isPublished: true,
+        },
     ],
   });
 }
-
 function Field({ label, hint, children, required = false }) {
   return (
     <label className="block">
@@ -333,7 +369,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
 
   const canUse = Boolean(sectionCode);
   const isEdit = Boolean(form.id);
-  const isChoice = form.type !== 'text-answer';
+  const isChoice = !isTextAnswerType(form.type, sectionCode);
   const options = useMemo(() => splitValues(form.optionsText), [form.optionsText]);
 
   function setField(name, value) {
@@ -563,25 +599,31 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
 
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Название" required hint="Короткое понятное название карточки."><Input value={form.title} onChange={(e) => setField('title', e.target.value)} /></Field>
-            <Field label="Тип задания">
-              <select
-                value={form.type}
-                onChange={(e) => setForm((prev) => ({
-                  ...prev,
-                  type: e.target.value,
-                  optionsText: e.target.value === 'text-answer' ? '' : (prev.optionsText || '1\n2\n3\n4'),
-                }))}
-                className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 outline-none focus:border-brand-400 dark:border-neutral-800 dark:bg-neutral-950"
-              >
-                <option value="single-choice">Выбор ответа</option>
-                <option value="text-answer">Краткий ответ</option>
-              </select>
+            <Field label="Тип задания" hint={isBSection(sectionCode) ? 'Для B-части всегда используется текстовое поле: ответ словом или буквами.' : ''}>
+              {isBSection(sectionCode) ? (
+                <div className="w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 font-semibold text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
+                  Краткий текстовый ответ
+                </div>
+              ) : (
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm((prev) => ({
+                    ...prev,
+                    type: e.target.value,
+                    optionsText: e.target.value === 'text-answer' ? '' : (prev.optionsText || '1\n2\n3\n4'),
+                  }))}
+                  className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 outline-none focus:border-brand-400 dark:border-neutral-800 dark:bg-neutral-950"
+                >
+                  <option value="single-choice">Выбор ответа</option>
+                  <option value="text-answer">Краткий ответ</option>
+                </select>
+              )}
             </Field>
             <div className="md:col-span-2"><Field label="Текст задания" required><Textarea rows={5} value={form.prompt} onChange={(e) => setField('prompt', e.target.value)} /></Field></div>
             {isChoice ? (
               <div className="md:col-span-2"><Field label="Варианты ответа" required hint={`Каждый вариант с новой строки или через запятую. Сейчас вариантов: ${options.length}.`}><Textarea rows={5} value={form.optionsText} onChange={(e) => setField('optionsText', e.target.value)} /></Field></div>
             ) : null}
-            <Field label="Правильный ответ" required hint={isChoice ? 'Должен совпадать с одним из вариантов.' : 'Для краткого ответа регистр не важен, ё/е нормализуется на бэке.'}><Input value={form.correctAnswer} onChange={(e) => setField('correctAnswer', e.target.value)} /></Field>
+            <Field label="Правильный ответ" required hint={isChoice ? 'Должен совпадать с одним из вариантов.' : 'Для B-части и кратких ответов вводится обычный текст. При проверке не важен регистр, лишние пробелы по краям и ё/е.'}><Input value={form.correctAnswer} onChange={(e) => setField('correctAnswer', e.target.value)} /></Field>
             <Field label="Сложность"><Input type="number" min="1" max="5" value={form.difficulty} onChange={(e) => setField('difficulty', e.target.value)} /></Field>
             <div className="md:col-span-2"><Field label="Объяснение после проверки" required hint="Показывается ученику только после проверки ответа."><Textarea rows={3} value={form.explanation} onChange={(e) => setField('explanation', e.target.value)} /></Field></div>
             <Field label="Теги" hint="Через запятую: A1, орфография, ЦТ."><Input value={form.tagsText} onChange={(e) => setField('tagsText', e.target.value)} /></Field>
@@ -606,7 +648,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
         <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
           <div className="rounded-3xl bg-white p-4 text-sm leading-6 shadow-sm dark:bg-neutral-950">
             <div className="font-bold">Как пользоваться</div>
-            <p className="mt-2 text-neutral-600 dark:text-neutral-300">Экспорт берёт все задания текущего номера вместе с вариантами, правильными ответами и объяснениями. Импорт всегда привязывает задания к текущему номеру {sectionCode}.</p>
+            <p className="mt-2 text-neutral-600 dark:text-neutral-300">Экспорт берёт все задания текущего номера вместе с вариантами, правильными ответами и объяснениями. Импорт всегда привязывает задания к текущему номеру {sectionCode}. Для B-части варианты не нужны: ответ хранится как текст в correctAnswer.value.</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" onClick={exportTasks} disabled={tasks.length === 0 || busy !== ''} className="btn-outline inline-flex items-center gap-2 bg-white disabled:opacity-60 dark:bg-neutral-950"><Download size={16} /> Экспортировать</button>
               <button type="button" onClick={copyJson} className="btn-outline inline-flex items-center gap-2 bg-white dark:bg-neutral-950"><Copy size={16} /> Скопировать</button>

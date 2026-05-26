@@ -359,7 +359,7 @@ app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")]
     var task = new QuizTask
     {
         Slug = req.Slug.Trim(),
-        Type = string.IsNullOrWhiteSpace(req.Type) ? "single-choice" : req.Type.Trim(),
+        Type = NormalizeTaskType(req.Type, req.SectionCode),
         Title = req.Title.Trim(),
         Prompt = req.Prompt.Trim(),
         SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim(),
@@ -403,7 +403,7 @@ app.MapPut("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,Learning
     if (duplicate) return Results.Conflict(new { message = "Task slug already exists" });
 
     task.Slug = newSlug;
-    task.Type = string.IsNullOrWhiteSpace(req.Type) ? "single-choice" : req.Type.Trim();
+    task.Type = NormalizeTaskType(req.Type, req.SectionCode);
     task.Title = req.Title.Trim();
     task.Prompt = req.Prompt.Trim();
     task.SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim();
@@ -516,6 +516,16 @@ static bool CanEditQuiz(ClaimsPrincipal user)
     return user.IsInRole("Admin") || user.IsInRole("LearningEditor");
 }
 
+static string NormalizeTaskType(string? type, string? sectionCode)
+{
+    if (!string.IsNullOrWhiteSpace(sectionCode) && sectionCode.Trim().StartsWith("B", StringComparison.OrdinalIgnoreCase))
+    {
+        return "text-answer";
+    }
+
+    return string.IsNullOrWhiteSpace(type) ? "single-choice" : type.Trim();
+}
+
 static IResult? ValidateTaskRequest(CreateQuizTaskRequest req)
 {
     if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Prompt))
@@ -621,11 +631,20 @@ static string ExtractAnswerText(string answerJson)
         if (root.ValueKind == JsonValueKind.String) return root.GetString() ?? string.Empty;
         if (root.ValueKind == JsonValueKind.Object)
         {
-            if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String) return value.GetString() ?? string.Empty;
-            if (root.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String) return text.GetString() ?? string.Empty;
-            if (root.TryGetProperty("selected", out var selected) && selected.ValueKind == JsonValueKind.Array)
+            foreach (var propName in new[] { "value", "text", "typedText", "answer", "correct" })
             {
-                return string.Join(',', selected.EnumerateArray().Select(x => x.ToString()).Where(x => !string.IsNullOrWhiteSpace(x)));
+                if (root.TryGetProperty(propName, out var prop) && prop.ValueKind == JsonValueKind.String)
+                {
+                    return prop.GetString() ?? string.Empty;
+                }
+            }
+
+            foreach (var propName in new[] { "selected", "values", "answers" })
+            {
+                if (root.TryGetProperty(propName, out var prop) && prop.ValueKind == JsonValueKind.Array)
+                {
+                    return string.Join(',', prop.EnumerateArray().Select(x => x.ToString()).Where(x => !string.IsNullOrWhiteSpace(x)));
+                }
             }
         }
     }
