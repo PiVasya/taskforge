@@ -25,7 +25,7 @@ export default function AssignmentTopSolutionsPage() {
         setAssignment(aData);
         setSolutions(sData);
       } catch (e) {
-        setError(e.message || 'Не удалось загрузить данные');
+        setError(getApiErrorMessage(e, 'Не удалось загрузить данные')); 
       } finally {
         setLoading(false);
       }

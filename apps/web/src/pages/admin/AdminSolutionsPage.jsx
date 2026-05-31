@@ -507,7 +507,7 @@ export default function AdminSolutionsPage() {
       <div className="py-6 space-y-4 min-w-0">
         <h1 className="text-2xl font-semibold">Управление пользователями</h1>
 
-        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">

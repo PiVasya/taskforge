@@ -6,6 +6,7 @@ import QuotaPill from "../components/QuotaPill";
 import { Card, Button, Input, Badge } from "../components/ui";
 
 import { getCourse } from "../api/courses";
+import { getApiErrorMessage } from "../api/http";
 
 import {
   getAssignmentsByCourse,
@@ -94,7 +95,7 @@ export default function CourseAssignmentsPage() {
         }));
         setItems(norm);
       } catch (e) {
-        setErr(e.message || "Ошибка загрузки");
+        setErr(getApiErrorMessage(e, "Не удалось загрузить задания"));
       } finally {
         setLoading(false);
       }
@@ -311,7 +312,7 @@ export default function CourseAssignmentsPage() {
     } catch (e) {
       if (e?.response?.status === 403) {
         notifyOnce("no-edit-course", () =>
-          notify.error(e?.response?.data?.message || "Создание запрещено")
+          notify.error(getApiErrorMessage(e, "Создание запрещено"))
         );
         return;
       }

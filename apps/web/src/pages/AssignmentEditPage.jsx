@@ -5,6 +5,7 @@ import Layout from "../components/Layout";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { extractApiErrorMessages, handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
+import { getApiErrorMessage } from "../api/http";
 
 import { getAssignment, updateAssignment, deleteAssignment } from "../api/assignments";
 import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
@@ -176,7 +177,7 @@ export default function AssignmentEditPage() {
           }
         }
       } catch (e) {
-        handleApiError(e, notify, "Ошибка загрузки задания");
+        handleApiError(e, notify, "Не удалось загрузить задание");
       } finally {
         setLoading(false);
       }
@@ -439,15 +440,15 @@ export default function AssignmentEditPage() {
       
       if (e?.response?.status === 403) {
         notifyOnce("no-edit-assignment", () =>
-          notify.error(e.response?.data?.message || "Нельзя редактировать данное задание")
+          notify.error(getApiErrorMessage(e, "Нельзя редактировать данное задание"))
         );
         nav(`/assignment/${assignmentId}`, { replace: true });
         return;
       }
-      const parsed = extractApiErrorMessages(e, "Ошибка сохранения");
-      setErr(parsed.primaryMessage || "Ошибка сохранения");
+      const parsed = extractApiErrorMessages(e, "Не удалось сохранить задание");
+      setErr(parsed.primaryMessage || "Не удалось сохранить задание");
       setSaveIssues(parsed.messages || []);
-      handleApiError(e, notify, "Ошибка сохранения");
+      handleApiError(e, notify, "Не удалось сохранить задание");
     } finally {
       setBusy(false);
     }
@@ -476,7 +477,7 @@ export default function AssignmentEditPage() {
         nav(`/assignment/${assignmentId}`, { replace: true });
         return;
       }
-      handleApiError(e, notify, "Ошибка удаления");
+      handleApiError(e, notify, "Не удалось удалить задание");
     }
   };
 

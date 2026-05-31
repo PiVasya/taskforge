@@ -7,6 +7,7 @@ import { Card, Field, Input, Button } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { registerUser } from "../api/auth";
 import { UserPlus, LogIn } from "lucide-react";
+import { getApiErrorMessage } from "../api/http";
 
 
 export default function RegisterPage() {
@@ -55,11 +56,7 @@ export default function RegisterPage() {
                 nav("/login", { replace: true });
             }
         } catch (e2) {
-            setErr(
-                e2?.response?.data?.title ||
-                e2?.message ||
-                "Не удалось зарегистрироваться"
-            );
+            setErr(getApiErrorMessage(e2, "Не удалось зарегистрироваться. Проверьте данные и попробуйте ещё раз."));
         } finally {
             setBusy(false);
         }

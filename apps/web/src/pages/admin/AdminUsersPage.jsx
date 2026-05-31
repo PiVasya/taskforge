@@ -149,7 +149,7 @@ export default function AdminUsersPage() {
           <Button onClick={load}><Search size={16} /> <span className="ml-1">Обновить</span></Button>
         </div>
 
-        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <Card><div className="text-sm opacity-70">Показано пользователей</div><div className="text-3xl font-semibold mt-2">{stats.total}</div></Card>

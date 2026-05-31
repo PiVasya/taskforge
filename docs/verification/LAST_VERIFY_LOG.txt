@@ -1,54 +1,20 @@
-[1/14] YAML syntax check
-  ok: .github/workflows/develop-build.yml
-  ok: deploy/dev/compose/00-storage.yaml
-  ok: deploy/dev/compose/10-apps-gateway.yaml
-  ok: deploy/dev/compose/20-core-services.yaml
-  ok: deploy/dev/compose/30-execution.yaml
-  ok: deploy/dev/compose/40-ai-and-analyzers.yaml
-  ok: deploy/dev/compose/50-integrations.yaml
-  ok: deploy/prod/compose/00-storage.yaml
-  ok: deploy/prod/compose/10-apps-gateway.yaml
-  ok: deploy/prod/compose/20-core-services.yaml
-  ok: deploy/prod/compose/30-execution.yaml
-  ok: deploy/prod/compose/40-ai-and-analyzers.yaml
-  ok: deploy/prod/compose/50-integrations.yaml
-  ok: deploy/prod/compose/90-certbot.yaml
-[2/14] dev compose build Dockerfile path check
-  all dev compose build Dockerfiles exist
-[3/14] production split compose uses images only
-  ok: 34 services from split files
-[4/14] compose is split, no giant root/prod compose
-  ok
-[5/14] no Python outside image analyzer
-  ok
-[6/14] EF migrations exist for DB-owning services
-  ok
-[7/14] no empty EF migration Up() bodies
-  ok
-[8/14] no old MIGRATIONS_REQUIRED markers
-  ok
-[9/14] .dockerignore exists and ignores heavy local artifacts
-  ok
-[10/14] extracted monolith sources are excluded from compiled microservices
-  ok
-[11/14] csproj XML syntax
-  ok
-[12/14] Go runner tests
-  go test services/execution/runners/cpp-runner
-?   	taskforge/cpp-runner	[no test files]
-  go test services/execution/runners/image-cpp-runner
-?   	taskforge/image-cpp-runner	[no test files]
-  go test services/execution/runners/image-pascal-runner
-?   	taskforge/image-pascal-runner	[no test files]
-  go test services/execution/runners/java-runner
-?   	taskforge/java-runner	[no test files]
-  go test services/execution/runners/javascript-runner
-?   	taskforge/javascript-runner	[no test files]
-  go test services/execution/runners/pascal-runner
-?   	taskforge/pascal-runner	[no test files]
-[13/14] every compose service has a healthcheck
-  dev: 33 services have healthchecks
-  prod: 34 services have healthchecks
-[14/14] production image names match CI matrix
-  ok
-verification ok
+Verification after user-facing error handling update:
+
+- YAML syntax: ok
+- Dockerfile paths: ok
+- production compose images-only: ok
+- split compose: ok
+- no Python outside image-analyzer: ok
+- EF migrations exist: ok
+- no empty EF migration Up(): ok
+- no old MIGRATIONS_REQUIRED markers: ok
+- .dockerignore: ok
+- extracted sources excluded: ok
+- csproj XML: ok
+- Go runner tests: ok
+- healthchecks: ok
+- frontend technical transport error scan: ok
+- CI/prod images match: ok
+- node --check web api/http.js: ok
+- node --check web-ct api/http.js: ok
+- node --check web handleApiError.js: ok

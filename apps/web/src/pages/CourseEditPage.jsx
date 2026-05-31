@@ -11,6 +11,7 @@ import { Save, Trash2, ArrowLeft, Layers, UserPlus, X } from 'lucide-react';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
+import { getApiErrorMessage } from '../api/http';
 import { useEditorMode } from '../contexts/EditorModeContext';
 
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
@@ -66,8 +67,8 @@ export default function CourseEditPage() {
 
         setGroups(Array.isArray(g) ? g : []);
       } catch (e) {
-        handleApiError(e, notify, 'Ошибка загрузки курса');
-        setErr(e?.userMessage || e?.message || 'Ошибка загрузки курса');
+        handleApiError(e, notify, 'Не удалось загрузить курс');
+        setErr(e?.userMessage || e?.message || 'Не удалось загрузить курс');
       } finally {
         setLoading(false);
       }
@@ -135,12 +136,12 @@ export default function CourseEditPage() {
       nav(`/course/${courseId}`);
     } catch (e) {
       if (e?.response?.status === 403) {
-        notify.error((e.response?.data && e.response.data.message) || 'Недостаточно прав');
+        notify.error(getApiErrorMessage(e, 'Недостаточно прав')); 
         nav(`/course/${courseId}`, { replace: true });
         return;
       }
-      handleApiError(e, notify, 'Ошибка сохранения');
-      setErr(e?.userMessage || e?.message || 'Ошибка сохранения');
+      handleApiError(e, notify, 'Не удалось сохранить');
+      setErr(e?.userMessage || e?.message || 'Не удалось сохранить');
     } finally {
       setBusy(false);
     }
@@ -154,12 +155,12 @@ export default function CourseEditPage() {
       nav('/courses');
     } catch (e) {
       if (e?.response?.status === 403) {
-        notify.error((e.response?.data && e.response.data.message) || 'Недостаточно прав');
+        notify.error(getApiErrorMessage(e, 'Недостаточно прав')); 
         nav(`/course/${courseId}`, { replace: true });
         return;
       }
-      handleApiError(e, notify, 'Ошибка удаления');
-      setErr(e?.userMessage || e?.message || 'Ошибка удаления');
+      handleApiError(e, notify, 'Не удалось удалить');
+      setErr(e?.userMessage || e?.message || 'Не удалось удалить');
     }
   };
 

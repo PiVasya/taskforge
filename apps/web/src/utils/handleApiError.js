@@ -1,7 +1,7 @@
-import { setAccessToken } from '../api/http';
+import { getApiErrorMessage, normalizeApiError, setAccessToken } from '../api/http';
 
 function buildFallbackHowToFix(status, fallbackMessage) {
-  if (status === 400) {
+  if (status === 400 || status === 422) {
     return [
       'Проверьте обязательные поля и попробуйте ещё раз.',
       'Исправьте отмеченные поля, если они показаны на странице.',
@@ -14,128 +14,80 @@ function buildFallbackHowToFix(status, fallbackMessage) {
     return ['Проверьте, есть ли у вас нужная роль или доступ.', 'Если доступ должен быть, обратитесь к администратору.'];
   }
   if (status === 404) {
-    return ['Обновите страницу и проверьте, что объект ещё существует.', 'Если вы перешли по старой ссылке, откройте раздел заново.'];
+    return ['Обновите страницу и откройте раздел заново.', 'Проверьте, что объект ещё существует.'];
   }
   if (status === 409) {
     return ['Обновите страницу и проверьте текущие данные.', 'Повторите действие после обновления.'];
   }
   if (status === 429) {
-    return ['Подождите немного и повторите попытку.', 'Если лимит не должен был сработать, обратитесь к администратору.'];
+    return ['Подождите немного и повторите попытку.'];
   }
   if (status >= 500) {
-    return [
-      'Попробуйте выполнить действие ещё раз чуть позже.',
-      'Если ошибка повторяется, передайте администратору код ошибки или Trace из блока ниже.',
-    ];
+    return ['Попробуйте выполнить действие ещё раз чуть позже.', 'Если проблема повторяется, обратитесь к администратору.'];
   }
   return fallbackMessage ? ['Проверьте введённые данные и повторите действие.'] : [];
 }
 
+function asNotifier(input) {
+  if (!input || input === false) return null;
+  if (input?.notify === false) return null;
+  if (typeof input?.warn === 'function' || typeof input?.error === 'function') return input;
+  return null;
+}
+
 export function extractApiErrorMessages(err, fallbackMessage) {
-  const data = err?.response?.data;
-  const rawErrors = data?.errors;
+  const normalized = err?.normalized || (() => {
+    try { return normalizeApiError(err, fallbackMessage).normalized; } catch { return null; }
+  })();
 
-  const errorList = rawErrors && typeof rawErrors === 'object'
-    ? Object.entries(rawErrors)
-        .flatMap(([field, value]) => {
-          const items = Array.isArray(value) ? value : [value];
-          return items
-            .map((x) => (typeof x === 'string' ? x.trim() : ''))
-            .filter(Boolean)
-            .map((msg) => (field && field !== '$' && field !== 'form' ? `${field}: ${msg}` : msg));
-        })
-        .filter(Boolean)
-    : [];
+  if (normalized) {
+    return {
+      ...normalized,
+      howToFix: normalized.howToFix?.length ? normalized.howToFix : buildFallbackHowToFix(normalized.status, fallbackMessage),
+    };
+  }
 
-  const primaryMessage =
-    data?.message ||
-    data?.error ||
-    data?.detail ||
-    (typeof data === 'string' ? data : null) ||
-    err?.message ||
-    fallbackMessage ||
-    'Произошла ошибка';
-
-  const detail = data?.detail && data?.detail !== primaryMessage ? data.detail : null;
-  const path = data?.path || null;
-  const traceId = data?.traceId || data?.trace || null;
-  const code = data?.code || null;
-  const userHint = data?.userHint || null;
-  const severity = data?.severity || (err?.response?.status === 400 ? 'validation' : err?.response?.status >= 500 ? 'error' : 'warning');
-  const howToFix = Array.isArray(data?.howToFix)
-    ? data.howToFix.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim())
-    : buildFallbackHowToFix(err?.response?.status, fallbackMessage);
-
-  const messages = [primaryMessage, detail, ...errorList].filter(Boolean);
-  const uniqueMessages = [...new Set(messages)];
-
+  const status = err?.response?.status || null;
+  const primaryMessage = getApiErrorMessage(err, fallbackMessage || 'Не удалось выполнить действие');
   return {
-    status: err?.response?.status,
+    status,
     primaryMessage,
-    messages: uniqueMessages,
-    userMessage: uniqueMessages.join('\n'),
-    trace: traceId,
-    traceId,
-    path,
-    code,
-    userHint,
-    howToFix,
-    severity,
-    fieldErrors: rawErrors || null,
+    messages: [primaryMessage],
+    userMessage: primaryMessage,
+    trace: null,
+    traceId: null,
+    path: null,
+    code: null,
+    userHint: null,
+    howToFix: buildFallbackHowToFix(status, fallbackMessage),
+    severity: status === 400 || status === 422 ? 'validation' : status === 401 || status === 403 || status === 404 || status === 409 || status === 429 ? 'warning' : 'error',
+    fieldErrors: null,
   };
 }
 
-export function handleApiError(err, notify, fallbackMessage) {
-  try {
-    const parsed = extractApiErrorMessages(err, fallbackMessage);
-    const { status, primaryMessage, messages } = parsed;
-    const serverMsg = primaryMessage;
-    const combined = messages.join('\n');
+export function handleApiError(err, notifyOrOptions, fallbackMessage) {
+  const parsed = extractApiErrorMessages(err, fallbackMessage);
+  const notify = asNotifier(notifyOrOptions);
 
-    err.userMessage = combined;
-    err.message = combined || err.message;
-
-    if (status === 401) {
-      notify.warn(serverMsg || 'Требуется вход в систему');
-      setAccessToken(null);
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        window.location.assign('/login');
-      }
-      return parsed;
-    }
-    if (status === 403) {
-      notify.error(serverMsg || 'Недостаточно прав');
-      return parsed;
-    }
-    if (status === 404) {
-      notify.warn(serverMsg || 'Не найдено');
-      return parsed;
-    }
-    if (status === 429) {
-      notify.warn(serverMsg || 'Лимит исчерпан. Попробуйте позже.');
-      return parsed;
-    }
-    if (status >= 500) {
-      notify.error(serverMsg || fallbackMessage || 'Ошибка сервера');
-      return parsed;
-    }
-    notify.error(serverMsg || fallbackMessage || 'Произошла ошибка');
-    return parsed;
-  } catch {
-    notify.error(fallbackMessage || 'Произошла ошибка');
-    return {
-      status: null,
-      primaryMessage: fallbackMessage || 'Произошла ошибка',
-      messages: [fallbackMessage || 'Произошла ошибка'],
-      userMessage: fallbackMessage || 'Произошла ошибка',
-      trace: null,
-      traceId: null,
-      path: null,
-      code: null,
-      userHint: null,
-      howToFix: buildFallbackHowToFix(null, fallbackMessage),
-      severity: 'error',
-      fieldErrors: null,
-    };
+  if (err) {
+    err.userMessage = parsed.userMessage || parsed.primaryMessage;
+    err.message = parsed.primaryMessage;
   }
+
+  if (parsed.status === 401) {
+    setAccessToken(null);
+    if (notify) notify.warn?.(parsed.primaryMessage || 'Требуется вход в систему');
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.assign('/login');
+    }
+    return parsed;
+  }
+
+  if (!notify) return parsed;
+  if (parsed.status === 403 || parsed.status === 404 || parsed.status === 409 || parsed.status === 429) {
+    notify.warn?.(parsed.primaryMessage || 'Не удалось выполнить действие');
+    return parsed;
+  }
+  notify.error?.(parsed.primaryMessage || fallbackMessage || 'Не удалось выполнить действие');
+  return parsed;
 }

@@ -1,9 +1,13 @@
 import React from 'react';
 import { AlertCircle, Info, ListChecks } from 'lucide-react';
+import { getApiErrorMessage } from '../api/http';
 
 function normalize(error) {
   if (!error) return null;
-  if (typeof error === 'string') return { primaryMessage: error, messages: [error], severity: 'error' };
+  if (typeof error === 'string') {
+    const msg = getApiErrorMessage({ message: error }, 'Не удалось выполнить действие');
+    return { primaryMessage: msg, messages: [msg], severity: 'error' };
+  }
   return error;
 }
 
@@ -29,7 +33,7 @@ export default function AppErrorPanel({ error, title = 'Не удалось вы
         <div className="min-w-0 flex-1 space-y-2">
           <div>
             <div className="font-semibold">{title}</div>
-            <div className="text-sm whitespace-pre-wrap">{e.primaryMessage || messages[0] || 'Произошла ошибка'}</div>
+            <div className="text-sm whitespace-pre-wrap">{e.primaryMessage || messages[0] || 'Не удалось выполнить действие'}</div>
           </div>
 
           {e.userHint ? (

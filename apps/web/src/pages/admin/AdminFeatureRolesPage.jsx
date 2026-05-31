@@ -153,7 +153,7 @@ export default function AdminFeatureRolesPage() {
             <div className="flex items-start gap-2">
               <AlertTriangle size={18} className="mt-0.5" />
               <div>
-                <div className="font-medium">Ошибка админ-раздела</div>
+                <div className="font-medium">Не удалось загрузить админ-раздел</div>
                 <div className="text-sm mt-1 whitespace-pre-wrap">{pageError}</div>
               </div>
             </div>

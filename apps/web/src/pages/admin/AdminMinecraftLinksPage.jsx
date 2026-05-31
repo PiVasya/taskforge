@@ -39,7 +39,7 @@ export default function AdminMinecraftLinksPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {pageError ? <AppErrorPanel error={pageError} title="Ошибка админ-раздела" /> : null}
+        {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>

@@ -93,7 +93,7 @@ app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, Id
     var user = await db.Users.FirstOrDefaultAsync(x => x.Email == email);
     if (user == null || !VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash))
     {
-        return Results.Unauthorized();
+        return Unauthorized("Неверный e-mail или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
     }
 
     user.LastLoginAt = DateTimeOffset.UtcNow;
@@ -117,11 +117,11 @@ app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, 
 {
     var principal = ValidateToken(ReadCookie(http, "tf_rt"), cfg, validateLifetime: true);
     var uid = principal == null ? null : TryGetUserId(principal);
-    if (uid == null) return Results.Unauthorized();
-    if (!string.Equals(principal!.FindFirstValue("token_type"), "refresh", StringComparison.OrdinalIgnoreCase)) return Results.Unauthorized();
+    if (uid == null) return Unauthorized("Сессия истекла. Войдите заново.");
+    if (!string.Equals(principal!.FindFirstValue("token_type"), "refresh", StringComparison.OrdinalIgnoreCase)) return Unauthorized("Сессия истекла. Войдите заново.");
 
     var user = await db.Users.FindAsync(uid.Value);
-    if (user == null) return Results.Unauthorized();
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
 
     var accessLifetime = TimeSpan.FromMinutes(cfg.GetValue<int?>("Jwt:ExpireMinutes") ?? 120);
     var refreshLifetime = TimeSpan.FromDays(7);
@@ -140,13 +140,13 @@ app.MapPost("/api/auth/logout", (HttpContext http) =>
 app.MapGet("/api/profile", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    return user == null ? Results.Unauthorized() : Results.Ok(ToProfile(user));
+    return user == null ? Unauthorized("Сессия истекла. Войдите заново.") : Results.Ok(ToProfile(user));
 });
 
 app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    if (user == null) return Results.Unauthorized();
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     user.FirstName = (request.FirstName ?? user.FirstName).Trim();
     user.LastName = (request.LastName ?? user.LastName).Trim();
     await db.SaveChangesAsync();
@@ -156,7 +156,7 @@ app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http
 app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    if (user == null) return Results.Unauthorized();
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.CurrentPassword ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный текущий пароль" });
     var salt = NewSalt();
     user.PasswordSalt = salt;
@@ -168,7 +168,7 @@ app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request
 app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    if (user == null) return Results.Unauthorized();
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный пароль" });
     var email = NormalizeEmail(request.NewEmail);
     if (await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id)) return Results.BadRequest(new { message = "Email уже занят" });
@@ -180,7 +180,7 @@ app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, Http
 app.MapGet("/api/me/ui-settings", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    if (user == null) return Results.Unauthorized();
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     var row = await db.UiSettings.FindAsync(user.Id);
     if (row == null)
     {
@@ -194,7 +194,7 @@ app.MapGet("/api/me/ui-settings", async (HttpContext http, IdentityDbContext db,
 app.MapPut("/api/me/ui-settings", async (JsonElement payload, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    if (user == null) return Results.Unauthorized();
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     var row = await db.UiSettings.FindAsync(user.Id);
     if (row == null)
     {
@@ -310,6 +310,7 @@ app.MapDelete("/api/integrations/telegram/unlink", () => Results.Ok(new { linked
 
 app.Run();
 
+static IResult Unauthorized(string message, string code = "UNAUTHORIZED") => Results.Json(new { message, code, severity = "warning" }, statusCode: StatusCodes.Status401Unauthorized);
 static string NormalizeEmail(string? email) => (email ?? string.Empty).Trim().ToLowerInvariant();
 static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
 static string HashPassword(string password, string salt)

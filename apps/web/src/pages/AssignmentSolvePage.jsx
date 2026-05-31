@@ -17,6 +17,7 @@ import { submitSolution } from '../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 import { extractApiErrorMessages } from '../utils/handleApiError';
+import { getApiErrorMessage } from '../api/http';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { useRoleFlags } from '../contexts/EditorModeContext';
@@ -220,7 +221,7 @@ export default function AssignmentSolvePage() {
 
         if (data?.starterCode) setCode(data.starterCode);
       } catch (e) {
-        const msg = e?.response?.data?.error || e?.message || 'Не удалось загрузить задание';
+        const msg = getApiErrorMessage(e, 'Не удалось загрузить задание');
         if (alive) {
           setError(msg);
           notify.error(msg);
@@ -328,7 +329,7 @@ export default function AssignmentSolvePage() {
       try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
       window.open(`/assignment/${assignmentId}/results`, '_blank', 'noopener,noreferrer');
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.message || 'Не удалось отправить решение';
+      const msg = getApiErrorMessage(e, 'Не удалось отправить решение');
       setError(msg);
       notify.error(msg);
     } finally {
