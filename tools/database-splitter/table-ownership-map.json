@@ -1,0 +1,11 @@
+{
+  "identity": ["Users", "FeatureRoles", "UserFeatureRoles", "UserUiSettings", "UserLoginLogs"],
+  "education": ["Courses", "CourseOwners", "CourseVisibleGroups", "UserGroups", "UserGroupMembers"],
+  "tasks": ["TaskAssignments", "TaskTestCases", "TaskTestSettings", "TaskTestQuestions", "TaskMathSettings", "TaskMathBlocks"],
+  "solutions": ["UserTaskSolutions", "UserImageTaskSolutions", "UserTaskTestAttempts", "UserTaskMathAttempts", "UserQuotaBuckets", "Badges", "UserBadges"],
+  "ai": ["AgentConversations", "AgentMessages", "AgentRuns", "AgentSteps", "AgentRunArtifacts"],
+  "support": ["SupportTickets", "SupportMessages"],
+  "minecraft": ["MinecraftLinkCodes", "MinecraftWeeklyJoins", "MinecraftEconomySettings", "MinecraftChatMessages"],
+  "notifications": ["TelegramLinkCodes"],
+  "observability": ["RequestLogs", "UserActionLogs"]
+}

@@ -1,0 +1,170 @@
+services:
+  execution-api:
+    build:
+      context: ../../..
+      dockerfile: services/execution/api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      RabbitMq__Host: rabbitmq
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}
+      S3__Endpoint: http://minio:9000
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_execution;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  execution-worker:
+    build:
+      context: ../../..
+      dockerfile: services/execution/worker/Dockerfile
+    environment:
+      RabbitMq__Host: rabbitmq
+      Runners__Cpp: http://cpp-runner:8080
+      Runners__CSharp: http://csharp-runner:8080
+      Runners__Java: http://java-runner:8080
+      Runners__Javascript: http://javascript-runner:8080
+      Runners__Pascal: http://pascal-runner:8080
+      Runners__ImageCpp: http://image-cpp-runner:8000
+      Runners__ImagePascal: http://image-pascal-runner:8000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cpp-runner:
+        condition: service_healthy
+      csharp-runner:
+        condition: service_healthy
+      java-runner:
+        condition: service_healthy
+      javascript-runner:
+        condition: service_healthy
+      pascal-runner:
+        condition: service_healthy
+      image-cpp-runner:
+        condition: service_healthy
+      image-pascal-runner:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  csharp-runner:
+    build:
+      context: ../../../services/execution/runners/csharp-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  cpp-runner:
+    build:
+      context: ../../../services/execution/runners/cpp-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  java-runner:
+    build:
+      context: ../../../services/execution/runners/java-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  javascript-runner:
+    build:
+      context: ../../../services/execution/runners/javascript-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  pascal-runner:
+    build:
+      context: ../../../services/execution/runners/pascal-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  image-cpp-runner:
+    build:
+      context: ../../../services/execution/runners/image-cpp-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8000'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+  image-pascal-runner:
+    build:
+      context: ../../../services/execution/runners/image-pascal-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8000'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s

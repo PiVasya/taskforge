@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replace-me
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: replace-me
+  template:
+    metadata:
+      labels:
+        app: replace-me
+    spec:
+      containers:
+        - name: app
+          image: replace-me
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080

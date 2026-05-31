@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SolutionVerdictChanged",
+  "type": "object",
+  "required": ["eventId", "occurredAt", "submissionId", "userId", "taskId", "verdict", "scoreDelta", "isAccepted"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "submissionId": { "type": "string", "format": "uuid" },
+    "userId": { "type": "string", "format": "uuid" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "verdict": { "type": "string" },
+    "scoreDelta": { "type": "integer" },
+    "isAccepted": { "type": "boolean" }
+  }
+}
