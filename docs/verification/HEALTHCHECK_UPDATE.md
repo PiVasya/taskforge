@@ -12,4 +12,4 @@
 - Python вне `services/analyzers/image-analyzer` отсутствует.
 - EF `Migrations/` директории отсутствуют.
 
-Миграции не генерировались.
+Миграции теперь хранятся в репозитории как baseline `InitialMicroserviceSchema`.

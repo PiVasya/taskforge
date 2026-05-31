@@ -32,7 +32,15 @@
 
 ## Миграции
 
-Миграции не генерировались специально. В каждом сервисе, который владеет БД, лежит `MIGRATIONS_REQUIRED.md`.
+Миграции хранятся в репозитории по владельцам данных. Каждый DB-owning сервис имеет собственную папку `Migrations` и собственный `ModelSnapshot`.
+
+Текущий baseline: `InitialMicroserviceSchema`.
+
+Новые изменения схемы добавляются через безопасный скрипт:
+
+```bash
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+```
 
 ## Рейтинг
 

@@ -14,7 +14,24 @@ PROD_COMPOSE_FILES=(
   deploy/prod/compose/90-certbot.yaml
 )
 
-echo "[1/12] YAML syntax check"
+MIGRATION_DIRS=(
+  services/identity/api/Migrations
+  services/education/api/Migrations
+  services/content/api/Migrations
+  services/tasks/assignment-api/Migrations
+  services/tasks/quiz-api/Migrations
+  services/solutions/api/Migrations
+  services/execution/api/Migrations
+  services/ai/api/Migrations
+  services/support/api/Migrations
+  services/minecraft/api/Migrations
+  services/files/api/Migrations
+  services/notifications/api/Migrations
+  services/observability/api/Migrations
+  services/bots/telegram-quiz-bot/Data/Migrations
+)
+
+echo "[1/14] YAML syntax check"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -25,7 +42,7 @@ for f in files:
     print(f'  ok: {f}')
 PY
 
-echo "[2/12] dev compose build Dockerfile path check"
+echo "[2/14] dev compose build Dockerfile path check"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -53,7 +70,7 @@ if missing:
 print('  all dev compose build Dockerfiles exist')
 PY
 
-echo "[3/12] production split compose uses images only"
+echo "[3/14] production split compose uses images only"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -75,7 +92,7 @@ if len(services) < 20:
 print('  ok:', len(services), 'services from split files')
 PY
 
-echo "[4/12] compose is split, no giant root/prod compose"
+echo "[4/14] compose is split, no giant root/prod compose"
 if [ -f deploy/prod/compose.prod.yaml ]; then
   echo "  deploy/prod/compose.prod.yaml still exists"
   exit 1
@@ -92,7 +109,7 @@ for f in "${PROD_COMPOSE_FILES[@]}"; do
 done
 printf '  ok\n'
 
-echo "[5/12] no Python outside image analyzer"
+echo "[5/14] no Python outside image analyzer"
 bad=$(find . -name '*.py' ! -path './services/analyzers/image-analyzer/*' | sort)
 if [ -n "$bad" ]; then
   echo "$bad"
@@ -100,37 +117,69 @@ if [ -n "$bad" ]; then
 fi
 printf '  ok\n'
 
-echo "[6/12] no generated EF Migrations directories"
-bad=$(find . -type d -name Migrations | sort)
+echo "[6/14] EF migrations exist for DB-owning services"
+for d in "${MIGRATION_DIRS[@]}"; do
+  [ -d "$d" ] || { echo "  missing migration dir: $d"; exit 1; }
+  snapshot_count=$(find "$d" -maxdepth 1 -name '*ModelSnapshot.cs' | wc -l)
+  migration_count=$(find "$d" -maxdepth 1 -name '*.cs' ! -name '*Designer.cs' ! -name '*ModelSnapshot.cs' | wc -l)
+  [ "$snapshot_count" -eq 1 ] || { echo "  expected exactly one ModelSnapshot in $d, got $snapshot_count"; exit 1; }
+  [ "$migration_count" -ge 1 ] || { echo "  expected at least one migration in $d"; exit 1; }
+done
+printf '  ok\n'
+
+echo "[7/14] no empty EF migration Up() bodies"
+python3 - <<'PY'
+from pathlib import Path
+import re
+bad=[]
+files=[]
+for root in [Path('services')]:
+    files.extend(root.glob('**/Migrations/*.cs'))
+    files.extend(root.glob('**/Data/Migrations/*.cs'))
+seen=set()
+for p in sorted(files):
+    if p in seen:
+        continue
+    seen.add(p)
+    if p.name.endswith('Designer.cs') or p.name.endswith('ModelSnapshot.cs'):
+        continue
+    text=p.read_text(encoding='utf-8')
+    m=re.search(r'protected override void Up\(MigrationBuilder migrationBuilder\)\s*\{(?P<body>.*?)\n\s*\}', text, re.S)
+    body=m.group('body').strip() if m else ''
+    if not body:
+        bad.append(str(p))
+if bad:
+    print('  empty migrations:')
+    for x in bad:
+        print('   ', x)
+    raise SystemExit(1)
+print('  ok')
+PY
+
+echo "[8/14] no old MIGRATIONS_REQUIRED markers"
+bad=$(find services -name MIGRATIONS_REQUIRED.md | sort)
 if [ -n "$bad" ]; then
   echo "$bad"
   exit 1
 fi
 printf '  ok\n'
 
-echo "[7/12] migration markers exist for DB-owning services"
-required=(
-  services/identity/api/MIGRATIONS_REQUIRED.md
-  services/education/api/MIGRATIONS_REQUIRED.md
-  services/content/api/MIGRATIONS_REQUIRED.md
-  services/tasks/assignment-api/MIGRATIONS_REQUIRED.md
-  services/tasks/quiz-api/MIGRATIONS_REQUIRED.md
-  services/solutions/api/MIGRATIONS_REQUIRED.md
-  services/execution/api/MIGRATIONS_REQUIRED.md
-  services/ai/api/MIGRATIONS_REQUIRED.md
-  services/support/api/MIGRATIONS_REQUIRED.md
-  services/minecraft/api/MIGRATIONS_REQUIRED.md
-  services/files/api/MIGRATIONS_REQUIRED.md
-  services/notifications/api/MIGRATIONS_REQUIRED.md
-  services/observability/api/MIGRATIONS_REQUIRED.md
-  services/bots/telegram-quiz-bot/MIGRATIONS_REQUIRED.md
-)
-for f in "${required[@]}"; do
-  [ -f "$f" ] || { echo "missing $f"; exit 1; }
-done
-printf '  ok\n'
+echo "[9/14] .dockerignore exists and ignores heavy local artifacts"
+python3 - <<'PY'
+from pathlib import Path
+p=Path('.dockerignore')
+if not p.exists():
+    raise SystemExit('  missing .dockerignore')
+text=p.read_text()
+required=['**/bin','**/obj','**/node_modules','deploy/dev/logs','deploy/prod/logs','*.zip','.env','!**/Migrations/**']
+missing=[x for x in required if x not in text]
+if missing:
+    print('  .dockerignore missing patterns:', missing)
+    raise SystemExit(1)
+print('  ok')
+PY
 
-echo "[8/12] extracted monolith sources are excluded from compiled microservices"
+echo "[10/14] extracted monolith sources are excluded from compiled microservices"
 python3 - <<'PY'
 from pathlib import Path
 bad=[]
@@ -149,8 +198,7 @@ if bad:
 print('  ok')
 PY
 
-
-echo "[9/12] csproj XML syntax"
+echo "[11/14] csproj XML syntax"
 python3 - <<'PY'
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -159,7 +207,7 @@ for p in Path('.').glob('**/*.csproj'):
 print('  ok')
 PY
 
-echo "[10/12] Go runner tests"
+echo "[12/14] Go runner tests"
 for d in services/execution/runners/*; do
   if [ -f "$d/go.mod" ]; then
     echo "  go test $d"
@@ -167,7 +215,7 @@ for d in services/execution/runners/*; do
   fi
 done
 
-echo "[11/12] every compose service has a healthcheck"
+echo "[13/14] every compose service has a healthcheck"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -188,7 +236,7 @@ for env in ['dev','prod']:
     print(f'  {env}: {total} services have healthchecks')
 PY
 
-echo "[12/12] production image names match CI matrix"
+echo "[14/14] production image names match CI matrix"
 python3 - <<'PY'
 from pathlib import Path
 import re, yaml

@@ -1,20 +1,24 @@
 # TaskForge real microservices cut
 
-Это целевой микросервисный апдейт проекта без Python runtime-сервисов, кроме разрешённого `services/analyzers/image-analyzer`.
+Целевой микросервисный апдейт проекта без Python runtime-сервисов, кроме разрешённого `services/analyzers/image-analyzer`.
 
 ## Запуск dev
 
 ```bash
 cp deploy/dev/.env.example deploy/dev/.env
-./deploy/dev/compose.sh up --build
+./deploy/dev/compose.sh up-logs --build
 ```
 
-Gateway:
+Gateway по умолчанию:
 
 ```text
-http://localhost:8080
-http://taskforge.local:8080      # если прописал hosts
-http://ct.taskforge.local:8080   # CT ветка, если прописал hosts
+http://localhost:18080
+```
+
+Если нужен старый порт `8080`, поменяй в `deploy/dev/.env`:
+
+```text
+DEV_GATEWAY_HTTP_PORT=8080
 ```
 
 ## Production запуск
@@ -54,36 +58,76 @@ docs/                 архитектура и эксплуатация
 deploy/               dev/prod split compose окружения
 ```
 
+## Миграции
+
+В `develop` миграции теперь являются частью исходного кода.
+
+Правило:
+
+```text
+один DB-owning сервис = один DbContext = одна папка Migrations = своя история миграций
+```
+
+В репозитории есть чистый baseline:
+
+```text
+InitialMicroserviceSchema
+```
+
+Для новых изменений схемы используй безопасный скрипт:
+
+```bash
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+```
+
+Он сначала вызывает `dotnet ef migrations has-pending-model-changes` и создаёт миграцию только если EF видит реальные изменения модели.
+
+Если нужно принудительно создать миграцию, есть отдельный опасный скрипт:
+
+```bash
+./scripts/generate-migrations-force.sh MigrationName
+```
+
+Его не надо использовать каждый день, потому что он может создать пустые миграции.
+
+Автоприменение миграций в compose оставлено и управляется:
+
+```text
+MIGRATE_ON_STARTUP=true
+ENSURE_CREATED=false
+```
+
 ## Важно
 
-- Миграции не генерировались.
-- Автоприменение миграций оставлено и управляется `MIGRATE_ON_STARTUP=true/false`.
-- В каждом сервисе-владельце БД есть `MIGRATIONS_REQUIRED.md`.
 - Старые исходники core API не выброшены, а разложены по `extracted/` внутри доменных сервисов.
 - `extracted/` исключены из компиляции сервисов и нужны как migration-reference, чтобы не потерять старую логику.
 - Раннеры stateless и живут внутри `services/execution/runners`.
-- Запуск кода должен идти через `execution-api` + очередь + `execution-worker`.
-- AI теперь имеет отдельную границу `ai-api` + `ai-worker` + БД `taskforge_ai`.
+- Запуск кода идёт через `execution-api` + очередь + `execution-worker`.
+- AI имеет отдельную границу `ai-api` + `ai-worker` + БД `taskforge_ai`.
 - Рейтинг вынесен в materialized read-model: `UserRatings` / `LeaderboardEntries` + `rating-worker`.
+- Root `.dockerignore` добавлен, чтобы Docker build context не тащил локальные логи, `bin/obj`, `node_modules`, архивы и дампы.
 
 ## Проверка структуры
 
 ```bash
-scripts/verify-structure.sh
+./scripts/verify-structure.sh
 ```
 
-Проверяет YAML, split production compose, Dockerfile paths, отсутствие Python вне `image-analyzer`, отсутствие EF `Migrations/`, наличие `MIGRATIONS_REQUIRED.md`, исключение `extracted/` из компиляции и Go runner tests.
+Проверяет YAML, split compose, Dockerfile paths, отсутствие Python вне `image-analyzer`, наличие миграций и `ModelSnapshot` у DB-owning сервисов, отсутствие пустых миграций, отсутствие старых `MIGRATIONS_REQUIRED.md`, healthcheck'и, `.dockerignore`, исключение `extracted/` из компиляции и Go runner tests.
 
-## Runtime compatibility note
+## Frontend compatibility note
 
-The frontend keeps the legacy `/api/...` contract. Gateway splits those paths to the appropriate microservices.
-If you update from an older generated archive, regenerate EF migrations because several service schemas changed:
+Фронт сохраняет старый `/api/...` контракт. Gateway делит эти пути по микросервисам:
 
-```bash
-./scripts/generate-migrations.sh ProjectLaunch
+```text
+/api/auth/*        -> identity-api
+/api/courses*      -> education-api
+/api/assignments*  -> tasks-api / solutions-api по назначению
+/api/compiler/*    -> execution-api
+/api/agent/*       -> ai-api
 ```
 
-For a clean local DB:
+Для чистого локального dev-старта:
 
 ```bash
 ./deploy/dev/compose.sh down --remove-orphans -v

@@ -22,6 +22,6 @@ This update addresses the issues observed after the stack started successfully:
 
 ## Not changed
 
-- EF migrations were not generated.
+- EF migrations are tracked in the repository as `InitialMicroserviceSchema`.
 - Telegram tokens are still optional in dev. Without tokens the service is healthy, but teacher/student bots are disabled.
 - The AI worker does not process real jobs until `ai-api` dispatch/persistence is implemented.

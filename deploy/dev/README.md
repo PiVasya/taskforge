@@ -27,7 +27,7 @@ cp deploy/dev/.env.example deploy/dev/.env
 - Использует `build:` и собирает сервисы из локального кода.
 - Использует `ASPNETCORE_ENVIRONMENT=Development`.
 - Gateway открыт на `http://localhost:18080` по умолчанию. Если нужен старый порт, поменяй `DEV_GATEWAY_HTTP_PORT=8080` в `deploy/dev/.env`, но только если порт свободен.
-- Миграции не сгенерированы в архиве, но автоприменение включается через `MIGRATE_ON_STARTUP=true` после того, как ты добавишь миграции сам.
+- Миграции лежат в репозитории как baseline `InitialMicroserviceSchema`; автоприменение включается через `MIGRATE_ON_STARTUP=true`.
 ## Если порт занят
 
 Dev gateway по умолчанию использует порт `18080`, чтобы не конфликтовать с уже занятым `8080`. Изменить можно в `deploy/dev/.env`:

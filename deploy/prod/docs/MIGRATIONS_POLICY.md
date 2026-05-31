@@ -1,8 +1,55 @@
 # Политика миграций
 
-Миграции в архиве не сгенерированы. Файлы `MIGRATIONS_REQUIRED.md` лежат только в сервисах-владельцах БД.
+В `develop` EF migrations хранятся в репозитории.
 
-Генерацию миграций делает только владелец проекта. Архив не содержит сгенерированных EF migration classes.
+Правило проекта:
+
+```text
+один DB-owning сервис = один DbContext = одна папка Migrations = своя история миграций
+```
+
+Текущий baseline называется:
+
+```text
+InitialMicroserviceSchema
+```
+
+## Где лежат миграции
+
+```text
+services/identity/api/Migrations
+services/education/api/Migrations
+services/content/api/Migrations
+services/tasks/assignment-api/Migrations
+services/tasks/quiz-api/Migrations
+services/solutions/api/Migrations
+services/execution/api/Migrations
+services/ai/api/Migrations
+services/support/api/Migrations
+services/minecraft/api/Migrations
+services/files/api/Migrations
+services/notifications/api/Migrations
+services/observability/api/Migrations
+services/bots/telegram-quiz-bot/Data/Migrations
+```
+
+## Как добавлять новые миграции
+
+Обычная разработка:
+
+```bash
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+```
+
+Этот скрипт проверяет pending model changes и создаёт миграцию только для тех DbContext, где модель реально изменилась.
+
+Принудительный режим:
+
+```bash
+./scripts/generate-migrations-force.sh MigrationName
+```
+
+`force`-скрипт нужен редко. Он может создать пустые миграции, поэтому не используй его для обычной разработки.
 
 ## Автоприменение
 
@@ -26,26 +73,9 @@ TelegramQuiz__ApplyMigrationsOnStartup=true
 
 `ENSURE_CREATED=false` по умолчанию, чтобы не смешивать `EnsureCreated` и нормальные EF migrations.
 
-## Где генерировать миграции
-
-- `services/identity/api`
-- `services/education/api`
-- `services/content/api`
-- `services/tasks/assignment-api`
-- `services/tasks/quiz-api`
-- `services/solutions/api`
-- `services/execution/api`
-- `services/ai/api`
-- `services/support/api`
-- `services/minecraft/api`
-- `services/files/api`
-- `services/notifications/api`
-- `services/observability/api`
-- `services/bots/telegram-quiz-bot`, если оставляется локальное состояние бота
-
 ## Важное для будущего Kubernetes
 
-Для одного Docker Compose production-сервера автоприменение допустимо.
+Для одного Docker Compose production-сервера startup auto-migrate допустим.
 
 Для Kubernetes и replicas лучше заменить startup-migrate на отдельные migration jobs/bundles:
 

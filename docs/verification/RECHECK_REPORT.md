@@ -27,7 +27,7 @@
 - Нет root `compose.yaml` и нет монолитного prod compose.
 - Python вне `services/analyzers/image-analyzer` отсутствует.
 - EF `Migrations/` директории отсутствуют.
-- `MIGRATIONS_REQUIRED.md` присутствуют у DB-owning сервисов.
+- DB-owning сервисы имеют EF migrations и ModelSnapshot; старые `MIGRATIONS_REQUIRED.md` удалены.
 - `extracted/` исключён из компиляции микросервисов.
 - `.csproj` XML синтаксис валиден.
 - Go runner tests проходят.

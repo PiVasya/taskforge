@@ -1,27 +1,33 @@
-# Где генерить миграции потом
+# Миграции микросервисов
 
-Миграции в архиве не генерировались.
+В `develop` миграции хранятся в репозитории.
 
-Генерить только в сервисах-владельцах БД:
+## Текущий baseline
 
 ```text
-services/identity/api
-services/education/api
-services/content/api
-services/tasks/assignment-api
-services/tasks/quiz-api
-services/solutions/api
-services/execution/api
-services/ai/api
-services/support/api
-services/minecraft/api
-services/files/api
-services/notifications/api
-services/observability/api
-services/bots/telegram-quiz-bot, если оставляем локальное состояние бота
+InitialMicroserviceSchema
 ```
 
-Не генерить миграции здесь:
+## DB-owning сервисы
+
+```text
+services/identity/api/Migrations
+services/education/api/Migrations
+services/content/api/Migrations
+services/tasks/assignment-api/Migrations
+services/tasks/quiz-api/Migrations
+services/solutions/api/Migrations
+services/execution/api/Migrations
+services/ai/api/Migrations
+services/support/api/Migrations
+services/minecraft/api/Migrations
+services/files/api/Migrations
+services/notifications/api/Migrations
+services/observability/api/Migrations
+services/bots/telegram-quiz-bot/Data/Migrations
+```
+
+## Не генерить миграции здесь
 
 ```text
 apps/*
@@ -34,14 +40,28 @@ services/bots/support-bot
 plugins/*
 ```
 
+## Обычная команда
+
+```bash
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+```
+
+Скрипт безопасный: сначала проверяет `has-pending-model-changes`, потом создаёт миграцию только при реальном изменении модели.
+
+## Принудительная команда
+
+```bash
+./scripts/generate-migrations-force.sh MigrationName
+```
+
+Использовать редко. Может создать пустые миграции.
+
 ## Автоприменение
 
-Автоприменение миграций оставлено и управляется переменной:
+Docker Compose применяет миграции на старте сервисов, если включено:
 
 ```text
 MIGRATE_ON_STARTUP=true
 ```
-
-Для Docker Compose это удобно: ты сам генерируешь миграции, кладёшь их в нужный сервис, а сервис применяет их при старте.
 
 Для Kubernetes/replicas позже лучше заменить startup-migrate на отдельный migrator job, чтобы несколько replicas одного API не применяли одну миграцию одновременно.

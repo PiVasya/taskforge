@@ -23,11 +23,11 @@ microservices instead of forcing the frontend to know service names.
 
 ## Important
 
-Migrations are intentionally not generated in the archive. After this update the service schemas changed,
+Migrations are now tracked in the repository. After service schemas change,
 so generate migrations locally before running a clean dev DB:
 
 ```bash
-./scripts/generate-migrations.sh ProjectLaunch
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange
 ```
 
 For a clean dev run:
