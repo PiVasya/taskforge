@@ -8,69 +8,143 @@ on:
   workflow_dispatch:
     inputs:
       build_all:
-        description: Build all images
+        description: Build all project images
         type: boolean
         default: false
+      images:
+        description: Optional comma-separated image names to build, for example identity-api,front,ai-worker
+        type: string
+        required: false
+        default: ""
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
+      - uses: actions/checkout@v5
         with:
-          filters: |
-            gateway: ['apps/gateway/**']
-            front: ['apps/web/**']
-            front_ct: ['apps/web-ct/**']
-            identity: ['services/identity/**', 'contracts/**']
-            education: ['services/education/**', 'contracts/**']
-            content: ['services/content/**', 'contracts/**']
-            tasks: ['services/tasks/**', 'contracts/**']
-            solutions: ['services/solutions/**', 'contracts/**']
-            execution: ['services/execution/**', 'contracts/**']
-            ai: ['services/ai/**', 'contracts/**']
-            support: ['services/support/**', 'services/bots/support-bot/**', 'contracts/**']
-            minecraft: ['services/minecraft/**', 'plugins/minecraft/**', 'contracts/**']
-            files: ['services/files/**', 'contracts/**']
-            notifications: ['services/notifications/**', 'contracts/**']
-            observability: ['services/observability/**', 'contracts/**']
-            analyzers: ['services/analyzers/**']
-            bots: ['services/bots/**']
-            infra: ['infrastructure/**', 'deploy/**', '.github/workflows/develop-build.yml']
+          fetch-depth: 0
+
       - id: matrix
         shell: bash
         run: |
           set -euo pipefail
-          all='${{ github.event.inputs.build_all }}'
+
+          build_all="${{ github.event.inputs.build_all || 'false' }}"
+          requested_images="${{ github.event.inputs.images || '' }}"
+
+          # name|docker build context|dockerfile relative to context|paths that affect this image
+          # Keep paths as tight as possible: changing one microservice rebuilds only that image.
+          images=(
+            "gateway|./apps/gateway|Dockerfile|apps/gateway/"
+            "front|./apps/web|Dockerfile|apps/web/"
+            "front-ct|./apps/web-ct|Dockerfile|apps/web-ct/"
+
+            "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ .dockerignore"
+            "education-api|.|services/education/api/Dockerfile|services/education/api/ .dockerignore"
+            "content-api|./services/content/api|Dockerfile|services/content/api/"
+            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ .dockerignore"
+            "quiz-api|./services/tasks/quiz-api|Dockerfile|services/tasks/quiz-api/"
+            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ .dockerignore"
+            "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ .dockerignore"
+
+            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ .dockerignore"
+            "execution-worker|.|services/execution/worker/Dockerfile|services/execution/worker/ .dockerignore"
+            "csharp-runner|./services/execution/runners/csharp-runner|Dockerfile|services/execution/runners/csharp-runner/"
+            "cpp-runner|./services/execution/runners/cpp-runner|Dockerfile|services/execution/runners/cpp-runner/"
+            "java-runner|./services/execution/runners/java-runner|Dockerfile|services/execution/runners/java-runner/"
+            "javascript-runner|./services/execution/runners/javascript-runner|Dockerfile|services/execution/runners/javascript-runner/"
+            "pascal-runner|./services/execution/runners/pascal-runner|Dockerfile|services/execution/runners/pascal-runner/"
+            "image-cpp-runner|./services/execution/runners/image-cpp-runner|Dockerfile|services/execution/runners/image-cpp-runner/"
+            "image-pascal-runner|./services/execution/runners/image-pascal-runner|Dockerfile|services/execution/runners/image-pascal-runner/"
+
+            "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ .dockerignore"
+            "ai-worker|./services/ai/worker|Dockerfile|services/ai/worker/"
+            "code-analyzer|./services/analyzers/code-analyzer|Dockerfile|services/analyzers/code-analyzer/"
+            "image-analyzer|./services/analyzers/image-analyzer|Dockerfile|services/analyzers/image-analyzer/"
+
+            "support-api|.|services/support/api/Dockerfile|services/support/api/ .dockerignore"
+            "support-bot|.|services/bots/support-bot/Dockerfile|services/bots/support-bot/ .dockerignore"
+            "minecraft-api|.|services/minecraft/api/Dockerfile|services/minecraft/api/ .dockerignore"
+            "files-api|.|services/files/api/Dockerfile|services/files/api/ .dockerignore"
+            "notifications-api|.|services/notifications/api/Dockerfile|services/notifications/api/ .dockerignore"
+            "observability-api|.|services/observability/api/Dockerfile|services/observability/api/ .dockerignore"
+            "telegram-quiz-bot|./services/bots/telegram-quiz-bot|Dockerfile|services/bots/telegram-quiz-bot/"
+          )
+
+          changed_files=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              changed_files="$(git diff --name-only HEAD~1 HEAD || git ls-files)"
+            else
+              changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
+            fi
+          fi
+
+          echo "Changed files:"
+          if [ -n "$changed_files" ]; then
+            printf '%s\n' "$changed_files"
+          else
+            echo "  <none>"
+          fi
+
+          is_requested() {
+            local name="$1"
+            [ -n "$requested_images" ] || return 1
+            local normalized=",${requested_images// /},"
+            [[ "$normalized" == *",$name,"* ]]
+          }
+
+          path_changed() {
+            local path
+            for path in "$@"; do
+              [ -n "$path" ] || continue
+              while IFS= read -r changed; do
+                [ -n "$changed" ] || continue
+                if [[ "$changed" == "$path"* ]] || [[ "$changed" == "$path" ]]; then
+                  return 0
+                fi
+              done <<< "$changed_files"
+            done
+            return 1
+          }
+
           items=()
-          add() { items+=("{\"name\":\"$1\",\"context\":\"$2\",\"dockerfile\":\"$3\"}"); }
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.gateway }}" = "true" ]; then add gateway ./apps/gateway Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.front }}" = "true" ]; then add front ./apps/web Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.front_ct }}" = "true" ]; then add front-ct ./apps/web-ct Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.identity }}" = "true" ]; then add identity-api . services/identity/api/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.education }}" = "true" ]; then add education-api . services/education/api/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.content }}" = "true" ]; then add content-api ./services/content/api Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.tasks }}" = "true" ]; then add tasks-api . services/tasks/assignment-api/Dockerfile; add quiz-api ./services/tasks/quiz-api Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.solutions }}" = "true" ]; then add solutions-api . services/solutions/api/Dockerfile; add rating-worker . services/solutions/rating-worker/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.execution }}" = "true" ]; then add execution-api . services/execution/api/Dockerfile; add execution-worker . services/execution/worker/Dockerfile; add csharp-runner ./services/execution/runners/csharp-runner Dockerfile; add cpp-runner ./services/execution/runners/cpp-runner Dockerfile; add java-runner ./services/execution/runners/java-runner Dockerfile; add javascript-runner ./services/execution/runners/javascript-runner Dockerfile; add pascal-runner ./services/execution/runners/pascal-runner Dockerfile; add image-cpp-runner ./services/execution/runners/image-cpp-runner Dockerfile; add image-pascal-runner ./services/execution/runners/image-pascal-runner Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.ai }}" = "true" ]; then add ai-api . services/ai/api/Dockerfile; add ai-worker ./services/ai/worker Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.support }}" = "true" ]; then add support-api . services/support/api/Dockerfile; add support-bot . services/bots/support-bot/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.minecraft }}" = "true" ]; then add minecraft-api . services/minecraft/api/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.files }}" = "true" ]; then add files-api . services/files/api/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.notifications }}" = "true" ]; then add notifications-api . services/notifications/api/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.observability }}" = "true" ]; then add observability-api . services/observability/api/Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.analyzers }}" = "true" ]; then add code-analyzer ./services/analyzers/code-analyzer Dockerfile; add image-analyzer ./services/analyzers/image-analyzer Dockerfile; fi
-          if [ "$all" = "true" ] || [ "${{ steps.filter.outputs.bots }}" = "true" ]; then add telegram-quiz-bot ./services/bots/telegram-quiz-bot Dockerfile; fi
-          if [ ${#items[@]} -eq 0 ]; then echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"; else printf -v joined ',%s' "${items[@]}"; echo "matrix={\"include\":[${joined:1}]}" >> "$GITHUB_OUTPUT"; fi
+          add() {
+            items+=("{\"name\":\"$1\",\"context\":\"$2\",\"dockerfile\":\"$3\"}")
+          }
+
+          for spec in "${images[@]}"; do
+            IFS='|' read -r name context dockerfile paths <<< "$spec"
+            read -r -a path_array <<< "$paths"
+
+            if [ "$build_all" = "true" ] || is_requested "$name" || path_changed "${path_array[@]}"; then
+              add "$name" "$context" "$dockerfile"
+            fi
+          done
+
+          if [ ${#items[@]} -eq 0 ]; then
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo 'count=0' >> "$GITHUB_OUTPUT"
+            echo "No image changes detected. Docker build matrix is empty."
+          else
+            printf -v joined ',%s' "${items[@]}"
+            echo "matrix={\"include\":[${joined:1}]}" >> "$GITHUB_OUTPUT"
+            echo "count=${#items[@]}" >> "$GITHUB_OUTPUT"
+            echo "Selected ${#items[@]} image(s):"
+            printf '  %s\n' "${items[@]}"
+          fi
 
   compose-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: cp deploy/dev/.env.example deploy/dev/.env
       - run: ./deploy/dev/compose.sh config
       - run: cp deploy/prod/.env.example deploy/prod/.env
@@ -87,7 +161,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         if: github.event_name == 'push'

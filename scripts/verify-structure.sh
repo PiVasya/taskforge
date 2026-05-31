@@ -31,7 +31,7 @@ MIGRATION_DIRS=(
   services/bots/telegram-quiz-bot/Data/Migrations
 )
 
-echo "[1/16] YAML syntax check"
+echo "[1/17] YAML syntax check"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -42,7 +42,7 @@ for f in files:
     print(f'  ok: {f}')
 PY
 
-echo "[2/16] dev compose build Dockerfile path check"
+echo "[2/17] dev compose build Dockerfile path check"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -70,7 +70,7 @@ if missing:
 print('  all dev compose build Dockerfiles exist')
 PY
 
-echo "[3/16] production split compose uses images only"
+echo "[3/17] production split compose uses images only"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -92,7 +92,7 @@ if len(services) < 20:
 print('  ok:', len(services), 'services from split files')
 PY
 
-echo "[4/16] compose is split, no giant root/prod compose"
+echo "[4/17] compose is split, no giant root/prod compose"
 if [ -f deploy/prod/compose.prod.yaml ]; then
   echo "  deploy/prod/compose.prod.yaml still exists"
   exit 1
@@ -109,7 +109,7 @@ for f in "${PROD_COMPOSE_FILES[@]}"; do
 done
 printf '  ok\n'
 
-echo "[5/16] no Python outside image analyzer"
+echo "[5/17] no Python outside image analyzer"
 bad=$(find . -name '*.py' ! -path './services/analyzers/image-analyzer/*' | sort)
 if [ -n "$bad" ]; then
   echo "$bad"
@@ -117,7 +117,7 @@ if [ -n "$bad" ]; then
 fi
 printf '  ok\n'
 
-echo "[6/16] EF migrations exist for DB-owning services"
+echo "[6/17] EF migrations exist for DB-owning services"
 for d in "${MIGRATION_DIRS[@]}"; do
   [ -d "$d" ] || { echo "  missing migration dir: $d"; exit 1; }
   snapshot_count=$(find "$d" -maxdepth 1 -name '*ModelSnapshot.cs' | wc -l)
@@ -127,7 +127,7 @@ for d in "${MIGRATION_DIRS[@]}"; do
 done
 printf '  ok\n'
 
-echo "[7/16] no empty EF migration Up() bodies"
+echo "[7/17] no empty EF migration Up() bodies"
 python3 - <<'PY'
 from pathlib import Path
 import re
@@ -156,7 +156,7 @@ if bad:
 print('  ok')
 PY
 
-echo "[8/16] no old MIGRATIONS_REQUIRED markers"
+echo "[8/17] no old MIGRATIONS_REQUIRED markers"
 bad=$(find services -name MIGRATIONS_REQUIRED.md | sort)
 if [ -n "$bad" ]; then
   echo "$bad"
@@ -164,7 +164,7 @@ if [ -n "$bad" ]; then
 fi
 printf '  ok\n'
 
-echo "[9/16] .dockerignore exists and ignores heavy local artifacts"
+echo "[9/17] .dockerignore exists and ignores heavy local artifacts"
 python3 - <<'PY'
 from pathlib import Path
 p=Path('.dockerignore')
@@ -179,7 +179,7 @@ if missing:
 print('  ok')
 PY
 
-echo "[10/16] extracted monolith sources are excluded from compiled microservices"
+echo "[10/17] extracted monolith sources are excluded from compiled microservices"
 python3 - <<'PY'
 from pathlib import Path
 bad=[]
@@ -198,7 +198,7 @@ if bad:
 print('  ok')
 PY
 
-echo "[11/16] csproj XML syntax"
+echo "[11/17] csproj XML syntax"
 python3 - <<'PY'
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -207,7 +207,7 @@ for p in Path('.').glob('**/*.csproj'):
 print('  ok')
 PY
 
-echo "[12/16] Go runner tests"
+echo "[12/17] Go runner tests"
 for d in services/execution/runners/*; do
   if [ -f "$d/go.mod" ]; then
     echo "  go test $d"
@@ -215,7 +215,7 @@ for d in services/execution/runners/*; do
   fi
 done
 
-echo "[13/16] every compose service has a healthcheck"
+echo "[13/17] every compose service has a healthcheck"
 python3 - <<'PY'
 from pathlib import Path
 import yaml
@@ -236,7 +236,7 @@ for env in ['dev','prod']:
     print(f'  {env}: {total} services have healthchecks')
 PY
 
-echo "[14/16] frontend does not expose technical transport errors"
+echo "[14/17] frontend does not expose technical transport errors"
 python3 - <<'PY_FRONT'
 from pathlib import Path
 import re
@@ -263,12 +263,12 @@ if bad:
 print('  ok')
 PY_FRONT
 
-echo "[15/16] production image names match CI matrix"
+echo "[15/17] production image names match CI image manifest"
 python3 - <<'PY'
 from pathlib import Path
 import re, yaml
 workflow = Path('.github/workflows/develop-build.yml').read_text()
-ci = set(re.findall(r'add ([a-z0-9-]+) ', workflow))
+ci = set(re.findall(r'^\s*"([a-z0-9-]+)\|', workflow, re.M))
 prod = set()
 for f in sorted(Path('deploy/prod/compose').glob('*.yaml')):
     cfg = yaml.safe_load(f.read_text()) or {}
@@ -285,11 +285,32 @@ if missing or extra:
     print('missing in CI:', missing)
     print('CI not in prod:', extra)
     raise SystemExit(1)
+if len(ci) != 30:
+    print('expected 30 custom build images in CI manifest, got', len(ci))
+    print(sorted(ci))
+    raise SystemExit(1)
+print('  ok:', len(ci), 'custom images')
+PY
+
+
+echo "[16/17] GitHub Actions selective build is image-level, not domain-level"
+python3 - <<'PY'
+from pathlib import Path
+text = Path('.github/workflows/develop-build.yml').read_text()
+for broad in ['services/tasks/**', 'services/execution/**', 'services/ai/**', 'services/bots/**', 'services/solutions/**']:
+    if broad in text:
+        raise SystemExit(f'  broad path filter still exists: {broad}')
+if 'dorny/paths-filter' in text:
+    raise SystemExit('  dorny/paths-filter is still used; use explicit image manifest selection instead')
+if 'images=(' not in text:
+    raise SystemExit('  workflow does not define the image manifest')
+if 'workflow_dispatch:' not in text or 'build_all:' not in text or 'images:' not in text:
+    raise SystemExit('  workflow must support manual full build and manual selected images')
 print('  ok')
 PY
 
 
-echo "[16/16] GitHub Actions GHCR tags are lowercase-safe"
+echo "[17/17] GitHub Actions GHCR tags are lowercase-safe"
 python3 - <<'PY'
 from pathlib import Path
 text = Path('.github/workflows/develop-build.yml').read_text()

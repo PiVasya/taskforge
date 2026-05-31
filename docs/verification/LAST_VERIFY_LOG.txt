@@ -1,4 +1,4 @@
-[1/16] YAML syntax check
+[1/17] YAML syntax check
   ok: .github/workflows/develop-build.yml
   ok: deploy/dev/compose/00-storage.yaml
   ok: deploy/dev/compose/10-apps-gateway.yaml
@@ -13,27 +13,27 @@
   ok: deploy/prod/compose/40-ai-and-analyzers.yaml
   ok: deploy/prod/compose/50-integrations.yaml
   ok: deploy/prod/compose/90-certbot.yaml
-[2/16] dev compose build Dockerfile path check
+[2/17] dev compose build Dockerfile path check
   all dev compose build Dockerfiles exist
-[3/16] production split compose uses images only
+[3/17] production split compose uses images only
   ok: 34 services from split files
-[4/16] compose is split, no giant root/prod compose
+[4/17] compose is split, no giant root/prod compose
   ok
-[5/16] no Python outside image analyzer
+[5/17] no Python outside image analyzer
   ok
-[6/16] EF migrations exist for DB-owning services
+[6/17] EF migrations exist for DB-owning services
   ok
-[7/16] no empty EF migration Up() bodies
+[7/17] no empty EF migration Up() bodies
   ok
-[8/16] no old MIGRATIONS_REQUIRED markers
+[8/17] no old MIGRATIONS_REQUIRED markers
   ok
-[9/16] .dockerignore exists and ignores heavy local artifacts
+[9/17] .dockerignore exists and ignores heavy local artifacts
   ok
-[10/16] extracted monolith sources are excluded from compiled microservices
+[10/17] extracted monolith sources are excluded from compiled microservices
   ok
-[11/16] csproj XML syntax
+[11/17] csproj XML syntax
   ok
-[12/16] Go runner tests
+[12/17] Go runner tests
   go test services/execution/runners/cpp-runner
 ?   	taskforge/cpp-runner	[no test files]
   go test services/execution/runners/image-cpp-runner
@@ -46,13 +46,15 @@
 ?   	taskforge/javascript-runner	[no test files]
   go test services/execution/runners/pascal-runner
 ?   	taskforge/pascal-runner	[no test files]
-[13/16] every compose service has a healthcheck
+[13/17] every compose service has a healthcheck
   dev: 33 services have healthchecks
   prod: 34 services have healthchecks
-[14/16] frontend does not expose technical transport errors
+[14/17] frontend does not expose technical transport errors
   ok
-[15/16] production image names match CI matrix
+[15/17] production image names match CI image manifest
+  ok: 30 custom images
+[16/17] GitHub Actions selective build is image-level, not domain-level
   ok
-[16/16] GitHub Actions GHCR tags are lowercase-safe
+[17/17] GitHub Actions GHCR tags are lowercase-safe
   ok
 verification ok
