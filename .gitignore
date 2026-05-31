@@ -449,4 +449,220 @@ nbdist/
 # Local environment files
 .env
 .env.*
+*.env.local
+*.local.env
+
+# Keep examples
 !.env.example
+!**/.env.example
+
+# Local compose overrides
+compose.override.yml
+compose.override.yaml
+docker-compose.override.yml
+docker-compose.override.yaml
+**/compose.override.yml
+**/compose.override.yaml
+**/docker-compose.override.yml
+**/docker-compose.override.yaml
+
+# -------------------------
+# TaskForge compose logs
+# -------------------------
+deploy/dev/logs/
+deploy/prod/logs/
+**/startup-*.log
+**/logs-tail-*.log
+**/ps.txt
+**/inspect-*.json
+
+# -------------------------
+# Docker / local runtime data
+# If someone maps volumes to folders, do not commit them.
+# -------------------------
+.docker/
+.docker-data/
+docker-data/
+docker-volumes/
+volumes/
+
+pgdata/
+postgres-data/
+rabbitmq-data/
+minio-data/
+
+letsencrypt/
+certbot/www/
+certbot/conf/
+
+# -------------------------
+# .NET / EF Core / NuGet noise
+# -------------------------
+**/bin/
+**/obj/
+**/TestResults/
+**/coverage/
+**/coverage-report/
+**/*.trx
+**/*.coverage
+**/*.coveragexml
+**/*.binlog
+
+**/project.assets.json
+**/project.nuget.cache
+**/*.nuget.dgspec.json
+**/packages.lock.json.tmp
+
+# EF migrations are source files when generated intentionally.
+# Do NOT hide them accidentally.
+!**/Migrations/
+!**/Migrations/**
+!**/Data/Migrations/
+!**/Data/Migrations/**
+
+# -------------------------
+# Frontend / Node / Vite / React
+# -------------------------
+**/node_modules/
+**/.npm/
+**/.pnpm-store/
+**/.yarn/cache/
+**/.yarn/unplugged/
+**/.yarn/build-state.yml
+**/.yarn/install-state.gz
+
+**/.vite/
+**/.vitest/
+**/.turbo/
+**/.next/
+**/.nuxt/
+**/.svelte-kit/
+
+**/dist/
+**/build/
+**/coverage/
+**/playwright-report/
+**/test-results/
+
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Keep lockfiles
+!**/package-lock.json
+!**/pnpm-lock.yaml
+!**/yarn.lock
+
+# Keep Yarn Berry source metadata if used
+!**/.yarn/releases/**
+!**/.yarn/plugins/**
+!**/.yarn/sdks/**
+!**/.yarn/versions/**
+
+# -------------------------
+# Go runner artifacts
+# -------------------------
+*.test
+*.prof
+coverage.out
+**/coverage.out
+
+**/runner
+**/image-runner
+services/execution/runners/*/runner
+services/execution/runners/*/image-runner
+
+# -------------------------
+# Rust artifacts
+# -------------------------
+target/
+**/target/
+Cargo.lock.tmp
+
+# -------------------------
+# Python image analyzer noise
+# -------------------------
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.coverage
+**/.coverage.*
+**/htmlcov/
+
+**/.venv/
+**/venv/
+**/env/
+
+services/analyzers/image-analyzer/.cache/
+services/analyzers/image-analyzer/models/
+services/analyzers/image-analyzer/.huggingface/
+services/analyzers/image-analyzer/.hf/
+
+# -------------------------
+# Java / Minecraft plugin artifacts
+# -------------------------
+**/*.class
+**/*.jar
+**/*.war
+**/*.ear
+**/build/
+**/.gradle/
+**/target/
+
+# Keep wrappers/configs that are source
+!**/gradlew
+!**/gradlew.bat
+!**/gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.properties
+!**/pom.xml
+!**/build.gradle
+!**/build.gradle.kts
+!**/settings.gradle
+!**/settings.gradle.kts
+
+# -------------------------
+# IDE / OS / local helpers
+# -------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.directory
+
+# -------------------------
+# Local archives / dumps / backups
+# -------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+*.bak
+*.backup
+*.dump
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+
+# -------------------------
+# Generated reports/artifacts
+# -------------------------
+artifacts/
+reports/
+coverage/
+.tmp/
+tmp/
+temp/

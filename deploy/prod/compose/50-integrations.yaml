@@ -1,0 +1,233 @@
+services:
+  support-api:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/support-api:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
+      S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_support;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  support-bot:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/support-bot:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      SupportApi__BaseUrl: http://support-api:8080
+      Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
+    depends_on:
+      support-api:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  minecraft-api:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/minecraft-api:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
+      S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_minecraft;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  files-api:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/files-api:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
+      S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_files;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  notifications-api:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/notifications-api:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
+      S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_notifications;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  observability-api:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/observability-api:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
+      S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_observability;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  telegram-quiz-bot:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/telegram-quiz-bot:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__TelegramQuizDb: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
+      TelegramQuiz__TeacherBotToken: ${TELEGRAM_TEACHER_BOT_TOKEN:-}
+      TelegramQuiz__StudentBotToken: ${TELEGRAM_STUDENT_BOT_TOKEN:-}
+      TelegramQuiz__TeacherPassword: ${TELEGRAM_TEACHER_PASSWORD:-}
+      TelegramQuiz__ApplyMigrationsOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      TaskForge__ApiBaseUrl: http://gateway
+      TaskForge__InternalKey: ${TASKFORGE_INTERNAL_KEY:-}
+      S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -qO- http://127.0.0.1:8080/ready >/dev/null 2>&1 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s

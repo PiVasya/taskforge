@@ -1,0 +1,20 @@
+Verification after user-facing error handling update:
+
+- YAML syntax: ok
+- Dockerfile paths: ok
+- production compose images-only: ok
+- split compose: ok
+- no Python outside image-analyzer: ok
+- EF migrations exist: ok
+- no empty EF migration Up(): ok
+- no old MIGRATIONS_REQUIRED markers: ok
+- .dockerignore: ok
+- extracted sources excluded: ok
+- csproj XML: ok
+- Go runner tests: ok
+- healthchecks: ok
+- frontend technical transport error scan: ok
+- CI/prod images match: ok
+- node --check web api/http.js: ok
+- node --check web-ct api/http.js: ok
+- node --check web handleApiError.js: ok

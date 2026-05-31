@@ -1,0 +1,17 @@
+services:
+  certbot:
+    image: certbot/certbot:latest
+    profiles:
+    - certbot
+    volumes:
+    - letsencrypt:/etc/letsencrypt
+    - certbot-webroot:/var/www/certbot
+    command: certonly --webroot --webroot-path=/var/www/certbot --email ${LETSENCRYPT_EMAIL:?set
+      LETSENCRYPT_EMAIL} --agree-tos --no-eff-email -d ${DOMAIN:?set DOMAIN} -d ${CT_DOMAIN:?set
+      CT_DOMAIN}
+    depends_on: {}
+    healthcheck:
+      disable: true
+volumes:
+  letsencrypt: null
+  certbot-webroot: null

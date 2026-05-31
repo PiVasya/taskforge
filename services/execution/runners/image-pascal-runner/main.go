@@ -1,0 +1,435 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+const maxTextLen = 1_000_000
+
+type renderRequest struct {
+	Source          string  `json:"source"`
+	Stdin           *string `json:"stdin"`
+	TimeoutSeconds  *int    `json:"timeoutSeconds"`
+	TimeoutSeconds2 *int    `json:"timeout_seconds"`
+	Debug           bool    `json:"debug"`
+}
+
+type renderDebugResponse struct {
+	PngBase64 string `json:"pngBase64,omitempty"`
+	Stdout    string `json:"stdout"`
+	Stderr    string `json:"stderr"`
+}
+
+type execOutput struct {
+	ExitCode int
+	Stdout   string
+	Stderr   string
+	TimedOut bool
+}
+
+type captureOutput struct {
+	PNG    []byte
+	Stdout string
+	Stderr string
+	Err    string
+}
+
+type limitedBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	left := b.max - b.buf.Len()
+	if left > 0 {
+		if len(p) > left {
+			_, _ = b.buf.Write(p[:left])
+		} else {
+			_, _ = b.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (b *limitedBuffer) String() string {
+	return strings.ReplaceAll(b.buf.String(), "\r\n", "\n")
+}
+
+func env(name, fallback string) string {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+func timeout(req renderRequest) int {
+	if req.TimeoutSeconds2 != nil && *req.TimeoutSeconds2 > 0 {
+		return clamp(*req.TimeoutSeconds2, 1, 120)
+	}
+	if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
+		return clamp(*req.TimeoutSeconds, 1, 120)
+	}
+	return 20
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "..." + s[len(s)-n:]
+}
+
+func runCommand(name string, args []string, cwd string, input string, seconds int, extraEnv []string) execOutput {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Stdin = strings.NewReader(input)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdout := &limitedBuffer{max: maxTextLen}
+	stderr := &limitedBuffer{max: maxTextLen}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		return execOutput{ExitCode: 127, Stderr: err.Error()}
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = cmd.Process.Kill()
+		}
+		_ = <-done
+		return execOutput{ExitCode: 124, Stdout: stdout.String(), Stderr: "Time limit exceeded", TimedOut: true}
+	}
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		} else {
+			code = 1
+			if stderr.buf.Len() == 0 {
+				_, _ = io.WriteString(stderr, err.Error())
+			}
+		}
+	}
+	return execOutput{ExitCode: code, Stdout: stdout.String(), Stderr: stderr.String()}
+}
+
+func sendJSON(w http.ResponseWriter, code int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func sendError(w http.ResponseWriter, code int, message string, stdout string, stderr string) {
+	sendJSON(w, code, map[string]any{"detail": map[string]string{"message": message, "stdout": tail(stdout, 8000), "stderr": tail(stderr, 8000)}})
+}
+
+func decodeJSON(r *http.Request, out any) error {
+	defer r.Body.Close()
+	dec := json.NewDecoder(io.LimitReader(r.Body, 32<<20))
+	return dec.Decode(out)
+}
+
+func compileCpp(source string, dir string, timeoutSec int) (string, string, int) {
+	src := filepath.Join(dir, "main.cpp")
+	exe := filepath.Join(dir, "main")
+	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
+		return err.Error(), "", 1
+	}
+	res := runCommand("g++", []string{src, "-O2", "-std=c++17", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	return res.Stdout + res.Stderr, exe, res.ExitCode
+}
+
+func compilePascal(source string, dir string, timeoutSec int) (string, string, int) {
+	if strings.Contains(strings.ToLower(source), "drawman") {
+		return "DrawMan is not supported in pascal image runner. Use GraphABC.", "", 2
+	}
+	src := filepath.Join(dir, "main.pas")
+	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
+		return err.Error(), "", 1
+	}
+	compiler := env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
+	res := runCommand("mono", []string{compiler, src}, dir, "", clamp(timeoutSec, 6, 60), nil)
+	if res.ExitCode != 0 {
+		return res.Stdout + res.Stderr, "", res.ExitCode
+	}
+	candidate := filepath.Join(dir, "main.exe")
+	if _, err := os.Stat(candidate); err == nil {
+		return res.Stdout + res.Stderr, candidate, 0
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.exe"))
+	if len(matches) == 0 {
+		return res.Stdout + res.Stderr + "\ncompile succeeded but no .exe produced", "", 1
+	}
+	return res.Stdout + res.Stderr, matches[0], 0
+}
+
+func fileMTime(path string) time.Time {
+	st, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return st.ModTime()
+}
+
+func findOutputFile(dir string) string {
+	for _, n := range []string{"out.png", "out.ppm", "out.bmp", "out.jpg", "out.jpeg"} {
+		p := filepath.Join(dir, n)
+		if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+			return p
+		}
+	}
+	entries, _ := os.ReadDir(dir)
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if ext == ".png" || ext == ".ppm" || ext == ".bmp" || ext == ".jpg" || ext == ".jpeg" {
+			if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+				files = append(files, p)
+			}
+		}
+	}
+	sort.Slice(files, func(i, j int) bool { return fileMTime(files[i]).After(fileMTime(files[j])) })
+	if len(files) == 0 {
+		return ""
+	}
+	return files[0]
+}
+
+func convertToPNG(path string, dir string) ([]byte, error) {
+	if strings.EqualFold(filepath.Ext(path), ".png") {
+		return os.ReadFile(path)
+	}
+	out := filepath.Join(dir, "converted.png")
+	res := runCommand("convert", []string{path, out}, dir, "", 10, nil)
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("image conversion failed: %s", tail(res.Stdout+res.Stderr, 4000))
+	}
+	return os.ReadFile(out)
+}
+
+func startLongProcess(name string, args []string, cwd string, input string, envs []string) (*exec.Cmd, *limitedBuffer, *limitedBuffer, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), envs...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdout := &limitedBuffer{max: maxTextLen}
+	stderr := &limitedBuffer{max: maxTextLen}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if input != "" {
+		pipe, err := cmd.StdinPipe()
+		if err == nil {
+			go func() {
+				_, _ = io.WriteString(pipe, input)
+				if !strings.HasSuffix(input, "\n") {
+					_, _ = io.WriteString(pipe, "\n")
+				}
+				_ = pipe.Close()
+			}()
+		}
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, stdout, stderr, err
+	}
+	return cmd, stdout, stderr, nil
+}
+
+func stopProc(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() { _, _ = cmd.Process.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(1500 * time.Millisecond):
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Process.Kill()
+	}
+}
+
+func firstWindowID(pid int, display string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "xdotool", "search", "--onlyvisible", "--pid", strconv.Itoa(pid))
+	cmd.Env = append(os.Environ(), "DISPLAY="+display)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[len(ids)-1]
+}
+
+func captureExecutable(exe string, dir string, stdin string, timeoutSec int) captureOutput {
+	display := fmt.Sprintf(":%d", 90+rand.Intn(1000))
+	xvfb, _, xvfbErr, err := startLongProcess("Xvfb", []string{display, "-screen", "0", env("TF_XVFB_SCREEN", "1280x1024x24")}, dir, "", nil)
+	if err != nil {
+		return captureOutput{Err: "failed to start Xvfb: " + err.Error() + " " + xvfbErr.String()}
+	}
+	defer stopProc(xvfb)
+	time.Sleep(500 * time.Millisecond)
+
+	wm, _, _, _ := startLongProcess("openbox", nil, dir, "", []string{"DISPLAY=" + display})
+	defer stopProc(wm)
+	time.Sleep(350 * time.Millisecond)
+
+	proc, stdout, stderr, err := startLongProcess(exe, nil, dir, stdin, []string{"DISPLAY=" + display})
+	if err != nil {
+		return captureOutput{Err: "failed to start program: " + err.Error()}
+	}
+	defer stopProc(proc)
+
+	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
+	screenshot := filepath.Join(dir, "captured.png")
+	var windowID string
+	for time.Now().Before(deadline) {
+		if out := findOutputFile(dir); out != "" {
+			png, convErr := convertToPNG(out, dir)
+			if convErr == nil {
+				return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
+			}
+		}
+		if proc.ProcessState != nil && proc.ProcessState.Exited() {
+			break
+		}
+		if windowID == "" {
+			windowID = firstWindowID(proc.Process.Pid, display)
+		}
+		if windowID != "" {
+			res := runCommand("import", []string{"-display", display, "-window", windowID, screenshot}, dir, "", 4, nil)
+			if res.ExitCode == 0 {
+				if st, statErr := os.Stat(screenshot); statErr == nil && st.Size() > 0 {
+					png, readErr := os.ReadFile(screenshot)
+					if readErr == nil {
+						return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
+					}
+				}
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: "Rendering failed or timed out"}
+}
+
+func handleRender(kind string, debug bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var req renderRequest
+		if err := decodeJSON(r, &req); err != nil {
+			sendError(w, http.StatusBadRequest, err.Error(), "", "")
+			return
+		}
+		if strings.TrimSpace(req.Source) == "" {
+			sendError(w, http.StatusBadRequest, "source is required", "", "")
+			return
+		}
+		timeoutSec := timeout(req)
+		dir, err := os.MkdirTemp("", "taskforge-image-"+kind+"-")
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, err.Error(), "", "")
+			return
+		}
+		defer os.RemoveAll(dir)
+
+		var compileOut, exe string
+		var code int
+		if kind == "pascal" {
+			compileOut, exe, code = compilePascal(req.Source, dir, timeoutSec)
+		} else {
+			compileOut, exe, code = compileCpp(req.Source, dir, timeoutSec)
+		}
+		if code != 0 {
+			sendError(w, http.StatusBadRequest, "Compilation failed", "", compileOut)
+			return
+		}
+		cap := captureExecutable(exe, dir, value(req.Stdin), timeoutSec)
+		if len(cap.PNG) == 0 {
+			sendError(w, http.StatusBadRequest, cap.Err, cap.Stdout, cap.Stderr)
+			return
+		}
+		if debug {
+			sendJSON(w, http.StatusOK, renderDebugResponse{PngBase64: base64.StdEncoding.EncodeToString(cap.PNG), Stdout: cap.Stdout, Stderr: cap.Stderr})
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(cap.PNG)
+	}
+}
+
+func value(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func main() {
+	kind := env("IMAGE_RUNNER_KIND", "cpp")
+	port := env("PORT", "8000")
+	rand.Seed(time.Now().UnixNano())
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		sendJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "image-" + kind + "-runner", "runtime": "go", "go": runtime.Version()})
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		sendJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/render", handleRender(kind, false))
+	mux.HandleFunc("/render/debug", handleRender(kind, true))
+	log.Printf("image-%s-runner listening on :%s", kind, port)
+	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+}

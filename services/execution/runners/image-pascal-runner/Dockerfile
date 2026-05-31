@@ -1,0 +1,50 @@
+FROM golang:1.23-bookworm AS build
+WORKDIR /src
+COPY go.mod ./
+COPY main.go ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-runner .
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates wget curl unzip p7zip-full \
+    mono-complete libgdiplus \
+    xvfb xauth xdotool x11-utils openbox imagemagick \
+    fonts-dejavu-core libgtk2.0-0 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/pabcnetc \
+  && (curl -fL --retry 3 --retry-all-errors \
+        -A "Mozilla/5.0" \
+        -e "https://pascalabc.net/ssyilki-dlya-skachivaniya" \
+        -o /tmp/PABCNETC.zip \
+        https://pascalabc.net/downloads/PABCNETC.zip \
+      || curl -fL --retry 3 --retry-all-errors \
+        -A "Mozilla/5.0" \
+        -e "https://pascalabc.net/ssyilki-dlya-skachivaniya" \
+        -o /tmp/PABCNETC.zip \
+        http://pascalabc.net/downloads/PABCNETC.zip \
+      || wget --tries=3 --timeout=30 \
+        --user-agent="Mozilla/5.0" \
+        --referer="https://pascalabc.net/ssyilki-dlya-skachivaniya" \
+        -O /tmp/PABCNETC.zip \
+        https://pascalabc.net/downloads/PABCNETC.zip) \
+  && (7z x -y -bd -o/opt/pabcnetc /tmp/PABCNETC.zip >/tmp/pabcnetc-extract.log \
+      || unzip -q -O cp866 /tmp/PABCNETC.zip -d /opt/pabcnetc \
+      || unzip -q /tmp/PABCNETC.zip -d /opt/pabcnetc) \
+  && found="$(find /opt/pabcnetc -maxdepth 8 -iname 'pabcnetc.exe' -print -quit)" \
+  && if [ -z "$found" ]; then echo "pabcnetc.exe was not found after extraction"; cat /tmp/pabcnetc-extract.log 2>/dev/null || true; find /opt/pabcnetc -maxdepth 4 -type f | sed -n '1,120p'; exit 1; fi \
+  && target="/opt/pabcnetc/pabcnetc.exe" \
+  && if [ "$found" != "$target" ]; then ln -sfn "$found" "$target"; fi \
+  && test -f "$target" \
+  && rm -f /tmp/PABCNETC.zip /tmp/pabcnetc-extract.log
+
+ENV MONO_REGISTRY_PATH=/tmp/mono-registry \
+    PABCNETC=/opt/pabcnetc/pabcnetc.exe
+RUN mkdir -p /tmp/mono-registry/LocalMachine
+
+WORKDIR /app
+COPY --from=build /out/image-runner /app/image-runner
+ENV IMAGE_RUNNER_KIND=pascal PORT=8000
+EXPOSE 8000
+ENTRYPOINT ["/app/image-runner"]

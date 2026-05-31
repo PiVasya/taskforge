@@ -1,0 +1,85 @@
+services:
+  ai-api:
+    build:
+      context: ../../..
+      dockerfile: services/ai/api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      RabbitMq__Host: rabbitmq
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Database__EnsureCreated: ${ENSURE_CREATED:-false}
+      Jwt__Key: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}
+      S3__Endpoint: http://minio:9000
+      S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+    expose:
+    - '8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+  ai-worker:
+    build:
+      context: ../../../services/ai/worker
+      dockerfile: Dockerfile
+    environment:
+      TaskForgeInternalApi__BaseUrl: http://ai-api:8080
+      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-}
+      TaskForgeAgent__ApiKey: ${TASKFORGE_EXTERNAL_AI_API_KEY:-}
+      TaskForgeAgent__Model: ${TASKFORGE_EXTERNAL_AI_MODEL:-openai/gpt-4o-mini}
+      RabbitMq__Host: rabbitmq
+    depends_on:
+      ai-api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  code-analyzer:
+    build:
+      context: ../../../services/analyzers/code-analyzer
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  image-analyzer:
+    build:
+      context: ../../../services/analyzers/image-analyzer
+      dockerfile: Dockerfile
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
