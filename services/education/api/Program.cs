@@ -36,6 +36,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseTaskForgeRequestSecurity("education");
+
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-education-api" }));
 app.MapGet("/health/ready", async (EducationDbContext db) =>
 {

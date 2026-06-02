@@ -34,6 +34,8 @@ else if (builder.Configuration.GetValue("Database:EnsureCreated", false))
 
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 
+app.UseTaskForgeRequestSecurity("execution");
+
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-execution-api" }));
 app.MapGet("/health/ready", async (ExecutionDbContext db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ready", service = "taskforge-execution-api" }) : Results.StatusCode(503));
 app.MapGet("/", () => Results.Ok(new { service = "taskforge-execution-api", database = "taskforge_execution", status = "execution microservice active" }));
@@ -41,14 +43,7 @@ app.MapGet("/api/execution/api/schema-owner", () => Results.Ok(new { database = 
 
 app.MapPost("/api/compiler/compile-run", async (RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: false));
 app.MapPost("/api/compiler/run-tests", async (RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: true));
-app.MapPost("/api/Compiler/compile-run", async (RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: false));
-app.MapPost("/api/Compiler/run-tests", async (RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: true));
 
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/run-code", async (Guid assignmentId, RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: false, image: true));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare-code", async (Guid assignmentId, RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: false, image: true));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", (Guid assignmentId, JsonElement body) => Results.Ok(new { assignmentId, saved = true }));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare", (Guid assignmentId, JsonElement body) => Results.Ok(new { assignmentId, passed = true, similarity = 1.0 }));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/submit-code", async (Guid assignmentId, RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: false, image: true));
 
 app.Run();
 

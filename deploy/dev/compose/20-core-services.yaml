@@ -18,6 +18,11 @@ services:
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_identity;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       Jwt__ExpireMinutes: ${JWT_EXPIRE_MINUTES:-120}
+      Bootstrap__FirstUserIsAdmin: ${BOOTSTRAP_FIRST_USER_IS_ADMIN:-false}
+      Bootstrap__AdminEmails: ${BOOTSTRAP_ADMIN_EMAILS:-}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -51,6 +56,9 @@ services:
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_education;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -84,6 +92,9 @@ services:
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__LearningConnection: Host=postgres;Port=5432;Database=taskforge_content;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     volumes:
     - content-data-protection:/root/.aspnet/DataProtection-Keys
     expose:
@@ -119,6 +130,9 @@ services:
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__QuizConnection: Host=postgres;Port=5432;Database=taskforge_tasks;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     volumes:
     - quiz-data-protection:/root/.aspnet/DataProtection-Keys
     expose:
@@ -154,6 +168,9 @@ services:
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_tasks;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -187,6 +204,9 @@ services:
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:

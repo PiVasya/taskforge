@@ -9,6 +9,8 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     public DbSet<IdentityUser> Users => Set<IdentityUser>();
     public DbSet<UserUiSettings> UiSettings => Set<UserUiSettings>();
     public DbSet<UserLoginLog> LoginLogs => Set<UserLoginLog>();
+    public DbSet<FeatureRole> FeatureRoles => Set<FeatureRole>();
+    public DbSet<UserFeatureRole> UserFeatureRoles => Set<UserFeatureRole>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +48,24 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             entity.HasIndex(x => new { x.UserId, x.LoginAt });
             entity.Property(x => x.IpAddress).HasMaxLength(80);
             entity.Property(x => x.UserAgent).HasMaxLength(800);
+        });
+
+        modelBuilder.Entity<FeatureRole>(entity =>
+        {
+            entity.ToTable("FeatureRoles");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Title).HasMaxLength(180).IsRequired();
+            entity.Property(x => x.Description).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<UserFeatureRole>(entity =>
+        {
+            entity.ToTable("UserFeatureRoles");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.UserId, x.Code }).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(80).IsRequired();
         });
     }
 }

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MIGRATION_NAME="${1:-ForceMigration_$(date +%Y%m%d_%H%M%S)}"
+BUILD_CONFIGURATION="${DOTNET_BUILD_CONFIGURATION:-Debug}"
 
 ITEMS=(
   "services/identity/api/TaskForge.Identity.Api.csproj|IdentityDbContext|Migrations"
@@ -25,15 +26,21 @@ for item in "${ITEMS[@]}"; do
 
   echo "========================================"
   echo "RESTORE: $PROJECT"
+  echo "BUILD: $BUILD_CONFIGURATION"
   echo "========================================"
   dotnet restore "$PROJECT"
+  dotnet build "$PROJECT" -c "$BUILD_CONFIGURATION" --no-restore
 
   echo "========================================"
-  echo "MIGRATION: $CONTEXT -> $OUTPUT_DIR"
+  echo "FORCE MIGRATION: $CONTEXT -> $OUTPUT_DIR"
   echo "========================================"
   dotnet ef migrations add "$MIGRATION_NAME" \
     --project "$PROJECT" \
     --startup-project "$PROJECT" \
     --context "$CONTEXT" \
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$OUTPUT_DIR" \
+    --no-build
+
+  echo "BUILD AFTER FORCE MIGRATION ADD: $PROJECT"
+  dotnet build "$PROJECT" -c "$BUILD_CONFIGURATION" --no-restore
 done

@@ -23,7 +23,12 @@ public sealed class ObservabilityDbContext(DbContextOptions<ObservabilityDbConte
             entity.ToTable("PageViews");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.CreatedAt);
-            entity.Property(x => x.Path).HasMaxLength(1000).IsRequired();
+            entity.HasIndex(x => new { x.UserId, x.CreatedAt });
+            entity.HasIndex(x => new { x.Path, x.CreatedAt });
+            entity.Property(x => x.Path).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Method).HasMaxLength(20);
+            entity.Property(x => x.Action).HasMaxLength(120);
+            entity.Property(x => x.UserAgent).HasMaxLength(800);
         });
     }
 }

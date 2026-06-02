@@ -1,37 +1,14 @@
-# clientapp-ct — второй фронт TaskForge
+# apps/web-ct — CT frontend
 
-React-фронт для поддомена ЦТ/ЦЭ. Использует общую авторизацию TaskForge и отдельные учебные микросервисы.
+React SPA for the CT branch of the site.
 
-## Что есть теперь
+## Runtime rule
 
-- `/` — список и просмотр полноценных конспектов.
-- `/conspects/:slug` — открытие конкретного конспекта.
-- `/tasks` — простая страница заданий, на которую ведёт кнопка из конспекта.
-- `/admin/conspects` — базовый редактор конспектов: можно создать/изменить `ContentJson` и добавить кнопку «Сделать задания».
-
-## Важное
-
-Конспекты больше не открываются через iframe `public/trainer.html`. Старый HTML оставлен в `public`, но новый экран работает через API:
+All API and websocket calls must be same-origin:
 
 ```text
-learning-content-service -> /api/learning/conspects
-quiz-task-service        -> /api/quiz/tasks
+/api/*
+/hubs/*
 ```
 
-Если backend ещё без миграций или временно недоступен, главная страница показывает fallback-конспект, чтобы интерфейс не падал полностью.
-
-## Локальный запуск
-
-```bash
-cd clientapp-ct
-npm ci
-npm start
-```
-
-## Production
-
-```bash
-npm run build
-```
-
-Dockerfile собирает CRA-приложение и отдаёт статические файлы через Caddy на внутреннем порту `80`.
+In production this app is served from `https://ct.taskforge.by`; in dev it can be served through the same gateway using `CT_DOMAIN` if mapped locally. Do not hardcode direct backend hosts in frontend code.

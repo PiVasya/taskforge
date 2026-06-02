@@ -7,6 +7,7 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 {
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<TaskAttempt> Attempts => Set<TaskAttempt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -27,6 +28,18 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
             entity.Property(x => x.Description).HasMaxLength(8000);
             entity.Property(x => x.Type).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
+        });
+
+        modelBuilder.Entity<TaskAttempt>(entity =>
+        {
+            entity.ToTable("TaskAttempts");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.UserId, x.Kind, x.TaskAssignmentId, x.SubmittedAt });
+            entity.HasIndex(x => new { x.TaskAssignmentId, x.Kind, x.AttemptNumber });
+            entity.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            entity.Property(x => x.OrderJson).HasColumnType("jsonb");
+            entity.Property(x => x.AnswersJson).HasColumnType("jsonb");
+            entity.Property(x => x.ReviewJson).HasColumnType("jsonb");
         });
     }
 }

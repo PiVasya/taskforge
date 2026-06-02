@@ -1,0 +1,3 @@
+Static fix applied:
+- no EF IQueryable projection references BadgeDto/ImageDto local helper functions in services/solutions/api/Program.cs
+- build must be confirmed locally with dotnet build / generate-migrations.sh

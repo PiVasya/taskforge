@@ -36,6 +36,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseTaskForgeRequestSecurity("notifications");
+
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-notifications-api" }));
 app.MapGet("/health/ready", async (NotificationsDbContext db) =>
 {
@@ -46,7 +48,7 @@ app.MapGet("/", () => Results.Ok(new
 {
     service = "taskforge-notifications-api",
     database = "taskforge_notifications",
-    migrations = "not generated; see MIGRATIONS_REQUIRED.md",
+    migrations = "tracked EF Core migrations",
     status = "microservice boundary extracted"
 }));
 app.MapGet("/api/notifications/schema-owner", () => Results.Ok(new

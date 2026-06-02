@@ -15,8 +15,12 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}
       S3__Endpoint: http://minio:9000
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      InternalApi__Key: ${TASKFORGE_AGENT_INTERNAL_KEY:-dev_internal_agent_key_change_me}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:-taskforge_minio_password}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -38,7 +42,7 @@ services:
       dockerfile: Dockerfile
     environment:
       TaskForgeInternalApi__BaseUrl: http://ai-api:8080
-      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-}
+      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-dev_internal_agent_key_change_me}
       TaskForgeAgent__ApiKey: ${TASKFORGE_EXTERNAL_AI_API_KEY:-}
       TaskForgeAgent__Model: ${TASKFORGE_EXTERNAL_AI_MODEL:-openai/gpt-4o-mini}
       RabbitMq__Host: rabbitmq

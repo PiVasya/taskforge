@@ -6,4 +6,4 @@
 
 БД сервиса: `taskforge_execution`.
 
-Миграции не сгенерированы по требованию. См. `MIGRATIONS_REQUIRED.md`.
+EF Core migrations хранятся в этой папке и применяются владельцем сервиса.

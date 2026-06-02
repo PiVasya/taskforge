@@ -3,7 +3,7 @@
 
 	root * /usr/share/caddy
 	encode zstd gzip
-	try_files {path} {path}/ /index.html
+	try_files {path} /index.html
 
 	@assets {
 		path_regexp static ^/static/.+\.(css|js|mjs|png|jpg|jpeg|svg|webp|ico|woff2?)$

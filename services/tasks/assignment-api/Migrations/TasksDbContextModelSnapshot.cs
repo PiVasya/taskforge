@@ -97,6 +97,80 @@ namespace TaskForge.Tasks.Api.Migrations
 
                     b.ToTable("ServiceSchemaMarkers", (string)null);
                 });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TaskAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnswersJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CorrectUnits")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("EarnedScore")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("OrderJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<bool>("Passed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ReviewJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("ScorePercent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TaskAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("TimeExpired")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("TimeLimitSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TotalScore")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TotalUnits")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskAssignmentId", "Kind", "AttemptNumber");
+
+                    b.HasIndex("UserId", "Kind", "TaskAssignmentId", "SubmittedAt");
+
+                    b.ToTable("TaskAttempts", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

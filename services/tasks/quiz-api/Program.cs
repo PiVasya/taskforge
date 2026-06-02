@@ -65,6 +65,8 @@ var app = builder.Build();
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseTaskForgeRequestSecurity("quiz");
+
 
 using (var scope = app.Services.CreateScope())
 {

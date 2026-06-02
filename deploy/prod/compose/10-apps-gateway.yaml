@@ -3,7 +3,7 @@ services:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/gateway:${IMAGE_TAG:-develop}
     restart: unless-stopped
     environment:
-      GATEWAY_MODE: ${GATEWAY_MODE:-http}
+      GATEWAY_MODE: ${GATEWAY_MODE:-auto}
       DOMAIN: ${DOMAIN:?set DOMAIN}
       CT_DOMAIN: ${CT_DOMAIN:?set CT_DOMAIN}
     ports:
@@ -46,8 +46,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:80/health/gateway || curl -fsS http://127.0.0.1:80/health/gateway
-        >/dev/null || exit 1
+      - wget -q --spider http://127.0.0.1:80/health/gateway || curl -fsS http://127.0.0.1:80/health/gateway >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -60,8 +59,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health
-        >/dev/null || exit 1
+      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -74,8 +72,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health
-        >/dev/null || exit 1
+      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12

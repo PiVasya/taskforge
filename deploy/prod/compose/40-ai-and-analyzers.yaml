@@ -15,13 +15,16 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
+      InternalApi__Key: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       OpenAI__Model: ${OPENAI_MODEL:-}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -43,7 +46,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       TaskForgeInternalApi__BaseUrl: http://ai-api:8080
-      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-}
+      TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
       TaskForgeAgent__ApiKey: ${TASKFORGE_EXTERNAL_AI_API_KEY:-}
       TaskForgeAgent__Model: ${TASKFORGE_EXTERNAL_AI_MODEL:-openai/gpt-4o-mini}
       RabbitMq__Host: rabbitmq

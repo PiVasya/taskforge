@@ -26,6 +26,7 @@ if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
     var db = migrationScope.ServiceProvider.GetRequiredService<IdentityDbContext>();
     app.Logger.LogInformation("Applying EF Core migrations for IdentityDbContext...");
     await db.Database.MigrateAsync();
+    await SeedFeatureRoles(db);
     app.Logger.LogInformation("EF Core migrations for IdentityDbContext applied.");
 }
 else if (builder.Configuration.GetValue("Database:EnsureCreated", false))
@@ -40,6 +41,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseTaskForgeRequestSecurity("identity");
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-identity-api" }));
 app.MapGet("/health/ready", async (IdentityDbContext db) =>
@@ -62,7 +65,7 @@ app.MapGet("/api/identity/schema-owner", () => Results.Ok(new
     ownedEntities = new[] { "User", "UserUiSettings", "UserLoginLog" }
 }));
 
-app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbContext db) =>
+app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbContext db, IConfiguration cfg) =>
 {
     var email = NormalizeEmail(request.Email);
     if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest(new { message = "Email is required" });
@@ -70,6 +73,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbCont
     if (await db.Users.AnyAsync(x => x.Email == email)) return Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
 
     var firstUser = !await db.Users.AnyAsync();
+    var role = ResolveInitialRole(email, firstUser, cfg);
     var salt = NewSalt();
     var user = new IdentityUser
     {
@@ -78,7 +82,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbCont
         LastName = (request.LastName ?? string.Empty).Trim(),
         PasswordSalt = salt,
         PasswordHash = HashPassword(request.Password, salt),
-        Role = firstUser ? "Admin" : "User"
+        Role = role
     };
     db.Users.Add(user);
     db.UiSettings.Add(new UserUiSettings { UserId = user.Id, DataJson = DefaultUiSettingsJson() });
@@ -107,10 +111,11 @@ app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, Id
 
     var accessLifetime = TimeSpan.FromMinutes(cfg.GetValue<int?>("Jwt:ExpireMinutes") ?? 120);
     var refreshLifetime = TimeSpan.FromDays(7);
-    var access = CreateJwt(user, cfg, accessLifetime, "access");
-    var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh");
+    var roles = await RolesForUser(db, user);
+    var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
+    var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
     SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
-    return Results.Ok(new { accessToken = access, user = ToProfile(user) });
+    return Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
 });
 
 app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -125,10 +130,11 @@ app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, 
 
     var accessLifetime = TimeSpan.FromMinutes(cfg.GetValue<int?>("Jwt:ExpireMinutes") ?? 120);
     var refreshLifetime = TimeSpan.FromDays(7);
-    var access = CreateJwt(user, cfg, accessLifetime, "access");
-    var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh");
+    var roles = await RolesForUser(db, user);
+    var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
+    var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
     SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
-    return Results.Ok(new { accessToken = access, user = ToProfile(user) });
+    return Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
 });
 
 app.MapPost("/api/auth/logout", (HttpContext http) =>
@@ -140,7 +146,7 @@ app.MapPost("/api/auth/logout", (HttpContext http) =>
 app.MapGet("/api/profile", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
-    return user == null ? Unauthorized("Сессия истекла. Войдите заново.") : Results.Ok(ToProfile(user));
+    return user == null ? Unauthorized("Сессия истекла. Войдите заново.") : Results.Ok(ToProfile(user, await RolesForUser(db, user)));
 });
 
 app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -150,7 +156,7 @@ app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http
     user.FirstName = (request.FirstName ?? user.FirstName).Trim();
     user.LastName = (request.LastName ?? user.LastName).Trim();
     await db.SaveChangesAsync();
-    return Results.Ok(ToProfile(user));
+    return Results.Ok(ToProfile(user, await RolesForUser(db, user)));
 });
 
 app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -174,7 +180,7 @@ app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, Http
     if (await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id)) return Results.BadRequest(new { message = "Email уже занят" });
     user.Email = email;
     await db.SaveChangesAsync();
-    return Results.Ok(ToProfile(user));
+    return Results.Ok(ToProfile(user, await RolesForUser(db, user)));
 });
 
 app.MapGet("/api/me/ui-settings", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -225,84 +231,123 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
 
 app.MapGet("/api/admin/solution-users", async (IdentityDbContext db, string? q, int take = 50) =>
 {
-    var query = db.Users.AsNoTracking();
-    if (!string.IsNullOrWhiteSpace(q))
-    {
-        var qq = q.Trim().ToLowerInvariant();
-        query = query.Where(x => x.Email.ToLower().Contains(qq) || x.FirstName.ToLower().Contains(qq) || x.LastName.ToLower().Contains(qq));
-    }
-    var list = await query.OrderBy(x => x.Email).Take(Math.Clamp(take, 1, 200)).Select(x => new
-    {
-        x.Id,
-        x.Email,
-        x.FirstName,
-        x.LastName,
-        displayName = (x.FirstName + " " + x.LastName).Trim(),
-        x.Role
-    }).ToListAsync();
-    return Results.Ok(list);
+    var query = FilterUsers(db.Users.AsNoTracking(), q, null, false);
+    var rows = await query.OrderBy(x => x.Email).Take(Math.Clamp(take, 1, 200)).ToListAsync();
+    return Results.Ok(rows.Select(u => ToAdminUserDto(u)).ToList());
 });
 
-app.MapGet("/api/admin/users", async (IdentityDbContext db, string? q, int take = 50) =>
+app.MapGet("/api/admin/users", async (
+    IdentityDbContext db,
+    string? query,
+    string? q,
+    string? role,
+    bool linkedOnly = false,
+    string? sortBy = "createdAt",
+    string? sortDir = "desc",
+    int take = 300) =>
 {
-    var query = db.Users.AsNoTracking();
-    if (!string.IsNullOrWhiteSpace(q))
+    var rowsQuery = FilterUsers(db.Users.AsNoTracking(), query ?? q, role, linkedOnly);
+    rowsQuery = SortUsers(rowsQuery, sortBy, sortDir);
+    var rows = await rowsQuery.Take(Math.Clamp(take, 1, 500)).ToListAsync();
+    var total = await FilterUsers(db.Users.AsNoTracking(), query ?? q, role, linkedOnly).CountAsync();
+    var linked = 0;
+    var admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase));
+    return Results.Ok(new
     {
-        var qq = q.Trim().ToLowerInvariant();
-        query = query.Where(x => x.Email.ToLower().Contains(qq) || x.FirstName.ToLower().Contains(qq) || x.LastName.ToLower().Contains(qq));
-    }
-    var list = await query.OrderBy(x => x.Email).Take(Math.Clamp(take, 1, 200)).Select(x => new
-    {
-        x.Id,
-        x.Email,
-        x.FirstName,
-        x.LastName,
-        displayName = (x.FirstName + " " + x.LastName).Trim(),
-        x.Role,
-        x.CreatedAt,
-        x.LastLoginAt,
-        featureRoles = Array.Empty<string>(),
-        groups = Array.Empty<object>(),
-        codeSolutions = 0,
-        testAttempts = 0,
-        imageSolutions = 0,
-        mathAttempts = 0
-    }).ToListAsync();
-    return Results.Ok(list);
+        items = rows.Select(u => ToAdminUserDto(u)).ToList(),
+        stats = new { total, linked, admins }
+    });
 });
 
 app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, AdminUserUpdateRequest request, IdentityDbContext db) =>
 {
     var user = await db.Users.FindAsync(userId);
-    if (user == null) return Results.NotFound();
+    if (user == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
     if (!string.IsNullOrWhiteSpace(request.Email)) user.Email = NormalizeEmail(request.Email);
     if (request.FirstName != null) user.FirstName = request.FirstName.Trim();
     if (request.LastName != null) user.LastName = request.LastName.Trim();
-    if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = request.Role.Trim();
+    if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = NormalizeRole(request.Role);
     await db.SaveChangesAsync();
-    return Results.Ok(ToProfile(user));
+    return Results.Ok(ToAdminUserDto(user));
 });
 
 app.MapDelete("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbContext db) =>
 {
     var user = await db.Users.FindAsync(userId);
-    if (user == null) return Results.NotFound();
+    if (user == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
     db.Users.Remove(user);
     await db.SaveChangesAsync();
-    return Results.Ok(new { message = "deleted" });
+    return Results.Ok(new { message = "Пользователь удалён", deleted = true });
 });
 
-app.MapGet("/api/admin/feature-roles", () => Results.Ok(new[]
+app.MapGet("/api/admin/feature-roles", async (IdentityDbContext db) => Results.Ok(await db.FeatureRoles.AsNoTracking().OrderBy(x => x.Code).Select(x => new { x.Id, x.Code, title = x.Title, x.Description, x.IsActive }).ToListAsync()));
+app.MapGet("/api/admin/feature-roles/users", async (IdentityDbContext db, string? query, int limit = 50) =>
 {
-    new { id = "admin", code = "Admin", title = "Admin", isActive = true },
-    new { id = "editor", code = "Editor", title = "Editor", isActive = true }
-}));
-app.MapGet("/api/admin/feature-roles/users", () => Results.Ok(Array.Empty<object>()));
-app.MapPost("/api/admin/feature-roles", (JsonElement body) => Results.Ok(body));
-app.MapPut("/api/admin/feature-roles/{id}", (string id, JsonElement body) => Results.Ok(body));
-app.MapDelete("/api/admin/feature-roles/{id}", (string id) => Results.Ok(new { message = "deleted", id }));
-app.MapPost("/api/admin/feature-roles/users/{userId:guid}/roles", (Guid userId, JsonElement body) => Results.Ok(new { userId }));
-app.MapDelete("/api/admin/feature-roles/users/{userId:guid}/roles/{code}", (Guid userId, string code) => Results.Ok(new { userId, code }));
+    var rows = await FilterUsers(db.Users.AsNoTracking(), query, null, false).OrderBy(x => x.Email).Take(Math.Clamp(limit, 1, 200)).ToListAsync();
+    var ids = rows.Select(x => x.Id).ToHashSet();
+    var roleRows = await db.UserFeatureRoles.AsNoTracking().Where(x => ids.Contains(x.UserId)).ToListAsync();
+    return Results.Ok(rows.Select(u => ToAdminUserDto(u, roleRows.Where(r => r.UserId == u.Id).Select(r => r.Code).ToArray())).ToList());
+});
+app.MapPost("/api/admin/feature-roles", async (FeatureRoleRequest request, IdentityDbContext db) =>
+{
+    var code = NormalizeRoleCode(request.Code);
+    if (string.IsNullOrWhiteSpace(code)) return Results.BadRequest(new { message = "Код роли обязателен.", code = "ROLE_CODE_REQUIRED" });
+    if (await db.FeatureRoles.AnyAsync(x => x.Code == code)) return Results.Conflict(new { message = "Такая роль уже существует.", code = "ROLE_ALREADY_EXISTS" });
+    var role = new FeatureRole { Code = code, Title = string.IsNullOrWhiteSpace(request.Title) ? code : request.Title.Trim(), Description = request.Description, IsActive = request.IsActive ?? true };
+    db.FeatureRoles.Add(role);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { role.Id, role.Code, title = role.Title, role.Description, role.IsActive });
+});
+app.MapPut("/api/admin/feature-roles/{id:guid}", async (Guid id, FeatureRoleRequest request, IdentityDbContext db) =>
+{
+    var role = await db.FeatureRoles.FindAsync(id);
+    if (role == null) return Results.NotFound(new { message = "Роль не найдена.", code = "ROLE_NOT_FOUND" });
+    var nextCode = NormalizeRoleCode(request.Code ?? role.Code);
+    if (!string.Equals(role.Code, nextCode, StringComparison.OrdinalIgnoreCase) && await db.FeatureRoles.AnyAsync(x => x.Code == nextCode)) return Results.Conflict(new { message = "Такая роль уже существует.", code = "ROLE_ALREADY_EXISTS" });
+    var oldCode = role.Code;
+    role.Code = nextCode;
+    role.Title = string.IsNullOrWhiteSpace(request.Title) ? role.Title : request.Title.Trim();
+    role.Description = request.Description ?? role.Description;
+    role.IsActive = request.IsActive ?? role.IsActive;
+    role.UpdatedAt = DateTimeOffset.UtcNow;
+    if (!string.Equals(oldCode, role.Code, StringComparison.OrdinalIgnoreCase))
+    {
+        foreach (var ur in await db.UserFeatureRoles.Where(x => x.Code == oldCode).ToListAsync()) ur.Code = role.Code;
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { role.Id, role.Code, title = role.Title, role.Description, role.IsActive });
+});
+app.MapDelete("/api/admin/feature-roles/{id:guid}", async (Guid id, IdentityDbContext db) =>
+{
+    var role = await db.FeatureRoles.FindAsync(id);
+    if (role == null) return Results.NoContent();
+    db.UserFeatureRoles.RemoveRange(await db.UserFeatureRoles.Where(x => x.Code == role.Code).ToListAsync());
+    db.FeatureRoles.Remove(role);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+app.MapPost("/api/admin/feature-roles/users/{userId:guid}/roles", async (Guid userId, RoleAssignRequest request, IdentityDbContext db) =>
+{
+    var user = await db.Users.FindAsync(userId);
+    if (user == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
+    var code = NormalizeRoleCode(request.Code);
+    if (string.IsNullOrWhiteSpace(code)) return Results.BadRequest(new { message = "Роль не указана.", code = "ROLE_REQUIRED" });
+    if (!await db.FeatureRoles.AnyAsync(x => x.Code == code)) db.FeatureRoles.Add(new FeatureRole { Code = code, Title = code, IsActive = true });
+    if (code is "Admin" or "Editor" or "LearningEditor" or "Minecraft") user.Role = code == "Admin" ? "Admin" : user.Role;
+    if (!await db.UserFeatureRoles.AnyAsync(x => x.UserId == userId && x.Code == code)) db.UserFeatureRoles.Add(new UserFeatureRole { UserId = userId, Code = code });
+    await db.SaveChangesAsync();
+    return Results.Ok(ToAdminUserDto(user, await RolesForUser(db, user)));
+});
+app.MapDelete("/api/admin/feature-roles/users/{userId:guid}/roles/{code}", async (Guid userId, string code, IdentityDbContext db) =>
+{
+    var user = await db.Users.FindAsync(userId);
+    if (user == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
+    var normalized = NormalizeRoleCode(code);
+    db.UserFeatureRoles.RemoveRange(await db.UserFeatureRoles.Where(x => x.UserId == userId && x.Code == normalized).ToListAsync());
+    if (string.Equals(user.Role, normalized, StringComparison.OrdinalIgnoreCase)) user.Role = "User";
+    await db.SaveChangesAsync();
+    return Results.Ok(ToAdminUserDto(user, await RolesForUser(db, user)));
+});
 
 app.MapGet("/api/integrations/telegram/status", () => Results.Ok(new { linked = false }));
 app.MapPost("/api/integrations/telegram/code", () => Results.Ok(new { code = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), expiresInSeconds = 600 }));
@@ -310,7 +355,114 @@ app.MapDelete("/api/integrations/telegram/unlink", () => Results.Ok(new { linked
 
 app.Run();
 
+
+static IQueryable<IdentityUser> FilterUsers(IQueryable<IdentityUser> query, string? text, string? role, bool linkedOnly)
+{
+    if (!string.IsNullOrWhiteSpace(text))
+    {
+        var q = text.Trim().ToLowerInvariant();
+        query = query.Where(x => x.Email.ToLower().Contains(q) || x.FirstName.ToLower().Contains(q) || x.LastName.ToLower().Contains(q));
+    }
+    if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
+    if (linkedOnly) query = query.Where(x => false);
+    return query;
+}
+static IQueryable<IdentityUser> SortUsers(IQueryable<IdentityUser> query, string? sortBy, string? sortDir)
+{
+    var desc = !string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+    return (sortBy ?? "createdAt") switch
+    {
+        "email" => desc ? query.OrderByDescending(x => x.Email) : query.OrderBy(x => x.Email),
+        "role" => desc ? query.OrderByDescending(x => x.Role) : query.OrderBy(x => x.Role),
+        "fullName" => desc ? query.OrderByDescending(x => x.FirstName).ThenByDescending(x => x.LastName) : query.OrderBy(x => x.FirstName).ThenBy(x => x.LastName),
+        "lastLoginAt" => desc ? query.OrderByDescending(x => x.LastLoginAt) : query.OrderBy(x => x.LastLoginAt),
+        _ => desc ? query.OrderByDescending(x => x.CreatedAt) : query.OrderBy(x => x.CreatedAt)
+    };
+}
+static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
+{
+    user.Id,
+    user.Email,
+    user.FirstName,
+    user.LastName,
+    fullName = DisplayName(user),
+    displayName = DisplayName(user),
+    user.Role,
+    roles = MergeRoles(user.Role, featureRoles),
+    featureRoles = MergeRoles(user.Role, featureRoles),
+    user.CreatedAt,
+    user.LastLoginAt,
+    telegramUsername = (string?)null,
+    telegramLinkedAtUtc = (DateTimeOffset?)null,
+    minecraftNick = (string?)null,
+    minecraftLinkedAtUtc = (DateTimeOffset?)null,
+    emailConfirmed = true,
+    lockoutEnabled = false,
+    codeSolutions = 0,
+    passedTests = 0,
+    imageSolutions = 0,
+    mathSolutions = 0
+};
+static string NormalizeRole(string? role) => (role ?? "User").Trim() switch
+{
+    "Admin" => "Admin",
+    "Editor" => "Editor",
+    "LearningEditor" => "LearningEditor",
+    "Minecraft" => "Minecraft",
+    _ => "User"
+};
+static async Task SeedFeatureRoles(IdentityDbContext db)
+{
+    var defaults = new[]
+    {
+        new FeatureRole { Code = "Admin", Title = "Администратор", Description = "Полный доступ к админке", IsActive = true },
+        new FeatureRole { Code = "Editor", Title = "Редактор", Description = "Редактирование заданий и курсов", IsActive = true },
+        new FeatureRole { Code = "LearningEditor", Title = "Редактор ЦТ", Description = "Редактирование learning/quiz контента", IsActive = true },
+        new FeatureRole { Code = "Minecraft", Title = "Minecraft", Description = "Доступ к Minecraft-инструментам", IsActive = true }
+    };
+    foreach (var role in defaults)
+    {
+        if (!await db.FeatureRoles.AnyAsync(x => x.Code == role.Code)) db.FeatureRoles.Add(role);
+    }
+    await db.SaveChangesAsync();
+}
+static async Task<string[]> RolesForUser(IdentityDbContext db, IdentityUser user)
+{
+    var rows = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == user.Id).Select(x => x.Code).ToListAsync();
+    return MergeRoles(user.Role, rows);
+}
+static string[] MergeRoles(string? primaryRole, IEnumerable<string>? featureRoles)
+{
+    return new[] { NormalizeRole(primaryRole) }
+        .Concat(featureRoles ?? Array.Empty<string>())
+        .Select(NormalizeRoleCode)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+}
+static string NormalizeRoleCode(string? role) => (role ?? string.Empty).Trim() switch
+{
+    "admin" or "Admin" => "Admin",
+    "editor" or "Editor" => "Editor",
+    "learning-editor" or "LearningEditor" => "LearningEditor",
+    "minecraft" or "Minecraft" => "Minecraft",
+    var x => string.IsNullOrWhiteSpace(x) ? string.Empty : x
+};
+
 static IResult Unauthorized(string message, string code = "UNAUTHORIZED") => Results.Json(new { message, code, severity = "warning" }, statusCode: StatusCodes.Status401Unauthorized);
+
+static string ResolveInitialRole(string email, bool firstUser, IConfiguration cfg)
+{
+    var adminEmails = (cfg["Bootstrap:AdminEmails"] ?? string.Empty)
+        .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(NormalizeEmail)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    if (adminEmails.Contains(email)) return "Admin";
+
+    var firstUserIsAdmin = cfg.GetValue("Bootstrap:FirstUserIsAdmin", false);
+    return firstUser && firstUserIsAdmin ? "Admin" : "User";
+}
 static string NormalizeEmail(string? email) => (email ?? string.Empty).Trim().ToLowerInvariant();
 static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
 static string HashPassword(string password, string salt)
@@ -320,7 +472,7 @@ static string HashPassword(string password, string salt)
 }
 static bool VerifyPassword(string password, string salt, string hash) => CryptographicOperations.FixedTimeEquals(Convert.FromBase64String(HashPassword(password, salt)), Convert.FromBase64String(hash));
 static string DisplayName(IdentityUser user) => string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } s ? s : user.Email;
-static object ToProfile(IdentityUser user) => new
+static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,
     user.Email,
@@ -328,9 +480,9 @@ static object ToProfile(IdentityUser user) => new
     user.LastName,
     displayName = DisplayName(user),
     user.Role,
-    roles = new[] { user.Role },
-    isAdmin = string.Equals(user.Role, "Admin", StringComparison.OrdinalIgnoreCase),
-    isEditor = string.Equals(user.Role, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(user.Role, "Editor", StringComparison.OrdinalIgnoreCase),
+    roles = MergeRoles(user.Role, featureRoles),
+    isAdmin = MergeRoles(user.Role, featureRoles).Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)),
+    isEditor = MergeRoles(user.Role, featureRoles).Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(r, "Editor", StringComparison.OrdinalIgnoreCase)),
     user.CreatedAt,
     user.LastLoginAt
 };
@@ -372,20 +524,21 @@ static async Task<IdentityUser?> FindCurrentUserAsync(HttpContext http, Identity
     var uid = principal == null ? null : TryGetUserId(principal);
     return uid == null ? null : await db.Users.FindAsync(uid.Value);
 }
-static string CreateJwt(IdentityUser user, IConfiguration cfg, TimeSpan lifetime, string tokenType)
+static string CreateJwt(IdentityUser user, IConfiguration cfg, TimeSpan lifetime, string tokenType, IReadOnlyCollection<string>? featureRoles = null)
 {
     var key = Encoding.UTF8.GetBytes(cfg["Jwt:Key"] ?? cfg["Jwt:SigningKey"] ?? "dev_change_me_please_change_me_please_32_chars");
+    var roles = MergeRoles(user.Role, featureRoles);
     var claims = new List<Claim>
     {
         new(ClaimTypes.NameIdentifier, user.Id.ToString()),
         new(ClaimTypes.Email, user.Email),
-        new(ClaimTypes.Role, user.Role),
         new("role", user.Role),
-        new("roles", user.Role),
+        new("roles", string.Join(',', roles)),
         new("primary_role", user.Role),
         new("token_type", tokenType),
         new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
     };
+    foreach (var role in roles) claims.Add(new Claim(ClaimTypes.Role, role));
     var creds = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
     var token = new JwtSecurityToken(cfg["Jwt:Issuer"] ?? "TaskForge", cfg["Jwt:Audience"] ?? "TaskForge", claims, expires: DateTime.UtcNow.Add(lifetime), signingCredentials: creds);
     return new JwtSecurityTokenHandler().WriteToken(token);
@@ -408,3 +561,6 @@ public sealed record ProfileUpdateRequest(string? FirstName, string? LastName);
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 public sealed record ChangeEmailRequest(string? NewEmail, string? Password);
 public sealed record AdminUserUpdateRequest(string? Email, string? FirstName, string? LastName, string? Role);
+
+public sealed record RoleAssignRequest(string? Code);
+public sealed record FeatureRoleRequest(string? Code, string? Title, string? Description, bool? IsActive);

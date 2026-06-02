@@ -13,6 +13,7 @@ var app = builder.Build();
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true)) { using var s = app.Services.CreateScope(); var db = s.ServiceProvider.GetRequiredService<MinecraftDbContext>(); app.Logger.LogInformation("Applying EF Core migrations for MinecraftDbContext..."); await db.Database.MigrateAsync(); app.Logger.LogInformation("EF Core migrations for MinecraftDbContext applied."); }
 else if (builder.Configuration.GetValue("Database:EnsureCreated", false)) { using var s = app.Services.CreateScope(); await s.ServiceProvider.GetRequiredService<MinecraftDbContext>().Database.EnsureCreatedAsync(); }
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
+app.UseTaskForgeRequestSecurity("minecraft");
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-minecraft-api" }));
 app.MapGet("/health/ready", async (MinecraftDbContext db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ready", service = "taskforge-minecraft-api" }) : Results.StatusCode(503));
 app.MapGet("/", () => Results.Ok(new { service = "taskforge-minecraft-api", database = "taskforge_minecraft", status = "minecraft microservice active" }));

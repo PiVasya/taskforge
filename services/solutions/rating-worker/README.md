@@ -12,4 +12,4 @@
    - `RatingProjectionCheckpoints`
 4. `/api/solutions/leaderboard` читает уже готовую таблицу, а не сканирует все решения.
 
-Миграции не сгенерированы по требованию. См. `../api/MIGRATIONS_REQUIRED.md`.
+Миграции принадлежат `../api`; worker не владеет схемой БД.

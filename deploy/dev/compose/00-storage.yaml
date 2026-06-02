@@ -47,8 +47,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:9000/minio/health/live || curl -fsS http://127.0.0.1:9000/minio/health/live
-        >/dev/null || kill -0 1
+      - wget -q --spider http://127.0.0.1:9000/minio/health/live || curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || kill -0 1
       interval: 10s
       timeout: 5s
       retries: 18

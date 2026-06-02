@@ -6,5 +6,6 @@ COPY templates/http.conf      /etc/nginx/templates/http.conf
 COPY templates/dev.conf       /etc/nginx/templates/dev.conf
 COPY 99-select-config.sh      /docker-entrypoint.d/99-select-config.sh
 COPY 10-watch-certs.sh        /docker-entrypoint.d/10-watch-certs.sh
+COPY snippets/                  /etc/nginx/snippets/
 RUN chmod +x /docker-entrypoint.d/99-select-config.sh \
     && chmod +x /docker-entrypoint.d/10-watch-certs.sh

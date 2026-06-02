@@ -22,6 +22,24 @@ cp deploy/dev/.env.example deploy/dev/.env
 ./deploy/dev/compose.sh down
 ```
 
+
+## Администратор в dev
+
+Роль администратора теперь задаётся явно, а не скрытым правилом "первый пользователь — Admin":
+
+```text
+BOOTSTRAP_FIRST_USER_IS_ADMIN=false
+BOOTSTRAP_ADMIN_EMAILS=admin@test.local
+```
+
+Если хочешь, чтобы первый зарегистрированный пользователь локально автоматически стал администратором, временно поставь в `deploy/dev/.env`:
+
+```text
+BOOTSTRAP_FIRST_USER_IS_ADMIN=true
+```
+
+Для обычной проверки лучше использовать явный email в `BOOTSTRAP_ADMIN_EMAILS`.
+
 ## Особенности
 
 - Использует `build:` и собирает сервисы из локального кода.

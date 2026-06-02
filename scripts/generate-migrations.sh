@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MIGRATION_NAME="${1:-SchemaChange_$(date +%Y%m%d_%H%M%S)}"
+BUILD_CONFIGURATION="${DOTNET_BUILD_CONFIGURATION:-Debug}"
 
 ITEMS=(
   "services/identity/api/TaskForge.Identity.Api.csproj|IdentityDbContext|Migrations"
@@ -40,16 +41,21 @@ for item in "${ITEMS[@]}"; do
   echo "========================================"
   echo "CHECK: $CONTEXT"
   echo "PROJECT: $PROJECT"
+  echo "BUILD: $BUILD_CONFIGURATION"
   echo "========================================"
 
   dotnet restore "$PROJECT"
+
+  echo "BUILD BEFORE MIGRATION CHECK: $PROJECT"
+  dotnet build "$PROJECT" -c "$BUILD_CONFIGURATION" --no-restore
 
   CHECK_LOG="$(mktemp)"
   set +e
   dotnet ef migrations has-pending-model-changes \
     --project "$PROJECT" \
     --startup-project "$PROJECT" \
-    --context "$CONTEXT" >"$CHECK_LOG" 2>&1
+    --context "$CONTEXT" \
+    --no-build >"$CHECK_LOG" 2>&1
   CHECK_EXIT=$?
   set -e
 
@@ -69,13 +75,18 @@ for item in "${ITEMS[@]}"; do
       --project "$PROJECT" \
       --startup-project "$PROJECT" \
       --context "$CONTEXT" \
-      --output-dir "$OUTPUT_DIR"
+      --output-dir "$OUTPUT_DIR" \
+      --no-build
+
+    echo "BUILD AFTER MIGRATION ADD: $PROJECT"
+    dotnet build "$PROJECT" -c "$BUILD_CONFIGURATION" --no-restore
     continue
   fi
 
   echo "ERROR: could not safely decide whether $CONTEXT has pending model changes." >&2
   echo "dotnet ef exit code: $CHECK_EXIT" >&2
   echo "The output above did not look like a normal pending/no-pending result." >&2
+  echo "This script intentionally stops here so it never generates migrations from a broken project." >&2
   echo "Use ./scripts/generate-migrations-force.sh only if you intentionally want to force migration generation." >&2
   rm -f "$CHECK_LOG"
   exit "$CHECK_EXIT"

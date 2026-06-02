@@ -89,6 +89,8 @@ app.Use(async (context, next) =>
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseTaskForgeRequestSecurity("content");
+
 
 using (var scope = app.Services.CreateScope())
 {

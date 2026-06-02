@@ -15,12 +15,16 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_identity;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_identity;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       Jwt__ExpireMinutes: ${JWT_EXPIRE_MINUTES:-120}
+      Bootstrap__FirstUserIsAdmin: ${BOOTSTRAP_FIRST_USER_IS_ADMIN:-false}
+      Bootstrap__AdminEmails: ${BOOTSTRAP_ADMIN_EMAILS:-}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -52,11 +56,13 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_education;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_education;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -88,11 +94,13 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__LearningConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_content;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__LearningConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_content;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     volumes:
     - content-data-protection:/root/.aspnet/DataProtection-Keys
     expose:
@@ -126,11 +134,13 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__QuizConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_tasks;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__QuizConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_tasks;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     volumes:
     - quiz-data-protection:/root/.aspnet/DataProtection-Keys
     expose:
@@ -164,11 +174,13 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_tasks;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_tasks;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -200,11 +212,13 @@ services:
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
-      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      S3__Bucket: ${S3_BUCKET:-taskforge-files}
+      S3__Region: ${S3_REGION:-us-east-1}
+      S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
     expose:
     - '8080'
     depends_on:
@@ -225,8 +239,7 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       RabbitMq__Host: rabbitmq
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}

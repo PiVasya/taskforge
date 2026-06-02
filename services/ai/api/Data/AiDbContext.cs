@@ -9,6 +9,7 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
     public DbSet<AiConversation> Conversations => Set<AiConversation>();
     public DbSet<AiMessage> Messages => Set<AiMessage>();
     public DbSet<AiRun> Runs => Set<AiRun>();
+    public DbSet<AiArtifact> Artifacts => Set<AiArtifact>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,8 +42,24 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
         {
             entity.ToTable("AiRuns");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
             entity.Property(x => x.Status).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.JobType).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            entity.Property(x => x.ErrorJson).HasColumnType("jsonb");
+            entity.Property(x => x.WorkerId).HasMaxLength(120);
+            entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+            entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<AiArtifact>(entity =>
+        {
+            entity.ToTable("AiArtifacts");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RunId, x.CreatedAtUtc });
+            entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
+            entity.Property(x => x.Type).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.DataJson).HasColumnType("jsonb");
         });
     }
 }

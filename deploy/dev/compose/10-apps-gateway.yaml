@@ -4,7 +4,7 @@ services:
       context: ../../../apps/gateway
       dockerfile: Dockerfile
     environment:
-      GATEWAY_MODE: http
+      GATEWAY_MODE: dev
       DOMAIN: ${DOMAIN:-taskforge.local}
       CT_DOMAIN: ${CT_DOMAIN:-ct.taskforge.local}
     ports:
@@ -43,8 +43,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:80/health/gateway || curl -fsS http://127.0.0.1:80/health/gateway
-        >/dev/null || exit 1
+      - wget -q --spider http://127.0.0.1:80/health/gateway || curl -fsS http://127.0.0.1:80/health/gateway >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -58,8 +57,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health
-        >/dev/null || exit 1
+      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -73,8 +71,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health
-        >/dev/null || exit 1
+      - wget -q --spider http://127.0.0.1:80/health || curl -fsS http://127.0.0.1:80/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
