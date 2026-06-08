@@ -24,8 +24,12 @@ public sealed class ExecutionDbContext(DbContextOptions<ExecutionDbContext> opti
             entity.ToTable("ExecutionJobs");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.Status, x.CreatedAt });
+            entity.HasIndex(x => x.SubmissionId);
             entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Code).IsRequired();
+            entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
+            entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
         });
         modelBuilder.Entity<ExecutionResult>(entity =>
         {

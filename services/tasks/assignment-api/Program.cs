@@ -49,9 +49,15 @@ app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, As
         Title = Clean(request.Title, "Новое задание"),
         Description = request.Description,
         Type = Clean(request.Type, "code-test"),
-        Language = Clean(request.Language, "csharp"),
+        Language = NormalizeLanguage(request.Language) ?? "csharp",
+        AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
+        Tags = request.Tags,
+        Difficulty = Math.Clamp(request.Difficulty ?? 1, 1, 3),
+        Rating = Math.Max(0, request.Rating ?? 1),
         StarterCode = request.StarterCode,
         TestsJson = request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases),
+        CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
+        CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
         IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
         Sort = maxSort + 1
     };
@@ -66,6 +72,28 @@ app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, Tas
     return assignment == null ? Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" }) : Results.Ok(ToDto(assignment));
 });
 
+app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Guid assignmentId, TasksDbContext db) =>
+{
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
+    if (assignment == null)
+    {
+        return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    }
+
+    return Results.Ok(new
+    {
+        assignment.Id,
+        assignment.Type,
+        assignment.Language,
+        allowedLanguages = ParseCsv(assignment.AllowedLanguagesCsv, assignment.Language),
+        codeForbiddenCalls = ParseStringArrayJson(assignment.CodeForbiddenCallsJson),
+        codeRequiredCalls = ParseStringArrayJson(assignment.CodeRequiredCallsJson),
+        tests = ParseJson(assignment.TestsJson),
+        testCases = ParseJson(assignment.TestsJson),
+        testsJson = assignment.TestsJson
+    });
+});
+
 app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, AssignmentRequest request, TasksDbContext db) =>
 {
     var assignment = await db.Assignments.FindAsync(assignmentId);
@@ -73,9 +101,15 @@ app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, Ass
     if (!string.IsNullOrWhiteSpace(request.Title)) assignment.Title = request.Title.Trim();
     assignment.Description = request.Description ?? assignment.Description;
     if (!string.IsNullOrWhiteSpace(request.Type)) assignment.Type = request.Type.Trim();
-    if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = request.Language.Trim();
+    if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = NormalizeLanguage(request.Language) ?? assignment.Language;
+    if (request.AllowedLanguages != null) assignment.AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages);
+    if (request.Tags != null) assignment.Tags = request.Tags;
+    if (request.Difficulty.HasValue) assignment.Difficulty = Math.Clamp(request.Difficulty.Value, 1, 3);
+    if (request.Rating.HasValue) assignment.Rating = Math.Max(0, request.Rating.Value);
     if (request.StarterCode != null) assignment.StarterCode = request.StarterCode;
     if (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue) assignment.TestsJson = request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases);
+    if (request.CodeForbiddenCalls != null) assignment.CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls);
+    if (request.CodeRequiredCalls != null) assignment.CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls);
     if (request.IsVisible.HasValue) assignment.IsVisible = request.IsVisible.Value;
     if (request.IsHidden.HasValue) assignment.IsVisible = !request.IsHidden.Value;
     assignment.UpdatedAt = DateTimeOffset.UtcNow;
@@ -544,8 +578,56 @@ static void Shuffle<T>(IList<T> list, Guid seed) { var rnd = new Random(BitConve
 static Guid? RequireUser(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
 static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
-static object ToDto(Assignment x) => new { x.Id, x.CourseId, x.Title, x.Description, x.Type, x.Language, allowedLanguages = new[] { x.Language }, x.StarterCode, tests = ParseJson(x.TestsJson), testCases = ParseJson(x.TestsJson), tags = string.Empty, difficulty = 1, rating = 1, isHidden = !x.IsVisible, isAiDraft = false, lifecycleStatus = x.IsVisible ? "published" : "draft", codeForbiddenCalls = Array.Empty<string>(), codeRequiredCalls = Array.Empty<string>(), imageTestReferenceKey = JsonString(x.TestsJson, "imageTestReferenceKey"), imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90), x.IsVisible, x.Sort, canEdit = true, isSolved = false, x.CreatedAt, x.UpdatedAt };
+static object ToDto(Assignment x) => new { x.Id, x.CourseId, x.Title, x.Description, x.Type, x.Language, allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language), x.StarterCode, tests = ParseJson(x.TestsJson), testCases = ParseJson(x.TestsJson), tags = x.Tags ?? string.Empty, difficulty = x.Difficulty, rating = x.Rating, isHidden = !x.IsVisible, isAiDraft = false, lifecycleStatus = x.IsVisible ? "published" : "draft", codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson), codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson), imageTestReferenceKey = JsonString(x.TestsJson, "imageTestReferenceKey"), imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90), x.IsVisible, x.Sort, canEdit = true, isSolved = false, x.CreatedAt, x.UpdatedAt };
 static string Clean(string? v, string fallback) => string.IsNullOrWhiteSpace(v) ? fallback : v.Trim();
+
+static string? NormalizeLanguage(string? value)
+{
+    var s = (value ?? string.Empty).Trim().ToLowerInvariant();
+    return s switch
+    {
+        "c#" or "cs" or "csharp" => "csharp",
+        "c++" or "cpp" or "g++" or "gcc" or "cxx" => "cpp",
+        "py" or "python" or "python3" => "python",
+        "js" or "node" or "nodejs" or "node.js" or "javascript" => "javascript",
+        "pas" or "pascal" or "pascalabc" or "pascalabcnet" or "pabc" => "pascal",
+        "java" => "java",
+        _ => null
+    };
+}
+static string[] SupportedCodeLanguages() => ["cpp", "python", "csharp", "javascript", "pascal", "java"];
+static List<string> NormalizeLanguageList(IEnumerable<string>? values)
+{
+    var list = (values ?? []).Select(NormalizeLanguage).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    return list.Count == 0 ? [] : list.Where(x => SupportedCodeLanguages().Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
+}
+static string? NormalizeLanguagesCsv(IEnumerable<string>? values)
+{
+    var list = NormalizeLanguageList(values);
+    return list.Count == 0 ? null : string.Join(',', list);
+}
+static string[] ParseCsv(string? csv, string fallback)
+{
+    var list = NormalizeLanguageList((csv ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    if (list.Count > 0) return list.ToArray();
+    var one = NormalizeLanguage(fallback) ?? "csharp";
+    return [one];
+}
+static string? StringArrayJson(IEnumerable<string>? values)
+{
+    if (values == null) return null;
+    var list = values.Select(x => (x ?? string.Empty).Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    return list.Length == 0 ? null : JsonSerializer.Serialize(list, JsonOptions());
+}
+static string[] ParseStringArrayJson(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return [];
+    try
+    {
+        return JsonSerializer.Deserialize<string[]>(json, JsonOptions())?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
+    }
+    catch { return []; }
+}
 static string? RawJson(JsonElement? value) => value.HasValue ? value.Value.GetRawText() : null;
 static object? ParseJson(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonSerializer.Deserialize<JsonElement>(json); } catch { return json; } }
 static JsonElement? ParseJsonElement(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonSerializer.Deserialize<JsonElement>(json); } catch { return null; } }
@@ -711,7 +793,7 @@ static List<int?> IntList(JsonObject o, string n) => o[n] is JsonArray a ? a.Sel
 static List<Option> Options(JsonObject o, string n = "options") => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new Option(Str(x, "key", Guid.NewGuid().ToString("N")[..4]), Str(x, "text", ""))).ToList() : [];
 static List<MatchPair> MatchPairList(JsonObject o, string n) => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new MatchPair(Str(x, "leftKey", ""), Str(x, "rightKey", ""))).ToList() : [];
 
-public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, bool? IsVisible, bool? IsHidden);
+public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden);
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);
 public sealed record SortRequest(int Sort);
 public sealed record PositionRequest(int? Position, Guid? AfterAssignmentId);

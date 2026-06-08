@@ -13,7 +13,7 @@ import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
-import { submitSolution } from '../api/solutions';
+import { submitSolution, getMySolutionDetails } from '../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 import { extractApiErrorMessages } from '../utils/handleApiError';
@@ -25,6 +25,7 @@ import { useRoleFlags } from '../contexts/EditorModeContext';
 
 const ALL_LANGS = [
   { value: 'cpp',        label: 'C++' },
+  { value: 'python',     label: 'Python' },
   { value: 'csharp',     label: 'C#' },
   { value: 'javascript', label: 'JavaScript' },
   { value: 'pascal',     label: 'Pascal' },
@@ -38,6 +39,7 @@ function normalizeLang(x) {
 
   if (s === 'c++' || s === 'cpp' || s === 'g++' || s === 'gcc' || s === 'cxx' || s === 'си++' || s === 'с++') return 'cpp';
   if (s === 'c#' || s === 'cs' || s === 'csharp' || s === 'sharp' || s === 'си#' || s === 'с#' || s === 'шарп') return 'csharp';
+  if (s === 'py' || s === 'python' || s === 'python3' || s === 'питон') return 'python';
   if (s === 'js' || s === 'node' || s === 'nodejs' || s === 'node.js' || s === 'javascript' || s === 'java-script') return 'javascript';
 
   
@@ -70,6 +72,23 @@ function parseAllowedLanguages(raw) {
   const filtered = Array.from(allowedSet).filter(x => knownSet.has(x));
 
   return filtered;
+}
+
+const PENDING_SOLUTION_STATUSES = new Set(['preparing', 'queued', 'running']);
+
+function isPendingSolution(value) {
+  const status = String(value?.status || value?.verdict || '').trim().toLowerCase();
+  return value?.isPending === true || value?.result?.pending === true || PENDING_SOLUTION_STATUSES.has(status);
+}
+
+async function waitForSolutionVerdict(solutionId, maxAttempts = 30) {
+  let latest = null;
+  for (let i = 0; i < maxAttempts; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, i < 4 ? 700 : 1200));
+    latest = await getMySolutionDetails(solutionId);
+    if (!isPendingSolution(latest)) return latest;
+  }
+  return latest;
 }
 
 function buildImageTaskErrorText(err, fallbackMessage) {
@@ -293,9 +312,14 @@ export default function AssignmentSolvePage() {
     setError('');
     setResult(null);
     try {
-      const r = await submitSolution(assignmentId, { language, code });
+      let r = await submitSolution(assignmentId, { language, code });
+      if (isPendingSolution(r) && r?.id) {
+        notify.info('Решение поставлено в очередь проверки. Жду verdict от execution-worker…');
+        const finalVerdict = await waitForSolutionVerdict(r.id);
+        if (finalVerdict) r = finalVerdict;
+      }
 
-      const cases = r?.cases ?? r?.testCases ?? r?.results ?? [];
+      const cases = r?.cases ?? r?.testCases ?? r?.results ?? r?.result?.cases ?? r?.result?.results ?? [];
       const policyCase = Array.isArray(cases)
         ? cases.find(c => (c?.status === 'policy_failed') || String(c?.compileStderr || c?.stderr || '').includes('[policy_failed]'))
         : null;
@@ -303,7 +327,8 @@ export default function AssignmentSolvePage() {
       const allOk =
         (r?.passedAllTests === true) ||
         (r?.passedAll === true) ||
-        (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK'));
+        String(r?.status || r?.verdict || '').toLowerCase() === 'accepted' ||
+        (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK' || c?.status === 'ok'));
 
       setResult({ ...r, __allPassed: allOk });
 
@@ -320,8 +345,14 @@ export default function AssignmentSolvePage() {
           .map(s => s.replace(/^\-\s*/, ''));
         const short = lines.length ? `: ${lines.join(' | ')}` : '';
         notify.error(`Отклонено анализатором кода${short}`);
-      } else if (r?.compileError) {
+      } else if (isPendingSolution(r)) {
+        notify.info('Проверка ещё выполняется. Открой результаты чуть позже.');
+      } else if (r?.compileError || String(r?.status || r?.verdict || '').toLowerCase() === 'compileerror') {
         notify.error('Ошибка компиляции');
+      } else if (String(r?.status || r?.verdict || '').toLowerCase() === 'notestsconfigured') {
+        notify.error('Для задания не настроены тесты');
+      } else if (String(r?.status || r?.verdict || '').toLowerCase() === 'judgeunavailable') {
+        notify.error('Система проверки временно недоступна');
       } else {
         notify.error('Не все тесты пройдены');
       }

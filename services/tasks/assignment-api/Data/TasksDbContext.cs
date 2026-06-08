@@ -28,6 +28,10 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
             entity.Property(x => x.Description).HasMaxLength(8000);
             entity.Property(x => x.Type).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.AllowedLanguagesCsv).HasMaxLength(300);
+            entity.Property(x => x.Tags).HasMaxLength(1000);
+            entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
+            entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<TaskAttempt>(entity =>

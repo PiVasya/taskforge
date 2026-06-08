@@ -25,6 +25,7 @@ import { useRoleFlags } from "../contexts/EditorModeContext";
 const LANGS_BY_TYPE = {
   "code-test": [
     { value: "cpp", label: "C++" },
+    { value: "python", label: "Python" },
     { value: "csharp", label: "C#" },
     { value: "javascript", label: "JavaScript" },
     { value: "pascal", label: "Pascal" },

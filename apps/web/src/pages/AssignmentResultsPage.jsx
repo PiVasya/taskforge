@@ -163,11 +163,14 @@ export default function AssignmentResultsPage() {
     );
   }
 
-  const cases = res.cases ?? res.testCases ?? res.results ?? [];
+  const cases = res.cases ?? res.testCases ?? res.results ?? res.result?.cases ?? res.result?.results ?? [];
+  const status = String(res.status || res.verdict || '').toLowerCase();
+  const pending = res.isPending === true || res.result?.pending === true || ['preparing', 'queued', 'running'].includes(status);
   const passedAll =
     (res.passedAll === true) ||
     (res.passedAllTests === true) ||
-    (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK'));
+    status === 'accepted' ||
+    (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK' || c?.status === 'ok'));
 
   return (
     <Layout>
@@ -188,8 +191,20 @@ export default function AssignmentResultsPage() {
       <Card>
         <div className="p-4">
           <div className="mb-3">
-            {passedAll ? (
+            {pending ? (
+              <div className="text-sky-700 font-medium">Проверка ещё выполняется</div>
+            ) : passedAll ? (
               <div className="text-emerald-700 font-medium">Все тесты пройдены</div>
+            ) : status === 'compileerror' ? (
+              <div className="text-red-700 font-medium">Ошибка компиляции</div>
+            ) : status === 'notestsconfigured' ? (
+              <div className="text-red-700 font-medium">Для задания не настроены тесты</div>
+            ) : status === 'judgeunavailable' ? (
+              <div className="text-red-700 font-medium">Система проверки временно недоступна</div>
+            ) : status === 'policyfailed' ? (
+              <div className="text-red-700 font-medium">Решение заблокировано анализатором кода</div>
+            ) : status === 'languagenotallowed' ? (
+              <div className="text-red-700 font-medium">Этот язык не разрешён для задания</div>
             ) : (
               <div className="text-red-700 font-medium">Не все тесты пройдены</div>
             )}
@@ -203,8 +218,8 @@ export default function AssignmentResultsPage() {
                 <div key={i} className="rounded border p-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-medium">Тест #{i + 1}</div>
-                    <div className={`text-xs px-2 py-0.5 rounded ${c.passed || c.status === 'OK' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      {c.passed || c.status === 'OK' ? 'OK' : 'FAIL'}
+                    <div className={`text-xs px-2 py-0.5 rounded ${c.passed || c.status === 'OK' || c.status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {c.passed || c.status === 'OK' || c.status === 'ok' ? 'OK' : 'FAIL'}
                     </div>
                   </div>
 

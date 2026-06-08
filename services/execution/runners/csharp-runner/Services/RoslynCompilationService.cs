@@ -14,7 +14,7 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
     {
         try
         {
-            var syntax = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.Preview));
+            var syntax = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.CSharp14));
 
             // ПОЛНЫЙ набор платформенных сборок (TPA) — критично для CS0012/System.Runtime
             var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? string.Empty)
@@ -33,7 +33,7 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
             var options = new CSharpCompilationOptions(
                 OutputKind.ConsoleApplication,
                 optimizationLevel: OptimizationLevel.Release,
-                allowUnsafe: true,
+                allowUnsafe: false,
                 concurrentBuild: true,
                 usings: new[]
                 {

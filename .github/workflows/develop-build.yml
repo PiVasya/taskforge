@@ -58,6 +58,7 @@ jobs:
             "java-runner|./services/execution/runners/java-runner|Dockerfile|services/execution/runners/java-runner/"
             "javascript-runner|./services/execution/runners/javascript-runner|Dockerfile|services/execution/runners/javascript-runner/"
             "pascal-runner|./services/execution/runners/pascal-runner|Dockerfile|services/execution/runners/pascal-runner/"
+            "python-runner|./services/execution/runners/python-runner|Dockerfile|services/execution/runners/python-runner/"
             "image-cpp-runner|./services/execution/runners/image-cpp-runner|Dockerfile|services/execution/runners/image-cpp-runner/"
             "image-pascal-runner|./services/execution/runners/image-pascal-runner|Dockerfile|services/execution/runners/image-pascal-runner/"
 

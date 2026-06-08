@@ -666,3 +666,6 @@ coverage/
 .tmp/
 tmp/
 temp/
+
+# Local dev build helper logs
+deploy/dev/build-logs/

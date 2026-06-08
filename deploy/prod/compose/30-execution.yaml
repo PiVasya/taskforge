@@ -1,3 +1,13 @@
+x-runner-security: &runner-security
+  security_opt:
+  - no-new-privileges:true
+  cap_drop:
+  - ALL
+  pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+  mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+  tmpfs:
+  - /tmp:size=${RUNNER_TMPFS_SIZE:-256m},mode=1777
+
 services:
   execution-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/execution-api:${IMAGE_TAG:-develop}
@@ -12,6 +22,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
@@ -43,6 +54,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      Services__ExecutionApi: http://execution-api:8080
+      Services__SolutionsApi: http://solutions-api:8080
+      ExecutionQueue__MaxAttempts: ${EXECUTION_QUEUE_MAX_ATTEMPTS:-3}
+      ExecutionQueue__RunningTimeoutMinutes: ${EXECUTION_QUEUE_RUNNING_TIMEOUT_MINUTES:-5}
+      Judge__TimeoutSeconds: ${JUDGE_TIMEOUT_SECONDS:-45}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       Runners__Cpp: http://cpp-runner:8080
@@ -50,10 +67,19 @@ services:
       Runners__Java: http://java-runner:8080
       Runners__Javascript: http://javascript-runner:8080
       Runners__Pascal: http://pascal-runner:8080
+      Runners__Python: http://python-runner:8080
       Runners__ImageCpp: http://image-cpp-runner:8000
+      CodeAnalyzer__Enabled: ${CODE_ANALYZER_ENABLED:-true}
+      CodeAnalyzer__Url: http://code-analyzer:8080
+      CodeAnalyzer__FailClosed: ${CODE_ANALYZER_FAIL_CLOSED:-true}
+      CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}
       Runners__ImagePascal: http://image-pascal-runner:8000
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      execution-api:
+        condition: service_healthy
+      solutions-api:
         condition: service_healthy
       cpp-runner:
         condition: service_healthy
@@ -64,6 +90,10 @@ services:
       javascript-runner:
         condition: service_healthy
       pascal-runner:
+        condition: service_healthy
+      python-runner:
+        condition: service_healthy
+      code-analyzer:
         condition: service_healthy
       image-cpp-runner:
         condition: service_healthy
@@ -78,6 +108,7 @@ services:
       retries: 12
       start_period: 20s
   csharp-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/csharp-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:
@@ -91,6 +122,7 @@ services:
       retries: 12
       start_period: 20s
   cpp-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/cpp-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:
@@ -104,6 +136,7 @@ services:
       retries: 12
       start_period: 20s
   java-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/java-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:
@@ -117,6 +150,7 @@ services:
       retries: 12
       start_period: 20s
   javascript-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/javascript-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:
@@ -130,6 +164,7 @@ services:
       retries: 12
       start_period: 20s
   pascal-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/pascal-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:
@@ -142,7 +177,23 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+  python-runner:
+    <<: *runner-security
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/python-runner:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   image-cpp-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-cpp-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:
@@ -156,6 +207,7 @@ services:
       retries: 12
       start_period: 30s
   image-pascal-runner:
+    <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-pascal-runner:${IMAGE_TAG:-develop}
     restart: unless-stopped
     expose:

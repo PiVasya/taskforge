@@ -30,7 +30,7 @@
 ## Проверка
 
 ```bash
-./scripts/verify-structure.sh
+./build.sh
 ```
 
 В скрипте есть отдельная проверка, что у каждого compose-сервиса есть healthcheck.

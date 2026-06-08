@@ -1,13 +1,13 @@
 name: taskforge-real-microservices-dev
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-taskforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskforge_dev_password}
       POSTGRES_DB: postgres
     volumes:
-    - postgres-data:/var/lib/postgresql/data
+    - postgres-data:/var/lib/postgresql
     - ../../../infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
     - ${DEV_POSTGRES_PORT:-5432}:5432

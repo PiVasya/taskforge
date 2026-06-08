@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace TaskForge.Execution.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialMicroserviceSchema : Migration
+    public partial class RegenerateRuntimeSchema : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -17,7 +17,17 @@ namespace TaskForge.Execution.Api.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     SubmissionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    AssignmentId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: true),
                     Language = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    Code = table.Column<string>(type: "text", nullable: false),
+                    Input = table.Column<string>(type: "text", nullable: true),
+                    TestsJson = table.Column<string>(type: "text", nullable: true),
+                    CodeForbiddenCallsJson = table.Column<string>(type: "jsonb", nullable: true),
+                    CodeRequiredCallsJson = table.Column<string>(type: "jsonb", nullable: true),
+                    TimeLimitMs = table.Column<int>(type: "integer", nullable: true),
+                    MemoryLimitMb = table.Column<int>(type: "integer", nullable: true),
+                    AttemptCount = table.Column<int>(type: "integer", nullable: false),
                     Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     StartedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -37,7 +47,10 @@ namespace TaskForge.Execution.Api.Migrations
                     Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
                     Stdout = table.Column<string>(type: "text", nullable: true),
                     Stderr = table.Column<string>(type: "text", nullable: true),
+                    ResultJson = table.Column<string>(type: "text", nullable: true),
                     ExitCode = table.Column<int>(type: "integer", nullable: true),
+                    Score = table.Column<int>(type: "integer", nullable: false),
+                    Passed = table.Column<bool>(type: "boolean", nullable: false),
                     DurationMs = table.Column<long>(type: "bigint", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
@@ -78,6 +91,11 @@ namespace TaskForge.Execution.Api.Migrations
                 name: "IX_ExecutionJobs_Status_CreatedAt",
                 table: "ExecutionJobs",
                 columns: new[] { "Status", "CreatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ExecutionJobs_SubmissionId",
+                table: "ExecutionJobs",
+                column: "SubmissionId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ExecutionResults_JobId",

@@ -17,7 +17,7 @@ namespace TaskForge.Tasks.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.1")
+                .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -27,6 +27,16 @@ namespace TaskForge.Tasks.Api.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("AllowedLanguagesCsv")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("CodeForbiddenCallsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("CodeRequiredCallsJson")
+                        .HasColumnType("jsonb");
 
                     b.Property<Guid>("CourseId")
                         .HasColumnType("uuid");
@@ -38,6 +48,9 @@ namespace TaskForge.Tasks.Api.Migrations
                         .HasMaxLength(8000)
                         .HasColumnType("character varying(8000)");
 
+                    b.Property<int>("Difficulty")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsVisible")
                         .HasColumnType("boolean");
 
@@ -46,11 +59,18 @@ namespace TaskForge.Tasks.Api.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Sort")
                         .HasColumnType("integer");
 
                     b.Property<string>("StarterCode")
                         .HasColumnType("text");
+
+                    b.Property<string>("Tags")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<string>("TestsJson")
                         .HasColumnType("text");

@@ -105,7 +105,11 @@ app.MapGet("/api/quiz/tasks", async (QuizDbContext db, ClaimsPrincipal user, str
     if (!canSeeDrafts) query = query.Where(x => x.IsPublished);
     if (!string.IsNullOrWhiteSpace(subjectCode)) query = query.Where(x => x.SubjectCode == subjectCode);
     if (!string.IsNullOrWhiteSpace(examCode)) query = query.Where(x => x.ExamCode == examCode);
-    if (!string.IsNullOrWhiteSpace(sectionCode)) query = query.Where(x => x.SectionCode == sectionCode);
+    if (!string.IsNullOrWhiteSpace(sectionCode))
+    {
+        var normalizedSectionCode = NormalizeSectionCode(sectionCode);
+        query = query.Where(x => x.SectionCode == normalizedSectionCode);
+    }
     if (!string.IsNullOrWhiteSpace(type)) query = query.Where(x => x.Type == type);
 
     var taskEntities = await query
@@ -242,7 +246,8 @@ app.MapGet("/api/quiz/me/solutions", [Authorize] async (QuizDbContext db, Claims
     var taskQuery = db.Tasks.AsNoTracking().Where(x => x.IsPublished).AsQueryable();
     if (!string.IsNullOrWhiteSpace(sectionCode))
     {
-        taskQuery = taskQuery.Where(x => x.SectionCode == sectionCode);
+        var normalizedSectionCode = NormalizeSectionCode(sectionCode);
+        taskQuery = taskQuery.Where(x => x.SectionCode == normalizedSectionCode);
     }
 
     var tasks = await taskQuery.ToListAsync();
@@ -306,8 +311,9 @@ app.MapGet("/api/quiz/me/progress", [Authorize] async (QuizDbContext db, ClaimsP
     var query = db.Progress.AsNoTracking().Where(x => x.UserId == userId.Value);
     if (!string.IsNullOrWhiteSpace(sectionCode))
     {
+        var normalizedSectionCode = NormalizeSectionCode(sectionCode);
         var taskIds = await db.Tasks.AsNoTracking()
-            .Where(x => x.SectionCode == sectionCode)
+            .Where(x => x.SectionCode == normalizedSectionCode)
             .Select(x => x.Id)
             .ToListAsync();
         query = query.Where(x => taskIds.Contains(x.TaskId));
@@ -325,7 +331,11 @@ app.MapGet("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")] 
     var query = db.Tasks.AsNoTracking().AsQueryable();
     if (!string.IsNullOrWhiteSpace(subjectCode)) query = query.Where(x => x.SubjectCode == subjectCode);
     if (!string.IsNullOrWhiteSpace(examCode)) query = query.Where(x => x.ExamCode == examCode);
-    if (!string.IsNullOrWhiteSpace(sectionCode)) query = query.Where(x => x.SectionCode == sectionCode);
+    if (!string.IsNullOrWhiteSpace(sectionCode))
+    {
+        var normalizedSectionCode = NormalizeSectionCode(sectionCode);
+        query = query.Where(x => x.SectionCode == normalizedSectionCode);
+    }
     if (!string.IsNullOrWhiteSpace(type)) query = query.Where(x => x.Type == type);
 
     var tasks = await query
@@ -357,16 +367,17 @@ app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")]
     var exists = await db.Tasks.AnyAsync(x => x.Slug == req.Slug.Trim());
     if (exists) return Results.Conflict(new { message = "Task slug already exists" });
 
+    var normalizedSectionCode = NormalizeSectionCode(req.SectionCode);
     var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
     var task = new QuizTask
     {
         Slug = req.Slug.Trim(),
-        Type = NormalizeTaskType(req.Type, req.SectionCode),
+        Type = NormalizeTaskType(req.Type, normalizedSectionCode),
         Title = req.Title.Trim(),
         Prompt = req.Prompt.Trim(),
         SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim(),
         ExamCode = string.IsNullOrWhiteSpace(req.ExamCode) ? "ct-ce-2026" : req.ExamCode.Trim(),
-        SectionCode = req.SectionCode?.Trim(),
+        SectionCode = normalizedSectionCode,
         Difficulty = req.Difficulty <= 0 ? 1 : req.Difficulty,
         TagsJson = JsonOrDefault(req.Tags, req.TagsJson, "[]"),
         SourceName = req.SourceName,
@@ -404,13 +415,14 @@ app.MapPut("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,Learning
     var duplicate = await db.Tasks.AnyAsync(x => x.Id != id && x.Slug == newSlug);
     if (duplicate) return Results.Conflict(new { message = "Task slug already exists" });
 
+    var normalizedSectionCode = NormalizeSectionCode(req.SectionCode);
     task.Slug = newSlug;
-    task.Type = NormalizeTaskType(req.Type, req.SectionCode);
+    task.Type = NormalizeTaskType(req.Type, normalizedSectionCode);
     task.Title = req.Title.Trim();
     task.Prompt = req.Prompt.Trim();
     task.SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim();
     task.ExamCode = string.IsNullOrWhiteSpace(req.ExamCode) ? "ct-ce-2026" : req.ExamCode.Trim();
-    task.SectionCode = req.SectionCode?.Trim();
+    task.SectionCode = normalizedSectionCode;
     task.Difficulty = req.Difficulty <= 0 ? 1 : req.Difficulty;
     task.TagsJson = JsonOrDefault(req.Tags, req.TagsJson, "[]");
     task.SourceName = req.SourceName;
@@ -449,7 +461,7 @@ app.MapDelete("/api/admin/quiz/tasks/by-section", [Authorize(Roles = "Admin,Lear
         return Results.BadRequest(new { message = "sectionCode is required" });
     }
 
-    var normalizedSectionCode = sectionCode.Trim().ToUpperInvariant();
+    var normalizedSectionCode = NormalizeSectionCode(sectionCode)!;
     if (!System.Text.RegularExpressions.Regex.IsMatch(normalizedSectionCode, "^[AB][0-9]+$"))
     {
         return Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
@@ -518,6 +530,11 @@ static bool CanEditQuiz(ClaimsPrincipal user)
     return user.IsInRole("Admin") || user.IsInRole("LearningEditor");
 }
 
+static string? NormalizeSectionCode(string? sectionCode)
+{
+    return string.IsNullOrWhiteSpace(sectionCode) ? null : sectionCode.Trim().ToUpperInvariant();
+}
+
 static string NormalizeTaskType(string? type, string? sectionCode)
 {
     if (!string.IsNullOrWhiteSpace(sectionCode) && sectionCode.Trim().StartsWith("B", StringComparison.OrdinalIgnoreCase))
@@ -535,16 +552,59 @@ static IResult? ValidateTaskRequest(CreateQuizTaskRequest req)
         return Results.BadRequest(new { message = "Slug, Title and Prompt are required" });
     }
 
+    var sectionCode = NormalizeSectionCode(req.SectionCode);
+    if (!string.IsNullOrWhiteSpace(sectionCode) && !System.Text.RegularExpressions.Regex.IsMatch(sectionCode, "^[AB][0-9]+$"))
+    {
+        return Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
+    }
+
     var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
     if (string.IsNullOrWhiteSpace(ExtractExplanationText(explanationJson)))
     {
         return Results.BadRequest(new { message = "Explanation is required" });
     }
 
+    var type = NormalizeTaskType(req.Type, sectionCode);
+    var dataJson = JsonOrDefault(req.Data, req.DataJson, "{}");
     var correctAnswerJson = JsonOrDefault(req.CorrectAnswer, req.CorrectAnswerJson, "{}");
     if (string.IsNullOrWhiteSpace(ExtractAnswerText(correctAnswerJson)))
     {
         return Results.BadRequest(new { message = "Correct answer is required" });
+    }
+
+    if (string.Equals(type, "single-choice", StringComparison.OrdinalIgnoreCase) || string.Equals(type, "multiple-choice", StringComparison.OrdinalIgnoreCase))
+    {
+        var choiceValidation = ValidateChoiceAnswer(dataJson, correctAnswerJson, allowMultiple: string.Equals(type, "multiple-choice", StringComparison.OrdinalIgnoreCase));
+        if (choiceValidation != null) return choiceValidation;
+    }
+
+    return null;
+}
+
+static IResult? ValidateChoiceAnswer(string dataJson, string correctAnswerJson, bool allowMultiple)
+{
+    var options = ExtractOptions(dataJson);
+    if (options.Count == 0)
+    {
+        return Results.BadRequest(new { message = "Choice task must contain data.options" });
+    }
+
+    var selected = ExtractSelectedAnswers(correctAnswerJson);
+    if (selected.Count == 0)
+    {
+        return Results.BadRequest(new { message = "Choice task must contain correctAnswer.selected" });
+    }
+
+    if (!allowMultiple && selected.Count != 1)
+    {
+        return Results.BadRequest(new { message = "Single-choice task must contain exactly one correct answer" });
+    }
+
+    var normalizedOptions = options.Select(NormalizeForCompare).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var unknown = selected.Where(x => !normalizedOptions.Contains(NormalizeForCompare(x))).ToList();
+    if (unknown.Count > 0)
+    {
+        return Results.BadRequest(new { message = "Correct answer must match one of data.options", unknownAnswers = unknown });
     }
 
     return null;
@@ -621,6 +681,60 @@ static string ExtractExplanationText(string explanationJson)
         return explanationJson;
     }
     return string.Empty;
+}
+
+static List<string> ExtractOptions(string dataJson)
+{
+    if (string.IsNullOrWhiteSpace(dataJson) || dataJson == "{}") return new List<string>();
+    try
+    {
+        using var doc = JsonDocument.Parse(dataJson);
+        var root = doc.RootElement;
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("options", out var options) && options.ValueKind == JsonValueKind.Array)
+        {
+            return options.EnumerateArray().Select(x => x.ToString().Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+    catch
+    {
+        return new List<string>();
+    }
+    return new List<string>();
+}
+
+static List<string> ExtractSelectedAnswers(string answerJson)
+{
+    if (string.IsNullOrWhiteSpace(answerJson) || answerJson == "{}") return new List<string>();
+    try
+    {
+        using var doc = JsonDocument.Parse(answerJson);
+        var root = doc.RootElement;
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propName in new[] { "selected", "values", "answers" })
+            {
+                if (root.TryGetProperty(propName, out var prop) && prop.ValueKind == JsonValueKind.Array)
+                {
+                    return prop.EnumerateArray().Select(x => x.ToString().Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+                }
+            }
+        }
+        if (root.ValueKind == JsonValueKind.String)
+        {
+            var value = root.GetString()?.Trim();
+            return string.IsNullOrWhiteSpace(value) ? new List<string>() : new List<string> { value };
+        }
+    }
+    catch
+    {
+        return new List<string>();
+    }
+    return new List<string>();
+}
+
+static string NormalizeForCompare(string value)
+{
+    return string.Join(' ', (value ?? string.Empty).Trim().Replace('ё', 'е').Replace('Ё', 'Е').ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 }
 
 static string ExtractAnswerText(string answerJson)

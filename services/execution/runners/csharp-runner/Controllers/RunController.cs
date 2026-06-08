@@ -53,6 +53,7 @@ public sealed class RunController : ControllerBase
     // POST /run/tests
     [HttpPost("tests")]
     [HttpPost("/run/tests")]
+    [HttpPost("/run-tests")]
     public ActionResult<TestResultsResponse> RunTests([FromBody] RunRequestWithTests req)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Code))
@@ -68,10 +69,15 @@ public sealed class RunController : ControllerBase
                 {
                     new TestResult
                     {
-                        Input = "",
-                        ExpectedOutput = "",
+                        Input = req.Tests?.FirstOrDefault()?.Input ?? "",
+                        ExpectedOutput = req.Tests?.FirstOrDefault()?.ExpectedOutput ?? "",
                         ActualOutput = compileErr ?? "",
-                        Passed = false
+                        Passed = false,
+                        Status = "compile_error",
+                        ExitCode = 1,
+                        Stderr = "",
+                        CompileStderr = compileErr ?? "",
+                        Hidden = req.Tests?.FirstOrDefault()?.IsHidden ?? false
                     }
                 }
             });
@@ -102,7 +108,12 @@ public sealed class RunController : ControllerBase
                 Input = t.Input ?? "",
                 ExpectedOutput = t.ExpectedOutput ?? "",
                 ActualOutput = actual,
-                Passed = passed
+                Passed = passed,
+                Status = passed ? "ok" : (ranOk ? "wrong_answer" : (string.Equals(ex, "Time limit exceeded.", StringComparison.OrdinalIgnoreCase) ? "time_limit" : "runtime_error")),
+                ExitCode = ranOk ? 0 : 1,
+                Stderr = ranOk ? "" : ex,
+                CompileStderr = null,
+                Hidden = t.IsHidden
             });
         }
 

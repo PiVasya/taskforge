@@ -1,78 +1,28 @@
-# Dev environment
+# Dev compose
 
-Dev-окружение лежит на одном уровне с prod:
-
-```text
-deploy/dev/
-  .env.example
-  compose.sh
-  compose/
-```
-
-## Запуск
+Обычный запуск через корневой helper:
 
 ```bash
-cp deploy/dev/.env.example deploy/dev/.env
-./deploy/dev/compose.sh up --build
+./build.sh
 ```
 
-## Остановка
+Собрать один сервис:
 
 ```bash
-./deploy/dev/compose.sh down
+./build.sh tasks-api
 ```
 
-
-## Администратор в dev
-
-Роль администратора теперь задаётся явно, а не скрытым правилом "первый пользователь — Admin":
-
-```text
-BOOTSTRAP_FIRST_USER_IS_ADMIN=false
-BOOTSTRAP_ADMIN_EMAILS=admin@test.local
-```
-
-Если хочешь, чтобы первый зарегистрированный пользователь локально автоматически стал администратором, временно поставь в `deploy/dev/.env`:
-
-```text
-BOOTSTRAP_FIRST_USER_IS_ADMIN=true
-```
-
-Для обычной проверки лучше использовать явный email в `BOOTSTRAP_ADMIN_EMAILS`.
-
-## Особенности
-
-- Использует `build:` и собирает сервисы из локального кода.
-- Использует `ASPNETCORE_ENVIRONMENT=Development`.
-- Gateway открыт на `http://localhost:18080` по умолчанию. Если нужен старый порт, поменяй `DEV_GATEWAY_HTTP_PORT=8080` в `deploy/dev/.env`, но только если порт свободен.
-- Миграции лежат в репозитории как baseline `InitialMicroserviceSchema`; автоприменение включается через `MIGRATE_ON_STARTUP=true`.
-## Если порт занят
-
-Dev gateway по умолчанию использует порт `18080`, чтобы не конфликтовать с уже занятым `8080`. Изменить можно в `deploy/dev/.env`:
-
-```text
-DEV_GATEWAY_HTTP_PORT=18080
-```
-
-## Порядок старта
-
-Compose ждёт `postgres` и `rabbitmq` через healthcheck перед стартом API/worker-сервисов. Это нужно, чтобы автоприменение EF migrations не падало с `Connection refused`, пока PostgreSQL ещё инициализируется.
-
-
-## Startup logs
-
-To avoid flooding the terminal, use:
+Посмотреть логи:
 
 ```bash
-./deploy/dev/compose.sh up-logs --build
+./build.sh logs
+./build.sh logs judge
 ```
 
-It starts the stack in detached mode and saves the first 30 seconds of logs to `deploy/dev/logs/<timestamp>/startup-30s.log`.
-
-Useful commands:
+`deploy/dev/compose.sh` оставлен как тонкий wrapper над `docker compose`, если нужна ручная команда:
 
 ```bash
-./deploy/dev/compose.sh logs -f --tail=200
-./deploy/dev/compose.sh logs-dump 1000
-./deploy/dev/compose.sh logs-startup 30
+./deploy/dev/compose.sh ps
+./deploy/dev/compose.sh logs -f --tail=200 tasks-api
+./deploy/dev/compose.sh up -d --no-build tasks-api
 ```

@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

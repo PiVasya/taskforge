@@ -51,7 +51,9 @@ struct Hit {
     needle: String,
     position: usize,
     preview: String,
-}fn is_ident_char(c: char) -> bool {
+}
+
+fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
@@ -272,6 +274,20 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let mut hits: Vec<Hit> = Vec::new();
     let mut errors: Vec<Violation> = Vec::new();
 
+    if let Some((pos, ch)) = find_cyrillic_in_code(&cleaned) {
+        hits.push(Hit {
+            pattern_id: Some("unicode.cyrillic_in_code".to_string()),
+            needle: ch.to_string(),
+            position: pos,
+            preview: make_preview(&cleaned, pos, ch.len_utf8()),
+        });
+        errors.push(Violation {
+            code: "cyrillic_in_code".to_string(),
+            message: "Кириллица разрешена в строках и комментариях, но запрещена в исполняемом коде: используйте латинские имена переменных, функций и классов.".to_string(),
+            pattern_id: Some("unicode.cyrillic_in_code".to_string()),
+        });
+    }
+
     // We scan once per pattern; patterns are small. Later we can optimize with Aho–Corasick.
     for p in patterns {
         tracing::debug!("scan pattern id={:?} needle='{}'", p.id, p.needle);
@@ -389,13 +405,38 @@ for call in &required_calls {
     })
 }
 
+fn is_cyrillic_char(c: char) -> bool {
+    matches!(c as u32,
+        0x0400..=0x052F |
+        0x1C80..=0x1C8F |
+        0x2DE0..=0x2DFF |
+        0xA640..=0xA69F
+    )
+}
+
+fn find_cyrillic_in_code(src: &str) -> Option<(usize, char)> {
+    src.char_indices().find(|(_, c)| is_cyrillic_char(*c))
+}
+
 fn make_preview(src: &str, pos: usize, len: usize) -> String {
-    let start = pos.saturating_sub(30);
-    let end = (pos + len + 30).min(src.len());
+    let start = nearest_char_boundary_left(src, pos.saturating_sub(30));
+    let end = nearest_char_boundary_right(src, (pos + len + 30).min(src.len()));
     let mut s = src[start..end].replace('\n', " ");
     s = s.replace('\r', " ");
     s = s.replace('\t', " ");
     s
+}
+
+fn nearest_char_boundary_left(src: &str, mut idx: usize) -> usize {
+    idx = idx.min(src.len());
+    while idx > 0 && !src.is_char_boundary(idx) { idx -= 1; }
+    idx
+}
+
+fn nearest_char_boundary_right(src: &str, mut idx: usize) -> usize {
+    idx = idx.min(src.len());
+    while idx < src.len() && !src.is_char_boundary(idx) { idx += 1; }
+    idx
 }
 
 fn builtin_forbidden(lang: &str) -> Vec<ForbiddenPattern> {

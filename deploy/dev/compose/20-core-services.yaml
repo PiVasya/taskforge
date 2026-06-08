@@ -158,6 +158,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
       Database__EnsureCreated: ${ENSURE_CREATED:-false}
       Jwt__Key: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}
@@ -194,6 +195,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
+      Services__TasksApi: http://tasks-api:8080
+      Services__ExecutionApi: http://execution-api:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
       Database__EnsureCreated: ${ENSURE_CREATED:-false}
       Jwt__Key: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}

@@ -1,18 +1,21 @@
-# No Python runtime policy
+# Python runtime boundary policy
 
-В runtime-сервисах Python запрещён, кроме:
+Python не используется для AI/core backend runtime-сервисов. Разрешены только два изолированных случая:
 
 ```text
 services/analyzers/image-analyzer
+services/execution/runners/python-runner
 ```
 
-Удалены/не перенесены как runtime:
+`python-runner` — это не application backend, а sandbox runner для шестого языка решений. Он вызывается только через `execution-worker` и получает уже проверенный job payload.
+
+Не разрешены как application runtime:
 
 ```text
-python-runner
-image-python-runner
 taskforge-ai-worker-external
 legacy python AI worker
+python backend монолита
+image-python-runner
 ```
 
 В `extracted/` могут встречаться старые строки/комментарии из монолита. Это исходники для ручного переноса логики, а не активная runtime-схема.

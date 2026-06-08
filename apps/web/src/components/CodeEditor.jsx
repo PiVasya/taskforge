@@ -28,6 +28,8 @@ export default function CodeEditor({
       case 'cs':
       case 'csharp':
         return 'csharp';
+      case 'python':
+        return 'python';
       case 'py':
       case 'js':
       case 'node':
