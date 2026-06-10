@@ -18,6 +18,13 @@ import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 import { extractApiErrorMessages } from '../utils/handleApiError';
 import { getApiErrorMessage } from '../api/http';
+import {
+  dataUrlFromBase64,
+  getImageReferenceUrl,
+  getImageSimilarityPercent,
+  getImageSubmittedUrl,
+  getImageThresholdPercent,
+} from '../utils/solutionsView';
 
 import { ArrowLeft, Play, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { useRoleFlags } from '../contexts/EditorModeContext';
@@ -74,21 +81,23 @@ function parseAllowedLanguages(raw) {
   return filtered;
 }
 
-const PENDING_SOLUTION_STATUSES = new Set(['preparing', 'queued', 'running']);
+const PENDING_SOLUTION_STATUSES = new Set(['preparing', 'queued', 'running', 'pending']);
 
 function isPendingSolution(value) {
   const status = String(value?.status || value?.verdict || '').trim().toLowerCase();
   return value?.isPending === true || value?.result?.pending === true || PENDING_SOLUTION_STATUSES.has(status);
 }
 
-async function waitForSolutionVerdict(solutionId, maxAttempts = 30) {
+async function waitForSolutionVerdict(solutionId, options = {}) {
+  const { maxAttempts = 30, onUpdate } = options || {};
   let latest = null;
   for (let i = 0; i < maxAttempts; i += 1) {
     await new Promise(resolve => setTimeout(resolve, i < 4 ? 700 : 1200));
     latest = await getMySolutionDetails(solutionId);
-    if (!isPendingSolution(latest)) return latest;
+    onUpdate?.(latest, i + 1);
+    if (!isPendingSolution(latest)) return { solution: latest, timedOut: false };
   }
-  return latest;
+  return { solution: latest, timedOut: true };
 }
 
 function buildImageTaskErrorText(err, fallbackMessage) {
@@ -108,6 +117,17 @@ function buildImageTaskErrorText(err, fallbackMessage) {
   }
 
   return Array.from(new Set(lines.filter(Boolean))).join('\n');
+}
+
+function imageReferenceUrlFromAssignment(assignment) {
+  const tests = assignment?.tests || assignment?.testCases || {};
+  const base64 = tests?.referenceBase64 || assignment?.referenceBase64;
+  if (base64) {
+    const contentType = tests?.referenceContentType || assignment?.referenceContentType || 'image/png';
+    return String(base64).startsWith('data:') ? base64 : `data:${contentType};base64,${base64}`;
+  }
+  const key = assignment?.imageTestReferenceKey || tests?.imageTestReferenceKey;
+  return key ? `/api/private-files/${encodeURIComponent(key)}` : null;
 }
 
 function buildImageTaskResponseText(resp, fallbackMessage) {
@@ -141,6 +161,46 @@ function buildImageTaskResponseText(resp, fallbackMessage) {
   return Array.from(new Set(lines.filter(Boolean))).join('\n');
 }
 
+
+function hasImageResultPayload(resp) {
+  return Boolean(
+    resp && typeof resp === 'object' && (
+      resp.ok === true ||
+      resp.passed === true ||
+      resp.passed === false ||
+      resp.pngBase64 ||
+      resp.renderedUrl ||
+      resp.submittedUrl ||
+      resp.actualUrl
+    )
+  );
+}
+
+function normalizeImageTaskResult(resp, expectedUrl, { isTrial = false, code = '', language = '', assignmentTitle = '' } = {}) {
+  const actualUrl = getImageSubmittedUrl(resp) || dataUrlFromBase64(resp?.pngBase64) || resp?.renderedUrl || null;
+  const referenceUrl = getImageReferenceUrl(resp) || expectedUrl || null;
+  const similarityPercent = getImageSimilarityPercent(resp);
+  const thresholdPercent = getImageThresholdPercent(resp);
+
+  return {
+    ...resp,
+    id: resp?.id ?? resp?.solutionId ?? null,
+    solutionId: resp?.solutionId ?? resp?.id ?? null,
+    assignmentTitle,
+    passed: typeof resp?.passed === 'boolean' ? resp.passed : null,
+    similarityPercent,
+    thresholdPercent,
+    expectedUrl: referenceUrl,
+    referenceUrl,
+    actualUrl,
+    submittedUrl: actualUrl,
+    isTrial,
+    code,
+    language,
+    createdAtUtc: resp?.createdAtUtc || resp?.submittedAt || new Date().toISOString(),
+  };
+}
+
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
@@ -165,6 +225,7 @@ export default function AssignmentSolvePage() {
   );
 
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState('idle');
   const [error, setError] = useState('');
   const [result, setResult] = useState(null); 
 
@@ -172,8 +233,6 @@ export default function AssignmentSolvePage() {
   const [imgBusy, setImgBusy] = useState(false);
   const [imgError, setImgError] = useState('');
   const [imgCompare, setImgCompare] = useState(null); 
-  const [imgMode, setImgMode] = useState("code"); 
-  const [imgIsRunning, setImgIsRunning] = useState(false);
   const [imageInput, setImageInput] = useState('');
 
   
@@ -217,7 +276,7 @@ export default function AssignmentSolvePage() {
 
         setA(data);
 
-        const defaultLangFromApi = normalizeLang(data?.defaultLanguage) || 'cpp';
+        const defaultLangFromApi = normalizeLang(data?.language || data?.defaultLanguage) || 'cpp';
 
         
         const parsedAllowed = parseAllowedLanguages(
@@ -307,16 +366,41 @@ export default function AssignmentSolvePage() {
   }, [allowedLangs, language]);
 
   const onSubmit = async () => {
-    if (!code.trim()) return;
+    if (!code.trim()) {
+      notify.warn('Введите код перед отправкой');
+      return;
+    }
     setSubmitting(true);
+    setSubmitPhase('submitting');
     setError('');
     setResult(null);
+
     try {
       let r = await submitSolution(assignmentId, { language, code });
-      if (isPendingSolution(r) && r?.id) {
-        notify.info('Решение поставлено в очередь проверки. Жду verdict от execution-worker…');
-        const finalVerdict = await waitForSolutionVerdict(r.id);
-        if (finalVerdict) r = finalVerdict;
+      let solutionId = r?.id || r?.Id || r?.solutionId || r?.SolutionId || null;
+      let timedOut = false;
+
+      if (isPendingSolution(r) && solutionId) {
+        setSubmitPhase('queued');
+        notify.info('Решение поставлено в очередь проверки. Страница результата будет обновляться автоматически.');
+
+        const pollResult = await waitForSolutionVerdict(solutionId, {
+          maxAttempts: 18,
+          onUpdate: (latest) => {
+            const status = String(latest?.status || latest?.verdict || '').trim().toLowerCase();
+            if (status === 'running') setSubmitPhase('running');
+            else if (isPendingSolution(latest)) setSubmitPhase('queued');
+          },
+        });
+
+        if (pollResult?.solution) {
+          r = pollResult.solution;
+          solutionId = r?.id || r?.Id || solutionId;
+        }
+        timedOut = pollResult?.timedOut === true && isPendingSolution(r);
+        setSubmitPhase(timedOut ? 'timeout' : 'final');
+      } else {
+        setSubmitPhase('final');
       }
 
       const cases = r?.cases ?? r?.testCases ?? r?.results ?? r?.result?.cases ?? r?.result?.results ?? [];
@@ -324,18 +408,25 @@ export default function AssignmentSolvePage() {
         ? cases.find(c => (c?.status === 'policy_failed') || String(c?.compileStderr || c?.stderr || '').includes('[policy_failed]'))
         : null;
       const policyText = policyCase ? String(policyCase.compileStderr || policyCase.stderr || policyCase.error || '') : '';
+      const statusKey = String(r?.status || r?.verdict || '').toLowerCase();
       const allOk =
         (r?.passedAllTests === true) ||
         (r?.passedAll === true) ||
-        String(r?.status || r?.verdict || '').toLowerCase() === 'accepted' ||
+        statusKey === 'accepted' ||
         (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK' || c?.status === 'ok'));
 
       setResult({ ...r, __allPassed: allOk });
+      try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
 
-      if (allOk) {
+      const resultUrl = `/assignment/${assignmentId}/results${solutionId ? `?solutionId=${encodeURIComponent(solutionId)}` : ''}`;
+      const opened = window.open(resultUrl, '_blank', 'noopener,noreferrer');
+      if (!opened) nav(resultUrl);
+
+      if (timedOut || isPendingSolution(r)) {
+        notify.info('Проверка ещё выполняется. Открыл страницу результата — она сама обновит verdict.');
+      } else if (allOk) {
         notify.success('Все тесты пройдены!');
       } else if (policyCase) {
-        
         const lines = policyText
           .split('\n')
           .map(s => s.trim())
@@ -345,22 +436,18 @@ export default function AssignmentSolvePage() {
           .map(s => s.replace(/^\-\s*/, ''));
         const short = lines.length ? `: ${lines.join(' | ')}` : '';
         notify.error(`Отклонено анализатором кода${short}`);
-      } else if (isPendingSolution(r)) {
-        notify.info('Проверка ещё выполняется. Открой результаты чуть позже.');
-      } else if (r?.compileError || String(r?.status || r?.verdict || '').toLowerCase() === 'compileerror') {
+      } else if (r?.compileError || statusKey === 'compileerror') {
         notify.error('Ошибка компиляции');
-      } else if (String(r?.status || r?.verdict || '').toLowerCase() === 'notestsconfigured') {
+      } else if (statusKey === 'notestsconfigured') {
         notify.error('Для задания не настроены тесты');
-      } else if (String(r?.status || r?.verdict || '').toLowerCase() === 'judgeunavailable') {
+      } else if (statusKey === 'judgeunavailable') {
         notify.error('Система проверки временно недоступна');
       } else {
         notify.error('Не все тесты пройдены');
       }
-
-      try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
-      window.open(`/assignment/${assignmentId}/results`, '_blank', 'noopener,noreferrer');
     } catch (e) {
       const msg = getApiErrorMessage(e, 'Не удалось отправить решение');
+      setSubmitPhase('error');
       setError(msg);
       notify.error(msg);
     } finally {
@@ -387,6 +474,35 @@ export default function AssignmentSolvePage() {
   };
 
   const policyUi = extractPolicyUi(result);
+
+  const submitMessage = ({
+    submitting: 'Отправляю решение…',
+    queued: 'Решение поставлено в очередь проверки',
+    running: 'Проверяется execution-worker…',
+    timeout: 'Проверка ещё выполняется. Результат появится в «Моих решениях».',
+    final: result?.__allPassed ? 'Проверка завершена: все тесты пройдены' : 'Проверка завершена',
+    error: 'Ошибка отправки решения',
+  })[submitPhase] || '';
+
+  const renderSubmitState = () => {
+    const text = ({
+      submitting: 'Отправляю решение…',
+      queued: 'Решение поставлено в очередь проверки…',
+      running: 'Решение проверяется execution-worker…',
+      timeout: 'Проверка ещё выполняется. Страница результатов обновится автоматически.',
+      final: result?.__allPassed ? 'Готово: решение принято.' : 'Проверка завершена.',
+      error: error || 'Ошибка отправки',
+    })[submitPhase] || '';
+    if (!text || submitPhase === 'idle') return null;
+    const danger = submitPhase === 'error';
+    const success = submitPhase === 'final' && result?.__allPassed;
+    const cls = danger
+      ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-200'
+      : success
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
+        : 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200';
+    return <div className={`rounded-xl border px-3 py-2 text-sm ${cls}`}>{text}</div>;
+  };
 
   useEffect(() => {
     let alive = true;
@@ -516,37 +632,39 @@ export default function AssignmentSolvePage() {
 
   
   if (a.type === 'image-test') {
-    const expectedUrl = a.imageTestReferenceKey
-      ? `/api/private-files/${encodeURIComponent(a.imageTestReferenceKey)}`
-      : null;
+    const expectedUrl = imageReferenceUrlFromAssignment(a);
 
     const imageLangs = langsForSelect.filter((l) => ['pascal', 'cpp'].includes(l.value));
 
     const openImageResultsUrl = (url) => {
-      try { 
-        window.open(url, '_blank'); 
-      } catch (e) {
+      try {
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!opened) nav(url);
+      } catch {
+        nav(url);
       }
     };
 
     const onTrialImageTest = async () => {
+      if (!code.trim()) {
+        notify.warn('Введите код перед пробным запуском');
+        return;
+      }
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
 
       try {
         const resp = await runImageTestCode(assignmentId, language, code, imageInput);
-        
-        
-        if (resp?.ok && resp?.renderedUrl) {
-          setImgCompare({
-            passed: null, 
-            similarityPercent: null,
-            thresholdPercent: null,
-            expectedUrl: expectedUrl,
-            actualUrl: resp.renderedUrl,
-            isTrial: true,
-          });
+        const normalized = normalizeImageTaskResult(resp, expectedUrl, {
+          isTrial: true,
+          code,
+          language,
+          assignmentTitle: a.title,
+        });
+
+        if (hasImageResultPayload(resp) && normalized.actualUrl) {
+          setImgCompare(normalized);
         } else {
           const errMsg = buildImageTaskResponseText(resp, 'Не удалось сгенерировать картинку');
           setImgError(errMsg);
@@ -560,6 +678,10 @@ export default function AssignmentSolvePage() {
     };
 
     const onSubmitImageTest = async () => {
+      if (!code.trim()) {
+        notify.warn('Введите код перед отправкой');
+        return;
+      }
       if (!expectedUrl) {
         setImgError('Эталонная картинка не настроена. Загрузите эталон в режиме редактирования задания.');
         return;
@@ -571,24 +693,29 @@ export default function AssignmentSolvePage() {
 
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, imageInput);
-        
-        
-        if (resp?.ok) {
-          setImgCompare({
-            passed: resp.passed,
-            similarityPercent: resp.similarityPercent,
-            thresholdPercent: resp.thresholdPercent,
-            expectedUrl: resp.referenceUrl || expectedUrl,
-            actualUrl: resp.submittedUrl,
-            isTrial: false,
-          });
-          
-          
-          if (resp.passed) {
-            notify.success(`Задание выполнено! Схожесть: ${Math.round(resp.similarityPercent)}%`);
+        const normalized = normalizeImageTaskResult(resp, expectedUrl, {
+          isTrial: false,
+          code,
+          language,
+          assignmentTitle: a.title,
+        });
+
+        if (hasImageResultPayload(resp) && normalized.actualUrl) {
+          setImgCompare(normalized);
+          try { localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(normalized)); } catch {}
+
+          if (normalized.passed) {
+            notify.success(`Задание выполнено! Схожесть: ${Math.round(normalized.similarityPercent ?? 0)}%`);
+          } else if (normalized.similarityPercent !== null && normalized.thresholdPercent !== null) {
+            notify.warn(`Схожесть ${Math.round(normalized.similarityPercent)}% < ${Math.round(normalized.thresholdPercent)}%`);
           } else {
-            notify.warn(`Схожесть ${Math.round(resp.similarityPercent)}% < ${Math.round(resp.thresholdPercent)}%`);
+            notify.warn('Решение отправлено, но сравнение не вернуло проценты схожести');
           }
+
+          const idParam = normalized.solutionId ? `?solutionId=${encodeURIComponent(normalized.solutionId)}` : '';
+          const imageResultUrl = `/assignment/${assignmentId}/image-results${idParam}`;
+          const opened = window.open(imageResultUrl, '_blank', 'noopener,noreferrer');
+          if (!opened) nav(imageResultUrl);
         } else {
           const errMsg = buildImageTaskResponseText(resp, 'Не удалось проверить решение');
           setImgError(errMsg);
@@ -596,6 +723,7 @@ export default function AssignmentSolvePage() {
       } catch (e) {
         const errMsg = buildImageTaskErrorText(e, 'Не удалось отправить решение');
         setImgError(errMsg);
+        notify.error(errMsg);
       } finally {
         setImgBusy(false);
       }
@@ -685,7 +813,7 @@ export default function AssignmentSolvePage() {
                     ))}
                   </Select>
                   <div className="text-xs text-neutral-500 mt-1">
-                    Для image-test доступны Python, Pascal и C++. Для C++ runner сам пытается снять скрин окна программы.
+                    Для image-test доступны Pascal и C++. Для C++ runner сам пытается снять скрин окна программы.
                   </div>
                 </div>
 
@@ -828,6 +956,13 @@ export default function AssignmentSolvePage() {
   }
 
 const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
+
+  const submitStatusText = submitMessage;
+  const submitButtonLabel = ({
+    submitting: 'Отправка…',
+    queued: 'В очереди…',
+    running: 'Проверяется…',
+  })[submitPhase] || 'Отправить';
 
   return (
     <Layout>
@@ -981,6 +1116,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                 )}
 
                 {error && <div className="text-sm text-red-600">{error}</div>}
+                {renderSubmitState()}
               </div>
             </Card>
           </div>
@@ -1073,6 +1209,7 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
               </div>
 
               {error && <div className="text-sm text-red-600">{error}</div>}
+              {renderSubmitState()}
             </div>
           </Card>
 
@@ -1130,9 +1267,14 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
               Следующее задание
             </Button>
           )}
+          {submitStatusText ? (
+            <div className="max-w-56 rounded-xl px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300 bg-white/70 dark:bg-neutral-900/60">
+              {submitStatusText}
+            </div>
+          ) : null}
           <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
             <Play size={16} className="mr-1" />
-            {submitting ? 'Отправка…' : 'Отправить'}
+            {submitButtonLabel}
           </Button>
         </div>
       </div>

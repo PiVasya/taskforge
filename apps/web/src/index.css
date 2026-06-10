@@ -1359,3 +1359,11 @@ html.dark .bg-fx__blob {
 .dark .code-editor-shell {
   background: rgba(255 255 255 / 0.04);
 }
+
+.side-nav-link.is-rail {
+  @apply justify-center px-2;
+}
+
+.side-nav-link.is-rail .side-nav-icon {
+  @apply h-10 w-10;
+}

@@ -60,7 +60,22 @@ app.MapPost("/api/assignments/{assignmentId:guid}/submit", async (Guid assignmen
     await db.SaveChangesAsync(ct);
 
     var spec = await LoadJudgeSpecAsync(assignmentId, cfg, httpFactory, ct);
-    if (spec != null && !IsAllowedLanguage(language, spec))
+    if (spec == null)
+    {
+        ApplyLocalVerdict(sub, new JudgeRunResult(
+            "JudgeUnavailable",
+            0,
+            false,
+            false,
+            "Не удалось получить тесты задания из tasks-api. Проверьте, что tasks-api доступен и внутренний ключ совпадает.",
+            null,
+            null,
+            false));
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToSubmitDto(sub));
+    }
+
+    if (!IsAllowedLanguage(language, spec))
     {
         ApplyLocalVerdict(sub, new JudgeRunResult(
             "LanguageNotAllowed",
@@ -144,31 +159,67 @@ app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", a
     return Results.Ok(ToDto(sub));
 });
 
-app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, SolutionsDbContext db) =>
+app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, SolutionsDbContext db, int top = 20) =>
 {
-    var rows = await db.Submissions.AsNoTracking().Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted").OrderByDescending(x => x.Score).ThenBy(x => x.CreatedAt).Take(20).ToListAsync();
+    var limit = Math.Clamp(top, 1, 100);
+    var rows = await db.Submissions.AsNoTracking()
+        .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted")
+        .OrderByDescending(x => x.Score)
+        .ThenBy(x => x.CreatedAt)
+        .Take(limit)
+        .ToListAsync();
     return Results.Ok(rows.Select(ToDto).ToList());
 });
 
-app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
+app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
 {
     var uid = CurrentUserId(http, cfg);
-    var q = db.Submissions.AsNoTracking();
-    if (uid.HasValue) q = q.Where(x => x.UserId == uid.Value);
-    var rows = await q.OrderByDescending(x => x.CreatedAt).Take(200).ToListAsync();
+    if (uid == null) return Unauthorized();
+
+    var q = db.Submissions.AsNoTracking().Where(x => x.UserId == uid.Value);
+    if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
+    if (days.HasValue && days.Value > 0)
+    {
+        var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
+        q = q.Where(x => x.CreatedAt >= since);
+    }
+
+    var rows = await q
+        .OrderByDescending(x => x.CreatedAt)
+        .Skip(Math.Max(0, skip))
+        .Take(Math.Clamp(take, 1, 200))
+        .ToListAsync();
     return Results.Ok(rows.Select(ToDto).ToList());
 });
 app.MapGet("/api/me/solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
 {
     var uid = CurrentUserId(http, cfg);
+    if (uid == null) return Unauthorized();
+
     var s = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
     if (s == null) return Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
-    if (uid.HasValue && s.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "SOLUTION_FORBIDDEN" }, statusCode: 403);
+    if (s.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "SOLUTION_FORBIDDEN" }, statusCode: 403);
     return Results.Ok(ToDto(s));
 });
 app.MapGet("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } s ? Results.Ok(ToDto(s)) : Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" }));
 app.MapDelete("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var s = await db.Submissions.FindAsync(id); if (s == null) return Results.NotFound(); db.Submissions.Remove(s); await db.SaveChangesAsync(); return Results.Ok(new { deleted = id }); });
-app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db) => Results.Ok((await db.Submissions.AsNoTracking().Where(x => x.UserId == userId).OrderByDescending(x => x.CreatedAt).ToListAsync()).Select(ToDto).ToList()));
+app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
+{
+    var q = db.Submissions.AsNoTracking().Where(x => x.UserId == userId);
+    if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
+    if (days.HasValue && days.Value > 0)
+    {
+        var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
+        q = q.Where(x => x.CreatedAt >= since);
+    }
+
+    var rows = await q
+        .OrderByDescending(x => x.CreatedAt)
+        .Skip(Math.Max(0, skip))
+        .Take(Math.Clamp(take, 1, 200))
+        .ToListAsync();
+    return Results.Ok(rows.Select(ToDto).ToList());
+});
 app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db) => { var rows = await db.Submissions.Where(x => x.UserId == userId).ToListAsync(); db.Submissions.RemoveRange(rows); await db.SaveChangesAsync(); return Results.Ok(new { deleted = rows.Count }); });
 app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, string? q, int take = 200) => Results.Ok(await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).Take(Math.Clamp(take, 1, 500)).Select(x => new { id = x.UserId, userId = x.UserId, email = x.UserId.ToString(), displayName = x.UserId.ToString(), score = x.TotalScore, solved = x.SolvedCount }).ToListAsync()));
 
@@ -248,28 +299,64 @@ app.MapGet("/api/badges/user/{userId:guid}", async (Guid userId, SolutionsDbCont
     return Results.Ok(rows.Select(x => BadgeDto(x)).ToList());
 });
 
-app.MapGet("/api/me/image-solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, Guid? assignmentId, int skip = 0, int take = 50) =>
+app.MapGet("/api/me/image-solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
 {
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
     var q = db.ImageSolutions.AsNoTracking().Where(x => x.UserId == uid.Value);
     if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
+    if (days.HasValue && days.Value > 0)
+    {
+        var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
+        q = q.Where(x => x.CreatedAt >= since);
+    }
     var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200)).ToListAsync();
     return Results.Ok(rows.Select(x => ImageDto(x)).ToList());
 });
 app.MapGet("/api/me/image-solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
 {
     var uid = CurrentUserId(http, cfg);
+    if (uid == null) return Unauthorized();
     var row = await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
     if (row == null) return Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" });
-    if (uid.HasValue && row.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "IMAGE_SOLUTION_FORBIDDEN" }, statusCode: 403);
+    if (row.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "IMAGE_SOLUTION_FORBIDDEN" }, statusCode: 403);
     return Results.Ok(ImageDto(row));
 });
 app.MapGet("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } row ? Results.Ok(ImageDto(row)) : Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" }));
-app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, SolutionsDbContext db) =>
+app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
 {
-    var rows = await db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId).OrderByDescending(x => x.CreatedAt).ToListAsync();
+    var q = db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId);
+    if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
+    if (days.HasValue && days.Value > 0)
+    {
+        var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
+        q = q.Where(x => x.CreatedAt >= since);
+    }
+    var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200)).ToListAsync();
     return Results.Ok(rows.Select(x => ImageDto(x)).ToList());
+});
+app.MapPost("/api/internal/image-solutions", async (InternalImageSolutionRequest request, SolutionsDbContext db, CancellationToken ct) =>
+{
+    if (request.UserId == Guid.Empty || request.AssignmentId == Guid.Empty)
+    {
+        return Problem(400, "IMAGE_SOLUTION_INVALID_REQUEST", "image-solutions.validation", "Не хватает userId или assignmentId для сохранения image-решения.");
+    }
+
+    var row = new UserImageTaskSolution
+    {
+        UserId = request.UserId,
+        AssignmentId = request.AssignmentId,
+        Language = NormalizeLanguage(request.Language) ?? "text",
+        Code = request.Code ?? string.Empty,
+        SimilarityPercent = Math.Clamp(request.SimilarityPercent, 0, 100),
+        Passed = request.Passed,
+        ResultJson = request.Result.HasValue
+            ? request.Result.Value.GetRawText()
+            : JsonSerializer.Serialize(new { passed = request.Passed, similarityPercent = request.SimilarityPercent }, JsonOptions())
+    };
+    db.ImageSolutions.Add(row);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(ImageDto(row));
 });
 app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var row = await db.ImageSolutions.FindAsync(id); if (row == null) return Results.NotFound(); db.ImageSolutions.Remove(row); await db.SaveChangesAsync(); return Results.NoContent(); });
 
@@ -348,7 +435,7 @@ static async Task<SolutionSubmission?> WaitForTerminalSubmissionAsync(SolutionsD
     var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
     while (DateTimeOffset.UtcNow < deadline && !ct.IsCancellationRequested)
     {
-        var row = await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);
+        var row = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == submissionId, ct);
         if (row == null) return null;
         if (IsTerminalVerdict(row.Status))
         {
@@ -358,7 +445,7 @@ static async Task<SolutionSubmission?> WaitForTerminalSubmissionAsync(SolutionsD
         await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
     }
 
-    return await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);
+    return await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == submissionId, ct);
 }
 
 static void ApplyLocalVerdict(SolutionSubmission sub, JudgeRunResult judge)
@@ -585,14 +672,109 @@ static async Task<QuotaView> StatusFor(SolutionsDbContext db, Guid userId, strin
 static Guid? CurrentUserId(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
 static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
-static object ToDto(SolutionSubmission x) => new { x.Id, x.AssignmentId, x.UserId, x.Language, x.Code, verdict = x.Status, status = x.Status, x.Score, result = ParseJson(x.ResultJson), isPending = IsPendingVerdict(x.Status), passedAllTests = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase), passedAll = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase), compileError = string.Equals(x.Status, "CompileError", StringComparison.OrdinalIgnoreCase), policyFailed = string.Equals(x.Status, "PolicyFailed", StringComparison.OrdinalIgnoreCase), x.CreatedAt, submittedAt = x.CreatedAt };
+static object ToDto(SolutionSubmission x)
+{
+    var result = ParseJsonElement(x.ResultJson);
+    var counts = CountCases(result);
+    var accepted = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase);
+    return new
+    {
+        x.Id,
+        x.AssignmentId,
+        x.UserId,
+        x.Language,
+        x.Code,
+        submittedCode = x.Code,
+        verdict = x.Status,
+        status = x.Status,
+        x.Score,
+        result = result.HasValue ? (object)result.Value : null,
+        isPending = IsPendingVerdict(x.Status),
+        passedAllTests = accepted,
+        passedAll = accepted,
+        compileError = string.Equals(x.Status, "CompileError", StringComparison.OrdinalIgnoreCase),
+        policyFailed = string.Equals(x.Status, "PolicyFailed", StringComparison.OrdinalIgnoreCase),
+        passedCount = counts.passed,
+        failedCount = counts.failed,
+        totalCount = counts.total,
+        x.CreatedAt,
+        createdAtUtc = x.CreatedAt,
+        submittedAt = x.CreatedAt
+    };
+}
 static object ToSubmitDto(SolutionSubmission x) => ToDto(x);
 static object BadgeDto(Badge x) => new { x.Id, x.Name, x.Description, x.ImageUrl, x.CreatedAt };
-static object ImageDto(UserImageTaskSolution x) => new { x.Id, x.UserId, x.AssignmentId, x.Language, x.Code, x.SimilarityPercent, x.Passed, result = ParseJson(x.ResultJson), x.CreatedAt, submittedAt = x.CreatedAt };
-static object? ParseJson(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonSerializer.Deserialize<JsonElement>(json); } catch { return json; } }
+static object ImageDto(UserImageTaskSolution x)
+{
+    var result = ParseJsonElement(x.ResultJson);
+    var similarity = TryReadNumber(result, "similarityPercent") ?? TryReadNumber(result, "similarity") ?? x.SimilarityPercent;
+    var threshold = TryReadNumber(result, "thresholdPercent") ?? TryReadNumber(result, "threshold");
+    return new
+    {
+        x.Id,
+        x.UserId,
+        x.AssignmentId,
+        x.Language,
+        x.Code,
+        submittedCode = x.Code,
+        similarityPercent = similarity,
+        thresholdPercent = threshold,
+        x.Passed,
+        result = result.HasValue ? (object)result.Value : null,
+        referenceUrl = TryReadString(result, "referenceUrl") ?? TryReadString(result, "expectedUrl"),
+        submittedUrl = TryReadString(result, "submittedUrl") ?? TryReadString(result, "actualUrl") ?? TryReadString(result, "renderedUrl"),
+        stdout = TryReadString(result, "stdout"),
+        stderr = TryReadString(result, "stderr"),
+        runnerError = TryReadString(result, "runnerError") ?? TryReadString(result, "error"),
+        x.CreatedAt,
+        createdAtUtc = x.CreatedAt,
+        submittedAt = x.CreatedAt
+    };
+}
+static object? ParseJson(string? json) => ParseJsonElement(json);
+static JsonElement? ParseJsonElement(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { using var doc = JsonDocument.Parse(json); return doc.RootElement.Clone(); } catch { return null; } }
+static string? TryReadString(JsonElement? element, string name)
+{
+    if (!element.HasValue || element.Value.ValueKind != JsonValueKind.Object) return null;
+    var e = element.Value;
+    if (!e.TryGetProperty(name, out var prop)) return null;
+    var value = prop.ToString();
+    return string.IsNullOrWhiteSpace(value) ? null : value;
+}
+static double? TryReadNumber(JsonElement? element, string name)
+{
+    if (!element.HasValue || element.Value.ValueKind != JsonValueKind.Object) return null;
+    var e = element.Value;
+    if (!e.TryGetProperty(name, out var prop)) return null;
+    if (prop.ValueKind == JsonValueKind.Number && prop.TryGetDouble(out var number)) return number;
+    if (double.TryParse(prop.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) return parsed;
+    return null;
+}
+static (int passed, int failed, int total) CountCases(JsonElement? element)
+{
+    if (!element.HasValue || element.Value.ValueKind != JsonValueKind.Object) return (0, 0, 0);
+    var root = element.Value;
+    JsonElement cases;
+    if (root.TryGetProperty("cases", out cases) || root.TryGetProperty("results", out cases) || root.TryGetProperty("testCases", out cases))
+    {
+        if (cases.ValueKind == JsonValueKind.Array)
+        {
+            var passed = 0;
+            var failed = 0;
+            foreach (var item in cases.EnumerateArray())
+            {
+                if (IsPassedResult(item)) passed++;
+                else failed++;
+            }
+            return (passed, failed, passed + failed);
+        }
+    }
+    return (0, 0, 0);
+}
 static JsonSerializerOptions JsonOptions() => new(JsonSerializerDefaults.Web) { WriteIndented = false };
 public sealed record SubmitRequest(string? Language, string? Code, string? Input, JsonElement? Tests);
 public sealed record SolutionVerdictRequest(string? Verdict, int Score, string? Message, JsonElement? Result);
+public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);
 public sealed record JudgeSpec(Guid Id, string? Type, string? Language, string[]? AllowedLanguages, string[]? CodeForbiddenCalls, string[]? CodeRequiredCalls, JsonElement? Tests, JsonElement? TestCases, string? TestsJson);
 public sealed record CreateExecutionJobRequest(Guid SubmissionId, Guid? AssignmentId, Guid? UserId, string? Language, string? Code, string? Input, JsonElement[]? Tests, int? TimeLimitMs, int? MemoryLimitMb, string? TestsJson, string[]? CodeForbiddenCalls, string[]? CodeRequiredCalls);
 public sealed record EnqueueResult(bool Created, Guid? JobId, string? Message, JsonElement? Raw);

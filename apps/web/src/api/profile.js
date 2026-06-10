@@ -29,3 +29,9 @@ export async function changeEmail(newEmail, password) {
   });
   return res.data;
 }
+
+
+export async function revealEmail(password) {
+  const res = await api.post('/api/profile/reveal-email', { password });
+  return res.data;
+}

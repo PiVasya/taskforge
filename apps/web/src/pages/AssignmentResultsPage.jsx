@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import Layout from '../components/Layout';
 import { Card, Button, Badge } from '../components/ui';
 import { getAssignment } from '../api/assignments';
+import { getMySolutionDetails } from '../api/solutions';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 
 function displayClean(s) {
@@ -89,6 +90,7 @@ export default function AssignmentResultsPage() {
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') || 'full';
+  const solutionId = searchParams.get('solutionId') || null;
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -112,16 +114,69 @@ export default function AssignmentResultsPage() {
   }, [assignmentId]);
 
   useEffect(() => {
-    const raw = localStorage.getItem(`results:${assignmentId}`);
-    if (raw) {
-      try {
-        const { result } = JSON.parse(raw);
-        setRes(result);
-      } catch {
+    let alive = true;
+
+    async function loadResult() {
+      if (solutionId) {
+        try {
+          const dto = await getMySolutionDetails(solutionId);
+          if (!alive) return;
+          setRes(dto || null);
+          try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: dto })); } catch {}
+          return;
+        } catch {
+          // Fallback to the last local submit result below.
+        }
+      }
+
+      const raw = localStorage.getItem(`results:${assignmentId}`);
+      if (raw) {
+        try {
+          const { result } = JSON.parse(raw);
+          if (alive) setRes(result);
+        } catch {
+          if (alive) setRes(null);
+        }
+      } else if (alive) {
         setRes(null);
       }
     }
-  }, [assignmentId]);
+
+    loadResult();
+    return () => { alive = false; };
+  }, [assignmentId, solutionId]);
+
+  useEffect(() => {
+    const id = solutionId || res?.id || res?.Id;
+    if (!id) return undefined;
+
+    const status = String(res?.status || res?.verdict || '').toLowerCase();
+    const pending = res?.isPending === true || res?.result?.pending === true || ['preparing', 'queued', 'running', 'pending'].includes(status);
+    if (!pending) return undefined;
+
+    let alive = true;
+    let timer = null;
+
+    const poll = async () => {
+      try {
+        const dto = await getMySolutionDetails(id);
+        if (!alive) return;
+        setRes(dto || null);
+        try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: dto })); } catch {}
+        const nextStatus = String(dto?.status || dto?.verdict || '').toLowerCase();
+        const nextPending = dto?.isPending === true || dto?.result?.pending === true || ['preparing', 'queued', 'running', 'pending'].includes(nextStatus);
+        if (nextPending) timer = setTimeout(poll, 1500);
+      } catch {
+        if (alive) timer = setTimeout(poll, 2500);
+      }
+    };
+
+    timer = setTimeout(poll, 1500);
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [assignmentId, solutionId, res?.id, res?.Id, res?.status, res?.verdict, res?.isPending, res?.result?.pending]);
 
   const handleBack = (e) => {
     e.preventDefault();
@@ -165,7 +220,11 @@ export default function AssignmentResultsPage() {
 
   const cases = res.cases ?? res.testCases ?? res.results ?? res.result?.cases ?? res.result?.results ?? [];
   const status = String(res.status || res.verdict || '').toLowerCase();
-  const pending = res.isPending === true || res.result?.pending === true || ['preparing', 'queued', 'running'].includes(status);
+  const pending = res.isPending === true || res.result?.pending === true || ['preparing', 'queued', 'running', 'pending'].includes(status);
+  const message = res.message || res.result?.message || '';
+  const score = res.score ?? res.Score ?? res.result?.score;
+  const stdout = res.stdout || res.result?.stdout || '';
+  const stderr = res.stderr || res.compileError || res.result?.stderr || res.result?.compileStderr || '';
   const passedAll =
     (res.passedAll === true) ||
     (res.passedAllTests === true) ||
@@ -210,8 +269,19 @@ export default function AssignmentResultsPage() {
             )}
           </div>
 
+          {(message || score != null || stdout || stderr) ? (
+            <div className="mb-4 rounded-xl border border-neutral-200 dark:border-neutral-800/70 bg-neutral-50/70 dark:bg-neutral-900/40 p-3 text-sm space-y-2">
+              {score != null ? <div><span className="font-medium">Score:</span> {score}</div> : null}
+              {message ? <div className="text-neutral-700 dark:text-neutral-300">{displayClean(message)}</div> : null}
+              {stdout ? <pre className="whitespace-pre-wrap text-xs">stdout
+{displayClean(stdout)}</pre> : null}
+              {stderr ? <pre className="whitespace-pre-wrap text-xs text-red-600">stderr
+{displayClean(stderr)}</pre> : null}
+            </div>
+          ) : null}
+
           <div className="space-y-4">
-            {cases.map((c, i) => {
+            {Array.isArray(cases) && cases.length > 0 ? cases.map((c, i) => {
               const expectedText = c.expected ?? c.expectedOutput ?? c.ExpectedOutput ?? '';
               const actualText   = c.actual   ?? c.actualOutput   ?? c.ActualOutput   ?? '';
               return (
@@ -282,7 +352,11 @@ export default function AssignmentResultsPage() {
                   )}
                 </div>
               );
-            })}
+            }) : !pending ? (
+              <div className="rounded border p-3 text-sm text-neutral-500">Детальных тест-кейсов в ответе нет. Итоговый статус показан выше.</div>
+            ) : (
+              <div className="rounded border p-3 text-sm text-neutral-500">Жду результат проверки…</div>
+            )}
           </div>
         </div>
       </Card>

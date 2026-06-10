@@ -5,6 +5,7 @@ import AppErrorPanel from '../../components/AppErrorPanel';
 import { Button, Card } from '../../components/ui';
 import { getAdminActivity } from '../../api/adminActivity';
 import { handleApiError } from '../../utils/handleApiError';
+import { useNotify } from '../../components/notify/NotifyProvider';
 
 const PERIODS = [1, 7, 14, 30, 90];
 
@@ -18,6 +19,7 @@ function formatNumber(value) {
 }
 
 export default function AdminUserActionsPage() {
+  const notify = useNotify();
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,7 +37,7 @@ export default function AdminUserActionsPage() {
       setPayload(data);
       setPage(nextPage);
     } catch (e) {
-      setError(handleApiError(e, { notify: false }));
+      setError(handleApiError(e, notify, 'Не удалось загрузить действия пользователей'));
     } finally {
       setLoading(false);
     }

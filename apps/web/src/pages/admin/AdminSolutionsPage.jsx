@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
-import { Trash2, Users, UserPlus, X, AlertTriangle } from 'lucide-react';
+import { Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   searchUsersOnce,
   getUserSolutions,
   getSolutionDetails,
-  getSolutionsDetailsBulkOrFallback,
   deleteUserSolutions,
   deleteSolution,
   getAdminUserGroupIds,
@@ -23,6 +22,25 @@ import CodeEditor from '../../components/CodeEditor';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { handleApiError } from '../../utils/handleApiError';
+import {
+  formatDateTime,
+  getImageSolutionCode,
+  getImageSolutionDate,
+  getImageSolutionPercent,
+  getImageSolutionThreshold,
+  getImageSolutionTitle,
+  getImageSolutionUrl,
+  getRunnerText,
+  getSolutionBadgeIntent,
+  getSolutionCases,
+  getSolutionCode,
+  getSolutionDate,
+  getSolutionPassedFailed,
+  getSolutionScore,
+  getSolutionStatusLabel,
+  getSolutionSubmittedAt,
+  getSolutionTitle,
+} from '../../utils/solutionDto';
 
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
@@ -31,6 +49,61 @@ const FILTER_OPTIONS = [
   { label: 'За месяц', value: 30 },
   { label: 'Как можно больше', value: 1000 },
 ];
+
+function CompactEmpty({ children }) {
+  return (
+    <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-500 dark:text-neutral-400">
+      {children}
+    </div>
+  );
+}
+
+function RunnerOutput({ item }) {
+  const stdout = getRunnerText(item, 'stdout');
+  const stderr = getRunnerText(item, 'stderr');
+  const runnerError = getRunnerText(item, 'runnerError') || getRunnerText(item, 'error');
+  const cases = getSolutionCases(item);
+
+  if (!stdout && !stderr && !runnerError && !cases.length) return null;
+
+  return (
+    <Card className="p-3 space-y-3">
+      {runnerError ? <div className="text-sm text-red-600 whitespace-pre-wrap">{runnerError}</div> : null}
+      {stdout ? (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-neutral-500">stdout</div>
+          <pre className="text-xs whitespace-pre-wrap rounded-lg border border-neutral-200 dark:border-neutral-700 p-3 mt-1">{stdout}</pre>
+        </div>
+      ) : null}
+      {stderr ? (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-neutral-500">stderr</div>
+          <pre className="text-xs whitespace-pre-wrap rounded-lg border border-neutral-200 dark:border-neutral-700 p-3 mt-1">{stderr}</pre>
+        </div>
+      ) : null}
+      {cases.length ? (
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-wide text-neutral-500">Тесты</div>
+          {cases.slice(0, 8).map((c, i) => {
+            const ok = c?.passed === true || String(c?.status || '').toLowerCase() === 'ok';
+            return (
+              <div key={i} className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Тест #{i + 1}</span>
+                  <Badge intent={ok ? 'success' : 'danger'}>{ok ? 'OK' : 'FAIL'}</Badge>
+                </div>
+                {(c?.stderr || c?.compileStderr || c?.error) ? (
+                  <pre className="mt-2 whitespace-pre-wrap break-words text-red-600">{c.stderr || c.compileStderr || c.error}</pre>
+                ) : null}
+              </div>
+            );
+          })}
+          {cases.length > 8 ? <div className="text-xs text-neutral-500">… и ещё {cases.length - 8}</div> : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
 
 export default function AdminSolutionsPage() {
   const notify = useNotify();
@@ -47,6 +120,7 @@ export default function AdminSolutionsPage() {
   const [filterDays, setFilterDays] = useState(null);
 
   const [detailsMap, setDetailsMap] = useState({});
+  const [detailsLoadingMap, setDetailsLoadingMap] = useState({});
   const [expandedId, setExpandedId] = useState(null);
 
   const [testAttempts, setTestAttempts] = useState([]);
@@ -57,6 +131,7 @@ export default function AdminSolutionsPage() {
   const [imageSolutions, setImageSolutions] = useState([]);
   const [imageListLoading, setImageListLoading] = useState(false);
   const [imageDetailsMap, setImageDetailsMap] = useState({});
+  const [imageDetailsLoadingMap, setImageDetailsLoadingMap] = useState({});
   const [expandedImageId, setExpandedImageId] = useState(null);
 
   const [mathAttempts, setMathAttempts] = useState([]);
@@ -217,19 +292,19 @@ export default function AdminSolutionsPage() {
       since.setDate(since.getDate() - filterDays);
       
     }
-    list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    list.sort((a, b) => new Date(getSolutionDate(b) || 0) - new Date(getSolutionDate(a) || 0));
     return list;
   }, [solutions, filterDays]);
 
   const displayedAttempts = useMemo(() => {
     const list = [...testAttempts];
-    list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    list.sort((a, b) => new Date(getSolutionDate(b) || 0) - new Date(getSolutionDate(a) || 0));
     return list;
   }, [testAttempts]);
 
   const displayedImageSolutions = useMemo(() => {
     const list = [...(imageSolutions || [])];
-    list.sort((a, b) => new Date(b.createdAtUtc) - new Date(a.createdAtUtc));
+    list.sort((a, b) => new Date(getImageSolutionDate(b) || 0) - new Date(getImageSolutionDate(a) || 0));
     return list;
   }, [imageSolutions]);
 
@@ -251,20 +326,22 @@ export default function AdminSolutionsPage() {
       return;
     }
 
+    setExpandedId(id);
     if (!detailsMap[id]) {
+      setDetailsLoadingMap((prev) => ({ ...prev, [id]: true }));
       try {
         const dto = await getSolutionDetails(id);
         setDetailsMap((prev) => ({ ...prev, [id]: dto }));
       } catch (e) {
         const parsed = handleApiError(e, notify, 'Не удалось загрузить детали решения');
         setPageError(parsed);
+        setExpandedId(null);
         return;
+      } finally {
+        setDetailsLoadingMap((prev) => ({ ...prev, [id]: false }));
       }
     }
-
-    setExpandedId(id);
   };
-
 
   const handleToggleImageSolution = async (id) => {
     if (expandedImageId === id) {
@@ -272,23 +349,26 @@ export default function AdminSolutionsPage() {
       return;
     }
 
+    setExpandedImageId(id);
     if (!imageDetailsMap[id]) {
+      setImageDetailsLoadingMap((prev) => ({ ...prev, [id]: true }));
       try {
         const dto = await getAdminImageSolutionDetails(id);
         setImageDetailsMap((prev) => ({ ...prev, [id]: dto }));
       } catch (e) {
         const parsed = handleApiError(e, notify, 'Не удалось загрузить детали image-решения');
         setPageError(parsed);
+        setExpandedImageId(null);
         return;
+      } finally {
+        setImageDetailsLoadingMap((prev) => ({ ...prev, [id]: false }));
       }
     }
-
-    setExpandedImageId(id);
   };
 
   const displayedMathAttempts = useMemo(() => {
     const list = [...(mathAttempts || [])];
-    list.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    list.sort((a, b) => new Date(getSolutionDate(b) || 0) - new Date(getSolutionDate(a) || 0));
     return list;
   }, [mathAttempts]);
 
@@ -452,6 +532,7 @@ export default function AdminSolutionsPage() {
         return copy;
       });
       if (expandedId === id) setExpandedId(null);
+      notify.success('Решение удалено');
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось удалить решение');
       setPageError(parsed);
@@ -470,6 +551,7 @@ export default function AdminSolutionsPage() {
         return copy;
       });
       if (expandedTestAttemptId === attemptId) setExpandedTestAttemptId(null);
+      notify.success('Попытка теста удалена');
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось удалить попытку теста');
       setPageError(parsed);
@@ -640,7 +722,12 @@ export default function AdminSolutionsPage() {
             <div className="space-y-6">
               {displayedSolutions.map((item) => {
                 const full = detailsMap[item.id] || null;
-                const showCode = expandedId === item.id && full;
+                const expanded = expandedId === item.id;
+                const loadingDetails = !!detailsLoadingMap[item.id];
+                const effective = full || item;
+                const code = getSolutionCode(effective);
+                const score = getSolutionScore(effective);
+                const { passed, failed } = getSolutionPassedFailed(effective);
 
                 return (
                   <div
@@ -648,28 +735,27 @@ export default function AdminSolutionsPage() {
                     className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                      <div>
-                        <div className="font-medium text-neutral-900 dark:text-neutral-50">
-                          {item.courseTitle} • {item.assignmentTitle}
+                      <div className="min-w-0">
+                        <div className="font-medium text-neutral-900 dark:text-neutral-50 truncate">
+                          {getSolutionTitle(effective)}
                         </div>
                         <div className="text-xs text-neutral-600 dark:text-neutral-400">
-                          {new Date(item.submittedAt).toLocaleString()} • {item.language}
+                          {formatDateTime(getSolutionSubmittedAt(effective))} • {effective.language || effective.Language || '—'}
                         </div>
                       </div>
-                      <div className="flex gap-2 items-center">
-                        {item.passedAllTests ? (
-                          <Badge intent="success">Все тесты пройдены ({item.passedCount})</Badge>
-                        ) : (
-                          <Badge intent="danger">
-                            Провалено: {item.failedCount} / Пройдено: {item.passedCount}
-                          </Badge>
-                        )}
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <Badge intent={getSolutionBadgeIntent(effective)}>{getSolutionStatusLabel(effective)}</Badge>
+                        {score !== null ? <Badge intent="secondary">Score: {score}</Badge> : null}
+                        {passed !== null || failed !== null ? (
+                          <Badge intent="secondary">OK: {passed ?? 0} / FAIL: {failed ?? 0}</Badge>
+                        ) : null}
                         <Button
                           variant="outline"
                           className="inline-flex items-center gap-2"
                           onClick={() => handleToggleCode(item.id)}
+                          disabled={loadingDetails}
                         >
-                          {expandedId === item.id ? 'Скрыть код' : 'Показать код'}
+                          {expanded ? 'Скрыть код' : 'Показать код'}
                         </Button>
                         <Button
                           variant="outline"
@@ -683,17 +769,27 @@ export default function AdminSolutionsPage() {
                       </div>
                     </div>
 
-                    {showCode && (
-                      <div className="mt-3 rounded-xl overflow-hidden border border-neutral-700">
-                        <CodeEditor
-                          language={full.language || item.language}
-                          value={full.submittedCode || ''}
-                          readOnly
-                          onChange={() => {}}
-                          height={360}
-                        />
+                    {expanded ? (
+                      <div className="mt-3 space-y-3">
+                        {loadingDetails ? <CompactEmpty>Загружаю детали решения…</CompactEmpty> : null}
+                        {!loadingDetails && full ? (
+                          code ? (
+                            <div className="rounded-xl overflow-hidden border border-neutral-700">
+                              <CodeEditor
+                                language={full.language || full.Language || item.language || 'text'}
+                                value={code}
+                                readOnly
+                                onChange={() => {}}
+                                height={360}
+                              />
+                            </div>
+                          ) : (
+                            <CompactEmpty>Код не найден для этого решения.</CompactEmpty>
+                          )
+                        ) : null}
+                        {!loadingDetails && full ? <RunnerOutput item={full} /> : null}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
@@ -711,7 +807,14 @@ export default function AdminSolutionsPage() {
             <div className="space-y-6">
               {displayedImageSolutions.map((item) => {
                 const full = imageDetailsMap[item.id] || null;
-                const expanded = expandedImageId === item.id && full;
+                const expanded = expandedImageId === item.id;
+                const loadingDetails = !!imageDetailsLoadingMap[item.id];
+                const effective = full || item;
+                const percent = getImageSolutionPercent(effective);
+                const threshold = getImageSolutionThreshold(effective);
+                const referenceUrl = getImageSolutionUrl(effective, 'reference');
+                const submittedUrl = getImageSolutionUrl(effective, 'submitted');
+                const code = getImageSolutionCode(effective);
 
                 return (
                   <div
@@ -719,32 +822,34 @@ export default function AdminSolutionsPage() {
                     className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="space-y-1">
-                        <div className="font-medium">
-                          {item.assignmentTitle}{' '}
-                          <span className="text-sm text-neutral-500">({item.kind}{item.isTrial ? ', пробник' : ''})</span>
+                      <div className="space-y-1 min-w-0">
+                        <div className="font-medium truncate">
+                          {getImageSolutionTitle(effective)}{' '}
+                          <span className="text-sm text-neutral-500">
+                            ({effective.kind || 'code'}{effective.isTrial ? ', пробник' : ''})
+                          </span>
                         </div>
                         <div className="text-xs text-neutral-500">
-                          {new Date(item.createdAtUtc).toLocaleString()} • {item.language || '—'}
+                          {formatDateTime(getSolutionSubmittedAt(effective))} • {effective.language || effective.Language || '—'}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {item.passed === true ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {effective.passed === true ? (
                           <Badge intent="success">Зачёт</Badge>
-                        ) : item.passed === false ? (
+                        ) : effective.passed === false ? (
                           <Badge intent="danger">Не зачтено</Badge>
                         ) : (
                           <Badge intent="secondary">Без сравнения</Badge>
                         )}
 
-                        {typeof item.similarityPercent === 'number' ? (
+                        {percent !== null ? (
                           <Badge intent="secondary">
-                            {Math.round(item.similarityPercent)}% (порог {Math.round(item.thresholdPercent || 0)}%)
+                            {Math.round(percent)}%{threshold !== null ? ` (порог ${Math.round(threshold)}%)` : ''}
                           </Badge>
                         ) : null}
 
-                        <Button variant="outline" onClick={() => handleToggleImageSolution(item.id)}>
+                        <Button variant="outline" onClick={() => handleToggleImageSolution(item.id)} disabled={loadingDetails}>
                           {expanded ? 'Скрыть' : 'Открыть'}
                         </Button>
 
@@ -763,6 +868,7 @@ export default function AdminSolutionsPage() {
                                 return copy;
                               });
                               if (expandedImageId === item.id) setExpandedImageId(null);
+                              notify.success('Image-решение удалено');
                             } catch (e) {
                               const parsed = handleApiError(e, notify, 'Не удалось удалить image-решение');
                               setPageError(parsed);
@@ -776,52 +882,40 @@ export default function AdminSolutionsPage() {
 
                     {expanded ? (
                       <div className="mt-4 space-y-4">
-                        {full.runnerError ? (
-                          <div className="text-sm text-red-600 whitespace-pre-wrap">{full.runnerError}</div>
-                        ) : null}
+                        {loadingDetails ? <CompactEmpty>Загружаю детали image-решения…</CompactEmpty> : null}
+                        {!loadingDetails && full ? (
+                          <>
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2">
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">Эталон</div>
+                                {referenceUrl ? (
+                                  <img src={referenceUrl} alt="reference" className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700" />
+                                ) : (
+                                  <CompactEmpty>Эталон недоступен</CompactEmpty>
+                                )}
+                              </div>
 
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <div className="text-xs uppercase tracking-wide text-neutral-500">Эталон</div>
-                            {full.referenceUrl ? (
-                              <img src={full.referenceUrl} alt="reference" className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700" />
-                            ) : (
-                              <div className="text-sm text-neutral-500">—</div>
-                            )}
-                          </div>
-
-                          <div className="space-y-2">
-                            <div className="text-xs uppercase tracking-wide text-neutral-500">Результат</div>
-                            {full.submittedUrl ? (
-                              <img src={full.submittedUrl} alt="submitted" className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700" />
-                            ) : (
-                              <div className="text-sm text-neutral-500">—</div>
-                            )}
-                          </div>
-                        </div>
-
-                        {full.submittedCode ? (
-                          <div className="space-y-2">
-                            <div className="text-xs uppercase tracking-wide text-neutral-500">Код</div>
-                            <CodeEditor value={full.submittedCode} language={full.language || 'text'} readOnly />
-                          </div>
-                        ) : null}
-
-                        {(full.stdout || full.stderr) ? (
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div>
-                              <div className="text-xs uppercase tracking-wide text-neutral-500 mb-1">stdout</div>
-                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
-                                {full.stdout || ''}
-                              </pre>
+                              <div className="space-y-2">
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">Результат</div>
+                                {submittedUrl ? (
+                                  <img src={submittedUrl} alt="submitted" className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700" />
+                                ) : (
+                                  <CompactEmpty>Результат недоступен</CompactEmpty>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <div className="text-xs uppercase tracking-wide text-neutral-500 mb-1">stderr</div>
-                              <pre className="text-xs whitespace-pre-wrap rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
-                                {full.stderr || ''}
-                              </pre>
-                            </div>
-                          </div>
+
+                            {code ? (
+                              <div className="space-y-2">
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">Код</div>
+                                <CodeEditor value={code} language={full.language || full.Language || 'text'} readOnly />
+                              </div>
+                            ) : (
+                              <CompactEmpty>Код не найден для этого image-решения.</CompactEmpty>
+                            )}
+
+                            <RunnerOutput item={full} />
+                          </>
                         ) : null}
                       </div>
                     ) : null}
@@ -849,10 +943,10 @@ export default function AdminSolutionsPage() {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium text-neutral-900 dark:text-neutral-50">
-                          {a.courseTitle} • {a.assignmentTitle}
+                          {getSolutionTitle(a)}
                         </div>
                         <div className="text-xs text-neutral-600 dark:text-neutral-400">
-                          {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
+                          {formatDateTime(a.submittedAt)} • попытка #{a.attemptNumber}
                         </div>
                       </div>
                       <div className="flex gap-2 items-center">
@@ -917,10 +1011,10 @@ export default function AdminSolutionsPage() {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium text-neutral-900 dark:text-neutral-50">
-                          {a.courseTitle} • {a.assignmentTitle}
+                          {getSolutionTitle(a)}
                         </div>
                         <div className="text-xs text-neutral-600 dark:text-neutral-400">
-                          {new Date(a.submittedAt).toLocaleString()} • попытка #{a.attemptNumber}
+                          {formatDateTime(a.submittedAt)} • попытка #{a.attemptNumber}
                         </div>
                       </div>
                       <div className="flex gap-2 items-center flex-wrap">
@@ -945,6 +1039,7 @@ export default function AdminSolutionsPage() {
                                 return copy;
                               });
                               if (expandedMathAttemptId === id) setExpandedMathAttemptId(null);
+                              notify.success('Math-попытка удалена');
                             } catch (e) {
                               const parsed = handleApiError(e, notify, 'Не удалось удалить math-попытку');
                               setPageError(parsed);

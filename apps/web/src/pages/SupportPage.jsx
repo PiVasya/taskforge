@@ -21,13 +21,15 @@ export default function SupportPage() {
   const submit = async (e) => {
     e.preventDefault();
     if (!type || !message.trim()) {
-      setError({
+      const parsed = {
         primaryMessage: 'Не все поля заполнены.',
         userHint: 'Чтобы создать обращение, нужно выбрать тип и написать сообщение.',
         howToFix: ['Выберите тип обращения.', 'Опишите проблему или вопрос в поле сообщения.'],
         severity: 'validation',
         messages: ['Не все поля заполнены.'],
-      });
+      };
+      setError(parsed);
+      notify.warn(parsed.primaryMessage);
       return;
     }
     try {

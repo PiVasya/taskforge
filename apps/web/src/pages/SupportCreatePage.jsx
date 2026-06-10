@@ -35,8 +35,7 @@ export default function SupportCreatePage() {
     try {
       setSending(true);
       setError(null);
-      const res = await createSupportTicket({ type, message: message.trim() });
-      const ticketId = res?.ticketId || res?.id || res?.Id;
+      await createSupportTicket({ type, message: message.trim() });
       notify.success('Обращение создано');
 
       

@@ -49,19 +49,21 @@ export async function getSolutionsDetailsBulkOrFallback(ids, { concurrency = 4 }
     return results;
   }
 
-  const { default: pLimit } = await import('p-limit');
-  const limit = pLimit(concurrency);
+  const workers = Math.max(1, Math.min(Number(concurrency) || 4, 8));
+  const results = [];
+  let cursor = 0;
 
-  const results = await Promise.all(
-    safeIds.map((id) =>
-      limit(async () => {
-        const dto = await getSolutionDetails(id);
-        return dto || null;
-      })
-    )
-  );
+  async function worker() {
+    while (cursor < safeIds.length) {
+      const id = safeIds[cursor];
+      cursor += 1;
+      const dto = await getSolutionDetails(id);
+      if (dto) results.push(dto);
+    }
+  }
 
-  return results.filter(Boolean);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
 }
 
 
@@ -78,10 +80,11 @@ export async function deleteUser(userId) {
 
 
 
-export async function getUserImageSolutions(userId, { days = null } = {}) {
-  const { data } = await api.get(`/api/admin/users/${userId}/image-solutions`, {
-    params: { days },
-  });
+export async function getUserImageSolutions(userId, { assignmentId = null, skip = 0, take = 50, days = null } = {}) {
+  const params = { skip, take };
+  if (days !== null && days !== undefined) params.days = days;
+  if (assignmentId) params.assignmentId = assignmentId;
+  const { data } = await api.get(`/api/admin/users/${userId}/image-solutions`, { params });
   return Array.isArray(data) ? data : [];
 }
 

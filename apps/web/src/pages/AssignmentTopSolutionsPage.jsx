@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import { Button, Card } from '../components/ui';
 import { getAssignment, getTopSolutions } from '../api/assignments';
 import { getApiErrorMessage } from '../api/http';
+import { formatDateTime, getSolutionCode, getSolutionCounts, getSolutionSubmittedAt } from '../utils/solutionsView';
 
 
 export default function AssignmentTopSolutionsPage() {
@@ -76,23 +77,28 @@ export default function AssignmentTopSolutionsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
-                {solutions.map((sol, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-2">{i + 1}</td>
-                    <td className="px-3 py-2">{sol.userName}</td>
-                    <td className="px-3 py-2">{sol.passedCount}</td>
-                    <td className="px-3 py-2">{sol.failedCount}</td>
-                    <td className="px-3 py-2">
-                      {new Date(sol.submittedAt).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2">{sol.language}</td>
-                    <td className="px-3 py-2 max-w-xl whitespace-pre-wrap">
-                      <pre className="overflow-auto">
-                        {sol.code}
-                      </pre>
-                    </td>
-                  </tr>
-                ))}
+                {solutions.map((sol, i) => {
+                  const counts = getSolutionCounts(sol);
+                  const code = getSolutionCode(sol);
+                  const userLabel = sol.userName || sol.displayName || sol.email || sol.userId || 'Пользователь';
+                  return (
+                    <tr key={sol.id || sol.Id || i}>
+                      <td className="px-3 py-2">{i + 1}</td>
+                      <td className="px-3 py-2">{userLabel}</td>
+                      <td className="px-3 py-2">{counts.passed ?? '—'}</td>
+                      <td className="px-3 py-2">{counts.failed ?? '—'}</td>
+                      <td className="px-3 py-2">{formatDateTime(getSolutionSubmittedAt(sol))}</td>
+                      <td className="px-3 py-2">{sol.language || sol.Language || '—'}</td>
+                      <td className="px-3 py-2 max-w-xl whitespace-pre-wrap">
+                        {code ? (
+                          <pre className="overflow-auto">{code}</pre>
+                        ) : (
+                          <span className="text-neutral-500">Код недоступен</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -33,6 +33,9 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             entity.Property(x => x.PasswordSalt).HasMaxLength(256).IsRequired();
             entity.Property(x => x.PasswordHash).HasMaxLength(512).IsRequired();
             entity.Property(x => x.Role).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.PhoneNumber).HasMaxLength(40);
+            entity.Property(x => x.ProfilePictureUrl).HasMaxLength(2048);
+            entity.Property(x => x.AdditionalDataJson);
         });
 
         modelBuilder.Entity<UserUiSettings>(entity =>

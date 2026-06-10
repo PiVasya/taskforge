@@ -142,6 +142,13 @@ jobs:
             printf '  %s\n' "${items[@]}"
           fi
 
+  workflow-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check Docker workflow integrity
+        run: python3 scripts/ci/check-workflow-integrity.py
+
   compose-check:
     runs-on: ubuntu-latest
     steps:
@@ -152,7 +159,7 @@ jobs:
       - run: ./deploy/prod/compose.sh config
 
   build:
-    needs: [changes, compose-check]
+    needs: [changes, compose-check, workflow-integrity]
     if: ${{ needs.changes.outputs.matrix != '{"include":[]}' }}
     runs-on: ubuntu-latest
     strategy:

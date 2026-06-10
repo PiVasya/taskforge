@@ -155,6 +155,9 @@ app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     user.FirstName = (request.FirstName ?? user.FirstName).Trim();
     user.LastName = (request.LastName ?? user.LastName).Trim();
+    if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+    if (request.ProfilePictureUrl != null) user.ProfilePictureUrl = string.IsNullOrWhiteSpace(request.ProfilePictureUrl) ? null : request.ProfilePictureUrl.Trim();
+    if (request.AdditionalDataJson != null) user.AdditionalDataJson = string.IsNullOrWhiteSpace(request.AdditionalDataJson) ? null : request.AdditionalDataJson;
     await db.SaveChangesAsync();
     return Results.Ok(ToProfile(user, await RolesForUser(db, user)));
 });
@@ -181,6 +184,14 @@ app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, Http
     user.Email = email;
     await db.SaveChangesAsync();
     return Results.Ok(ToProfile(user, await RolesForUser(db, user)));
+});
+
+app.MapPost("/api/profile/reveal-email", async (RevealEmailRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
+{
+    var user = await FindCurrentUserAsync(http, db, cfg);
+    if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
+    if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный пароль" });
+    return Results.Ok(new { email = user.Email, revealedAt = DateTimeOffset.UtcNow });
 });
 
 app.MapGet("/api/me/ui-settings", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -216,15 +227,28 @@ app.MapPut("/api/me/ui-settings", async (JsonElement payload, HttpContext http, 
 app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, IdentityDbContext db) =>
 {
     var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId);
-    return user == null ? Results.NotFound() : Results.Ok(new
+    if (user == null) return Results.NotFound(new { message = "Профиль не найден" });
+
+    var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
+    return Results.Ok(new
     {
         user.Id,
-        user.Email,
         user.FirstName,
         user.LastName,
-        displayName = DisplayName(user),
-        user.Role,
-        user.CreatedAt
+        avatarUrl = user.ProfilePictureUrl,
+        profilePictureUrl = user.ProfilePictureUrl,
+        displayName = PublicDisplayName(user),
+        user.CreatedAt,
+        bio = extra.Bio,
+        location = extra.Location,
+        education = extra.Education,
+        github = extra.Github,
+        telegram = extra.Telegram,
+        website = extra.Website,
+        skills = extra.Skills,
+        showInLeaderboard = extra.ShowInLeaderboard,
+        solvedAssignments = 0,
+        totalAttempts = 0
     });
 });
 
@@ -266,6 +290,8 @@ app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, AdminUserUpdate
     if (!string.IsNullOrWhiteSpace(request.Email)) user.Email = NormalizeEmail(request.Email);
     if (request.FirstName != null) user.FirstName = request.FirstName.Trim();
     if (request.LastName != null) user.LastName = request.LastName.Trim();
+    if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+    if (request.ProfilePictureUrl != null) user.ProfilePictureUrl = string.IsNullOrWhiteSpace(request.ProfilePictureUrl) ? null : request.ProfilePictureUrl.Trim();
     if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = NormalizeRole(request.Role);
     await db.SaveChangesAsync();
     return Results.Ok(ToAdminUserDto(user));
@@ -383,8 +409,11 @@ static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? fea
 {
     user.Id,
     user.Email,
+    maskedEmail = MaskEmail(user.Email),
     user.FirstName,
     user.LastName,
+    user.PhoneNumber,
+    user.ProfilePictureUrl,
     fullName = DisplayName(user),
     displayName = DisplayName(user),
     user.Role,
@@ -471,13 +500,32 @@ static string HashPassword(string password, string salt)
     return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(salt + ":" + password)));
 }
 static bool VerifyPassword(string password, string salt, string hash) => CryptographicOperations.FixedTimeEquals(Convert.FromBase64String(HashPassword(password, salt)), Convert.FromBase64String(hash));
-static string DisplayName(IdentityUser user) => string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } s ? s : user.Email;
+static string MaskEmail(string? email)
+{
+    var value = (email ?? string.Empty).Trim();
+    var at = value.IndexOf('@');
+    if (at <= 0) return "Почта не указана";
+    var name = value[..at];
+    var domain = value[(at + 1)..];
+    var dot = domain.LastIndexOf('.');
+    var host = dot > 0 ? domain[..dot] : domain;
+    var zone = dot > 0 ? domain[(dot + 1)..] : string.Empty;
+    var maskedName = name.Length <= 2 ? $"{name[..1]}***" : $"{name[..Math.Min(2, name.Length)]}***";
+    var maskedHost = host.Length <= 2 ? $"{host[..1]}***" : $"{host[..Math.Min(2, host.Length)]}***";
+    return string.IsNullOrWhiteSpace(zone) ? $"{maskedName}@{maskedHost}" : $"{maskedName}@{maskedHost}.{zone}";
+}
+static string PublicDisplayName(IdentityUser user) => string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } s ? s : "Пользователь TaskForge";
+static string DisplayName(IdentityUser user) => string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } s ? s : "Пользователь TaskForge";
 static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,
     user.Email,
+    maskedEmail = MaskEmail(user.Email),
     user.FirstName,
     user.LastName,
+    user.PhoneNumber,
+    user.ProfilePictureUrl,
+    user.AdditionalDataJson,
     displayName = DisplayName(user),
     user.Role,
     roles = MergeRoles(user.Role, featureRoles),
@@ -486,7 +534,59 @@ static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureR
     user.CreatedAt,
     user.LastLoginAt
 };
-static string DefaultUiSettingsJson() => "{\"colorTheme\":\"pink\",\"mode\":\"dark\",\"bgFx\":false,\"fxMode\":\"random\",\"fxVariant\":\"2\",\"codeSolveLayout\":\"split\"}";
+
+static PublicProfileExtra ReadPublicProfileExtra(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return PublicProfileExtra.Empty;
+    try
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var links = root.TryGetProperty("links", out var linkObj) && linkObj.ValueKind == JsonValueKind.Object ? linkObj : default(JsonElement);
+        var skills = new List<string>();
+        if (root.TryGetProperty("skills", out var skillsEl) && skillsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in skillsEl.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    var value = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(value)) skills.Add(value.Trim());
+                }
+            }
+        }
+
+        var showInLeaderboard = true;
+        if (root.TryGetProperty("showInLeaderboard", out var showEl) && (showEl.ValueKind == JsonValueKind.True || showEl.ValueKind == JsonValueKind.False))
+        {
+            showInLeaderboard = showEl.GetBoolean();
+        }
+
+        return new PublicProfileExtra(
+            ReadJsonString(root, "bio"),
+            ReadJsonString(root, "location"),
+            ReadJsonString(root, "education"),
+            ReadJsonString(links, "github"),
+            ReadJsonString(links, "telegram"),
+            ReadJsonString(links, "website"),
+            skills,
+            showInLeaderboard
+        );
+    }
+    catch
+    {
+        return PublicProfileExtra.Empty;
+    }
+}
+
+static string? ReadJsonString(JsonElement element, string propertyName)
+{
+    if (element.ValueKind != JsonValueKind.Object) return null;
+    if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String) return null;
+    var s = value.GetString();
+    return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}
+static string DefaultUiSettingsJson() => "{\"colorTheme\":\"pink\",\"mode\":\"dark\",\"bgFx\":false,\"fxMode\":\"random\",\"fxVariant\":\"2\",\"codeSolveLayout\":\"split\",\"showSidebarToggle\":true,\"sidebarCollapsed\":false}";
 static string? ReadCookie(HttpContext http, string name) => http.Request.Cookies.TryGetValue(name, out var v) ? v : null;
 static string? ReadBearer(HttpContext http)
 {
@@ -557,10 +657,15 @@ static void ClearAuthCookies(HttpContext http)
 
 public sealed record RegisterRequest(string? Email, string? Password, string? FirstName, string? LastName);
 public sealed record LoginRequest(string? Email, string? Password);
-public sealed record ProfileUpdateRequest(string? FirstName, string? LastName);
+public sealed record ProfileUpdateRequest(string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? AdditionalDataJson);
+public sealed record PublicProfileExtra(string? Bio, string? Location, string? Education, string? Github, string? Telegram, string? Website, IReadOnlyList<string> Skills, bool ShowInLeaderboard)
+{
+    public static PublicProfileExtra Empty { get; } = new(null, null, null, null, null, null, Array.Empty<string>(), true);
+}
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 public sealed record ChangeEmailRequest(string? NewEmail, string? Password);
-public sealed record AdminUserUpdateRequest(string? Email, string? FirstName, string? LastName, string? Role);
+public sealed record RevealEmailRequest(string? Password);
+public sealed record AdminUserUpdateRequest(string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role);
 
 public sealed record RoleAssignRequest(string? Code);
 public sealed record FeatureRoleRequest(string? Code, string? Title, string? Description, bool? IsActive);

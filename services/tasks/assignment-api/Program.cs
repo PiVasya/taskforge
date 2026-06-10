@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
@@ -221,7 +222,7 @@ app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", async (
 app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare", async (Guid assignmentId, HttpRequest req, TasksDbContext db, IHttpClientFactory clients) => await CompareImageUpload(assignmentId, req, db, clients));
 app.MapPost("/api/assignments/{assignmentId:guid}/image-test/run-code", async (Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients) => await RenderImageCode(assignmentId, request, db, clients));
 app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare-code", async (Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients) => await CompareImageCode(assignmentId, request, db, clients, submit: false));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/submit-code", async (Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients) => await CompareImageCode(assignmentId, request, db, clients, submit: true));
+app.MapPost("/api/assignments/{assignmentId:guid}/image-test/submit-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) => await CompareImageCode(assignmentId, request, db, clients, submit: true, context: http, cfg: cfg));
 
 app.Run();
 
@@ -248,10 +249,12 @@ static async Task<IResult> RenderImageCode(Guid assignmentId, ImageCodeRequest r
     }
 }
 
-static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients, bool submit)
+static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients, bool submit, HttpContext? context = null, IConfiguration? cfg = null)
 {
     var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
     if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    var currentUserId = submit && context is not null && cfg is not null ? RequireUser(context, cfg) : null;
+    if (submit && currentUserId == null) return Unauthorized();
     var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
     var referenceBase64 = root["referenceBase64"]?.GetValue<string>();
     if (string.IsNullOrWhiteSpace(referenceBase64)) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания ещё не загружена эталонная картинка.");
@@ -278,10 +281,64 @@ static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest 
         var compared = await http.PostAsync($"http://image-analyzer:8000/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
         var compareRaw = await compared.Content.ReadAsStringAsync();
         if (!compared.IsSuccessStatusCode) return Problem(503, "IMAGE_ANALYZER_FAILED", "image-test.analyzer", "image-analyzer не смог сравнить изображения.", compareRaw);
-        var json = JsonSerializer.Deserialize<JsonElement>(compareRaw);
-        var combined = json.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
-        var passed = json.TryGetProperty("passed", out var pass) && pass.ValueKind == JsonValueKind.True;
-        return Results.Ok(new { assignmentId, submitted = submit, passed, similarity = Math.Round(combined * 100, 2), threshold = thresholdPercent, stdout = renderDoc.RootElement.TryGetProperty("stdout", out var so) ? so.GetString() : "", stderr = renderDoc.RootElement.TryGetProperty("stderr", out var se) ? se.GetString() : "", analyzer = json });
+        var analyzer = JsonSerializer.Deserialize<JsonElement>(compareRaw);
+        var combined = analyzer.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
+        var passed = analyzer.TryGetProperty("passed", out var pass) && pass.ValueKind == JsonValueKind.True;
+        var similarityPercent = Math.Round(combined * 100, 2);
+        var similarityPercentInt = (int)Math.Round(similarityPercent);
+        var stdout = renderDoc.RootElement.TryGetProperty("stdout", out var so) ? so.GetString() ?? string.Empty : string.Empty;
+        var stderr = renderDoc.RootElement.TryGetProperty("stderr", out var se) ? se.GetString() ?? string.Empty : string.Empty;
+        var referenceUrl = ReferenceUrl(root);
+        var submittedUrl = $"data:image/png;base64,{pngBase64}";
+        var savedSolutionId = (Guid?)null;
+
+        var resultPayload = new
+        {
+            assignmentId,
+            submitted = submit,
+            passed,
+            similarity = similarityPercent,
+            similarityPercent,
+            threshold = thresholdPercent,
+            thresholdPercent,
+            stdout,
+            stderr,
+            referenceUrl,
+            submittedUrl,
+            analyzer
+        };
+
+        if (submit && cfg is not null && currentUserId.HasValue)
+        {
+            savedSolutionId = await SaveImageSolutionAsync(
+                assignmentId,
+                currentUserId.Value,
+                lang,
+                request.Code ?? string.Empty,
+                similarityPercentInt,
+                passed,
+                JsonSerializer.SerializeToElement(resultPayload, JsonOptions()),
+                cfg,
+                clients);
+        }
+
+        return Results.Ok(new
+        {
+            id = savedSolutionId,
+            solutionId = savedSolutionId,
+            assignmentId,
+            submitted = submit,
+            passed,
+            similarity = similarityPercent,
+            similarityPercent,
+            threshold = thresholdPercent,
+            thresholdPercent,
+            stdout,
+            stderr,
+            referenceUrl,
+            submittedUrl,
+            analyzer
+        });
     }
     catch (Exception ex)
     {
@@ -291,6 +348,56 @@ static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest 
 
 static string NormalizeImageLanguage(string? lang) => (lang ?? "cpp").Trim().ToLowerInvariant() switch { "c++" or "cpp" => "cpp", "pas" or "pascal" or "pabc" => "pascal", var x => x };
 static string? ImageRunnerService(string lang) => lang switch { "cpp" => "image-cpp-runner", "pascal" => "image-pascal-runner", _ => null };
+static string? ReferenceUrl(JsonObject root)
+{
+    var base64 = root["referenceBase64"]?.GetValue<string>();
+    if (!string.IsNullOrWhiteSpace(base64))
+    {
+        var contentType = root["referenceContentType"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(contentType)) contentType = "image/png";
+        return $"data:{contentType};base64,{base64}";
+    }
+
+    var key = root["imageTestReferenceKey"]?.GetValue<string>();
+    return string.IsNullOrWhiteSpace(key) ? null : $"/api/private-files/{Uri.EscapeDataString(key)}";
+}
+
+static async Task<Guid?> SaveImageSolutionAsync(Guid assignmentId, Guid userId, string language, string code, int similarityPercent, bool passed, JsonElement result, IConfiguration cfg, IHttpClientFactory clients)
+{
+    var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
+    var client = clients.CreateClient();
+    client.Timeout = TimeSpan.FromSeconds(15);
+    using var msg = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/image-solutions")
+    {
+        Content = JsonContent.Create(new InternalImageSolutionRequest(userId, assignmentId, language, code, similarityPercent, passed, result), options: JsonOptions())
+    };
+    AddInternalKey(msg, cfg);
+
+    try
+    {
+        using var response = await client.SendAsync(msg);
+        var raw = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(raw)) return null;
+        using var doc = JsonDocument.Parse(raw);
+        return doc.RootElement.TryGetProperty("id", out var idProp) && Guid.TryParse(idProp.ToString(), out var savedId) ? savedId : null;
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static string ServiceUrl(IConfiguration cfg, string name, string fallback)
+{
+    return (cfg[$"Services:{name}"] ?? cfg[$"ServiceUrls:{name}"] ?? fallback).TrimEnd('/');
+}
+
+static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
+{
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+    if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
+}
+
 
 static async Task<IResult> CompareImageUpload(Guid assignmentId, HttpRequest req, TasksDbContext db, IHttpClientFactory clients)
 {
@@ -795,6 +902,7 @@ static List<MatchPair> MatchPairList(JsonObject o, string n) => o[n] is JsonArra
 
 public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden);
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);
+public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);
 public sealed record SortRequest(int Sort);
 public sealed record PositionRequest(int? Position, Guid? AfterAssignmentId);
 public sealed record VisibilityRequest(bool IsVisible);

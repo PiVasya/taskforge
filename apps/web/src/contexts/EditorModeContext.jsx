@@ -46,6 +46,12 @@ function getRolesFromToken(access) {
     .filter((v, i, arr) => arr.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i);
 }
 
+function hasRoleName(roles, role) {
+  const wanted = String(role || '').trim().toLowerCase();
+  if (!wanted) return false;
+  return roles.some((r) => String(r || '').trim().toLowerCase() === wanted);
+}
+
 const Ctx = createContext(null);
 export const useEditorMode = () => useContext(Ctx);
 
@@ -56,8 +62,8 @@ export default function EditorModeProvider({ children }) {
   const [isEditorMode, setIsEditorMode] = useState(false);
 
   const roles = useMemo(() => getRolesFromToken(access), [access]);
-  const isAdmin = roles.includes("Admin");
-  const isEditor = roles.includes("Editor");
+  const isAdmin = hasRoleName(roles, "Admin");
+  const isEditor = hasRoleName(roles, "Editor") || hasRoleName(roles, "LearningEditor");
   const canEdit = isAdmin || isEditor;
 
   useEffect(() => {
@@ -91,7 +97,7 @@ export default function EditorModeProvider({ children }) {
       isAdmin,
       isEditor,
       roles,
-      hasRole: (role) => roles.includes(role),
+      hasRole: (role) => hasRoleName(roles, role),
     }),
     [canEdit, isEditorMode, isAdmin, isEditor, roles]
   );
@@ -104,9 +110,9 @@ export function useRoleFlags() {
   const roles = useMemo(() => getRolesFromToken(access), [access]);
   return {
     roles,
-    isAdmin: roles.includes("Admin"),
-    isEditor: roles.includes("Editor"),
-    canEdit: roles.includes("Admin") || roles.includes("Editor"),
-    hasRole: (role) => roles.includes(role),
+    isAdmin: hasRoleName(roles, "Admin"),
+    isEditor: hasRoleName(roles, "Editor") || hasRoleName(roles, "LearningEditor"),
+    canEdit: hasRoleName(roles, "Admin") || hasRoleName(roles, "Editor") || hasRoleName(roles, "LearningEditor"),
+    hasRole: (role) => hasRoleName(roles, role),
   };
 }
