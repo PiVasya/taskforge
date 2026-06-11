@@ -69,7 +69,11 @@ export function isPendingSolution(solution) {
 
 export function isAcceptedSolution(solution) {
   const status = normalizeStatus(getSolutionStatus(solution));
-  return solution?.passedAllTests === true || solution?.passedAll === true || SUCCESS_STATUSES.has(status);
+  const cases = getResultCases(solution);
+  if (solution?.passedAllTests === true || solution?.passedAll === true) return true;
+  if (solution?.passedAllTests === false || solution?.passedAll === false) return false;
+  if (cases.length > 0) return cases.every(isResultCasePassed);
+  return SUCCESS_STATUSES.has(status);
 }
 
 export function getSolutionStatusLabel(solutionOrStatus) {
@@ -134,6 +138,15 @@ export function getResultCases(solution) {
   return [];
 }
 
+
+export function isResultCasePassed(item) {
+  if (!item || typeof item !== 'object') return false;
+  if (typeof item.passed === 'boolean') return item.passed;
+  if (typeof item.Passed === 'boolean') return item.Passed;
+  const status = normalizeStatus(item.status ?? item.Status);
+  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+}
+
 export function getSolutionCounts(solution) {
   const explicitPassed = firstNumber(solution?.passedCount, solution?.passedTests, solution?.result?.passedCount);
   const explicitFailed = firstNumber(solution?.failedCount, solution?.failedTests, solution?.result?.failedCount);
@@ -147,8 +160,7 @@ export function getSolutionCounts(solution) {
   let passed = 0;
   let failed = 0;
   for (const item of cases) {
-    const status = String(item?.status || '').trim().toLowerCase();
-    const ok = item?.passed === true || status === 'ok' || status === 'accepted' || status === 'success';
+    const ok = isResultCasePassed(item);
     if (ok) passed += 1;
     else failed += 1;
   }

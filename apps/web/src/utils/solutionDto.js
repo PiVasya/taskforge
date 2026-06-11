@@ -164,17 +164,22 @@ export function isSolutionPending(solution) {
   return solution?.isPending === true || solution?.IsPending === true || result?.pending === true || PENDING_STATUSES.has(key);
 }
 
+
+export function isResultCasePassed(c) {
+  if (!c || typeof c !== 'object') return false;
+  if (typeof c.passed === 'boolean') return c.passed;
+  if (typeof c.Passed === 'boolean') return c.Passed;
+  const status = toStatusKey(c.status ?? c.Status);
+  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+}
+
 export function isSolutionAccepted(solution) {
   const key = getSolutionStatusKey(solution);
   const cases = getSolutionCases(solution);
-  return (
-    solution?.passedAllTests === true ||
-    solution?.passedAll === true ||
-    solution?.PassedAllTests === true ||
-    solution?.PassedAll === true ||
-    ACCEPTED_STATUSES.has(key) ||
-    (cases.length > 0 && cases.every((c) => c?.passed === true || c?.Passed === true || toStatusKey(c?.status || c?.Status) === 'ok'))
-  );
+  if (solution?.passedAllTests === true || solution?.passedAll === true || solution?.PassedAllTests === true || solution?.PassedAll === true) return true;
+  if (solution?.passedAllTests === false || solution?.passedAll === false || solution?.PassedAllTests === false || solution?.PassedAll === false) return false;
+  if (cases.length > 0) return cases.every(isResultCasePassed);
+  return ACCEPTED_STATUSES.has(key);
 }
 
 export function getSolutionBadgeIntent(solution) {
@@ -231,7 +236,7 @@ export function getPassedCount(solution) {
   const value = firstNumber(solution?.passedCount, solution?.PassedCount, lookup(solution, ['passedCount', 'passedTests']));
   if (value !== null) return value;
   const cases = getSolutionCases(solution);
-  return cases.length ? cases.filter((c) => c?.passed === true || c?.Passed === true || toStatusKey(c?.status || c?.Status) === 'ok').length : null;
+  return cases.length ? cases.filter(isResultCasePassed).length : null;
 }
 
 export function getFailedCount(solution) {

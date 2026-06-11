@@ -33,6 +33,7 @@ import {
   getRunnerText,
   getSolutionBadgeIntent,
   getSolutionCases,
+  isResultCasePassed as isResultCasePassedStrict,
   getSolutionCode,
   getSolutionDate,
   getSolutionPassedFailed,
@@ -85,7 +86,7 @@ function RunnerOutput({ item }) {
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-wide text-neutral-500">Тесты</div>
           {cases.slice(0, 8).map((c, i) => {
-            const ok = c?.passed === true || String(c?.status || '').toLowerCase() === 'ok';
+            const ok = isResultCasePassedStrict(c);
             return (
               <div key={i} className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2 text-xs">
                 <div className="flex items-center justify-between gap-2">

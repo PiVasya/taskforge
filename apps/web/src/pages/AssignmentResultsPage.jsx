@@ -17,6 +17,14 @@ function displayRunnerClean(s) {
   return sanitizeRunnerText(s);
 }
 
+function isCasePassedStrict(c) {
+  if (!c || typeof c !== 'object') return false;
+  if (typeof c.passed === 'boolean') return c.passed;
+  if (typeof c.Passed === 'boolean') return c.Passed;
+  const status = String(c.status ?? c.Status ?? '').trim().toLowerCase();
+  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+}
+
 function isHiddenTestCase(t) {
   return t?.isHidden === true || t?.hidden === true || t?.Hidden === true;
 }
@@ -348,15 +356,16 @@ export default function AssignmentResultsPage() {
   const status = String(res.status || res.verdict || '').toLowerCase();
   const pending = res.isPending === true || res.result?.pending === true || ['preparing', 'queued', 'running', 'pending'].includes(status);
   const message = res.message || res.result?.message || '';
-  const score = res.score ?? res.Score ?? res.result?.score;
   const stdout = res.stdout || res.result?.stdout || '';
   const stderr = res.stderr || res.compileError || res.result?.stderr || res.result?.compileStderr || '';
   const policyUi = parsePolicyText(extractPolicyPayload(res));
-  const passedAll =
-    (res.passedAll === true) ||
-    (res.passedAllTests === true) ||
+  const explicitFailed = res.passedAll === false || res.passedAllTests === false || res.PassedAll === false || res.PassedAllTests === false;
+  const passedAll = !explicitFailed && (
+    res.passedAll === true ||
+    res.passedAllTests === true ||
     status === 'accepted' ||
-    (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK' || c?.status === 'ok'));
+    (Array.isArray(cases) && cases.length > 0 && cases.every(isCasePassedStrict))
+  );
 
   return (
     <Layout>
@@ -412,9 +421,8 @@ export default function AssignmentResultsPage() {
             </div>
           ) : null}
 
-          {(message || score != null || stdout || stderr) ? (
+          {(message || stdout || stderr) ? (
             <div className="mb-4 rounded-xl border border-neutral-200 dark:border-neutral-800/70 bg-neutral-50/70 dark:bg-neutral-900/40 p-3 text-sm space-y-2">
-              {score != null ? <div><span className="font-medium">Score:</span> {score}</div> : null}
               {message && !policyUi ? <div className="text-neutral-700 dark:text-neutral-300">{displayRunnerClean(message)}</div> : null}
               {stdout ? <pre className="whitespace-pre-wrap text-xs">stdout
 {displayClean(stdout)}</pre> : null}
@@ -434,8 +442,8 @@ export default function AssignmentResultsPage() {
                       <div className="text-sm font-medium">Тест #{i + 1}</div>
                       {isHiddenTestCase(c) && <Badge intent="warning">Скрытый тест</Badge>}
                     </div>
-                    <div className={`text-xs px-2 py-0.5 rounded ${c.passed || c.status === 'OK' || c.status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      {c.passed || c.status === 'OK' || c.status === 'ok' ? 'OK' : 'FAIL'}
+                    <div className={`text-xs px-2 py-0.5 rounded ${isCasePassedStrict(c) ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {isCasePassedStrict(c) ? 'OK' : 'FAIL'}
                     </div>
                   </div>
 

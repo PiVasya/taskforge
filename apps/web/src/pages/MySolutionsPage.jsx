@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '../components/Layout';
 import { Card, Button, Badge } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
@@ -6,6 +6,8 @@ import { getMySolutions, getMySolutionDetails } from '../api/solutions';
 import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTestAttempts';
 import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
 import { getMyMathAttempts, getMyMathAttemptReview } from '../api/mathTaskAttempts';
+import { getAssignment } from '../api/assignments';
+import { getCourse } from '../api/courses';
 import MathAttemptReview from '../components/math/MathAttemptReview';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
@@ -22,11 +24,9 @@ import {
   getSolutionDate,
   getSolutionMessage,
   getSolutionOutput,
-  getSolutionScore,
   getSolutionStatusIntent,
   getSolutionStatusLabel,
   getSolutionTitle,
-  shortId,
 } from '../utils/solutionUi';
 
 const PAGE_SIZE = 50;
@@ -46,6 +46,14 @@ function setLoadingFlag(setter, id, value) {
   setter((prev) => ({ ...prev, [id]: value }));
 }
 
+function isResultCasePassedStrict(c) {
+  if (!c || typeof c !== 'object') return false;
+  if (typeof c.passed === 'boolean') return c.passed;
+  if (typeof c.Passed === 'boolean') return c.Passed;
+  const status = String(c.status ?? c.Status ?? '').trim().toLowerCase();
+  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+}
+
 function renderOutputBlock(title, value) {
   if (!value) return null;
   return (
@@ -60,16 +68,21 @@ function renderOutputBlock(title, value) {
 
 function SolutionMeta({ solution }) {
   const counts = getSolutionCounts(solution);
-  const score = getSolutionScore(solution);
+  const hasFailedCases = counts && counts.total > 0 && counts.failed > 0;
+  const accepted = !hasFailedCases && (
+    solution?.passedAllTests === true ||
+    solution?.passedAll === true ||
+    String(solution?.status || solution?.verdict || '').toLowerCase() === 'accepted'
+  );
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      <Badge intent={getSolutionStatusIntent(solution)}>{getSolutionStatusLabel(solution)}</Badge>
-      {typeof score === 'number' ? <Badge intent="secondary">Score: {score}</Badge> : null}
-      {counts && counts.total > 0 ? (
-        <Badge intent={counts.failed > 0 ? 'danger' : 'success'}>
-          Тесты: {counts.passed}/{counts.total}
-        </Badge>
-      ) : null}
+      {accepted ? (
+        <Badge intent="success">Все тесты пройдены{counts?.passed ? ` (${counts.passed})` : ''}</Badge>
+      ) : counts && counts.total > 0 ? (
+        <Badge intent={counts.failed > 0 ? 'danger' : 'success'}>{counts.failed > 0 ? `Провалено: ${counts.failed} / Пройдено: ${counts.passed}` : `Все тесты пройдены (${counts.passed})`}</Badge>
+      ) : (
+        <Badge intent={getSolutionStatusIntent(solution)}>{getSolutionStatusLabel(solution)}</Badge>
+      )}
     </div>
   );
 }
@@ -120,7 +133,7 @@ function CodeSolutionDetails({ solution, fallbackLanguage }) {
           </div>
           <div className="divide-y divide-neutral-200 dark:divide-neutral-700">
             {cases.slice(0, 20).map((c, index) => {
-              const passed = c?.passed === true || String(c?.status || '').toLowerCase() === 'ok';
+              const passed = isResultCasePassedStrict(c);
               const caseText = c?.message || c?.error || c?.status || (passed ? 'OK' : 'Failed');
               return (
                 <div key={c?.id || index} className="px-3 py-2 text-sm flex items-start justify-between gap-3">
@@ -214,6 +227,7 @@ export default function MySolutionsPage() {
   const [details, setDetails] = useState({});
   const [codeDetailsLoading, setCodeDetailsLoading] = useState({});
   const [expandedId, setExpandedId] = useState(null);
+  const [assignmentTitles, setAssignmentTitles] = useState({});
 
   const [testAttempts, setTestAttempts] = useState([]);
   const [testListLoading, setTestListLoading] = useState(false);
@@ -237,12 +251,47 @@ export default function MySolutionsPage() {
   const [mathDetails, setMathDetails] = useState({});
   const [expandedMathAttemptId, setExpandedMathAttemptId] = useState(null);
 
+  const enrichSolutionTitles = useCallback(async (items) => {
+    const ids = Array.from(new Set((items || [])
+      .map((x) => x?.assignmentId ?? x?.AssignmentId ?? x?.taskAssignmentId ?? x?.TaskAssignmentId)
+      .filter(Boolean)
+      .map(String)))
+      .filter((id) => !assignmentTitles[id]);
+    if (!ids.length) return;
+
+    const updates = {};
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const assignment = await getAssignment(id);
+        const courseId = assignment?.courseId ?? assignment?.CourseId;
+        let courseTitle = '';
+        if (courseId) {
+          try {
+            const course = await getCourse(courseId);
+            courseTitle = course?.title ?? course?.Title ?? '';
+          } catch {}
+        }
+        updates[id] = {
+          courseId,
+          courseTitle,
+          assignmentTitle: assignment?.title ?? assignment?.Title ?? `Задание ${String(id).slice(0, 8)}`,
+        };
+      } catch {
+        updates[id] = { assignmentTitle: `Задание ${String(id).slice(0, 8)}` };
+      }
+    }));
+    if (Object.keys(updates).length) {
+      setAssignmentTitles((prev) => ({ ...prev, ...updates }));
+    }
+  }, [assignmentTitles]);
+
   const loadSolutions = async ({ reset = false } = {}) => {
     setListLoading(true);
     try {
       const skip = reset ? 0 : solSkip;
       const list = await getMySolutions({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
+      enrichSolutionTitles(arr);
       if (reset) {
         setSolutions(arr);
         setSolSkip(arr.length);
@@ -266,6 +315,7 @@ export default function MySolutionsPage() {
       const skip = reset ? 0 : testSkip;
       const list = await getMyTaskTestAttempts({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
+      enrichSolutionTitles(arr);
       if (reset) {
         setTestAttempts(arr);
         setTestSkip(arr.length);
@@ -289,6 +339,7 @@ export default function MySolutionsPage() {
       const skip = reset ? 0 : imageSkip;
       const list = await getMyImageSolutions({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
+      enrichSolutionTitles(arr);
       if (reset) {
         setImageSolutions(arr);
         setImageSkip(arr.length);
@@ -312,6 +363,7 @@ export default function MySolutionsPage() {
       const skip = reset ? 0 : mathSkip;
       const list = await getMyMathAttempts({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
+      enrichSolutionTitles(arr);
       if (reset) {
         setMathAttempts(arr);
         setMathSkip(arr.length);
@@ -353,29 +405,35 @@ export default function MySolutionsPage() {
     return { before: p.slice(0, i), after: p.slice(i + blank.length), blankLen: blank.length };
   };
 
+  const withAssignmentMeta = useCallback((item) => {
+    const assignmentId = String(item?.assignmentId ?? item?.AssignmentId ?? item?.taskAssignmentId ?? item?.TaskAssignmentId ?? '');
+    const meta = assignmentId ? assignmentTitles[assignmentId] : null;
+    return meta ? { ...item, ...meta } : item;
+  }, [assignmentTitles]);
+
   const displayedSolutions = useMemo(() => {
-    const list = [...solutions];
+    const list = solutions.map(withAssignmentMeta);
     list.sort((a, b) => dateMs(getSolutionDate(b)) - dateMs(getSolutionDate(a)));
     return list;
-  }, [solutions]);
+  }, [solutions, withAssignmentMeta]);
 
   const displayedAttempts = useMemo(() => {
-    const list = [...testAttempts];
+    const list = testAttempts.map(withAssignmentMeta);
     list.sort((a, b) => dateMs(b.submittedAt) - dateMs(a.submittedAt));
     return list;
-  }, [testAttempts]);
+  }, [testAttempts, withAssignmentMeta]);
 
   const displayedImageSolutions = useMemo(() => {
-    const list = [...imageSolutions];
+    const list = imageSolutions.map(withAssignmentMeta);
     list.sort((a, b) => dateMs(getSolutionDate(b)) - dateMs(getSolutionDate(a)));
     return list;
-  }, [imageSolutions]);
+  }, [imageSolutions, withAssignmentMeta]);
 
   const displayedMathAttempts = useMemo(() => {
-    const list = [...mathAttempts];
+    const list = mathAttempts.map(withAssignmentMeta);
     list.sort((a, b) => dateMs(b.submittedAt) - dateMs(a.submittedAt));
     return list;
-  }, [mathAttempts]);
+  }, [mathAttempts, withAssignmentMeta]);
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {
@@ -597,7 +655,7 @@ export default function MySolutionsPage() {
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                          {formatDateTime(getSolutionDate(item))} • {item.language || 'язык не указан'} • id {shortId(id)}
+                          {formatDateTime(getSolutionDate(item))} • {item.language || 'язык не указан'}
                         </div>
                       </div>
                       <div className="flex gap-2 items-center flex-wrap">
@@ -675,7 +733,7 @@ export default function MySolutionsPage() {
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                          {formatDateTime(getSolutionDate(item))} • {item.language || '—'} • id {shortId(id)}
+                          {formatDateTime(getSolutionDate(item))} • {item.language || '—'}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2 items-center">

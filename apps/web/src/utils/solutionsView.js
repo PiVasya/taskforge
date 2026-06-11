@@ -80,7 +80,11 @@ export function isPendingSolution(solution) {
 
 export function isAcceptedSolution(solution) {
   const status = normalizeStatus(getSolutionStatus(solution));
-  return solution?.passedAllTests === true || solution?.passedAll === true || status === 'accepted';
+  const cases = getSolutionCases(solution);
+  if (solution?.passedAllTests === true || solution?.passedAll === true) return true;
+  if (solution?.passedAllTests === false || solution?.passedAll === false) return false;
+  if (cases.length > 0) return cases.every(isResultCasePassed);
+  return status === 'accepted';
 }
 
 export function getSolutionCases(solution) {
@@ -94,6 +98,18 @@ export function getSolutionCases(solution) {
     result?.results,
   ];
   return candidates.find(Array.isArray) || [];
+}
+
+
+export function isResultCasePassed(c) {
+  if (!c || typeof c !== 'object') return false;
+  if (typeof c.passed === 'boolean') return c.passed;
+  if (typeof c.Passed === 'boolean') return c.Passed;
+  const status = normalizeStatus(c.status ?? c.Status);
+  // Runner status "ok" only means the process exited normally. It must not
+  // override passed:false for wrong answers. Use status only for legacy payloads
+  // that do not contain an explicit passed flag.
+  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
 }
 
 export function getSolutionCounts(solution) {
@@ -112,8 +128,7 @@ export function getSolutionCounts(solution) {
   let passed = 0;
   let failed = 0;
   for (const c of cases) {
-    const status = normalizeStatus(c?.status);
-    const ok = c?.passed === true || status === 'ok' || status === 'accepted';
+    const ok = isResultCasePassed(c);
     if (ok) passed += 1;
     else failed += 1;
   }

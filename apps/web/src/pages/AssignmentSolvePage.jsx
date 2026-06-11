@@ -132,16 +132,17 @@ function getSolutionCases(resObj) {
 }
 
 function isCasePassed(c) {
-  const status = String(c?.status || '').trim().toLowerCase();
-  return c?.passed === true || status === 'ok' || status === 'accepted' || status === 'passed';
+  if (!c || typeof c !== 'object') return false;
+  if (typeof c.passed === 'boolean') return c.passed;
+  if (typeof c.Passed === 'boolean') return c.Passed;
+  const status = String(c?.status ?? c?.Status ?? '').trim().toLowerCase();
+  // status=ok from runners means only that the program exited normally.
+  // Do not let it override passed:false on wrong answers.
+  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
 }
 
 function getSolutionStatusKey(resObj) {
   return String(resObj?.status || resObj?.verdict || '').trim().toLowerCase();
-}
-
-function getSolutionScore(resObj) {
-  return resObj?.score ?? resObj?.Score ?? resObj?.result?.score ?? null;
 }
 
 function getSolutionOutput(resObj) {
@@ -161,12 +162,14 @@ function getResultSummary(resObj) {
   const cases = getSolutionCases(resObj);
   const status = getSolutionStatusKey(resObj);
   const pending = isPendingSolution(resObj);
-  const passedAll =
+  const explicitFailed = resObj?.passedAll === false || resObj?.passedAllTests === false || resObj?.PassedAll === false || resObj?.PassedAllTests === false;
+  const passedAll = !explicitFailed && (
     resObj?.__allPassed === true ||
     resObj?.passedAll === true ||
     resObj?.passedAllTests === true ||
     status === 'accepted' ||
-    (cases.length > 0 && cases.every(isCasePassed));
+    (cases.length > 0 && cases.every(isCasePassed))
+  );
 
   if (pending) {
     return {
@@ -572,7 +575,8 @@ export default function AssignmentSolvePage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitPhase, setSubmitPhase] = useState('idle');
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null); 
+  const [result, setResult] = useState(null);
+  const [checkedDraftKey, setCheckedDraftKey] = useState('');
 
   
   const [imgBusy, setImgBusy] = useState(false);
@@ -675,6 +679,16 @@ export default function AssignmentSolvePage() {
     saveSolveDraft(assignmentId, { code, language, updatedAt: new Date().toISOString() });
   }, [a?.id, assignmentId, code, language]);
 
+  useEffect(() => {
+    if (!result || !checkedDraftKey) return;
+    const currentKey = `${language}\n${code}`;
+    if (currentKey !== checkedDraftKey) {
+      setResult(null);
+      setSubmitPhase('idle');
+      setError('');
+    }
+  }, [code, language, result, checkedDraftKey]);
+
   
   
   useEffect(() => {
@@ -731,6 +745,7 @@ export default function AssignmentSolvePage() {
     setSubmitPhase('submitting');
     setError('');
     setResult(null);
+    setCheckedDraftKey('');
 
     try {
       let r = await submitSolution(assignmentId, { language, code });
@@ -762,13 +777,14 @@ export default function AssignmentSolvePage() {
 
       const cases = getSolutionCases(r);
       const statusKey = getSolutionStatusKey(r);
-      const allOk =
-        (r?.passedAllTests === true) ||
-        (r?.passedAll === true) ||
-        statusKey === 'accepted' ||
-        (cases.length > 0 && cases.every(isCasePassed));
+      const explicitPassedAll = r?.passedAllTests === true || r?.passedAll === true || r?.PassedAllTests === true || r?.PassedAll === true;
+      const explicitFailed = r?.passedAllTests === false || r?.passedAll === false || r?.PassedAllTests === false || r?.PassedAll === false;
+      const allOk = explicitFailed
+        ? false
+        : explicitPassedAll || statusKey === 'accepted' || (cases.length > 0 && cases.every(isCasePassed));
 
       const nextResult = { ...r, __allPassed: allOk };
+      setCheckedDraftKey(`${language}\n${code}`);
       setResult(nextResult);
       try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: nextResult })); } catch {}
       setTimeout(() => {
@@ -846,7 +862,6 @@ export default function AssignmentSolvePage() {
     const rawCases = getSolutionCases(result);
     const cases = rawCases.filter((c) => canViewHiddenTests || !isHiddenTestCase(c));
     const summary = getResultSummary(result);
-    const score = getSolutionScore(result);
     const output = getSolutionOutput(result);
     const pending = isPendingSolution(result);
     const solutionId = result?.id || result?.Id || result?.solutionId || result?.SolutionId || null;
@@ -873,11 +888,6 @@ export default function AssignmentSolvePage() {
                 <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badgeClass}`}>
                   {summary.title}
                 </span>
-                {score != null ? (
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-neutral-400">
-                    Score: {score}
-                  </span>
-                ) : null}
               </div>
               <div className="mt-2 text-sm text-neutral-400">{summary.description}</div>
             </div>
