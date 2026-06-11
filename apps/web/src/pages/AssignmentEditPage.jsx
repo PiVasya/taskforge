@@ -7,7 +7,7 @@ import { extractApiErrorMessages, handleApiError } from "../utils/handleApiError
 import { notifyOnce } from "../utils/notifyOnce";
 import { getApiErrorMessage } from "../api/http";
 
-import { getAssignment, updateAssignment, deleteAssignment } from "../api/assignments";
+import { getAssignmentForEdit, updateAssignment, deleteAssignment } from "../api/assignments";
 import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
 import { getMathTaskEdit, saveMathTaskEdit } from "../api/mathTasks";
 
@@ -19,8 +19,16 @@ import StatementEditor from "../components/tiptap/StatementEditor";
 import { uploadImageTestReference } from "../api/imageTests";
 import { useRoleFlags } from "../contexts/EditorModeContext";
 
-
-
+function normalizeCodeTestCases(source) {
+  if (Array.isArray(source)) return source;
+  if (source && typeof source === "object") {
+    const publicTests = Array.isArray(source.publicTests) ? source.publicTests.map((t) => ({ ...t, isHidden: false })) : [];
+    const hiddenTests = Array.isArray(source.hiddenTests) ? source.hiddenTests.map((t) => ({ ...t, isHidden: true })) : [];
+    const nested = Array.isArray(source.testCases) ? source.testCases : Array.isArray(source.tests) ? source.tests : Array.isArray(source.cases) ? source.cases : [];
+    return [...publicTests, ...hiddenTests, ...nested];
+  }
+  return [];
+}
 
 const LANGS_BY_TYPE = {
   "code-test": [
@@ -100,7 +108,7 @@ export default function AssignmentEditPage() {
 
         setLoading(true);
         setErr("");
-        const a = await getAssignment(assignmentId); 
+        const a = await getAssignmentForEdit(assignmentId); 
 
         if (!a?.canEdit) {
           notifyOnce("no-edit-assignment", () =>
@@ -134,12 +142,13 @@ export default function AssignmentEditPage() {
             ? a.imageTestSimilarityThreshold
             : 90
         );
+        const normalizedCases = normalizeCodeTestCases(a.testCases ?? a.tests);
         setTestCases(
-          Array.isArray(a.testCases) && a.testCases.length
-            ? a.testCases.map((t) => ({
-                input: t.input ?? "",
-                expectedOutput: t.expectedOutput ?? "",
-                isHidden: !!t.isHidden,
+          normalizedCases.length
+            ? normalizedCases.map((t) => ({
+                input: t.input ?? t.stdin ?? "",
+                expectedOutput: t.expectedOutput ?? t.expected ?? t.stdout ?? "",
+                isHidden: !!(t.isHidden ?? t.hidden),
               }))
             : [{ input: "", expectedOutput: "", isHidden: false }]
         );

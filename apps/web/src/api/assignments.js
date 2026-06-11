@@ -14,6 +14,11 @@ export async function getAssignment(assignmentId) {
   return res.data;
 }
 
+export async function getAssignmentForEdit(assignmentId) {
+  const res = await api.get(`/api/assignments/${assignmentId}/edit`);
+  return res.data;
+}
+
 
 export async function createAssignment(courseId, payload) {
   const res = await api.post(`/api/courses/${courseId}/assignments`, payload);

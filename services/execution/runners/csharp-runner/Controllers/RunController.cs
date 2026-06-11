@@ -33,20 +33,19 @@ public sealed class RunController : ControllerBase
                 Stdout = "",
                 Stderr = "",
                 ExitCode = 1,
-                Error = compileErr
+                Error = SanitizeRunnerText(compileErr)
             });
         }
 
-        // при пустом вводе отправляем хотя бы перевод строки, чтобы ReadLine() не вернул null
         var normalizedInput = string.IsNullOrEmpty(req.Input) ? "\n" : req.Input!;
-        var (ranOk, stdout, err) = _exec.Run(pe, pdb ?? Array.Empty<byte>(), normalizedInput, TimeSpan.FromSeconds(3));
+        var (ranOk, stdout, err) = _exec.Run(pe, pdb ?? Array.Empty<byte>(), normalizedInput, Timeout(req.TimeLimitMs));
 
         return Ok(new RunResponse
         {
             Stdout = stdout,
             Stderr = "",
             ExitCode = ranOk ? 0 : 1,
-            Error = ranOk ? "" : err
+            Error = ranOk ? "" : FriendlyRunnerError(err)
         });
     }
 
@@ -62,36 +61,37 @@ public sealed class RunController : ControllerBase
         var (ok, pe, pdb, compileErr) = _compiler.Compile(req.Code);
         if (!ok || pe is null)
         {
-            // Возвращаем одну «ошибочную» запись, чтобы UI отобразил ошибку компиляции
+            var first = req.Tests?.FirstOrDefault();
             return Ok(new TestResultsResponse
             {
                 Results = new List<TestResult>
                 {
-                    new TestResult
+                    ScrubHidden(new TestResult
                     {
-                        Input = req.Tests?.FirstOrDefault()?.Input ?? "",
-                        ExpectedOutput = req.Tests?.FirstOrDefault()?.ExpectedOutput ?? "",
-                        ActualOutput = compileErr ?? "",
+                        Input = first?.Input ?? "",
+                        ExpectedOutput = first?.ExpectedOutput ?? "",
+                        ActualOutput = "",
                         Passed = false,
                         Status = "compile_error",
                         ExitCode = 1,
                         Stderr = "",
-                        CompileStderr = compileErr ?? "",
-                        Hidden = req.Tests?.FirstOrDefault()?.IsHidden ?? false
-                    }
+                        CompileStderr = SanitizeRunnerText(compileErr ?? ""),
+                        Hidden = first?.IsHidden ?? false
+                    })
                 }
             });
         }
 
         var results = new List<TestResult>();
         var tests = req.Tests ?? new List<TestCase>();
+        var timeout = Timeout(req.TimeLimitMs);
 
         foreach (var t in tests)
         {
             var input = t.Input ?? "";
             if (input.Length == 0) input = "\n";
 
-            var (ranOk, stdout, ex) = _exec.Run(pe, pdb ?? Array.Empty<byte>(), input, TimeSpan.FromSeconds(3));
+            var (ranOk, stdout, ex) = _exec.Run(pe, pdb ?? Array.Empty<byte>(), input, timeout);
 
             string actual = stdout ?? "";
             bool passed = ranOk &&
@@ -101,9 +101,9 @@ public sealed class RunController : ControllerBase
                               StringComparison.Ordinal);
 
             if (!ranOk && string.IsNullOrEmpty(actual))
-                actual = ex ?? "";
+                actual = FriendlyRunnerError(ex ?? "");
 
-            results.Add(new TestResult
+            results.Add(ScrubHidden(new TestResult
             {
                 Input = t.Input ?? "",
                 ExpectedOutput = t.ExpectedOutput ?? "",
@@ -111,12 +111,45 @@ public sealed class RunController : ControllerBase
                 Passed = passed,
                 Status = passed ? "ok" : (ranOk ? "wrong_answer" : (string.Equals(ex, "Time limit exceeded.", StringComparison.OrdinalIgnoreCase) ? "time_limit" : "runtime_error")),
                 ExitCode = ranOk ? 0 : 1,
-                Stderr = ranOk ? "" : ex,
+                Stderr = ranOk ? "" : FriendlyRunnerError(ex ?? ""),
                 CompileStderr = null,
                 Hidden = t.IsHidden
-            });
+            }));
         }
 
         return Ok(new TestResultsResponse { Results = results });
+    }
+
+    private static TimeSpan Timeout(int? timeLimitMs)
+    {
+        var ms = timeLimitMs.GetValueOrDefault(3000);
+        ms = Math.Clamp(ms <= 0 ? 3000 : ms, 500, 30000);
+        return TimeSpan.FromMilliseconds(ms + 1000);
+    }
+
+    private static TestResult ScrubHidden(TestResult result)
+    {
+        // The runner is an internal service. Keep the full result here and let
+        // solutions-api remove hidden test details for non-editor users.
+        return result;
+    }
+
+    private static string FriendlyRunnerError(string? value)
+    {
+        var s = value ?? "";
+        var lower = s.ToLowerInvariant();
+        if (lower.Contains("fork/exec") && lower.Contains("permission denied"))
+            return "Не удалось запустить программу: нет прав на выполнение файла проверки.";
+        return SanitizeRunnerText(s);
+    }
+
+    private static string SanitizeRunnerText(string? value)
+    {
+        var s = value ?? "";
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"/tmp/taskforge-[^\s:]+", "[временный файл]");
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"/tmp/go-build[^\s:]+", "[временный файл]");
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"/app/[^\s:]+", "[внутренний файл]");
+        return s;
     }
 }

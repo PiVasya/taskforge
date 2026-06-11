@@ -199,7 +199,7 @@ app.MapPost("/api/internal/agent/runs/{runId:guid}/fail", async (Guid runId, Age
     return Results.Ok(new { ok = true, runId, request.WorkerId, status = "failed" });
 });
 
-app.MapPost("/api/internal/agent/tools/run-tests", async (AgentRunTestsRequest request, IHttpClientFactory factory, CancellationToken ct) => await RunTestsBridge(request, factory, ct));
+app.MapPost("/api/internal/agent/tools/run-tests", async (AgentRunTestsRequest request, IHttpClientFactory factory, IConfiguration cfg, CancellationToken ct) => await RunTestsBridge(request, factory, cfg, ct));
 
 
 static async Task<IResult> SaveAttachment(Guid conversationId, HttpRequest request, AiDbContext db, CancellationToken ct)
@@ -305,16 +305,29 @@ static void ForwardAuth(HttpRequest request, HttpClient client)
     if (request.Headers.TryGetValue("Cookie", out var cookie)) client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", cookie.ToString());
 }
 
-static async Task<IResult> RunTestsBridge(AgentRunTestsRequest request, IHttpClientFactory factory, CancellationToken ct)
+static async Task<IResult> RunTestsBridge(AgentRunTestsRequest request, IHttpClientFactory factory, IConfiguration cfg, CancellationToken ct)
 {
     var testCases = request.TestCases.HasValue && request.TestCases.Value.ValueKind == JsonValueKind.Array
         ? request.TestCases.Value.EnumerateArray().ToArray()
         : Array.Empty<JsonElement>();
     var client = factory.CreateClient();
     client.Timeout = TimeSpan.FromSeconds(90);
-    var response = await client.PostAsJsonAsync("http://execution-api:8080/api/compiler/run-tests", new { language = request.Language ?? "cpp", code = request.Code ?? string.Empty, testCases }, ct);
+    using var msg = new HttpRequestMessage(HttpMethod.Post, "http://execution-api:8080/api/internal/execution/run-tests")
+    {
+        Content = JsonContent.Create(new { language = request.Language ?? "cpp", code = request.Code ?? string.Empty, testCases }, options: JsonOptions())
+    };
+    AddInternalKey(msg, cfg);
+    var response = await client.SendAsync(msg, ct);
     var raw = await response.Content.ReadAsStringAsync(ct);
     return Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+}
+
+static JsonSerializerOptions JsonOptions() => new(JsonSerializerDefaults.Web) { WriteIndented = false };
+
+static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
+{
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY") ?? Environment.GetEnvironmentVariable("TASKFORGE_AGENT_INTERNAL_KEY");
+    if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
 }
 
 static IEnumerable<TaskForge.Ai.Api.Domain.AiArtifact> ExtractArtifacts(Guid runId, Guid conversationId, JsonElement? result)

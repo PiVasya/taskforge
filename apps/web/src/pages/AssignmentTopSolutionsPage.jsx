@@ -93,7 +93,7 @@ export default function AssignmentTopSolutionsPage() {
                         {code ? (
                           <pre className="overflow-auto">{code}</pre>
                         ) : (
-                          <span className="text-neutral-500">Код недоступен</span>
+                          <span className="text-neutral-500">{sol.codeHiddenUntilSolved ? "Код откроется после принятого решения" : "Код недоступен"}</span>
                         )}
                       </td>
                     </tr>

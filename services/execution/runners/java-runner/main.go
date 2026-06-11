@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -61,6 +62,13 @@ type testResult struct {
 	Hidden         bool    `json:"hidden"`
 }
 
+func scrubHiddenResult(r testResult) testResult {
+	// Runners are internal services. They must keep the full result so the
+	// solutions-api can decide what to reveal based on the requester role.
+	// Ordinary users never talk to runners directly and are scrubbed there.
+	return r
+}
+
 type limitedBuffer struct {
 	buf bytes.Buffer
 	max int
@@ -92,7 +100,47 @@ type commandResult struct {
 	TimedOut bool
 }
 
+type preparedProgram struct {
+	Cwd  string
+	Cmd  string
+	Args []string
+}
+
 func ptr[T any](v T) *T { return &v }
+
+var tmpTaskforgePathPattern = regexp.MustCompile(`/tmp/taskforge-[^\s:]+`)
+var tmpGoBuildPathPattern = regexp.MustCompile(`/tmp/go-build[^\s:]+`)
+var appPathPattern = regexp.MustCompile(`/app/[^\s:]+`)
+
+func sanitizeRunnerText(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return value
+	}
+	s := tmpTaskforgePathPattern.ReplaceAllString(value, "[временный файл]")
+	s = tmpGoBuildPathPattern.ReplaceAllString(s, "[временный файл]")
+	s = appPathPattern.ReplaceAllString(s, "[внутренний файл]")
+	return s
+}
+
+func friendlyRunnerError(value string) string {
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "fork/exec") && strings.Contains(lower, "permission denied") {
+		return "Не удалось запустить программу: нет прав на выполнение файла проверки."
+	}
+	return sanitizeRunnerText(value)
+}
+
+func sanitizeProcessResult(result *processResult) *processResult {
+	if result == nil {
+		return nil
+	}
+	result.Stderr = friendlyRunnerError(result.Stderr)
+	if result.CompileStderr != nil {
+		cleaned := sanitizeRunnerText(*result.CompileStderr)
+		result.CompileStderr = &cleaned
+	}
+	return result
+}
 
 func env(name, fallback string) string {
 	v := strings.TrimSpace(os.Getenv(name))
@@ -122,7 +170,7 @@ func defaultTimeMs(kind string) int {
 		return 3000
 	case "java":
 		return 12000
-	case "javascript", "pascal":
+	case "python", "javascript", "pascal":
 		return 8000
 	default:
 		return 8000
@@ -135,7 +183,7 @@ func defaultMemoryMb(kind string) int {
 		return 768
 	case "javascript":
 		return 512
-	case "cpp", "pascal":
+	case "python", "cpp", "pascal":
 		return 256
 	default:
 		return 256
@@ -163,9 +211,8 @@ func runCommand(name string, args []string, cwd string, input string, timeout ti
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	err := cmd.Start()
-	if err != nil {
-		return commandResult{ExitCode: 127, Stderr: err.Error()}
+	if err := cmd.Start(); err != nil {
+		return commandResult{ExitCode: 127, Stderr: friendlyRunnerError(err.Error())}
 	}
 
 	done := make(chan error, 1)
@@ -192,18 +239,12 @@ func runCommand(name string, args []string, cwd string, input string, timeout ti
 		} else {
 			exitCode = 1
 			if stderr.buf.Len() == 0 {
-				_, _ = io.WriteString(stderr, waitErr.Error())
+				_, _ = io.WriteString(stderr, friendlyRunnerError(waitErr.Error()))
 			}
 		}
 	}
 
-	return commandResult{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}
-}
-
-type preparedProgram struct {
-	Cwd  string
-	Cmd  string
-	Args []string
+	return commandResult{ExitCode: exitCode, Stdout: stdout.String(), Stderr: sanitizeRunnerText(stderr.String())}
 }
 
 func javaHeapMb(memMb int) int {
@@ -220,28 +261,46 @@ func javaHeapMb(memMb int) int {
 	return heap
 }
 
+func nodeHeapMb(memMb int) int {
+	if memMb < 64 {
+		memMb = 64
+	}
+	heap := memMb - 96
+	if heap < 64 {
+		heap = 64
+	}
+	if heap > 512 {
+		heap = 512
+	}
+	return heap
+}
+
 func compileProgram(kind, code, cwd string, timeMs, memMb int) (*preparedProgram, *processResult) {
 	switch kind {
 	case "cpp":
 		src := filepath.Join(cwd, "main.cpp")
 		bin := filepath.Join(cwd, "a.out")
 		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
-			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: err.Error(), CompileStderr: nil}
+			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
-		res := runCommand("g++", []string{"-std=c++17", "-O2", "-pipe", "-static-libgcc", "-static-libstdc++", src, "-o", bin}, cwd, "", timeoutDuration(timeMs))
+		res := runCommand("g++", []string{"-std=c++17", "-O2", "-pipe", "-static-libgcc", "-static-libstdc++", "main.cpp", "-o", "a.out"}, cwd, "", timeoutDuration(timeMs))
 		if res.ExitCode != 0 {
 			msg := strings.TrimSpace(res.Stdout + res.Stderr)
 			if msg == "" {
 				msg = "Compilation error"
 			}
+			msg = sanitizeRunnerText(msg)
 			return nil, &processResult{Status: "compile_error", ExitCode: res.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
 		}
-		return &preparedProgram{Cwd: cwd, Cmd: bin}, nil
+		if err := os.Chmod(bin, 0o700); err != nil {
+			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stdout: "", Stderr: "Не удалось подготовить программу к запуску.", CompileStderr: nil}
+		}
+		return &preparedProgram{Cwd: cwd, Cmd: "./a.out"}, nil
 
 	case "java":
 		src := filepath.Join(cwd, "Main.java")
 		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
-			return nil, &processResult{ExitCode: 1, Stderr: err.Error(), CompileStderr: nil}
+			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
 		res := runCommand("javac", []string{"Main.java"}, cwd, "", timeoutDuration(timeMs))
 		if res.ExitCode != 0 {
@@ -249,28 +308,56 @@ func compileProgram(kind, code, cwd string, timeMs, memMb int) (*preparedProgram
 			if msg == "" {
 				msg = "Compilation error"
 			}
+			msg = sanitizeRunnerText(msg)
 			return nil, &processResult{Status: "compile_error", ExitCode: 2, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
 		}
 		heap := javaHeapMb(memMb)
 		args := []string{"-Xms16m", fmt.Sprintf("-Xmx%dm", heap), "-XX:+UseSerialGC", "-XX:ReservedCodeCacheSize=16m", "-XX:InitialCodeCacheSize=8m", "-XX:MaxMetaspaceSize=64m", "-XX:CompressedClassSpaceSize=32m", "-XX:+ExitOnOutOfMemoryError", "Main"}
 		return &preparedProgram{Cwd: cwd, Cmd: "java", Args: args}, nil
 
+	case "javascript":
+		src := filepath.Join(cwd, "main.js")
+		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
+			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
+		}
+		heap := nodeHeapMb(memMb)
+		return &preparedProgram{Cwd: cwd, Cmd: "node", Args: []string{fmt.Sprintf("--max-old-space-size=%d", heap), "main.js"}}, nil
+
+	case "python":
+		src := filepath.Join(cwd, "main.py")
+		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
+			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
+		}
+		res := runCommand("python3", []string{"-I", "-B", "-m", "py_compile", "main.py"}, cwd, "", timeoutDuration(timeMs))
+		if res.ExitCode != 0 {
+			msg := strings.TrimSpace(res.Stdout + res.Stderr)
+			if msg == "" {
+				msg = "Python syntax error"
+			}
+			msg = sanitizeRunnerText(msg)
+			return nil, &processResult{Status: "compile_error", ExitCode: res.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
+		}
+		return &preparedProgram{Cwd: cwd, Cmd: "python3", Args: []string{"-I", "-B", "main.py"}}, nil
+
 	case "pascal":
 		src := filepath.Join(cwd, "main.pas")
 		bin := filepath.Join(cwd, "main")
 		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
-			return nil, &processResult{ExitCode: 1, Stderr: err.Error(), CompileStderr: nil}
+			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
-		res := runCommand("fpc", []string{"main.pas", "-O2", "-vw", "-o" + bin}, cwd, "", timeoutDuration(timeMs))
+		res := runCommand("fpc", []string{"main.pas", "-O2", "-vw", "-omain"}, cwd, "", timeoutDuration(timeMs))
 		if res.ExitCode != 0 {
 			msg := strings.TrimSpace(res.Stdout + res.Stderr)
 			if msg == "" {
 				msg = "Compiler produced no output"
 			}
-			// Keep the old pascal contract: compiler details are placed to stderr.
+			msg = sanitizeRunnerText(msg)
 			return nil, &processResult{Status: "compile_error", ExitCode: 2, Stdout: "", Stderr: "Compilation error:\n" + msg + "\n", CompileStderr: ptr(msg + "\n")}
 		}
-		return &preparedProgram{Cwd: cwd, Cmd: bin}, nil
+		if err := os.Chmod(bin, 0o700); err != nil {
+			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stdout: "", Stderr: "Не удалось подготовить программу к запуску.", CompileStderr: nil}
+		}
+		return &preparedProgram{Cwd: cwd, Cmd: "./main"}, nil
 	default:
 		return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: "Unsupported runner kind: " + kind}
 	}
@@ -284,7 +371,7 @@ func executeProgram(kind string, p *preparedProgram, input string, timeMs int) p
 	} else if res.ExitCode != 0 {
 		status = "runtime_error"
 	}
-	return processResult{Status: status, ExitCode: res.ExitCode, Stdout: res.Stdout, Stderr: res.Stderr, CompileStderr: nil}
+	return processResult{Status: status, ExitCode: res.ExitCode, Stdout: res.Stdout, Stderr: friendlyRunnerError(res.Stderr), CompileStderr: nil}
 }
 
 func sendJSON(w http.ResponseWriter, status int, v any) {
@@ -325,13 +412,13 @@ func main() {
 		memMb := intValue(req.MemoryLimitMb, defaultMemoryMb(kind))
 		dir, err := os.MkdirTemp("", "taskforge-"+kind+"-")
 		if err != nil {
-			sendJSON(w, http.StatusInternalServerError, map[string]any{"message": err.Error()})
+			sendJSON(w, http.StatusInternalServerError, map[string]any{"message": sanitizeRunnerText(err.Error())})
 			return
 		}
 		defer os.RemoveAll(dir)
 		program, compileErr := compileProgram(kind, req.Code, dir, timeMs, memMb)
 		if compileErr != nil {
-			sendJSON(w, http.StatusOK, compileErr)
+			sendJSON(w, http.StatusOK, sanitizeProcessResult(compileErr))
 			return
 		}
 		sendJSON(w, http.StatusOK, executeProgram(kind, program, strValue(req.Input), timeMs))
@@ -351,20 +438,21 @@ func main() {
 		memMb := intValue(req.MemoryLimitMb, defaultMemoryMb(kind))
 		dir, err := os.MkdirTemp("", "taskforge-"+kind+"-tests-")
 		if err != nil {
-			sendJSON(w, http.StatusInternalServerError, map[string]any{"message": err.Error()})
+			sendJSON(w, http.StatusInternalServerError, map[string]any{"message": sanitizeRunnerText(err.Error())})
 			return
 		}
 		defer os.RemoveAll(dir)
 		program, compileErr := compileProgram(kind, req.Code, dir, timeMs, memMb)
 		results := make([]testResult, 0, len(req.Tests))
 		if compileErr != nil {
+			compileErr = sanitizeProcessResult(compileErr)
 			given, expected, hidden := "", "", false
 			if len(req.Tests) > 0 {
 				given = strValue(req.Tests[0].Input)
 				expected = strValue(req.Tests[0].ExpectedOutput)
 				hidden = req.Tests[0].IsHidden
 			}
-			results = append(results, testResult{Input: given, ExpectedOutput: expected, ActualOutput: compileErr.Stdout, Passed: false, Status: compileErr.Status, ExitCode: compileErr.ExitCode, Stderr: compileErr.Stderr, CompileStderr: compileErr.CompileStderr, Hidden: hidden})
+			results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: compileErr.Stdout, Passed: false, Status: compileErr.Status, ExitCode: compileErr.ExitCode, Stderr: compileErr.Stderr, CompileStderr: compileErr.CompileStderr, Hidden: hidden}))
 			sendJSON(w, http.StatusOK, map[string]any{"results": results})
 			return
 		}
@@ -373,7 +461,7 @@ func main() {
 			expected := strValue(t.ExpectedOutput)
 			run := executeProgram(kind, program, given, timeMs)
 			passed := run.ExitCode == 0 && strings.TrimRight(run.Stdout, "\r\n") == strings.TrimRight(expected, "\r\n")
-			results = append(results, testResult{Input: given, ExpectedOutput: expected, ActualOutput: run.Stdout, Passed: passed, Status: run.Status, ExitCode: run.ExitCode, Stderr: run.Stderr, CompileStderr: run.CompileStderr, Hidden: t.IsHidden})
+			results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: run.Stdout, Passed: passed, Status: run.Status, ExitCode: run.ExitCode, Stderr: run.Stderr, CompileStderr: run.CompileStderr, Hidden: t.IsHidden}))
 		}
 		sendJSON(w, http.StatusOK, map[string]any{"results": results})
 	}

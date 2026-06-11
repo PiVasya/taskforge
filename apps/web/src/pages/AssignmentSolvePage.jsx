@@ -18,6 +18,7 @@ import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 import { extractApiErrorMessages } from '../utils/handleApiError';
 import { getApiErrorMessage } from '../api/http';
+import { sanitizeRunnerText } from '../utils/runnerText';
 import {
   dataUrlFromBase64,
   getImageReferenceUrl,
@@ -98,6 +99,350 @@ async function waitForSolutionVerdict(solutionId, options = {}) {
     if (!isPendingSolution(latest)) return { solution: latest, timedOut: false };
   }
   return { solution: latest, timedOut: true };
+}
+
+function readSolveDraft(assignmentId) {
+  try {
+    const raw = localStorage.getItem(`solve-draft:${assignmentId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveSolveDraft(assignmentId, draft) {
+  if (!assignmentId) return;
+  try {
+    localStorage.setItem(`solve-draft:${assignmentId}`, JSON.stringify(draft));
+  } catch {}
+}
+
+function getSolutionCases(resObj) {
+  const cases =
+    resObj?.cases ??
+    resObj?.testCases ??
+    resObj?.results ??
+    resObj?.result?.cases ??
+    resObj?.result?.results ??
+    [];
+  return Array.isArray(cases) ? cases : [];
+}
+
+function isCasePassed(c) {
+  const status = String(c?.status || '').trim().toLowerCase();
+  return c?.passed === true || status === 'ok' || status === 'accepted' || status === 'passed';
+}
+
+function getSolutionStatusKey(resObj) {
+  return String(resObj?.status || resObj?.verdict || '').trim().toLowerCase();
+}
+
+function getSolutionScore(resObj) {
+  return resObj?.score ?? resObj?.Score ?? resObj?.result?.score ?? null;
+}
+
+function getSolutionOutput(resObj) {
+  return {
+    stdout: resObj?.stdout || resObj?.result?.stdout || '',
+    stderr:
+      resObj?.stderr ||
+      resObj?.compileError ||
+      resObj?.result?.stderr ||
+      resObj?.result?.compileStderr ||
+      '',
+    message: resObj?.message || resObj?.result?.message || '',
+  };
+}
+
+function getResultSummary(resObj) {
+  const cases = getSolutionCases(resObj);
+  const status = getSolutionStatusKey(resObj);
+  const pending = isPendingSolution(resObj);
+  const passedAll =
+    resObj?.__allPassed === true ||
+    resObj?.passedAll === true ||
+    resObj?.passedAllTests === true ||
+    status === 'accepted' ||
+    (cases.length > 0 && cases.every(isCasePassed));
+
+  if (pending) {
+    return {
+      tone: 'info',
+      title: status === 'running' ? 'Решение проверяется' : 'Решение в очереди',
+      description: 'Код не потерян. Можно дождаться результата на этой странице или открыть подробности отдельно.',
+    };
+  }
+  if (passedAll) {
+    return {
+      tone: 'success',
+      title: 'Все тесты пройдены',
+      description: 'Решение принято. Результат сохранён в истории.',
+    };
+  }
+  if (status === 'compileerror') {
+    return {
+      tone: 'danger',
+      title: 'Ошибка компиляции',
+      description: 'Исправьте сообщения компилятора и отправьте решение снова.',
+    };
+  }
+  if (status === 'policyfailed') {
+    return {
+      tone: 'danger',
+      title: 'Решение отклонено анализатором кода',
+      description: 'Ниже показана безопасная причина отклонения.',
+    };
+  }
+  if (status === 'languagenotallowed') {
+    return {
+      tone: 'danger',
+      title: 'Язык не разрешён для задания',
+      description: 'Выберите язык из списка разрешённых для этого курса.',
+    };
+  }
+  if (status === 'notestsconfigured') {
+    return {
+      tone: 'danger',
+      title: 'Для задания не настроены тесты',
+      description: 'Проверка не может быть выполнена без тестов.',
+    };
+  }
+  if (status === 'judgeunavailable') {
+    return {
+      tone: 'danger',
+      title: 'Система проверки временно недоступна',
+      description: 'Попробуйте отправить решение позже.',
+    };
+  }
+  return {
+    tone: 'danger',
+    title: 'Не все тесты пройдены',
+    description: 'Сравните фактический вывод с ожидаемым и исправьте решение.',
+  };
+}
+
+function extractPolicyRawFromResult(resObj) {
+  const candidates = [
+    resObj?.policyDetails,
+    resObj?.policyError,
+    resObj?.result?.policyDetails,
+    resObj?.result?.policyError,
+    resObj?.result?.raw,
+    resObj?.raw,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (typeof candidate === 'string') return candidate;
+    if (typeof candidate === 'object') return candidate;
+  }
+
+  const cases = getSolutionCases(resObj);
+  const policyCase = cases.find(
+    (c) =>
+      String(c?.status || '').trim().toLowerCase() === 'policy_failed' ||
+      String(c?.compileStderr || c?.stderr || c?.error || '').includes('[policy_failed]'),
+  );
+  return policyCase ? (policyCase.policyDetails || policyCase.raw || String(policyCase.compileStderr || policyCase.stderr || policyCase.error || '')) : '';
+}
+
+function isPlatformPolicyPattern(patternId) {
+  const id = String(patternId || '').trim().toLowerCase();
+  if (!id || id === '-') return false;
+  return (
+    id === 'platform.security' ||
+    id.startsWith('py.') ||
+    id.startsWith('js.') ||
+    id.startsWith('c.') ||
+    id.startsWith('cpp.') ||
+    id.startsWith('cs.') ||
+    id.startsWith('java.') ||
+    id.startsWith('pas.')
+  );
+}
+
+function cleanupPolicyMessage(message) {
+  return String(message || '')
+    .replace(/\(pattern_id=[^)]+\)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function policyValue(obj, ...names) {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const name of names) {
+    if (obj[name] != null) return obj[name];
+  }
+  return '';
+}
+
+function buildPolicyUiFromParts(violations, hits, raw = '') {
+  const taskViolations = violations.filter((v) => !isPlatformPolicyPattern(v.patternId));
+  const platformViolations = violations.filter((v) => isPlatformPolicyPattern(v.patternId));
+  const taskHits = hits.filter((h) => !isPlatformPolicyPattern(h.patternId));
+
+  if (taskViolations.length === 0 && platformViolations.length > 0) {
+    return {
+      kind: 'platform',
+      title: 'Решение отклонено системой безопасности',
+      bullets: ['Код использует системные возможности, которые нельзя запускать в песочнице.'],
+      hitLines: [],
+      raw,
+    };
+  }
+
+  const forbidden = [];
+  const required = [];
+  const cyrillic = [];
+  const other = [];
+
+  for (const v of taskViolations) {
+    const code = String(v.code || '').toLowerCase();
+    const patternId = String(v.patternId || '').toLowerCase();
+    const msg = cleanupPolicyMessage(v.message || '');
+    if (!msg) continue;
+    if (code.includes('cyrillic') || patternId === 'unicode.cyrillic_in_code' || /кириллиц/i.test(msg)) {
+      cyrillic.push(msg);
+    } else if (code.includes('missing_required') || /обязатель|не найдено обязательное/i.test(msg)) {
+      required.push(msg.replace(/^Не найдено обязательное:\s*/i, ''));
+    } else if (code.includes('forbidden') || /запрещ/i.test(msg)) {
+      forbidden.push(msg.replace(/^Запрещено:\s*/i, '').replace(/^Запрещённая конструкция:\s*/i, ''));
+    } else {
+      other.push(msg);
+    }
+  }
+
+  const unique = (items) => [...new Set(items.filter(Boolean))];
+  const bullets = [];
+  if (cyrillic.length) bullets.push(...unique(cyrillic));
+  if (forbidden.length) bullets.push(`Запрещено по условию задания: ${unique(forbidden).join(' • ')}`);
+  if (required.length) bullets.push(`Нужно обязательно использовать: ${unique(required).join(' • ')}`);
+  if (other.length) bullets.push(...unique(other));
+  if (platformViolations.length) {
+    bullets.push('Дополнительно решение отклонено системой безопасности. Подробности системного ограничения скрыты.');
+  }
+
+  const hitLines = taskHits
+    .filter((h) => h.needle || h.pos || h.preview)
+    .slice(0, 4)
+    .map((h) => {
+      const parts = [];
+      if (h.needle) parts.push(`«${h.needle}»`);
+      if (h.pos !== '' && h.pos != null) parts.push(`позиция ${h.pos}`);
+      if (h.preview) parts.push(`фрагмент: ${h.preview}`);
+      return `Найдено ${parts.join(', ')}`;
+    });
+
+  return {
+    kind: taskViolations.length ? (platformViolations.length ? 'mixed' : 'task') : 'mixed',
+    title: cyrillic.length && taskViolations.length === cyrillic.length && !platformViolations.length
+      ? 'Решение отклонено: в коде найдена кириллица'
+      : 'Решение отклонено по правилам задания',
+    bullets: bullets.length ? bullets : ['Анализатор кода нашёл нарушение правил задания.'],
+    hitLines,
+    raw,
+  };
+}
+
+function parsePolicyObject(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const errors = Array.isArray(payload.errors) ? payload.errors : [];
+  const hits = Array.isArray(payload.hits) ? payload.hits : [];
+  if (!errors.length && !hits.length && payload.policyKind !== 'platform') return null;
+
+  const violations = errors.map((e) => ({
+    code: policyValue(e, 'code'),
+    message: cleanupPolicyMessage(policyValue(e, 'message')),
+    patternId: policyValue(e, 'pattern_id', 'patternId'),
+  })).filter((v) => v.code || v.message || v.patternId);
+
+  const parsedHits = hits.map((h) => ({
+    patternId: policyValue(h, 'pattern_id', 'patternId'),
+    needle: policyValue(h, 'needle'),
+    pos: policyValue(h, 'position', 'pos'),
+    preview: policyValue(h, 'preview'),
+  })).filter((h) => h.patternId || h.needle || h.preview);
+
+  if (violations.length === 0 && payload.policyKind === 'platform') {
+    violations.push({ code: 'sandbox_security', message: 'Код использует системные возможности, которые нельзя запускать в песочнице.', patternId: 'platform.security' });
+  }
+
+  return buildPolicyUiFromParts(violations, parsedHits, payload);
+}
+
+function parsePolicyText(raw) {
+  if (raw && typeof raw === 'object') return parsePolicyObject(raw);
+
+  const txt = String(raw || '');
+  if (!txt || (!txt.includes('[policy_failed]') && !txt.toLowerCase().includes('code analyzer blocked'))) {
+    return null;
+  }
+
+  const lines = txt.split('\n').map((x) => x.trim()).filter(Boolean);
+  const violations = [];
+  const hits = [];
+  let inHits = false;
+
+  for (const line of lines) {
+    if (line.startsWith('[hits]')) {
+      inHits = true;
+      continue;
+    }
+    if (line.startsWith('[') && line.endsWith(']')) {
+      inHits = false;
+      continue;
+    }
+    if (!line.startsWith('- ')) continue;
+
+    const body = line.replace(/^\-\s*/, '');
+    if (inHits) {
+      const mId = body.match(/\bid=([^\s]+)\b/i);
+      const mNeedle = body.match(/needle='([^']*)'/i);
+      const mPos = body.match(/pos=(\d+)/i);
+      const mPrev = body.match(/preview='([^']*)'/i);
+      hits.push({
+        patternId: mId?.[1] || '',
+        needle: mNeedle?.[1] || '',
+        pos: mPos?.[1] || '',
+        preview: mPrev?.[1] || '',
+      });
+      continue;
+    }
+
+    const match = body.match(/^([^:]+):\s*(.*?)(?:\s*\(pattern_id=([^)]*)\))?$/i);
+    if (match) {
+      violations.push({
+        code: match[1] || '',
+        message: cleanupPolicyMessage(match[2] || body),
+        patternId: match[3] || '',
+      });
+    } else {
+      violations.push({ code: '', message: cleanupPolicyMessage(body), patternId: '' });
+    }
+  }
+
+  return buildPolicyUiFromParts(violations, hits, txt);
+}
+
+function getSolutionPolicyUi(resObj) {
+  return parsePolicyText(extractPolicyRawFromResult(resObj));
+}
+
+function displayText(value) {
+  if (value == null) return '';
+  return String(value);
+}
+
+function displayRunnerText(value) {
+  return sanitizeRunnerText(value);
+}
+
+function isHiddenTestCase(t) {
+  return t?.isHidden === true || t?.hidden === true || t?.Hidden === true;
 }
 
 function buildImageTaskErrorText(err, fallbackMessage) {
@@ -295,9 +640,16 @@ export default function AssignmentSolvePage() {
           nextLang = effectiveAllowed[0];
         }
 
+        const draft = readSolveDraft(assignmentId);
+        const draftLang = normalizeLang(draft?.language);
+        if (draftLang && (!effectiveAllowed.length || effectiveAllowed.includes(draftLang))) {
+          nextLang = draftLang;
+        }
+
         setLanguage(nextLang);
 
-        if (data?.starterCode) setCode(data.starterCode);
+        if (typeof draft?.code === 'string') setCode(draft.code);
+        else if (data?.starterCode) setCode(data.starterCode);
       } catch (e) {
         const msg = getApiErrorMessage(e, 'Не удалось загрузить задание');
         if (alive) {
@@ -317,6 +669,11 @@ export default function AssignmentSolvePage() {
     window.addEventListener('tf-ui-settings-changed', onUi);
     return () => window.removeEventListener('tf-ui-settings-changed', onUi);
   }, []);
+
+  useEffect(() => {
+    if (!a?.id) return;
+    saveSolveDraft(assignmentId, { code, language, updatedAt: new Date().toISOString() });
+  }, [a?.id, assignmentId, code, language]);
 
   
   
@@ -403,47 +760,43 @@ export default function AssignmentSolvePage() {
         setSubmitPhase('final');
       }
 
-      const cases = r?.cases ?? r?.testCases ?? r?.results ?? r?.result?.cases ?? r?.result?.results ?? [];
-      const policyCase = Array.isArray(cases)
-        ? cases.find(c => (c?.status === 'policy_failed') || String(c?.compileStderr || c?.stderr || '').includes('[policy_failed]'))
-        : null;
-      const policyText = policyCase ? String(policyCase.compileStderr || policyCase.stderr || policyCase.error || '') : '';
-      const statusKey = String(r?.status || r?.verdict || '').toLowerCase();
+      const cases = getSolutionCases(r);
+      const statusKey = getSolutionStatusKey(r);
       const allOk =
         (r?.passedAllTests === true) ||
         (r?.passedAll === true) ||
         statusKey === 'accepted' ||
-        (Array.isArray(cases) && cases.length > 0 && cases.every(c => c?.passed === true || c?.status === 'OK' || c?.status === 'ok'));
+        (cases.length > 0 && cases.every(isCasePassed));
 
-      setResult({ ...r, __allPassed: allOk });
-      try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: r })); } catch {}
-
-      const resultUrl = `/assignment/${assignmentId}/results${solutionId ? `?solutionId=${encodeURIComponent(solutionId)}` : ''}`;
-      const opened = window.open(resultUrl, '_blank', 'noopener,noreferrer');
-      if (!opened) nav(resultUrl);
+      const nextResult = { ...r, __allPassed: allOk };
+      setResult(nextResult);
+      try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: nextResult })); } catch {}
+      setTimeout(() => {
+        try {
+          document.getElementById('solution-check-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch {}
+      }, 0);
 
       if (timedOut || isPendingSolution(r)) {
-        notify.info('Проверка ещё выполняется. Открыл страницу результата — она сама обновит verdict.');
+        notify.info('Проверка ещё выполняется. Код остался на странице, результат обновится здесь и в «Моих решениях».');
       } else if (allOk) {
         notify.success('Все тесты пройдены!');
-      } else if (policyCase) {
-        const lines = policyText
-          .split('\n')
-          .map(s => s.trim())
-          .filter(Boolean)
-          .filter(s => s.startsWith('- '))
-          .slice(0, 4)
-          .map(s => s.replace(/^\-\s*/, ''));
-        const short = lines.length ? `: ${lines.join(' | ')}` : '';
-        notify.error(`Отклонено анализатором кода${short}`);
-      } else if (r?.compileError || statusKey === 'compileerror') {
-        notify.error('Ошибка компиляции');
-      } else if (statusKey === 'notestsconfigured') {
-        notify.error('Для задания не настроены тесты');
-      } else if (statusKey === 'judgeunavailable') {
-        notify.error('Система проверки временно недоступна');
       } else {
-        notify.error('Не все тесты пройдены');
+        const policyInfo = getSolutionPolicyUi(nextResult);
+        if (policyInfo?.kind === 'platform') {
+          notify.error('Решение отклонено системой безопасности. Уберите запрещённые системные возможности.');
+        } else if (policyInfo) {
+          const short = policyInfo.bullets?.[0] ? `: ${policyInfo.bullets[0]}` : '';
+          notify.error(`Отклонено по правилам задания${short}`);
+        } else if (r?.compileError || statusKey === 'compileerror') {
+          notify.error('Ошибка компиляции');
+        } else if (statusKey === 'notestsconfigured') {
+          notify.error('Для задания не настроены тесты');
+        } else if (statusKey === 'judgeunavailable') {
+          notify.error('Система проверки временно недоступна');
+        } else {
+          notify.error('Не все тесты пройдены');
+        }
       }
     } catch (e) {
       const msg = getApiErrorMessage(e, 'Не удалось отправить решение');
@@ -455,25 +808,7 @@ export default function AssignmentSolvePage() {
     }
   };
 
-  const extractPolicyUi = (resObj) => {
-    if (!resObj) return null;
-    const cs = resObj.cases ?? resObj.testCases ?? resObj.results ?? [];
-    if (!Array.isArray(cs)) return null;
-    const pc = cs.find(c => (c?.status === 'policy_failed') || String(c?.compileStderr || c?.stderr || '').includes('[policy_failed]'));
-    if (!pc) return null;
-    const txt = String(pc.compileStderr || pc.stderr || pc.error || '');
-    const lines = txt.split('\n').map(s => s.trim()).filter(Boolean);
-    const items = lines
-      .filter(s => s.startsWith('- '))
-      .map(s => s.replace(/^\-\s*/, ''));
-    return {
-      header: 'Решение отклонено анализатором кода',
-      items,
-      raw: txt,
-    };
-  };
-
-  const policyUi = extractPolicyUi(result);
+  const policyUi = getSolutionPolicyUi(result);
 
   const submitMessage = ({
     submitting: 'Отправляю решение…',
@@ -502,6 +837,162 @@ export default function AssignmentSolvePage() {
         ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
         : 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200';
     return <div className={`rounded-xl border px-3 py-2 text-sm ${cls}`}>{text}</div>;
+  };
+
+
+  const renderSolutionResultCard = () => {
+    if (!result) return null;
+
+    const rawCases = getSolutionCases(result);
+    const cases = rawCases.filter((c) => canViewHiddenTests || !isHiddenTestCase(c));
+    const summary = getResultSummary(result);
+    const score = getSolutionScore(result);
+    const output = getSolutionOutput(result);
+    const pending = isPendingSolution(result);
+    const solutionId = result?.id || result?.Id || result?.solutionId || result?.SolutionId || null;
+    const resultUrl = `/assignment/${assignmentId}/results${solutionId ? `?solutionId=${encodeURIComponent(solutionId)}` : ''}`;
+
+    const toneClass = {
+      success: 'border-emerald-400/30 bg-emerald-500/5',
+      danger: 'border-rose-400/30 bg-rose-500/5',
+      info: 'border-sky-400/30 bg-sky-500/5',
+    }[summary.tone] || 'border-neutral-300/30';
+
+    const badgeClass = {
+      success: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30',
+      danger: 'bg-rose-500/15 text-rose-300 border-rose-400/30',
+      info: 'bg-sky-500/15 text-sky-300 border-sky-400/30',
+    }[summary.tone] || 'bg-white/10';
+
+    return (
+      <Card id="solution-check-result" className={`scroll-mt-24 ${toneClass}`}>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                  {summary.title}
+                </span>
+                {score != null ? (
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-neutral-400">
+                    Score: {score}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-2 text-sm text-neutral-400">{summary.description}</div>
+            </div>
+            {solutionId ? (
+              <a href={resultUrl} target="_blank" rel="noreferrer" className="btn-outline shrink-0">
+                Открыть подробно
+              </a>
+            ) : null}
+          </div>
+
+          {policyUi ? (
+            <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-sm">
+              <div className="font-semibold text-rose-200 mb-2">{policyUi.title}</div>
+              <ul className="list-disc pl-5 space-y-1 text-rose-100/90">
+                {(policyUi.bullets || []).slice(0, 8).map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
+              </ul>
+              {policyUi.hitLines?.length ? (
+                <div className="mt-3 rounded-xl bg-black/20 p-3 text-xs text-rose-100/75 whitespace-pre-wrap">
+                  {policyUi.hitLines.map((x) => `• ${x}`).join('\n')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {(output.message || output.stdout || output.stderr) ? (
+            <div className="grid gap-3">
+              {output.message && !policyUi ? (
+                <div className="rounded-2xl border border-white/10 bg-black/10 p-3 text-sm text-neutral-300">
+                  {displayRunnerText(output.message)}
+                </div>
+              ) : null}
+              {output.stdout ? (
+                <div>
+                  <div className="text-xs text-neutral-500 mb-1">stdout</div>
+                  <pre className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                    {displayText(output.stdout)}
+                  </pre>
+                </div>
+              ) : null}
+              {output.stderr && !policyUi ? (
+                <div>
+                  <div className="text-xs text-neutral-500 mb-1">stderr / compile error</div>
+                  <pre className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3 text-xs text-rose-100 whitespace-pre-wrap overflow-x-auto">
+                    {displayRunnerText(output.stderr)}
+                  </pre>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="space-y-3">
+            <div className="font-semibold">Результаты тестов</div>
+            {cases.length > 0 ? cases.map((c, i) => {
+              const passed = isCasePassed(c);
+              const expectedText = c.expected ?? c.expectedOutput ?? c.ExpectedOutput ?? '';
+              const actualText = c.actual ?? c.actualOutput ?? c.ActualOutput ?? '';
+              const inputText = c.input ?? c.Input ?? '';
+              const errorText = c.compileStderr || c.stderr || c.error || '';
+              const casePolicy = parsePolicyText(errorText);
+              return (
+                <div key={i} className={`rounded-2xl border border-white/10 bg-black/10 p-3 ${isHiddenTestCase(c) ? 'border-amber-300/40 bg-amber-500/5' : ''}`}>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium">Тест #{i + 1}</div>
+                      {isHiddenTestCase(c) && <Badge intent="warning">Скрытый тест</Badge>}
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${passed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                      {passed ? 'OK' : 'FAIL'}
+                    </span>
+                  </div>
+
+                  {inputText !== '' ? (
+                    <div className="mb-2">
+                      <div className="text-xs text-neutral-500 mb-1">Ввод</div>
+                      <pre className="whitespace-pre-wrap text-sm">{displayText(inputText)}</pre>
+                    </div>
+                  ) : null}
+
+                  {expectedText !== '' ? (
+                    <div className="mb-2">
+                      <div className="text-xs text-neutral-500 mb-1">Ожидаемый вывод</div>
+                      <pre className="whitespace-pre-wrap text-sm">{displayText(expectedText)}</pre>
+                    </div>
+                  ) : null}
+
+                  {actualText !== '' ? (
+                    <div className="mb-2">
+                      <div className="text-xs text-neutral-500 mb-1">Фактически</div>
+                      <pre className="whitespace-pre-wrap text-sm">{displayText(actualText)}</pre>
+                    </div>
+                  ) : null}
+
+                  {errorText && !casePolicy ? (
+                    <div>
+                      <div className="text-xs text-neutral-500 mb-1">Ошибки</div>
+                      <pre className="whitespace-pre-wrap text-xs text-rose-200">{displayRunnerText(errorText)}</pre>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            }) : pending ? (
+              <div className="rounded-2xl border border-white/10 p-4 text-sm text-neutral-400">
+                Жду результат проверки…
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/10 p-4 text-sm text-neutral-400">
+                Детальных тест-кейсов в ответе нет. Итоговый статус показан выше.
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
   };
 
   useEffect(() => {
@@ -714,8 +1205,7 @@ export default function AssignmentSolvePage() {
 
           const idParam = normalized.solutionId ? `?solutionId=${encodeURIComponent(normalized.solutionId)}` : '';
           const imageResultUrl = `/assignment/${assignmentId}/image-results${idParam}`;
-          const opened = window.open(imageResultUrl, '_blank', 'noopener,noreferrer');
-          if (!opened) nav(imageResultUrl);
+          normalized.resultUrl = imageResultUrl;
         } else {
           const errMsg = buildImageTaskResponseText(resp, 'Не удалось проверить решение');
           setImgError(errMsg);
@@ -796,6 +1286,8 @@ export default function AssignmentSolvePage() {
                 </div>
               )}
             </Card>
+
+            {renderSolutionResultCard()}
           </div>
 
           
@@ -849,15 +1341,22 @@ export default function AssignmentSolvePage() {
                 
                 {imgCompare && (
                   <Card className="p-4 space-y-3 border-emerald-400/30 bg-emerald-500/5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                       <h3 className="font-semibold">Результат</h3>
-                      {imgCompare.isTrial ? (
-                        <Badge variant="outline">Пробник</Badge>
-                      ) : imgCompare.passed ? (
-                        <Badge intent="success">Пройдено ✓</Badge>
-                      ) : (
-                        <Badge intent="danger">Не пройдено</Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {imgCompare.resultUrl && !imgCompare.isTrial ? (
+                          <a href={imgCompare.resultUrl} target="_blank" rel="noreferrer" className="btn-outline text-xs px-3 py-1.5">
+                            Подробно
+                          </a>
+                        ) : null}
+                        {imgCompare.isTrial ? (
+                          <Badge variant="outline">Пробник</Badge>
+                        ) : imgCompare.passed ? (
+                          <Badge intent="success">Пройдено ✓</Badge>
+                        ) : (
+                          <Badge intent="danger">Не пройдено</Badge>
+                        )}
+                      </div>
                     </div>
 
                     {!imgCompare.isTrial && imgCompare.similarityPercent != null && (
@@ -955,7 +1454,11 @@ export default function AssignmentSolvePage() {
     );
   }
 
-const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
+  const canViewHiddenTests = isAdmin || a?.canEdit === true;
+  const allAssignmentTests = Array.isArray(a.testCases) ? a.testCases : [];
+  const visibleTests = canViewHiddenTests ? allAssignmentTests : allAssignmentTests.filter((t) => !isHiddenTestCase(t));
+  const assignmentTestsTitle = canViewHiddenTests ? 'Тесты задания' : 'Публичные тесты';
+  const emptyAssignmentTestsText = canViewHiddenTests ? 'У задания нет тестов.' : 'У задания нет публичных тестов.';
 
   const submitStatusText = submitMessage;
   const submitButtonLabel = ({
@@ -1015,18 +1518,21 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
             <Card>
               <div className="flex items-center justify-between mb-3">
-                <div className="font-medium">Публичные тесты</div>
+                <div className="font-medium">{assignmentTestsTitle}</div>
               </div>
 
-              {publicTests.length === 0 ? (
-                <div className="text-neutral-500">У задания нет публичных тестов.</div>
+              {visibleTests.length === 0 ? (
+                <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
               ) : (
                 <div className="space-y-3">
-                  {publicTests.map((t, i) => {
+                  {visibleTests.map((t, i) => {
                     const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                     return (
-                      <div key={i} className="rounded border p-3">
-                        <div className="text-xs text-neutral-500 mb-1">Ввод</div>
+                      <div key={i} className={`rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="text-xs text-neutral-500">Ввод</div>
+                          {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
+                        </div>
                         <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
 
                         {(expectedText ?? '') !== '' && (
@@ -1041,6 +1547,8 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
                 </div>
               )}
             </Card>
+
+            {renderSolutionResultCard()}
           </div>
 
           
@@ -1099,19 +1607,12 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
                 {policyUi && (
                   <div className="rounded border border-red-200 bg-red-50 p-3 text-sm">
-                    <div className="font-medium text-red-800 mb-2">{policyUi.header}</div>
-                    {policyUi.items && policyUi.items.length > 0 ? (
-                      <ul className="list-disc pl-5 text-red-800 space-y-1">
-                        {policyUi.items.slice(0, 12).map((x, i) => (
-                          <li key={i}>{x}</li>
-                        ))}
-                        {policyUi.items.length > 12 && (
-                          <li>… и ещё {policyUi.items.length - 12}</li>
-                        )}
-                      </ul>
-                    ) : (
-                      <pre className="whitespace-pre-wrap text-xs text-red-700">{policyUi.raw}</pre>
-                    )}
+                    <div className="font-medium text-red-800 mb-2">{policyUi.title}</div>
+                    <ul className="list-disc pl-5 text-red-800 space-y-1">
+                      {(policyUi.bullets || []).slice(0, 4).map((x, i) => (
+                        <li key={i}>{x}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 
@@ -1173,19 +1674,12 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
                 {policyUi && (
                   <div className="rounded border border-red-200 bg-red-50 p-3 text-sm mb-3">
-                    <div className="font-medium text-red-800 mb-2">{policyUi.header}</div>
-                    {policyUi.items && policyUi.items.length > 0 ? (
-                      <ul className="list-disc pl-5 text-red-800 space-y-1">
-                        {policyUi.items.slice(0, 12).map((x, i) => (
-                          <li key={i}>{x}</li>
-                        ))}
-                        {policyUi.items.length > 12 && (
-                          <li>… и ещё {policyUi.items.length - 12}</li>
-                        )}
-                      </ul>
-                    ) : (
-                      <pre className="whitespace-pre-wrap text-xs text-red-700">{policyUi.raw}</pre>
-                    )}
+                    <div className="font-medium text-red-800 mb-2">{policyUi.title}</div>
+                    <ul className="list-disc pl-5 text-red-800 space-y-1">
+                      {(policyUi.bullets || []).slice(0, 4).map((x, i) => (
+                        <li key={i}>{x}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 
@@ -1219,18 +1713,21 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
 
           <Card>
             <div className="flex items-center justify-between mb-3">
-              <div className="font-medium">Публичные тесты</div>
+              <div className="font-medium">{assignmentTestsTitle}</div>
             </div>
 
-            {publicTests.length === 0 ? (
-              <div className="text-neutral-500">У задания нет публичных тестов.</div>
+            {visibleTests.length === 0 ? (
+              <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
             ) : (
               <div className="space-y-3">
-                {publicTests.map((t, i) => {
+                {visibleTests.map((t, i) => {
                   const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                   return (
-                    <div key={i} className="rounded border p-3">
-                      <div className="text-xs text-neutral-500 mb-1">Ввод</div>
+                    <div key={i} className={`rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="text-xs text-neutral-500">Ввод</div>
+                        {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
+                      </div>
                       <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
 
                       {(expectedText ?? '') !== '' && (
@@ -1245,6 +1742,8 @@ const publicTests = (a.testCases || []).filter((t) => !t.isHidden);
               </div>
             )}
           </Card>
+
+          {renderSolutionResultCard()}
         </div>
       )}
 

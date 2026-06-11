@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -73,6 +74,28 @@ func (b *limitedBuffer) String() string {
 	return strings.ReplaceAll(b.buf.String(), "\r\n", "\n")
 }
 
+var tmpTaskforgePathPattern = regexp.MustCompile(`/tmp/taskforge-[^\s:]+`)
+var tmpGoBuildPathPattern = regexp.MustCompile(`/tmp/go-build[^\s:]+`)
+var appPathPattern = regexp.MustCompile(`/app/[^\s:]+`)
+
+func sanitizeRunnerText(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return value
+	}
+	s := tmpTaskforgePathPattern.ReplaceAllString(value, "[временный файл]")
+	s = tmpGoBuildPathPattern.ReplaceAllString(s, "[временный файл]")
+	s = appPathPattern.ReplaceAllString(s, "[внутренний файл]")
+	return s
+}
+
+func friendlyRunnerError(value string) string {
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "fork/exec") && strings.Contains(lower, "permission denied") {
+		return "Не удалось запустить программу: нет прав на выполнение файла проверки."
+	}
+	return sanitizeRunnerText(value)
+}
+
 func env(name, fallback string) string {
 	v := strings.TrimSpace(os.Getenv(name))
 	if v == "" {
@@ -121,7 +144,7 @@ func runCommand(name string, args []string, cwd string, input string, seconds in
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
-		return execOutput{ExitCode: 127, Stderr: err.Error()}
+		return execOutput{ExitCode: 127, Stderr: friendlyRunnerError(err.Error())}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -144,11 +167,11 @@ func runCommand(name string, args []string, cwd string, input string, seconds in
 		} else {
 			code = 1
 			if stderr.buf.Len() == 0 {
-				_, _ = io.WriteString(stderr, err.Error())
+				_, _ = io.WriteString(stderr, friendlyRunnerError(err.Error()))
 			}
 		}
 	}
-	return execOutput{ExitCode: code, Stdout: stdout.String(), Stderr: stderr.String()}
+	return execOutput{ExitCode: code, Stdout: stdout.String(), Stderr: sanitizeRunnerText(stderr.String())}
 }
 
 func sendJSON(w http.ResponseWriter, code int, value any) {
@@ -158,7 +181,7 @@ func sendJSON(w http.ResponseWriter, code int, value any) {
 }
 
 func sendError(w http.ResponseWriter, code int, message string, stdout string, stderr string) {
-	sendJSON(w, code, map[string]any{"detail": map[string]string{"message": message, "stdout": tail(stdout, 8000), "stderr": tail(stderr, 8000)}})
+	sendJSON(w, code, map[string]any{"detail": map[string]string{"message": friendlyRunnerError(message), "stdout": tail(stdout, 8000), "stderr": tail(friendlyRunnerError(stderr), 8000)}})
 }
 
 func decodeJSON(r *http.Request, out any) error {
@@ -171,10 +194,15 @@ func compileCpp(source string, dir string, timeoutSec int) (string, string, int)
 	src := filepath.Join(dir, "main.cpp")
 	exe := filepath.Join(dir, "main")
 	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
-		return err.Error(), "", 1
+		return sanitizeRunnerText(err.Error()), "", 1
 	}
-	res := runCommand("g++", []string{src, "-O2", "-std=c++17", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
-	return res.Stdout + res.Stderr, exe, res.ExitCode
+	res := runCommand("g++", []string{"main.cpp", "-O2", "-std=c++17", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	if res.ExitCode == 0 {
+		if err := os.Chmod(exe, 0o700); err != nil {
+			return "Не удалось подготовить программу к запуску.", "", 1
+		}
+	}
+	return sanitizeRunnerText(res.Stdout + res.Stderr), exe, res.ExitCode
 }
 
 func compilePascal(source string, dir string, timeoutSec int) (string, string, int) {
@@ -183,22 +211,28 @@ func compilePascal(source string, dir string, timeoutSec int) (string, string, i
 	}
 	src := filepath.Join(dir, "main.pas")
 	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
-		return err.Error(), "", 1
+		return sanitizeRunnerText(err.Error()), "", 1
 	}
 	compiler := env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
 	res := runCommand("mono", []string{compiler, src}, dir, "", clamp(timeoutSec, 6, 60), nil)
 	if res.ExitCode != 0 {
-		return res.Stdout + res.Stderr, "", res.ExitCode
+		return sanitizeRunnerText(res.Stdout + res.Stderr), "", res.ExitCode
 	}
 	candidate := filepath.Join(dir, "main.exe")
 	if _, err := os.Stat(candidate); err == nil {
-		return res.Stdout + res.Stderr, candidate, 0
+		if err := os.Chmod(candidate, 0o700); err != nil {
+			return "Не удалось подготовить программу к запуску.", "", 1
+		}
+		return sanitizeRunnerText(res.Stdout + res.Stderr), candidate, 0
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*.exe"))
 	if len(matches) == 0 {
-		return res.Stdout + res.Stderr + "\ncompile succeeded but no .exe produced", "", 1
+		return sanitizeRunnerText(res.Stdout + res.Stderr + "\ncompile succeeded but no .exe produced"), "", 1
 	}
-	return res.Stdout + res.Stderr, matches[0], 0
+	if err := os.Chmod(matches[0], 0o700); err != nil {
+		return "Не удалось подготовить программу к запуску.", "", 1
+	}
+	return sanitizeRunnerText(res.Stdout + res.Stderr), matches[0], 0
 }
 
 func fileMTime(path string) time.Time {

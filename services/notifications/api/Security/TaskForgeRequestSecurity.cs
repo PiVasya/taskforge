@@ -117,12 +117,16 @@ public static class TaskForgeRequestSecurity
         if (path == "/api/courses" || path.StartsWith("/api/courses/")) return safeMethod ? Requirement.Public : Requirement.Editor;
         if (path == "/api/groups" || path.StartsWith("/api/groups/")) return safeMethod ? Requirement.Public : Requirement.Admin;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/submit")) return Requirement.Authenticated;
-        if (path.StartsWith("/api/assignments/") && path.EndsWith("/top-solutions")) return Requirement.Public;
+        if (path.StartsWith("/api/assignments/") && path.EndsWith("/top-solutions")) return Requirement.Authenticated;
+        if (path.StartsWith("/api/assignments/") && path.EndsWith("/edit")) return Requirement.Editor;
+        if (path.StartsWith("/api/assignments/") && path.Contains("/image-test/reference")) return Requirement.Editor;
         if (path.StartsWith("/api/assignments/") && path.Contains("/image-test")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments")) return writeMethod ? Requirement.Editor : Requirement.Authenticated;
-        if (path.StartsWith("/api/task-tests") || path.StartsWith("/api/math-tasks") || path.StartsWith("/api/tests")) return Requirement.Authenticated;
+        if (path.StartsWith("/api/task-tests") || path.StartsWith("/api/math-tasks")) return path.EndsWith("/edit") ? Requirement.Editor : Requirement.Authenticated;
+        if (path.StartsWith("/api/tests")) return Requirement.Editor;
 
-        if (path.StartsWith("/api/compiler") || path.StartsWith("/api/execution") || path.StartsWith("/api/image-runners")) return Requirement.Authenticated;
+        if (path.StartsWith("/api/compiler") || path.StartsWith("/api/execution") || path.StartsWith("/api/image-runners")) return Requirement.Editor;
+        if (path.Contains("/image-test/reference")) return Requirement.Editor;
         if (path.Contains("/image-test")) return Requirement.Authenticated;
 
         if (path.StartsWith("/api/leaderboard")) return Requirement.Public;

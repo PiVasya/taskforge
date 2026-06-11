@@ -274,16 +274,16 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let mut hits: Vec<Hit> = Vec::new();
     let mut errors: Vec<Violation> = Vec::new();
 
-    if let Some((pos, ch)) = find_cyrillic_in_code(&cleaned) {
+    if let Some((pos, ch)) = find_cyrillic_in_code(&lang, &req.source) {
         hits.push(Hit {
             pattern_id: Some("unicode.cyrillic_in_code".to_string()),
             needle: ch.to_string(),
             position: pos,
-            preview: make_preview(&cleaned, pos, ch.len_utf8()),
+            preview: make_preview(&req.source, pos, ch.len_utf8()),
         });
         errors.push(Violation {
             code: "cyrillic_in_code".to_string(),
-            message: "Кириллица разрешена в строках и комментариях, но запрещена в исполняемом коде: используйте латинские имена переменных, функций и классов.".to_string(),
+            message: cyrillic_policy_message().to_string(),
             pattern_id: Some("unicode.cyrillic_in_code".to_string()),
         });
     }
@@ -414,8 +414,145 @@ fn is_cyrillic_char(c: char) -> bool {
     )
 }
 
-fn find_cyrillic_in_code(src: &str) -> Option<(usize, char)> {
-    src.char_indices().find(|(_, c)| is_cyrillic_char(*c))
+fn cyrillic_policy_message() -> &'static str {
+    "Кириллица разрешена в строках и комментариях, но запрещена в исполняемом коде: используйте латинские имена переменных, функций и классов."
+}
+
+fn find_cyrillic_in_code(lang: &str, src: &str) -> Option<(usize, char)> {
+    let has_hash_line_comment = matches!(lang, "python" | "py");
+    let has_dash_dash_line_comment = matches!(lang, "sql" | "postgres" | "postgresql");
+    let has_pascal_curly_comments = matches!(lang, "pascal");
+    let has_pascal_paren_comments = matches!(lang, "pascal");
+
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
+    let mut i = 0usize;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut in_pascal_curly = false;
+    let mut in_pascal_paren = false;
+    let mut in_string: Option<char> = None;
+    let mut in_triple: Option<char> = None;
+
+    while i < chars.len() {
+        let (pos, c) = chars[i];
+        let next = chars.get(i + 1).map(|(_, ch)| *ch);
+        let next2 = chars.get(i + 2).map(|(_, ch)| *ch);
+
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_block_comment {
+            if c == '*' && next == Some('/') {
+                in_block_comment = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if in_pascal_curly {
+            if c == '}' {
+                in_pascal_curly = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_pascal_paren {
+            if c == '*' && next == Some(')') {
+                in_pascal_paren = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if let Some(q) = in_triple {
+            if c == q && next == Some(q) && next2 == Some(q) {
+                in_triple = None;
+                i += 3;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if let Some(q) = in_string {
+            // Pascal escapes a quote inside a string by doubling it: 'It''s ok'.
+            if lang == "pascal" && c == '\'' && next == Some('\'') {
+                i += 2;
+                continue;
+            }
+            if c == '\\' && lang != "pascal" {
+                i += if next.is_some() { 2 } else { 1 };
+                continue;
+            }
+            if c == q {
+                in_string = None;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Start comments before checking chars, so Cyrillic inside comments is allowed.
+        if c == '/' && next == Some('/') {
+            in_line_comment = true;
+            i += 2;
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+        if has_hash_line_comment && c == '#' {
+            in_line_comment = true;
+            i += 1;
+            continue;
+        }
+        if has_dash_dash_line_comment && c == '-' && next == Some('-') {
+            in_line_comment = true;
+            i += 2;
+            continue;
+        }
+        if has_pascal_curly_comments && c == '{' {
+            in_pascal_curly = true;
+            i += 1;
+            continue;
+        }
+        if has_pascal_paren_comments && c == '(' && next == Some('*') {
+            in_pascal_paren = true;
+            i += 2;
+            continue;
+        }
+
+        // Start strings before checking chars, so Cyrillic inside literals is allowed.
+        if (lang == "python" || lang == "py") && (c == '\'' || c == '"') && next == Some(c) && next2 == Some(c) {
+            in_triple = Some(c);
+            i += 3;
+            continue;
+        }
+        if c == '\'' || c == '"' || c == '`' {
+            in_string = Some(c);
+            i += 1;
+            continue;
+        }
+
+        if is_cyrillic_char(c) {
+            return Some((pos, c));
+        }
+
+        i += 1;
+    }
+
+    None
 }
 
 fn make_preview(src: &str, pos: usize, len: usize) -> String {
@@ -555,6 +692,7 @@ fn fp_str(id: &str, needle: &str, desc: &str) -> ForbiddenPattern {
 fn strip_comments_and_strings(lang: &str, src: &str) -> String {
     // Comment styles by language
     let has_hash_line_comment = matches!(lang, "python" | "py");
+    let has_dash_dash_line_comment = matches!(lang, "sql" | "postgres" | "postgresql");
     let has_pascal_curly_comments = matches!(lang, "pascal");
     let has_pascal_paren_comments = matches!(lang, "pascal");
 
@@ -674,8 +812,10 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
             i += 1;
             continue;
         }
-        // Basic support for "--" line comments (some dialects)
-        if c == '-' && next == Some('-') {
+        // "--" is not a comment in C/C++/C#/Java/JS/Python/Pascal.
+        // Treat it as a comment only for SQL-like dialects, otherwise constructs
+        // like x--; system("sh") would hide dangerous code from the analyzer.
+        if has_dash_dash_line_comment && c == '-' && next == Some('-') {
             in_line_comment = true;
             i += 2;
             continue;
@@ -719,6 +859,7 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
 /// We still track strings so we don't treat comment markers inside strings as comments.
 fn strip_comments_only(lang: &str, src: &str) -> String {
     let has_hash_line_comment = matches!(lang, "python" | "py");
+    let has_dash_dash_line_comment = matches!(lang, "sql" | "postgres" | "postgresql");
     let has_pascal_curly_comments = matches!(lang, "pascal");
     let has_pascal_paren_comments = matches!(lang, "pascal");
 
@@ -842,7 +983,7 @@ fn strip_comments_only(lang: &str, src: &str) -> String {
             i += 1;
             continue;
         }
-        if c == '-' && next == Some('-') {
+        if has_dash_dash_line_comment && c == '-' && next == Some('-') {
             in_line_comment = true;
             out.push(' ');
             out.push(' ');
@@ -885,3 +1026,57 @@ fn strip_comments_only(lang: &str, src: &str) -> String {
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_cyrillic_identifier_in_pascal_code() {
+        let src = "var число: integer;\nbegin\n  число := 1;\nend.";
+        let hit = find_cyrillic_in_code("pascal", src).expect("cyrillic identifier must be detected");
+        assert_eq!(hit.1, 'ч');
+        assert_eq!(hit.0, src.find('ч').unwrap());
+    }
+
+    #[test]
+    fn allows_cyrillic_in_pascal_comments_and_strings() {
+        let src = "{ русский комментарий }\n(* ещё комментарий *)\nbegin\n  writeln('Привет, мир');\n  writeln('It''s ok');\nend.";
+        assert!(find_cyrillic_in_code("pascal", src).is_none());
+    }
+
+    #[test]
+    fn detects_cyrillic_identifier_in_cpp_code() {
+        let src = "// русский комментарий\n#include <iostream>\nint число = 1;\nint main(){ std::cout << \"Привет\"; }";
+        let hit = find_cyrillic_in_code("cpp", src).expect("cyrillic identifier must be detected");
+        assert_eq!(hit.1, 'ч');
+    }
+
+    #[test]
+    fn allows_cyrillic_in_python_strings_comments_and_triples() {
+        let src = "# русский комментарий\ntext = 'Привет'\nlong_text = \"\"\"Большая строка\"\"\"\nprint(text)";
+        assert!(find_cyrillic_in_code("python", src).is_none());
+    }
+
+    #[test]
+    fn detects_cyrillic_identifier_after_non_ascii_comment_without_index_drift() {
+        let src = "// русский комментарий с длинной кириллицей\nint число = 1;";
+        let hit = find_cyrillic_in_code("cpp", src).expect("cyrillic identifier must be detected");
+        assert_eq!(hit.0, src.find('ч').unwrap());
+    }
+    #[test]
+    fn cpp_decrement_does_not_start_fake_comment_for_forbidden_scan() {
+        let src = "int main(){ int x = 1; x--; system(\"sh\"); }";
+        let cleaned = strip_comments_and_strings("cpp", src);
+        assert!(cleaned.contains("system"));
+    }
+
+    #[test]
+    fn cpp_decrement_does_not_hide_cyrillic_identifier() {
+        let src = "int main(){ int x = 1; x--; int число = 2; }";
+        let hit = find_cyrillic_in_code("cpp", src).expect("cyrillic after x-- must be detected");
+        assert_eq!(hit.1, 'ч');
+    }
+
+}
+

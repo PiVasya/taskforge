@@ -868,7 +868,7 @@ export default function Layout({
           >
             {access && (
               <aside
-                className={`dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start xl:max-h-[calc(100dvh-7rem)] ${sidebarCollapsed ? "w-[4.75rem]" : ""}`}
+                className={`dashboard-sticky-rail hidden xl:flex xl:flex-col gap-4 sticky top-24 self-start ${sidebarCollapsed ? "w-[4.75rem]" : ""}`}
               >
                 <div className={`card ${sidebarCollapsed ? "p-2" : "p-3"}`}>
                   {!sidebarCollapsed && (
@@ -894,7 +894,7 @@ export default function Layout({
                       <div className="side-nav-section-title">Админка</div>
                     )}
                     <div
-                      className={`${sidebarCollapsed ? "space-y-1.5 max-h-[52vh] overflow-y-auto" : "mt-2 space-y-1.5 max-h-[52vh] overflow-y-auto pr-1"}`}
+                      className={`${sidebarCollapsed ? "space-y-1.5" : "mt-2 space-y-1.5"}`}
                     >
                       {adminPrimaryNav.map((item) => (
                         <SideNavLink
