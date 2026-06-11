@@ -1,6 +1,9 @@
 services:
   gateway:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/gateway:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       GATEWAY_MODE: ${GATEWAY_MODE:-auto}
@@ -53,6 +56,9 @@ services:
       start_period: 20s
   front:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/front:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
     - '80'
@@ -66,6 +72,9 @@ services:
       start_period: 20s
   front-ct:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/front-ct:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
     - '80'

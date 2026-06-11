@@ -21,6 +21,7 @@ compose() {
     -f deploy/prod/compose/30-execution.yaml \
     -f deploy/prod/compose/40-ai-and-analyzers.yaml \
     -f deploy/prod/compose/50-integrations.yaml \
+    -f deploy/prod/compose/80-watchtower.yaml \
     -f deploy/prod/compose/90-certbot.yaml \
     "$@"
 }
@@ -157,5 +158,6 @@ exec docker compose \
   -f deploy/prod/compose/30-execution.yaml \
   -f deploy/prod/compose/40-ai-and-analyzers.yaml \
   -f deploy/prod/compose/50-integrations.yaml \
+  -f deploy/prod/compose/80-watchtower.yaml \
   -f deploy/prod/compose/90-certbot.yaml \
   "$@"

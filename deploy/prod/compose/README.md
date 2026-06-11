@@ -8,14 +8,14 @@ Production compose intentionally uses several small files instead of one huge fi
 - `30-execution.yaml` — execution API, execution worker, code/image runners.
 - `40-ai-and-analyzers.yaml` — AI API, AI worker, code analyzer, image analyzer.
 - `50-integrations.yaml` — support, Minecraft, files, notifications, observability, bots.
+- `80-watchtower.yaml` — automatic GHCR image updates for labeled TaskForge services.
 - `90-certbot.yaml` — optional certbot profile.
 
 Use the wrapper from the repository root:
 
 ```bash
 cp deploy/prod/.env.example deploy/prod/.env
-./deploy/prod/compose.sh pull
-./deploy/prod/compose.sh up -d
+IMAGE_REPOSITORY=ghcr.io/OWNER/REPO DOMAIN=taskforge.by CT_DOMAIN=ct.taskforge.by LETSENCRYPT_EMAIL=admin@example.com BOOTSTRAP_ADMIN_EMAILS=admin@example.com S3_PUBLIC_ENDPOINT=https://s3.taskforge.by ./deploy/prod/deploy.sh
 ```
 
-The wrapper passes all compose fragments in the correct order and uses `deploy/prod/.env` by default.
+The wrapper passes all compose fragments in the correct order and uses `deploy/prod/.env` by default. Regular updates are handled by Watchtower; use `./deploy/prod/compose.sh pull && ./deploy/prod/compose.sh up -d` only when you want to force a manual update.

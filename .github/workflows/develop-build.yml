@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       build_all:
-        description: Build all project images
+        description: Build all project images. By default only changed images are built.
         type: boolean
-        default: true
+        default: false
       images:
         description: Optional comma-separated image names to build, for example identity-api,front,ai-worker
         type: string
@@ -44,16 +44,16 @@ jobs:
             "front|./apps/web|Dockerfile|apps/web/"
             "front-ct|./apps/web-ct|Dockerfile|apps/web-ct/"
 
-            "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ .dockerignore"
-            "education-api|.|services/education/api/Dockerfile|services/education/api/ .dockerignore"
+            "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ Directory.Build.props global.json .dockerignore"
+            "education-api|.|services/education/api/Dockerfile|services/education/api/ Directory.Build.props global.json .dockerignore"
             "content-api|./services/content/api|Dockerfile|services/content/api/"
-            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ .dockerignore"
+            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ Directory.Build.props global.json .dockerignore"
             "quiz-api|./services/tasks/quiz-api|Dockerfile|services/tasks/quiz-api/"
-            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ .dockerignore"
-            "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ .dockerignore"
+            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ Directory.Build.props global.json .dockerignore"
+            "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ Directory.Build.props global.json .dockerignore"
 
-            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ .dockerignore"
-            "execution-worker|.|services/execution/worker/Dockerfile|services/execution/worker/ .dockerignore"
+            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ Directory.Build.props global.json .dockerignore"
+            "execution-worker|.|services/execution/worker/Dockerfile|services/execution/worker/ Directory.Build.props global.json .dockerignore"
             "csharp-runner|./services/execution/runners/csharp-runner|Dockerfile|services/execution/runners/csharp-runner/"
             "cpp-runner|./services/execution/runners/cpp-runner|Dockerfile|services/execution/runners/cpp-runner/"
             "java-runner|./services/execution/runners/java-runner|Dockerfile|services/execution/runners/java-runner/"
@@ -63,17 +63,17 @@ jobs:
             "image-cpp-runner|./services/execution/runners/image-cpp-runner|Dockerfile|services/execution/runners/image-cpp-runner/"
             "image-pascal-runner|./services/execution/runners/image-pascal-runner|Dockerfile|services/execution/runners/image-pascal-runner/"
 
-            "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ .dockerignore"
+            "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ Directory.Build.props global.json .dockerignore"
             "ai-worker|./services/ai/worker|Dockerfile|services/ai/worker/"
             "code-analyzer|./services/analyzers/code-analyzer|Dockerfile|services/analyzers/code-analyzer/"
             "image-analyzer|./services/analyzers/image-analyzer|Dockerfile|services/analyzers/image-analyzer/"
 
-            "support-api|.|services/support/api/Dockerfile|services/support/api/ .dockerignore"
-            "support-bot|.|services/bots/support-bot/Dockerfile|services/bots/support-bot/ .dockerignore"
-            "minecraft-api|.|services/minecraft/api/Dockerfile|services/minecraft/api/ .dockerignore"
-            "files-api|.|services/files/api/Dockerfile|services/files/api/ .dockerignore"
-            "notifications-api|.|services/notifications/api/Dockerfile|services/notifications/api/ .dockerignore"
-            "observability-api|.|services/observability/api/Dockerfile|services/observability/api/ .dockerignore"
+            "support-api|.|services/support/api/Dockerfile|services/support/api/ Directory.Build.props global.json .dockerignore"
+            "support-bot|.|services/bots/support-bot/Dockerfile|services/bots/support-bot/ Directory.Build.props global.json .dockerignore"
+            "minecraft-api|.|services/minecraft/api/Dockerfile|services/minecraft/api/ Directory.Build.props global.json .dockerignore"
+            "files-api|.|services/files/api/Dockerfile|services/files/api/ Directory.Build.props global.json .dockerignore"
+            "notifications-api|.|services/notifications/api/Dockerfile|services/notifications/api/ Directory.Build.props global.json .dockerignore"
+            "observability-api|.|services/observability/api/Dockerfile|services/observability/api/ Directory.Build.props global.json .dockerignore"
             "telegram-quiz-bot|./services/bots/telegram-quiz-bot|Dockerfile|services/bots/telegram-quiz-bot/"
           )
 
@@ -96,36 +96,12 @@ jobs:
             echo "  <none>"
           fi
 
-          force_all_paths=(
-            ".github/workflows/"
-            "Directory.Build.props"
-            "global.json"
-            ".dockerignore"
-            "deploy/dev/compose/"
-            "deploy/prod/compose/"
-            "deploy/prod/.env.example"
-            "scripts/ci/"
-            "scripts/prod/"
-          )
+          # Default policy: build only images touched by the diff.
+          # Infrastructure, docs, workflow and deploy-script changes do not rebuild every service.
+          # Use workflow_dispatch with build_all=true when a full rebuild is really needed.
 
-          # Tags are release/prod candidates: build every image, not only the diff.
-          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            build_all="true"
-          fi
-
-          changed_force_all="false"
-          for force_path in "${force_all_paths[@]}"; do
-            while IFS= read -r changed; do
-              [ -n "$changed" ] || continue
-              if [[ "$changed" == "$force_path"* ]] || [[ "$changed" == "$force_path" ]]; then
-                changed_force_all="true"
-              fi
-            done <<< "$changed_files"
-          done
-
-          if [ "$changed_force_all" = "true" ]; then
-            echo "Global build input changed; selecting all images."
-            build_all="true"
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            build_all="false"
           fi
 
           is_requested() {

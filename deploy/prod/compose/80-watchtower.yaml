@@ -1,0 +1,23 @@
+services:
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: ${WATCHTOWER_SCOPE:-taskforge-prod}
+      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-300}
+      WATCHTOWER_CLEANUP: ${WATCHTOWER_CLEANUP:-true}
+      WATCHTOWER_INCLUDE_RESTARTING: ${WATCHTOWER_INCLUDE_RESTARTING:-true}
+      WATCHTOWER_ROLLING_RESTART: ${WATCHTOWER_ROLLING_RESTART:-true}
+      WATCHTOWER_NO_STARTUP_MESSAGE: ${WATCHTOWER_NO_STARTUP_MESSAGE:-true}
+      WATCHTOWER_HTTP_API_UPDATE: ${WATCHTOWER_HTTP_API_UPDATE:-false}
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -45,3 +45,21 @@ Runner container restrictions:
 ## Image workflow
 
 The GitHub Actions workflow checks that every project Dockerfile is present in the image matrix and that every image used by prod compose is built. It runs on `develop`, `main`, tags `v*`, pull requests and manual dispatch.
+
+## v19 deployment update policy
+
+GitHub Actions no longer rebuilds every image on a regular push. The default behavior is diff-based:
+
+- a change in `services/tasks/assignment-api/` builds only `tasks-api`;
+- a change in `apps/web/` builds only `front`;
+- a change in deployment scripts or docs builds no application images;
+- a manual workflow run with `build_all=true` still rebuilds everything.
+
+The production server should run Watchtower from `deploy/prod/compose/80-watchtower.yaml`. It updates only TaskForge services labeled with:
+
+```text
+com.centurylinklabs.watchtower.enable=true
+com.centurylinklabs.watchtower.scope=taskforge-prod
+```
+
+Storage containers are intentionally not labeled, so PostgreSQL/RabbitMQ/MinIO are not auto-updated by Watchtower.

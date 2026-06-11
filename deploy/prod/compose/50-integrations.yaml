@@ -1,6 +1,9 @@
 services:
   support-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/support-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -39,6 +42,9 @@ services:
       start_period: 60s
   support-bot:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/support-bot:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -57,6 +63,9 @@ services:
       start_period: 20s
   minecraft-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/minecraft-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -95,6 +104,9 @@ services:
       start_period: 60s
   files-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/files-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -135,6 +147,9 @@ services:
       start_period: 60s
   notifications-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/notifications-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -173,6 +188,9 @@ services:
       start_period: 60s
   observability-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/observability-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -211,6 +229,9 @@ services:
       start_period: 60s
   telegram-quiz-bot:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/telegram-quiz-bot:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}

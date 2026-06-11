@@ -1,6 +1,9 @@
 services:
   ai-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/ai-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -42,6 +45,9 @@ services:
       start_period: 60s
   ai-worker:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/ai-worker:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -69,6 +75,9 @@ services:
       start_period: 20s
   code-analyzer:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/code-analyzer:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
     - '8080'
@@ -82,6 +91,9 @@ services:
       start_period: 20s
   image-analyzer:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-analyzer:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
     - '8080'

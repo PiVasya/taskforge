@@ -1,6 +1,9 @@
 services:
   identity-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/identity-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -42,6 +45,9 @@ services:
       start_period: 60s
   education-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/education-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -80,6 +86,9 @@ services:
       start_period: 60s
   content-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/content-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -120,6 +129,9 @@ services:
       start_period: 60s
   quiz-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/quiz-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -160,6 +172,9 @@ services:
       start_period: 60s
   tasks-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/tasks-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -200,6 +215,9 @@ services:
       start_period: 60s
   solutions-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/solutions-api:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -241,6 +259,9 @@ services:
       start_period: 60s
   rating-worker:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/rating-worker:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}

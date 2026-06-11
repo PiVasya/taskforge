@@ -1,31 +1,34 @@
-# Production запуск через split Docker Compose
+# Production запуск TaskForge на Ubuntu
 
-Этот каталог рассчитан на сценарий: перенёс архив на сервер, создал `deploy/prod/.env`, поменял значения и поднял production.
+Цель этой папки: скопировал архив/репозиторий на сервер, заполнил `.env`, выполнил одну команду — стек поднялся и дальше обновляется сам через Watchtower.
 
-## Домены
+## Как теперь устроены обновления
 
-Production рассчитан на публичные домены:
+GitHub Actions **по умолчанию билдит и пушит только изменённые Docker images**. Если поменялся один микросервис, пересобирается только его image. Все 31 images собираются только при ручном запуске workflow с `build_all=true`.
 
-```text
-taskforge.by
-ct.taskforge.by
-```
+На сервере работает Watchtower. Он проверяет GHCR, скачивает только images с изменившимся digest и перезапускает только соответствующие контейнеры. PostgreSQL/RabbitMQ/MinIO Watchtower не трогает: обновляются только контейнеры TaskForge с явными labels.
 
-В `.env` можно указать другие домены, но frontend всё равно должен ходить только на same-origin `/api/*` и `/hubs/*`. CORS для обычной работы сайта не нужен: gateway маршрутизирует API внутри Docker-сети.
+## Первый запуск на чистом Ubuntu-сервере
 
-
-## One-command deploy
-
-Если `.env` уже настроен, production поднимается одной командой:
+1. Установить Docker:
 
 ```bash
-./deploy/prod/deploy.sh
+sudo ./scripts/prod/install-ubuntu-docker.sh
 ```
 
-Для первого запуска на чистом сервере можно передать публичные значения прямо в команду. Скрипт сам создаст `deploy/prod/.env`, сгенерирует сильные секреты и проверит конфигурацию перед запуском:
+2. Если GHCR package приватный, залогиниться:
+
+```bash
+echo 'GHCR_TOKEN' | docker login ghcr.io -u GITHUB_USERNAME --password-stdin
+```
+
+Для public packages этот шаг не нужен.
+
+3. Сгенерировать `.env` и запустить production:
 
 ```bash
 IMAGE_REPOSITORY=ghcr.io/OWNER/REPO \
+IMAGE_TAG=develop \
 DOMAIN=taskforge.by \
 CT_DOMAIN=ct.taskforge.by \
 LETSENCRYPT_EMAIL=admin@example.com \
@@ -34,53 +37,119 @@ S3_PUBLIC_ENDPOINT=https://s3.taskforge.by \
 ./deploy/prod/deploy.sh
 ```
 
-Перед стартом выполняются:
+`deploy.sh` сам:
 
-```bash
-scripts/prod/prepare-env.sh
-scripts/prod/check-prod-config.sh
-./deploy/prod/compose.sh config
+```text
+1. создаёт deploy/prod/.env из .env.example;
+2. генерирует сильные секреты вместо CHANGE_ME;
+3. проверяет production-конфиг;
+4. поднимает стек через `up --pull missing`;
+5. скачивает только отсутствующие images при первом запуске;
+6. включает Watchtower для дальнейших обновлений.
 ```
 
-Если в `.env` остались `CHANGE_ME`, слабый JWT/internal-key, `BOOTSTRAP_FIRST_USER_IS_ADMIN=true` или лишние публичные ports, запуск остановится.
-
-## Быстрый запуск
+После первого запуска `.env` уже существует. Повторный запуск:
 
 ```bash
-cp deploy/prod/.env.example deploy/prod/.env
-# отредактировать deploy/prod/.env
+./deploy/prod/deploy.sh
+```
 
+## Важные переменные .env
+
+```text
+IMAGE_REPOSITORY=ghcr.io/OWNER/REPO
+IMAGE_TAG=develop
+DOMAIN=taskforge.by
+CT_DOMAIN=ct.taskforge.by
+LETSENCRYPT_EMAIL=admin@example.com
+BOOTSTRAP_ADMIN_EMAILS=admin@example.com
+S3_PUBLIC_ENDPOINT=https://s3.taskforge.by
+```
+
+Секреты генерируются автоматически:
+
+```text
+POSTGRES_PASSWORD
+RABBITMQ_DEFAULT_PASS
+MINIO_ROOT_PASSWORD
+JWT_SIGNING_KEY
+TASKFORGE_INTERNAL_KEY
+TASKFORGE_AGENT_INTERNAL_KEY
+```
+
+Если надо пересгенерировать вручную:
+
+```bash
+python3 - <<'PY'
+import secrets
+for k,n in {
+  'POSTGRES_PASSWORD': 36,
+  'RABBITMQ_DEFAULT_PASS': 36,
+  'MINIO_ROOT_PASSWORD': 36,
+  'JWT_SIGNING_KEY': 72,
+  'TASKFORGE_INTERNAL_KEY': 48,
+  'TASKFORGE_AGENT_INTERNAL_KEY': 48,
+}.items():
+    print(f'{k}={secrets.token_urlsafe(n)}')
+PY
+```
+
+## Watchtower
+
+Watchtower включён в production compose:
+
+```text
+WATCHTOWER_SCOPE=taskforge-prod
+WATCHTOWER_POLL_INTERVAL=300
+WATCHTOWER_CLEANUP=true
+WATCHTOWER_ROLLING_RESTART=true
+```
+
+Проверить логи обновлений:
+
+```bash
+./deploy/prod/compose.sh logs -f watchtower
+```
+
+Принудительно подтянуть свежие images без ожидания Watchtower:
+
+```bash
 ./deploy/prod/compose.sh pull
 ./deploy/prod/compose.sh up -d
 ```
 
-`compose.sh` — тонкая обёртка над `docker compose`, которая подключает split-файлы из `deploy/prod/compose/` в правильном порядке.
+Обычный повторный запуск `deploy.sh` не делает `pull` всех образов. Он использует `--pull missing`, а обновления после первого запуска выполняет Watchtower.
 
-## HTTPS через встроенный nginx + certbot
+## HTTPS через gateway + certbot
 
-1. В `.env` укажи реальные `DOMAIN`, `CT_DOMAIN`, `LETSENCRYPT_EMAIL`.
-2. Для первой выдачи сертификата оставь `GATEWAY_MODE=auto`. Gateway стартует в bootstrap/http-режиме, если сертификата ещё нет.
-3. Выпусти сертификат:
+1. В `.env` указать реальные `DOMAIN`, `CT_DOMAIN`, `LETSENCRYPT_EMAIL`.
+2. Для первой выдачи оставить:
+
+```text
+GATEWAY_MODE=auto
+```
+
+3. Выпустить сертификат:
 
 ```bash
 ./deploy/prod/compose.sh --profile certbot run --rm certbot
 ```
 
-4. Поставь:
+4. После выдачи можно поставить:
 
 ```text
 GATEWAY_MODE=https
 ```
 
-5. Перезапусти gateway:
+5. Перезапустить gateway:
 
 ```bash
 ./deploy/prod/compose.sh up -d gateway
 ```
 
-Если TLS завершает Cloudflare/внешний балансировщик, можно оставить `GATEWAY_MODE=http`, но внешний прокси обязан передавать Host корректно.
+Если TLS завершает Cloudflare/внешний балансировщик, можно оставить `GATEWAY_MODE=http`, но внешний прокси обязан передавать корректный `Host`.
 
-## Из чего собрана production-схема
+## Compose-файлы
 
 ```text
 deploy/prod/compose/
@@ -90,59 +159,36 @@ deploy/prod/compose/
   30-execution.yaml        execution-api, execution-worker, runners
   40-ai-and-analyzers.yaml ai-api, ai-worker, analyzers
   50-integrations.yaml     support, minecraft, files, notifications, observability, bots
+  80-watchtower.yaml       automatic image updates from GHCR
   90-certbot.yaml          optional certbot profile
 ```
 
-## Администратор
+## Security checklist
 
-Админка не должна выдаваться скрытым правилом "первый пользователь — Admin". В production укажи явно:
+`deploy.sh` стопает запуск, если:
 
-```text
-BOOTSTRAP_FIRST_USER_IS_ADMIN=false
-BOOTSTRAP_ADMIN_EMAILS=admin@taskforge.by
-```
+- остались `CHANGE_ME`;
+- слабый `JWT_SIGNING_KEY` или internal keys;
+- `BOOTSTRAP_FIRST_USER_IS_ADMIN=true`;
+- `ASPNETCORE_ENVIRONMENT` не `Production`;
+- `ENSURE_CREATED=true`;
+- наружу проброшены лишние ports;
+- Docker Compose config невалидный.
 
-Пользователь с email из `BOOTSTRAP_ADMIN_EMAILS` получит роль `Admin` при регистрации.
+Наружу публикуется только gateway. Storage-порты по умолчанию привязаны к `127.0.0.1`. Остальные API доступны только внутри Docker-сети.
 
-## Public URLs
-
-В production не должно быть публичных fallback-URL на localhost. Обязательно настрой:
-
-```text
-S3_PUBLIC_ENDPOINT=https://s3.taskforge.by
-```
-
-или другой реальный публичный URL для файлов.
-
-## Миграции
-
-Миграции хранятся в репозитории по владельцам данных. Текущий baseline: `InitialMicroserviceSchema`.
-
-Новые изменения схемы добавляются безопасным скриптом:
+## Полезные команды
 
 ```bash
-./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+./deploy/prod/compose.sh ps
+./deploy/prod/compose.sh logs -f --tail=200
+./deploy/prod/compose.sh logs -f gateway identity-api tasks-api solutions-api
+./deploy/prod/compose.sh restart gateway
+./deploy/prod/compose.sh pull && ./deploy/prod/compose.sh up -d
 ```
 
-Автоприменение миграций оставлено: `MIGRATE_ON_STARTUP=true` по умолчанию. Для одного production-сервера через Docker Compose это допустимо. Для Kubernetes/нескольких replicas лучше перейти на отдельные migrator jobs.
-
-
-## Production security checklist
-
-В v18 production-режим должен работать fail-closed:
-
-* `JWT_SIGNING_KEY`, `TASKFORGE_INTERNAL_KEY`, `TASKFORGE_AGENT_INTERNAL_KEY` обязательны и должны быть длинными случайными значениями.
-* Пароли пользователей хранятся через PBKDF2-SHA256 с индивидуальной солью. Старые SHA256-хэши читаются только для совместимости и мигрируют при успешном входе.
-* `.env` и любые локальные секреты игнорируются `.gitignore`/`.dockerignore`; в репозитории остаются только `.env.example`.
-* Internal endpoints принимают только `X-Internal-Key`; слабый/placeholder key в Production отклоняется.
-* API с группами, курсами, рейтингом, решениями и runner/compiler endpoints требуют авторизацию или права редактора.
-* Runner-контейнеры запускаются с `no-new-privileges`, `cap_drop: ALL`, `read_only: true`, `pids_limit`, `mem_limit`, отдельным internal `runner-net` и tmpfs `/tmp` с `exec` только для компиляции.
-* В production наружу публикуется только gateway и localhost-bound storage ports. Остальные сервисы доступны только внутри Docker-сети.
-
-## Startup logs
+Для сохранения startup-логов:
 
 ```bash
 ./deploy/prod/compose.sh up-logs
 ```
-
-Команда стартует стек detached и сохраняет первые 30 секунд логов в `deploy/prod/logs/<timestamp>/startup-30s.log`.

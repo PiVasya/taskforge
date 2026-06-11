@@ -47,7 +47,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # Allow one-command server bootstrap by passing the public values as environment variables.
-for key in IMAGE_REPOSITORY IMAGE_TAG DOMAIN CT_DOMAIN LETSENCRYPT_EMAIL GATEWAY_MODE S3_PUBLIC_ENDPOINT BOOTSTRAP_ADMIN_EMAILS; do
+for key in IMAGE_REPOSITORY IMAGE_TAG DOMAIN CT_DOMAIN LETSENCRYPT_EMAIL GATEWAY_MODE S3_PUBLIC_ENDPOINT BOOTSTRAP_ADMIN_EMAILS WATCHTOWER_SCOPE WATCHTOWER_POLL_INTERVAL; do
   if [ -n "${!key:-}" ]; then
     set_env_value "$key" "${!key}"
   fi
