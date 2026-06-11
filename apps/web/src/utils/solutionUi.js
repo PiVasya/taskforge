@@ -1,5 +1,5 @@
 const PENDING_STATUSES = new Set(['preparing', 'queued', 'running', 'pending']);
-const SUCCESS_STATUSES = new Set(['accepted', 'ok', 'success', 'passed']);
+const SUCCESS_STATUSES = new Set(['accepted', 'success', 'passed']);
 const DANGER_STATUSES = new Set([
   'rejected',
   'compileerror',
@@ -80,7 +80,7 @@ export function getSolutionStatusLabel(solutionOrStatus) {
   const raw = typeof solutionOrStatus === 'string' ? solutionOrStatus : getSolutionStatus(solutionOrStatus);
   const status = normalizeStatus(raw);
   if (!status) return 'Статус неизвестен';
-  if (status === 'accepted' || status === 'ok' || status === 'success' || status === 'passed') return 'Принято';
+  if (status === 'accepted' || status === 'success' || status === 'passed') return 'Принято';
   if (status === 'rejected' || status === 'failed') return 'Не принято';
   if (status === 'compileerror' || status === 'compilationerror') return 'Ошибка компиляции';
   if (status === 'policyfailed') return 'Отклонено анализатором';
@@ -122,8 +122,8 @@ export function dateMs(value) {
 }
 
 export function getSolutionTitle(solution) {
-  const course = firstNonEmpty(solution?.courseTitle, solution?.courseName);
-  const assignment = firstNonEmpty(solution?.assignmentTitle, solution?.taskTitle, solution?.title);
+  const course = firstNonEmpty(solution?.courseTitle, solution?.CourseTitle, solution?.courseName, solution?.CourseName);
+  const assignment = firstNonEmpty(solution?.assignmentTitle, solution?.AssignmentTitle, solution?.taskTitle, solution?.TaskTitle, solution?.title, solution?.Title);
   if (course && assignment) return `${course} • ${assignment}`;
   if (assignment) return assignment;
   return `Задание ${shortId(solution?.assignmentId ?? solution?.taskAssignmentId)}`;
@@ -144,7 +144,7 @@ export function isResultCasePassed(item) {
   if (typeof item.passed === 'boolean') return item.passed;
   if (typeof item.Passed === 'boolean') return item.Passed;
   const status = normalizeStatus(item.status ?? item.Status);
-  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+  return status === 'accepted' || status === 'passed' || status === 'success';
 }
 
 export function getSolutionCounts(solution) {

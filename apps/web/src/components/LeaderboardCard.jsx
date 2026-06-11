@@ -7,6 +7,8 @@ import { Trophy, MapPin, BookOpen, Clock } from 'lucide-react';
 
 export default function LeaderboardCard({ entry }) {
   const nav = useNavigate();
+  const solved = entry.solvedAssignments ?? entry.solvedCount ?? entry.solved ?? 0;
+  const name = entry.displayName || entry.userName || entry.fullName || entry.maskedEmail || entry.email || 'Пользователь';
   const handleOpenProfile = () => {
     nav(`/users/${entry.userId}`);
   };
@@ -44,12 +46,12 @@ export default function LeaderboardCard({ entry }) {
         {entry.avatarUrl ? (
           <img
             src={entry.avatarUrl}
-            alt={entry.displayName}
+            alt={name}
             className="h-14 w-14 rounded-full object-cover border border-neutral-300/60 dark:border-neutral-700/60"
           />
         ) : (
           <div className="h-14 w-14 rounded-full bg-gradient-to-br from-fuchsia-500 to-pink-500 grid place-items-center text-white text-xl font-semibold">
-            {(entry.displayName || entry.email || '?')[0].toUpperCase()}
+            {(name || '?')[0].toUpperCase()}
           </div>
         )}
       </div>
@@ -59,7 +61,7 @@ export default function LeaderboardCard({ entry }) {
         
         <div className="flex flex-wrap items-center gap-2">
           <div className="font-semibold break-words">
-            {entry.displayName || entry.email}
+            {name}
           </div>
 
           {hasBadges && (
@@ -104,7 +106,7 @@ export default function LeaderboardCard({ entry }) {
           
           <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
             <span className="font-semibold text-neutral-700 dark:text-neutral-200">
-              {entry.solvedAssignments}
+              {solved}
             </span>
             <span className="text-neutral-500 dark:text-neutral-400">
               решённых&nbsp;заданий

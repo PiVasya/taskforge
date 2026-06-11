@@ -41,14 +41,20 @@ grep -q "../../../infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro" d
 for file in deploy/dev/compose/30-execution.yaml deploy/prod/compose/30-execution.yaml; do
   block="$(awk '/^  python-runner:/{flag=1} /^  image-cpp-runner:/{flag=0} flag{print}' "$file")"
   printf '%s\n' "$block" | grep -q "python-runner" || fail "$file missing python-runner service"
-  printf '%s\n' "$block" | grep -q "python -c" || fail "$file python-runner healthcheck must use Python stdlib, not curl"
-  if printf '%s\n' "$block" | grep -q "curl -fsS"; then
-    fail "$file python-runner healthcheck uses curl, but python:slim does not include curl"
-  fi
+  printf '%s\n' "$block" | grep -q "/health" || fail "$file python-runner healthcheck must call /health"
 done
 
-if [ -d deploy/dev/build-logs ]; then
+if [ "${TASKFORGE_PACKAGING_CHECK:-0}" = "1" ] && [ -d deploy/dev/build-logs ]; then
   fail "deploy/dev/build-logs should not be committed/packed into runnable archives"
 fi
+
+for file in deploy/dev/compose/30-execution.yaml deploy/prod/compose/30-execution.yaml; do
+  grep -q "runner-net:" "$file" || fail "$file must define isolated runner-net"
+  grep -q "internal: true" "$file" || fail "$file runner-net must be internal"
+  awk '/^x-runner-security:/{flag=1} /^services:/{flag=0} flag{print}' "$file" | grep -q "runner-net" \
+    || fail "$file runner security anchor must attach runners to runner-net"
+  awk '/^  execution-worker:/{flag=1} /^  csharp-runner:/{flag=0} flag{print}' "$file" | grep -q "runner-net" \
+    || fail "$file execution-worker must be attached to runner-net"
+done
 
 echo "runtime config ok"

@@ -8,6 +8,8 @@ x-runner-security: &runner-security
   read_only: true
   tmpfs:
   - /tmp:size=${RUNNER_TMPFS_SIZE:-256m},mode=1777,exec
+  networks:
+  - runner-net
 
 services:
   execution-api:
@@ -75,6 +77,9 @@ services:
       CodeAnalyzer__FailClosed: ${CODE_ANALYZER_FAIL_CLOSED:-true}
       CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}
       Runners__ImagePascal: http://image-pascal-runner:8000
+    networks:
+    - default
+    - runner-net
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -221,3 +226,8 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+networks:
+  default: {}
+  runner-net:
+    internal: true

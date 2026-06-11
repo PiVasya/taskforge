@@ -161,23 +161,25 @@ app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", a
     return Results.Ok(ToDto(sub, includeSensitiveResult: true));
 });
 
-app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, HttpContext http, IConfiguration cfg, SolutionsDbContext db, int top = 20) =>
+app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, int top = 20, CancellationToken ct = default) =>
 {
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
 
     var limit = Math.Clamp(top, 1, 100);
-    var canViewCode = IsEditor(http, cfg) || await db.Submissions.AsNoTracking().AnyAsync(x => x.AssignmentId == assignmentId && x.UserId == uid.Value && x.Status == "Accepted");
+    var canViewCode = IsEditor(http, cfg) || await db.Submissions.AsNoTracking().AnyAsync(x => x.AssignmentId == assignmentId && x.UserId == uid.Value && x.Status == "Accepted", ct);
     var rows = await db.Submissions.AsNoTracking()
         .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted")
         .OrderByDescending(x => x.Score)
         .ThenBy(x => x.CreatedAt)
         .Take(limit)
-        .ToListAsync();
-    return Results.Ok(rows.Select(x => ToTopSolutionDto(x, canViewCode || x.UserId == uid.Value)).ToList());
+        .ToListAsync(ct);
+    var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, ct);
+    var users = await LoadUserSummariesAsync(rows.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value), cfg, httpFactory, ct);
+    return Results.Ok(rows.Select(x => ToTopSolutionDto(x, canViewCode || x.UserId == uid.Value, metadata.GetValueOrDefault(x.AssignmentId), x.UserId.HasValue ? users.GetValueOrDefault(x.UserId.Value) : null)).ToList());
 });
 
-app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
+app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
 {
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
@@ -194,23 +196,31 @@ app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, Sol
         .OrderByDescending(x => x.CreatedAt)
         .Skip(Math.Max(0, skip))
         .Take(Math.Clamp(take, 1, 200))
-        .ToListAsync();
+        .ToListAsync(ct);
     var includeHiddenDetails = IsEditor(http, cfg);
-    return Results.Ok(rows.Select(x => ToDto(x, includeHiddenDetails)).ToList());
+    var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
+    return Results.Ok(rows.Select(x => ToDto(x, includeHiddenDetails, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
 });
-app.MapGet("/api/me/solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
+app.MapGet("/api/me/solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
 {
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
 
-    var s = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+    var s = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
     if (s == null) return Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
     if (s.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "SOLUTION_FORBIDDEN" }, statusCode: 403);
-    return Results.Ok(ToDto(s, includeSensitiveResult: IsEditor(http, cfg)));
+    var metadata = await LoadAssignmentMetadataAsync(new[] { s.AssignmentId }, cfg, httpFactory, ct);
+    return Results.Ok(ToDto(s, includeSensitiveResult: IsEditor(http, cfg), metadata: metadata.GetValueOrDefault(s.AssignmentId)));
 });
-app.MapGet("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } s ? Results.Ok(ToDto(s, includeSensitiveResult: true)) : Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" }));
+app.MapGet("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
+{
+    var s = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (s == null) return Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+    var metadata = await LoadAssignmentMetadataAsync(new[] { s.AssignmentId }, cfg, httpFactory, ct);
+    return Results.Ok(ToDto(s, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(s.AssignmentId)));
+});
 app.MapDelete("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var s = await db.Submissions.FindAsync(id); if (s == null) return Results.NotFound(); db.Submissions.Remove(s); await db.SaveChangesAsync(); return Results.Ok(new { deleted = id }); });
-app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
+app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
 {
     var q = db.Submissions.AsNoTracking().Where(x => x.UserId == userId);
     if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
@@ -224,8 +234,9 @@ app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, Solut
         .OrderByDescending(x => x.CreatedAt)
         .Skip(Math.Max(0, skip))
         .Take(Math.Clamp(take, 1, 200))
-        .ToListAsync();
-    return Results.Ok(rows.Select(x => ToDto(x, includeSensitiveResult: true)).ToList());
+        .ToListAsync(ct);
+    var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
+    return Results.Ok(rows.Select(x => ToDto(x, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(x.AssignmentId))).ToList());
 });
 app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days) =>
 {
@@ -241,14 +252,170 @@ app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, So
     await db.SaveChangesAsync();
     return Results.Ok(new { deleted = rows.Count, assignmentId, days });
 });
-app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, string? q, int take = 200) => Results.Ok(await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).Take(Math.Clamp(take, 1, 500)).Select(x => new { id = x.UserId, userId = x.UserId, email = x.UserId.ToString(), displayName = x.UserId.ToString(), score = x.TotalScore, solved = x.SolvedCount }).ToListAsync()));
-
-app.MapGet("/api/leaderboard", async (SolutionsDbContext db) =>
+app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, string? q, int take = 200, CancellationToken ct = default) =>
 {
-    var ratings = await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).ThenByDescending(x => x.SolvedCount).Take(100).ToListAsync();
-    return Results.Ok(ratings.Select((x, i) => new { rank = i + 1, userId = x.UserId, userName = x.UserId.ToString(), displayName = x.UserId.ToString(), totalScore = x.TotalScore, solvedCount = x.SolvedCount, score = x.TotalScore }).ToList());
+    var ratingRows = await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).Take(1000).ToListAsync(ct);
+    var ids = ratingRows.Select(x => x.UserId)
+        .Concat(await db.Submissions.AsNoTracking().Where(x => x.UserId.HasValue).Select(x => x.UserId.Value).Distinct().Take(1000).ToListAsync(ct))
+        .Distinct()
+        .Take(1000)
+        .ToArray();
+    var users = await LoadUserSummariesAsync(ids, cfg, httpFactory, ct);
+    var ratings = ratingRows.ToDictionary(x => x.UserId);
+    var search = NormalizeSearch(q);
+    var rows = ids
+        .Select(id => new { Id = id, User = users.GetValueOrDefault(id), Rating = ratings.GetValueOrDefault(id) })
+        .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Id, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Id).Contains(search, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(x => x.Rating?.TotalScore ?? 0)
+        .ThenBy(x => x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Id.ToString())
+        .Take(Math.Clamp(take, 1, 500))
+        .Select(x => new
+        {
+            id = x.Id,
+            userId = x.Id,
+            email = x.User?.Email ?? x.User?.MaskedEmail ?? x.Id.ToString(),
+            maskedEmail = x.User?.MaskedEmail,
+            displayName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Id.ToString(),
+            fullName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Id.ToString(),
+            firstName = x.User?.FirstName,
+            lastName = x.User?.LastName,
+            score = x.Rating?.TotalScore ?? 0,
+            solved = x.Rating?.SolvedCount ?? 0
+        })
+        .ToList();
+    return Results.Ok(rows);
+});
+
+app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? courseId, int? days, Guid? groupId, string? q, int top = 100, CancellationToken ct = default) =>
+{
+    var uid = CurrentUserId(http, cfg);
+    if (uid == null) return Unauthorized();
+
+    Guid[]? groupUserIds = null;
+    if (groupId.HasValue)
+    {
+        groupUserIds = await LoadGroupMemberIdsAsync(groupId.Value, cfg, httpFactory, ct);
+        if (!IsEditor(http, cfg) && !groupUserIds.Contains(uid.Value))
+        {
+            return Results.Json(new { message = "Нет доступа к рейтингу этой группы.", code = "GROUP_FORBIDDEN" }, statusCode: 403);
+        }
+    }
+
+    var since = days.HasValue && days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-days.Value) : (DateTimeOffset?)null;
+    var codeRows = await db.Submissions.AsNoTracking()
+        .Where(x => x.UserId.HasValue && x.Status == "Accepted")
+        .Where(x => !since.HasValue || x.CreatedAt >= since.Value)
+        .ToListAsync(ct);
+    var imageRows = await db.ImageSolutions.AsNoTracking()
+        .Where(x => x.Passed)
+        .Where(x => !since.HasValue || x.CreatedAt >= since.Value)
+        .ToListAsync(ct);
+
+    if (groupUserIds is { Length: > 0 })
+    {
+        var members = groupUserIds.ToHashSet();
+        codeRows = codeRows.Where(x => x.UserId.HasValue && members.Contains(x.UserId.Value)).ToList();
+        imageRows = imageRows.Where(x => members.Contains(x.UserId)).ToList();
+    }
+    else if (groupId.HasValue)
+    {
+        codeRows = new List<SolutionSubmission>();
+        imageRows = new List<UserImageTaskSolution>();
+    }
+
+    var assignmentIds = codeRows.Select(x => x.AssignmentId).Concat(imageRows.Select(x => x.AssignmentId)).Distinct().ToArray();
+    var metadata = await LoadAssignmentMetadataAsync(assignmentIds, cfg, httpFactory, ct);
+
+    var activityRows = new List<LeaderboardActivityRow>();
+    activityRows.AddRange(codeRows.Where(x => x.UserId.HasValue).Select(x => new LeaderboardActivityRow(x.UserId.Value, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
+    activityRows.AddRange(imageRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "image")));
+    if (!groupId.HasValue || groupUserIds is { Length: > 0 })
+    {
+        activityRows.AddRange(await LoadTaskLeaderboardRowsAsync(courseId, days, groupUserIds, cfg, httpFactory, ct));
+    }
+
+    if (courseId.HasValue)
+    {
+        activityRows = activityRows.Where(x => metadata.TryGetValue(x.AssignmentId, out var m) ? m.CourseId == courseId.Value : true).ToList();
+    }
+
+    if (activityRows.Count == 0) return Results.Ok(Array.Empty<object>());
+
+    var aggregated = activityRows
+        .GroupBy(x => x.UserId)
+        .Select(g =>
+        {
+            var distinct = g.GroupBy(x => x.AssignmentId).Select(a => new { Rating = a.Max(z => z.Rating), Last = a.Max(z => z.SubmittedAt) }).ToList();
+            return new
+            {
+                UserId = g.Key,
+                SolvedAssignments = distinct.Count,
+                Score = distinct.Sum(x => x.Rating),
+                TotalAttempts = g.Count(),
+                LastSubmitAt = distinct.Max(x => x.Last)
+            };
+        })
+        .Where(x => x.SolvedAssignments > 0)
+        .OrderByDescending(x => x.Score)
+        .ThenByDescending(x => x.SolvedAssignments)
+        .ThenByDescending(x => x.LastSubmitAt)
+        .ToList();
+
+    var users = await LoadUserSummariesAsync(aggregated.Select(x => x.UserId), cfg, httpFactory, ct);
+    var badges = await LoadBadgeMapAsync(db, aggregated.Select(x => x.UserId), ct);
+    var search = NormalizeSearch(q);
+
+    var visible = aggregated
+        .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })
+        .Where(x => x.User == null || x.User.ShowInLeaderboard)
+        .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))
+        .Take(Math.Clamp(top, 1, 200))
+        .Select((x, i) => new
+        {
+            rank = i + 1,
+            userId = x.Row.UserId,
+            userName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Row.UserId.ToString(),
+            displayName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Row.UserId.ToString(),
+            email = x.User?.MaskedEmail,
+            maskedEmail = x.User?.MaskedEmail,
+            firstName = x.User?.FirstName,
+            lastName = x.User?.LastName,
+            avatarUrl = x.User?.AvatarUrl,
+            location = x.User?.Location,
+            education = x.User?.Education,
+            totalScore = x.Row.Score,
+            score = x.Row.Score,
+            solved = x.Row.SolvedAssignments,
+            solvedCount = x.Row.SolvedAssignments,
+            solvedAssignments = x.Row.SolvedAssignments,
+            totalAttempts = x.Row.TotalAttempts,
+            lastSubmitAt = x.Row.LastSubmitAt,
+            badges = badges.GetValueOrDefault(x.Row.UserId) ?? new List<object>()
+        })
+        .ToList();
+
+    return Results.Ok(visible);
 });
 app.MapGet("/api/admin/leaderboard", async (SolutionsDbContext db) => Results.Ok(await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).ToListAsync()));
+
+app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, CancellationToken ct) =>
+{
+    var codeAttempts = await db.Submissions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
+    var imageAttempts = await db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
+    var solved = codeAttempts.Where(x => x.Status == "Accepted").Select(x => x.AssignmentId)
+        .Concat(imageAttempts.Where(x => x.Passed).Select(x => x.AssignmentId))
+        .Distinct()
+        .Count();
+    return Results.Ok(new
+    {
+        solvedAssignments = solved,
+        totalAttempts = codeAttempts.Count + imageAttempts.Count,
+        codeSolutions = codeAttempts.Count,
+        imageSolutions = imageAttempts.Count,
+        testAttempts = 0,
+        mathAttempts = 0
+    });
+});
 
 app.MapGet("/api/me/quotas", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
 {
@@ -600,8 +767,8 @@ static bool IsPassedResult(JsonElement item)
     if (item.TryGetProperty("passed", out var passed) && passed.ValueKind is JsonValueKind.True or JsonValueKind.False) return passed.GetBoolean();
     if (item.TryGetProperty("status", out var status))
     {
-        var value = status.ToString();
-        return string.Equals(value, "ok", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "OK", StringComparison.OrdinalIgnoreCase);
+        var value = NormalizeStatusKey(status.ToString());
+        return value is "accepted" or "passed" or "success";
     }
     return false;
 }
@@ -658,6 +825,141 @@ static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
 {
     var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
     if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
+}
+
+static async Task<Dictionary<Guid, AssignmentMetadata>> LoadAssignmentMetadataAsync(IEnumerable<Guid> assignmentIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+    if (ids.Length == 0) return new Dictionary<Guid, AssignmentMetadata>();
+
+    var assignments = await PostInternalAsync<List<AssignmentSummaryDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/assignments/summaries", new AssignmentIdsRequest(ids), ct) ?? new List<AssignmentSummaryDto>();
+    var courseIds = assignments.Select(x => x.CourseId).Where(x => x != Guid.Empty).Distinct().ToArray();
+    var courses = await PostInternalAsync<List<CourseSummaryDto>>(httpFactory, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), "/api/internal/courses/metadata", new CourseIdsRequest(courseIds), ct) ?? new List<CourseSummaryDto>();
+    var courseMap = courses.ToDictionary(x => x.CourseId != Guid.Empty ? x.CourseId : x.Id, x => x.Title ?? x.CourseTitle ?? "Курс");
+
+    var map = new Dictionary<Guid, AssignmentMetadata>();
+    foreach (var a in assignments)
+    {
+        var id = a.AssignmentId != Guid.Empty ? a.AssignmentId : a.Id;
+        if (id == Guid.Empty) continue;
+        courseMap.TryGetValue(a.CourseId, out var courseTitle);
+        map[id] = new AssignmentMetadata(id, a.CourseId, a.Title ?? a.AssignmentTitle ?? $"Задание {id.ToString()[..8]}", courseTitle ?? "Курс", Math.Max(0, a.Rating));
+    }
+    return map;
+}
+
+static int MetadataRating(Dictionary<Guid, AssignmentMetadata> metadata, Guid assignmentId)
+    => metadata.TryGetValue(assignmentId, out var m) && m.Rating > 0 ? m.Rating : 1;
+
+static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnumerable<Guid> userIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+    if (ids.Length == 0) return new Dictionary<Guid, UserSummaryDto>();
+    var rows = await PostInternalAsync<List<UserSummaryDto>>(httpFactory, cfg, ServiceUrl(cfg, "IdentityApi", "http://identity-api:8080"), "/api/internal/users/summaries", new UserIdsRequest(ids), ct) ?? new List<UserSummaryDto>();
+    return rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+}
+
+static async Task<Guid[]> LoadGroupMemberIdsAsync(Guid groupId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    var response = await GetInternalAsync<GroupMembersResponse>(httpFactory, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/groups/{groupId}/members", ct);
+    return response?.UserIds?.Where(x => x != Guid.Empty).Distinct().ToArray() ?? Array.Empty<Guid>();
+}
+
+static async Task<List<LeaderboardActivityRow>> LoadTaskLeaderboardRowsAsync(Guid? courseId, int? days, Guid[]? userIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    var rows = await PostInternalAsync<List<TaskActivityRowDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/activity/leaderboard", new ActivityLeaderboardRequest(courseId, days, userIds), ct) ?? new List<TaskActivityRowDto>();
+    return rows.Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
+        .Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, Math.Max(1, x.Rating), x.SubmittedAt, x.Kind ?? "task"))
+        .ToList();
+}
+
+static async Task<Dictionary<Guid, List<object>>> LoadBadgeMapAsync(SolutionsDbContext db, IEnumerable<Guid> userIds, CancellationToken ct)
+{
+    var ids = userIds.Where(x => x != Guid.Empty).Distinct().ToArray();
+    if (ids.Length == 0) return new Dictionary<Guid, List<object>>();
+    var userBadges = await db.UserBadges.AsNoTracking().Where(x => ids.Contains(x.UserId)).ToListAsync(ct);
+    var badgeIds = userBadges.Select(x => x.BadgeId).Distinct().ToArray();
+    var badges = await db.Badges.AsNoTracking().Where(x => badgeIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+    return userBadges
+        .Where(x => badges.ContainsKey(x.BadgeId))
+        .GroupBy(x => x.UserId)
+        .ToDictionary(g => g.Key, g => g.Select(x => badges[x.BadgeId]).Select(b => (object)new { b.Id, b.Name, b.Description, b.ImageUrl }).ToList());
+}
+
+static async Task<T?> PostInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, object payload, CancellationToken ct)
+{
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Post, baseUrl.TrimEnd('/') + path)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions())
+        };
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return default;
+        return await resp.Content.ReadFromJsonAsync<T>(JsonOptions(), ct);
+    }
+    catch
+    {
+        return default;
+    }
+}
+
+static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, CancellationToken ct)
+{
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Get, baseUrl.TrimEnd('/') + path);
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return default;
+        return await resp.Content.ReadFromJsonAsync<T>(JsonOptions(), ct);
+    }
+    catch
+    {
+        return default;
+    }
+}
+
+static string NormalizeStatusKey(string? value) => string.Join(string.Empty, (value ?? string.Empty).Where(char.IsLetterOrDigit)).ToLowerInvariant();
+static string NormalizeSearch(string? value) => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.Email} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
+static int UserSummarySearchScore(UserSummaryDto? user, Guid id, string query)
+{
+    var values = new[] { id.ToString(), user?.Email, user?.MaskedEmail, user?.DisplayName, user?.FirstName, user?.LastName }
+        .Select(NormalizeSearch)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .ToArray();
+    if (values.Any(x => x.Contains(query, StringComparison.OrdinalIgnoreCase))) return 0;
+    var best = int.MaxValue;
+    foreach (var value in values)
+    {
+        best = Math.Min(best, Levenshtein(value, query));
+        foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) best = Math.Min(best, Levenshtein(token, query));
+    }
+    return best == int.MaxValue ? 999 : best;
+}
+static int Levenshtein(string a, string b)
+{
+    if (a == b) return 0;
+    if (a.Length == 0) return b.Length;
+    if (b.Length == 0) return a.Length;
+    var prev = new int[b.Length + 1];
+    var cur = new int[b.Length + 1];
+    for (var j = 0; j <= b.Length; j++) prev[j] = j;
+    for (var i = 1; i <= a.Length; i++)
+    {
+        cur[0] = i;
+        for (var j = 1; j <= b.Length; j++)
+        {
+            var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            cur[j] = Math.Min(Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+        }
+        (prev, cur) = (cur, prev);
+    }
+    return prev[b.Length];
 }
 
 static bool IsTerminalVerdict(string? value) => value is not null && (string.Equals(value, "Accepted", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "Rejected", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "CompileError", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "PolicyFailed", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "NoTestsConfigured", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "JudgeUnavailable", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "LanguageNotAllowed", StringComparison.OrdinalIgnoreCase));
@@ -719,21 +1021,26 @@ static bool IsEditor(HttpContext http, IConfiguration cfg)
 }
 static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
-static object ToDto(SolutionSubmission x, bool includeSensitiveResult = false)
+static object ToDto(SolutionSubmission x, bool includeSensitiveResult = false, AssignmentMetadata? metadata = null)
 {
     var result = SanitizeSolutionResult(ParseJsonElement(x.ResultJson), includeSensitiveResult);
     var counts = CountCases(result);
-    var accepted = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase);
+    var acceptedStatus = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase);
+    var accepted = acceptedStatus && (counts.total == 0 || counts.failed == 0);
     return new
     {
         x.Id,
         x.AssignmentId,
+        assignmentTitle = metadata?.Title,
+        title = metadata?.Title,
+        courseId = metadata?.CourseId,
+        courseTitle = metadata?.CourseTitle,
         x.UserId,
         x.Language,
         x.Code,
         submittedCode = x.Code,
-        verdict = x.Status,
-        status = x.Status,
+        verdict = accepted ? "Accepted" : x.Status,
+        status = accepted ? "Accepted" : x.Status,
         x.Score,
         result = result.HasValue ? (object)result.Value : null,
         isPending = IsPendingVerdict(x.Status),
@@ -749,7 +1056,7 @@ static object ToDto(SolutionSubmission x, bool includeSensitiveResult = false)
         submittedAt = x.CreatedAt
     };
 }
-static object ToTopSolutionDto(SolutionSubmission x, bool includeCode)
+static object ToTopSolutionDto(SolutionSubmission x, bool includeCode, AssignmentMetadata? metadata = null, UserSummaryDto? user = null)
 {
     var result = SanitizeSolutionResult(ParseJsonElement(x.ResultJson), includeHiddenDetails: false);
     var counts = CountCases(result);
@@ -757,7 +1064,15 @@ static object ToTopSolutionDto(SolutionSubmission x, bool includeCode)
     {
         x.Id,
         x.AssignmentId,
+        assignmentTitle = metadata?.Title,
+        title = metadata?.Title,
+        courseId = metadata?.CourseId,
+        courseTitle = metadata?.CourseTitle,
         x.UserId,
+        userName = user?.DisplayName ?? user?.MaskedEmail,
+        displayName = user?.DisplayName ?? user?.MaskedEmail,
+        email = user?.MaskedEmail,
+        maskedEmail = user?.MaskedEmail,
         x.Language,
         code = includeCode ? x.Code : null,
         submittedCode = includeCode ? x.Code : null,
@@ -888,6 +1203,61 @@ static (int passed, int failed, int total) CountCases(JsonElement? element)
     return (0, 0, 0);
 }
 static JsonSerializerOptions JsonOptions() => new(JsonSerializerDefaults.Web) { WriteIndented = false };
+public sealed record AssignmentMetadata(Guid AssignmentId, Guid CourseId, string Title, string CourseTitle, int Rating);
+public sealed record LeaderboardActivityRow(Guid UserId, Guid AssignmentId, int Rating, DateTimeOffset SubmittedAt, string Kind);
+public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
+public sealed record CourseIdsRequest(Guid[]? CourseIds);
+public sealed record UserIdsRequest(Guid[]? UserIds);
+public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
+public sealed class AssignmentSummaryDto
+{
+    public Guid Id { get; set; }
+    public Guid AssignmentId { get; set; }
+    public Guid CourseId { get; set; }
+    public string? Title { get; set; }
+    public string? AssignmentTitle { get; set; }
+    public int Rating { get; set; } = 1;
+}
+public sealed class CourseSummaryDto
+{
+    public Guid Id { get; set; }
+    public Guid CourseId { get; set; }
+    public string? Title { get; set; }
+    public string? CourseTitle { get; set; }
+}
+public sealed class UserSummaryDto
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string? Email { get; set; }
+    public string? MaskedEmail { get; set; }
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public string? DisplayName { get; set; }
+    public string? AvatarUrl { get; set; }
+    public string? Location { get; set; }
+    public string? Education { get; set; }
+    public bool ShowInLeaderboard { get; set; } = true;
+    public void Normalize()
+    {
+        if (UserId == Guid.Empty) UserId = Id;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail ?? Email;
+    }
+}
+public sealed class GroupMembersResponse
+{
+    public Guid GroupId { get; set; }
+    public Guid[]? UserIds { get; set; }
+}
+public sealed class TaskActivityRowDto
+{
+    public Guid UserId { get; set; }
+    public Guid AssignmentId { get; set; }
+    public int Rating { get; set; } = 1;
+    public DateTimeOffset SubmittedAt { get; set; }
+    public string? Kind { get; set; }
+}
 public sealed record SubmitRequest(string? Language, string? Code, string? Input, JsonElement? Tests);
 public sealed record SolutionVerdictRequest(string? Verdict, int Score, string? Message, JsonElement? Result);
 public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);

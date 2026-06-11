@@ -136,3 +136,29 @@ scripts/              e2e и миграционные скрипты
 - Обычные code-задачи поддерживают 6 языков: `cpp`, `csharp`, `java`, `javascript`, `pascal`, `python`.
 - Python application runtime разрешён только для `services/analyzers/image-analyzer`. Python остаётся языком решений на сайте, но `python-runner` как backend-сервис написан на Go и только запускает `python3` как инструмент исполнения пользовательского кода.
 - Старые исходники лежат в `extracted/` как reference и исключены из компиляции.
+
+## Production deploy
+
+Production compose lives in `deploy/prod`. If the environment is already configured, deploy is one command:
+
+```bash
+./deploy/prod/deploy.sh
+```
+
+First server bootstrap can also be one command by passing public values. The script creates `deploy/prod/.env`, generates strong random secrets, validates the config, pulls GHCR images and starts the stack:
+
+```bash
+IMAGE_REPOSITORY=ghcr.io/OWNER/REPO \
+DOMAIN=taskforge.by \
+CT_DOMAIN=ct.taskforge.by \
+LETSENCRYPT_EMAIL=admin@example.com \
+BOOTSTRAP_ADMIN_EMAILS=admin@example.com \
+S3_PUBLIC_ENDPOINT=https://s3.taskforge.by \
+./deploy/prod/deploy.sh
+```
+
+Security checks before startup:
+
+```bash
+scripts/prod/check-prod-config.sh
+```

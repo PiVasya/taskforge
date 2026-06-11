@@ -25,6 +25,7 @@ export default function LeaderboardPage() {
   const [courseId, setCourseId] = useState('');
   const [days, setDays] = useState('');
   const [groupId, setGroupId] = useState('');
+  const [query, setQuery] = useState('');
 
   
   useEffect(() => {
@@ -59,6 +60,7 @@ export default function LeaderboardPage() {
       }
 
       if (groupId) params.groupId = groupId;
+      if (query.trim()) params.q = query.trim();
 
       params.top = 100;
 
@@ -99,6 +101,20 @@ export default function LeaderboardPage() {
         <Card className="p-4 space-y-2">
           <div className="flex flex-wrap gap-4 items-end">
             
+            <div className="flex flex-col min-w-[220px]">
+              <label htmlFor="leaderboard-search" className="text-xs font-medium mb-1">
+                Поиск участника
+              </label>
+              <Input
+                id="leaderboard-search"
+                type="search"
+                placeholder="Имя, фамилия, почта, id"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') loadEntries(); }}
+              />
+            </div>
+
             <div className="flex flex-col min-w-[140px]">
               <label htmlFor="course-filter" className="text-xs font-medium mb-1">
                 Курс

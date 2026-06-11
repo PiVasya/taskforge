@@ -13,6 +13,37 @@ ct.taskforge.by
 
 В `.env` можно указать другие домены, но frontend всё равно должен ходить только на same-origin `/api/*` и `/hubs/*`. CORS для обычной работы сайта не нужен: gateway маршрутизирует API внутри Docker-сети.
 
+
+## One-command deploy
+
+Если `.env` уже настроен, production поднимается одной командой:
+
+```bash
+./deploy/prod/deploy.sh
+```
+
+Для первого запуска на чистом сервере можно передать публичные значения прямо в команду. Скрипт сам создаст `deploy/prod/.env`, сгенерирует сильные секреты и проверит конфигурацию перед запуском:
+
+```bash
+IMAGE_REPOSITORY=ghcr.io/OWNER/REPO \
+DOMAIN=taskforge.by \
+CT_DOMAIN=ct.taskforge.by \
+LETSENCRYPT_EMAIL=admin@example.com \
+BOOTSTRAP_ADMIN_EMAILS=admin@example.com \
+S3_PUBLIC_ENDPOINT=https://s3.taskforge.by \
+./deploy/prod/deploy.sh
+```
+
+Перед стартом выполняются:
+
+```bash
+scripts/prod/prepare-env.sh
+scripts/prod/check-prod-config.sh
+./deploy/prod/compose.sh config
+```
+
+Если в `.env` остались `CHANGE_ME`, слабый JWT/internal-key, `BOOTSTRAP_FIRST_USER_IS_ADMIN=true` или лишние публичные ports, запуск остановится.
+
 ## Быстрый запуск
 
 ```bash
@@ -94,6 +125,19 @@ S3_PUBLIC_ENDPOINT=https://s3.taskforge.by
 ```
 
 Автоприменение миграций оставлено: `MIGRATE_ON_STARTUP=true` по умолчанию. Для одного production-сервера через Docker Compose это допустимо. Для Kubernetes/нескольких replicas лучше перейти на отдельные migrator jobs.
+
+
+## Production security checklist
+
+В v18 production-режим должен работать fail-closed:
+
+* `JWT_SIGNING_KEY`, `TASKFORGE_INTERNAL_KEY`, `TASKFORGE_AGENT_INTERNAL_KEY` обязательны и должны быть длинными случайными значениями.
+* Пароли пользователей хранятся через PBKDF2-SHA256 с индивидуальной солью. Старые SHA256-хэши читаются только для совместимости и мигрируют при успешном входе.
+* `.env` и любые локальные секреты игнорируются `.gitignore`/`.dockerignore`; в репозитории остаются только `.env.example`.
+* Internal endpoints принимают только `X-Internal-Key`; слабый/placeholder key в Production отклоняется.
+* API с группами, курсами, рейтингом, решениями и runner/compiler endpoints требуют авторизацию или права редактора.
+* Runner-контейнеры запускаются с `no-new-privileges`, `cap_drop: ALL`, `read_only: true`, `pids_limit`, `mem_limit`, отдельным internal `runner-net` и tmpfs `/tmp` с `exec` только для компиляции.
+* В production наружу публикуется только gateway и localhost-bound storage ports. Остальные сервисы доступны только внутри Docker-сети.
 
 ## Startup logs
 

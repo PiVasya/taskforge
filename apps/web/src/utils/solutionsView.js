@@ -109,7 +109,7 @@ export function isResultCasePassed(c) {
   // Runner status "ok" only means the process exited normally. It must not
   // override passed:false for wrong answers. Use status only for legacy payloads
   // that do not contain an explicit passed flag.
-  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+  return status === 'accepted' || status === 'passed' || status === 'success';
 }
 
 export function getSolutionCounts(solution) {
@@ -143,8 +143,8 @@ export function getSolutionScore(solution) {
 }
 
 export function getSolutionTitle(solution, fallbackPrefix = 'Задание') {
-  const courseTitle = String(firstDefined(solution?.courseTitle, solution?.courseName, '') || '').trim();
-  const assignmentTitle = String(firstDefined(solution?.assignmentTitle, solution?.title, solution?.assignmentName, '') || '').trim();
+  const courseTitle = String(firstDefined(solution?.courseTitle, solution?.CourseTitle, solution?.courseName, solution?.CourseName, '') || '').trim();
+  const assignmentTitle = String(firstDefined(solution?.assignmentTitle, solution?.AssignmentTitle, solution?.title, solution?.Title, solution?.assignmentName, solution?.AssignmentName, '') || '').trim();
   if (courseTitle && assignmentTitle) return `${courseTitle} • ${assignmentTitle}`;
   if (assignmentTitle) return assignmentTitle;
   const id = firstDefined(solution?.assignmentId, solution?.taskAssignmentId, solution?.AssignmentId);

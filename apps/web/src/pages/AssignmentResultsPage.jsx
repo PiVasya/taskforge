@@ -22,7 +22,7 @@ function isCasePassedStrict(c) {
   if (typeof c.passed === 'boolean') return c.passed;
   if (typeof c.Passed === 'boolean') return c.Passed;
   const status = String(c.status ?? c.Status ?? '').trim().toLowerCase();
-  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+  return status === 'accepted' || status === 'passed' || status === 'success';
 }
 
 function isHiddenTestCase(t) {

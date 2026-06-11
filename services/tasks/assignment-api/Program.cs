@@ -110,6 +110,55 @@ app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Gu
     });
 });
 
+app.MapPost("/api/internal/assignments/summaries", async (AssignmentIdsRequest request, TasksDbContext db, CancellationToken ct) =>
+{
+    var ids = (request.AssignmentIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+    if (ids.Length == 0) return Results.Ok(Array.Empty<object>());
+    var rows = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+    return Results.Ok(rows.Select(AssignmentSummaryDto).ToList());
+});
+
+app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, CancellationToken ct) =>
+{
+    var testAttempts = await db.Attempts.AsNoTracking().Where(x => x.UserId == userId && x.Kind == "test").ToListAsync(ct);
+    var mathAttempts = await db.Attempts.AsNoTracking().Where(x => x.UserId == userId && x.Kind == "math").ToListAsync(ct);
+    var solved = testAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId)
+        .Concat(mathAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId))
+        .Distinct()
+        .Count();
+    return Results.Ok(new
+    {
+        solvedAssignments = solved,
+        totalAttempts = testAttempts.Count + mathAttempts.Count,
+        codeSolutions = 0,
+        imageSolutions = 0,
+        testAttempts = testAttempts.Count,
+        mathAttempts = mathAttempts.Count
+    });
+});
+
+app.MapPost("/api/internal/activity/leaderboard", async (ActivityLeaderboardRequest request, TasksDbContext db, CancellationToken ct) =>
+{
+    var since = request.Days.HasValue && request.Days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-request.Days.Value) : (DateTimeOffset?)null;
+    var userFilter = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToHashSet();
+    var q = db.Attempts.AsNoTracking().Where(x => x.Passed);
+    if (since.HasValue) q = q.Where(x => x.SubmittedAt.HasValue && x.SubmittedAt.Value >= since.Value);
+    if (userFilter.Count > 0) q = q.Where(x => userFilter.Contains(x.UserId));
+
+    var joined = await q.Join(db.Assignments.AsNoTracking(), a => a.TaskAssignmentId, assignment => assignment.Id, (a, assignment) => new { Attempt = a, Assignment = assignment })
+        .Where(x => !request.CourseId.HasValue || x.Assignment.CourseId == request.CourseId.Value)
+        .Select(x => new
+        {
+            userId = x.Attempt.UserId,
+            assignmentId = x.Attempt.TaskAssignmentId,
+            rating = x.Assignment.Rating,
+            submittedAt = x.Attempt.SubmittedAt ?? x.Attempt.CreatedAt,
+            kind = x.Attempt.Kind
+        })
+        .ToListAsync(ct);
+    return Results.Ok(joined);
+});
+
 app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, AssignmentRequest request, TasksDbContext db) =>
 {
     var assignment = await db.Assignments.FindAsync(assignmentId);
@@ -820,6 +869,21 @@ static object ToDto(Assignment x, bool includeSensitive = false)
     };
 }
 
+static object AssignmentSummaryDto(Assignment x) => new
+{
+    x.Id,
+    assignmentId = x.Id,
+    x.CourseId,
+    x.Title,
+    assignmentTitle = x.Title,
+    x.Type,
+    x.Language,
+    rating = x.Rating,
+    difficulty = x.Difficulty,
+    x.IsVisible,
+    x.Sort
+};
+
 static bool IsEditor(HttpContext http, IConfiguration cfg)
 {
     var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
@@ -1125,6 +1189,8 @@ static List<int?> IntList(JsonObject o, string n) => o[n] is JsonArray a ? a.Sel
 static List<Option> Options(JsonObject o, string n = "options") => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new Option(Str(x, "key", Guid.NewGuid().ToString("N")[..4]), Str(x, "text", ""))).ToList() : [];
 static List<MatchPair> MatchPairList(JsonObject o, string n) => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new MatchPair(Str(x, "leftKey", ""), Str(x, "rightKey", ""))).ToList() : [];
 
+public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
+public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
 public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden, string? ImageTestReferenceKey, int? ImageTestSimilarityThreshold);
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);
 public sealed record AnalyzerRequest(string Language, string Source, object? ExtraForbidden, string[]? ForbiddenCalls, string[]? RequiredCalls);

@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -13,12 +14,15 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient();
 builder.Services.AddDbContext<IdentityDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
 
 var app = builder.Build();
+
+ValidateProductionIdentityConfig(app.Configuration, app.Environment);
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
@@ -69,7 +73,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbCont
 {
     var email = NormalizeEmail(request.Email);
     if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest(new { message = "Email is required" });
-    if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 6) return Results.BadRequest(new { message = "Password must be at least 6 characters" });
+    if (!IsValidPassword(request.Password, out var passwordMessage)) return Results.BadRequest(new { message = passwordMessage });
     if (await db.Users.AnyAsync(x => x.Email == email)) return Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
 
     var firstUser = !await db.Users.AnyAsync();
@@ -98,6 +102,13 @@ app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, Id
     if (user == null || !VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash))
     {
         return Unauthorized("Неверный e-mail или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
+    }
+
+    if (NeedsPasswordRehash(user.PasswordHash))
+    {
+        var freshSalt = NewSalt();
+        user.PasswordSalt = freshSalt;
+        user.PasswordHash = HashPassword(request.Password ?? string.Empty, freshSalt);
     }
 
     user.LastLoginAt = DateTimeOffset.UtcNow;
@@ -167,6 +178,7 @@ app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request
     var user = await FindCurrentUserAsync(http, db, cfg);
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.CurrentPassword ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный текущий пароль" });
+    if (!IsValidPassword(request.NewPassword, out var passwordMessage)) return Results.BadRequest(new { message = passwordMessage });
     var salt = NewSalt();
     user.PasswordSalt = salt;
     user.PasswordHash = HashPassword(request.NewPassword ?? string.Empty, salt);
@@ -224,12 +236,13 @@ app.MapPut("/api/me/ui-settings", async (JsonElement payload, HttpContext http, 
     return Results.Text(row.DataJson, "application/json");
 });
 
-app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, IdentityDbContext db) =>
+app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, IdentityDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
 {
-    var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId);
+    var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId, ct);
     if (user == null) return Results.NotFound(new { message = "Профиль не найден" });
 
     var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
+    var stats = await FetchUserActivitySummaryAsync(userId, cfg, httpFactory, ct);
     return Results.Ok(new
     {
         user.Id,
@@ -247,16 +260,27 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
         website = extra.Website,
         skills = extra.Skills,
         showInLeaderboard = extra.ShowInLeaderboard,
-        solvedAssignments = 0,
-        totalAttempts = 0
+        solvedAssignments = stats.SolvedAssignments,
+        totalAttempts = stats.TotalAttempts,
+        codeSolutions = stats.CodeSolutions,
+        imageSolutions = stats.ImageSolutions,
+        testAttempts = stats.TestAttempts,
+        mathAttempts = stats.MathAttempts
     });
+});
+
+app.MapPost("/api/internal/users/summaries", async (UserIdsRequest request, IdentityDbContext db, CancellationToken ct) =>
+{
+    var ids = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
+    if (ids.Length == 0) return Results.Ok(Array.Empty<object>());
+    var rows = await db.Users.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+    return Results.Ok(rows.Select(ToUserSummaryDto).ToList());
 });
 
 
 app.MapGet("/api/admin/solution-users", async (IdentityDbContext db, string? q, int take = 50) =>
 {
-    var query = FilterUsers(db.Users.AsNoTracking(), q, null, false);
-    var rows = await query.OrderBy(x => x.Email).Take(Math.Clamp(take, 1, 200)).ToListAsync();
+    var rows = await SearchUsersAsync(db, q, null, false, "email", "asc", Math.Clamp(take, 1, 200));
     return Results.Ok(rows.Select(u => ToAdminUserDto(u)).ToList());
 });
 
@@ -270,10 +294,8 @@ app.MapGet("/api/admin/users", async (
     string? sortDir = "desc",
     int take = 300) =>
 {
-    var rowsQuery = FilterUsers(db.Users.AsNoTracking(), query ?? q, role, linkedOnly);
-    rowsQuery = SortUsers(rowsQuery, sortBy, sortDir);
-    var rows = await rowsQuery.Take(Math.Clamp(take, 1, 500)).ToListAsync();
-    var total = await FilterUsers(db.Users.AsNoTracking(), query ?? q, role, linkedOnly).CountAsync();
+    var rows = await SearchUsersAsync(db, query ?? q, role, linkedOnly, sortBy, sortDir, Math.Clamp(take, 1, 500));
+    var total = await CountUsersAsync(db, query ?? q, role, linkedOnly);
     var linked = 0;
     var admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase));
     return Results.Ok(new
@@ -309,7 +331,7 @@ app.MapDelete("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbCo
 app.MapGet("/api/admin/feature-roles", async (IdentityDbContext db) => Results.Ok(await db.FeatureRoles.AsNoTracking().OrderBy(x => x.Code).Select(x => new { x.Id, x.Code, title = x.Title, x.Description, x.IsActive }).ToListAsync()));
 app.MapGet("/api/admin/feature-roles/users", async (IdentityDbContext db, string? query, int limit = 50) =>
 {
-    var rows = await FilterUsers(db.Users.AsNoTracking(), query, null, false).OrderBy(x => x.Email).Take(Math.Clamp(limit, 1, 200)).ToListAsync();
+    var rows = await SearchUsersAsync(db, query, null, false, "email", "asc", Math.Clamp(limit, 1, 200));
     var ids = rows.Select(x => x.Id).ToHashSet();
     var roleRows = await db.UserFeatureRoles.AsNoTracking().Where(x => ids.Contains(x.UserId)).ToListAsync();
     return Results.Ok(rows.Select(u => ToAdminUserDto(u, roleRows.Where(r => r.UserId == u.Id).Select(r => r.Code).ToArray())).ToList());
@@ -393,6 +415,138 @@ static IQueryable<IdentityUser> FilterUsers(IQueryable<IdentityUser> query, stri
     if (linkedOnly) query = query.Where(x => false);
     return query;
 }
+
+static async Task<List<IdentityUser>> SearchUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly, string? sortBy, string? sortDir, int take)
+{
+    var query = db.Users.AsNoTracking();
+    if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
+    if (linkedOnly) return new List<IdentityUser>();
+
+    var q = NormalizeSearch(text);
+    if (string.IsNullOrWhiteSpace(q))
+    {
+        return await SortUsers(query, sortBy, sortDir).Take(Math.Clamp(take, 1, 500)).ToListAsync();
+    }
+
+    var rows = await query.Take(5000).ToListAsync();
+    var maxDistance = Math.Max(1, Math.Min(4, q.Length / 3));
+    return rows
+        .Select(u => new { User = u, Score = UserSearchScore(u, q) })
+        .Where(x => x.Score <= maxDistance || UserSearchHaystack(x.User).Contains(q, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(x => x.Score)
+        .ThenBy(x => x.User.Email)
+        .Take(Math.Clamp(take, 1, 500))
+        .Select(x => x.User)
+        .ToList();
+}
+
+static async Task<int> CountUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly)
+{
+    if (linkedOnly) return 0;
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        var query = db.Users.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
+        return await query.CountAsync();
+    }
+    return (await SearchUsersAsync(db, text, role, linkedOnly, "email", "asc", 5000)).Count;
+}
+
+static int UserSearchScore(IdentityUser user, string query)
+{
+    var values = new[]
+    {
+        user.Email,
+        user.FirstName,
+        user.LastName,
+        DisplayName(user),
+        user.Id.ToString()
+    }
+    .Select(NormalizeSearch)
+    .Where(x => !string.IsNullOrWhiteSpace(x))
+    .ToArray();
+
+    if (values.Any(x => x.Contains(query, StringComparison.OrdinalIgnoreCase))) return 0;
+
+    var best = int.MaxValue;
+    foreach (var value in values)
+    {
+        best = Math.Min(best, Levenshtein(value, query));
+        foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            best = Math.Min(best, Levenshtein(token, query));
+        }
+    }
+    return best == int.MaxValue ? 999 : best;
+}
+
+static string UserSearchHaystack(IdentityUser user)
+    => NormalizeSearch($"{user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.Id}");
+
+static string NormalizeSearch(string? value)
+    => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+static int Levenshtein(string a, string b)
+{
+    if (a == b) return 0;
+    if (a.Length == 0) return b.Length;
+    if (b.Length == 0) return a.Length;
+    var prev = new int[b.Length + 1];
+    var cur = new int[b.Length + 1];
+    for (var j = 0; j <= b.Length; j++) prev[j] = j;
+    for (var i = 1; i <= a.Length; i++)
+    {
+        cur[0] = i;
+        for (var j = 1; j <= b.Length; j++)
+        {
+            var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            cur[j] = Math.Min(Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+        }
+        (prev, cur) = (cur, prev);
+    }
+    return prev[b.Length];
+}
+
+static async Task<ActivitySummaryDto> FetchUserActivitySummaryAsync(Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    var solutions = await FetchActivitySummaryFromAsync(ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"), userId, cfg, httpFactory, ct);
+    var tasks = await FetchActivitySummaryFromAsync(ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), userId, cfg, httpFactory, ct);
+    return new ActivitySummaryDto(
+        solutions.SolvedAssignments + tasks.SolvedAssignments,
+        solutions.TotalAttempts + tasks.TotalAttempts,
+        solutions.CodeSolutions,
+        solutions.ImageSolutions,
+        tasks.TestAttempts,
+        tasks.MathAttempts);
+}
+
+static async Task<ActivitySummaryDto> FetchActivitySummaryFromAsync(string baseUrl, Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}/api/internal/users/{userId}/activity-summary");
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return ActivitySummaryDto.Empty;
+        return await resp.Content.ReadFromJsonAsync<ActivitySummaryDto>(JsonOptions(), ct) ?? ActivitySummaryDto.Empty;
+    }
+    catch
+    {
+        return ActivitySummaryDto.Empty;
+    }
+}
+
+static string ServiceUrl(IConfiguration cfg, string name, string fallback)
+    => (cfg[$"Services:{name}"] ?? cfg[$"ServiceUrls:{name}"] ?? fallback).TrimEnd('/');
+
+static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
+{
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+    if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
+}
+
+static JsonSerializerOptions JsonOptions() => new(JsonSerializerDefaults.Web) { WriteIndented = false };
 static IQueryable<IdentityUser> SortUsers(IQueryable<IdentityUser> query, string? sortBy, string? sortDir)
 {
     var desc = !string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
@@ -432,6 +586,29 @@ static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? fea
     imageSolutions = 0,
     mathSolutions = 0
 };
+static object ToUserSummaryDto(IdentityUser user)
+{
+    var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
+    return new
+    {
+        user.Id,
+        userId = user.Id,
+        user.Email,
+        maskedEmail = MaskEmail(user.Email),
+        user.FirstName,
+        user.LastName,
+        avatarUrl = user.ProfilePictureUrl,
+        profilePictureUrl = user.ProfilePictureUrl,
+        displayName = DisplayName(user),
+        fullName = DisplayName(user),
+        user.Role,
+        location = extra.Location,
+        education = extra.Education,
+        showInLeaderboard = extra.ShowInLeaderboard,
+        user.CreatedAt,
+        user.LastLoginAt
+    };
+}
 static string NormalizeRole(string? role) => (role ?? "User").Trim() switch
 {
     "Admin" => "Admin",
@@ -480,6 +657,35 @@ static string NormalizeRoleCode(string? role) => (role ?? string.Empty).Trim() s
 
 static IResult Unauthorized(string message, string code = "UNAUTHORIZED") => Results.Json(new { message, code, severity = "warning" }, statusCode: StatusCodes.Status401Unauthorized);
 
+static void ValidateProductionIdentityConfig(IConfiguration cfg, IHostEnvironment env)
+{
+    if (!env.IsProduction()) return;
+
+    var jwt = cfg["Jwt:Key"] ?? cfg["Jwt:SigningKey"];
+    if (IsUnsafeProductionSecret(jwt, minLength: 48))
+    {
+        throw new InvalidOperationException("Production JWT signing key is missing, weak or still uses a placeholder.");
+    }
+
+    var bootstrapAdminEmails = (cfg["Bootstrap:AdminEmails"] ?? string.Empty).Trim();
+    var firstUserIsAdmin = cfg.GetValue("Bootstrap:FirstUserIsAdmin", false);
+    if (firstUserIsAdmin && string.IsNullOrWhiteSpace(bootstrapAdminEmails))
+    {
+        throw new InvalidOperationException("Production must not rely on first-user-is-admin without explicit Bootstrap:AdminEmails.");
+    }
+}
+
+static bool IsUnsafeProductionSecret(string? value, int minLength)
+{
+    var v = (value ?? string.Empty).Trim();
+    if (v.Length < minLength) return true;
+    if (v.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase)) return true;
+    if (v.Contains("dev_change_me", StringComparison.OrdinalIgnoreCase)) return true;
+    if (v.Contains("password", StringComparison.OrdinalIgnoreCase)) return true;
+    if (v.Distinct().Count() < 8) return true;
+    return false;
+}
+
 static string ResolveInitialRole(string email, bool firstUser, IConfiguration cfg)
 {
     var adminEmails = (cfg["Bootstrap:AdminEmails"] ?? string.Empty)
@@ -493,13 +699,77 @@ static string ResolveInitialRole(string email, bool firstUser, IConfiguration cf
     return firstUser && firstUserIsAdmin ? "Admin" : "User";
 }
 static string NormalizeEmail(string? email) => (email ?? string.Empty).Trim().ToLowerInvariant();
-static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+static bool IsValidPassword(string? password, out string message)
+{
+    var value = password ?? string.Empty;
+    if (value.Length < 8)
+    {
+        message = "Пароль должен быть не короче 8 символов.";
+        return false;
+    }
+
+    if (value.Length > 256)
+    {
+        message = "Пароль слишком длинный.";
+        return false;
+    }
+
+    if (value.All(char.IsWhiteSpace))
+    {
+        message = "Пароль не может состоять только из пробелов.";
+        return false;
+    }
+
+    message = string.Empty;
+    return true;
+}
+
 static string HashPassword(string password, string salt)
 {
-    using var sha = SHA256.Create();
-    return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(salt + ":" + password)));
+    const int iterations = 210_000;
+    var saltBytes = Convert.FromBase64String(salt);
+    var hash = Rfc2898DeriveBytes.Pbkdf2(
+        password: Encoding.UTF8.GetBytes(password ?? string.Empty),
+        salt: saltBytes,
+        iterations: iterations,
+        hashAlgorithm: HashAlgorithmName.SHA256,
+        outputLength: 32);
+    return $"PBKDF2-SHA256${iterations}${Convert.ToBase64String(hash)}";
 }
-static bool VerifyPassword(string password, string salt, string hash) => CryptographicOperations.FixedTimeEquals(Convert.FromBase64String(HashPassword(password, salt)), Convert.FromBase64String(hash));
+
+static bool VerifyPassword(string password, string salt, string hash)
+{
+    try
+    {
+        if (hash.StartsWith("PBKDF2-SHA256$", StringComparison.Ordinal))
+        {
+            var parts = hash.Split('$');
+            if (parts.Length != 3 || !int.TryParse(parts[1], out var iterations) || iterations < 100_000) return false;
+            var saltBytes = Convert.FromBase64String(salt);
+            var expected = Convert.FromBase64String(parts[2]);
+            var actual = Rfc2898DeriveBytes.Pbkdf2(
+                password: Encoding.UTF8.GetBytes(password ?? string.Empty),
+                salt: saltBytes,
+                iterations: iterations,
+                hashAlgorithm: HashAlgorithmName.SHA256,
+                outputLength: expected.Length);
+            return expected.Length == actual.Length && CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+
+        // Legacy v17 and older used SHA256(salt + ":" + password). Keep read support and migrate on successful login.
+        using var sha = SHA256.Create();
+        var legacy = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(salt + ":" + (password ?? string.Empty))));
+        return CryptographicOperations.FixedTimeEquals(Convert.FromBase64String(legacy), Convert.FromBase64String(hash));
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static bool NeedsPasswordRehash(string? hash) => string.IsNullOrWhiteSpace(hash) || !hash.StartsWith("PBKDF2-SHA256$", StringComparison.Ordinal);
 static string MaskEmail(string? email)
 {
     var value = (email ?? string.Empty).Trim();
@@ -669,3 +939,9 @@ public sealed record AdminUserUpdateRequest(string? Email, string? FirstName, st
 
 public sealed record RoleAssignRequest(string? Code);
 public sealed record FeatureRoleRequest(string? Code, string? Title, string? Description, bool? IsActive);
+
+public sealed record UserIdsRequest(Guid[]? UserIds);
+public sealed record ActivitySummaryDto(int SolvedAssignments, int TotalAttempts, int CodeSolutions, int ImageSolutions, int TestAttempts, int MathAttempts)
+{
+    public static ActivitySummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0);
+}

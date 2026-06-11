@@ -99,6 +99,26 @@ app.MapDelete("/api/courses/{id:guid}", async (Guid id, EducationDbContext db) =
 
 app.MapGet("/api/admin/users/{userId:guid}/groups", async (Guid userId, EducationDbContext db) => Results.Ok(await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync()));
 
+app.MapPost("/api/internal/courses/metadata", async (CourseIdsRequest request, EducationDbContext db, CancellationToken ct) =>
+{
+    var ids = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
+    if (ids.Length == 0) return Results.Ok(Array.Empty<object>());
+    var rows = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+    return Results.Ok(rows.Select(x => new { x.Id, courseId = x.Id, x.Title, courseTitle = x.Title, x.Description, x.IsPublic }).ToList());
+});
+
+app.MapGet("/api/internal/groups/{groupId:guid}/members", async (Guid groupId, EducationDbContext db, CancellationToken ct) =>
+{
+    var ids = await db.GroupMembers.AsNoTracking().Where(x => x.GroupId == groupId).Select(x => x.UserId).ToListAsync(ct);
+    return Results.Ok(new { groupId, userIds = ids });
+});
+
+app.MapGet("/api/internal/users/{userId:guid}/groups", async (Guid userId, EducationDbContext db, CancellationToken ct) =>
+{
+    var ids = await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync(ct);
+    return Results.Ok(new { userId, groupIds = ids });
+});
+
 app.MapPost("/api/courses/{courseId:guid}/visible-groups", async (Guid courseId, CourseGroupsRequest request, EducationDbContext db) =>
 {
     var course = await db.Courses.FindAsync(courseId);
@@ -191,6 +211,7 @@ static object ToCourseDto(Course c) => new
 };
 static object ToGroupDto(Group g) => new { g.Id, g.Name, code = g.Code ?? string.Empty, g.IsActive, g.CreatedAt };
 
+public sealed record CourseIdsRequest(Guid[]? CourseIds);
 public sealed record CourseGroupsRequest(Guid[]? GroupIds);
 public sealed record CourseOwnersRequest(Guid[]? OwnerIds);
 public sealed record CourseRequest(string? Title, string? Description, bool? IsPublic, Guid[]? VisibleGroupIds, Guid[]? OwnerIds);

@@ -138,7 +138,7 @@ function isCasePassed(c) {
   const status = String(c?.status ?? c?.Status ?? '').trim().toLowerCase();
   // status=ok from runners means only that the program exited normally.
   // Do not let it override passed:false on wrong answers.
-  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+  return status === 'accepted' || status === 'passed' || status === 'success';
 }
 
 function getSolutionStatusKey(resObj) {

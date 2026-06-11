@@ -114,8 +114,8 @@ public static class TaskForgeRequestSecurity
         if (path.StartsWith("/api/learning")) return safeMethod ? Requirement.Public : Requirement.Editor;
         if (path.StartsWith("/api/quiz")) return path.StartsWith("/api/quiz/me") || writeMethod ? Requirement.Authenticated : Requirement.Public;
 
-        if (path == "/api/courses" || path.StartsWith("/api/courses/")) return safeMethod ? Requirement.Public : Requirement.Editor;
-        if (path == "/api/groups" || path.StartsWith("/api/groups/")) return safeMethod ? Requirement.Public : Requirement.Admin;
+        if (path == "/api/courses" || path.StartsWith("/api/courses/")) return safeMethod ? Requirement.Authenticated : Requirement.Editor;
+        if (path == "/api/groups" || path.StartsWith("/api/groups/")) return safeMethod ? Requirement.Authenticated : Requirement.Admin;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/submit")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/top-solutions")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/edit")) return Requirement.Editor;
@@ -129,7 +129,7 @@ public static class TaskForgeRequestSecurity
         if (path.Contains("/image-test/reference")) return Requirement.Editor;
         if (path.Contains("/image-test")) return Requirement.Authenticated;
 
-        if (path.StartsWith("/api/leaderboard")) return Requirement.Public;
+        if (path.StartsWith("/api/leaderboard")) return Requirement.Authenticated;
         if (path.StartsWith("/api/badges")) return safeMethod || path.Contains("/user/") ? Requirement.Public : Requirement.Admin;
         if (path.StartsWith("/api/quotas")) return Requirement.Authenticated;
         if (path.StartsWith("/api/solutions") || path.StartsWith("/api/judge")) return Requirement.Authenticated;
@@ -146,7 +146,9 @@ public static class TaskForgeRequestSecurity
 
         try
         {
-            var key = Encoding.UTF8.GetBytes(config["Jwt:Key"] ?? config["Jwt:SigningKey"] ?? "dev_change_me_please_change_me_please_32_chars");
+            var keyText = config["Jwt:Key"] ?? config["Jwt:SigningKey"] ?? "dev_change_me_please_change_me_please_32_chars";
+            if (IsProduction() && IsUnsafeSecret(keyText, minLength: 48)) return null;
+            var key = Encoding.UTF8.GetBytes(keyText);
             return new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuer = true,
@@ -189,6 +191,7 @@ public static class TaskForgeRequestSecurity
             ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY")
             ?? Environment.GetEnvironmentVariable("TASKFORGE_AGENT_INTERNAL_KEY");
         if (string.IsNullOrWhiteSpace(expected)) return false;
+        if (IsProduction() && IsUnsafeSecret(expected, minLength: 32)) return false;
         var provided = context.Request.Headers["X-Internal-Key"].ToString();
         return FixedEquals(provided, expected);
     }
@@ -215,7 +218,26 @@ public static class TaskForgeRequestSecurity
     }
 
     private static string? ReadCookie(HttpContext http, string name) => http.Request.Cookies.TryGetValue(name, out var v) ? v : null;
-    private static string? ReadAccessTokenQuery(HttpContext http) => http.Request.Query.TryGetValue("access_token", out var v) ? v.ToString() : null;
+    private static string? ReadAccessTokenQuery(HttpContext http)
+    {
+        // Query-string tokens are accepted only for WebSocket/SignalR handshakes.
+        // For normal HTTP API calls they are intentionally rejected to avoid token leakage in logs/history.
+        if (!http.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase)) return null;
+        return http.Request.Query.TryGetValue("access_token", out var v) ? v.ToString() : null;
+    }
+
+    private static bool IsProduction() => string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsUnsafeSecret(string? value, int minLength)
+    {
+        var v = (value ?? string.Empty).Trim();
+        if (v.Length < minLength) return true;
+        if (v.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase)) return true;
+        if (v.Contains("dev_change_me", StringComparison.OrdinalIgnoreCase)) return true;
+        if (v.Contains("password", StringComparison.OrdinalIgnoreCase)) return true;
+        if (v.Distinct().Count() < 8) return true;
+        return false;
+    }
 
     private static async Task WriteProblem(HttpContext context, int statusCode, string message, string code)
     {

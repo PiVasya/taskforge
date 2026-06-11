@@ -37,7 +37,6 @@ import {
   getSolutionCode,
   getSolutionDate,
   getSolutionPassedFailed,
-  getSolutionScore,
   getSolutionStatusLabel,
   getSolutionSubmittedAt,
   getSolutionTitle,
@@ -717,7 +716,7 @@ export default function AdminSolutionsPage() {
         {tab === 'code' && !listLoading && displayedSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
             <div className="text-sm text-neutral-600 dark:text-neutral-300">
-              Всего решений по коду: {displayedSolutions.length}
+              Показано решений по коду: {displayedSolutions.length}
             </div>
 
             <div className="space-y-6">
@@ -727,7 +726,6 @@ export default function AdminSolutionsPage() {
                 const loadingDetails = !!detailsLoadingMap[item.id];
                 const effective = full || item;
                 const code = getSolutionCode(effective);
-                const score = getSolutionScore(effective);
                 const { passed, failed } = getSolutionPassedFailed(effective);
 
                 return (
@@ -746,9 +744,8 @@ export default function AdminSolutionsPage() {
                       </div>
                       <div className="flex flex-wrap gap-2 items-center">
                         <Badge intent={getSolutionBadgeIntent(effective)}>{getSolutionStatusLabel(effective)}</Badge>
-                        {score !== null ? <Badge intent="secondary">Score: {score}</Badge> : null}
                         {passed !== null || failed !== null ? (
-                          <Badge intent="secondary">OK: {passed ?? 0} / FAIL: {failed ?? 0}</Badge>
+                          <Badge intent="secondary">Пройдено: {passed ?? 0} / Провалено: {failed ?? 0}</Badge>
                         ) : null}
                         <Button
                           variant="outline"

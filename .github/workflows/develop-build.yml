@@ -1,16 +1,17 @@
-name: develop selective build
+name: docker images
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
+    tags: ['v*']
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
   workflow_dispatch:
     inputs:
       build_all:
         description: Build all project images
         type: boolean
-        default: false
+        default: true
       images:
         description: Optional comma-separated image names to build, for example identity-api,front,ai-worker
         type: string
@@ -93,6 +94,38 @@ jobs:
             printf '%s\n' "$changed_files"
           else
             echo "  <none>"
+          fi
+
+          force_all_paths=(
+            ".github/workflows/"
+            "Directory.Build.props"
+            "global.json"
+            ".dockerignore"
+            "deploy/dev/compose/"
+            "deploy/prod/compose/"
+            "deploy/prod/.env.example"
+            "scripts/ci/"
+            "scripts/prod/"
+          )
+
+          # Tags are release/prod candidates: build every image, not only the diff.
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            build_all="true"
+          fi
+
+          changed_force_all="false"
+          for force_path in "${force_all_paths[@]}"; do
+            while IFS= read -r changed; do
+              [ -n "$changed" ] || continue
+              if [[ "$changed" == "$force_path"* ]] || [[ "$changed" == "$force_path" ]]; then
+                changed_force_all="true"
+              fi
+            done <<< "$changed_files"
+          done
+
+          if [ "$changed_force_all" = "true" ]; then
+            echo "Global build input changed; selecting all images."
+            build_all="true"
           fi
 
           is_requested() {
@@ -184,13 +217,21 @@ jobs:
           set -euo pipefail
           repository="${GITHUB_REPOSITORY,,}"
           echo "prefix=ghcr.io/${repository}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.prefix }}/${{ matrix.name }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/${{ matrix.dockerfile }}
           push: ${{ github.event_name == 'push' }}
-          tags: |
-            ${{ steps.image.outputs.prefix }}/${{ matrix.name }}:${{ github.sha }}
-            ${{ steps.image.outputs.prefix }}/${{ matrix.name }}:develop
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}

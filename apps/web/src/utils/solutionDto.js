@@ -23,7 +23,7 @@ const STATUS_LABELS = {
 };
 
 const PENDING_STATUSES = new Set(['preparing', 'queued', 'running', 'pending']);
-const ACCEPTED_STATUSES = new Set(['accepted', 'ok', 'passed', 'success']);
+const ACCEPTED_STATUSES = new Set(['accepted', 'passed', 'success']);
 const DANGER_STATUSES = new Set([
   'wronganswer',
   'runtimeerror',
@@ -170,7 +170,7 @@ export function isResultCasePassed(c) {
   if (typeof c.passed === 'boolean') return c.passed;
   if (typeof c.Passed === 'boolean') return c.Passed;
   const status = toStatusKey(c.status ?? c.Status);
-  return status === 'accepted' || status === 'passed' || status === 'success' || status === 'ok';
+  return status === 'accepted' || status === 'passed' || status === 'success';
 }
 
 export function isSolutionAccepted(solution) {
