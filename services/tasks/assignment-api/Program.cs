@@ -268,10 +268,89 @@ app.MapGet("/api/admin/test-attempts/{attemptId:guid}", async (Guid attemptId, T
 app.MapGet("/api/admin/math-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db) => await ReviewAttempt(attemptId, "math", null, true, db));
 app.MapDelete("/api/admin/test-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db) => await DeleteAttempt(attemptId, "test", db));
 app.MapDelete("/api/admin/math-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db) => await DeleteAttempt(attemptId, "math", db));
-app.MapGet("/api/admin/assignments/{assignmentId:guid}/insights", async (Guid assignmentId, TasksDbContext db) =>
+app.MapGet("/api/admin/assignments/{assignmentId:guid}/insights", async (Guid assignmentId, TasksDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
 {
-    var rows = await db.Attempts.AsNoTracking().Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null).ToListAsync();
-    return Results.Ok(new { assignmentId, attempts = rows.Count, solved = rows.Count(x => x.Passed), averageScore = rows.Count == 0 ? 0 : Math.Round(rows.Average(x => x.ScorePercent), 1) });
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+    if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+
+    var rows = await db.Attempts.AsNoTracking().Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null).OrderByDescending(x => x.SubmittedAt).ToListAsync(ct);
+    var users = await LoadUserSummariesAsync(rows.Select(x => x.UserId).Distinct(), cfg, httpFactory, ct);
+    var testRows = rows.Where(x => string.Equals(x.Kind, "test", StringComparison.OrdinalIgnoreCase)).ToList();
+    var mathRows = rows.Where(x => string.Equals(x.Kind, "math", StringComparison.OrdinalIgnoreCase)).ToList();
+    var uniqueUsers = rows.Select(x => x.UserId).Distinct().Count();
+    var successUsers = rows.Where(x => x.Passed).Select(x => x.UserId).Distinct().Count();
+    var avgScore = rows.Count == 0 ? 0 : Math.Round(rows.Average(x => x.ScorePercent), 1);
+    var courseTitle = await LoadCourseTitleAsync(assignment.CourseId, cfg, httpFactory, ct);
+
+    var solvers = rows.GroupBy(x => x.UserId).Select(g =>
+    {
+        var user = users.GetValueOrDefault(g.Key);
+        return new
+        {
+            userId = g.Key,
+            fullName = UserLabel(user),
+            displayName = UserLabel(user),
+            email = user?.Email ?? user?.MaskedEmail,
+            attempts = g.Count(),
+            passed = g.Count(x => x.Passed),
+            successRate = Percent(g.Count(x => x.Passed), g.Count()),
+            bestScore = g.Max(x => x.ScorePercent),
+            lastActivityAtUtc = g.Max(x => x.SubmittedAt ?? x.CreatedAt)
+        };
+    }).OrderByDescending(x => x.passed).ThenByDescending(x => x.bestScore).ThenByDescending(x => x.lastActivityAtUtc).Take(50).ToList();
+
+    var recent = rows.Take(100).Select(x =>
+    {
+        var user = users.GetValueOrDefault(x.UserId);
+        var created = x.SubmittedAt ?? x.CreatedAt;
+        return new
+        {
+            attemptId = x.Id,
+            userId = x.UserId,
+            fullName = UserLabel(user),
+            displayName = UserLabel(user),
+            email = user?.Email ?? user?.MaskedEmail,
+            sourceKind = x.Kind,
+            kind = x.Kind,
+            status = x.Passed ? "passed" : "failed",
+            passed = x.Passed,
+            scorePercent = x.ScorePercent,
+            durationSeconds = Math.Max(0, (int)Math.Round(((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)),
+            createdAtUtc = created,
+            submittedAtUtc = x.SubmittedAt
+        };
+    }).ToList();
+
+    return Results.Ok(new
+    {
+        assignmentId,
+        title = assignment.Title,
+        assignmentTitle = assignment.Title,
+        courseId = assignment.CourseId,
+        courseTitle = courseTitle,
+        type = assignment.Type,
+        language = assignment.Language,
+        rating = assignment.Rating,
+        difficulty = assignment.Difficulty,
+        attempts = rows.Count,
+        solved = rows.Count(x => x.Passed),
+        averageScore = avgScore,
+        uniqueUsers,
+        successUsers,
+        codeAttempts = 0,
+        passedCodeAttempts = 0,
+        testAttempts = testRows.Count,
+        passedTests = testRows.Count(x => x.Passed),
+        imageAttempts = 0,
+        passedImages = 0,
+        mathAttempts = mathRows.Count,
+        passedMath = mathRows.Count(x => x.Passed),
+        avgReviewSeconds = rows.Count == 0 ? 0 : Math.Round(rows.Average(x => Math.Max(0, ((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)), 1),
+        avgTestScore = avgScore,
+        languages = string.IsNullOrWhiteSpace(assignment.Language) ? Array.Empty<object>() : new object[] { new { label = assignment.Language, value = rows.Count } },
+        solvers,
+        recentActivity = recent
+    });
 });
 app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
 {
@@ -534,7 +613,7 @@ static string ServiceUrl(IConfiguration cfg, string name, string fallback)
 
 static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
 {
-    var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForgeInternalApi:ApiKey"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
     if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
 }
 
@@ -1189,7 +1268,84 @@ static List<int?> IntList(JsonObject o, string n) => o[n] is JsonArray a ? a.Sel
 static List<Option> Options(JsonObject o, string n = "options") => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new Option(Str(x, "key", Guid.NewGuid().ToString("N")[..4]), Str(x, "text", ""))).ToList() : [];
 static List<MatchPair> MatchPairList(JsonObject o, string n) => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new MatchPair(Str(x, "leftKey", ""), Str(x, "rightKey", ""))).ToList() : [];
 
+static async Task<string> LoadCourseTitleAsync(Guid courseId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    if (courseId == Guid.Empty) return "Курс";
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Post, $"{ServiceUrl(cfg, "EducationApi", "http://education-api:8080")}/api/internal/courses/metadata")
+        {
+            Content = JsonContent.Create(new CourseIdsRequest(new[] { courseId }), options: JsonOptions())
+        };
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return "Курс";
+        var rows = await resp.Content.ReadFromJsonAsync<List<CourseSummaryDto>>(JsonOptions(), ct) ?? new List<CourseSummaryDto>();
+        var row = rows.FirstOrDefault();
+        return string.IsNullOrWhiteSpace(row?.Title ?? row?.CourseTitle) ? "Курс" : (row!.Title ?? row.CourseTitle)!;
+    }
+    catch { return "Курс"; }
+}
+
+static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnumerable<Guid> userIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
+    if (ids.Length == 0) return new Dictionary<Guid, UserSummaryDto>();
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Post, $"{ServiceUrl(cfg, "IdentityApi", "http://identity-api:8080")}/api/internal/users/summaries")
+        {
+            Content = JsonContent.Create(new UserIdsRequest(ids), options: JsonOptions())
+        };
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return new Dictionary<Guid, UserSummaryDto>();
+        var rows = await resp.Content.ReadFromJsonAsync<List<UserSummaryDto>>(JsonOptions(), ct) ?? new List<UserSummaryDto>();
+        return rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+    }
+    catch
+    {
+        return new Dictionary<Guid, UserSummaryDto>();
+    }
+}
+static string UserLabel(UserSummaryDto? user)
+{
+    var name = (user?.DisplayName ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(name)) return name;
+    var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+    if (!string.IsNullOrWhiteSpace(full)) return full;
+    return string.IsNullOrWhiteSpace(user?.Email) ? "Пользователь" : user!.Email!.Trim();
+}
+static double Percent(int num, int den) => den <= 0 ? 0 : Math.Round(num * 100.0 / den, 1);
+
 public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
+public sealed record UserIdsRequest(Guid[] UserIds);
+public sealed record CourseIdsRequest(Guid[]? CourseIds);
+public sealed class CourseSummaryDto
+{
+    public Guid Id { get; set; }
+    public Guid CourseId { get; set; }
+    public string? Title { get; set; }
+    public string? CourseTitle { get; set; }
+}
+public sealed class UserSummaryDto
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string? Email { get; set; }
+    public string? MaskedEmail { get; set; }
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public string? DisplayName { get; set; }
+    public void Normalize()
+    {
+        if (UserId == Guid.Empty) UserId = Id;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
+    }
+}
 public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
 public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden, string? ImageTestReferenceKey, int? ImageTestSimilarityThreshold);
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);

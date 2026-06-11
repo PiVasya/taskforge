@@ -45,13 +45,13 @@ export default function AdminSupportPage() {
               {tickets.map((t) => (
                 <li key={t.id} className="p-4 flex justify-between items-center">
                   <div>
-                    <div className="font-semibold">#{String(t.id).slice(0, 8)}</div>
+                    <div className="font-semibold">{t.subject || t.title || 'Обращение'}</div>
                     <div className="text-sm text-neutral-500 dark:text-neutral-400">
                       Тип: {t.type} · {t.isClosed ? 'закрыто' : 'открыто'}
                     </div>
                     {t.user && (
                       <div className="text-xs text-neutral-400 dark:text-neutral-500">
-                        Пользователь: {t.user?.firstName} {t.user?.lastName}
+                        Пользователь: {t.user?.displayName || t.user?.fullName || [t.user?.firstName, t.user?.lastName].filter(Boolean).join(' ') || t.user?.email || 'Пользователь'}
                         {t.user?.email ? ` (${t.user.email})` : ''}
                       </div>
                     )}

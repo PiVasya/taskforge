@@ -34,7 +34,7 @@ export default function SupportChatPage() {
   const lastMessageIdRef = useRef(null);
   const isMountedRef = useRef(true);
 
-  const title = useMemo(() => `Обращение #${String(ticketId).slice(0, 8)}`, [ticketId]);
+  const title = useMemo(() => ticket?.subject || ticket?.title || 'Обращение', [ticket?.subject, ticket?.title]);
 
   const fetchTicket = async ({ silent = false } = {}) => {
     try {

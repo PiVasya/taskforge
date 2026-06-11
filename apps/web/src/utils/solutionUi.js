@@ -126,7 +126,7 @@ export function getSolutionTitle(solution) {
   const assignment = firstNonEmpty(solution?.assignmentTitle, solution?.AssignmentTitle, solution?.taskTitle, solution?.TaskTitle, solution?.title, solution?.Title);
   if (course && assignment) return `${course} • ${assignment}`;
   if (assignment) return assignment;
-  return `Задание ${shortId(solution?.assignmentId ?? solution?.taskAssignmentId)}`;
+  return 'Задание без названия';
 }
 
 export function getResultCases(solution) {

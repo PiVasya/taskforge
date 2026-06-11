@@ -267,16 +267,16 @@ app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfigura
         .Select(id => new { Id = id, User = users.GetValueOrDefault(id), Rating = ratings.GetValueOrDefault(id) })
         .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Id, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Id).Contains(search, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(x => x.Rating?.TotalScore ?? 0)
-        .ThenBy(x => BuildLeaderboardDisplayName(x.User, x.Id))
+        .ThenBy(x => UserLabel(x.User))
         .Take(Math.Clamp(take, 1, 500))
         .Select(x => new
         {
             id = x.Id,
             userId = x.Id,
-            email = x.User?.Email ?? x.User?.MaskedEmail ?? x.Id.ToString(),
+            email = x.User?.Email ?? x.User?.MaskedEmail,
             maskedEmail = x.User?.MaskedEmail,
-            displayName = BuildLeaderboardDisplayName(x.User, x.Id),
-            fullName = BuildLeaderboardDisplayName(x.User, x.Id),
+            displayName = UserLabel(x.User),
+            fullName = UserLabel(x.User),
             firstName = x.User?.FirstName,
             lastName = x.User?.LastName,
             score = x.Rating?.TotalScore ?? 0,
@@ -374,8 +374,8 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
         {
             rank = i + 1,
             userId = x.Row.UserId,
-            userName = BuildLeaderboardDisplayName(x.User, x.Row.UserId),
-            displayName = BuildLeaderboardDisplayName(x.User, x.Row.UserId),
+            userName = UserLabel(x.User),
+            displayName = UserLabel(x.User),
             email = x.User?.MaskedEmail,
             maskedEmail = x.User?.MaskedEmail,
             firstName = x.User?.FirstName,
@@ -823,7 +823,7 @@ static string ServiceUrl(IConfiguration cfg, string name, string fallback)
 
 static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
 {
-    var key = cfg["InternalApi:Key"] ?? cfg["TaskForgeInternalApi:ApiKey"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY") ?? Environment.GetEnvironmentVariable("TASKFORGE_AGENT_INTERNAL_KEY");
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForgeInternalApi:ApiKey"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
     if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
 }
 
@@ -843,7 +843,7 @@ static async Task<Dictionary<Guid, AssignmentMetadata>> LoadAssignmentMetadataAs
         var id = a.AssignmentId != Guid.Empty ? a.AssignmentId : a.Id;
         if (id == Guid.Empty) continue;
         courseMap.TryGetValue(a.CourseId, out var courseTitle);
-        map[id] = new AssignmentMetadata(id, a.CourseId, a.Title ?? a.AssignmentTitle ?? $"Задание {id.ToString()[..8]}", courseTitle ?? "Курс", Math.Max(0, a.Rating));
+        map[id] = new AssignmentMetadata(id, a.CourseId, a.Title ?? a.AssignmentTitle ?? "Задание без названия", courseTitle ?? "Курс", Math.Max(0, a.Rating));
     }
     return map;
 }
@@ -925,14 +925,18 @@ static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfi
 
 static string NormalizeStatusKey(string? value) => string.Join(string.Empty, (value ?? string.Empty).Where(char.IsLetterOrDigit)).ToLowerInvariant();
 static string NormalizeSearch(string? value) => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-static string BuildLeaderboardDisplayName(UserSummaryDto? user, Guid id)
+static string UserLabel(UserSummaryDto? user)
 {
-    var name = user?.DisplayName;
-    if (string.IsNullOrWhiteSpace(name)) name = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-    if (string.IsNullOrWhiteSpace(name)) name = user?.MaskedEmail ?? user?.Email;
-    return string.IsNullOrWhiteSpace(name) ? $"Пользователь #{id.ToString()[..8]}" : name.Trim();
+    var name = (user?.DisplayName ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(name)) return name;
+    var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+    if (!string.IsNullOrWhiteSpace(full)) return full;
+    var email = (user?.Email ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(email)) return email;
+    var masked = (user?.MaskedEmail ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(masked)) return masked;
+    return "Пользователь";
 }
-
 static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.Email} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
 static int UserSummarySearchScore(UserSummaryDto? user, Guid id, string query)
 {
@@ -1077,8 +1081,8 @@ static object ToTopSolutionDto(SolutionSubmission x, bool includeCode, Assignmen
         courseId = metadata?.CourseId,
         courseTitle = metadata?.CourseTitle,
         x.UserId,
-        userName = user?.DisplayName ?? user?.MaskedEmail,
-        displayName = user?.DisplayName ?? user?.MaskedEmail,
+        userName = UserLabel(user),
+        displayName = UserLabel(user),
         email = user?.MaskedEmail,
         maskedEmail = user?.MaskedEmail,
         x.Language,
@@ -1250,7 +1254,7 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail ?? Email;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
     }
 }
 public sealed class GroupMembersResponse

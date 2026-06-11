@@ -51,7 +51,7 @@ export default function SupportTicketsPage() {
               {tickets.map((t) => (
                 <li key={t.id} className="p-4 flex justify-between items-center">
                   <div>
-                    <div className="font-semibold">#{String(t.id).slice(0, 8)}</div>
+                    <div className="font-semibold">{t.subject || t.title || 'Обращение'}</div>
                     <div className="text-sm text-neutral-500 dark:text-neutral-400">
                       Тип: {t.type} · {t.isClosed ? 'закрыто' : 'открыто'} · сообщений: {t.messagesCount ?? '—'}
                     </div>

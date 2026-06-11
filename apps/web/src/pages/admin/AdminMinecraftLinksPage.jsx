@@ -66,7 +66,7 @@ export default function AdminMinecraftLinksPage() {
 
         <div className="space-y-4">
           {items.map((x) => (
-            <Card key={x.userId}>
+            <Card key={x.id || x.userId || `${x.minecraftUuid}-${x.minecraftNick}`}>
               <div className="grid xl:grid-cols-[1.1fr,1fr,1fr] gap-4">
                 <div>
                   <div className="font-medium">{x.fullName || x.email}</div>

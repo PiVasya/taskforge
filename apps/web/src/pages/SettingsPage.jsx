@@ -125,7 +125,7 @@ function displayName(profile) {
   const full = [last, first].filter(Boolean).join(" ");
   if (full) return full;
   const email = String(profile?.email || "").trim();
-  return email ? maskEmail(email) : "Пользователь TaskForge";
+  return email ? maskEmail(email) : "Пользователь";
 }
 
 function initials(profile) {

@@ -37,7 +37,7 @@ export default function PublicProfileCard({
   const displayName =
     profile?.displayName ||
     [profile?.lastName, profile?.firstName].filter(Boolean).join(" ") ||
-    "Пользователь TaskForge";
+    "Пользователь";
   const avatarUrl = profile?.avatarUrl || profile?.profilePictureUrl || "";
   const github = safeLink(profile?.github);
   const telegram = telegramLink(profile?.telegram);

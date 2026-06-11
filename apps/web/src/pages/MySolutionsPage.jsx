@@ -274,10 +274,10 @@ export default function MySolutionsPage() {
         updates[id] = {
           courseId,
           courseTitle,
-          assignmentTitle: assignment?.title ?? assignment?.Title ?? `Задание ${String(id).slice(0, 8)}`,
+          assignmentTitle: assignment?.title ?? assignment?.Title ?? 'Задание без названия',
         };
       } catch {
-        updates[id] = { assignmentTitle: `Задание ${String(id).slice(0, 8)}` };
+        updates[id] = { assignmentTitle: 'Задание без названия' };
       }
     }));
     if (Object.keys(updates).length) {

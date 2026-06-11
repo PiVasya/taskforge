@@ -162,7 +162,7 @@ function EmptyState() {
 
 function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, valueFormatter = formatNumber }) {
   if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
-  const values = data.map((d) => Number(d.value || 0));
+  const values = data.map((d) => Number(d.value ?? d.count ?? 0));
   const max = Math.max(...values, 1);
   const width = 100;
   const padX = 4;
@@ -171,7 +171,7 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
   const innerH = 100 - padY * 2;
   const pts = data.map((d, i) => {
     const x = padX + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW);
-    const y = padY + innerH - (Number(d.value || 0) / max) * innerH;
+    const y = padY + innerH - (Number(d.value ?? d.count ?? 0) / max) * innerH;
     return [x, y];
   });
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ');
@@ -189,7 +189,7 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Последнее значение</div>
-          <div className="mt-1 text-xl font-semibold">{valueFormatter(last?.value)}</div>
+          <div className="mt-1 text-xl font-semibold">{valueFormatter(last?.value ?? last?.count)}</div>
         </div>
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Пик</div>
@@ -213,9 +213,9 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
         </svg>
       </div>
       <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-        <span>{data[0]?.label || '—'}</span>
-        <span>{data[Math.floor((data.length - 1) / 2)]?.label || '—'}</span>
-        <span>{data[data.length - 1]?.label || '—'}</span>
+        <span>{data[0]?.label || data[0]?.date || '—'}</span>
+        <span>{data[Math.floor((data.length - 1) / 2)]?.label || data[Math.floor((data.length - 1) / 2)]?.date || '—'}</span>
+        <span>{data[data.length - 1]?.label || data[data.length - 1]?.date || '—'}</span>
       </div>
     </div>
   );

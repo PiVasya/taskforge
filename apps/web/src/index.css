@@ -1198,7 +1198,6 @@ html.dark .bg-fx__blob {
 
 .dashboard-sticky-rail {
   max-height: calc(100dvh - 7rem);
-  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 0.25rem;

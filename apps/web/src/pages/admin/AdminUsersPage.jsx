@@ -35,6 +35,11 @@ const sortOptions = [
   { value: 'lockoutEnabled', label: 'Lockout enabled' },
 ];
 
+function statValue(user, key) {
+  if (user?.solutionStatsReliable === false && (user?.[key] === 0 || user?.[key] == null)) return '—';
+  return user?.[key] ?? 0;
+}
+
 export default function AdminUsersPage() {
   const notify = useNotify();
   const [items, setItems] = useState([]);
@@ -183,18 +188,18 @@ export default function AdminUsersPage() {
                   <Field label="Minecraft nick"><Input value={user.minecraftNick || ''} onChange={(e) => updateLocal(user.id, { minecraftNick: e.target.value })} /></Field>
                   <Field label="Telegram username"><Input value={user.telegramUsername || ''} onChange={(e) => updateLocal(user.id, { telegramUsername: e.target.value })} placeholder={user.telegramLinkedAtUtc ? 'username не передан Telegram' : '@username'} /></Field>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="Email подтверждён"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.emailConfirmed} onChange={(e) => updateLocal(user.id, { emailConfirmed: e.target.checked })} /><span className="text-sm">Да</span></label></Field>
-                    <Field label="Lockout enabled"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.lockoutEnabled} onChange={(e) => updateLocal(user.id, { lockoutEnabled: e.target.checked })} /><span className="text-sm">Да</span></label></Field>
+                    <Field label="Email подтверждён"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.emailConfirmed} disabled={user.integrationDataReliable === false} onChange={(e) => updateLocal(user.id, { emailConfirmed: e.target.checked })} /><span className="text-sm">{user.integrationDataReliable === false ? 'нет данных' : 'Да'}</span></label></Field>
+                    <Field label="Lockout enabled"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.lockoutEnabled} disabled={user.integrationDataReliable === false} onChange={(e) => updateLocal(user.id, { lockoutEnabled: e.target.checked })} /><span className="text-sm">{user.integrationDataReliable === false ? 'нет данных' : 'Да'}</span></label></Field>
                   </div>
                 </div>
                 <div className="space-y-4">
                   <div>
                     <div className="text-sm opacity-70">Решённые задания</div>
                     <div className="flex flex-wrap gap-2 mt-2">
-                      <Badge>Code: {user.codeSolutions ?? 0}</Badge>
-                      <Badge>Test: {user.passedTests ?? 0}</Badge>
-                      <Badge>Image: {user.imageSolutions ?? 0}</Badge>
-                      <Badge>Math: {user.mathSolutions ?? 0}</Badge>
+                      <Badge>Code: {statValue(user, 'codeSolutions')}</Badge>
+                      <Badge>Test: {statValue(user, 'passedTests')}</Badge>
+                      <Badge>Image: {statValue(user, 'imageSolutions')}</Badge>
+                      <Badge>Math: {statValue(user, 'mathSolutions')}</Badge>
                     </div>
                   </div>
                   <div>
@@ -204,8 +209,8 @@ export default function AdminUsersPage() {
                   <div className="text-sm opacity-70 space-y-1 break-words">
                     <div>Создан: {user.createdAt ? new Date(user.createdAt).toLocaleString() : '—'}</div>
                     <div>Последний вход: {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '—'}</div>
-                    <div>Minecraft привязан: {user.minecraftLinkedAtUtc ? new Date(user.minecraftLinkedAtUtc).toLocaleString() : 'нет'}</div>
-                    <div>Telegram привязан: {user.telegramLinkedAtUtc ? new Date(user.telegramLinkedAtUtc).toLocaleString() : 'нет'}</div>
+                    <div>Minecraft привязан: {user.integrationDataReliable === false && !user.minecraftLinkedAtUtc ? '—' : (user.minecraftLinkedAtUtc ? new Date(user.minecraftLinkedAtUtc).toLocaleString() : 'нет')}</div>
+                    <div>Telegram привязан: {user.integrationDataReliable === false && !user.telegramLinkedAtUtc ? '—' : (user.telegramLinkedAtUtc ? new Date(user.telegramLinkedAtUtc).toLocaleString() : 'нет')}</div>
                     <div>Telegram username: {formatTelegramHandle(user.telegramUsername) || (user.telegramLinkedAtUtc ? 'не задан в Telegram' : 'нет')}</div>
                   </div>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-2">

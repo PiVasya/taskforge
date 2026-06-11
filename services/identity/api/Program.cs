@@ -542,7 +542,7 @@ static string ServiceUrl(IConfiguration cfg, string name, string fallback)
 
 static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
 {
-    var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForgeInternalApi:ApiKey"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
     if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
 }
 
@@ -584,7 +584,9 @@ static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? fea
     codeSolutions = 0,
     passedTests = 0,
     imageSolutions = 0,
-    mathSolutions = 0
+    mathSolutions = 0,
+    integrationDataReliable = false,
+    solutionStatsReliable = false
 };
 static object ToUserSummaryDto(IdentityUser user)
 {
@@ -784,8 +786,13 @@ static string MaskEmail(string? email)
     var maskedHost = host.Length <= 2 ? $"{host[..1]}***" : $"{host[..Math.Min(2, host.Length)]}***";
     return string.IsNullOrWhiteSpace(zone) ? $"{maskedName}@{maskedHost}" : $"{maskedName}@{maskedHost}.{zone}";
 }
-static string PublicDisplayName(IdentityUser user) => string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } s ? s : "Пользователь TaskForge";
-static string DisplayName(IdentityUser user) => string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } s ? s : "Пользователь TaskForge";
+static string PublicDisplayName(IdentityUser user) => DisplayName(user);
+static string DisplayName(IdentityUser user)
+{
+    var full = string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+    if (!string.IsNullOrWhiteSpace(full)) return full;
+    return string.IsNullOrWhiteSpace(user.Email) ? "Пользователь" : user.Email.Trim();
+}
 static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,

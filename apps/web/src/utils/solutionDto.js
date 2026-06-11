@@ -223,7 +223,7 @@ export function getAssignmentLabel(solution, fallback = 'Задание') {
   ) || '').trim();
   if (title) return title;
   const id = firstPresent(solution?.assignmentId, solution?.AssignmentId, solution?.taskAssignmentId);
-  return id ? `${fallback} ${String(id).slice(0, 8)}` : fallback;
+  return id ? (fallback || 'Задание без названия') : fallback;
 }
 
 export function getCourseAssignmentLabel(solution) {

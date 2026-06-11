@@ -6,6 +6,7 @@ import { Field, Input, Textarea, Button, Card, Badge } from '../components/ui';
 import { getCourse, updateCourse, deleteCourse } from '../api/courses';
 import { getGroups } from '../api/groups';
 import { searchUsersOnce } from '../api/admin';
+import { getAdminUsers } from '../api/adminUsers';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Save, Trash2, ArrowLeft, Layers, UserPlus, X } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export default function CourseEditPage() {
   const [ownerQuery, setOwnerQuery] = useState('');
   const [ownerSearchBusy, setOwnerSearchBusy] = useState(false);
   const [ownerCandidates, setOwnerCandidates] = useState([]);
+  const [ownerProfiles, setOwnerProfiles] = useState({});
   const [manualOwnerId, setManualOwnerId] = useState('');
 
   const [err, setErr] = useState('');
@@ -40,6 +42,26 @@ export default function CourseEditPage() {
   const [loading, setLoading] = useState(true);
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map((x) => String(x).toLowerCase())), [ownerIds]);
+
+  const rememberOwners = (users) => {
+    const list = Array.isArray(users) ? users : [];
+    if (!list.length) return;
+    setOwnerProfiles((prev) => {
+      const next = { ...prev };
+      list.forEach((u) => {
+        const id = String(u?.id || u?.userId || '').toLowerCase();
+        if (id) next[id] = u;
+      });
+      return next;
+    });
+  };
+
+  const ownerLabel = (id) => {
+    const u = ownerProfiles[String(id).toLowerCase()];
+    return u?.displayName || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.email || 'Пользователь';
+  };
+
+  const ownerEmail = (id) => ownerProfiles[String(id).toLowerCase()]?.email || '';
 
   useEffect(() => {
     (async () => {
@@ -63,7 +85,16 @@ export default function CourseEditPage() {
         setDescription(c.description || '');
         setIsPublic(!!c.isPublic);
         setVisibleGroupIds(Array.isArray(c.visibleGroupIds) ? c.visibleGroupIds : []);
-        setOwnerIds(Array.isArray(c.ownerIds) && c.ownerIds.length ? c.ownerIds : (c.ownerId ? [c.ownerId] : []));
+        const loadedOwnerIds = Array.isArray(c.ownerIds) && c.ownerIds.length ? c.ownerIds : (c.ownerId ? [c.ownerId] : []);
+        setOwnerIds(loadedOwnerIds);
+
+        if (isAdmin && loadedOwnerIds.length) {
+          try {
+            const result = await getAdminUsers({ take: 500 });
+            const users = result?.items || [];
+            rememberOwners((Array.isArray(users) ? users : []).filter((u) => loadedOwnerIds.map((x) => String(x).toLowerCase()).includes(String(u?.id || u?.userId || '').toLowerCase())));
+          } catch {}
+        }
 
         setGroups(Array.isArray(g) ? g : []);
       } catch (e) {
@@ -74,7 +105,7 @@ export default function CourseEditPage() {
       }
     })();
     
-  }, [courseId, nav]);
+  }, [courseId, nav, isAdmin]);
 
   const toggleGroup = (id) => {
     const sid = String(id);
@@ -91,12 +122,13 @@ export default function CourseEditPage() {
     setOwnerIds((prev) => (prev || []).filter((x) => String(x).toLowerCase() !== sid));
   };
 
-  const addOwnerId = (id) => {
+  const addOwnerId = (id, user = null) => {
     const sid = String(id).trim();
     if (!GUID_RE.test(sid)) {
       notify.warn('Неверный формат GUID');
       return;
     }
+    if (user) rememberOwners([{ ...user, id: user.id || user.userId || sid }]);
     if (ownerIdSet.has(sid.toLowerCase())) return;
     setOwnerIds((prev) => [...(prev || []), sid]);
   };
@@ -110,8 +142,16 @@ export default function CourseEditPage() {
     }
     setOwnerSearchBusy(true);
     try {
-      const list = await searchUsersOnce(q, 10);
-      setOwnerCandidates(Array.isArray(list) ? list : []);
+      let rows = [];
+      try {
+        const result = await getAdminUsers({ q, take: 10 });
+        rows = result?.items || [];
+      } catch {
+        const list = await searchUsersOnce(q, 10);
+        rows = Array.isArray(list) ? list : [];
+      }
+      setOwnerCandidates(rows);
+      rememberOwners(rows);
     } catch (e) {
       setOwnerCandidates([]);
     } finally {
@@ -259,7 +299,8 @@ export default function CourseEditPage() {
               ) : (
                 ownerIds.map((id) => (
                   <span key={id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-700 text-sm">
-                    <span className="font-mono text-xs">{String(id)}</span>
+                    <span className="font-medium">{ownerLabel(id)}</span>
+                    {ownerEmail(id) ? <span className="text-xs text-neutral-500">{ownerEmail(id)}</span> : null}
                     <button className="opacity-70 hover:opacity-100" onClick={() => removeOwner(id)} title="Убрать владельца">
                       <X size={14} />
                     </button>
@@ -289,11 +330,11 @@ export default function CourseEditPage() {
                         key={u.id}
                         type="button"
                         className="w-full text-left px-4 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800 flex items-center justify-between gap-3"
-                        onClick={() => addOwnerId(u.id)}
+                        onClick={() => addOwnerId(u.id || u.userId, u)}
                       >
                         <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{u.displayName || u.email || u.id}</div>
-                          <div className="text-xs text-neutral-500 truncate">{u.email || u.id}</div>
+                          <div className="text-sm font-medium truncate">{u.displayName || u.fullName || u.email || 'Пользователь'}</div>
+                          <div className="text-xs text-neutral-500 truncate">{u.email || 'email не указан'}</div>
                         </div>
                         {ownerIdSet.has(String(u.id).toLowerCase()) ? <Badge intent="secondary">уже</Badge> : <Badge intent="success">Добавить</Badge>}
                       </button>

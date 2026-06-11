@@ -15,6 +15,8 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      Services__IdentityApi: http://identity-api:8080
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
@@ -77,6 +79,8 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      Services__IdentityApi: http://identity-api:8080
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
@@ -202,6 +206,8 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      Services__IdentityApi: http://identity-api:8080
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}

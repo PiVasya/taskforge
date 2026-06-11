@@ -130,19 +130,6 @@ export default function CoursesPage() {
                       <p className="text-sm text-neutral-400 mt-2">Описание пока не добавлено.</p>
                     )}
                   </div>
-
-                  {editorTools ? (
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
-                      {c.canEdit ? <Badge intent="success">мой</Badge> : <Badge intent="danger">чужой</Badge>}
-                      <Badge variant="info">Заданий: {c.assignmentCount ?? "—"}</Badge>
-                      <Badge variant="info">Тестов: {c.testCount ?? "—"}</Badge>
-                      <Badge variant="info">Math: {c.mathCount ?? "—"}</Badge>
-                      {typeof c.solvedCountForCurrentUser === "number" ? <Badge variant="primary">Код решено: {c.solvedCountForCurrentUser}</Badge> : null}
-                      {typeof c.solvedTestCountForCurrentUser === "number" ? <Badge variant="primary">Тестов решено: {c.solvedTestCountForCurrentUser}</Badge> : null}
-                      {typeof c.solvedTestsCountForCurrentUser === "number" ? <Badge variant="primary">Тесты решено: {c.solvedTestsCountForCurrentUser}</Badge> : null}
-                      {typeof c.solvedMathCountForCurrentUser === "number" ? <Badge variant="primary">Math решено: {c.solvedMathCountForCurrentUser}</Badge> : null}
-                    </div>
-                  ) : null}
                 </div>
               </Card>
             </Link>

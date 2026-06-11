@@ -148,7 +148,7 @@ export function getSolutionTitle(solution, fallbackPrefix = 'Задание') {
   if (courseTitle && assignmentTitle) return `${courseTitle} • ${assignmentTitle}`;
   if (assignmentTitle) return assignmentTitle;
   const id = firstDefined(solution?.assignmentId, solution?.taskAssignmentId, solution?.AssignmentId);
-  return id ? `${fallbackPrefix} ${String(id).slice(0, 8)}` : fallbackPrefix;
+  return id ? (fallbackPrefix || 'Задание без названия') : fallbackPrefix;
 }
 
 export function getSolutionBadge(solution) {
@@ -225,5 +225,5 @@ export function getImageTitle(solution) {
   const title = String(firstDefined(solution?.assignmentTitle, solution?.title, getResultValue(solution, 'assignmentTitle'), '') || '').trim();
   if (title) return title;
   const id = firstDefined(solution?.assignmentId, solution?.taskAssignmentId, solution?.AssignmentId);
-  return id ? `Задание ${String(id).slice(0, 8)}` : 'Image-решение';
+  return id ? 'Задание без названия' : 'Image-решение';
 }
