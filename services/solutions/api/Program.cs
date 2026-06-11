@@ -267,7 +267,7 @@ app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfigura
         .Select(id => new { Id = id, User = users.GetValueOrDefault(id), Rating = ratings.GetValueOrDefault(id) })
         .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Id, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Id).Contains(search, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(x => x.Rating?.TotalScore ?? 0)
-        .ThenBy(x => x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Id.ToString())
+        .ThenBy(x => BuildLeaderboardDisplayName(x.User, x.Id))
         .Take(Math.Clamp(take, 1, 500))
         .Select(x => new
         {
@@ -275,8 +275,8 @@ app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfigura
             userId = x.Id,
             email = x.User?.Email ?? x.User?.MaskedEmail ?? x.Id.ToString(),
             maskedEmail = x.User?.MaskedEmail,
-            displayName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Id.ToString(),
-            fullName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Id.ToString(),
+            displayName = BuildLeaderboardDisplayName(x.User, x.Id),
+            fullName = BuildLeaderboardDisplayName(x.User, x.Id),
             firstName = x.User?.FirstName,
             lastName = x.User?.LastName,
             score = x.Rating?.TotalScore ?? 0,
@@ -374,8 +374,8 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
         {
             rank = i + 1,
             userId = x.Row.UserId,
-            userName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Row.UserId.ToString(),
-            displayName = x.User?.DisplayName ?? x.User?.MaskedEmail ?? x.Row.UserId.ToString(),
+            userName = BuildLeaderboardDisplayName(x.User, x.Row.UserId),
+            displayName = BuildLeaderboardDisplayName(x.User, x.Row.UserId),
             email = x.User?.MaskedEmail,
             maskedEmail = x.User?.MaskedEmail,
             firstName = x.User?.FirstName,
@@ -823,7 +823,7 @@ static string ServiceUrl(IConfiguration cfg, string name, string fallback)
 
 static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
 {
-    var key = cfg["InternalApi:Key"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+    var key = cfg["InternalApi:Key"] ?? cfg["TaskForgeInternalApi:ApiKey"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY") ?? Environment.GetEnvironmentVariable("TASKFORGE_AGENT_INTERNAL_KEY");
     if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
 }
 
@@ -925,6 +925,14 @@ static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfi
 
 static string NormalizeStatusKey(string? value) => string.Join(string.Empty, (value ?? string.Empty).Where(char.IsLetterOrDigit)).ToLowerInvariant();
 static string NormalizeSearch(string? value) => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+static string BuildLeaderboardDisplayName(UserSummaryDto? user, Guid id)
+{
+    var name = user?.DisplayName;
+    if (string.IsNullOrWhiteSpace(name)) name = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+    if (string.IsNullOrWhiteSpace(name)) name = user?.MaskedEmail ?? user?.Email;
+    return string.IsNullOrWhiteSpace(name) ? $"Пользователь #{id.ToString()[..8]}" : name.Trim();
+}
+
 static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.Email} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
 static int UserSummarySearchScore(UserSummaryDto? user, Guid id, string query)
 {

@@ -8,7 +8,8 @@ import { Trophy, MapPin, BookOpen, Clock } from 'lucide-react';
 export default function LeaderboardCard({ entry }) {
   const nav = useNavigate();
   const solved = entry.solvedAssignments ?? entry.solvedCount ?? entry.solved ?? 0;
-  const name = entry.displayName || entry.userName || entry.fullName || entry.maskedEmail || entry.email || 'Пользователь';
+  const shortId = entry.userId ? String(entry.userId).slice(0, 8) : '';
+  const name = entry.displayName || entry.userName || entry.fullName || entry.maskedEmail || entry.email || (shortId ? `Пользователь #${shortId}` : 'Пользователь');
   const handleOpenProfile = () => {
     nav(`/users/${entry.userId}`);
   };
