@@ -14,6 +14,8 @@ if (args.Any(a => string.Equals(a, ExecArg, StringComparison.OrdinalIgnoreCase))
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("csharp-runner");
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -22,6 +24,8 @@ builder.Services.AddSingleton<IRoslynCompilationService, RoslynCompilationServic
 builder.Services.AddSingleton<IExecutionService, ExecutionService>();
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("csharp-runner");
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "csharp-runner" }));
 app.MapControllers();
 app.Run();

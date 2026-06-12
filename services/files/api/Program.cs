@@ -5,6 +5,8 @@ using TaskForge.Files.Api.Data;
 using TaskForge.Files.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTaskForgeDebugDiagnostics("files-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -27,6 +29,8 @@ builder.Services.AddSingleton<IAmazonS3>(sp =>
 });
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("files-api");
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
     using var s = app.Services.CreateScope();

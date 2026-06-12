@@ -14,6 +14,8 @@ using TaskForge.AiAgent.Workflows.Executors;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("ai-worker");
+
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 

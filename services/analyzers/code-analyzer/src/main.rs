@@ -2,6 +2,21 @@ use axum::{routing::get, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+fn taskforge_debug_logs_enabled() -> bool {
+    matches!(
+        std::env::var("TASKFORGE_DEBUG_LOGS").unwrap_or_default().trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on" | "debug"
+    )
+}
+
+macro_rules! debug_log {
+    ($($arg:tt)*) => {
+        if taskforge_debug_logs_enabled() {
+            println!($($arg)*);
+        }
+    };
+}
+
 #[derive(Debug, Deserialize)]
 struct AnalyzeRequest {
     /// Language key used in TaskForge (e.g. csharp, cpp, c, java, javascript, python, pascal)
@@ -199,15 +214,19 @@ fn match_part_at(s: &str, pos: usize, part: &str) -> bool {
 
 #[tokio::main]
 async fn main() {
-    // Very verbose boot logs
-    println!("[code-analyzer] boot: starting...");
-    println!("[code-analyzer] boot: args={:?}", std::env::args().collect::<Vec<_>>());
-    println!("[code-analyzer] boot: RUST_LOG={}", std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".into()));
-    println!("[code-analyzer] boot: RUST_BACKTRACE={}", std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "<unset>".into()));
+    let debug_logs = taskforge_debug_logs_enabled();
+    println!("[code-analyzer] debug logs {}", if debug_logs { "on" } else { "off" });
 
-    // If RUST_LOG is not set, we default to debug.
+    // Very verbose boot logs
+    debug_log!("[code-analyzer] boot: starting...");
+    debug_log!("[code-analyzer] boot: args={:?}", std::env::args().collect::<Vec<_>>());
+    debug_log!("[code-analyzer] boot: RUST_LOG={}", std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".into()));
+    debug_log!("[code-analyzer] boot: RUST_BACKTRACE={}", std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "<unset>".into()));
+
+    // If RUST_LOG is not set, choose a sane default from TASKFORGE_DEBUG_LOGS.
+    let default_filter = if debug_logs { "debug" } else { "info" };
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_filter));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let app = Router::new()
@@ -219,7 +238,7 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
     tracing::info!("code-analyzer binding on {addr}");
-    println!("[code-analyzer] binding on {addr}");
+    debug_log!("[code-analyzer] binding on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap_or_else(|e| {
         eprintln!("[code-analyzer] FATAL: failed to bind {addr}: {e}");
@@ -227,8 +246,8 @@ async fn main() {
     });
 
     tracing::info!("code-analyzer listening on {addr}");
-    println!("[code-analyzer] listening OK on {addr}");
-    println!("[code-analyzer] ready: GET /health, POST /analyze");
+    debug_log!("[code-analyzer] listening OK on {addr}");
+    debug_log!("[code-analyzer] ready: GET /health, POST /analyze");
 
     axum::serve(listener, app).await.unwrap_or_else(|e| {
         eprintln!("[code-analyzer] FATAL: server error: {e}");
@@ -236,16 +255,16 @@ async fn main() {
     });
 
     // Should never reach here in normal operation
-    println!("[code-analyzer] stopped: serve() returned unexpectedly");
+    debug_log!("[code-analyzer] stopped: serve() returned unexpectedly");
 }
 async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     tracing::info!("/analyze -> start");
-    println!("[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
+    debug_log!("[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
         req.language,
         req.source.len(),
         req.extra_forbidden.as_ref().map(|v| v.len()).unwrap_or(0)
     );
-    println!("[code-analyzer] /analyze rules: forbidden_calls={} required_calls={}",
+    debug_log!("[code-analyzer] /analyze rules: forbidden_calls={} required_calls={}",
         req.forbidden_calls.as_ref().map(|v| v.len()).unwrap_or(0),
         req.required_calls.as_ref().map(|v| v.len()).unwrap_or(0)
     );
@@ -256,7 +275,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let no_comments = strip_comments_only(&lang, &req.source);
     let cleaned = strip_comments_and_strings(&lang, &req.source);
     tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
-    println!(
+    debug_log!(
         "[code-analyzer] cleaned.len={} orig.len={} (no_comments.len={})",
         cleaned.len(),
         req.source.len(),
@@ -264,12 +283,12 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     );
 
     let mut patterns = builtin_forbidden(&lang);
-    println!("[code-analyzer] builtin patterns={}", patterns.len());
+    debug_log!("[code-analyzer] builtin patterns={}", patterns.len());
     if let Some(extra) = req.extra_forbidden {
-        println!("[code-analyzer] extra patterns={}", extra.len());
+        debug_log!("[code-analyzer] extra patterns={}", extra.len());
         patterns.extend(extra);
     }
-    println!("[code-analyzer] total patterns={}", patterns.len());
+    debug_log!("[code-analyzer] total patterns={}", patterns.len());
 
     let mut hits: Vec<Hit> = Vec::new();
     let mut errors: Vec<Violation> = Vec::new();
@@ -325,7 +344,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
         }
 
         if count > 0 {
-            println!(
+            debug_log!(
                 "[code-analyzer] HIT id={:?} needle='{}' count={} (case_sensitive={})",
                 p.id,
                 p.needle,
@@ -351,7 +370,7 @@ let forbidden_calls = req.forbidden_calls.unwrap_or_default();
 let required_calls = req.required_calls.unwrap_or_default();
 
 if !forbidden_calls.is_empty() || !required_calls.is_empty() {
-    println!("[code-analyzer] call-rules: forbidden_calls={} required_calls={}", forbidden_calls.len(), required_calls.len());
+    debug_log!("[code-analyzer] call-rules: forbidden_calls={} required_calls={}", forbidden_calls.len(), required_calls.len());
 }
 
 for call in &forbidden_calls {
@@ -395,7 +414,7 @@ for call in &required_calls {
         .cmp(&(b.code.as_str(), b.pattern_id.as_deref().unwrap_or(""), b.message.as_str())));
     errors.dedup_by(|a, b| a.code == b.code && a.pattern_id == b.pattern_id && a.message == b.message);
 
-    println!("[code-analyzer] done ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
+    debug_log!("[code-analyzer] done ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
     tracing::info!("/analyze <- ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
 
     Json(AnalyzeResponse {

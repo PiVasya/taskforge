@@ -1,5 +1,11 @@
 name: docker images
 
+# Current policy: GHCR develop images are built with ultra development logs enabled.
+# This is the workflow-level switch. Change to "0" and push; the workflow file
+# change forces a full rebuild so GHCR images are rebuilt without dev probes.
+env:
+  TASKFORGE_BUILD_DEBUG_LOGS: "1"
+
 on:
   push:
     branches: [develop, main]
@@ -8,10 +14,17 @@ on:
     branches: [develop, main]
   workflow_dispatch:
     inputs:
+      debug_logs:
+        description: Build image binaries with ultra TaskForge dev logs baked in. Use 1 now, 0 for quiet images.
+        type: choice
+        options:
+          - "1"
+          - "0"
+        default: "1"
       build_all:
-        description: Build all project images. By default only changed images are built.
+        description: Build all project images. Leave enabled when changing the debug-log switch.
         type: boolean
-        default: false
+        default: true
       images:
         description: Optional comma-separated image names to build, for example identity-api,front,ai-worker
         type: string
@@ -36,6 +49,8 @@ jobs:
 
           build_all="${{ github.event.inputs.build_all || 'false' }}"
           requested_images="${{ github.event.inputs.images || '' }}"
+          debug_logs="${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}"
+          echo "Workflow build switch: TASKFORGE_DEBUG_LOGS=${debug_logs}"
 
           # name|docker build context|dockerfile relative to context|paths that affect this image
           # Keep paths as tight as possible: changing one microservice rebuilds only that image.
@@ -97,8 +112,8 @@ jobs:
           fi
 
           # Default policy: build only images touched by the diff.
-          # Infrastructure, docs, workflow and deploy-script changes do not rebuild every service.
-          # Use workflow_dispatch with build_all=true when a full rebuild is really needed.
+          # Infrastructure, docs and deploy-script changes do not rebuild every service.
+          # Workflow-file changes are build-affecting because TASKFORGE_DEBUG_LOGS is baked into images.
 
           if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             build_all="false"
@@ -124,6 +139,17 @@ jobs:
             done
             return 1
           }
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "$requested_images" ]; then
+            # Debug logging is baked into images. Manual workflow runs rebuild all by default
+            # so flipping debug_logs=1/0 actually changes every image.
+            build_all="true"
+          fi
+
+          if [ "${{ github.event_name }}" = "push" ] && path_changed ".github/workflows/develop-build.yml"; then
+            echo "Workflow file changed; forcing full rebuild because image build args may have changed."
+            build_all="true"
+          fi
 
           items=()
           add() {
@@ -209,5 +235,7 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TASKFORGE_DEBUG_LOGS=${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}

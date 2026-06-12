@@ -1,6 +1,8 @@
 using TaskForge.SupportBot;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddTaskForgeDebugDiagnostics("support-bot");
 builder.Services.AddHttpClient("support-api", (sp, client) =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();

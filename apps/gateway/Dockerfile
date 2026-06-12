@@ -9,3 +9,5 @@ COPY 10-watch-certs.sh        /docker-entrypoint.d/10-watch-certs.sh
 COPY snippets/                  /etc/nginx/snippets/
 RUN chmod +x /docker-entrypoint.d/99-select-config.sh \
     && chmod +x /docker-entrypoint.d/10-watch-certs.sh
+ARG TASKFORGE_DEBUG_LOGS=0
+ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

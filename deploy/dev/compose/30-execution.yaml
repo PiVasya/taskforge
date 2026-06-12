@@ -16,6 +16,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/execution/api/Dockerfile
+      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -53,6 +54,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/execution/worker/Dockerfile
+      args:
     environment:
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
@@ -114,6 +116,8 @@ services:
     build:
       context: ../../../services/execution/runners/csharp-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8080'
     healthcheck:
@@ -129,6 +133,8 @@ services:
     build:
       context: ../../../services/execution/runners/cpp-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8080'
     healthcheck:
@@ -144,6 +150,8 @@ services:
     build:
       context: ../../../services/execution/runners/java-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8080'
     healthcheck:
@@ -159,6 +167,8 @@ services:
     build:
       context: ../../../services/execution/runners/javascript-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8080'
     healthcheck:
@@ -174,6 +184,8 @@ services:
     build:
       context: ../../../services/execution/runners/pascal-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8080'
     healthcheck:
@@ -189,6 +201,8 @@ services:
     build:
       context: ../../../services/execution/runners/python-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8080'
     healthcheck:
@@ -205,6 +219,8 @@ services:
     build:
       context: ../../../services/execution/runners/image-cpp-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8000'
     healthcheck:
@@ -220,6 +236,8 @@ services:
     build:
       context: ../../../services/execution/runners/image-pascal-runner
       dockerfile: Dockerfile
+      args:
+    environment:
     expose:
     - '8000'
     healthcheck:

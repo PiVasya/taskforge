@@ -3,6 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/support/api/Dockerfile
+      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -41,6 +42,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/bots/support-bot/Dockerfile
+      args:
     environment:
       SupportApi__BaseUrl: http://support-api:8080
     depends_on:
@@ -58,6 +60,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/minecraft/api/Dockerfile
+      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -96,6 +99,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/files/api/Dockerfile
+      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -134,6 +138,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/notifications/api/Dockerfile
+      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -170,6 +175,7 @@ services:
     build:
       context: ../../..
       dockerfile: services/observability/api/Dockerfile
+      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -208,6 +214,7 @@ services:
     build:
       context: ../../../services/bots/telegram-quiz-bot
       dockerfile: Dockerfile
+      args:
     environment:
       ConnectionStrings__TelegramQuizDb: Host=postgres;Port=5432;Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       TelegramQuiz__ApplyMigrationsOnStartup: ${MIGRATE_ON_STARTUP:-true}

@@ -7,6 +7,8 @@ using TaskForge.Ai.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("ai-api");
+
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -18,6 +20,8 @@ builder.Services.AddDbContext<AiDbContext>(options =>
 });
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("ai-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {

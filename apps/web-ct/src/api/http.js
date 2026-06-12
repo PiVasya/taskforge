@@ -14,6 +14,53 @@ const api = axios.create({
   withCredentials: true,
 });
 
+const tfDebugEnabled = String(process.env.REACT_APP_TASKFORGE_DEBUG_LOGS || '').toLowerCase() === '1';
+let tfDebugSeq = 0;
+
+function tfDebugRedact(value) {
+  if (value == null) return value;
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return text
+      .replace(/("?(password|token|accessToken|refreshToken|authorization|secret|internalKey|apiKey)"?\s*[:=]\s*)"?[^"]+"?/gi, '$1"[redacted]"')
+      .slice(0, 2000);
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function tfDebugPayloadSummary(value) {
+  try {
+    const data = typeof value === 'string' ? JSON.parse(value) : value;
+    const names = [];
+    const ids = [];
+    const walk = (x) => {
+      if (!x || names.length > 10 || ids.length > 20) return;
+      if (Array.isArray(x)) return x.forEach(walk);
+      if (typeof x !== 'object') return;
+      const name = [x.displayName, x.fullName, [x.firstName, x.lastName].filter(Boolean).join(' '), x.email, x.maskedEmail]
+        .map((s) => (typeof s === 'string' ? s.trim() : ''))
+        .find(Boolean);
+      if (name) names.push(name);
+      const id = x.userId || x.id;
+      if (typeof id === 'string' && /^[0-9a-f-]{32,36}$/i.test(id)) ids.push(id);
+      Object.values(x).forEach(walk);
+    };
+    walk(data);
+    return { names: [...new Set(names)], ids: [...new Set(ids)] };
+  } catch {
+    return { names: [], ids: [] };
+  }
+}
+
+function tfDebugLog(stage, meta) {
+  if (!tfDebugEnabled || typeof console === 'undefined') return;
+  const payload = { tag: 'TFDBG-FRONT', stage, ...meta };
+  // eslint-disable-next-line no-console
+  console.log(payload);
+}
+
+
 function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
   try {
     if (typeof window === 'undefined') return;
@@ -161,9 +208,14 @@ export function normalizeApiError(error, fallback = 'Не удалось вып�
 }
 
 api.interceptors.request.use((config) => {
+  const debugId = `front-${Date.now()}-${++tfDebugSeq}`;
+  config.__tfDebugId = debugId;
+  config.__tfDebugStartedAt = Date.now();
+  config.headers = config.headers || {};
+  config.headers['X-TaskForge-Front-Trace-Id'] = debugId;
+  tfDebugLog('request:start', { id: debugId, method: (config.method || 'get').toUpperCase(), url: config.url, params: config.params, body: tfDebugRedact(config.data) });
   const token = accessToken;
   if (token) {
-    config.headers = config.headers || {};
     if (!config.headers.Authorization && !config.headers.authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -185,10 +237,17 @@ function resolveQueue(err) {
 api.interceptors.response.use(
   (response) => {
     emitQuotaFromHeaders(response?.headers);
+    const cfg = response?.config || {};
+    const summary = tfDebugPayloadSummary(response?.data);
+    tfDebugLog('response:ok', { id: cfg.__tfDebugId, method: (cfg.method || 'get').toUpperCase(), url: cfg.url, status: response?.status, durationMs: cfg.__tfDebugStartedAt ? Date.now() - cfg.__tfDebugStartedAt : undefined, names: summary.names, ids: summary.ids, body: tfDebugRedact(response?.data) });
+    if (summary.ids.length > 0 && summary.names.length === 0) {
+      tfDebugLog('response:semantic-warning', { id: cfg.__tfDebugId, url: cfg.url, message: 'Получили id, но не получили нормальные имена/displayName/email.' });
+    }
     return response;
   },
   async (error) => {
     const original = error.config || {};
+    tfDebugLog('response:error', { id: original.__tfDebugId, method: (original.method || 'get').toUpperCase(), url: original.url, status: error?.response?.status, durationMs: original.__tfDebugStartedAt ? Date.now() - original.__tfDebugStartedAt : undefined, body: tfDebugRedact(error?.response?.data || error?.message) });
     const status = error?.response?.status;
 
     if (status === 429) {

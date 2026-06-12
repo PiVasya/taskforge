@@ -4,6 +4,8 @@ using TaskForge.Notifications.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("notifications-api");
+
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -13,6 +15,8 @@ builder.Services.AddDbContext<NotificationsDbContext>(options =>
 });
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("notifications-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {

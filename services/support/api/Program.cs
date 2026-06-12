@@ -6,6 +6,8 @@ using TaskForge.Support.Api.Data;
 using TaskForge.Support.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTaskForgeDebugDiagnostics("support-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -13,6 +15,8 @@ builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<SupportDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("support-api");
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true)) { using var s = app.Services.CreateScope(); var db = s.ServiceProvider.GetRequiredService<SupportDbContext>(); app.Logger.LogInformation("Applying EF Core migrations for SupportDbContext..."); await db.Database.MigrateAsync(); app.Logger.LogInformation("EF Core migrations for SupportDbContext applied."); }
 else if (builder.Configuration.GetValue("Database:EnsureCreated", false)) { using var s = app.Services.CreateScope(); await s.ServiceProvider.GetRequiredService<SupportDbContext>().Database.EnsureCreatedAsync(); }
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
@@ -117,6 +121,7 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
 {
     var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
     if (ids.Length == 0) return new Dictionary<Guid, UserSummaryDto>();
+    TaskForgeDebugTrace.UserSummaryRequest("support-api", "identity-api", ids);
     try
     {
         var client = httpFactory.CreateClient();
@@ -126,13 +131,22 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
         };
         AddInternalKey(msg, cfg);
         using var resp = await client.SendAsync(msg, ct);
-        if (!resp.IsSuccessStatusCode) return new Dictionary<Guid, UserSummaryDto>();
+        if (!resp.IsSuccessStatusCode)
+        {
+            var empty = new Dictionary<Guid, UserSummaryDto>();
+            TaskForgeDebugTrace.UserSummaryResponse("support-api", "identity-api", ids, empty);
+            return empty;
+        }
         var rows = await resp.Content.ReadFromJsonAsync<List<UserSummaryDto>>(JsonOptions(), ct) ?? new List<UserSummaryDto>();
-        return rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+        var map = rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+        TaskForgeDebugTrace.UserSummaryResponse("support-api", "identity-api", ids, map);
+        return map;
     }
     catch
     {
-        return new Dictionary<Guid, UserSummaryDto>();
+        var empty = new Dictionary<Guid, UserSummaryDto>();
+        TaskForgeDebugTrace.UserSummaryResponse("support-api", "identity-api", ids, empty);
+        return empty;
     }
 }
 

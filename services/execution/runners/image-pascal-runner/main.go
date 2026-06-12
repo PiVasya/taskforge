@@ -448,6 +448,72 @@ func value(v *string) string {
 	return *v
 }
 
+func taskforgeDebugLogsEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("TASKFORGE_DEBUG_LOGS")))
+	return v == "1" || v == "true" || v == "yes" || v == "on" || v == "debug"
+}
+
+type taskforgeStatusWriter struct {
+	http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func (w *taskforgeStatusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *taskforgeStatusWriter) Write(p []byte) (int, error) {
+	if w.body.Len() < 4096 {
+		left := 4096 - w.body.Len()
+		if len(p) > left {
+			_, _ = w.body.Write(p[:left])
+		} else {
+			_, _ = w.body.Write(p)
+		}
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func taskforgeDebugSnippet(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = sanitizeRunnerText(value)
+	if len(value) > 4000 {
+		return value[:4000] + fmt.Sprintf("...<trimmed %d bytes>", len(value)-4000)
+	}
+	return value
+}
+
+func taskforgeReadRequestBody(r *http.Request) string {
+	if r.Body == nil || r.ContentLength == 0 {
+		return ""
+	}
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		r.Body = io.NopCloser(bytes.NewReader(nil))
+		return "<request-body-read-failed: " + err.Error() + ">"
+	}
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	return taskforgeDebugSnippet(string(data))
+}
+
+func taskforgeDebugMiddleware(service string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		traceID := r.Header.Get("X-TaskForge-Trace-Id")
+		if traceID == "" {
+			traceID = fmt.Sprintf("%s-%d", service, time.Now().UnixNano())
+		}
+		reqBody := taskforgeReadRequestBody(r)
+		log.Printf("[TFDBG RUNNER IN START] trace=%s service=%s method=%s path=%s query=%s remote=%s content_length=%d body=%s", traceID, service, r.Method, r.URL.Path, r.URL.RawQuery, r.RemoteAddr, r.ContentLength, reqBody)
+		sw := &taskforgeStatusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		log.Printf("[TFDBG RUNNER IN END] trace=%s service=%s method=%s path=%s status=%d duration=%s response=%s", traceID, service, r.Method, r.URL.Path, sw.status, time.Since(start), taskforgeDebugSnippet(sw.body.String()))
+	})
+}
+
 func main() {
 	kind := env("IMAGE_RUNNER_KIND", "cpp")
 	port := env("PORT", "8000")
@@ -462,7 +528,11 @@ func main() {
 	mux.HandleFunc("/render", handleRender(kind, false))
 	mux.HandleFunc("/render/debug", handleRender(kind, true))
 	log.Printf("image-%s-runner listening on :%s", kind, port)
-	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	handler := http.Handler(mux)
+	if taskforgeDebugLogsEnabled() {
+		handler = taskforgeDebugMiddleware("image-"+kind+"-runner", handler)
+	}
+	server := &http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

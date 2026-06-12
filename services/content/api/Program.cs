@@ -13,6 +13,8 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("content-api");
+
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
@@ -61,6 +63,8 @@ builder.Services
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("content-api");
 
 app.Use(async (context, next) =>
 {

@@ -17,4 +17,6 @@ RUN apt-get update \
 COPY --from=build /out/image-runner /app/image-runner
 ENV IMAGE_RUNNER_KIND=cpp PORT=8000
 EXPOSE 8000
-ENTRYPOINT ["/app/image-runner"]
+ARG TASKFORGE_DEBUG_LOGS=0
+ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
+ENTRYPOINT ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-cpp-runner\"; export TF_LOG_LEVEL=debug; export RUST_LOG=\"${RUST_LOG:-debug}\"; else echo \"[taskforge-debug] logs=off service=image-cpp-runner\"; export TF_LOG_LEVEL=info; export RUST_LOG=\"${RUST_LOG:-info}\"; fi; exec /app/image-runner"]

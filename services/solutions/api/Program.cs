@@ -6,12 +6,16 @@ using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTaskForgeDebugDiagnostics("solutions-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<SolutionsDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("solutions-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
@@ -855,8 +859,11 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
 {
     var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
     if (ids.Length == 0) return new Dictionary<Guid, UserSummaryDto>();
+    TaskForgeDebugTrace.UserSummaryRequest("solutions-api", "identity-api", ids);
     var rows = await PostInternalAsync<List<UserSummaryDto>>(httpFactory, cfg, ServiceUrl(cfg, "IdentityApi", "http://identity-api:8080"), "/api/internal/users/summaries", new UserIdsRequest(ids), ct) ?? new List<UserSummaryDto>();
-    return rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+    var map = rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+    TaskForgeDebugTrace.UserSummaryResponse("solutions-api", "identity-api", ids, map);
+    return map;
 }
 
 static async Task<Guid[]> LoadGroupMemberIdsAsync(Guid groupId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)

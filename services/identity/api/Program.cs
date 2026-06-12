@@ -11,6 +11,8 @@ using TaskForge.Identity.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("identity-api");
+
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -21,6 +23,8 @@ builder.Services.AddDbContext<IdentityDbContext>(options =>
 });
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("identity-api");
 
 ValidateProductionIdentityConfig(app.Configuration, app.Environment);
 
@@ -272,9 +276,16 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
 app.MapPost("/api/internal/users/summaries", async (UserIdsRequest request, IdentityDbContext db, CancellationToken ct) =>
 {
     var ids = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
-    if (ids.Length == 0) return Results.Ok(Array.Empty<object>());
+    if (ids.Length == 0)
+    {
+        TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, Array.Empty<object>());
+        return Results.Ok(Array.Empty<object>());
+    }
+    TaskForgeDebugTrace.UserSummaryRequest("identity-api", "identity-db", ids);
     var rows = await db.Users.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
-    return Results.Ok(rows.Select(ToUserSummaryDto).ToList());
+    var result = rows.Select(ToUserSummaryDto).ToList();
+    TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, result);
+    return Results.Ok(result);
 });
 
 

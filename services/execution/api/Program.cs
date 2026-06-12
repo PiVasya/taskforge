@@ -6,6 +6,8 @@ using TaskForge.Execution.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("execution-api");
+
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -16,6 +18,8 @@ builder.Services.AddDbContext<ExecutionDbContext>(options =>
 });
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("execution-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {

@@ -6,12 +6,16 @@ using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTaskForgeDebugDiagnostics("tasks-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<TasksDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("tasks-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
@@ -1292,6 +1296,7 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
 {
     var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
     if (ids.Length == 0) return new Dictionary<Guid, UserSummaryDto>();
+    TaskForgeDebugTrace.UserSummaryRequest("tasks-api", "identity-api", ids);
     try
     {
         var client = httpFactory.CreateClient();
@@ -1301,13 +1306,22 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
         };
         AddInternalKey(msg, cfg);
         using var resp = await client.SendAsync(msg, ct);
-        if (!resp.IsSuccessStatusCode) return new Dictionary<Guid, UserSummaryDto>();
+        if (!resp.IsSuccessStatusCode)
+        {
+            var empty = new Dictionary<Guid, UserSummaryDto>();
+            TaskForgeDebugTrace.UserSummaryResponse("tasks-api", "identity-api", ids, empty);
+            return empty;
+        }
         var rows = await resp.Content.ReadFromJsonAsync<List<UserSummaryDto>>(JsonOptions(), ct) ?? new List<UserSummaryDto>();
-        return rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+        var map = rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+        TaskForgeDebugTrace.UserSummaryResponse("tasks-api", "identity-api", ids, map);
+        return map;
     }
     catch
     {
-        return new Dictionary<Guid, UserSummaryDto>();
+        var empty = new Dictionary<Guid, UserSummaryDto>();
+        TaskForgeDebugTrace.UserSummaryResponse("tasks-api", "identity-api", ids, empty);
+        return empty;
     }
 }
 static string UserLabel(UserSummaryDto? user)

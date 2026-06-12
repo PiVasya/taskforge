@@ -6,6 +6,8 @@ using TaskForge.Minecraft.Api.Data;
 using TaskForge.Minecraft.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTaskForgeDebugDiagnostics("minecraft-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -13,6 +15,8 @@ builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<MinecraftDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("minecraft-api");
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true)) { using var s = app.Services.CreateScope(); var db = s.ServiceProvider.GetRequiredService<MinecraftDbContext>(); app.Logger.LogInformation("Applying EF Core migrations for MinecraftDbContext..."); await db.Database.MigrateAsync(); app.Logger.LogInformation("EF Core migrations for MinecraftDbContext applied."); }
 else if (builder.Configuration.GetValue("Database:EnsureCreated", false)) { using var s = app.Services.CreateScope(); await s.ServiceProvider.GetRequiredService<MinecraftDbContext>().Database.EnsureCreatedAsync(); }
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
@@ -134,6 +138,7 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
 {
     var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
     if (ids.Length == 0) return new Dictionary<Guid, UserSummaryDto>();
+    TaskForgeDebugTrace.UserSummaryRequest("minecraft-api", "identity-api", ids);
     try
     {
         var client = httpFactory.CreateClient();
@@ -143,13 +148,22 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
         };
         AddInternalKey(msg, cfg);
         using var resp = await client.SendAsync(msg, ct);
-        if (!resp.IsSuccessStatusCode) return new Dictionary<Guid, UserSummaryDto>();
+        if (!resp.IsSuccessStatusCode)
+        {
+            var empty = new Dictionary<Guid, UserSummaryDto>();
+            TaskForgeDebugTrace.UserSummaryResponse("minecraft-api", "identity-api", ids, empty);
+            return empty;
+        }
         var rows = await resp.Content.ReadFromJsonAsync<List<UserSummaryDto>>(JsonOptions(), ct) ?? new List<UserSummaryDto>();
-        return rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+        var map = rows.Select(x => { x.Normalize(); return x; }).Where(x => x.UserId != Guid.Empty).GroupBy(x => x.UserId).ToDictionary(x => x.Key, x => x.First());
+        TaskForgeDebugTrace.UserSummaryResponse("minecraft-api", "identity-api", ids, map);
+        return map;
     }
     catch
     {
-        return new Dictionary<Guid, UserSummaryDto>();
+        var empty = new Dictionary<Guid, UserSummaryDto>();
+        TaskForgeDebugTrace.UserSummaryResponse("minecraft-api", "identity-api", ids, empty);
+        return empty;
     }
 }
 static string UserLabel(UserSummaryDto? user)

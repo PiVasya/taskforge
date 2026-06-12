@@ -5,6 +5,8 @@ using TaskForge.Education.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("education-api");
+
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -14,6 +16,8 @@ builder.Services.AddDbContext<EducationDbContext>(options =>
 });
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("education-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {

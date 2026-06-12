@@ -56,6 +56,7 @@ services:
       start_period: 20s
   front:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/front:${IMAGE_TAG:-develop}
+    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -72,6 +73,7 @@ services:
       start_period: 20s
   front-ct:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/front-ct:${IMAGE_TAG:-develop}
+    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}

@@ -9,6 +9,8 @@ using TelegramQuizBot.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddTaskForgeDebugDiagnostics("telegram-quiz-bot");
+
 builder.Services.Configure<TelegramQuizOptions>(builder.Configuration.GetSection("TelegramQuiz"));
 builder.Services.Configure<S3Options>(builder.Configuration.GetSection("S3"));
 builder.Services.Configure<TaskForgeOptions>(builder.Configuration.GetSection("TaskForge"));
@@ -38,6 +40,8 @@ builder.Services.AddHostedService<TeacherBotHostedService>();
 builder.Services.AddHostedService<StudentBotHostedService>();
 
 var app = builder.Build();
+
+app.UseTaskForgeDebugRequestLogging("telegram-quiz-bot");
 
 if (args.Length >= 2 && args[0] == "--import-old-sqlite")
 {
