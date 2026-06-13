@@ -22,12 +22,22 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -43,8 +53,18 @@ services:
       dockerfile: services/bots/support-bot/Dockerfile
     environment:
       SupportApi__BaseUrl: http://support-api:8080
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       support-api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -77,12 +97,22 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -114,6 +144,14 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
@@ -122,6 +160,8 @@ services:
       minio:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -153,12 +193,22 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -191,12 +241,22 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -214,10 +274,20 @@ services:
       ConnectionStrings__TelegramQuizDb: Host=postgres;Port=5432;Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       TelegramQuiz__ApplyMigrationsOnStartup: ${MIGRATE_ON_STARTUP:-true}
       TaskForge__ApiBaseUrl: http://gateway
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       postgres:
         condition: service_healthy
       gateway:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:

@@ -13,11 +13,28 @@ import { handleApiError } from '../../utils/handleApiError';
 import { getApiErrorMessage } from '../../api/http';
 import { AlertTriangle } from 'lucide-react';
 
+const LEADERBOARD_PAGE_SIZE = 20;
+
+function normalizePagedLeaderboard(payload) {
+  if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  return {
+    items,
+    page: Number(payload?.page || 1),
+    hasMore: Boolean(payload?.hasMore),
+    total: Number(payload?.total || items.length),
+  };
+}
+
 export default function LeaderboardPage() {
   const notify = useNotify();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
 
   
   const [courses, setCourses] = useState([]);
@@ -45,9 +62,10 @@ export default function LeaderboardPage() {
     })();
   }, []);
 
-  const loadEntries = async () => {
+  const loadEntries = async ({ reset = true } = {}) => {
     try {
-      setLoading(true);
+      if (reset) setLoading(true);
+      else setLoadingMore(true);
       setError(null);
 
       const params = {};
@@ -62,10 +80,16 @@ export default function LeaderboardPage() {
       if (groupId) params.groupId = groupId;
       if (query.trim()) params.q = query.trim();
 
-      params.top = 100;
+      const nextPage = reset ? 1 : page + 1;
+      params.page = nextPage;
+      params.pageSize = LEADERBOARD_PAGE_SIZE;
 
       const data = await getLeaderboard(params);
-      setEntries(Array.isArray(data) ? data : []);
+      const parsed = normalizePagedLeaderboard(data);
+      setEntries((prev) => reset ? parsed.items : [...prev, ...parsed.items]);
+      setPage(parsed.page);
+      setHasMore(parsed.hasMore);
+      setTotal(parsed.total);
     } catch (e) {
       if (e?.response?.status === 429) {
         const ra = e.response?.data?.retryAfterSeconds;
@@ -77,6 +101,7 @@ export default function LeaderboardPage() {
       }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -111,7 +136,7 @@ export default function LeaderboardPage() {
                 placeholder="Имя, фамилия, почта, id"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') loadEntries(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') loadEntries({ reset: true }); }}
               />
             </div>
 
@@ -173,7 +198,7 @@ export default function LeaderboardPage() {
               type="button"
               variant="primary"
               className="h-8"
-              onClick={loadEntries}
+              onClick={() => loadEntries({ reset: true })}
             >
               Применить
             </Button>
@@ -193,11 +218,23 @@ export default function LeaderboardPage() {
 
         {!loading && !error && (
           
-          <div className="grid gap-4 md:grid-cols-2">
-            {entries.map((e) => (
-              <LeaderboardCard key={e.userId} entry={e} />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              {entries.map((e) => (
+                <LeaderboardCard key={e.userId} entry={e} />
+              ))}
+            </div>
+            {entries.length > 0 && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <div className="text-xs text-neutral-500">Показано {entries.length}{total ? ` из ${total}` : ''}</div>
+                {hasMore && (
+                  <Button variant="outline" onClick={() => loadEntries({ reset: false })} disabled={loadingMore}>
+                    {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
+                  </Button>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </Layout>

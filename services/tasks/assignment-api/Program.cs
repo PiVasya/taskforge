@@ -2,12 +2,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("tasks-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "tasks-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -114,12 +116,18 @@ app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Gu
     });
 });
 
-app.MapPost("/api/internal/assignments/summaries", async (AssignmentIdsRequest request, TasksDbContext db, CancellationToken ct) =>
+app.MapPost("/api/internal/assignments/summaries", async (AssignmentIdsRequest request, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, CancellationToken ct) =>
 {
-    var ids = (request.AssignmentIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
-    if (ids.Length == 0) return Results.Ok(Array.Empty<object>());
-    var rows = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
-    return Results.Ok(rows.Select(AssignmentSummaryDto).ToList());
+    var ids = (request.AssignmentIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).OrderBy(x => x).ToArray();
+    if (ids.Length == 0) return Results.Ok(Array.Empty<AssignmentSummaryDto>());
+
+    var key = TaskForgeCache.Key("tasks:assignment-summaries:v2", ids);
+    var rows = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
+    {
+        var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
+        return assignments.Select(ToAssignmentSummaryDto).ToList();
+    }, ct);
+    return Results.Ok(rows);
 });
 
 app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, CancellationToken ct) =>
@@ -952,20 +960,18 @@ static object ToDto(Assignment x, bool includeSensitive = false)
     };
 }
 
-static object AssignmentSummaryDto(Assignment x) => new
-{
+static AssignmentSummaryDto ToAssignmentSummaryDto(Assignment x) => new(
     x.Id,
-    assignmentId = x.Id,
+    x.Id,
     x.CourseId,
     x.Title,
-    assignmentTitle = x.Title,
+    x.Title,
     x.Type,
     x.Language,
-    rating = x.Rating,
-    difficulty = x.Difficulty,
+    x.Rating,
+    x.Difficulty,
     x.IsVisible,
-    x.Sort
-};
+    x.Sort);
 
 static bool IsEditor(HttpContext http, IConfiguration cfg)
 {
@@ -1335,6 +1341,7 @@ static string UserLabel(UserSummaryDto? user)
 static double Percent(int num, int den) => den <= 0 ? 0 : Math.Round(num * 100.0 / den, 1);
 
 public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
+public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid CourseId, string Title, string AssignmentTitle, string Type, string Language, int Rating, int Difficulty, bool IsVisible, int Sort);
 public sealed record UserIdsRequest(Guid[] UserIds);
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
 public sealed class CourseSummaryDto

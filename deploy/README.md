@@ -50,3 +50,7 @@ cp deploy/prod/.env.example deploy/prod/.env
 ```
 
 Prod использует готовые Docker images из registry и настраивается через `deploy/prod/.env`.
+
+## Redis cache
+
+The compose stack includes Redis. Backend services receive `ConnectionStrings__Redis` and cache hot metadata such as user summaries, course metadata and assignment summaries. See `docs/operations/redis-cache.md`.

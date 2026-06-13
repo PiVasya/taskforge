@@ -5,6 +5,7 @@ using TaskForge.Notifications.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("notifications-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "notifications-api");
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();

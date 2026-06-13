@@ -1,11 +1,13 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Education.Api.Data;
 using TaskForge.Education.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("education-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "education-api");
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
@@ -51,10 +53,40 @@ app.MapGet("/health/ready", async (EducationDbContext db) =>
 app.MapGet("/", () => Results.Ok(new { service = "taskforge-education-api", database = "taskforge_education", status = "education microservice active" }));
 app.MapGet("/api/education/schema-owner", () => Results.Ok(new { database = "taskforge_education", ownedEntities = new[] { "Course", "Group", "GroupMember" } }));
 
-app.MapGet("/api/courses", async (EducationDbContext db) =>
+app.MapGet("/api/courses", async (EducationDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, int? page, int? pageSize, string? q, CancellationToken ct) =>
 {
-    var rows = await db.Courses.AsNoTracking().OrderBy(x => x.Title).ToListAsync();
-    return Results.Ok(rows.Select(ToCourseDto).ToList());
+    var normalizedQuery = string.Join(' ', (q ?? string.Empty).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    var requestedPagedShape = page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(normalizedQuery);
+    var size = Math.Clamp(pageSize ?? 12, 1, 50);
+    var currentPage = Math.Max(1, page ?? 1);
+
+    if (!requestedPagedShape)
+    {
+        var key = TaskForgeCache.Key("education:courses:all:v2");
+        var ttl = TaskForgeCache.Ttl(cfg, "Metadata", 300);
+        var all = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, ttl, async token =>
+        {
+            var rows = await db.Courses.AsNoTracking().OrderBy(x => x.Title).ToListAsync(token);
+            return rows.Select(ToCourseDto).ToList();
+        }, ct);
+        return Results.Ok(all);
+    }
+
+    var pagedKey = TaskForgeCache.Key("education:courses:paged:v2", currentPage, size, normalizedQuery);
+    var result = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, pagedKey, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
+    {
+        var query = db.Courses.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(normalizedQuery))
+        {
+            var queryLower = normalizedQuery.ToLower();
+            query = query.Where(x => x.Title.ToLower().Contains(queryLower) || (x.Description != null && x.Description.ToLower().Contains(queryLower)));
+        }
+
+        var total = await query.CountAsync(token);
+        var rows = await query.OrderBy(x => x.Title).Skip((currentPage - 1) * size).Take(size).ToListAsync(token);
+        return new PagedResult<CourseDto>(rows.Select(ToCourseDto).ToList(), currentPage, size, total, currentPage * size < total);
+    }, ct);
+    return Results.Ok(result);
 });
 
 app.MapPost("/api/courses", async (CourseRequest request, EducationDbContext db) =>
@@ -103,12 +135,17 @@ app.MapDelete("/api/courses/{id:guid}", async (Guid id, EducationDbContext db) =
 
 app.MapGet("/api/admin/users/{userId:guid}/groups", async (Guid userId, EducationDbContext db) => Results.Ok(await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync()));
 
-app.MapPost("/api/internal/courses/metadata", async (CourseIdsRequest request, EducationDbContext db, CancellationToken ct) =>
+app.MapPost("/api/internal/courses/metadata", async (CourseIdsRequest request, EducationDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, CancellationToken ct) =>
 {
-    var ids = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
-    if (ids.Length == 0) return Results.Ok(Array.Empty<object>());
-    var rows = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
-    return Results.Ok(rows.Select(x => new { x.Id, courseId = x.Id, x.Title, courseTitle = x.Title, x.Description, x.IsPublic }).ToList());
+    var ids = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).OrderBy(x => x).ToArray();
+    if (ids.Length == 0) return Results.Ok(Array.Empty<CourseMetadataDto>());
+    var key = TaskForgeCache.Key("education:course-metadata:v2", ids);
+    var rows = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
+    {
+        var courses = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
+        return courses.Select(x => new CourseMetadataDto(x.Id, x.Id, x.Title, x.Title, x.Description, x.IsPublic)).ToList();
+    }, ct);
+    return Results.Ok(rows);
 });
 
 app.MapGet("/api/internal/groups/{groupId:guid}/members", async (Guid groupId, EducationDbContext db, CancellationToken ct) =>
@@ -200,19 +237,17 @@ static Guid[] DeserializeIds(string? json)
     try { return string.IsNullOrWhiteSpace(json) ? Array.Empty<Guid>() : JsonSerializer.Deserialize<Guid[]>(json) ?? Array.Empty<Guid>(); }
     catch { return Array.Empty<Guid>(); }
 }
-static object ToCourseDto(Course c) => new
-{
+static CourseDto ToCourseDto(Course c) => new(
     c.Id,
     c.Title,
     c.Description,
     c.IsPublic,
-    visibleGroupIds = DeserializeIds(c.VisibleGroupIdsJson),
-    ownerIds = DeserializeIds(c.OwnerIdsJson),
-    canEdit = true,
-    isCompletedForCurrentUser = false,
+    DeserializeIds(c.VisibleGroupIdsJson),
+    DeserializeIds(c.OwnerIdsJson),
+    true,
+    false,
     c.CreatedAt,
-    c.UpdatedAt
-};
+    c.UpdatedAt);
 static object ToGroupDto(Group g) => new { g.Id, g.Name, code = g.Code ?? string.Empty, g.IsActive, g.CreatedAt };
 
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
@@ -221,3 +256,7 @@ public sealed record CourseOwnersRequest(Guid[]? OwnerIds);
 public sealed record CourseRequest(string? Title, string? Description, bool? IsPublic, Guid[]? VisibleGroupIds, Guid[]? OwnerIds);
 public sealed record GroupRequest(string? Name, string? Code, bool? IsActive);
 public sealed record GroupMemberRequest(Guid UserId);
+
+public sealed record CourseDto(Guid Id, string Title, string? Description, bool IsPublic, Guid[] VisibleGroupIds, Guid[] OwnerIds, bool CanEdit, bool IsCompletedForCurrentUser, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public sealed record CourseMetadataDto(Guid Id, Guid CourseId, string Title, string CourseTitle, string? Description, bool IsPublic);
+public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, bool HasMore);

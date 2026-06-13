@@ -6,8 +6,6 @@ import { getMySolutions, getMySolutionDetails } from '../api/solutions';
 import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTestAttempts';
 import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
 import { getMyMathAttempts, getMyMathAttemptReview } from '../api/mathTaskAttempts';
-import { getAssignment } from '../api/assignments';
-import { getCourse } from '../api/courses';
 import MathAttemptReview from '../components/math/MathAttemptReview';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
@@ -29,7 +27,7 @@ import {
   getSolutionTitle,
 } from '../utils/solutionUi';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
@@ -227,7 +225,6 @@ export default function MySolutionsPage() {
   const [details, setDetails] = useState({});
   const [codeDetailsLoading, setCodeDetailsLoading] = useState({});
   const [expandedId, setExpandedId] = useState(null);
-  const [assignmentTitles, setAssignmentTitles] = useState({});
 
   const [testAttempts, setTestAttempts] = useState([]);
   const [testListLoading, setTestListLoading] = useState(false);
@@ -251,47 +248,12 @@ export default function MySolutionsPage() {
   const [mathDetails, setMathDetails] = useState({});
   const [expandedMathAttemptId, setExpandedMathAttemptId] = useState(null);
 
-  const enrichSolutionTitles = useCallback(async (items) => {
-    const ids = Array.from(new Set((items || [])
-      .map((x) => x?.assignmentId ?? x?.AssignmentId ?? x?.taskAssignmentId ?? x?.TaskAssignmentId)
-      .filter(Boolean)
-      .map(String)))
-      .filter((id) => !assignmentTitles[id]);
-    if (!ids.length) return;
-
-    const updates = {};
-    await Promise.all(ids.map(async (id) => {
-      try {
-        const assignment = await getAssignment(id);
-        const courseId = assignment?.courseId ?? assignment?.CourseId;
-        let courseTitle = '';
-        if (courseId) {
-          try {
-            const course = await getCourse(courseId);
-            courseTitle = course?.title ?? course?.Title ?? '';
-          } catch {}
-        }
-        updates[id] = {
-          courseId,
-          courseTitle,
-          assignmentTitle: assignment?.title ?? assignment?.Title ?? 'Задание без названия',
-        };
-      } catch {
-        updates[id] = { assignmentTitle: 'Задание без названия' };
-      }
-    }));
-    if (Object.keys(updates).length) {
-      setAssignmentTitles((prev) => ({ ...prev, ...updates }));
-    }
-  }, [assignmentTitles]);
-
   const loadSolutions = async ({ reset = false } = {}) => {
     setListLoading(true);
     try {
       const skip = reset ? 0 : solSkip;
       const list = await getMySolutions({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
-      enrichSolutionTitles(arr);
       if (reset) {
         setSolutions(arr);
         setSolSkip(arr.length);
@@ -315,7 +277,6 @@ export default function MySolutionsPage() {
       const skip = reset ? 0 : testSkip;
       const list = await getMyTaskTestAttempts({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
-      enrichSolutionTitles(arr);
       if (reset) {
         setTestAttempts(arr);
         setTestSkip(arr.length);
@@ -339,7 +300,6 @@ export default function MySolutionsPage() {
       const skip = reset ? 0 : imageSkip;
       const list = await getMyImageSolutions({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
-      enrichSolutionTitles(arr);
       if (reset) {
         setImageSolutions(arr);
         setImageSkip(arr.length);
@@ -363,7 +323,6 @@ export default function MySolutionsPage() {
       const skip = reset ? 0 : mathSkip;
       const list = await getMyMathAttempts({ days: filterDays, skip, take: PAGE_SIZE });
       const arr = Array.isArray(list) ? list : [];
-      enrichSolutionTitles(arr);
       if (reset) {
         setMathAttempts(arr);
         setMathSkip(arr.length);
@@ -405,11 +364,7 @@ export default function MySolutionsPage() {
     return { before: p.slice(0, i), after: p.slice(i + blank.length), blankLen: blank.length };
   };
 
-  const withAssignmentMeta = useCallback((item) => {
-    const assignmentId = String(item?.assignmentId ?? item?.AssignmentId ?? item?.taskAssignmentId ?? item?.TaskAssignmentId ?? '');
-    const meta = assignmentId ? assignmentTitles[assignmentId] : null;
-    return meta ? { ...item, ...meta } : item;
-  }, [assignmentTitles]);
+  const withAssignmentMeta = useCallback((item) => item, []);
 
   const displayedSolutions = useMemo(() => {
     const list = solutions.map(withAssignmentMeta);

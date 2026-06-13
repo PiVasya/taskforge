@@ -8,6 +8,7 @@ using TaskForge.Ai.Api.Data;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("ai-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "ai-api");
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();

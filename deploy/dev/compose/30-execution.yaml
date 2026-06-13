@@ -1,16 +1,15 @@
-x-runner-security: &runner-security
-  security_opt:
+x-runner-security:
+  security_opt: &id001
   - no-new-privileges:true
-  cap_drop:
+  cap_drop: &id002
   - ALL
   pids_limit: ${RUNNER_PIDS_LIMIT:-128}
   mem_limit: ${RUNNER_MEM_LIMIT:-512m}
   read_only: true
-  tmpfs:
+  tmpfs: &id003
   - /tmp:size=${RUNNER_TMPFS_SIZE:-256m},mode=1777,exec
-  networks:
+  networks: &id004
   - runner-net
-
 services:
   execution-api:
     build:
@@ -34,12 +33,22 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -73,6 +82,14 @@ services:
       CodeAnalyzer__FailClosed: ${CODE_ANALYZER_FAIL_CLOSED:-true}
       CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}
       Runners__ImagePascal: http://image-pascal-runner:8000
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     networks:
     - default
     - runner-net
@@ -101,6 +118,8 @@ services:
         condition: service_healthy
       image-pascal-runner:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
       - CMD-SHELL
@@ -110,7 +129,13 @@ services:
       retries: 12
       start_period: 20s
   csharp-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/csharp-runner
       dockerfile: Dockerfile
@@ -124,8 +149,26 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    environment:
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Redis__ConnectionString: redis:6379,abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
+    depends_on:
+      redis:
+        condition: service_healthy
   cpp-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/cpp-runner
       dockerfile: Dockerfile
@@ -140,7 +183,13 @@ services:
       retries: 12
       start_period: 20s
   java-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/java-runner
       dockerfile: Dockerfile
@@ -155,7 +204,13 @@ services:
       retries: 12
       start_period: 20s
   javascript-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/javascript-runner
       dockerfile: Dockerfile
@@ -170,7 +225,13 @@ services:
       retries: 12
       start_period: 20s
   pascal-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/pascal-runner
       dockerfile: Dockerfile
@@ -185,7 +246,13 @@ services:
       retries: 12
       start_period: 20s
   python-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/python-runner
       dockerfile: Dockerfile
@@ -199,9 +266,14 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
-
   image-cpp-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/image-cpp-runner
       dockerfile: Dockerfile
@@ -216,7 +288,13 @@ services:
       retries: 12
       start_period: 30s
   image-pascal-runner:
-    <<: *runner-security
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
     build:
       context: ../../../services/execution/runners/image-pascal-runner
       dockerfile: Dockerfile
@@ -230,7 +308,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-
 networks:
   default: {}
   runner-net:

@@ -10,6 +10,7 @@ using TelegramQuizBot.Storage;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("telegram-quiz-bot");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "telegram-quiz-bot");
 
 builder.Services.Configure<TelegramQuizOptions>(builder.Configuration.GetSection("TelegramQuiz"));
 builder.Services.Configure<S3Options>(builder.Configuration.GetSection("S3"));

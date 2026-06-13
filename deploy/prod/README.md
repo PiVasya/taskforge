@@ -192,3 +192,7 @@ deploy/prod/compose/
 ```bash
 ./deploy/prod/compose.sh up-logs
 ```
+
+## Redis cache
+
+The compose stack includes Redis. Backend services receive `ConnectionStrings__Redis` and cache hot metadata such as user summaries, course metadata and assignment summaries. See `docs/operations/redis-cache.md`.

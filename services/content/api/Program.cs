@@ -14,6 +14,7 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("content-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "content-api");
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 using TaskForge.Identity.Api.Data;
 using TaskForge.Identity.Api.Domain;
@@ -12,6 +13,7 @@ using TaskForge.Identity.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("identity-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "identity-api");
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
@@ -273,17 +275,24 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
     });
 });
 
-app.MapPost("/api/internal/users/summaries", async (UserIdsRequest request, IdentityDbContext db, CancellationToken ct) =>
+app.MapPost("/api/internal/users/summaries", async (UserIdsRequest request, IdentityDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, CancellationToken ct) =>
 {
-    var ids = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).ToArray();
+    var ids = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).OrderBy(x => x).ToArray();
     if (ids.Length == 0)
     {
-        TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, Array.Empty<object>());
-        return Results.Ok(Array.Empty<object>());
+        TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, Array.Empty<UserSummaryDto>());
+        return Results.Ok(Array.Empty<UserSummaryDto>());
     }
-    TaskForgeDebugTrace.UserSummaryRequest("identity-api", "identity-db", ids);
-    var rows = await db.Users.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
-    var result = rows.Select(ToUserSummaryDto).ToList();
+
+    var key = TaskForgeCache.Key("identity:user-summaries:v2", ids);
+    var ttl = TaskForgeCache.Ttl(cfg, "UserSummaries", 120);
+    var result = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, ttl, async token =>
+    {
+        TaskForgeDebugTrace.UserSummaryRequest("identity-api", "identity-db", ids);
+        var rows = await db.Users.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
+        return rows.Select(ToUserSummaryDto).ToList();
+    }, ct);
+
     TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, result);
     return Results.Ok(result);
 });
@@ -599,28 +608,26 @@ static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? fea
     integrationDataReliable = false,
     solutionStatsReliable = false
 };
-static object ToUserSummaryDto(IdentityUser user)
+static UserSummaryDto ToUserSummaryDto(IdentityUser user)
 {
     var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
-    return new
-    {
+    return new UserSummaryDto(
         user.Id,
-        userId = user.Id,
+        user.Id,
         user.Email,
-        maskedEmail = MaskEmail(user.Email),
+        MaskEmail(user.Email),
         user.FirstName,
         user.LastName,
-        avatarUrl = user.ProfilePictureUrl,
-        profilePictureUrl = user.ProfilePictureUrl,
-        displayName = DisplayName(user),
-        fullName = DisplayName(user),
+        user.ProfilePictureUrl,
+        user.ProfilePictureUrl,
+        DisplayName(user),
+        DisplayName(user),
         user.Role,
-        location = extra.Location,
-        education = extra.Education,
-        showInLeaderboard = extra.ShowInLeaderboard,
+        extra.Location,
+        extra.Education,
+        extra.ShowInLeaderboard,
         user.CreatedAt,
-        user.LastLoginAt
-    };
+        user.LastLoginAt);
 }
 static string NormalizeRole(string? role) => (role ?? "User").Trim() switch
 {
@@ -963,3 +970,21 @@ public sealed record ActivitySummaryDto(int SolvedAssignments, int TotalAttempts
 {
     public static ActivitySummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0);
 }
+
+public sealed record UserSummaryDto(
+    Guid Id,
+    Guid UserId,
+    string Email,
+    string MaskedEmail,
+    string FirstName,
+    string LastName,
+    string? AvatarUrl,
+    string? ProfilePictureUrl,
+    string DisplayName,
+    string FullName,
+    string Role,
+    string? Location,
+    string? Education,
+    bool ShowInLeaderboard,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastLoginAt);

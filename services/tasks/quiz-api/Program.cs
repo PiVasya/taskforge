@@ -14,6 +14,7 @@ using QuizTaskService.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("quiz-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "quiz-api");
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

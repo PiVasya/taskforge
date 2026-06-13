@@ -26,3 +26,7 @@
 ./deploy/dev/compose.sh logs -f --tail=200 tasks-api
 ./deploy/dev/compose.sh up -d --no-build tasks-api
 ```
+
+## Redis cache
+
+The compose stack includes Redis. Backend services receive `ConnectionStrings__Redis` and cache hot metadata such as user summaries, course metadata and assignment summaries. See `docs/operations/redis-cache.md`.

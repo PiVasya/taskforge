@@ -8,6 +8,7 @@ using TaskForge.Solutions.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("solutions-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "solutions-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -290,7 +291,7 @@ app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfigura
     return Results.Ok(rows);
 });
 
-app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? courseId, int? days, Guid? groupId, string? q, int top = 100, CancellationToken ct = default) =>
+app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? courseId, int? days, Guid? groupId, string? q, int top = 100, int? page = null, int? pageSize = null, CancellationToken ct = default) =>
 {
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
@@ -343,7 +344,12 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
         activityRows = activityRows.Where(x => metadata.TryGetValue(x.AssignmentId, out var m) ? m.CourseId == courseId.Value : true).ToList();
     }
 
-    if (activityRows.Count == 0) return Results.Ok(Array.Empty<object>());
+    if (activityRows.Count == 0)
+    {
+        var requestedEmptyPagedShape = page.HasValue || pageSize.HasValue;
+        if (requestedEmptyPagedShape) return Results.Ok(new PagedResult<object>(Array.Empty<object>(), Math.Max(1, page ?? 1), Math.Clamp(pageSize ?? 20, 1, 50), 0, false));
+        return Results.Ok(Array.Empty<object>());
+    }
 
     var aggregated = activityRows
         .GroupBy(x => x.UserId)
@@ -369,14 +375,24 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
     var badges = await LoadBadgeMapAsync(db, aggregated.Select(x => x.UserId), ct);
     var search = NormalizeSearch(q);
 
-    var visible = aggregated
+    var filtered = aggregated
         .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })
         .Where(x => x.User == null || x.User.ShowInLeaderboard)
         .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))
-        .Take(Math.Clamp(top, 1, 200))
+        .ToList();
+
+    var requestedPagedShape = page.HasValue || pageSize.HasValue;
+    var currentPage = Math.Max(1, page ?? 1);
+    var size = requestedPagedShape ? Math.Clamp(pageSize ?? 20, 1, 50) : Math.Clamp(top, 1, 200);
+    var offset = requestedPagedShape ? (currentPage - 1) * size : 0;
+    var total = filtered.Count;
+
+    var visible = filtered
+        .Skip(offset)
+        .Take(size)
         .Select((x, i) => new
         {
-            rank = i + 1,
+            rank = offset + i + 1,
             userId = x.Row.UserId,
             userName = UserLabel(x.User),
             displayName = UserLabel(x.User),
@@ -396,7 +412,13 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
             lastSubmitAt = x.Row.LastSubmitAt,
             badges = badges.GetValueOrDefault(x.Row.UserId) ?? new List<object>()
         })
+        .Cast<object>()
         .ToList();
+
+    if (requestedPagedShape)
+    {
+        return Results.Ok(new PagedResult<object>(visible, currentPage, size, total, offset + visible.Count < total));
+    }
 
     return Results.Ok(visible);
 });
@@ -1244,6 +1266,8 @@ public sealed class CourseSummaryDto
     public string? Title { get; set; }
     public string? CourseTitle { get; set; }
 }
+public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, bool HasMore);
+
 public sealed class UserSummaryDto
 {
     public Guid Id { get; set; }

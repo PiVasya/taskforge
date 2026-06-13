@@ -7,6 +7,7 @@ using TaskForge.Observability.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("observability-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "observability-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

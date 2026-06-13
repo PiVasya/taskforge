@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { Card, Button, Input, Badge } from "../components/ui";
 import { getCourses, createCourse } from "../api/courses";
@@ -8,40 +8,60 @@ import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 
+const COURSE_PAGE_SIZE = 12;
+
+function normalizePagedCourses(payload) {
+  if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  return {
+    items,
+    page: Number(payload?.page || 1),
+    hasMore: Boolean(payload?.hasMore),
+    total: Number(payload?.total || items.length),
+  };
+}
+
 export default function CoursesPage() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
 
   const nav = useNavigate();
   const notify = useNotify();
   const { canEdit, isEditorMode } = useEditorMode();
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        setLoadError("");
-        const list = await getCourses();
-        if (alive) setItems(Array.isArray(list) ? list : []);
-      } catch (e) {
-        const parsed = handleApiError(e, notify, "Не удалось загрузить курсы");
-        if (alive) setLoadError(parsed?.userMessage || "Не удалось загрузить курсы");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [notify]);
+  const loadCourses = async ({ reset = false, query = q } = {}) => {
+    const nextPage = reset ? 1 : page + 1;
+    try {
+      if (reset) setLoading(true);
+      else setLoadingMore(true);
+      setLoadError("");
+      const payload = await getCourses({ page: nextPage, pageSize: COURSE_PAGE_SIZE, q: query.trim() || undefined });
+      const parsed = normalizePagedCourses(payload);
+      setItems((prev) => reset ? parsed.items : [...prev, ...parsed.items]);
+      setPage(parsed.page);
+      setHasMore(parsed.hasMore);
+      setTotal(parsed.total);
+    } catch (e) {
+      const parsed = handleApiError(e, notify, "Не удалось загрузить курсы");
+      setLoadError(parsed?.userMessage || "Не удалось загрузить курсы");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
 
-  const filtered = useMemo(() => {
-    const qq = q.toLowerCase();
-    return (items || []).filter((c) =>
-      ((c.title || "") + " " + (c.description || "")).toLowerCase().includes(qq)
-    );
-  }, [items, q]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadCourses({ reset: true, query: q });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [q]);
 
   const handleCreate = async () => {
     try {
@@ -96,7 +116,7 @@ export default function CoursesPage() {
       {loading && <div className="text-neutral-500">Загрузка…</div>}
 
       <div className="auto-fill-grid">
-        {filtered.map((c) => {
+        {items.map((c) => {
           const editorTools = canEdit && isEditorMode;
           const href = editorTools && c.canEdit ? `/courses/${c.id}/edit` : `/course/${c.id}`;
           const unavailable = c.canAccess === false || c.isAccessible === false || c.isAvailable === false;
@@ -137,8 +157,19 @@ export default function CoursesPage() {
         })}
       </div>
 
-      {!loading && filtered.length === 0 && (
-        <div className="card-muted p-8 mt-6 text-center text-neutral-500">Пусто</div>
+      {!loading && items.length === 0 && (
+        <div className="card-muted p-8 mt-6 text-center text-neutral-500">Курсы пока не найдены.</div>
+      )}
+
+      {!loading && items.length > 0 && (
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <div className="text-xs text-neutral-500">Показано {items.length}{total ? ` из ${total}` : ''}</div>
+          {hasMore && (
+            <Button variant="outline" onClick={() => loadCourses({ reset: false })} disabled={loadingMore}>
+              {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
+            </Button>
+          )}
+        </div>
       )}
     </Layout>
   );

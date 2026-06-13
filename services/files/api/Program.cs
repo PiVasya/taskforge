@@ -7,6 +7,7 @@ using TaskForge.Files.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("files-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "files-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

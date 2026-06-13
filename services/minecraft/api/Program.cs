@@ -8,6 +8,7 @@ using TaskForge.Minecraft.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("minecraft-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "minecraft-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

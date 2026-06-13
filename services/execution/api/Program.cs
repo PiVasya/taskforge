@@ -7,6 +7,7 @@ using TaskForge.Execution.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("execution-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "execution-api");
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();

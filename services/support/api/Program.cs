@@ -8,6 +8,7 @@ using TaskForge.Support.Api.Domain;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("support-api");
+builder.Services.AddTaskForgeRedisCache(builder.Configuration, "support-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

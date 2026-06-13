@@ -2,8 +2,8 @@
 import api from './http';
 
 
-export async function getCourses() {
-  const { data } = await api.get('/api/courses');
+export async function getCourses(params = {}) {
+  const { data } = await api.get('/api/courses', { params });
   return data; 
 }
 

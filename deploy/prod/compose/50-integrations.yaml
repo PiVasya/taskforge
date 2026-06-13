@@ -23,16 +23,27 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_support;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_support;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -52,8 +63,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       SupportApi__BaseUrl: http://support-api:8080
       Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       support-api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -87,16 +108,27 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_minecraft;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_minecraft;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -129,10 +161,19 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_files;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_files;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
@@ -141,6 +182,8 @@ services:
       minio:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -173,16 +216,27 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_notifications;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_notifications;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -216,16 +270,27 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_observability;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_observability;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
     - '8080'
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -243,7 +308,8 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__TelegramQuizDb: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ConnectionStrings__TelegramQuizDb: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
+        POSTGRES_PASSWORD}
       TelegramQuiz__TeacherBotToken: ${TELEGRAM_TEACHER_BOT_TOKEN:-}
       TelegramQuiz__StudentBotToken: ${TELEGRAM_STUDENT_BOT_TOKEN:-}
       TelegramQuiz__TeacherPassword: ${TELEGRAM_TEACHER_PASSWORD:-}
@@ -257,12 +323,22 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
+      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
+      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
+      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
+      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       postgres:
         condition: service_healthy
       minio:
         condition: service_started
       gateway:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
