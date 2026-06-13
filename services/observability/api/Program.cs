@@ -41,12 +41,87 @@ app.MapPost("/api/activity/page-view", async (PageViewRequest req, HttpContext h
     return Results.Ok(new { saved = true, view.Id });
 });
 
-app.MapGet("/api/admin/activity", async (ObservabilityDbContext db, Guid? userId, string? query, int take = 200, CancellationToken ct = default) =>
+app.MapGet("/api/admin/activity", async (
+    ObservabilityDbContext db,
+    IConfiguration cfg,
+    IHttpClientFactory httpFactory,
+    int days = 7,
+    int page = 1,
+    int pageSize = 50,
+    string? q = null,
+    string? query = null,
+    string? category = null,
+    string? actionType = null,
+    string? source = null,
+    Guid? userId = null,
+    int? take = null,
+    CancellationToken ct = default) =>
 {
-    var q = db.PageViews.AsNoTracking();
-    if (userId.HasValue) q = q.Where(x => x.UserId == userId);
-    if (!string.IsNullOrWhiteSpace(query)) q = q.Where(x => x.Path.ToLower().Contains(query.ToLower()) || (x.Action != null && x.Action.ToLower().Contains(query.ToLower())));
-    return Results.Ok(await q.OrderByDescending(x => x.CreatedAt).Take(Math.Clamp(take, 1, 1000)).ToListAsync(ct));
+    days = Math.Clamp(days, 1, 365);
+    page = Math.Max(1, page);
+    pageSize = Math.Clamp(take ?? pageSize, 10, 1000);
+
+    var nowUtc = DateTimeOffset.UtcNow;
+    var fromUtc = nowUtc.AddDays(-days);
+    var search = NormalizeSearch(q ?? query);
+
+    var dbQuery = db.PageViews.AsNoTracking()
+        .Where(x => x.CreatedAt >= fromUtc && x.CreatedAt <= nowUtc);
+
+    if (userId.HasValue) dbQuery = dbQuery.Where(x => x.UserId == userId);
+
+    var rows = await dbQuery.OrderByDescending(x => x.CreatedAt).ToListAsync(ct);
+    var users = await LoadUserSummariesAsync(rows.Select(x => x.UserId).Where(x => x.HasValue).Select(x => x!.Value), cfg, httpFactory, ct);
+
+    var items = rows.Select(x => ToActivityItem(x, x.UserId.HasValue ? users.GetValueOrDefault(x.UserId.Value) : null)).ToList();
+
+    if (!string.IsNullOrWhiteSpace(category)) items = items.Where(x => string.Equals(x.Category, category, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (!string.IsNullOrWhiteSpace(actionType)) items = items.Where(x => string.Equals(x.ActionType, actionType, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (!string.IsNullOrWhiteSpace(source)) items = items.Where(x => string.Equals(x.Source, source, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        items = items.Where(x => NormalizeSearch($"{x.User?.FullName} {x.User?.Email} {x.Category} {x.ActionType} {x.Source} {x.Method} {x.Path} {x.Target} {x.Description} {x.StatusCode}").Contains(search)).ToList();
+    }
+
+    var total = items.Count;
+    var pageItems = items.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+    var topCategories = items.GroupBy(x => x.Category)
+        .Select(g => new { label = g.Key, value = g.Count() })
+        .OrderByDescending(x => x.value)
+        .Take(10)
+        .ToList();
+
+    var topActions = items.GroupBy(x => x.ActionType)
+        .Select(g => new { label = g.Key, value = g.Count() })
+        .OrderByDescending(x => x.value)
+        .Take(10)
+        .ToList();
+
+    var topUsers = items.Where(x => x.User != null)
+        .GroupBy(x => new { x.User!.Id, x.User.FullName, x.User.Email, x.User.Role })
+        .Select(g => new { userId = g.Key.Id, fullName = g.Key.FullName, displayName = g.Key.FullName, email = g.Key.Email, role = g.Key.Role, value = g.Count() })
+        .OrderByDescending(x => x.value)
+        .Take(10)
+        .ToList();
+
+    return Results.Ok(new
+    {
+        period = new { days, fromUtc, toUtc = nowUtc },
+        paging = new { page, pageSize, total },
+        totals = new
+        {
+            totalActions = total,
+            uniqueUsers = items.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().Count(),
+            errors = items.Count(x => x.StatusCode.HasValue && x.StatusCode.Value >= 400),
+            navigations = items.Count(x => string.Equals(x.Category, "navigation", StringComparison.OrdinalIgnoreCase)),
+        },
+        filters = new { q, query, category, actionType, source, userId },
+        topCategories,
+        topActions,
+        topUsers,
+        items = pageItems,
+    });
 });
 app.MapGet("/api/admin/system-status", () => Results.Ok(new { status = "ok", services = new[] { "identity", "education", "content", "tasks", "quiz", "solutions", "execution", "ai", "support", "minecraft", "files", "notifications", "observability" }, generatedAt = DateTimeOffset.UtcNow }));
 app.MapGet("/api/system-status", () => Results.Ok(new { status = "ok", generatedAt = DateTimeOffset.UtcNow }));
@@ -98,6 +173,8 @@ app.MapGet("/api/admin/analytics/overview", async (ObservabilityDbContext db, IC
     {
         label = g.Key,
         value = g.Count(),
+        requests = g.Count(),
+        count = g.Count(),
         avgLatencyMs = AvgDuration(g),
         errorRate = Percent(g.Count(IsError), g.Count())
     }).OrderByDescending(x => x.value).Take(25).ToList();
@@ -137,7 +214,7 @@ app.MapGet("/api/admin/analytics/overview", async (ObservabilityDbContext db, IC
         },
         api = new
         {
-            totals = new { totalRequests = views.Count, errors4xx = views.Count(x => x.StatusCode >= 400 && x.StatusCode < 500), errors5xx = views.Count(x => x.StatusCode >= 500), avgLatencyMs = avgLatency, p95LatencyMs = PercentileDuration(views, 0.95), p99LatencyMs = PercentileDuration(views, 0.99) },
+            totals = new { totalRequests = views.Count, errors4xx = views.Count(x => x.StatusCode is >= 400 and < 500), errors5xx = views.Count(x => x.StatusCode is >= 500), avgLatencyMs = avgLatency, p95LatencyMs = PercentileDuration(views, 0.95), p99LatencyMs = PercentileDuration(views, 0.99) },
             requestsByDay = DayPoints(views, days, g => g.Count()),
             errorsByDay = DayPoints(errorViews, days, g => g.Count()),
             latencyByDay = DayPoints(views, days, g => AvgDuration(g)),
@@ -257,6 +334,72 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
         return empty;
     }
 }
+static ActivityItemDto ToActivityItem(PageView view, UserSummaryDto? user)
+{
+    var category = ActivityCategory(view);
+    var actionType = ActivityActionType(view);
+    var target = NormalizeEndpoint(view.Path);
+    var userDto = view.UserId.HasValue
+        ? new ActivityUserDto
+        {
+            Id = view.UserId.Value,
+            FullName = UserLabel(user),
+            DisplayName = UserLabel(user),
+            Email = user?.Email ?? user?.MaskedEmail,
+            Role = user?.Role ?? "User",
+        }
+        : null;
+
+    return new ActivityItemDto
+    {
+        Id = view.Id,
+        UserId = view.UserId,
+        Category = category,
+        ActionType = actionType,
+        Source = ActivitySource(view),
+        Method = view.Method,
+        Path = view.Path,
+        Target = target,
+        Description = ActivityDescription(view, category, actionType, target),
+        StatusCode = view.StatusCode,
+        IsAuthenticated = view.UserId.HasValue,
+        CreatedAtUtc = view.CreatedAt,
+        DurationMs = view.DurationMs,
+        User = userDto,
+    };
+}
+static string ActivityCategory(PageView view)
+{
+    if (IsError(view)) return "error";
+    if (Contains(view.Path, "/admin")) return "admin";
+    if (IsLogin(view)) return "auth";
+    if (IsAssignmentActivity(view)) return "assignment";
+    if (Contains(view.Path, "/support")) return "support";
+    if (string.Equals(view.Action, "page-view", StringComparison.OrdinalIgnoreCase) || string.Equals(view.Method, "GET", StringComparison.OrdinalIgnoreCase)) return "navigation";
+    return "api";
+}
+static string ActivityActionType(PageView view)
+{
+    if (!string.IsNullOrWhiteSpace(view.Action)) return view.Action!;
+    if (!string.IsNullOrWhiteSpace(view.Method)) return view.Method!.ToUpperInvariant();
+    return "event";
+}
+static string ActivitySource(PageView view) => ClientType(view);
+static string ActivityDescription(PageView view, string category, string actionType, string target)
+{
+    var method = string.IsNullOrWhiteSpace(view.Method) ? "REQUEST" : view.Method!.ToUpperInvariant();
+    var status = view.StatusCode.HasValue ? $", статус {view.StatusCode.Value}" : string.Empty;
+    return category switch
+    {
+        "admin" => $"Действие в админке: {actionType} {target}{status}",
+        "auth" => $"Действие авторизации: {actionType} {target}{status}",
+        "assignment" => $"Активность по заданию: {actionType} {target}{status}",
+        "support" => $"Активность поддержки: {actionType} {target}{status}",
+        "error" => $"Ошибка запроса: {method} {target}{status}",
+        "navigation" => $"Переход по странице: {target}{status}",
+        _ => $"{method} {target}{status}",
+    };
+}
 static string UserLabel(UserSummaryDto? user)
 {
     var name = (user?.DisplayName ?? string.Empty).Trim();
@@ -267,7 +410,7 @@ static string UserLabel(UserSummaryDto? user)
 }
 static string NormalizeSearch(string? value) => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 static bool Contains(string? value, string term) => (value ?? string.Empty).Contains(term, StringComparison.OrdinalIgnoreCase);
-static bool IsError(PageView v) => v.StatusCode >= 400;
+static bool IsError(PageView v) => v.StatusCode is >= 400;
 static bool IsSuccess(PageView v) => v.StatusCode is null or >= 200 and < 300;
 static bool IsLogin(PageView v) => string.Equals(v.Action, "login", StringComparison.OrdinalIgnoreCase) || Contains(v.Path, "/login");
 static bool IsAssignmentActivity(PageView v) => Contains(v.Path, "assignment") || Contains(v.Path, "submit") || Contains(v.Path, "attempt") || Contains(v.Path, "task-test") || Contains(v.Path, "math-task") || Contains(v.Path, "image-test") || Contains(v.Path, "solutions");
@@ -339,6 +482,31 @@ static object[] BuildAlerts(int errors, int total, double avgLatency, double suc
     return alerts.ToArray();
 }
 
+public sealed class ActivityUserDto
+{
+    public Guid Id { get; set; }
+    public string FullName { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string? Email { get; set; }
+    public string? Role { get; set; }
+}
+public sealed class ActivityItemDto
+{
+    public Guid Id { get; set; }
+    public Guid? UserId { get; set; }
+    public string Category { get; set; } = string.Empty;
+    public string ActionType { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string? Method { get; set; }
+    public string Path { get; set; } = string.Empty;
+    public string? Target { get; set; }
+    public string? Description { get; set; }
+    public int? StatusCode { get; set; }
+    public bool IsAuthenticated { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public long? DurationMs { get; set; }
+    public ActivityUserDto? User { get; set; }
+}
 public sealed record PageViewRequest(string? Path, string? Url, string? Method, string? Action, int? StatusCode, long? DurationMs);
 public sealed record UserIdsRequest(Guid[] UserIds);
 public sealed class UserSummaryDto
