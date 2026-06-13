@@ -75,7 +75,6 @@ services:
       start_period: 20s
   code-analyzer:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/code-analyzer:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -92,7 +91,6 @@ services:
       start_period: 20s
   image-analyzer:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-analyzer:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}

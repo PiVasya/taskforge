@@ -3,7 +3,6 @@ services:
     build:
       context: ../../..
       dockerfile: services/ai/api/Dockerfile
-      args:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -41,7 +40,6 @@ services:
     build:
       context: ../../../services/ai/worker
       dockerfile: Dockerfile
-      args:
     environment:
       TaskForgeInternalApi__BaseUrl: http://ai-api:8080
       TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-dev_internal_agent_key_change_me}
@@ -65,8 +63,6 @@ services:
     build:
       context: ../../../services/analyzers/code-analyzer
       dockerfile: Dockerfile
-      args:
-    environment:
     expose:
     - '8080'
     healthcheck:
@@ -81,8 +77,6 @@ services:
     build:
       context: ../../../services/analyzers/image-analyzer
       dockerfile: Dockerfile
-      args:
-    environment:
     expose:
     - '8080'
     healthcheck:

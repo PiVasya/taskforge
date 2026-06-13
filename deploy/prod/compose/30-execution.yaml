@@ -122,7 +122,6 @@ services:
   csharp-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/csharp-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -140,7 +139,6 @@ services:
   cpp-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/cpp-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -158,7 +156,6 @@ services:
   java-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/java-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -176,7 +173,6 @@ services:
   javascript-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/javascript-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -194,7 +190,6 @@ services:
   pascal-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/pascal-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -212,7 +207,6 @@ services:
   python-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/python-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -231,7 +225,6 @@ services:
   image-cpp-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-cpp-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
@@ -249,7 +242,6 @@ services:
   image-pascal-runner:
     <<: *runner-security
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-pascal-runner:${IMAGE_TAG:-develop}
-    environment:
     labels:
     - com.centurylinklabs.watchtower.enable=true
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
