@@ -1,0 +1,184 @@
+name: docker images full rebuild
+
+# Manual-only emergency/dev workflow.
+# It ignores changed-file detection and rebuilds every TaskForge image in the same
+# GHCR repository/tag scheme as the normal docker images workflow.
+env:
+  TASKFORGE_BUILD_DEBUG_LOGS: "1"
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_logs:
+        description: Build backend image binaries with ultra TaskForge dev logs baked in. Use 1 now, 0 for quiet images.
+        type: choice
+        options:
+          - "1"
+          - "0"
+        default: "1"
+      no_cache:
+        description: Ignore Docker layer cache while rebuilding all images.
+        type: boolean
+        default: true
+
+jobs:
+  workflow-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check Docker workflow integrity
+        run: python3 scripts/ci/check-workflow-integrity.py
+
+  compose-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp deploy/dev/.env.example deploy/dev/.env
+      - run: ./deploy/dev/compose.sh config
+      - run: cp deploy/prod/.env.example deploy/prod/.env
+      - run: ./deploy/prod/compose.sh config
+
+  build:
+    needs: [compose-check, workflow-integrity]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: gateway
+            context: ./apps/gateway
+            dockerfile: Dockerfile
+          - name: front
+            context: ./apps/web
+            dockerfile: Dockerfile
+          - name: front-ct
+            context: ./apps/web-ct
+            dockerfile: Dockerfile
+
+          - name: identity-api
+            context: .
+            dockerfile: services/identity/api/Dockerfile
+          - name: education-api
+            context: .
+            dockerfile: services/education/api/Dockerfile
+          - name: content-api
+            context: ./services/content/api
+            dockerfile: Dockerfile
+          - name: tasks-api
+            context: .
+            dockerfile: services/tasks/assignment-api/Dockerfile
+          - name: quiz-api
+            context: ./services/tasks/quiz-api
+            dockerfile: Dockerfile
+          - name: solutions-api
+            context: .
+            dockerfile: services/solutions/api/Dockerfile
+          - name: rating-worker
+            context: .
+            dockerfile: services/solutions/rating-worker/Dockerfile
+
+          - name: execution-api
+            context: .
+            dockerfile: services/execution/api/Dockerfile
+          - name: execution-worker
+            context: .
+            dockerfile: services/execution/worker/Dockerfile
+          - name: csharp-runner
+            context: ./services/execution/runners/csharp-runner
+            dockerfile: Dockerfile
+          - name: cpp-runner
+            context: ./services/execution/runners/cpp-runner
+            dockerfile: Dockerfile
+          - name: java-runner
+            context: ./services/execution/runners/java-runner
+            dockerfile: Dockerfile
+          - name: javascript-runner
+            context: ./services/execution/runners/javascript-runner
+            dockerfile: Dockerfile
+          - name: pascal-runner
+            context: ./services/execution/runners/pascal-runner
+            dockerfile: Dockerfile
+          - name: python-runner
+            context: ./services/execution/runners/python-runner
+            dockerfile: Dockerfile
+          - name: image-cpp-runner
+            context: ./services/execution/runners/image-cpp-runner
+            dockerfile: Dockerfile
+          - name: image-pascal-runner
+            context: ./services/execution/runners/image-pascal-runner
+            dockerfile: Dockerfile
+
+          - name: ai-api
+            context: .
+            dockerfile: services/ai/api/Dockerfile
+          - name: ai-worker
+            context: ./services/ai/worker
+            dockerfile: Dockerfile
+          - name: code-analyzer
+            context: ./services/analyzers/code-analyzer
+            dockerfile: Dockerfile
+          - name: image-analyzer
+            context: ./services/analyzers/image-analyzer
+            dockerfile: Dockerfile
+
+          - name: support-api
+            context: .
+            dockerfile: services/support/api/Dockerfile
+          - name: support-bot
+            context: .
+            dockerfile: services/bots/support-bot/Dockerfile
+          - name: minecraft-api
+            context: .
+            dockerfile: services/minecraft/api/Dockerfile
+          - name: files-api
+            context: .
+            dockerfile: services/files/api/Dockerfile
+          - name: notifications-api
+            context: .
+            dockerfile: services/notifications/api/Dockerfile
+          - name: observability-api
+            context: .
+            dockerfile: services/observability/api/Dockerfile
+          - name: telegram-quiz-bot
+            context: ./services/bots/telegram-quiz-bot
+            dockerfile: Dockerfile
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare lowercase GHCR image prefix
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "prefix=ghcr.io/${repository}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.prefix }}/${{ matrix.name }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TASKFORGE_DEBUG_LOGS=${{ inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
+          no-cache: ${{ inputs.no_cache }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

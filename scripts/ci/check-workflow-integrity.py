@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail fast when Dockerfiles, prod compose images and develop-build matrix drift apart."""
+"""Fail fast when Dockerfiles, prod compose images and Docker build matrices drift apart."""
 from __future__ import annotations
 
 import re
@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "develop-build.yml"
+FULL_REBUILD_WORKFLOW = ROOT / ".github" / "workflows" / "develop-full-rebuild.yml"
 PROD_COMPOSE = ROOT / "deploy" / "prod" / "compose"
 
 
@@ -23,6 +24,20 @@ def matrix_entries() -> dict[str, str]:
         context_path = Path(context.replace("./", "", 1))
         full = (ROOT / context_path / dockerfile).resolve()
         entries[name] = norm(full.relative_to(ROOT))
+    return entries
+
+
+def full_rebuild_matrix_entries() -> dict[str, str]:
+    text = FULL_REBUILD_WORKFLOW.read_text(encoding="utf-8")
+    entries: dict[str, str] = {}
+    pattern = re.compile(
+        r'^\s*- name: ([^\n]+)\n\s*context: ([^\n]+)\n\s*dockerfile: ([^\n]+)$',
+        re.MULTILINE,
+    )
+    for name, context, dockerfile in pattern.findall(text):
+        context_path = Path(context.strip().replace("./", "", 1))
+        full = (ROOT / context_path / dockerfile.strip()).resolve()
+        entries[name.strip()] = norm(full.relative_to(ROOT))
     return entries
 
 
@@ -48,11 +63,31 @@ def prod_images() -> set[str]:
 
 def main() -> int:
     matrix = matrix_entries()
+    full_rebuild_matrix = full_rebuild_matrix_entries()
     dockerfiles = project_dockerfiles()
     prod = prod_images()
 
     errors: list[str] = []
     matrix_dockerfiles = set(matrix.values())
+
+    if matrix != full_rebuild_matrix:
+        normal_only = sorted(set(matrix) - set(full_rebuild_matrix))
+        manual_only = sorted(set(full_rebuild_matrix) - set(matrix))
+        changed = sorted(
+            name for name in set(matrix) & set(full_rebuild_matrix)
+            if matrix[name] != full_rebuild_matrix[name]
+        )
+        details: list[str] = []
+        if normal_only:
+            details.append("Only in develop-build.yml: " + ", ".join(normal_only))
+        if manual_only:
+            details.append("Only in develop-full-rebuild.yml: " + ", ".join(manual_only))
+        if changed:
+            details.append("Different Dockerfiles: " + ", ".join(changed))
+        errors.append(
+            "Full-rebuild workflow matrix does not match develop-build matrix:\n  "
+            + "\n  ".join(details)
+        )
 
     missing_dockerfiles = sorted(path for path in matrix_dockerfiles if not (ROOT / path).exists())
     if missing_dockerfiles:
@@ -78,7 +113,10 @@ def main() -> int:
         print("\n\n".join(errors), file=sys.stderr)
         return 1
 
-    print(f"Workflow integrity OK: {len(matrix)} matrix images, {len(dockerfiles)} Dockerfiles, {len(prod)} prod images.")
+    print(
+        f"Workflow integrity OK: {len(matrix)} matrix images, {len(dockerfiles)} Dockerfiles, "
+        f"{len(prod)} prod images, full-rebuild matrix aligned."
+    )
     return 0
 
 
