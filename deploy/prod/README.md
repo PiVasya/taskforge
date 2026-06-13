@@ -196,3 +196,10 @@ deploy/prod/compose/
 ## Redis cache
 
 The compose stack includes Redis. Backend services receive `ConnectionStrings__Redis` and cache hot metadata such as user summaries, course metadata and assignment summaries. See `docs/operations/redis-cache.md`.
+
+Recommended one-time Redis host tuning:
+
+```bash
+echo "vm.overcommit_memory=1" | sudo tee /etc/sysctl.d/99-taskforge-redis.conf
+sudo sysctl --system
+```

@@ -41,6 +41,23 @@ Prod uses a password-protected Redis container bound to localhost by default:
 redis:6379,password=...
 ```
 
+
+## Linux host tuning
+
+Redis can warn about `vm.overcommit_memory` on Linux. For production hosts, enable it once:
+
+```bash
+echo "vm.overcommit_memory=1" | sudo tee /etc/sysctl.d/99-taskforge-redis.conf
+sudo sysctl --system
+```
+
+Then Redis can be recreated if needed:
+
+```bash
+cd ~/Desktop/taskforge-prod-linux-v20
+./compose.sh up -d --force-recreate redis
+```
+
 ## Server checks
 
 ```bash

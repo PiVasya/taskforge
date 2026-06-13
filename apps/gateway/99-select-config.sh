@@ -15,7 +15,7 @@ render_conf () {
   envsubst '${DOMAIN} ${CT_DOMAIN}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
     cat > /tmp/taskforge-debug-nginx-prefix.conf <<'EOF'
-log_format taskforge_debug 'TFDBG GATEWAY request_id=$request_id remote=$remote_addr host=$host method=$request_method uri="$request_uri" status=$status bytes=$body_bytes_sent request_time=$request_time upstream="$upstream_addr" upstream_status="$upstream_status" upstream_time="$upstream_response_time" ref="$http_referer" ua="$http_user_agent"';
+log_format taskforge_debug 'TFDBG GATEWAY request_id=$request_id remote=$remote_addr host=$host method=$request_method path="$uri" status=$status bytes=$body_bytes_sent request_time=$request_time upstream="$upstream_addr" upstream_status="$upstream_status" upstream_time="$upstream_response_time" ref="$http_referer" ua="$http_user_agent"';
 access_log /var/log/nginx/access.log taskforge_debug;
 error_log /var/log/nginx/error.log info;
 EOF
