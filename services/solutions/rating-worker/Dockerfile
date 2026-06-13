@@ -1,7 +1,5 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props global.json ./
-COPY services/shared services/shared
 COPY services/solutions/rating-worker/TaskForge.Solutions.RatingWorker.csproj services/solutions/rating-worker/
 RUN dotnet restore services/solutions/rating-worker/TaskForge.Solutions.RatingWorker.csproj
 COPY services/solutions/rating-worker services/solutions/rating-worker

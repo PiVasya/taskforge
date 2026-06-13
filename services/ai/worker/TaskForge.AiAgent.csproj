@@ -20,7 +20,9 @@
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
-  </ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.8" />
+      <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
+</ItemGroup>
 
   <ItemGroup>
     <!-- Keep unit tests in the separate test project. The SDK default glob would otherwise compile nested tests into this Worker project and CI would fail without xUnit referenced here. -->

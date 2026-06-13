@@ -5,11 +5,4 @@
     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
   </PropertyGroup>
-
-  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
-    <Compile Include="$(MSBuildThisFileDirectory)services/shared/TaskForgeCache.cs" Link="Shared/TaskForgeCache.cs" Condition="Exists('$(MSBuildThisFileDirectory)services/shared/TaskForgeCache.cs')" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.8" />
-  </ItemGroup>
 </Project>

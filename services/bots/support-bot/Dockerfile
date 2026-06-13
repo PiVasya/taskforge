@@ -1,7 +1,5 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props global.json ./
-COPY services/shared services/shared
 COPY services/bots/support-bot/TaskForge.SupportBot.csproj services/bots/support-bot/
 RUN dotnet restore services/bots/support-bot/TaskForge.SupportBot.csproj
 COPY services/bots/support-bot services/bots/support-bot

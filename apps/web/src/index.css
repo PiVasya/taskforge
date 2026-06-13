@@ -1369,29 +1369,11 @@ html.dark .bg-fx__blob {
   @apply h-10 w-10;
 }
 
-@keyframes tf-skeleton-shimmer {
-  0% { background-position: 140% 0; }
-  100% { background-position: -140% 0; }
-}
-
-.tf-skeleton {
-  position: relative;
-  overflow: hidden;
-  border-radius: 1.25rem;
-  background: linear-gradient(90deg, rgba(var(--border) / 0.18), rgba(var(--accent) / 0.10), rgba(var(--border) / 0.18));
-  background-size: 240% 100%;
-  animation: tf-skeleton-shimmer 1.25s ease-in-out infinite;
-}
-
-.tf-skeleton-card {
-  overflow: hidden;
-}
-
-@keyframes tf-reveal-up {
+@keyframes tfRevealIn {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.992);
-    filter: blur(2px);
+    transform: translateY(10px) scale(0.985);
+    filter: blur(1.5px);
   }
   to {
     opacity: 1;
@@ -1400,15 +1382,54 @@ html.dark .bg-fx__blob {
   }
 }
 
+@keyframes tfSkeletonPulse {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
 .tf-reveal-item {
-  animation: tf-reveal-up 260ms ease-out both;
+  opacity: 0;
+  animation: tfRevealIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--tf-reveal-delay, 0ms);
+}
+
+.tf-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg,
+    rgba(var(--muted) / 0.26),
+    rgba(var(--accent) / 0.10),
+    rgba(var(--muted) / 0.26));
+  background-size: 220% 100%;
+  animation: tfSkeletonPulse 1.15s ease-in-out infinite;
+}
+
+.tf-skeleton-card {
+  border: 1px solid rgba(var(--border) / 0.72);
+  border-radius: 1.25rem;
+  background: rgba(var(--card) / 0.78);
+  padding: 1rem;
+}
+
+.tf-skeleton-line {
+  height: 0.8rem;
+  border-radius: 999px;
+}
+
+.tf-skeleton-avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tf-skeleton,
   .tf-reveal-item {
-    animation: none !important;
+    opacity: 1;
+    animation: none;
+    transform: none;
+    filter: none;
+  }
+  .tf-skeleton {
+    animation: none;
   }
 }
-
-

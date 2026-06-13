@@ -7,8 +7,6 @@ import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTe
 import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
 import { getMyMathAttempts, getMyMathAttemptReview } from '../api/mathTaskAttempts';
 import MathAttemptReview from '../components/math/MathAttemptReview';
-import { SolutionSkeletonList } from '../components/LoadingStates';
-import { useProgressiveList } from '../hooks/useProgressiveList';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
 import {
@@ -219,7 +217,7 @@ export default function MySolutionsPage() {
 
   const [tab, setTab] = useState('code');
   const [filterDays, setFilterDays] = useState(null);
-  const [revealVersion, setRevealVersion] = useState(0);
+  const [loadedTabs, setLoadedTabs] = useState({});
 
   const [solutions, setSolutions] = useState([]);
   const [listLoading, setListLoading] = useState(false);
@@ -262,7 +260,6 @@ export default function MySolutionsPage() {
         setSolSkip(arr.length);
         setExpandedId(null);
         setDetails({});
-        setRevealVersion((v) => v + 1);
       } else {
         setSolutions((prev) => [...prev, ...arr]);
         setSolSkip((prev) => prev + arr.length);
@@ -271,6 +268,7 @@ export default function MySolutionsPage() {
     } catch (e) {
       handleApiError(e, notify, 'Не удалось загрузить решения по коду');
     } finally {
+      setLoadedTabs((prev) => ({ ...prev, code: true }));
       setListLoading(false);
     }
   };
@@ -286,7 +284,6 @@ export default function MySolutionsPage() {
         setTestSkip(arr.length);
         setExpandedTestAttemptId(null);
         setTestDetails({});
-        setRevealVersion((v) => v + 1);
       } else {
         setTestAttempts((prev) => [...prev, ...arr]);
         setTestSkip((prev) => prev + arr.length);
@@ -295,6 +292,7 @@ export default function MySolutionsPage() {
     } catch (e) {
       handleApiError(e, notify, 'Не удалось загрузить попытки тестов');
     } finally {
+      setLoadedTabs((prev) => ({ ...prev, tests: true }));
       setTestListLoading(false);
     }
   };
@@ -310,7 +308,6 @@ export default function MySolutionsPage() {
         setImageSkip(arr.length);
         setExpandedImageId(null);
         setImageDetails({});
-        setRevealVersion((v) => v + 1);
       } else {
         setImageSolutions((prev) => [...prev, ...arr]);
         setImageSkip((prev) => prev + arr.length);
@@ -319,6 +316,7 @@ export default function MySolutionsPage() {
     } catch (e) {
       handleApiError(e, notify, 'Не удалось загрузить решения по картинкам');
     } finally {
+      setLoadedTabs((prev) => ({ ...prev, images: true }));
       setImageListLoading(false);
     }
   };
@@ -334,7 +332,6 @@ export default function MySolutionsPage() {
         setMathSkip(arr.length);
         setExpandedMathAttemptId(null);
         setMathDetails({});
-        setRevealVersion((v) => v + 1);
       } else {
         setMathAttempts((prev) => [...prev, ...arr]);
         setMathSkip((prev) => prev + arr.length);
@@ -343,57 +340,45 @@ export default function MySolutionsPage() {
     } catch (e) {
       handleApiError(e, notify, 'Не удалось загрузить math-попытки');
     } finally {
+      setLoadedTabs((prev) => ({ ...prev, math: true }));
       setMathListLoading(false);
     }
   };
 
-  const resetAllSolutionTabs = () => {
-    setSolutions([]);
+  useEffect(() => {
     setSolSkip(0);
     setSolHasMore(true);
+    setSolutions([]);
     setDetails({});
     setExpandedId(null);
 
-    setTestAttempts([]);
     setTestSkip(0);
     setTestHasMore(true);
+    setTestAttempts([]);
     setTestDetails({});
     setExpandedTestAttemptId(null);
 
-    setImageSolutions([]);
     setImageSkip(0);
     setImageHasMore(true);
+    setImageSolutions([]);
     setImageDetails({});
     setExpandedImageId(null);
 
-    setMathAttempts([]);
     setMathSkip(0);
     setMathHasMore(true);
+    setMathAttempts([]);
     setMathDetails({});
     setExpandedMathAttemptId(null);
-  };
 
-  const loadActiveTab = ({ reset = true } = {}) => {
-    if (tab === 'code') return loadSolutions({ reset });
-    if (tab === 'tests') return loadTestAttempts({ reset });
-    if (tab === 'images') return loadImageSolutions({ reset });
-    if (tab === 'math') return loadMathAttempts({ reset });
-    return Promise.resolve();
-  };
-
-  useEffect(() => {
-    resetAllSolutionTabs();
-    loadActiveTab({ reset: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLoadedTabs({});
   }, [filterDays]);
 
   useEffect(() => {
-    if (tab === 'code' && !solutions.length && !listLoading) loadSolutions({ reset: true });
-    if (tab === 'tests' && !testAttempts.length && !testListLoading) loadTestAttempts({ reset: true });
-    if (tab === 'images' && !imageSolutions.length && !imageListLoading) loadImageSolutions({ reset: true });
-    if (tab === 'math' && !mathAttempts.length && !mathListLoading) loadMathAttempts({ reset: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+    if (tab === 'code' && !loadedTabs.code) loadSolutions({ reset: true });
+    if (tab === 'tests' && !loadedTabs.tests) loadTestAttempts({ reset: true });
+    if (tab === 'images' && !loadedTabs.images) loadImageSolutions({ reset: true });
+    if (tab === 'math' && !loadedTabs.math) loadMathAttempts({ reset: true });
+  }, [tab, filterDays, loadedTabs.code, loadedTabs.tests, loadedTabs.images, loadedTabs.math]);
 
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
@@ -429,35 +414,6 @@ export default function MySolutionsPage() {
     list.sort((a, b) => dateMs(b.submittedAt) - dateMs(a.submittedAt));
     return list;
   }, [mathAttempts, withAssignmentMeta]);
-
-  const { visibleItems: visibleSolutions, isRevealing: codeRevealing } = useProgressiveList(displayedSolutions, {
-    initialCount: 8,
-    step: 4,
-    intervalMs: 70,
-    resetKey: `code:${filterDays ?? 'all'}:${revealVersion}`,
-  });
-
-  const { visibleItems: visibleAttempts, isRevealing: testsRevealing } = useProgressiveList(displayedAttempts, {
-    initialCount: 8,
-    step: 4,
-    intervalMs: 70,
-    resetKey: `tests:${filterDays ?? 'all'}:${revealVersion}`,
-  });
-
-  const { visibleItems: visibleImageSolutions, isRevealing: imagesRevealing } = useProgressiveList(displayedImageSolutions, {
-    initialCount: 8,
-    step: 4,
-    intervalMs: 70,
-    resetKey: `images:${filterDays ?? 'all'}:${revealVersion}`,
-  });
-
-  const { visibleItems: visibleMathAttempts, isRevealing: mathRevealing } = useProgressiveList(displayedMathAttempts, {
-    initialCount: 8,
-    step: 4,
-    intervalMs: 70,
-    resetKey: `math:${filterDays ?? 'all'}:${revealVersion}`,
-  });
-
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {
@@ -653,10 +609,10 @@ export default function MySolutionsPage() {
             ))}
           </div>
 
-          {tab === 'code' && listLoading && !solutions.length ? <div className="text-neutral-500 dark:text-neutral-400">Готовим ленту решений…</div> : null}
-          {tab === 'tests' && testListLoading && !testAttempts.length ? <div className="text-neutral-500 dark:text-neutral-400">Готовим попытки тестов…</div> : null}
-          {tab === 'images' && imageListLoading && !imageSolutions.length ? <div className="text-neutral-500 dark:text-neutral-400">Готовим решения по картинкам…</div> : null}
-          {tab === 'math' && mathListLoading && !mathAttempts.length ? <div className="text-neutral-500 dark:text-neutral-400">Готовим math-попытки…</div> : null}
+          {tab === 'code' && listLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
+          {tab === 'tests' && testListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
+          {tab === 'images' && imageListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
+          {tab === 'math' && mathListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
 
           {tab === 'code' && !listLoading && !displayedSolutions.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений нет.</div> : null}
           {tab === 'tests' && !testListLoading && !displayedAttempts.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период попыток тестов нет.</div> : null}
@@ -664,22 +620,17 @@ export default function MySolutionsPage() {
           {tab === 'math' && !mathListLoading && !displayedMathAttempts.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период math-попыток нет.</div> : null}
         </Card>
 
-        {tab === 'code' && listLoading && !solutions.length ? <SolutionSkeletonList count={4} /> : null}
-        {tab === 'tests' && testListLoading && !testAttempts.length ? <SolutionSkeletonList count={4} /> : null}
-        {tab === 'images' && imageListLoading && !imageSolutions.length ? <SolutionSkeletonList count={4} /> : null}
-        {tab === 'math' && mathListLoading && !mathAttempts.length ? <SolutionSkeletonList count={4} /> : null}
-
         {tab === 'code' && displayedSolutions.length > 0 ? (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано решений по коду: {visibleSolutions.length}{displayedSolutions.length !== visibleSolutions.length ? ` из ${displayedSolutions.length}` : ""}</div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано решений по коду: {displayedSolutions.length}</div>
             <div className="space-y-6">
-              {visibleSolutions.map((item, index) => {
+              {displayedSolutions.map((item, index) => {
                 const id = rowId(item);
                 const full = details[id] || null;
                 const expanded = expandedId === id;
                 const loadingDetails = expanded && codeDetailsLoading[id];
                 return (
-                  <div key={id} className="tf-reveal-item border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]" style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}>
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
@@ -700,8 +651,7 @@ export default function MySolutionsPage() {
                 );
               })}
             </div>
-            {codeRevealing ? <div className="text-xs text-center text-neutral-400">Подготавливаем карточки…</div> : null}
-            {solHasMore && !codeRevealing ? (
+            {solHasMore ? (
               <div className="pt-2 flex justify-center">
                 <Button variant="outline" onClick={() => loadSolutions({ reset: false })} disabled={listLoading}>{listLoading ? 'Загрузка…' : 'Загрузить ещё'}</Button>
               </div>
@@ -709,16 +659,16 @@ export default function MySolutionsPage() {
           </Card>
         ) : null}
 
-        {tab === 'tests' && displayedAttempts.length > 0 ? (
+        {tab === 'tests' && !testListLoading && displayedAttempts.length > 0 ? (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано попыток тестов: {visibleAttempts.length}{displayedAttempts.length !== visibleAttempts.length ? ` из ${displayedAttempts.length}` : ""}</div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Всего попыток тестов: {displayedAttempts.length}</div>
             <div className="space-y-6">
-              {visibleAttempts.map((a, index) => {
+              {displayedAttempts.map((a, index) => {
                 const id = a.attemptId;
                 const dto = testDetails[id] || null;
                 const expanded = expandedTestAttemptId === id;
                 return (
-                  <div key={id} className="tf-reveal-item border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]" style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}>
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium">{getSolutionTitle(a)}</div>
@@ -737,18 +687,17 @@ export default function MySolutionsPage() {
             </div>
           </Card>
         ) : null}
-        {tab === 'tests' && testsRevealing ? <div className="text-xs text-center text-neutral-400">Подготавливаем карточки…</div> : null}
-        {tab === 'tests' && testHasMore && !testsRevealing ? (
+        {tab === 'tests' && testHasMore ? (
           <div className="pt-2 flex justify-center">
             <Button variant="outline" onClick={() => loadTestAttempts({ reset: false })} disabled={testListLoading}>{testListLoading ? 'Загрузка…' : 'Загрузить ещё'}</Button>
           </div>
         ) : null}
 
-        {tab === 'images' && displayedImageSolutions.length > 0 ? (
+        {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 ? (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано решений по картинкам: {visibleImageSolutions.length}{displayedImageSolutions.length !== visibleImageSolutions.length ? ` из ${displayedImageSolutions.length}` : ""}</div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Всего решений по картинкам: {displayedImageSolutions.length}</div>
             <div className="space-y-6">
-              {visibleImageSolutions.map((item, index) => {
+              {displayedImageSolutions.map((item, index) => {
                 const id = rowId(item);
                 const full = imageDetails[id] || null;
                 const expanded = expandedImageId === id;
@@ -759,7 +708,7 @@ export default function MySolutionsPage() {
                   if (item.assignmentId) window.open(`/assignment/${item.assignmentId}/image-results?solutionId=${id}`, '_blank');
                 };
                 return (
-                  <div key={id} className="tf-reveal-item border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]" style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}>
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
@@ -784,23 +733,22 @@ export default function MySolutionsPage() {
             </div>
           </Card>
         ) : null}
-        {tab === 'images' && imagesRevealing ? <div className="text-xs text-center text-neutral-400">Подготавливаем карточки…</div> : null}
-        {tab === 'images' && imageHasMore && !imagesRevealing ? (
+        {tab === 'images' && imageHasMore ? (
           <div className="pt-2 flex justify-center">
             <Button variant="outline" onClick={() => loadImageSolutions({ reset: false })} disabled={imageListLoading}>{imageListLoading ? 'Загрузка…' : 'Загрузить ещё'}</Button>
           </div>
         ) : null}
 
-        {tab === 'math' && displayedMathAttempts.length > 0 ? (
+        {tab === 'math' && !mathListLoading && displayedMathAttempts.length > 0 ? (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано math-попыток: {visibleMathAttempts.length}{displayedMathAttempts.length !== visibleMathAttempts.length ? ` из ${displayedMathAttempts.length}` : ""}</div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Всего math-попыток: {displayedMathAttempts.length}</div>
             <div className="space-y-6">
-              {visibleMathAttempts.map((a, index) => {
+              {displayedMathAttempts.map((a, index) => {
                 const id = a.attemptId;
                 const dto = mathDetails[id] || null;
                 const expanded = expandedMathAttemptId === id;
                 return (
-                  <div key={id} className="tf-reveal-item border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))]" style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}>
+                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium">{getSolutionTitle(a)}</div>
@@ -820,8 +768,7 @@ export default function MySolutionsPage() {
             </div>
           </Card>
         ) : null}
-        {tab === 'math' && mathRevealing ? <div className="text-xs text-center text-neutral-400">Подготавливаем карточки…</div> : null}
-        {tab === 'math' && mathHasMore && !mathRevealing ? (
+        {tab === 'math' && mathHasMore ? (
           <div className="pt-2 flex justify-center">
             <Button variant="outline" onClick={() => loadMathAttempts({ reset: false })} disabled={mathListLoading}>{mathListLoading ? 'Загрузка…' : 'Загрузить ещё'}</Button>
           </div>

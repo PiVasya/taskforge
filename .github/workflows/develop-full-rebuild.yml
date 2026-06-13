@@ -27,18 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check Docker workflow integrity
-        run: |
-          python3 scripts/ci/check-workflow-integrity.py
-          python3 scripts/ci/check-docker-build-contexts.py
+        run: python3 scripts/ci/check-workflow-integrity.py
 
   compose-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: cp deploy/dev/.env.example deploy/dev/.env
-      - run: ./deploy/dev/compose.sh config
+      - run: bash ./deploy/dev/compose.sh config
       - run: cp deploy/prod/.env.example deploy/prod/.env
-      - run: ./deploy/prod/compose.sh config
+      - run: bash ./deploy/prod/compose.sh config
 
   build:
     needs: [compose-check, workflow-integrity]
@@ -64,14 +62,14 @@ jobs:
             context: .
             dockerfile: services/education/api/Dockerfile
           - name: content-api
-            context: .
-            dockerfile: services/content/api/Dockerfile
+            context: ./services/content/api
+            dockerfile: Dockerfile
           - name: tasks-api
             context: .
             dockerfile: services/tasks/assignment-api/Dockerfile
           - name: quiz-api
-            context: .
-            dockerfile: services/tasks/quiz-api/Dockerfile
+            context: ./services/tasks/quiz-api
+            dockerfile: Dockerfile
           - name: solutions-api
             context: .
             dockerfile: services/solutions/api/Dockerfile
@@ -86,8 +84,8 @@ jobs:
             context: .
             dockerfile: services/execution/worker/Dockerfile
           - name: csharp-runner
-            context: .
-            dockerfile: services/execution/runners/csharp-runner/Dockerfile
+            context: ./services/execution/runners/csharp-runner
+            dockerfile: Dockerfile
           - name: cpp-runner
             context: ./services/execution/runners/cpp-runner
             dockerfile: Dockerfile
@@ -114,8 +112,8 @@ jobs:
             context: .
             dockerfile: services/ai/api/Dockerfile
           - name: ai-worker
-            context: .
-            dockerfile: services/ai/worker/Dockerfile
+            context: ./services/ai/worker
+            dockerfile: Dockerfile
           - name: code-analyzer
             context: ./services/analyzers/code-analyzer
             dockerfile: Dockerfile
@@ -142,8 +140,8 @@ jobs:
             context: .
             dockerfile: services/observability/api/Dockerfile
           - name: telegram-quiz-bot
-            context: .
-            dockerfile: services/bots/telegram-quiz-bot/Dockerfile
+            context: ./services/bots/telegram-quiz-bot
+            dockerfile: Dockerfile
     permissions:
       contents: read
       packages: write

@@ -59,17 +59,17 @@ jobs:
             "front|./apps/web|Dockerfile|apps/web/"
             "front-ct|./apps/web-ct|Dockerfile|apps/web-ct/"
 
-            "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "education-api|.|services/education/api/Dockerfile|services/education/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "content-api|.|services/content/api/Dockerfile|services/content/api/ Directory.Build.props global.json services/shared/ .dockerignore"
-            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "quiz-api|.|services/tasks/quiz-api/Dockerfile|services/tasks/quiz-api/ Directory.Build.props global.json services/shared/ .dockerignore"
-            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ Directory.Build.props global.json services/shared/ .dockerignore"
+            "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ Directory.Build.props global.json .dockerignore"
+            "education-api|.|services/education/api/Dockerfile|services/education/api/ Directory.Build.props global.json .dockerignore"
+            "content-api|./services/content/api|Dockerfile|services/content/api/"
+            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ Directory.Build.props global.json .dockerignore"
+            "quiz-api|./services/tasks/quiz-api|Dockerfile|services/tasks/quiz-api/"
+            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ Directory.Build.props global.json .dockerignore"
+            "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ Directory.Build.props global.json .dockerignore"
 
-            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "execution-worker|.|services/execution/worker/Dockerfile|services/execution/worker/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "csharp-runner|.|services/execution/runners/csharp-runner/Dockerfile|services/execution/runners/csharp-runner/ Directory.Build.props global.json services/shared/ .dockerignore"
+            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ Directory.Build.props global.json .dockerignore"
+            "execution-worker|.|services/execution/worker/Dockerfile|services/execution/worker/ Directory.Build.props global.json .dockerignore"
+            "csharp-runner|./services/execution/runners/csharp-runner|Dockerfile|services/execution/runners/csharp-runner/"
             "cpp-runner|./services/execution/runners/cpp-runner|Dockerfile|services/execution/runners/cpp-runner/"
             "java-runner|./services/execution/runners/java-runner|Dockerfile|services/execution/runners/java-runner/"
             "javascript-runner|./services/execution/runners/javascript-runner|Dockerfile|services/execution/runners/javascript-runner/"
@@ -78,18 +78,18 @@ jobs:
             "image-cpp-runner|./services/execution/runners/image-cpp-runner|Dockerfile|services/execution/runners/image-cpp-runner/"
             "image-pascal-runner|./services/execution/runners/image-pascal-runner|Dockerfile|services/execution/runners/image-pascal-runner/"
 
-            "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "ai-worker|.|services/ai/worker/Dockerfile|services/ai/worker/ Directory.Build.props global.json services/shared/ .dockerignore"
+            "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ Directory.Build.props global.json .dockerignore"
+            "ai-worker|./services/ai/worker|Dockerfile|services/ai/worker/"
             "code-analyzer|./services/analyzers/code-analyzer|Dockerfile|services/analyzers/code-analyzer/"
             "image-analyzer|./services/analyzers/image-analyzer|Dockerfile|services/analyzers/image-analyzer/"
 
-            "support-api|.|services/support/api/Dockerfile|services/support/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "support-bot|.|services/bots/support-bot/Dockerfile|services/bots/support-bot/ Directory.Build.props global.json services/shared/ .dockerignore"
-            "minecraft-api|.|services/minecraft/api/Dockerfile|services/minecraft/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "files-api|.|services/files/api/Dockerfile|services/files/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "notifications-api|.|services/notifications/api/Dockerfile|services/notifications/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "observability-api|.|services/observability/api/Dockerfile|services/observability/api/ Directory.Build.props services/shared/ global.json .dockerignore"
-            "telegram-quiz-bot|.|services/bots/telegram-quiz-bot/Dockerfile|services/bots/telegram-quiz-bot/ Directory.Build.props global.json services/shared/ .dockerignore"
+            "support-api|.|services/support/api/Dockerfile|services/support/api/ Directory.Build.props global.json .dockerignore"
+            "support-bot|.|services/bots/support-bot/Dockerfile|services/bots/support-bot/ Directory.Build.props global.json .dockerignore"
+            "minecraft-api|.|services/minecraft/api/Dockerfile|services/minecraft/api/ Directory.Build.props global.json .dockerignore"
+            "files-api|.|services/files/api/Dockerfile|services/files/api/ Directory.Build.props global.json .dockerignore"
+            "notifications-api|.|services/notifications/api/Dockerfile|services/notifications/api/ Directory.Build.props global.json .dockerignore"
+            "observability-api|.|services/observability/api/Dockerfile|services/observability/api/ Directory.Build.props global.json .dockerignore"
+            "telegram-quiz-bot|./services/bots/telegram-quiz-bot|Dockerfile|services/bots/telegram-quiz-bot/"
           )
 
           changed_files=""
@@ -182,18 +182,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check Docker workflow integrity
-        run: |
-          python3 scripts/ci/check-workflow-integrity.py
-          python3 scripts/ci/check-docker-build-contexts.py
+        run: python3 scripts/ci/check-workflow-integrity.py
 
   compose-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: cp deploy/dev/.env.example deploy/dev/.env
-      - run: ./deploy/dev/compose.sh config
+      - run: bash ./deploy/dev/compose.sh config
       - run: cp deploy/prod/.env.example deploy/prod/.env
-      - run: ./deploy/prod/compose.sh config
+      - run: bash ./deploy/prod/compose.sh config
 
   build:
     needs: [changes, compose-check, workflow-integrity]

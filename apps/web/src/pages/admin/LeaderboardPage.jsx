@@ -1,3 +1,5 @@
+
+
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
@@ -10,10 +12,8 @@ import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
 import { getApiErrorMessage } from '../../api/http';
 import { AlertTriangle } from 'lucide-react';
-import { LeaderboardSkeletonGrid } from '../../components/LoadingStates';
-import { useProgressiveList } from '../../hooks/useProgressiveList';
-const LEADERBOARD_PAGE_SIZE = 20;
 
+const LEADERBOARD_PAGE_SIZE = 20;
 
 function normalizePagedLeaderboard(payload) {
   if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
@@ -35,7 +35,6 @@ export default function LeaderboardPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
-  const [listVersion, setListVersion] = useState(0);
 
   
   const [courses, setCourses] = useState([]);
@@ -44,19 +43,13 @@ export default function LeaderboardPage() {
   const [days, setDays] = useState('');
   const [groupId, setGroupId] = useState('');
   const [query, setQuery] = useState('');
-  const { visibleItems: visibleEntries, isRevealing } = useProgressiveList(entries, {
-    initialCount: 8,
-    step: 4,
-    intervalMs: 75,
-    resetKey: listVersion,
-  });
 
   
   useEffect(() => {
     (async () => {
       try {
-        const list = await getCourses({ page: 1, pageSize: 50 });
-        setCourses(Array.isArray(list) ? list : (Array.isArray(list?.items) ? list.items : []));
+        const list = await getCourses();
+        setCourses(Array.isArray(list) ? list : []);
       } catch (e) {
         handleApiError(e, notify, 'Не удалось загрузить курсы');
       }
@@ -94,7 +87,6 @@ export default function LeaderboardPage() {
       const data = await getLeaderboard(params);
       const parsed = normalizePagedLeaderboard(data);
       setEntries((prev) => reset ? parsed.items : [...prev, ...parsed.items]);
-      if (reset) setListVersion((v) => v + 1);
       setPage(parsed.page);
       setHasMore(parsed.hasMore);
       setTotal(parsed.total);
@@ -213,7 +205,21 @@ export default function LeaderboardPage() {
           </div>
         </Card>
 
-        {loading && <LeaderboardSkeletonGrid count={6} />}
+        {loading && (
+          <div className="grid gap-4 md:grid-cols-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="tf-skeleton-card tf-reveal-item" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
+                <div className="flex items-center gap-4">
+                  <div className="tf-skeleton tf-skeleton-avatar" />
+                  <div className="min-w-0 flex-1">
+                    <div className="tf-skeleton tf-skeleton-line mb-3 w-1/2" />
+                    <div className="tf-skeleton tf-skeleton-line w-3/4" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {error && (
           <Card className="border-rose-300 bg-rose-50 text-rose-700">
@@ -228,17 +234,16 @@ export default function LeaderboardPage() {
           
           <>
             <div className="grid gap-4 md:grid-cols-2">
-              {visibleEntries.map((e, index) => (
-                <div className="tf-reveal-item" style={{ animationDelay: `${Math.min(index, 10) * 24}ms` }} key={e.userId}>
+              {entries.map((e, index) => (
+                <div key={e.userId || index} className="tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
                   <LeaderboardCard entry={e} />
                 </div>
               ))}
             </div>
             {entries.length > 0 && (
               <div className="mt-4 flex flex-col items-center gap-2">
-                <div className="text-xs text-neutral-500">Показано {visibleEntries.length}{total ? ` из ${total}` : ''}</div>
-                {isRevealing ? <div className="text-xs text-neutral-400">Собираем позиции рейтинга…</div> : null}
-                {hasMore && !isRevealing && (
+                <div className="text-xs text-neutral-500">Показано {entries.length}{total ? ` из ${total}` : ''}</div>
+                {hasMore && (
                   <Button variant="outline" onClick={() => loadEntries({ reset: false })} disabled={loadingMore}>
                     {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
                   </Button>

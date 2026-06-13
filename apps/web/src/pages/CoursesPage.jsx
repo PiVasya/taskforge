@@ -7,10 +7,8 @@ import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
-import { CourseSkeletonGrid } from "../components/LoadingStates";
-import { useProgressiveList } from "../hooks/useProgressiveList";
-const COURSE_PAGE_SIZE = 12;
 
+const COURSE_PAGE_SIZE = 12;
 
 function normalizePagedCourses(payload) {
   if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
@@ -32,17 +30,10 @@ export default function CoursesPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
-  const [listVersion, setListVersion] = useState(0);
 
   const nav = useNavigate();
   const notify = useNotify();
   const { canEdit, isEditorMode } = useEditorMode();
-  const { visibleItems, isRevealing } = useProgressiveList(items, {
-    initialCount: 6,
-    step: 3,
-    intervalMs: 70,
-    resetKey: listVersion,
-  });
 
   const loadCourses = async ({ reset = false, query = q } = {}) => {
     const nextPage = reset ? 1 : page + 1;
@@ -53,7 +44,6 @@ export default function CoursesPage() {
       const payload = await getCourses({ page: nextPage, pageSize: COURSE_PAGE_SIZE, q: query.trim() || undefined });
       const parsed = normalizePagedCourses(payload);
       setItems((prev) => reset ? parsed.items : [...prev, ...parsed.items]);
-      if (reset) setListVersion((v) => v + 1);
       setPage(parsed.page);
       setHasMore(parsed.hasMore);
       setTotal(parsed.total);
@@ -123,11 +113,21 @@ export default function CoursesPage() {
           {loadError}
         </div>
       )}
-      {loading && <CourseSkeletonGrid count={6} />}
+      {loading && (
+        <div className="auto-fill-grid">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="tf-skeleton-card tf-reveal-item" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
+              <div className="tf-skeleton tf-skeleton-line mb-4 w-2/3" />
+              <div className="tf-skeleton tf-skeleton-line mb-2 w-full" />
+              <div className="tf-skeleton tf-skeleton-line mb-2 w-5/6" />
+              <div className="tf-skeleton tf-skeleton-line mt-6 w-1/3" />
+            </div>
+          ))}
+        </div>
+      )}
 
-      {!loading && (
       <div className="auto-fill-grid">
-        {visibleItems.map((c, index) => {
+        {items.map((c, index) => {
           const editorTools = canEdit && isEditorMode;
           const href = editorTools && c.canEdit ? `/courses/${c.id}/edit` : `/course/${c.id}`;
           const unavailable = c.canAccess === false || c.isAccessible === false || c.isAvailable === false;
@@ -137,8 +137,8 @@ export default function CoursesPage() {
             <Link
               key={c.id}
               to={href}
-              className="tf-reveal-item block group focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))] rounded-2xl"
-              style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}
+              className="block group focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))] rounded-2xl tf-reveal-item"
+              style={{ "--tf-reveal-delay": `${(index % COURSE_PAGE_SIZE) * 35}ms` }}
             >
               <Card
                 className={
@@ -168,7 +168,6 @@ export default function CoursesPage() {
           );
         })}
       </div>
-      )}
 
       {!loading && items.length === 0 && (
         <div className="card-muted p-8 mt-6 text-center text-neutral-500">Курсы пока не найдены.</div>
@@ -176,9 +175,8 @@ export default function CoursesPage() {
 
       {!loading && items.length > 0 && (
         <div className="mt-6 flex flex-col items-center gap-2">
-          <div className="text-xs text-neutral-500">Показано {visibleItems.length}{total ? ` из ${total}` : ''}</div>
-          {isRevealing ? <div className="text-xs text-neutral-400">Раскладываем карточки…</div> : null}
-          {hasMore && !isRevealing && (
+          <div className="text-xs text-neutral-500">Показано {items.length}{total ? ` из ${total}` : ''}</div>
+          {hasMore && (
             <Button variant="outline" onClick={() => loadCourses({ reset: false })} disabled={loadingMore}>
               {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
             </Button>

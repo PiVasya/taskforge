@@ -1,13 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props global.json ./
-COPY services/shared services/shared
-COPY services/ai/worker/TaskForge.AiAgent.csproj services/ai/worker/
-RUN dotnet restore services/ai/worker/TaskForge.AiAgent.csproj
-COPY services/ai/worker services/ai/worker
-RUN dotnet publish services/ai/worker/TaskForge.AiAgent.csproj -c Release -o /app/publish /p:UseAppHost=false
+COPY TaskForge.AiAgent.csproj ./
+RUN dotnet restore ./TaskForge.AiAgent.csproj
+COPY . ./
+RUN dotnet publish ./TaskForge.AiAgent.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false

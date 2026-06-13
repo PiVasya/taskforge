@@ -1,7 +1,5 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props global.json ./
-COPY services/shared services/shared
 COPY services/observability/api/TaskForge.Observability.Api.csproj services/observability/api/
 RUN dotnet restore services/observability/api/TaskForge.Observability.Api.csproj
 COPY services/observability/api services/observability/api

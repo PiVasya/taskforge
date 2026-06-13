@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props global.json ./
-COPY services/shared services/shared
-COPY services/content/api/learning-content-service.csproj services/content/api/
-RUN dotnet restore services/content/api/learning-content-service.csproj
-COPY services/content/api services/content/api
-RUN dotnet publish services/content/api/learning-content-service.csproj -c Release -o /app/publish /p:UseAppHost=false
+
+COPY learning-content-service.csproj ./
+RUN dotnet restore learning-content-service.csproj
+
+COPY . ./
+RUN dotnet publish learning-content-service.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update \
@@ -13,7 +13,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 ARG TASKFORGE_DEBUG_LOGS=0
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

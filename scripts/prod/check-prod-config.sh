@@ -82,7 +82,7 @@ fi
 python3 scripts/ci/check-workflow-integrity.py >/dev/null
 
 if command -v docker >/dev/null 2>&1; then
-  ./deploy/prod/compose.sh config >/dev/null
+  bash ./deploy/prod/compose.sh config >/dev/null
 else
   warn "docker is not installed here; skipped docker compose config"
 fi

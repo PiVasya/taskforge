@@ -1,7 +1,5 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props global.json ./
-COPY services/shared services/shared
 COPY services/notifications/api/TaskForge.Notifications.Api.csproj services/notifications/api/
 RUN dotnet restore services/notifications/api/TaskForge.Notifications.Api.csproj
 COPY services/notifications/api services/notifications/api
