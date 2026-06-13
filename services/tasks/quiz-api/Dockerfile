@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-
-COPY quiz-task-service.csproj ./
-RUN dotnet restore quiz-task-service.csproj
-
-COPY . ./
-RUN dotnet publish quiz-task-service.csproj -c Release -o /app/publish /p:UseAppHost=false
+COPY Directory.Build.props global.json ./
+COPY services/shared services/shared
+COPY services/tasks/quiz-api/quiz-task-service.csproj services/tasks/quiz-api/
+RUN dotnet restore services/tasks/quiz-api/quiz-task-service.csproj
+COPY services/tasks/quiz-api services/tasks/quiz-api
+RUN dotnet publish services/tasks/quiz-api/quiz-task-service.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update \
@@ -13,6 +13,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .
+ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 ARG TASKFORGE_DEBUG_LOGS=0
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

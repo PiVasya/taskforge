@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Button, Card } from '../components/ui';
+import { SolutionSkeletonList } from '../components/LoadingStates';
+import { useProgressiveList } from '../hooks/useProgressiveList';
 import { getAssignment, getTopSolutions } from '../api/assignments';
 import { getApiErrorMessage } from '../api/http';
 import { formatDateTime, getSolutionCode, getSolutionCounts, getSolutionSubmittedAt } from '../utils/solutionsView';
@@ -14,6 +16,12 @@ export default function AssignmentTopSolutionsPage() {
   const [solutions, setSolutions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { visibleItems: visibleSolutions, isRevealing } = useProgressiveList(solutions, {
+    initialCount: 10,
+    step: 5,
+    intervalMs: 70,
+    resetKey: assignmentId,
+  });
 
   useEffect(() => {
     (async () => {
@@ -37,7 +45,7 @@ export default function AssignmentTopSolutionsPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="text-neutral-500">Загрузка…</div>
+        <SolutionSkeletonList count={4} />
       </Layout>
     );
   }
@@ -77,7 +85,7 @@ export default function AssignmentTopSolutionsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
-                {solutions.map((sol, i) => {
+                {visibleSolutions.map((sol, i) => {
                   const counts = getSolutionCounts(sol);
                   const code = getSolutionCode(sol);
                   const userLabel = sol.userName || sol.displayName || sol.fullName || sol.email || sol.maskedEmail || 'Пользователь';
@@ -101,6 +109,7 @@ export default function AssignmentTopSolutionsPage() {
                 })}
               </tbody>
             </table>
+            {isRevealing ? <div className="py-3 text-center text-xs text-neutral-400">Подготавливаем ещё решения…</div> : null}
           </div>
         )}
       </Card>

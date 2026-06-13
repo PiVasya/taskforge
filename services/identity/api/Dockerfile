@@ -1,5 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY Directory.Build.props global.json ./
+COPY services/shared services/shared
 COPY services/identity/api/TaskForge.Identity.Api.csproj services/identity/api/
 RUN dotnet restore services/identity/api/TaskForge.Identity.Api.csproj
 COPY services/identity/api services/identity/api

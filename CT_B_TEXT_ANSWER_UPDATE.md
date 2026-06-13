@@ -1,48 +1,10 @@
-# CT B text answer update
+# Update 21 fix
 
-Обновление упрощает задания части B: для разделов `B*` используется обычный текстовый ответ без вариантов выбора.
+Fixed the Redis/cache mega-update after CI failures.
 
-## Что изменено
-
-- В редакторе для части B тип задания фиксируется как `text-answer`.
-- При импорте JSON в раздел `B*` задания автоматически приводятся к текстовому ответу.
-- Для части B варианты ответа не показываются ученику, даже если они случайно есть в `data.options`.
-- Ответ ученика отправляется как `{ "value": "..." }`, а не как `{ "selected": [...] }`.
-- На бэке проверка текстовых ответов стала мягче:
-  - не учитывается регистр;
-  - `ё` и `е` считаются одинаковыми;
-  - лишние пробелы схлопываются;
-  - точка/запятая/восклицательный/вопросительный знак в конце не мешают проверке.
-- Для разделов `B*` API принудительно сохраняет тип задания как `text-answer`.
-
-## Формат JSON для B-части
-
-```json
-{
-  "schemaVersion": 1,
-  "sectionCode": "B1",
-  "tasks": [
-    {
-      "slug": "b1-task-1",
-      "type": "text-answer",
-      "title": "B1. Задание 1",
-      "prompt": "Запишите ответ словом или буквами.",
-      "subjectCode": "russian",
-      "examCode": "ct-ce-2026",
-      "sectionCode": "B1",
-      "difficulty": 1,
-      "tags": ["B1", "ЦТ"],
-      "data": {},
-      "correctAnswer": {
-        "value": "пример"
-      },
-      "explanation": {
-        "text": "Краткое объяснение правильного ответа."
-      },
-      "isPublished": true
-    }
-  ]
-}
-```
-
-Миграция БД не нужна: структура хранится в существующих JSON-полях.
+- All .NET Dockerfiles now build from repository root and copy `Directory.Build.props`, `global.json`, and `services/shared` before restore/publish.
+- The normal and manual full rebuild workflows use root build contexts for every .NET image that consumes shared code.
+- Dev compose build contexts now match those Dockerfiles.
+- Frontend list loading is paginated/progressive for courses, leaderboard, and my solutions.
+- My solutions no longer eagerly loads code/tests/images/math lists at once; it loads the active tab first and loads other tabs when opened.
+- Frontend debug logging remains disabled; there are no `console.log` or `TFDBG-FRONT` probes.

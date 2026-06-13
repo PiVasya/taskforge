@@ -2,12 +2,12 @@
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-
-COPY TelegramQuizBot.csproj ./
-RUN dotnet restore ./TelegramQuizBot.csproj
-
-COPY . .
-RUN dotnet publish ./TelegramQuizBot.csproj -c Release -o /app/publish --no-restore
+COPY Directory.Build.props global.json ./
+COPY services/shared services/shared
+COPY services/bots/telegram-quiz-bot/TelegramQuizBot.csproj services/bots/telegram-quiz-bot/
+RUN dotnet restore services/bots/telegram-quiz-bot/TelegramQuizBot.csproj
+COPY services/bots/telegram-quiz-bot services/bots/telegram-quiz-bot
+RUN dotnet publish services/bots/telegram-quiz-bot/TelegramQuizBot.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

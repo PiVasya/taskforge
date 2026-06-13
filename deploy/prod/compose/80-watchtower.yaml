@@ -11,6 +11,7 @@ services:
       WATCHTOWER_ROLLING_RESTART: ${WATCHTOWER_ROLLING_RESTART:-true}
       WATCHTOWER_NO_STARTUP_MESSAGE: ${WATCHTOWER_NO_STARTUP_MESSAGE:-true}
       WATCHTOWER_HTTP_API_UPDATE: ${WATCHTOWER_HTTP_API_UPDATE:-false}
+      DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.40}
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:

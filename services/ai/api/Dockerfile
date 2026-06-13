@@ -1,5 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY Directory.Build.props global.json ./
+COPY services/shared services/shared
 COPY services/ai/api/TaskForge.Ai.Api.csproj services/ai/api/
 RUN dotnet restore services/ai/api/TaskForge.Ai.Api.csproj
 COPY services/ai/api services/ai/api

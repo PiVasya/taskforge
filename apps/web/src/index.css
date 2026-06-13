@@ -1368,3 +1368,47 @@ html.dark .bg-fx__blob {
 .side-nav-link.is-rail .side-nav-icon {
   @apply h-10 w-10;
 }
+
+@keyframes tf-skeleton-shimmer {
+  0% { background-position: 140% 0; }
+  100% { background-position: -140% 0; }
+}
+
+.tf-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  background: linear-gradient(90deg, rgba(var(--border) / 0.18), rgba(var(--accent) / 0.10), rgba(var(--border) / 0.18));
+  background-size: 240% 100%;
+  animation: tf-skeleton-shimmer 1.25s ease-in-out infinite;
+}
+
+.tf-skeleton-card {
+  overflow: hidden;
+}
+
+@keyframes tf-reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.tf-reveal-item {
+  animation: tf-reveal-up 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-skeleton,
+  .tf-reveal-item {
+    animation: none !important;
+  }
+}
+
+

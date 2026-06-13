@@ -17,7 +17,7 @@ public static class TaskForgeCache
     {
         services.AddMemoryCache();
 
-        var enabled = configuration.GetValue("Cache:Enabled", true);
+        var enabled = GetBool(configuration, "Cache:Enabled", true);
         var connection = ResolveRedisConnection(configuration);
         if (enabled && !string.IsNullOrWhiteSpace(connection))
         {
@@ -37,8 +37,8 @@ public static class TaskForgeCache
 
     public static TimeSpan Ttl(IConfiguration configuration, string name, int fallbackSeconds)
     {
-        var specific = configuration.GetValue<int?>($"Cache:{name}TtlSeconds");
-        var generic = configuration.GetValue<int?>("Cache:DefaultTtlSeconds");
+        var specific = GetInt(configuration, $"Cache:{name}TtlSeconds");
+        var generic = GetInt(configuration, "Cache:DefaultTtlSeconds");
         var seconds = specific ?? generic ?? fallbackSeconds;
         return TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 86400));
     }
@@ -55,7 +55,7 @@ public static class TaskForgeCache
         Func<CancellationToken, Task<T>> factory,
         CancellationToken ct)
     {
-        if (!configuration.GetValue("Cache:Enabled", true))
+        if (!GetBool(configuration, "Cache:Enabled", true))
         {
             return await factory(ct);
         }
@@ -95,6 +95,22 @@ public static class TaskForgeCache
         }
 
         return fresh;
+    }
+
+
+    private static bool GetBool(IConfiguration configuration, string key, bool fallback)
+    {
+        var value = configuration[key];
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+        if (bool.TryParse(value, out var parsed)) return parsed;
+        if (int.TryParse(value, out var asInt)) return asInt != 0;
+        return fallback;
+    }
+
+    private static int? GetInt(IConfiguration configuration, string key)
+    {
+        var value = configuration[key];
+        return int.TryParse(value, out var parsed) ? parsed : null;
     }
 
     private static string? ResolveRedisConnection(IConfiguration configuration)

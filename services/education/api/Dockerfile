@@ -1,5 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY Directory.Build.props global.json ./
+COPY services/shared services/shared
 COPY services/education/api/TaskForge.Education.Api.csproj services/education/api/
 RUN dotnet restore services/education/api/TaskForge.Education.Api.csproj
 COPY services/education/api services/education/api

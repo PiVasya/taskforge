@@ -100,8 +100,8 @@ services:
       start_period: 60s
   content-api:
     build:
-      context: ../../../services/content/api
-      dockerfile: Dockerfile
+      context: ../../..
+      dockerfile: services/content/api/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -149,8 +149,8 @@ services:
       start_period: 60s
   quiz-api:
     build:
-      context: ../../../services/tasks/quiz-api
-      dockerfile: Dockerfile
+      context: ../../..
+      dockerfile: services/tasks/quiz-api/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080

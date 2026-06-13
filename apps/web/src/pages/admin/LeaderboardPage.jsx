@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
@@ -12,8 +10,10 @@ import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
 import { getApiErrorMessage } from '../../api/http';
 import { AlertTriangle } from 'lucide-react';
-
+import { LeaderboardSkeletonGrid } from '../../components/LoadingStates';
+import { useProgressiveList } from '../../hooks/useProgressiveList';
 const LEADERBOARD_PAGE_SIZE = 20;
+
 
 function normalizePagedLeaderboard(payload) {
   if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
@@ -35,6 +35,7 @@ export default function LeaderboardPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [listVersion, setListVersion] = useState(0);
 
   
   const [courses, setCourses] = useState([]);
@@ -43,13 +44,19 @@ export default function LeaderboardPage() {
   const [days, setDays] = useState('');
   const [groupId, setGroupId] = useState('');
   const [query, setQuery] = useState('');
+  const { visibleItems: visibleEntries, isRevealing } = useProgressiveList(entries, {
+    initialCount: 8,
+    step: 4,
+    intervalMs: 75,
+    resetKey: listVersion,
+  });
 
   
   useEffect(() => {
     (async () => {
       try {
-        const list = await getCourses();
-        setCourses(Array.isArray(list) ? list : []);
+        const list = await getCourses({ page: 1, pageSize: 50 });
+        setCourses(Array.isArray(list) ? list : (Array.isArray(list?.items) ? list.items : []));
       } catch (e) {
         handleApiError(e, notify, 'Не удалось загрузить курсы');
       }
@@ -87,6 +94,7 @@ export default function LeaderboardPage() {
       const data = await getLeaderboard(params);
       const parsed = normalizePagedLeaderboard(data);
       setEntries((prev) => reset ? parsed.items : [...prev, ...parsed.items]);
+      if (reset) setListVersion((v) => v + 1);
       setPage(parsed.page);
       setHasMore(parsed.hasMore);
       setTotal(parsed.total);
@@ -205,7 +213,7 @@ export default function LeaderboardPage() {
           </div>
         </Card>
 
-        {loading && <div>Загрузка…</div>}
+        {loading && <LeaderboardSkeletonGrid count={6} />}
 
         {error && (
           <Card className="border-rose-300 bg-rose-50 text-rose-700">
@@ -220,14 +228,17 @@ export default function LeaderboardPage() {
           
           <>
             <div className="grid gap-4 md:grid-cols-2">
-              {entries.map((e) => (
-                <LeaderboardCard key={e.userId} entry={e} />
+              {visibleEntries.map((e, index) => (
+                <div className="tf-reveal-item" style={{ animationDelay: `${Math.min(index, 10) * 24}ms` }} key={e.userId}>
+                  <LeaderboardCard entry={e} />
+                </div>
               ))}
             </div>
             {entries.length > 0 && (
               <div className="mt-4 flex flex-col items-center gap-2">
-                <div className="text-xs text-neutral-500">Показано {entries.length}{total ? ` из ${total}` : ''}</div>
-                {hasMore && (
+                <div className="text-xs text-neutral-500">Показано {visibleEntries.length}{total ? ` из ${total}` : ''}</div>
+                {isRevealing ? <div className="text-xs text-neutral-400">Собираем позиции рейтинга…</div> : null}
+                {hasMore && !isRevealing && (
                   <Button variant="outline" onClick={() => loadEntries({ reset: false })} disabled={loadingMore}>
                     {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
                   </Button>

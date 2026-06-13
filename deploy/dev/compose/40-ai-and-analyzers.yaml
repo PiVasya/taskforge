@@ -48,8 +48,8 @@ services:
       start_period: 60s
   ai-worker:
     build:
-      context: ../../../services/ai/worker
-      dockerfile: Dockerfile
+      context: ../../..
+      dockerfile: services/ai/worker/Dockerfile
     environment:
       TaskForgeInternalApi__BaseUrl: http://ai-api:8080
       TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:-dev_internal_agent_key_change_me}

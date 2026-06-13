@@ -15,7 +15,6 @@ if (args.Any(a => string.Equals(a, ExecArg, StringComparison.OrdinalIgnoreCase))
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddTaskForgeDebugDiagnostics("csharp-runner");
-builder.Services.AddTaskForgeRedisCache(builder.Configuration, "csharp-runner");
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

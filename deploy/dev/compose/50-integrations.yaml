@@ -268,8 +268,8 @@ services:
       start_period: 60s
   telegram-quiz-bot:
     build:
-      context: ../../../services/bots/telegram-quiz-bot
-      dockerfile: Dockerfile
+      context: ../../..
+      dockerfile: services/bots/telegram-quiz-bot/Dockerfile
     environment:
       ConnectionStrings__TelegramQuizDb: Host=postgres;Port=5432;Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       TelegramQuiz__ApplyMigrationsOnStartup: ${MIGRATE_ON_STARTUP:-true}

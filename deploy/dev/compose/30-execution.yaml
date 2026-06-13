@@ -137,8 +137,8 @@ services:
     tmpfs: *id003
     networks: *id004
     build:
-      context: ../../../services/execution/runners/csharp-runner
-      dockerfile: Dockerfile
+      context: ../../..
+      dockerfile: services/execution/runners/csharp-runner/Dockerfile
     expose:
     - '8080'
     healthcheck:
