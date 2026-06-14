@@ -13,23 +13,33 @@ public static class TaskForgeCache
         PropertyNameCaseInsensitive = true
     };
 
+    private static bool DebugLogsEnabled =>
+        string.Equals(Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS"), "1", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS"), "true", StringComparison.OrdinalIgnoreCase);
+
     public static IServiceCollection AddTaskForgeRedisCache(this IServiceCollection services, IConfiguration configuration, string serviceName)
     {
         services.AddMemoryCache();
 
         var enabled = configuration.GetValue("Cache:Enabled", true);
         var connection = ResolveRedisConnection(configuration);
-        if (enabled && !string.IsNullOrWhiteSpace(connection))
+        var hasConnection = !string.IsNullOrWhiteSpace(connection);
+        var instanceName = $"tf:{Sanitize(serviceName)}:";
+
+        if (enabled && hasConnection)
         {
             services.AddStackExchangeRedisCache(options =>
             {
                 options.Configuration = connection;
-                options.InstanceName = $"tf:{Sanitize(serviceName)}:";
+                options.InstanceName = instanceName;
             });
+
+            DebugCacheBoot(serviceName, "redis", enabled, hasConnection, instanceName);
         }
         else
         {
             services.AddDistributedMemoryCache();
+            DebugCacheBoot(serviceName, enabled ? "memory" : "disabled-memory-fallback", enabled, hasConnection, instanceName);
         }
 
         return services;
@@ -57,6 +67,8 @@ public static class TaskForgeCache
     {
         if (!configuration.GetValue("Cache:Enabled", true))
         {
+            DebugCache("BYPASS", key, ttl, "cache_disabled");
+            logger?.LogInformation("TFDBG CACHE BYPASS key={CacheKey} reason=cache_disabled", key);
             return await factory(ct);
         }
 
@@ -68,14 +80,24 @@ public static class TaskForgeCache
                 var value = JsonSerializer.Deserialize<T>(cached, CacheJsonOptions);
                 if (value is not null)
                 {
-                    logger?.LogDebug("TF cache hit {CacheKey}", key);
+                    DebugCache("HIT", key, ttl, $"bytes={cached.Length}");
+                    logger?.LogInformation("TFDBG CACHE HIT key={CacheKey} bytes={CacheBytes}", key, cached.Length);
                     return value;
                 }
+
+                DebugCache("BAD", key, ttl, "deserialize_null");
+                logger?.LogWarning("TFDBG CACHE BAD key={CacheKey} reason=deserialize_null", key);
+            }
+            else
+            {
+                DebugCache("MISS", key, ttl, "empty");
+                logger?.LogInformation("TFDBG CACHE MISS key={CacheKey}", key);
             }
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "TF cache read failed for {CacheKey}; falling back to source", key);
+            DebugCache("READ-FAIL", key, ttl, ex.GetType().Name);
+            logger?.LogWarning(ex, "TFDBG CACHE READ-FAIL key={CacheKey}; falling back to source", key);
         }
 
         var fresh = await factory(ct);
@@ -87,11 +109,13 @@ public static class TaskForgeCache
                 payload,
                 new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl },
                 ct);
-            logger?.LogDebug("TF cache set {CacheKey} ttl={CacheTtlSeconds}s", key, ttl.TotalSeconds);
+            DebugCache("SET", key, ttl, $"bytes={payload.Length}");
+            logger?.LogInformation("TFDBG CACHE SET key={CacheKey} ttl={CacheTtlSeconds}s bytes={CacheBytes}", key, ttl.TotalSeconds, payload.Length);
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "TF cache write failed for {CacheKey}", key);
+            DebugCache("WRITE-FAIL", key, ttl, ex.GetType().Name);
+            logger?.LogWarning(ex, "TFDBG CACHE WRITE-FAIL key={CacheKey}", key);
         }
 
         return fresh;
@@ -102,6 +126,18 @@ public static class TaskForgeCache
            ?? configuration["Redis:ConnectionString"]
            ?? configuration["Cache:RedisConnection"]
            ?? Environment.GetEnvironmentVariable("REDIS_CONNECTION");
+
+    private static void DebugCacheBoot(string serviceName, string provider, bool enabled, bool hasConnection, string instanceName)
+    {
+        if (!DebugLogsEnabled) return;
+        Console.WriteLine($"[TFDBG CACHE BOOT] service={Sanitize(serviceName)} enabled={enabled.ToString().ToLowerInvariant()} provider={provider} redisConfigured={hasConnection.ToString().ToLowerInvariant()} instance={instanceName} utc={DateTimeOffset.UtcNow:O}");
+    }
+
+    private static void DebugCache(string action, string key, TimeSpan ttl, string details)
+    {
+        if (!DebugLogsEnabled) return;
+        Console.WriteLine($"[TFDBG CACHE {action}] key={key} ttl={Math.Round(ttl.TotalSeconds)}s details={details} utc={DateTimeOffset.UtcNow:O}");
+    }
 
     private static string NormalizePart(object? value)
     {
