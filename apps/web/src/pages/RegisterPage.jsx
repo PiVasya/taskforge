@@ -125,7 +125,7 @@ export default function RegisterPage() {
                                     value={login}
                                     onChange={(e) => setLogin(e.target.value)}
                                     autoComplete="username"
-                                    placeholder="pivasya"
+                                    placeholder="krytoichel"
                                 />
                                 {normalizedLogin && !loginLooksOk && (
                                     <div className="mt-1 text-xs text-red-500">
