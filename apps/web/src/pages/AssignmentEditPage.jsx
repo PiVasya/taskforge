@@ -68,6 +68,7 @@ export default function AssignmentEditPage() {
   const [isAiDraft, setIsAiDraft] = useState(false);
   const [lifecycleStatus, setLifecycleStatus] = useState("published");
   const [testCases, setTestCases] = useState([]);
+  const [starterCode, setStarterCode] = useState("");
 
   
   const [codeForbiddenCallsText, setCodeForbiddenCallsText] = useState("");
@@ -131,6 +132,7 @@ export default function AssignmentEditPage() {
         setIsHidden(!!a.isHidden);
         setIsAiDraft(!!a.isAiDraft);
         setLifecycleStatus(a.lifecycleStatus || (a.isHidden ? "draft" : "published"));
+        setStarterCode(a.starterCode || a.templateCode || a.initialCode || "");
 
         
         const forb = Array.isArray(a.codeForbiddenCalls) ? a.codeForbiddenCalls : [];
@@ -341,7 +343,7 @@ export default function AssignmentEditPage() {
       setErr('');
     }
   
-  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
+  }, [title, description, type, difficulty, rating, starterCode, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings]);
 
   const addTest = () =>
     setTestCases((prev) => [
@@ -395,6 +397,8 @@ export default function AssignmentEditPage() {
               .map((x) => x.trim())
               .filter((x) => x.length > 0)
           : [],
+        starterCode: (["code-test", "image-test"].includes((type || "").trim())) ? (starterCode || "") : "",
+
         codeRequiredCalls: (["code-test", "image-test"].includes((type || "").trim()))
           ? (codeRequiredCallsText || "")
               .replace(/\r/g, "")
@@ -665,7 +669,23 @@ export default function AssignmentEditPage() {
 
               {(["code-test", "image-test"].includes((type || "").trim())) && (
                 <div className="sm:col-span-2">
-                  <Card className="p-4">
+                  <Card className="p-4 space-y-4">
+                    <Field label="Заготовка кода для ученика">
+                      <Textarea
+                        rows={12}
+                        value={starterCode}
+                        onChange={(e) => setStarterCode(e.target.value)}
+                        placeholder={
+                          type === "image-test"
+                            ? "# Этот код появится у ученика при открытии image-test\nimport turtle\n\nt = turtle.Turtle()\n# Нарисуйте решение здесь"
+                            : "using System;\n\nclass Program\n{\n    static void Main()\n    {\n        // Ваш код здесь\n    }\n}"
+                        }
+                      />
+                      <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                        Это не правильное решение, а стартовый шаблон, который ученик увидит в редакторе перед отправкой. Поле можно оставить пустым.
+                      </div>
+                    </Field>
+
                     <div className="grid md:grid-cols-2 gap-4">
                       <Field label="Запрещённые (если найдено — решение отклоняется)">
                         <Textarea

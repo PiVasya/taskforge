@@ -69,7 +69,7 @@ function statusMessage(status, url = '') {
   if (status === 400) return 'Проверьте введённые данные и попробуйте ещё раз.';
   if (status === 401) {
     if (path.includes('/api/auth/login')) {
-      return 'Неверный e-mail или пароль. Проверьте данные или зарегистрируйтесь.';
+      return 'Неверный логин или пароль. Проверьте данные или зарегистрируйтесь.';
     }
     if (path.includes('/api/auth/refresh')) {
       return 'Сессия истекла. Войдите заново.';

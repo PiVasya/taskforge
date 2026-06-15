@@ -26,8 +26,10 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         {
             entity.ToTable("Users");
             entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Login).IsUnique();
             entity.HasIndex(x => x.Email).IsUnique();
-            entity.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            entity.Property(x => x.Login).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Email).HasMaxLength(320);
             entity.Property(x => x.FirstName).HasMaxLength(120);
             entity.Property(x => x.LastName).HasMaxLength(120);
             entity.Property(x => x.PasswordSalt).HasMaxLength(256).IsRequired();

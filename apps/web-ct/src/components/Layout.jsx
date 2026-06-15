@@ -8,7 +8,7 @@ export default function Layout({ children, fullWidth = false }) {
   const { access, user, logout } = useAuth();
   const { canEdit, isEditorMode, setEditorMode } = useEditorMode();
   const navigate = useNavigate();
-  const displayName = [user?.lastName, user?.firstName].filter(Boolean).join(' ') || user?.email || 'Пользователь';
+  const displayName = [user?.lastName, user?.firstName].filter(Boolean).join(' ') || user?.login || user?.email || 'Пользователь';
 
   const handleLogout = async () => {
     await logout();

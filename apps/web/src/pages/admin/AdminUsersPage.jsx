@@ -19,6 +19,7 @@ const sortOptions = [
   { value: 'createdAt', label: 'Дата регистрации' },
   { value: 'lastLoginAt', label: 'Дата последнего входа' },
   { value: 'fullName', label: 'Имя и фамилия' },
+  { value: 'login', label: 'Логин' },
   { value: 'email', label: 'Email' },
   { value: 'role', label: 'Базовая роль' },
   { value: 'minecraftNick', label: 'Minecraft nick' },
@@ -102,6 +103,7 @@ export default function AdminUsersPage() {
   const save = async (user) => {
     try {
       await updateAdminUser(user.id, {
+        login: user.login,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -123,7 +125,7 @@ export default function AdminUsersPage() {
 
 
   const removeUser = async (user) => {
-    const label = user?.email || user?.fullName || user?.id;
+    const label = user?.login || user?.email || user?.fullName || user?.id;
     const ok = window.confirm(`Удалить пользователя ${label}? Будут удалены аккаунт, решения и связанные записи.`);
     if (!ok) return;
 
@@ -164,7 +166,7 @@ export default function AdminUsersPage() {
 
         <Card>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1fr,180px,180px,220px,160px,140px] gap-3 items-end">
-            <Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="email / имя / minecraft / telegram" /></Field>
+            <Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="логин / email / имя / minecraft / telegram" /></Field>
             <Field label="Базовая роль"><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">Все</option>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
             <Field label="Только с привязками"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={linkedOnly} onChange={(e) => setLinkedOnly(e.target.checked)} /><span className="text-sm">Да</span></label></Field>
             <Field label="Сортировать по"><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>{sortOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field>
@@ -180,6 +182,7 @@ export default function AdminUsersPage() {
             <Card key={user.id}>
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr,1fr] xl:gap-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                  <Field label="Логин"><Input value={user.login || ''} onChange={(e) => updateLocal(user.id, { login: e.target.value })} /></Field>
                   <Field label="Email"><Input value={user.email || ''} onChange={(e) => updateLocal(user.id, { email: e.target.value })} /></Field>
                   <Field label="Базовая роль"><Select value={user.role || 'User'} onChange={(e) => updateLocal(user.id, { role: e.target.value })}>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
                   <Field label="Имя"><Input value={user.firstName || ''} onChange={(e) => updateLocal(user.id, { firstName: e.target.value })} /></Field>

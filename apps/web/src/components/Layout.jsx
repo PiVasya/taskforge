@@ -114,7 +114,7 @@ function getDisplayName(user) {
   const last = String(user?.lastName || "").trim();
   const full = [last, first].filter(Boolean).join(" ");
   if (full) return full;
-  return String(user?.email || "Личный кабинет").trim() || "Личный кабинет";
+  return String(user?.login || user?.email || "Личный кабинет").trim() || "Личный кабинет";
 }
 
 function getInitials(user) {
@@ -122,8 +122,8 @@ function getInitials(user) {
   const last = String(user?.lastName || "").trim();
   const initials = `${last ? last[0] : ""}${first ? first[0] : ""}`.trim();
   if (initials) return initials.toUpperCase();
-  const email = String(user?.email || "").trim();
-  return email ? email[0].toUpperCase() : "TF";
+  const login = String(user?.login || user?.email || "").trim();
+  return login ? login[0].toUpperCase() : "TF";
 }
 
 export default function Layout({
@@ -482,7 +482,7 @@ export default function Layout({
     ? "Администратор"
     : canEdit
       ? "Редактор"
-      : user?.email || "Участник";
+      : user?.login || user?.email || "Участник";
   const avatarUrl = user?.profilePictureUrl || user?.avatarUrl || "";
   const avatarFallback = getInitials(user);
 

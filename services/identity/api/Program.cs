@@ -78,39 +78,59 @@ app.MapGet("/api/identity/schema-owner", () => Results.Ok(new
 
 app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
-    if (CheckAuthRateLimit(http, "register", request.Email) is { } limited) return limited;
-    var email = NormalizeEmail(request.Email);
-    if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest(new { message = "Email is required" });
+    if (CheckAuthRateLimit(http, "register", request.Login ?? request.Email) is { } limited) return limited;
+
+    var login = NormalizeLogin(request.Login ?? request.Email);
+    if (!IsValidLogin(login, out var loginMessage)) return Results.BadRequest(new { message = loginMessage });
+
+    var email = NormalizeOptionalEmail(request.Email);
+    if (!string.IsNullOrWhiteSpace(request.Email) && string.IsNullOrWhiteSpace(email))
+        return Results.BadRequest(new { message = "Email указан в неверном формате." });
+
     if (!IsValidPassword(request.Password, out var passwordMessage)) return Results.BadRequest(new { message = passwordMessage });
-    if (await db.Users.AnyAsync(x => x.Email == email)) return Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
+    if (await db.Users.AnyAsync(x => x.Login == login)) return Results.BadRequest(new { message = "Пользователь с таким логином уже существует." });
+    if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email)) return Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
 
     var firstUser = !await db.Users.AnyAsync();
-    var role = ResolveInitialRole(email, firstUser, cfg);
+    var role = ResolveInitialRole(email ?? string.Empty, firstUser, cfg);
     var salt = NewSalt();
     var user = new IdentityUser
     {
+        Login = login,
         Email = email,
         FirstName = (request.FirstName ?? string.Empty).Trim(),
         LastName = (request.LastName ?? string.Empty).Trim(),
+        PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim(),
+        AdditionalDataJson = string.IsNullOrWhiteSpace(request.AdditionalDataJson) ? null : request.AdditionalDataJson,
         PasswordSalt = salt,
-        PasswordHash = HashPassword(request.Password, salt),
+        PasswordHash = HashPassword(request.Password ?? string.Empty, salt),
         Role = role
     };
     db.Users.Add(user);
     db.UiSettings.Add(new UserUiSettings { UserId = user.Id, DataJson = DefaultUiSettingsJson() });
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, role = user.Role });
+    return Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, login = user.Login, role = user.Role });
 });
 
 app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
-    if (CheckAuthRateLimit(http, "login", request.Email) is { } limited) return limited;
-    var email = NormalizeEmail(request.Email);
-    var user = await db.Users.FirstOrDefaultAsync(x => x.Email == email);
+    if (CheckAuthRateLimit(http, "login", request.Login ?? request.Email) is { } limited) return limited;
+    var login = NormalizeLogin(request.Login ?? request.Email);
+    var email = NormalizeOptionalEmail(request.Email ?? request.Login);
+    IdentityUser? user = null;
+    if (!string.IsNullOrWhiteSpace(login))
+    {
+        user = await db.Users.FirstOrDefaultAsync(x => x.Login == login);
+    }
+    if (user == null && !string.IsNullOrWhiteSpace(email))
+    {
+        user = await db.Users.FirstOrDefaultAsync(x => x.Email == email);
+    }
+
     if (user == null || !VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash))
     {
-        return Unauthorized("Неверный e-mail или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
+        return Unauthorized("Неверный логин или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
     }
 
     if (NeedsPasswordRehash(user.PasswordHash))
@@ -203,8 +223,9 @@ app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, Http
     var user = await FindCurrentUserAsync(http, db, cfg);
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный пароль" });
-    var email = NormalizeEmail(request.NewEmail);
-    if (await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id)) return Results.BadRequest(new { message = "Email уже занят" });
+    var email = NormalizeOptionalEmail(request.NewEmail);
+    if (!string.IsNullOrWhiteSpace(request.NewEmail) && string.IsNullOrWhiteSpace(email)) return Results.BadRequest(new { message = "Email указан в неверном формате" });
+    if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id)) return Results.BadRequest(new { message = "Email уже занят" });
     user.Email = email;
     await db.SaveChangesAsync();
     return Results.Ok(ToProfile(user, await RolesForUser(db, user)));
@@ -310,7 +331,7 @@ app.MapPost("/api/internal/users/summaries", async (UserIdsRequest request, Iden
 
 app.MapGet("/api/admin/solution-users", async (IdentityDbContext db, string? q, int take = 50) =>
 {
-    var rows = await SearchUsersAsync(db, q, null, false, "email", "asc", Math.Clamp(take, 1, 200));
+    var rows = await SearchUsersAsync(db, q, null, false, "login", "asc", Math.Clamp(take, 1, 200));
     return Results.Ok(rows.Select(u => ToAdminUserDto(u)).ToList());
 });
 
@@ -339,7 +360,20 @@ app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, AdminUserUpdate
 {
     var user = await db.Users.FindAsync(userId);
     if (user == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
-    if (!string.IsNullOrWhiteSpace(request.Email)) user.Email = NormalizeEmail(request.Email);
+    if (!string.IsNullOrWhiteSpace(request.Login))
+    {
+        var login = NormalizeLogin(request.Login);
+        if (!IsValidLogin(login, out var loginMessage)) return Results.BadRequest(new { message = loginMessage });
+        if (await db.Users.AnyAsync(x => x.Login == login && x.Id != user.Id)) return Results.BadRequest(new { message = "Логин уже занят" });
+        user.Login = login;
+    }
+    if (request.Email != null)
+    {
+        var email = NormalizeOptionalEmail(request.Email);
+        if (!string.IsNullOrWhiteSpace(request.Email) && string.IsNullOrWhiteSpace(email)) return Results.BadRequest(new { message = "Email указан в неверном формате" });
+        if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id)) return Results.BadRequest(new { message = "Email уже занят" });
+        user.Email = email;
+    }
     if (request.FirstName != null) user.FirstName = request.FirstName.Trim();
     if (request.LastName != null) user.LastName = request.LastName.Trim();
     if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
@@ -361,7 +395,7 @@ app.MapDelete("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbCo
 app.MapGet("/api/admin/feature-roles", async (IdentityDbContext db) => Results.Ok(await db.FeatureRoles.AsNoTracking().OrderBy(x => x.Code).Select(x => new { x.Id, x.Code, title = x.Title, x.Description, x.IsActive }).ToListAsync()));
 app.MapGet("/api/admin/feature-roles/users", async (IdentityDbContext db, string? query, int limit = 50) =>
 {
-    var rows = await SearchUsersAsync(db, query, null, false, "email", "asc", Math.Clamp(limit, 1, 200));
+    var rows = await SearchUsersAsync(db, query, null, false, "login", "asc", Math.Clamp(limit, 1, 200));
     var ids = rows.Select(x => x.Id).ToHashSet();
     var roleRows = await db.UserFeatureRoles.AsNoTracking().Where(x => ids.Contains(x.UserId)).ToListAsync();
     return Results.Ok(rows.Select(u => ToAdminUserDto(u, roleRows.Where(r => r.UserId == u.Id).Select(r => r.Code).ToArray())).ToList());
@@ -436,7 +470,7 @@ app.Run();
 static IResult? CheckAuthRateLimit(HttpContext http, string bucket, string? identity = null)
 {
     var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-    var normalizedIdentity = string.IsNullOrWhiteSpace(identity) ? "none" : NormalizeEmail(identity);
+    var normalizedIdentity = string.IsNullOrWhiteSpace(identity) ? "none" : (NormalizeOptionalEmail(identity) ?? NormalizeLogin(identity));
     var key = $"{bucket}:{ip}:{normalizedIdentity}";
     if (TaskForgeAuthRateLimiters.Allow(bucket, key)) return null;
 
@@ -454,7 +488,7 @@ static IQueryable<IdentityUser> FilterUsers(IQueryable<IdentityUser> query, stri
     if (!string.IsNullOrWhiteSpace(text))
     {
         var q = text.Trim().ToLowerInvariant();
-        query = query.Where(x => x.Email.ToLower().Contains(q) || x.FirstName.ToLower().Contains(q) || x.LastName.ToLower().Contains(q));
+        query = query.Where(x => (x.Login.ToLower().Contains(q) || (x.Email != null && x.Email.ToLower().Contains(q)) || x.FirstName.ToLower().Contains(q)) || x.LastName.ToLower().Contains(q));
     }
     if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
     if (linkedOnly) query = query.Where(x => false);
@@ -479,7 +513,7 @@ static async Task<List<IdentityUser>> SearchUsersAsync(IdentityDbContext db, str
         .Select(u => new { User = u, Score = UserSearchScore(u, q) })
         .Where(x => x.Score <= maxDistance || UserSearchHaystack(x.User).Contains(q, StringComparison.OrdinalIgnoreCase))
         .OrderBy(x => x.Score)
-        .ThenBy(x => x.User.Email)
+        .ThenBy(x => x.User.Login)
         .Take(Math.Clamp(take, 1, 500))
         .Select(x => x.User)
         .ToList();
@@ -494,14 +528,15 @@ static async Task<int> CountUsersAsync(IdentityDbContext db, string? text, strin
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
         return await query.CountAsync();
     }
-    return (await SearchUsersAsync(db, text, role, linkedOnly, "email", "asc", 5000)).Count;
+    return (await SearchUsersAsync(db, text, role, linkedOnly, "login", "asc", 5000)).Count;
 }
 
 static int UserSearchScore(IdentityUser user, string query)
 {
     var values = new[]
     {
-        user.Email,
+        user.Login,
+        user.Email ?? string.Empty,
         user.FirstName,
         user.LastName,
         DisplayName(user),
@@ -526,7 +561,7 @@ static int UserSearchScore(IdentityUser user, string query)
 }
 
 static string UserSearchHaystack(IdentityUser user)
-    => NormalizeSearch($"{user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.Id}");
+    => NormalizeSearch($"{user.Login} {user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.Id}");
 
 static string NormalizeSearch(string? value)
     => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -597,6 +632,7 @@ static IQueryable<IdentityUser> SortUsers(IQueryable<IdentityUser> query, string
     var desc = !string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
     return (sortBy ?? "createdAt") switch
     {
+        "login" => desc ? query.OrderByDescending(x => x.Login) : query.OrderBy(x => x.Login),
         "email" => desc ? query.OrderByDescending(x => x.Email) : query.OrderBy(x => x.Email),
         "role" => desc ? query.OrderByDescending(x => x.Role) : query.OrderBy(x => x.Role),
         "fullName" => desc ? query.OrderByDescending(x => x.FirstName).ThenByDescending(x => x.LastName) : query.OrderBy(x => x.FirstName).ThenBy(x => x.LastName),
@@ -607,6 +643,7 @@ static IQueryable<IdentityUser> SortUsers(IQueryable<IdentityUser> query, string
 static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,
+    user.Login,
     user.Email,
     maskedEmail = MaskEmail(user.Email),
     user.FirstName,
@@ -639,7 +676,7 @@ static UserSummaryDto ToUserSummaryDto(IdentityUser user)
     return new UserSummaryDto(
         user.Id,
         user.Id,
-        user.Email,
+        user.Email ?? string.Empty,
         MaskEmail(user.Email),
         user.FirstName,
         user.LastName,
@@ -743,7 +780,65 @@ static string ResolveInitialRole(string email, bool firstUser, IConfiguration cf
     var firstUserIsAdmin = cfg.GetValue("Bootstrap:FirstUserIsAdmin", false);
     return firstUser && firstUserIsAdmin ? "Admin" : "User";
 }
-static string NormalizeEmail(string? email) => (email ?? string.Empty).Trim().ToLowerInvariant();
+static string? NormalizeOptionalEmail(string? email)
+{
+    var value = (email ?? string.Empty).Trim().ToLowerInvariant();
+    if (string.IsNullOrWhiteSpace(value)) return null;
+    var at = value.IndexOf('@');
+    var lastAt = value.LastIndexOf('@');
+    if (at <= 0 || at != lastAt || at >= value.Length - 3 || !value[(at + 1)..].Contains('.')) return null;
+    return value.Length <= 320 ? value : null;
+}
+
+static string NormalizeEmail(string? email) => NormalizeOptionalEmail(email) ?? string.Empty;
+
+static string NormalizeLogin(string? login)
+{
+    var raw = (login ?? string.Empty).Trim().ToLowerInvariant();
+    if (raw.Contains('@')) raw = raw.Split('@', 2)[0];
+
+    var sb = new StringBuilder(raw.Length);
+    var prevDash = false;
+    foreach (var ch in raw)
+    {
+        var allowed = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-';
+        if (allowed)
+        {
+            sb.Append(ch);
+            prevDash = ch == '-';
+        }
+        else if (!prevDash)
+        {
+            sb.Append('-');
+            prevDash = true;
+        }
+    }
+
+    return sb.ToString().Trim('.', '-', '_');
+}
+
+static bool IsValidLogin(string? login, out string message)
+{
+    var value = (login ?? string.Empty).Trim();
+    if (value.Length < 3)
+    {
+        message = "Логин должен быть не короче 3 символов.";
+        return false;
+    }
+    if (value.Length > 64)
+    {
+        message = "Логин должен быть не длиннее 64 символов.";
+        return false;
+    }
+    if (value.Any(ch => !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')))
+    {
+        message = "Логин может содержать только латинские буквы, цифры, точку, дефис и подчёркивание.";
+        return false;
+    }
+    message = string.Empty;
+    return true;
+}
+
 static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
 static bool IsValidPassword(string? password, out string message)
@@ -839,6 +934,7 @@ static string DisplayName(IdentityUser user)
 static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,
+    user.Login,
     user.Email,
     maskedEmail = MaskEmail(user.Email),
     user.FirstName,
@@ -967,7 +1063,9 @@ static string CreateJwt(IdentityUser user, IConfiguration cfg, TimeSpan lifetime
     var claims = new List<Claim>
     {
         new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new(ClaimTypes.Email, user.Email),
+        new(ClaimTypes.Name, user.Login),
+        new("login", user.Login),
+        new(ClaimTypes.Email, user.Email ?? string.Empty),
         new("role", user.Role),
         new("roles", string.Join(',', roles)),
         new("primary_role", user.Role),
@@ -991,8 +1089,8 @@ static void ClearAuthCookies(HttpContext http)
     http.Response.Cookies.Delete("tf_rt", new CookieOptions { Path = "/" });
 }
 
-public sealed record RegisterRequest(string? Email, string? Password, string? FirstName, string? LastName);
-public sealed record LoginRequest(string? Email, string? Password);
+public sealed record RegisterRequest(string? Login, string? Email, string? Password, string? FirstName, string? LastName, string? PhoneNumber, string? AdditionalDataJson);
+public sealed record LoginRequest(string? Login, string? Email, string? Password);
 public sealed record ProfileUpdateRequest(string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? AdditionalDataJson);
 public sealed record PublicProfileExtra(
     bool PublicProfileEnabled,
@@ -1018,7 +1116,7 @@ public sealed record PublicProfileExtra(
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 public sealed record ChangeEmailRequest(string? NewEmail, string? Password);
 public sealed record RevealEmailRequest(string? Password);
-public sealed record AdminUserUpdateRequest(string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role);
+public sealed record AdminUserUpdateRequest(string? Login, string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role);
 
 public sealed record RoleAssignRequest(string? Code);
 public sealed record FeatureRoleRequest(string? Code, string? Title, string? Description, bool? IsActive);

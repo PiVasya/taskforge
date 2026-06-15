@@ -97,7 +97,8 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
     "Каждый элемент массива станет отдельным заданием курса.",
     "Типы можно смешивать в одном файле: code-test, test, image-test, math.",
     "Для image-test вместо expectedImageKey можно передать expectedImageBase64 с data:image/png;base64,...; сервер переложит картинку в файловое хранилище.",
-    "Описание можно передавать plain text или HTML; потом его можно красиво отредактировать в визуальном редакторе."
+    "Описание можно передавать plain text или HTML; потом его можно красиво отредактировать в визуальном редакторе.",
+    "Заготовку кода для ученика можно передавать через starterCode, templateCode или initialCode; поле также редактируется в обычном редакторе задания."
   ],
   assignments: [
     {
@@ -842,7 +843,7 @@ export default function CourseAssignmentsPage() {
 
                 <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                   <div className="text-xs leading-5 text-neutral-500">
-                    Поддерживаемые поля: <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>tags</code>.
+                    Поддерживаемые поля: <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>/<code>templateCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>tags</code>.
                   </div>
                   <Button onClick={handleImportJson} disabled={jsonImportBusy || !!createBusyType}>
                     <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Создать из JSON"}

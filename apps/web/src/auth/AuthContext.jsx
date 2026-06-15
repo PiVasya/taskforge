@@ -80,8 +80,8 @@ export default function AuthProvider({ children }) {
     }
   }, []);
 
-  const doLogin = useCallback(async (email, password) => {
-    const res = await AuthApi.login({ email, password });
+  const doLogin = useCallback(async (login, password) => {
+    const res = await AuthApi.login({ login, password });
     applyAccess(res.accessToken || null);
     await pullProfileOnce();
     

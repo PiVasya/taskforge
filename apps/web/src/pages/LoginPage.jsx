@@ -8,7 +8,7 @@ import { getApiErrorMessage } from "../api/http";
 
 export default function LoginPage() {
   const { login, access } = useAuth();      
-  const [email, setEmail] = useState("");
+  const [loginName, setLoginName] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,10 +23,10 @@ export default function LoginPage() {
 
     try {
       
-      await login(email, password);
+      await login(loginName.trim(), password);
       
     } catch (e) {
-      setErr(getApiErrorMessage(e, "Неверный e-mail или пароль. Проверьте данные или зарегистрируйтесь."));
+      setErr(getApiErrorMessage(e, "Неверный логин или пароль. Проверьте данные или зарегистрируйтесь."));
     } finally {
       setBusy(false);
     }
@@ -52,13 +52,14 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Field label="Email">
+            <Field label="Логин">
               <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={loginName}
+                onChange={(e) => setLoginName(e.target.value)}
                 required
                 autoComplete="username"
+                placeholder="pivasya"
               />
             </Field>
 
