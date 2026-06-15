@@ -25,6 +25,11 @@ export async function createAssignment(courseId, payload) {
   return res.data;
 }
 
+export async function importAssignmentsFromJson(courseId, payload) {
+  const res = await api.post(`/api/courses/${courseId}/assignments/import-json`, payload);
+  return res.data;
+}
+
 
 export async function updateAssignment(assignmentId, payload) {
   const res = await api.put(`/api/assignments/${assignmentId}`, payload);

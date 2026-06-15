@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom"
 
 import Layout from "../components/Layout";
 import QuotaPill from "../components/QuotaPill";
-import { Card, Button, Input, Badge } from "../components/ui";
+import { Card, Button, Input, Textarea, Badge } from "../components/ui";
 
 import { getCourse } from "../api/courses";
 import { getApiErrorMessage } from "../api/http";
@@ -11,10 +11,11 @@ import { getApiErrorMessage } from "../api/http";
 import {
   getAssignmentsByCourse,
   createAssignment,
+  importAssignmentsFromJson,
   updateAssignmentSort,
   moveAssignmentAfter,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, Bot } from "lucide-react";
+import { Plus, Layers, CheckCircle2, Bot, FileJson, Upload, X, Copy, Sparkles } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
@@ -61,6 +62,323 @@ const SORT_OPTIONS = [
   { v: "created_asc", label: "Сначала старые" },
 ];
 
+const CREATE_OPTIONS = [
+  {
+    type: "code-test",
+    title: "Code-test",
+    subtitle: "Задача с запуском кода и stdin/stdout тестами",
+    hint: "Алгоритмы, строки, массивы, структуры данных.",
+  },
+  {
+    type: "test",
+    title: "Тест",
+    subtitle: "Вопросы A/B/C/D, несколько вариантов, текстовые ответы",
+    hint: "Теория, быстрые проверки, ЦТ-подобные вопросы.",
+  },
+  {
+    type: "image-test",
+    title: "Image-test",
+    subtitle: "Код рисует картинку, система сравнивает результат с эталоном",
+    hint: "Turtle, GraphABC, matplotlib, простая графика.",
+  },
+  {
+    type: "math",
+    title: "Math",
+    subtitle: "Блоки с числами, формулами, порядком и сопоставлением",
+    hint: "Пошаговые задания, формулы, соответствия.",
+  },
+];
+
+const JSON_IMPORT_EXAMPLE_OBJECT = {
+  schemaVersion: 1,
+  format: "taskforge-course-assignment-import",
+  authoringNotes: [
+    "Корневой объект может содержать assignments/items/tasks или быть обычным массивом заданий.",
+    "Каждый элемент массива станет отдельным заданием курса.",
+    "Типы можно смешивать в одном файле: code-test, test, image-test, math.",
+    "Для image-test вместо expectedImageKey можно передать expectedImageBase64 с data:image/png;base64,...; сервер переложит картинку в файловое хранилище.",
+    "Описание можно передавать plain text или HTML; потом его можно красиво отредактировать в визуальном редакторе."
+  ],
+  assignments: [
+    {
+      type: "code-test",
+      title: "Сумма двух чисел",
+      description: "Напишите программу, которая считывает два целых числа и выводит их сумму. Ввод: два числа через пробел. Вывод: одно число.",
+      language: "cpp",
+      allowedLanguages: ["cpp", "python", "csharp", "javascript", "pascal", "java"],
+      difficulty: 1,
+      rating: 1,
+      tags: ["ОАИП", "ввод-вывод", "арифметика"],
+      starterCode: "#include <iostream>\nusing namespace std;\n\nint main() {\n    long long a, b;\n    cin >> a >> b;\n    cout << a + b;\n    return 0;\n}\n",
+      codeForbiddenCalls: ["system", "exec", "fork"],
+      codeRequiredCalls: [],
+      testCases: [
+        { input: "2 4", expectedOutput: "6", isHidden: false },
+        { input: "-5 12", expectedOutput: "7", isHidden: false },
+        { input: "1000000000 1000000000", expectedOutput: "2000000000", isHidden: true }
+      ]
+    },
+    {
+      type: "code-test",
+      title: "Количество слов в строке",
+      description: "Считайте строку и выведите количество слов. Словом считается непустая последовательность символов, отделённая пробелами.",
+      language: "python",
+      allowedLanguages: ["python", "cpp", "csharp", "javascript"],
+      difficulty: 1,
+      rating: 2,
+      tags: "строки, split, базовый ввод",
+      starterCode: "s = input()\nprint(len(s.split()))\n",
+      testCases: [
+        { input: "hello world", expectedOutput: "2", isHidden: false },
+        { input: "  one   two three  ", expectedOutput: "3", isHidden: false },
+        { input: "     ", expectedOutput: "0", isHidden: true }
+      ]
+    },
+    {
+      type: "test",
+      title: "Мини-тест по JSON и типам данных",
+      description: "Ответьте на вопросы. В текстовых ответах лишние пробелы можно не учитывать.",
+      difficulty: 1,
+      rating: 3,
+      tags: ["теория", "json", "форматы данных"],
+      tests: {
+        settings: {
+          maxAttempts: 2,
+          passPercent: 70,
+          shuffleQuestions: true,
+          shuffleAnswers: true,
+          allowReview: true,
+          attemptTimeLimitsSeconds: [null, 600]
+        },
+        questions: [
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            order: 0,
+            type: "single-choice",
+            prompt: "Какой тип данных JSON используется для true/false?",
+            options: [
+              { key: "a", text: "string" },
+              { key: "b", text: "boolean" },
+              { key: "c", text: "array" },
+              { key: "d", text: "number" }
+            ],
+            correctOptionKeys: ["b"],
+            acceptedAnswers: [],
+            caseSensitive: false,
+            trim: true
+          },
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            order: 1,
+            type: "multi-choice",
+            prompt: "Какие структуры верхнего уровня допустимы в JSON?",
+            options: [
+              { key: "a", text: "object" },
+              { key: "b", text: "array" },
+              { key: "c", text: "function" },
+              { key: "d", text: "class" }
+            ],
+            correctOptionKeys: ["a", "b"],
+            acceptedAnswers: [],
+            caseSensitive: false,
+            trim: true
+          },
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            order: 2,
+            type: "text",
+            prompt: "Напишите расширение файла JSON без точки.",
+            options: [],
+            correctOptionKeys: [],
+            acceptedAnswers: ["json", "JSON"],
+            caseSensitive: false,
+            trim: true
+          }
+        ]
+      }
+    },
+    {
+      type: "math",
+      title: "Линейное уравнение и соответствия",
+      description: "Решите несколько коротких математических блоков.",
+      difficulty: 2,
+      rating: 4,
+      tags: "математика, уравнения, соответствия",
+      tests: {
+        settings: {
+          maxAttempts: 2,
+          passPercent: 75,
+          shuffleBlocks: false,
+          allowReview: true,
+          attemptTimeLimitsSeconds: [null]
+        },
+        blocks: [
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            order: 0,
+            kind: "info",
+            prompt: "Дано уравнение 2x + 6 = 14. Найдите x.",
+            promptContentJson: "",
+            score: 0,
+            isRequired: true,
+            options: [],
+            correctOptionKeys: [],
+            acceptedAnswers: [],
+            caseSensitive: false,
+            trim: true,
+            numericTolerance: 0,
+            orderItems: [],
+            matchLeftItems: [],
+            matchRightItems: [],
+            matchPairs: []
+          },
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            order: 1,
+            kind: "number",
+            prompt: "Введите значение x.",
+            promptContentJson: "",
+            score: 2,
+            isRequired: true,
+            options: [],
+            correctOptionKeys: [],
+            acceptedAnswers: ["4"],
+            caseSensitive: false,
+            trim: true,
+            numericTolerance: 0,
+            orderItems: [],
+            matchLeftItems: [],
+            matchRightItems: [],
+            matchPairs: []
+          },
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            order: 2,
+            kind: "match",
+            prompt: "Сопоставьте выражение и значение.",
+            promptContentJson: "",
+            score: 3,
+            isRequired: true,
+            options: [],
+            correctOptionKeys: [],
+            acceptedAnswers: [],
+            caseSensitive: false,
+            trim: true,
+            numericTolerance: 0,
+            orderItems: [],
+            matchLeftItems: [
+              { key: "l1", text: "2 + 3" },
+              { key: "l2", text: "3 * 4" },
+              { key: "l3", text: "10 - 7" }
+            ],
+            matchRightItems: [
+              { key: "r1", text: "5" },
+              { key: "r2", text: "12" },
+              { key: "r3", text: "3" }
+            ],
+            matchPairs: [
+              { leftKey: "l1", rightKey: "r1" },
+              { leftKey: "l2", rightKey: "r2" },
+              { leftKey: "l3", rightKey: "r3" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      type: "image-test",
+      title: "Нарисовать красную диагональ",
+      description: "Программа должна построить изображение 200x200 и провести диагональ из левого верхнего угла в правый нижний. Для реального задания добавьте expectedImageBase64 или загрузите эталон в редакторе после импорта.",
+      language: "python",
+      allowedLanguages: ["python", "pascal", "cpp"],
+      difficulty: 2,
+      rating: 5,
+      tags: ["графика", "image-test", "turtle"],
+      starterCode: "import turtle\n\nt = turtle.Turtle()\nt.color('red')\nt.goto(100, -100)\nturtle.done()\n",
+      imageTestSimilarityThreshold: 90,
+      testCases: [
+        {
+          input: "",
+          expectedOutput: "",
+          threshold: 90,
+          isHidden: false,
+          expectedImageBase64: "",
+          expectedImageContentType: "image/png",
+          expectedImageFileName: "diagonal-reference.png",
+          authoringHint: "Замените expectedImageBase64 на data:image/png;base64,... или загрузите эталон в редакторе."
+        }
+      ]
+    }
+  ]
+};
+
+const JSON_IMPORT_EXAMPLE = JSON.stringify(JSON_IMPORT_EXAMPLE_OBJECT, null, 2);
+
+function buildDefaultAssignmentPayload(type, sort) {
+  const normalized = type || "code-test";
+  const base = {
+    title: "Новое задание",
+    description: "Опишите постановку задачи…",
+    type: normalized,
+    difficulty: 1,
+    rating: 1,
+    tags: "ОАИП",
+    sort,
+  };
+
+  if (normalized === "code-test") {
+    return {
+      ...base,
+      language: "cpp",
+      allowedLanguages: ["cpp", "python", "csharp", "javascript", "pascal", "java"],
+      starterCode: "",
+      testCases: [{ input: "2 4", expectedOutput: "6", isHidden: false }],
+    };
+  }
+
+  if (normalized === "image-test") {
+    return {
+      ...base,
+      language: "python",
+      allowedLanguages: ["python", "pascal", "cpp"],
+      imageTestSimilarityThreshold: 90,
+      testCases: [{ input: "", expectedOutput: "", threshold: 90, isHidden: false }],
+    };
+  }
+
+  if (normalized === "test") {
+    return {
+      ...base,
+      tests: {
+        settings: { maxAttempts: 1, passPercent: 60, shuffleQuestions: true, shuffleAnswers: true, allowReview: true, attemptTimeLimitsSeconds: [] },
+        questions: [],
+      },
+    };
+  }
+
+  if (normalized === "math") {
+    return {
+      ...base,
+      tests: {
+        settings: { maxAttempts: 1, passPercent: 60, shuffleBlocks: false, allowReview: true, attemptTimeLimitsSeconds: [] },
+        blocks: [],
+      },
+    };
+  }
+
+  return base;
+}
+
+function summarizeImportPayload(parsed) {
+  if (Array.isArray(parsed)) return `${parsed.length} заданий`;
+  if (parsed && typeof parsed === "object") {
+    const arr = parsed.assignments || parsed.items || parsed.tasks;
+    if (Array.isArray(arr)) return `${arr.length} заданий`;
+    return "1 задание";
+  }
+  return "0 заданий";
+}
+
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -75,31 +393,39 @@ export default function CourseAssignmentsPage() {
   const [err, setErr] = useState("");
 
 
-  
-  const [createType, setCreateType] = useState("code-test");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createBusyType, setCreateBusyType] = useState("");
+  const [jsonImportText, setJsonImportText] = useState(JSON_IMPORT_EXAMPLE);
+  const [jsonImportBusy, setJsonImportBusy] = useState(false);
+  const [jsonImportPreview, setJsonImportPreview] = useState("пример: 5 заданий");
   const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
   const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get("sort") || "default";
 
+  const reloadAssignments = async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      setErr("");
+      const data = await getAssignmentsByCourse(courseId);
+      const norm = (data || []).map((x, i) => ({
+        ...x,
+        sort: typeof x.sort === "number" ? x.sort : i,
+      }));
+      setItems(norm);
+      return norm;
+    } catch (e) {
+      const message = getApiErrorMessage(e, "Не удалось загрузить задания");
+      setErr(message);
+      throw e;
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setErr("");
-        const data = await getAssignmentsByCourse(courseId); 
-        const norm = (data || []).map((x, i) => ({
-          ...x,
-          sort: typeof x.sort === "number" ? x.sort : i,
-        }));
-        setItems(norm);
-      } catch (e) {
-        setErr(getApiErrorMessage(e, "Не удалось загрузить задания"));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    reloadAssignments(false).catch(() => {});
   }, [courseId]);
 
   useEffect(() => {
@@ -281,33 +607,29 @@ export default function CourseAssignmentsPage() {
     await moveToPosition(sourceId, targetPos);
   };
 
-  const handleCreate = async () => {
-    
+  const ensureCanCreate = () => {
     if (items.length > 0 && items[0].canEdit === false) {
       notifyOnce("no-edit-course", () =>
         notify.warn("Вы не владелец курса — создавать задания нельзя")
       );
-      return;
+      return false;
     }
+    if (!courseCanEdit) {
+      notify.warn("Вы не владелец курса — создавать задания нельзя");
+      return false;
+    }
+    return true;
+  };
+
+  const handleCreateType = async (type) => {
+    if (!ensureCanCreate()) return;
+    setCreateBusyType(type);
     try {
-	      const type = createType;
-	      const payload = {
-        title: "Новое задание",
-        description: "Опишите постановку задачи…",
-	        type,
-        difficulty: 1,
-        rating: 1,
-	        
-	        
-	        testCases:
-	          type === "code-test"
-	            ? [{ input: "2 4", expectedOutput: "6", isHidden: false }]
-	            : [],
-        tags: "ОАИП",
-        sort: items.length,
-      };
+      const payload = buildDefaultAssignmentPayload(type, items.length);
       const res = await createAssignment(courseId, payload);
       const id = res && res.id;
+      setCreateDialogOpen(false);
+      notify.success("Задание создано");
       if (id) nav(`/assignment/${id}/edit`);
     } catch (e) {
       if (e?.response?.status === 403) {
@@ -317,6 +639,56 @@ export default function CourseAssignmentsPage() {
         return;
       }
       handleApiError(e, notify, "Не удалось создать задание");
+    } finally {
+      setCreateBusyType("");
+    }
+  };
+
+  const handleJsonImportTextChange = (value) => {
+    setJsonImportText(value);
+    try {
+      const parsed = JSON.parse(value);
+      setJsonImportPreview(summarizeImportPayload(parsed));
+    } catch {
+      setJsonImportPreview("JSON пока не читается");
+    }
+  };
+
+  const handleJsonFile = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      handleJsonImportTextChange(text);
+      notify.info(`JSON загружен: ${file.name}`);
+    } catch (e) {
+      notify.error("Не удалось прочитать JSON-файл");
+    }
+  };
+
+  const handleImportJson = async () => {
+    if (!ensureCanCreate()) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonImportText);
+    } catch (e) {
+      notify.error(`JSON не читается: ${e.message}`);
+      return;
+    }
+
+    setJsonImportBusy(true);
+    try {
+      const res = await importAssignmentsFromJson(courseId, parsed);
+      const created = Array.isArray(res?.assignments) ? res.assignments : [];
+      await reloadAssignments(true);
+      setCreateDialogOpen(false);
+      notify.success(`Импортировано заданий: ${res?.createdCount ?? created.length}`);
+      if ((res?.createdCount ?? created.length) === 1 && created[0]?.id) {
+        nav(`/assignment/${created[0].id}/edit`);
+      }
+    } catch (e) {
+      handleApiError(e, notify, "Не удалось импортировать JSON");
+    } finally {
+      setJsonImportBusy(false);
     }
   };
 
@@ -354,23 +726,133 @@ export default function CourseAssignmentsPage() {
 
           <IfEditor>
             {courseCanEdit ? (
-              <>
-                <select value={createType} onChange={(e) => setCreateType(e.target.value)} className="input w-full xl:w-auto" title="Тип создаваемого задания">
-                  <option value="code-test">code-test</option>
-                  <option value="test">test</option>
-                  <option value="image-test">image-test</option>
-                  <option value="math">math</option>
-                </select>
-
-                <Button className="w-full sm:w-auto" onClick={handleCreate}>
-                  <Plus size={16} /> Создать
-                </Button>
-              </>
+              <Button className="w-full sm:w-auto" onClick={() => setCreateDialogOpen(true)}>
+                <Plus size={16} /> Создать
+              </Button>
             ) : null}
           </IfEditor>
         </div>
       </div>
       </div>
+
+      {createDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-3 py-6 sm:px-6" onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy && !createBusyType) setCreateDialogOpen(false); }}>
+          <Card className="w-full max-w-6xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
+            <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xl font-semibold">
+                  <Sparkles size={20} /> Что создаём?
+                </div>
+                <p className="mt-1 text-sm leading-6 text-neutral-500">
+                  Теперь кнопка не зависит от нижнего селекта: сначала выбираешь тип, потом создаётся нормальный черновик. JSON может создать сразу пачку заданий разных типов.
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={jsonImportBusy || !!createBusyType} title="Закрыть">
+                <X size={16} /> Закрыть
+              </Button>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.35fr]">
+              <div className="space-y-3">
+                {CREATE_OPTIONS.map((o) => (
+                  <button
+                    key={o.type}
+                    type="button"
+                    disabled={!!createBusyType || jsonImportBusy}
+                    onClick={() => handleCreateType(o.type)}
+                    className="w-full rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/35 p-4 text-left transition hover:-translate-y-0.5 hover:border-[rgb(var(--primary))]/70 hover:bg-[rgb(var(--primary))]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-semibold">{o.title}</div>
+                      <Badge variant="outline">{o.type}</Badge>
+                    </div>
+                    <div className="mt-1 text-sm leading-5 text-neutral-500">{o.subtitle}</div>
+                    <div className="mt-2 text-xs text-neutral-400">{createBusyType === o.type ? "Создаю…" : o.hint}</div>
+                  </button>
+                ))}
+
+                <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.9)] p-4 text-sm leading-6 text-neutral-500">
+                  <div className="flex items-center gap-2 font-semibold text-[rgb(var(--fg))]">
+                    <FileJson size={16} /> Из JSON
+                  </div>
+                  <p className="mt-1">
+                    Вставь JSON или загрузи файл. Поддерживается один объект, массив объектов или объект с <code>assignments</code>, <code>items</code>, <code>tasks</code>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/25 p-4">
+                <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 font-semibold">
+                      <FileJson size={18} /> JSON-редактор импорта
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-500">
+                      Сейчас в поле: {jsonImportPreview}. Пример специально большой, чтобы его можно было отдать нейронке как схему.
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="btn-outline cursor-pointer">
+                      <Upload size={16} /> Загрузить .json
+                      <input
+                        type="file"
+                        accept="application/json,.json"
+                        className="hidden"
+                        onChange={(e) => handleJsonFile(e.target.files?.[0])}
+                      />
+                    </label>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(jsonImportText);
+                          notify.success("JSON скопирован");
+                        } catch {
+                          notify.warn("Браузер не дал скопировать автоматически");
+                        }
+                      }}
+                    >
+                      <Copy size={16} /> Копировать
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        try {
+                          handleJsonImportTextChange(JSON.stringify(JSON.parse(jsonImportText), null, 2));
+                        } catch (e) {
+                          notify.error(`Нельзя форматировать: ${e.message}`);
+                        }
+                      }}
+                    >
+                      Форматировать
+                    </Button>
+                    <Button variant="outline" onClick={() => handleJsonImportTextChange(JSON_IMPORT_EXAMPLE)}>
+                      Вернуть пример
+                    </Button>
+                  </div>
+                </div>
+
+                <Textarea
+                  rows={26}
+                  value={jsonImportText}
+                  onChange={(e) => handleJsonImportTextChange(e.target.value)}
+                  spellCheck={false}
+                  className="mt-4 min-h-[520px] font-mono text-xs leading-5"
+                />
+
+                <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="text-xs leading-5 text-neutral-500">
+                    Поддерживаемые поля: <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>tags</code>.
+                  </div>
+                  <Button onClick={handleImportJson} disabled={jsonImportBusy || !!createBusyType}>
+                    <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Создать из JSON"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <Card className="page-search-card mb-6 rounded-[24px] p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">

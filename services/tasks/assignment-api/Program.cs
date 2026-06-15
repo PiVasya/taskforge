@@ -59,34 +59,70 @@ app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, Htt
 
 app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
 {
-    var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync() ?? -1;
-    var assignment = new Assignment
-    {
-        CourseId = courseId,
-        Title = Clean(request.Title, "Новое задание"),
-        Description = request.Description,
-        Type = Clean(request.Type, "code-test"),
-        Language = NormalizeLanguage(request.Language) ?? "csharp",
-        AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
-        Tags = request.Tags,
-        Difficulty = Math.Clamp(request.Difficulty ?? 1, 1, 3),
-        Rating = Math.Max(0, request.Rating ?? 1),
-        StarterCode = request.StarterCode,
-        TestsJson = Clean(request.Type, "code-test") == "image-test"
-            ? null
-            : request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases),
-        CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
-        CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
-        IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
-        Sort = maxSort + 1
-    };
-    if (string.Equals(assignment.Type, "image-test", StringComparison.OrdinalIgnoreCase))
-    {
-        assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases), request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
-    }
+    var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
+    var assignment = await BuildAssignmentEntityAsync(courseId, request, maxSort + 1, clients, cfg, ct);
     db.Assignments.Add(assignment);
-    await db.SaveChangesAsync();
+    await db.SaveChangesAsync(ct);
     return Results.Ok(ToDto(assignment, includeSensitive: true));
+});
+
+app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid courseId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+{
+    if (!IsEditor(http, cfg))
+    {
+        return Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var sourceItems = ExtractAssignmentImportItems(payload).ToList();
+    if (sourceItems.Count == 0)
+    {
+        return Results.Json(new { message = "JSON не содержит заданий. Передай объект задания, массив заданий или объект с полем assignments/items/tasks.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    if (sourceItems.Count > 200)
+    {
+        return Results.Json(new { message = "За один импорт можно создать не больше 200 заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var requests = new List<AssignmentRequest>();
+    var issues = new List<object>();
+    for (var i = 0; i < sourceItems.Count; i++)
+    {
+        try
+        {
+            var req = AssignmentRequestFromJson(sourceItems[i]);
+            var itemIssues = ValidateImportedAssignment(req, i + 1).ToList();
+            if (itemIssues.Count > 0)
+            {
+                issues.Add(new { index = i + 1, title = req.Title, issues = itemIssues });
+            }
+            requests.Add(req);
+        }
+        catch (Exception ex)
+        {
+            issues.Add(new { index = i + 1, issues = new[] { $"Не удалось прочитать объект задания: {ex.Message}" } });
+        }
+    }
+
+    if (issues.Count > 0)
+    {
+        return Results.Json(new { message = "Импорт остановлен: в JSON есть ошибки.", code = "IMPORT_VALIDATION_FAILED", issues }, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
+    var created = new List<Assignment>();
+    for (var i = 0; i < requests.Count; i++)
+    {
+        created.Add(await BuildAssignmentEntityAsync(courseId, requests[i], maxSort + 1 + i, clients, cfg, ct));
+    }
+
+    db.Assignments.AddRange(created);
+    await db.SaveChangesAsync(ct);
+
+    return Results.Ok(new
+    {
+        createdCount = created.Count,
+        assignments = created.Select(x => ToDto(x, includeSensitive: true)).ToList()
+    });
 });
 
 app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
@@ -1494,6 +1530,285 @@ static JsonObject MergeImageTestPayload(string? existingJson, AssignmentRequest 
 }
 
 static string Clean(string? v, string fallback) => string.IsNullOrWhiteSpace(v) ? fallback : v.Trim();
+
+static string NormalizeAssignmentType(string? value)
+{
+    var s = (value ?? string.Empty).Trim().ToLowerInvariant();
+    return s switch
+    {
+        "code" or "code_test" or "codetest" or "programming" or "programming-test" => "code-test",
+        "image" or "image_test" or "imagetest" or "drawing" or "drawing-test" => "image-test",
+        "quiz" or "task-test" or "multiple-choice" => "test",
+        "math-test" or "math_task" or "math-task" => "math",
+        "image-test" or "code-test" or "test" or "math" => s,
+        _ => "code-test"
+    };
+}
+
+static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, AssignmentRequest request, int sort, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    var type = NormalizeAssignmentType(request.Type);
+    var testsJson = request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases);
+    testsJson = NormalizeSpecJsonForStorage(testsJson, type);
+    var assignment = new Assignment
+    {
+        CourseId = courseId,
+        Title = Clean(request.Title, "Новое задание"),
+        Description = request.Description,
+        Type = type,
+        Language = NormalizeLanguage(request.Language) ?? (type == "image-test" ? "python" : "csharp"),
+        AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
+        Tags = request.Tags,
+        Difficulty = Math.Clamp(request.Difficulty ?? 1, 1, 3),
+        Rating = Math.Max(0, request.Rating ?? 1),
+        StarterCode = request.StarterCode,
+        TestsJson = type == "image-test" ? null : testsJson,
+        CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
+        CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
+        IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
+        Sort = sort
+    };
+
+    if (type == "image-test")
+    {
+        assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(testsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
+    }
+
+    return assignment;
+}
+
+static string? NormalizeSpecJsonForStorage(string? testsJson, string type)
+{
+    if (string.IsNullOrWhiteSpace(testsJson)) return testsJson;
+    if (type != "test" && type != "math") return testsJson;
+    try
+    {
+        var node = JsonNode.Parse(testsJson) as JsonObject;
+        if (node == null) return testsJson;
+        NormalizeIds(node, type == "test" ? "questions" : "blocks");
+        return node.ToJsonString(JsonOptions());
+    }
+    catch
+    {
+        return testsJson;
+    }
+}
+
+static IEnumerable<JsonElement> ExtractAssignmentImportItems(JsonElement root)
+{
+    if (root.ValueKind == JsonValueKind.Array)
+    {
+        foreach (var item in root.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object) yield return item;
+        }
+        yield break;
+    }
+
+    if (root.ValueKind != JsonValueKind.Object) yield break;
+
+    foreach (var name in new[] { "assignments", "items", "tasks" })
+    {
+        if (root.TryGetProperty(name, out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object) yield return item;
+            }
+            yield break;
+        }
+    }
+
+    if (root.TryGetProperty("assignment", out var nested) && nested.ValueKind == JsonValueKind.Object)
+    {
+        yield return nested;
+        yield break;
+    }
+
+    yield return root;
+}
+
+static AssignmentRequest AssignmentRequestFromJson(JsonElement source)
+{
+    if (source.ValueKind != JsonValueKind.Object)
+    {
+        throw new InvalidOperationException("ожидался JSON-объект");
+    }
+
+    var type = NormalizeAssignmentType(FirstString(source, "type", "kind", "assignmentType"));
+    var tests = PickTestsElement(source, type);
+
+    return new AssignmentRequest(
+        FirstString(source, "title", "name", "assignmentTitle"),
+        FirstString(source, "description", "statement", "condition", "body", "prompt"),
+        type,
+        FirstString(source, "language", "defaultLanguage"),
+        FirstStringList(source, "allowedLanguages", "languages"),
+        FirstString(source, "tags"),
+        FirstInt(source, "difficulty", "level"),
+        FirstInt(source, "rating", "score", "points"),
+        FirstString(source, "starterCode", "templateCode", "initialCode"),
+        FirstString(source, "testsJson"),
+        tests,
+        tests,
+        FirstStringList(source, "codeForbiddenCalls", "forbiddenCalls", "forbidden"),
+        FirstStringList(source, "codeRequiredCalls", "requiredCalls", "required"),
+        FirstBool(source, "isVisible", "visible"),
+        FirstBool(source, "isHidden", "hidden"),
+        FirstString(source, "imageTestReferenceKey", "referenceKey", "expectedImageKey"),
+        FirstInt(source, "imageTestSimilarityThreshold", "similarityThreshold", "threshold")
+    );
+}
+
+static JsonElement? PickTestsElement(JsonElement source, string type)
+{
+    if (type == "test")
+    {
+        foreach (var name in new[] { "testSpec", "taskTest", "quiz", "tests", "testCases", "spec" })
+        {
+            if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
+        }
+        if (source.TryGetProperty("questions", out var questions) && questions.ValueKind == JsonValueKind.Array)
+        {
+            return WrapSpec(source, "settings", "questions");
+        }
+    }
+
+    if (type == "math")
+    {
+        foreach (var name in new[] { "mathSpec", "mathTask", "math", "tests", "testCases", "spec" })
+        {
+            if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
+        }
+        if (source.TryGetProperty("blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array)
+        {
+            return WrapSpec(source, "settings", "blocks");
+        }
+    }
+
+    if (type == "image-test")
+    {
+        foreach (var name in new[] { "imageSpec", "imageTest", "tests", "testCases", "cases", "publicTests", "hiddenTests" })
+        {
+            if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+            {
+                return name is "publicTests" or "hiddenTests" ? WrapImageTests(source) : v.Clone();
+            }
+        }
+    }
+
+    foreach (var name in new[] { "tests", "testCases", "cases", "publicTests", "hiddenTests" })
+    {
+        if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+        {
+            return name is "publicTests" or "hiddenTests" ? WrapCodeTests(source) : v.Clone();
+        }
+    }
+
+    return null;
+}
+
+static JsonElement WrapSpec(JsonElement source, string settingsName, string arrayName)
+{
+    var node = new JsonObject();
+    if (source.TryGetProperty(settingsName, out var settings) && settings.ValueKind == JsonValueKind.Object)
+    {
+        node[settingsName] = JsonNode.Parse(settings.GetRawText());
+    }
+    if (source.TryGetProperty(arrayName, out var arr) && arr.ValueKind == JsonValueKind.Array)
+    {
+        node[arrayName] = JsonNode.Parse(arr.GetRawText());
+    }
+    return JsonSerializer.SerializeToElement(node, JsonOptions());
+}
+
+static JsonElement WrapCodeTests(JsonElement source)
+{
+    var node = new JsonObject();
+    if (source.TryGetProperty("publicTests", out var publicTests) && publicTests.ValueKind == JsonValueKind.Array) node["publicTests"] = JsonNode.Parse(publicTests.GetRawText());
+    if (source.TryGetProperty("hiddenTests", out var hiddenTests) && hiddenTests.ValueKind == JsonValueKind.Array) node["hiddenTests"] = JsonNode.Parse(hiddenTests.GetRawText());
+    return JsonSerializer.SerializeToElement(node, JsonOptions());
+}
+
+static JsonElement WrapImageTests(JsonElement source)
+{
+    var node = JsonNode.Parse(WrapCodeTests(source).GetRawText()) as JsonObject ?? new JsonObject();
+    foreach (var name in new[] { "imageTestReferenceKey", "imageTestSimilarityThreshold", "referenceKey", "threshold" })
+    {
+        if (source.TryGetProperty(name, out var v)) node[name] = JsonNode.Parse(v.GetRawText());
+    }
+    return JsonSerializer.SerializeToElement(node, JsonOptions());
+}
+
+static IEnumerable<string> ValidateImportedAssignment(AssignmentRequest request, int index)
+{
+    var title = (request.Title ?? string.Empty).Trim();
+    if (title.Length == 0) yield return "title обязателен.";
+    if (title.Length > 200) yield return "title не должен быть длиннее 200 символов.";
+    var type = NormalizeAssignmentType(request.Type);
+    if (!new[] { "code-test", "image-test", "test", "math" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
+    if (request.Difficulty.HasValue && (request.Difficulty.Value < 1 || request.Difficulty.Value > 3)) yield return "difficulty должен быть 1, 2 или 3.";
+    if (request.Rating.HasValue && request.Rating.Value < 0) yield return "rating не может быть отрицательным.";
+    if ((type == "code-test" || type == "image-test") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для code-test/image-test желательно указать testCases/tests.";
+    if ((type == "test" || type == "math") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для test/math нужно указать spec/questions/blocks.";
+}
+
+static string? FirstString(JsonElement source, params string[] names)
+{
+    foreach (var name in names)
+    {
+        if (!source.TryGetProperty(name, out var v)) continue;
+        if (v.ValueKind == JsonValueKind.String) return v.GetString();
+        if (v.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return v.ToString();
+        if (name == "tags" && v.ValueKind == JsonValueKind.Array)
+        {
+            var tags = v.EnumerateArray().Select(x => x.ToString().Trim()).Where(x => x.Length > 0).ToArray();
+            return tags.Length == 0 ? null : string.Join(", ", tags);
+        }
+    }
+    return null;
+}
+
+static int? FirstInt(JsonElement source, params string[] names)
+{
+    foreach (var name in names)
+    {
+        if (!source.TryGetProperty(name, out var v)) continue;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)) return n;
+        if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out n)) return n;
+    }
+    return null;
+}
+
+static bool? FirstBool(JsonElement source, params string[] names)
+{
+    foreach (var name in names)
+    {
+        if (!source.TryGetProperty(name, out var v)) continue;
+        if (v.ValueKind is JsonValueKind.True or JsonValueKind.False) return v.GetBoolean();
+        if (v.ValueKind == JsonValueKind.String && bool.TryParse(v.GetString(), out var b)) return b;
+    }
+    return null;
+}
+
+static List<string>? FirstStringList(JsonElement source, params string[] names)
+{
+    foreach (var name in names)
+    {
+        if (!source.TryGetProperty(name, out var v)) continue;
+        if (v.ValueKind == JsonValueKind.Array)
+        {
+            var list = v.EnumerateArray().Select(x => x.ToString().Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return list.Count == 0 ? null : list;
+        }
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var list = (v.GetString() ?? string.Empty).Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return list.Count == 0 ? null : list;
+        }
+    }
+    return null;
+}
 
 static string? NormalizeLanguage(string? value)
 {
