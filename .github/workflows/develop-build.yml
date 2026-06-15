@@ -5,6 +5,9 @@ name: docker images
 # change forces a full rebuild so GHCR images are rebuilt without dev probes.
 env:
   TASKFORGE_BUILD_DEBUG_LOGS: "1"
+  # BuildKit GHA cache can occasionally leave a manifest pointing to an expired/missing blob.
+  # Bump this value (v3, v4, ...) to force all Docker builds to ignore the old broken cache.
+  TF_DOCKER_GHA_CACHE_VERSION: "v2"
 
 on:
   push:
@@ -30,6 +33,14 @@ on:
         type: string
         required: false
         default: ""
+      no_cache:
+        description: Ignore Docker layer cache for this manual run. Use when GitHub cache returns missing blob / BlobNotFound.
+        type: boolean
+        default: false
+
+concurrency:
+  group: taskforge-docker-images-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   changes:
@@ -229,7 +240,9 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-      - uses: docker/build-push-action@v6
+      - name: Build ${{ matrix.name }} without importing cache
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.no_cache }}
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/${{ matrix.dockerfile }}
@@ -238,5 +251,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             TASKFORGE_DEBUG_LOGS=${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          no-cache: true
+          cache-to: type=gha,mode=max,scope=${{ env.TF_DOCKER_GHA_CACHE_VERSION }}-${{ matrix.name }},ignore-error=true
+
+      - name: Build ${{ matrix.name }} with cache
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.no_cache }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TASKFORGE_DEBUG_LOGS=${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
+          cache-from: type=gha,scope=${{ env.TF_DOCKER_GHA_CACHE_VERSION }}-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ env.TF_DOCKER_GHA_CACHE_VERSION }}-${{ matrix.name }},ignore-error=true
