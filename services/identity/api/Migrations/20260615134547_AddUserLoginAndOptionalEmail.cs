@@ -25,8 +25,7 @@ namespace TaskForge.Identity.Api.Migrations
                 table: "Users",
                 type: "character varying(64)",
                 maxLength: 64,
-                nullable: false,
-                defaultValue: "");
+                nullable: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_Login",

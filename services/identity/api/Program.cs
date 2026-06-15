@@ -37,6 +37,7 @@ if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
     var db = migrationScope.ServiceProvider.GetRequiredService<IdentityDbContext>();
     app.Logger.LogInformation("Applying EF Core migrations for IdentityDbContext...");
     await db.Database.MigrateAsync();
+    await BackfillUserLoginsAsync(db, app.Logger);
     await SeedFeatureRoles(db);
     app.Logger.LogInformation("EF Core migrations for IdentityDbContext applied.");
 }
@@ -80,7 +81,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext ht
 {
     if (CheckAuthRateLimit(http, "register", request.Login ?? request.Email) is { } limited) return limited;
 
-    var login = NormalizeLogin(request.Login ?? request.Email);
+    var login = NormalizeLogin(request.Login);
     if (!IsValidLogin(login, out var loginMessage)) return Results.BadRequest(new { message = loginMessage });
 
     var email = NormalizeOptionalEmail(request.Email);
@@ -116,21 +117,26 @@ app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext ht
 app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
     if (CheckAuthRateLimit(http, "login", request.Login ?? request.Email) is { } limited) return limited;
-    var login = NormalizeLogin(request.Login ?? request.Email);
-    var email = NormalizeOptionalEmail(request.Email ?? request.Login);
+
+    var identity = (request.Login ?? request.Email ?? string.Empty).Trim();
+    var identityIsEmail = identity.Contains('@');
+    var email = NormalizeOptionalEmail(request.Email);
+    if (email == null && identityIsEmail) email = NormalizeOptionalEmail(identity);
+
+    var login = identityIsEmail ? string.Empty : NormalizeLogin(identity);
     IdentityUser? user = null;
-    if (!string.IsNullOrWhiteSpace(login))
-    {
-        user = await db.Users.FirstOrDefaultAsync(x => x.Login == login);
-    }
-    if (user == null && !string.IsNullOrWhiteSpace(email))
+    if (!string.IsNullOrWhiteSpace(email))
     {
         user = await db.Users.FirstOrDefaultAsync(x => x.Email == email);
+    }
+    if (user == null && !string.IsNullOrWhiteSpace(login))
+    {
+        user = await db.Users.FirstOrDefaultAsync(x => x.Login == login);
     }
 
     if (user == null || !VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash))
     {
-        return Unauthorized("Неверный логин или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
+        return Unauthorized("Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
     }
 
     if (NeedsPasswordRehash(user.PasswordHash))
@@ -488,7 +494,7 @@ static IQueryable<IdentityUser> FilterUsers(IQueryable<IdentityUser> query, stri
     if (!string.IsNullOrWhiteSpace(text))
     {
         var q = text.Trim().ToLowerInvariant();
-        query = query.Where(x => (x.Login.ToLower().Contains(q) || (x.Email != null && x.Email.ToLower().Contains(q)) || x.FirstName.ToLower().Contains(q)) || x.LastName.ToLower().Contains(q));
+        query = query.Where(x => ((x.Login != null && x.Login.ToLower().Contains(q)) || (x.Email != null && x.Email.ToLower().Contains(q)) || x.FirstName.ToLower().Contains(q)) || x.LastName.ToLower().Contains(q));
     }
     if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
     if (linkedOnly) query = query.Where(x => false);
@@ -513,7 +519,7 @@ static async Task<List<IdentityUser>> SearchUsersAsync(IdentityDbContext db, str
         .Select(u => new { User = u, Score = UserSearchScore(u, q) })
         .Where(x => x.Score <= maxDistance || UserSearchHaystack(x.User).Contains(q, StringComparison.OrdinalIgnoreCase))
         .OrderBy(x => x.Score)
-        .ThenBy(x => x.User.Login)
+        .ThenBy(x => x.User.Login ?? x.User.Email ?? x.User.Id.ToString())
         .Take(Math.Clamp(take, 1, 500))
         .Select(x => x.User)
         .ToList();
@@ -535,7 +541,7 @@ static int UserSearchScore(IdentityUser user, string query)
 {
     var values = new[]
     {
-        user.Login,
+        user.Login ?? string.Empty,
         user.Email ?? string.Empty,
         user.FirstName,
         user.LastName,
@@ -643,7 +649,7 @@ static IQueryable<IdentityUser> SortUsers(IQueryable<IdentityUser> query, string
 static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,
-    user.Login,
+    login = UserLoginOrFallback(user),
     user.Email,
     maskedEmail = MaskEmail(user.Email),
     user.FirstName,
@@ -699,6 +705,70 @@ static string NormalizeRole(string? role) => (role ?? "User").Trim() switch
     "Minecraft" => "Minecraft",
     _ => "User"
 };
+static string UserLoginOrFallback(IdentityUser user)
+    => !string.IsNullOrWhiteSpace(user.Login) ? user.Login! : user.Email ?? user.Id.ToString();
+
+static async Task BackfillUserLoginsAsync(IdentityDbContext db, ILogger logger)
+{
+    var users = await db.Users.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToListAsync();
+    if (users.Count == 0) return;
+
+    var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var user in users)
+    {
+        var normalized = NormalizeLogin(user.Login);
+        if (!string.IsNullOrWhiteSpace(normalized) && IsValidLogin(normalized, out _))
+        {
+            user.Login = normalized;
+            used.Add(normalized);
+        }
+        else if (!string.IsNullOrWhiteSpace(user.Login))
+        {
+            user.Login = null;
+        }
+    }
+
+    var changed = 0;
+    foreach (var user in users.Where(x => string.IsNullOrWhiteSpace(x.Login)))
+    {
+        var login = BuildBackfilledLogin(user, used);
+        user.Login = login;
+        used.Add(login);
+        changed++;
+    }
+
+    if (changed > 0)
+    {
+        await db.SaveChangesAsync();
+        logger.LogInformation("Backfilled {Count} missing user logins.", changed);
+    }
+}
+
+static string BuildBackfilledLogin(IdentityUser user, HashSet<string> used)
+{
+    var basePart = NormalizeLogin(user.Email);
+    if (!IsValidLogin(basePart, out _)) basePart = "user";
+
+    var suffix = user.Id.ToString("N")[..8].ToLowerInvariant();
+    var maxBaseLength = Math.Max(3, 64 - suffix.Length - 1);
+    if (basePart.Length > maxBaseLength) basePart = basePart[..maxBaseLength].Trim('.', '-', '_');
+    if (!IsValidLogin(basePart, out _)) basePart = "user";
+
+    var candidate = $"{basePart}-{suffix}";
+    var counter = 2;
+    while (used.Contains(candidate))
+    {
+        var counterSuffix = $"{suffix}-{counter}";
+        maxBaseLength = Math.Max(3, 64 - counterSuffix.Length - 1);
+        var trimmedBase = basePart.Length > maxBaseLength ? basePart[..maxBaseLength].Trim('.', '-', '_') : basePart;
+        if (!IsValidLogin(trimmedBase, out _)) trimmedBase = "user";
+        candidate = $"{trimmedBase}-{counterSuffix}";
+        counter++;
+    }
+
+    return candidate;
+}
+
 static async Task SeedFeatureRoles(IdentityDbContext db)
 {
     var defaults = new[]
@@ -934,7 +1004,7 @@ static string DisplayName(IdentityUser user)
 static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
     user.Id,
-    user.Login,
+    login = UserLoginOrFallback(user),
     user.Email,
     maskedEmail = MaskEmail(user.Email),
     user.FirstName,
@@ -1063,8 +1133,8 @@ static string CreateJwt(IdentityUser user, IConfiguration cfg, TimeSpan lifetime
     var claims = new List<Claim>
     {
         new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new(ClaimTypes.Name, user.Login),
-        new("login", user.Login),
+        new(ClaimTypes.Name, UserLoginOrFallback(user)),
+        new("login", UserLoginOrFallback(user)),
         new(ClaimTypes.Email, user.Email ?? string.Empty),
         new("role", user.Role),
         new("roles", string.Join(',', roles)),

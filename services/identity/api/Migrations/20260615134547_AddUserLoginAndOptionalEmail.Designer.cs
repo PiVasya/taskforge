@@ -12,7 +12,7 @@ using TaskForge.Identity.Api.Data;
 namespace TaskForge.Identity.Api.Migrations
 {
     [DbContext(typeof(IdentityDbContext))]
-    [Migration("20260615132345_AddUserLoginAndOptionalEmail")]
+    [Migration("20260615134547_AddUserLoginAndOptionalEmail")]
     partial class AddUserLoginAndOptionalEmail
     {
         /// <inheritdoc />
@@ -92,7 +92,6 @@ namespace TaskForge.Identity.Api.Migrations
                         .HasColumnType("character varying(120)");
 
                     b.Property<string>("Login")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 

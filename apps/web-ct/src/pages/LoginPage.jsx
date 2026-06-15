@@ -26,7 +26,7 @@ export default function LoginPage() {
       await login(loginName.trim(), password);
       
     } catch (e) {
-      setErr(getApiErrorMessage(e, "Неверный логин или пароль. Проверьте данные или зарегистрируйтесь."));
+      setErr(getApiErrorMessage(e, "Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь."));
     } finally {
       setBusy(false);
     }
@@ -52,14 +52,14 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Field label="Логин">
+            <Field label="Логин или email">
               <Input
                 type="text"
                 value={loginName}
                 onChange={(e) => setLoginName(e.target.value)}
                 required
                 autoComplete="username"
-                placeholder="pivasya"
+                placeholder="pivasya или pivasya@example.com"
               />
             </Field>
 

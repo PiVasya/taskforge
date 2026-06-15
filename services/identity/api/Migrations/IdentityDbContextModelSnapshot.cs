@@ -89,7 +89,6 @@ namespace TaskForge.Identity.Api.Migrations
                         .HasColumnType("character varying(120)");
 
                     b.Property<string>("Login")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
