@@ -77,6 +77,7 @@ jobs:
             "python-runner|./services/execution/runners/python-runner|Dockerfile|services/execution/runners/python-runner/"
             "image-cpp-runner|./services/execution/runners/image-cpp-runner|Dockerfile|services/execution/runners/image-cpp-runner/"
             "image-pascal-runner|./services/execution/runners/image-pascal-runner|Dockerfile|services/execution/runners/image-pascal-runner/"
+            "image-python-runner|./services/execution/runners/image-python-runner|Dockerfile|services/execution/runners/image-python-runner/"
 
             "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ Directory.Build.props global.json .dockerignore"
             "ai-worker|./services/ai/worker|Dockerfile|services/ai/worker/"

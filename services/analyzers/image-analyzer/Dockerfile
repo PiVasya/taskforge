@@ -3,7 +3,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    OPENCLIP_CACHE_DIR=/models/openclip
+    OPENCLIP_CACHE_DIR=/models/openclip \
+    HOME=/tmp
 
 WORKDIR /app
 
@@ -40,4 +41,5 @@ EXPOSE 8080
 
 ARG TASKFORGE_DEBUG_LOGS=0
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
+USER 65534:65534
 CMD ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-analyzer\"; exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level debug; else echo \"[taskforge-debug] logs=off service=image-analyzer\"; exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info; fi"]

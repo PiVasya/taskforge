@@ -11,12 +11,12 @@ import { getAssignmentForEdit, updateAssignment, deleteAssignment } from "../api
 import { getTaskTestEdit, saveTaskTestEdit } from "../api/taskTests";
 import { getMathTaskEdit, saveMathTaskEdit } from "../api/mathTasks";
 
-import { Card, Button, Field, Input, Textarea, Select } from "../components/ui";
+import { Card, Button, Field, Input, Textarea, Select, Badge } from "../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle, Bot } from "lucide-react";
 import TaskTestEditor from "./TaskTestEditor";
 import MathTaskEditor from "./MathTaskEditor";
 import StatementEditor from "../components/tiptap/StatementEditor";
-import { uploadImageTestReference } from "../api/imageTests";
+import { uploadImageTestReference, uploadImageTestExpectedImage } from "../api/imageTests";
 import { useRoleFlags } from "../contexts/EditorModeContext";
 
 function normalizeCodeTestCases(source) {
@@ -41,8 +41,9 @@ const LANGS_BY_TYPE = {
   ],
   
   "image-test": [
-    { value: "pascal", label: "Pascal" },
-    { value: "cpp", label: "C++" },
+    { value: "python", label: "Python Turtle / matplotlib" },
+    { value: "pascal", label: "Pascal GraphABC" },
+    { value: "cpp", label: "C++ GLUT / Turtle" },
   ],
 };
 
@@ -148,6 +149,12 @@ export default function AssignmentEditPage() {
             ? normalizedCases.map((t) => ({
                 input: t.input ?? t.stdin ?? "",
                 expectedOutput: t.expectedOutput ?? t.expected ?? t.stdout ?? "",
+                expectedImageKey: t.expectedImageKey ?? t.referenceKey ?? t.imageKey ?? t.imageTestReferenceKey ?? "",
+                expectedImageUrl: t.expectedImageUrl ?? t.referenceUrl ?? t.privateUrl ?? "",
+                expectedImageBase64: t.expectedImageBase64 ?? t.referenceBase64 ?? t.imageBase64 ?? "",
+                expectedImageContentType: t.expectedImageContentType ?? t.referenceContentType ?? "image/png",
+                expectedImageFileName: t.expectedImageFileName ?? t.referenceFileName ?? "",
+                threshold: typeof t.threshold === "number" ? t.threshold : (typeof t.thresholdPercent === "number" ? t.thresholdPercent : imageTestThreshold),
                 isHidden: !!(t.isHidden ?? t.hidden),
               }))
             : [{ input: "", expectedOutput: "", isHidden: false }]
@@ -231,10 +238,21 @@ export default function AssignmentEditPage() {
     }
 
     if (normalizedType === 'image-test') {
-      if (!String(imageTestReferenceKey || '').trim()) issues.push('Для image-test нужно загрузить эталонную картинку.');
+      const hasImageCases = Array.isArray(testCases) && testCases.some((t) => String(t?.expectedImageKey || t?.expectedImageUrl || t?.expectedImageBase64 || '').trim());
+      if (!String(imageTestReferenceKey || '').trim() && !hasImageCases) {
+        issues.push('Для image-test нужен хотя бы один тест с Expected image или legacy-эталонная картинка.');
+      }
       const threshold = Number(imageTestThreshold);
       if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
         issues.push('Порог совпадения для image-test должен быть от 0 до 100.');
+      }
+      if (Array.isArray(testCases)) {
+        testCases.forEach((t, idx) => {
+          const caseThreshold = Number(t?.threshold ?? imageTestThreshold);
+          if (!Number.isFinite(caseThreshold) || caseThreshold < 0 || caseThreshold > 100) {
+            issues.push(`Image-тест #${idx + 1}: порог должен быть от 0 до 100.`);
+          }
+        });
       }
     }
 
@@ -328,7 +346,7 @@ export default function AssignmentEditPage() {
   const addTest = () =>
     setTestCases((prev) => [
       ...prev,
-      { input: "", expectedOutput: "", isHidden: false },
+      { input: "", expectedOutput: "", expectedImageKey: "", expectedImageUrl: "", expectedImageBase64: "", expectedImageContentType: "image/png", expectedImageFileName: "", threshold: imageTestThreshold, isHidden: false },
     ]);
 
   const removeTest = (idx) =>
@@ -387,10 +405,16 @@ export default function AssignmentEditPage() {
         
         
         testCases:
-          (type || "").trim() === "code-test"
+          ["code-test", "image-test"].includes((type || "").trim())
             ? testCases.map((t) => ({
                 input: t.input ?? "",
                 expectedOutput: t.expectedOutput ?? "",
+                expectedImageKey: (type || "").trim() === "image-test" ? (t.expectedImageKey || "") : undefined,
+                expectedImageUrl: (type || "").trim() === "image-test" ? (t.expectedImageUrl || (t.expectedImageKey ? `/api/private-files/${encodeURIComponent(t.expectedImageKey)}` : "")) : undefined,
+                expectedImageContentType: (type || "").trim() === "image-test" ? (t.expectedImageContentType || "image/png") : undefined,
+                expectedImageFileName: (type || "").trim() === "image-test" ? (t.expectedImageFileName || "") : undefined,
+                expectedImageBase64: (type || "").trim() === "image-test" && !t.expectedImageKey ? (t.expectedImageBase64 || "") : undefined,
+                threshold: (type || "").trim() === "image-test" ? (Number(t.threshold) || Number(imageTestThreshold) || 90) : undefined,
                 isHidden: !!t.isHidden,
               }))
             : [],
@@ -821,6 +845,80 @@ export default function AssignmentEditPage() {
               <p className="text-sm text-neutral-600 dark:text-neutral-300 mb-4">
                 Этот тип задания проверяется сравнением картинки. Эталон хранится приватно.
               </p>
+
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
+                Image-test теперь устроен как code-test: для каждого теста указываются Input, Expected output и Expected image. Для старых заданий одиночный эталон ниже продолжит работать как legacy-режим.
+              </p>
+
+              <div className="mb-6 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold">Тесты с картинками</h3>
+                  <Button type="button" className="btn-outline" onClick={addTest}>
+                    <PlusCircle size={16} /> Добавить image-тест
+                  </Button>
+                </div>
+
+                {testCases.map((t, idx) => (
+                  <div key={idx} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 bg-[rgb(var(--card))]">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Field label="Input">
+                        <Textarea rows={4} value={t.input} onChange={(e) => changeTest(idx, "input", e.target.value)} />
+                      </Field>
+                      <Field label="Expected output">
+                        <Textarea rows={4} value={t.expectedOutput} onChange={(e) => changeTest(idx, "expectedOutput", e.target.value)} />
+                      </Field>
+                      <Field label="Порог совпадения, %">
+                        <Input type="number" min={0} max={100} value={t.threshold ?? imageTestThreshold} onChange={(e) => changeTest(idx, "threshold", Number(e.target.value))} />
+                      </Field>
+                      <div>
+                        <div className="label mb-2">Expected image</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            className="btn-outline"
+                            onClick={async () => {
+                              const input = document.createElement("input");
+                              input.type = "file";
+                              input.accept = "image/*";
+                              input.onchange = async () => {
+                                const file = input.files?.[0];
+                                if (!file) return;
+                                try {
+                                  const r = await uploadImageTestExpectedImage(assignmentId, file);
+                                  changeTest(idx, "expectedImageKey", r.key || "");
+                                  changeTest(idx, "expectedImageUrl", r.privateUrl || r.url || (r.key ? `/api/private-files/${encodeURIComponent(r.key)}` : ""));
+                                  changeTest(idx, "expectedImageContentType", r.contentType || file.type || "image/png");
+                                  changeTest(idx, "expectedImageFileName", r.fileName || file.name || "expected.png");
+                                  changeTest(idx, "expectedImageBase64", "");
+                                  notify.success("Expected image загружена в MinIO");
+                                } catch (e) {
+                                  handleApiError(e, notify, "Не удалось прочитать картинку");
+                                }
+                              };
+                              input.click();
+                            }}
+                          >
+                            Выбрать картинку
+                          </Button>
+                          {(t.expectedImageKey || t.expectedImageUrl || t.expectedImageBase64) ? <Badge>картинка выбрана</Badge> : <span className="text-xs text-neutral-500">картинка не выбрана</span>}
+                        </div>
+                        {(t.expectedImageUrl || t.expectedImageKey || t.expectedImageBase64) ? (
+                          <img className="mt-3 max-h-48 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white" src={t.expectedImageUrl || (t.expectedImageKey ? `/api/private-files/${encodeURIComponent(t.expectedImageKey)}` : t.expectedImageBase64)} alt={`Expected ${idx + 1}`} />
+                        ) : null}
+                      </div>
+                      <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                        <input type="checkbox" checked={!!t.isHidden} onChange={(e) => changeTest(idx, "isHidden", e.target.checked)} />
+                        Скрытый тест
+                      </label>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <Button variant="outline" className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => removeTest(idx)}>
+                        <Trash2 size={16} /> Удалить тест
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
               <div className="grid md:grid-cols-2 gap-4">
                 <Field label="Порог совпадения, %">

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -75,8 +76,9 @@ app.MapGet("/api/identity/schema-owner", () => Results.Ok(new
     ownedEntities = new[] { "User", "UserUiSettings", "UserLoginLog" }
 }));
 
-app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbContext db, IConfiguration cfg) =>
+app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
+    if (CheckAuthRateLimit(http, "register", request.Email) is { } limited) return limited;
     var email = NormalizeEmail(request.Email);
     if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest(new { message = "Email is required" });
     if (!IsValidPassword(request.Password, out var passwordMessage)) return Results.BadRequest(new { message = passwordMessage });
@@ -103,6 +105,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest request, IdentityDbCont
 
 app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
+    if (CheckAuthRateLimit(http, "login", request.Email) is { } limited) return limited;
     var email = NormalizeEmail(request.Email);
     var user = await db.Users.FirstOrDefaultAsync(x => x.Email == email);
     if (user == null || !VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash))
@@ -137,6 +140,7 @@ app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, Id
 
 app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
+    if (CheckAuthRateLimit(http, "refresh") is { } limited) return limited;
     var principal = ValidateToken(ReadCookie(http, "tf_rt"), cfg, validateLifetime: true);
     var uid = principal == null ? null : TryGetUserId(principal);
     if (uid == null) return Unauthorized("Сессия истекла. Войдите заново.");
@@ -181,6 +185,7 @@ app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http
 
 app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
+    if (CheckAuthRateLimit(http, "password") is { } limited) return limited;
     var user = await FindCurrentUserAsync(http, db, cfg);
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.CurrentPassword ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный текущий пароль" });
@@ -194,6 +199,7 @@ app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request
 
 app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
+    if (CheckAuthRateLimit(http, "password") is { } limited) return limited;
     var user = await FindCurrentUserAsync(http, db, cfg);
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный пароль" });
@@ -206,6 +212,7 @@ app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, Http
 
 app.MapPost("/api/profile/reveal-email", async (RevealEmailRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
 {
+    if (CheckAuthRateLimit(http, "password") is { } limited) return limited;
     var user = await FindCurrentUserAsync(http, db, cfg);
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
     if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Results.BadRequest(new { message = "Неверный пароль" });
@@ -248,7 +255,9 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
     if (user == null) return Results.NotFound(new { message = "Профиль не найден" });
 
     var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
-    var stats = await FetchUserActivitySummaryAsync(userId, cfg, httpFactory, ct);
+    if (!extra.PublicProfileEnabled) return Results.NotFound(new { message = "Профиль не найден" });
+
+    var stats = extra.ShowStats ? await FetchUserActivitySummaryAsync(userId, cfg, httpFactory, ct) : ActivitySummaryDto.Empty;
     return Results.Ok(new
     {
         user.Id,
@@ -258,20 +267,21 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
         profilePictureUrl = user.ProfilePictureUrl,
         displayName = PublicDisplayName(user),
         user.CreatedAt,
-        bio = extra.Bio,
-        location = extra.Location,
-        education = extra.Education,
-        github = extra.Github,
-        telegram = extra.Telegram,
-        website = extra.Website,
-        skills = extra.Skills,
+        bio = extra.ShowBio ? extra.Bio : null,
+        location = extra.ShowLocation ? extra.Location : null,
+        education = extra.ShowEducation ? extra.Education : null,
+        github = extra.ShowGithub ? extra.Github : null,
+        telegram = extra.ShowTelegram ? extra.Telegram : null,
+        website = extra.ShowWebsite ? extra.Website : null,
+        skills = extra.ShowSkills ? extra.Skills : Array.Empty<string>(),
         showInLeaderboard = extra.ShowInLeaderboard,
-        solvedAssignments = stats.SolvedAssignments,
-        totalAttempts = stats.TotalAttempts,
-        codeSolutions = stats.CodeSolutions,
-        imageSolutions = stats.ImageSolutions,
-        testAttempts = stats.TestAttempts,
-        mathAttempts = stats.MathAttempts
+        statsVisible = extra.ShowStats,
+        solvedAssignments = extra.ShowStats ? stats.SolvedAssignments : (int?)null,
+        totalAttempts = extra.ShowStats ? stats.TotalAttempts : (int?)null,
+        codeSolutions = extra.ShowStats ? stats.CodeSolutions : (int?)null,
+        imageSolutions = extra.ShowStats ? stats.ImageSolutions : (int?)null,
+        testAttempts = extra.ShowStats ? stats.TestAttempts : (int?)null,
+        mathAttempts = extra.ShowStats ? stats.MathAttempts : (int?)null
     });
 });
 
@@ -284,7 +294,7 @@ app.MapPost("/api/internal/users/summaries", async (UserIdsRequest request, Iden
         return Results.Ok(Array.Empty<UserSummaryDto>());
     }
 
-    var key = TaskForgeCache.Key("identity:user-summaries:v2", ids);
+    var key = TaskForgeCache.Key("identity:user-summaries:v3", ids);
     var ttl = TaskForgeCache.Ttl(cfg, "UserSummaries", 120);
     var result = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, ttl, async token =>
     {
@@ -422,6 +432,21 @@ app.MapPost("/api/integrations/telegram/code", () => Results.Ok(new { code = Gui
 app.MapDelete("/api/integrations/telegram/unlink", () => Results.Ok(new { linked = false }));
 
 app.Run();
+
+static IResult? CheckAuthRateLimit(HttpContext http, string bucket, string? identity = null)
+{
+    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var normalizedIdentity = string.IsNullOrWhiteSpace(identity) ? "none" : NormalizeEmail(identity);
+    var key = $"{bucket}:{ip}:{normalizedIdentity}";
+    if (TaskForgeAuthRateLimiters.Allow(bucket, key)) return null;
+
+    return Results.Json(new
+    {
+        message = "Слишком много попыток. Подождите немного и попробуйте снова.",
+        code = "RATE_LIMITED"
+    }, statusCode: StatusCodes.Status429TooManyRequests);
+}
+
 
 
 static IQueryable<IdentityUser> FilterUsers(IQueryable<IdentityUser> query, string? text, string? role, bool linkedOnly)
@@ -623,8 +648,8 @@ static UserSummaryDto ToUserSummaryDto(IdentityUser user)
         DisplayName(user),
         DisplayName(user),
         user.Role,
-        extra.Location,
-        extra.Education,
+        extra.ShowLocation ? extra.Location : null,
+        extra.ShowEducation ? extra.Education : null,
         extra.ShowInLeaderboard,
         user.CreatedAt,
         user.LastLoginAt);
@@ -809,7 +834,7 @@ static string DisplayName(IdentityUser user)
 {
     var full = string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
-    return string.IsNullOrWhiteSpace(user.Email) ? "Пользователь" : user.Email.Trim();
+    return "Пользователь";
 }
 static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
 {
@@ -851,21 +876,26 @@ static PublicProfileExtra ReadPublicProfileExtra(string? json)
             }
         }
 
-        var showInLeaderboard = true;
-        if (root.TryGetProperty("showInLeaderboard", out var showEl) && (showEl.ValueKind == JsonValueKind.True || showEl.ValueKind == JsonValueKind.False))
-        {
-            showInLeaderboard = showEl.GetBoolean();
-        }
+        var showInLeaderboard = ReadJsonBool(root, "showInLeaderboard", true);
 
         return new PublicProfileExtra(
-            ReadJsonString(root, "bio"),
-            ReadJsonString(root, "location"),
-            ReadJsonString(root, "education"),
-            ReadJsonString(links, "github"),
-            ReadJsonString(links, "telegram"),
-            ReadJsonString(links, "website"),
-            skills,
-            showInLeaderboard
+            PublicProfileEnabled: ReadJsonBool(root, "publicProfileEnabled", true),
+            Bio: ReadJsonString(root, "bio"),
+            Location: ReadJsonString(root, "location"),
+            Education: ReadJsonString(root, "education"),
+            Github: ReadJsonString(links, "github"),
+            Telegram: ReadJsonString(links, "telegram"),
+            Website: ReadJsonString(links, "website"),
+            Skills: skills,
+            ShowInLeaderboard: showInLeaderboard,
+            ShowBio: ReadJsonBool(root, "showBio", false),
+            ShowLocation: ReadJsonBool(root, "showLocation", false),
+            ShowEducation: ReadJsonBool(root, "showEducation", false),
+            ShowGithub: ReadJsonBool(root, "showGithub", false),
+            ShowTelegram: ReadJsonBool(root, "showTelegram", false),
+            ShowWebsite: ReadJsonBool(root, "showWebsite", false),
+            ShowSkills: ReadJsonBool(root, "showSkills", false),
+            ShowStats: ReadJsonBool(root, "showStats", false)
         );
     }
     catch
@@ -880,6 +910,17 @@ static string? ReadJsonString(JsonElement element, string propertyName)
     if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String) return null;
     var s = value.GetString();
     return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}
+static bool ReadJsonBool(JsonElement element, string propertyName, bool defaultValue)
+{
+    if (element.ValueKind != JsonValueKind.Object) return defaultValue;
+    if (!element.TryGetProperty(propertyName, out var value)) return defaultValue;
+    return value.ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        _ => defaultValue
+    };
 }
 static string DefaultUiSettingsJson() => "{\"colorTheme\":\"pink\",\"mode\":\"dark\",\"bgFx\":false,\"fxMode\":\"random\",\"fxVariant\":\"2\",\"codeSolveLayout\":\"split\",\"showSidebarToggle\":true,\"sidebarCollapsed\":false}";
 static string? ReadCookie(HttpContext http, string name) => http.Request.Cookies.TryGetValue(name, out var v) ? v : null;
@@ -953,9 +994,26 @@ static void ClearAuthCookies(HttpContext http)
 public sealed record RegisterRequest(string? Email, string? Password, string? FirstName, string? LastName);
 public sealed record LoginRequest(string? Email, string? Password);
 public sealed record ProfileUpdateRequest(string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? AdditionalDataJson);
-public sealed record PublicProfileExtra(string? Bio, string? Location, string? Education, string? Github, string? Telegram, string? Website, IReadOnlyList<string> Skills, bool ShowInLeaderboard)
+public sealed record PublicProfileExtra(
+    bool PublicProfileEnabled,
+    string? Bio,
+    string? Location,
+    string? Education,
+    string? Github,
+    string? Telegram,
+    string? Website,
+    IReadOnlyList<string> Skills,
+    bool ShowInLeaderboard,
+    bool ShowBio,
+    bool ShowLocation,
+    bool ShowEducation,
+    bool ShowGithub,
+    bool ShowTelegram,
+    bool ShowWebsite,
+    bool ShowSkills,
+    bool ShowStats)
 {
-    public static PublicProfileExtra Empty { get; } = new(null, null, null, null, null, null, Array.Empty<string>(), true);
+    public static PublicProfileExtra Empty { get; } = new(true, null, null, null, null, null, null, Array.Empty<string>(), true, false, false, false, false, false, false, false, false);
 }
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 public sealed record ChangeEmailRequest(string? NewEmail, string? Password);
@@ -988,3 +1046,42 @@ public sealed record UserSummaryDto(
     bool ShowInLeaderboard,
     DateTimeOffset CreatedAt,
     DateTimeOffset? LastLoginAt);
+
+
+internal static class TaskForgeAuthRateLimiters
+{
+    private static readonly SlidingWindowRateLimiter Limiter = new();
+
+    public static bool Allow(string bucket, string key)
+    {
+        var (limit, window) = bucket switch
+        {
+            "login" => (12, TimeSpan.FromMinutes(5)),
+            "register" => (5, TimeSpan.FromMinutes(10)),
+            "refresh" => (120, TimeSpan.FromMinutes(5)),
+            "password" => (8, TimeSpan.FromMinutes(10)),
+            _ => (60, TimeSpan.FromMinutes(1))
+        };
+        return Limiter.Allow(key, limit, window);
+    }
+}
+
+internal sealed class SlidingWindowRateLimiter
+{
+    private readonly ConcurrentDictionary<string, Queue<long>> _hits = new();
+
+    public bool Allow(string key, int limit, TimeSpan window)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var min = now - (long)window.TotalMilliseconds;
+        var queue = _hits.GetOrAdd(key, _ => new Queue<long>());
+
+        lock (queue)
+        {
+            while (queue.Count > 0 && queue.Peek() < min) queue.Dequeue();
+            if (queue.Count >= limit) return false;
+            queue.Enqueue(now);
+            return true;
+        }
+    }
+}

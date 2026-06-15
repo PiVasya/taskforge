@@ -1,5 +1,7 @@
 using Amazon.S3;
 using Amazon.S3.Model;
+using Microsoft.AspNetCore.Http.Features;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Files.Api.Data;
 using TaskForge.Files.Api.Domain;
@@ -11,6 +13,15 @@ builder.Services.AddTaskForgeRedisCache(builder.Configuration, "files-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+var maxUploadBytes = builder.Configuration.GetValue<long?>("Files:MaxUploadBytes")
+    ?? builder.Configuration.GetValue<long?>("Files:MaxImageUploadBytes")
+    ?? 10L * 1024 * 1024;
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = maxUploadBytes;
+    options.ValueLengthLimit = 1024 * 1024;
+    options.MultipartHeadersLengthLimit = 64 * 1024;
+});
 builder.Services.AddDbContext<FilesDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddSingleton<IAmazonS3>(sp =>
 {
@@ -59,6 +70,40 @@ app.MapGet("/", () => Results.Ok(new { service = "taskforge-files-api", database
 app.MapGet("/api/files/schema-owner", () => Results.Ok(new { database = "taskforge_files", ownedEntities = new[] { "StoredFile" }, storage = "MinIO/S3" }));
 
 app.MapPost("/api/files/images", async (HttpRequest req, FilesDbContext db, IAmazonS3 s3, IConfiguration cfg, ILoggerFactory loggerFactory, CancellationToken ct) =>
+    await UploadImageFromRequest(req, db, s3, cfg, loggerFactory, false, ct)).DisableAntiforgery();
+
+app.MapPost("/api/internal/files/images", async (HttpRequest req, FilesDbContext db, IAmazonS3 s3, IConfiguration cfg, ILoggerFactory loggerFactory, CancellationToken ct) =>
+    await UploadImageFromRequest(req, db, s3, cfg, loggerFactory, true, ct)).DisableAntiforgery();
+
+app.MapGet("/api/files", async (HttpContext http, FilesDbContext db) =>
+{
+    if (!IsEditorOrAdmin(http)) return Results.Json(new { status = 403, code = "EDITOR_REQUIRED", message = "Список файлов доступен только редактору или администратору." }, statusCode: StatusCodes.Status403Forbidden);
+    var rows = await db.Files.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync();
+    return Results.Ok(rows.Select(ToDto));
+});
+app.MapGet("/api/files/{**key}", async (string key, HttpContext http, IAmazonS3 s3, IConfiguration cfg, CancellationToken ct) => await Download(key, http, s3, cfg, publicRoute: true, internalRoute: false, ct));
+app.MapGet("/api/internal/files/{**key}", async (string key, HttpContext http, IAmazonS3 s3, IConfiguration cfg, CancellationToken ct) => await Download(key, http, s3, cfg, publicRoute: false, internalRoute: true, ct));
+app.MapGet("/api/private-files/{**key}", async (string key, HttpContext http, IAmazonS3 s3, IConfiguration cfg, CancellationToken ct) => await Download(key, http, s3, cfg, publicRoute: false, internalRoute: false, ct));
+
+app.Run();
+
+static object ToDto(StoredFile item)
+{
+    var isPublic = IsPublicFileKey(item.Url);
+    return new
+    {
+        item.Id,
+        item.FileName,
+        item.ContentType,
+        item.Size,
+        key = item.Url,
+        isPublic,
+        url = isPublic ? $"/api/files/{Uri.EscapeDataString(item.Url)}" : null,
+        privateUrl = $"/api/private-files/{Uri.EscapeDataString(item.Url)}",
+        item.CreatedAt
+    };
+}
+static async Task<IResult> UploadImageFromRequest(HttpRequest req, FilesDbContext db, IAmazonS3 s3, IConfiguration cfg, ILoggerFactory loggerFactory, bool allowPrivateFolders, CancellationToken ct)
 {
     var log = loggerFactory.CreateLogger("Files.UploadImage");
     IFormCollection form;
@@ -75,11 +120,20 @@ app.MapPost("/api/files/images", async (HttpRequest req, FilesDbContext db, IAma
 
     if (file == null) return Problem(400, "FILE_REQUIRED", "request.validation", "Файл не передан. Выберите изображение и повторите загрузку.");
     if (file.Length <= 0) return Problem(400, "EMPTY_FILE", "request.validation", "Файл пустой. Выберите другое изображение.");
-    if (!IsAllowedImage(file)) return Problem(400, "UNSUPPORTED_FILE_TYPE", "request.validation", "Можно загружать только изображения PNG, JPEG, WEBP, GIF или SVG.", file.ContentType);
+    var maxBytes = MaxUploadBytes(cfg);
+    if ((req.ContentLength ?? 0) > maxBytes + 1024 * 1024 || file.Length > maxBytes)
+        return Problem(413, "FILE_TOO_LARGE", "request.validation", $"Файл слишком большой. Максимальный размер изображения: {maxBytes / 1024 / 1024} МБ.");
+
+    var validation = await ValidateImageFileAsync(file, ct);
+    if (!validation.Ok) return Problem(400, validation.Code ?? "UNSUPPORTED_FILE_TYPE", "request.validation", validation.Message ?? "Формат изображения не поддерживается.", file.ContentType);
 
     var bucket = Bucket(cfg);
-    var folder = (form.TryGetValue("folder", out var f) ? f.ToString() : null) ?? "editor-images";
-    var key = MakeKey(folder, Path.GetExtension(file.FileName));
+    var folder = NormalizeFolder((form.TryGetValue("folder", out var f) ? f.ToString() : null) ?? "editor-images");
+    if (!allowPrivateFolders && !IsEditorOrAdmin(req.HttpContext) && !IsPublicUploadFolder(folder))
+        return Problem(403, "FILE_FOLDER_FORBIDDEN", "request.authorization", "Обычный пользователь может загружать изображения только в публичный editor-images namespace.", folder);
+    if (!allowPrivateFolders && IsPrivateFileKey(folder + "/") && !IsEditorOrAdmin(req.HttpContext))
+        return Problem(403, "PRIVATE_FILE_FOLDER_FORBIDDEN", "request.authorization", "Загрузка в приватные judge/storage префиксы доступна только редактору или внутреннему сервису.", folder);
+    var key = MakeKey(folder, validation.Extension ?? ".bin");
 
     var ensure = await TryEnsureBucket(s3, cfg, createIfMissing: true, ct);
     if (!ensure.Ok) return Problem(503, ensure.Code, ensure.Stage, ensure.Message, ensure.Detail);
@@ -92,7 +146,7 @@ app.MapPost("/api/files/images", async (HttpRequest req, FilesDbContext db, IAma
             BucketName = bucket,
             Key = key,
             InputStream = input,
-            ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+            ContentType = validation.ContentType ?? "application/octet-stream",
             AutoCloseStream = false
         }, ct);
         log.LogInformation("Uploaded {Key} to MinIO bucket {Bucket}: {Size} bytes", key, bucket, file.Length);
@@ -109,7 +163,7 @@ app.MapPost("/api/files/images", async (HttpRequest req, FilesDbContext db, IAma
     var item = new StoredFile
     {
         FileName = Path.GetFileName(file.FileName),
-        ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+        ContentType = validation.ContentType ?? "application/octet-stream",
         Size = file.Length,
         Url = key
     };
@@ -131,50 +185,107 @@ app.MapPost("/api/files/images", async (HttpRequest req, FilesDbContext db, IAma
         item.ContentType,
         item.Size,
         key,
-        url = $"/api/files/{Uri.EscapeDataString(key)}",
+        url = IsPublicFileKey(key) ? $"/api/files/{Uri.EscapeDataString(key)}" : null,
         privateUrl = $"/api/private-files/{Uri.EscapeDataString(key)}",
         storage = "minio"
     });
-}).DisableAntiforgery();
-
-app.MapGet("/api/files", async (FilesDbContext db) => Results.Ok((await db.Files.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync()).Select(ToDto)));
-app.MapGet("/api/files/{**key}", async (string key, IAmazonS3 s3, IConfiguration cfg, CancellationToken ct) => await Download(key, s3, cfg, isPrivate: false, ct));
-app.MapGet("/api/private-files/{**key}", async (string key, IAmazonS3 s3, IConfiguration cfg, CancellationToken ct) => await Download(key, s3, cfg, isPrivate: true, ct));
-
-app.Run();
-
-static object ToDto(StoredFile item) => new { item.Id, item.FileName, item.ContentType, item.Size, key = item.Url, url = $"/api/files/{Uri.EscapeDataString(item.Url)}", privateUrl = $"/api/private-files/{Uri.EscapeDataString(item.Url)}", item.CreatedAt };
-static bool IsAllowedImage(IFormFile file)
-{
-    var ct = (file.ContentType ?? string.Empty).ToLowerInvariant();
-    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-    return ct.StartsWith("image/") || ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".gif" or ".svg";
 }
-static async Task<IResult> Download(string key, IAmazonS3 s3, IConfiguration cfg, bool isPrivate, CancellationToken ct)
+
+static async Task<ImageValidationResult> ValidateImageFileAsync(IFormFile file, CancellationToken ct)
 {
-    var decoded = Uri.UnescapeDataString(key ?? string.Empty).TrimStart('/');
+    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+    await using var stream = file.OpenReadStream();
+    var header = new byte[Math.Min(32, Math.Max(0, (int)Math.Min(file.Length, 32)))] ;
+    var read = header.Length == 0 ? 0 : await stream.ReadAsync(header.AsMemory(0, header.Length), ct);
+    var detected = DetectImage(header.AsSpan(0, read), ext);
+    if (detected is null)
+    {
+        return new ImageValidationResult(false, null, null, "UNSUPPORTED_FILE_TYPE", "Можно загружать только растровые изображения PNG, JPEG, WEBP, GIF, BMP или PPM. SVG намеренно запрещён для безопасности.");
+    }
+    return new ImageValidationResult(true, detected.Value.ContentType, detected.Value.Extension, null, null);
+}
+
+static (string ContentType, string Extension)? DetectImage(ReadOnlySpan<byte> header, string ext)
+{
+    if (header.Length >= 8 && header[0] == 0x89 && header[1] == (byte)'P' && header[2] == (byte)'N' && header[3] == (byte)'G') return ("image/png", ".png");
+    if (header.Length >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return ("image/jpeg", ".jpg");
+    if (header.Length >= 12 && header[0] == (byte)'R' && header[1] == (byte)'I' && header[2] == (byte)'F' && header[3] == (byte)'F' && header[8] == (byte)'W' && header[9] == (byte)'E' && header[10] == (byte)'B' && header[11] == (byte)'P') return ("image/webp", ".webp");
+    if (header.Length >= 6 && header[0] == (byte)'G' && header[1] == (byte)'I' && header[2] == (byte)'F') return ("image/gif", ".gif");
+    if (header.Length >= 2 && header[0] == (byte)'B' && header[1] == (byte)'M') return ("image/bmp", ".bmp");
+    if (header.Length >= 2 && header[0] == (byte)'P' && (header[1] == (byte)'3' || header[1] == (byte)'6')) return ("image/x-portable-pixmap", ".ppm");
+    // Do not trust extension/content-type when bytes were readable.
+    if (header.Length > 0) return null;
+    return ext is ".png" ? ("image/png", ".png")
+        : ext is ".jpg" or ".jpeg" ? ("image/jpeg", ".jpg")
+        : ext is ".webp" ? ("image/webp", ".webp")
+        : ext is ".gif" ? ("image/gif", ".gif")
+        : ext is ".bmp" ? ("image/bmp", ".bmp")
+        : ext is ".ppm" ? ("image/x-portable-pixmap", ".ppm")
+        : null;
+}
+
+static async Task<IResult> Download(string key, HttpContext http, IAmazonS3 s3, IConfiguration cfg, bool publicRoute, bool internalRoute, CancellationToken ct)
+{
+    var decoded = NormalizeKey(Uri.UnescapeDataString(key ?? string.Empty));
     if (string.IsNullOrWhiteSpace(decoded)) return Problem(400, "FILE_KEY_REQUIRED", "request.validation", "Не указан ключ файла.");
+    if (publicRoute && !IsPublicFileKey(decoded)) return Problem(404, "FILE_NOT_FOUND", "storage.public_policy", "Файл не найден или не является публичным.");
+    if (!publicRoute && !internalRoute && !CanReadPrivateKey(http, decoded)) return Problem(403, "PRIVATE_FILE_FORBIDDEN", "request.authorization", "У вас нет доступа к этому файлу.");
     var ensure = await TryEnsureBucket(s3, cfg, createIfMissing: true, ct);
     if (!ensure.Ok) return Problem(503, ensure.Code, ensure.Stage, ensure.Message, ensure.Detail);
     try
     {
         var resp = await s3.GetObjectAsync(new GetObjectRequest { BucketName = Bucket(cfg), Key = decoded }, ct);
         var fileName = Path.GetFileName(decoded);
+        http.Response.Headers.CacheControl = publicRoute
+            ? "public,max-age=31536000,immutable"
+            : "private,max-age=0,no-store";
         return Results.File(resp.ResponseStream, string.IsNullOrWhiteSpace(resp.Headers.ContentType) ? "application/octet-stream" : resp.Headers.ContentType, fileName, enableRangeProcessing: true);
     }
     catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Problem(404, "FILE_NOT_FOUND", isPrivate ? "storage.get_private_object" : "storage.get_public_object", "Файл не найден в MinIO. Возможно, объект был удалён или ссылка устарела.", decoded);
+        return Problem(404, "FILE_NOT_FOUND", publicRoute ? "storage.get_public_object" : "storage.get_private_object", "Файл не найден в MinIO. Возможно, объект был удалён или ссылка устарела.", decoded);
     }
     catch (AmazonS3Exception ex)
     {
-        return Problem(503, "MINIO_GET_OBJECT_FAILED", isPrivate ? "storage.get_private_object" : "storage.get_public_object", "Не удалось получить файл из MinIO. Проверьте bucket, права доступа и состояние MinIO.", ex.Message);
+        return Problem(503, "MINIO_GET_OBJECT_FAILED", publicRoute ? "storage.get_public_object" : "storage.get_private_object", "Не удалось получить файл из MinIO. Проверьте bucket, права доступа и состояние MinIO.", ex.Message);
     }
     catch (Exception ex)
     {
-        return Problem(503, "FILE_DOWNLOAD_FAILED", isPrivate ? "storage.get_private_object" : "storage.get_public_object", "Не удалось скачать файл из хранилища.", ex.Message);
+        return Problem(503, "FILE_DOWNLOAD_FAILED", publicRoute ? "storage.get_public_object" : "storage.get_private_object", "Не удалось скачать файл из хранилища.", ex.Message);
     }
 }
+
+static bool CanReadPrivateKey(HttpContext http, string key)
+{
+    if (IsEditorOrAdmin(http)) return true;
+    var normalized = NormalizeKey(key);
+    if (IsPublicFileKey(normalized)) return true;
+    if (normalized.StartsWith("image-tests/reference/", StringComparison.OrdinalIgnoreCase)) return false;
+    if (normalized.StartsWith("image-tests/submissions/", StringComparison.OrdinalIgnoreCase))
+    {
+        var userId = CurrentUserId(http);
+        if (userId is null) return false;
+        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // image-tests/submissions/{assignmentId:N}/{userId:N}/file.png
+        return parts.Length >= 4 && string.Equals(parts[3], userId.Value.ToString("N"), StringComparison.OrdinalIgnoreCase);
+    }
+    // Fail closed by default. agent-conversations/ must later be checked via ai-api
+    // or a shared ACL table; until then it must not be readable by every authenticated user.
+    if (normalized.StartsWith("agent-conversations/", StringComparison.OrdinalIgnoreCase)) return false;
+    return false;
+}
+
+static bool IsEditorOrAdmin(HttpContext http) => http.User?.Identity?.IsAuthenticated == true && TaskForgeRequestSecurity.HasAnyRole(http.User, "Admin", "Editor", "LearningEditor");
+static Guid? CurrentUserId(HttpContext http)
+{
+    var raw = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub");
+    return Guid.TryParse(raw, out var id) ? id : null;
+}
+
+static bool IsPublicUploadFolder(string folder) => NormalizeKey(folder).StartsWith("editor-images/", StringComparison.OrdinalIgnoreCase) || string.Equals(NormalizeKey(folder), "editor-images", StringComparison.OrdinalIgnoreCase) || NormalizeKey(folder).StartsWith("public/", StringComparison.OrdinalIgnoreCase) || string.Equals(NormalizeKey(folder), "public", StringComparison.OrdinalIgnoreCase);
+static bool IsPublicFileKey(string key) => NormalizeKey(key).StartsWith("editor-images/", StringComparison.OrdinalIgnoreCase) || NormalizeKey(key).StartsWith("public/", StringComparison.OrdinalIgnoreCase);
+static bool IsPrivateFileKey(string key) => NormalizeKey(key).StartsWith("image-tests/", StringComparison.OrdinalIgnoreCase) || NormalizeKey(key).StartsWith("agent-conversations/", StringComparison.OrdinalIgnoreCase);
+static string NormalizeKey(string key) => (key ?? string.Empty).Replace('\\', '/').Trim().Trim('/');
 static async Task<(bool Ok, string Code, string Stage, string Message, string? Detail)> TryEnsureBucket(IAmazonS3 s3, IConfiguration cfg, bool createIfMissing, CancellationToken ct)
 {
     var bucket = Bucket(cfg);
@@ -203,12 +314,24 @@ static async Task<(bool Ok, string Code, string Stage, string Message, string? D
 }
 static string Bucket(IConfiguration cfg) => cfg["S3:Bucket"] ?? cfg["S3__Bucket"] ?? "taskforge-files";
 static string Required(IConfiguration cfg, string key1, string key2) => cfg[key1] ?? cfg[key2] ?? throw new InvalidOperationException($"Missing configuration value: {key1}/{key2}");
+static long MaxUploadBytes(IConfiguration cfg) => cfg.GetValue<long?>("Files:MaxUploadBytes") ?? cfg.GetValue<long?>("Files:MaxImageUploadBytes") ?? 10L * 1024 * 1024;
+static string NormalizeFolder(string folder)
+{
+    var value = NormalizeKey(folder);
+    if (value.Contains("..", StringComparison.Ordinal)) return "editor-images";
+    var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(part => new string(part.Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.').ToArray()))
+        .Where(part => !string.IsNullOrWhiteSpace(part));
+    var normalized = string.Join("/", parts);
+    return string.IsNullOrWhiteSpace(normalized) ? "editor-images" : normalized;
+}
 static string MakeKey(string folder, string extension)
 {
-    folder = (folder ?? string.Empty).Trim().Trim('/');
+    folder = NormalizeFolder(folder);
     extension = string.IsNullOrWhiteSpace(extension) ? ".bin" : extension.Trim();
     if (!extension.StartsWith('.')) extension = "." + extension;
     var file = Guid.NewGuid().ToString("N") + extension.ToLowerInvariant();
     return string.IsNullOrWhiteSpace(folder) ? file : $"{folder}/{file}";
 }
 static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
+public sealed record ImageValidationResult(bool Ok, string? ContentType, string? Extension, string? Code, string? Message);

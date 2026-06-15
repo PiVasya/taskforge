@@ -23,6 +23,17 @@ export async function uploadImageTestReference(assignmentId, file, threshold = 9
 }
 
 
+export async function uploadImageTestExpectedImage(assignmentId, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('folder', `image-tests/reference/${assignmentId}`);
+  const res = await api.post('/api/files/images', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+}
+
+
 export async function compareImageTest(assignmentId, file) {
   const fd = new FormData();
   fd.append('file', file);

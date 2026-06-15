@@ -223,11 +223,14 @@ static string? Preview(string? text)
 static string UserLabel(UserSummaryDto? user)
 {
     var name = (user?.DisplayName ?? string.Empty).Trim();
-    if (!string.IsNullOrWhiteSpace(name)) return name;
+    if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
-    return string.IsNullOrWhiteSpace(user?.Email) ? "Пользователь" : user!.Email!.Trim();
+    var masked = (user?.MaskedEmail ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(masked)) return masked;
+    return "Пользователь";
 }
+static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
 
 public sealed record SupportRequest(string? Subject, string? Message, string? Text);
 public sealed record UserIdsRequest(Guid[] UserIds);
@@ -245,12 +248,35 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }
 public sealed class SupportHub : Hub
 {
-    public Task JoinTicket(string ticketId) => Groups.AddToGroupAsync(Context.ConnectionId, SupportHubGroups.FromString(ticketId));
+    private readonly SupportDbContext _db;
+    private readonly IConfiguration _cfg;
+
+    public SupportHub(SupportDbContext db, IConfiguration cfg)
+    {
+        _db = db;
+        _cfg = cfg;
+    }
+
+    public async Task JoinTicket(string ticketId)
+    {
+        if (!Guid.TryParse(ticketId, out var id)) return;
+
+        var http = Context.GetHttpContext();
+        var uid = http == null ? null : TaskForgeRequestSecurity.UserId(http, _cfg);
+        var isAdmin = Context.User?.Identity?.IsAuthenticated == true && TaskForgeRequestSecurity.HasAnyRole(Context.User, "Admin");
+        if (!isAdmin && !uid.HasValue) return;
+
+        var allowed = await _db.Tickets.AsNoTracking().AnyAsync(x => x.Id == id && (isAdmin || x.UserId == uid), Context.ConnectionAborted);
+        if (!allowed) return;
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, SupportHubGroups.ForTicket(id));
+    }
+
     public Task LeaveTicket(string ticketId) => Groups.RemoveFromGroupAsync(Context.ConnectionId, SupportHubGroups.FromString(ticketId));
 }
 public static class SupportHubGroups

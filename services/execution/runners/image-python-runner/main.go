@@ -398,6 +398,19 @@ func captureExecutable(exe string, dir string, stdin string, timeoutSec int, pro
 				}
 			}
 		}
+		// Some GUI stacks (notably Tk/turtle under Xvfb) may create windows that
+		// are not discoverable by pid. Fall back to root capture so school-style
+		// turtle scripts are still testable.
+		rootShot := filepath.Join(dir, "captured-root.png")
+		res := runCommand("import", []string{"-display", display, "-window", "root", rootShot}, dir, "", 4, nil)
+		if res.ExitCode == 0 {
+			if st, statErr := os.Stat(rootShot); statErr == nil && st.Size() > 0 {
+				png, readErr := os.ReadFile(rootShot)
+				if readErr == nil {
+					return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
+				}
+			}
+		}
 		time.Sleep(250 * time.Millisecond)
 	}
 	return captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: "Rendering failed or timed out"}
@@ -441,7 +454,7 @@ func handleRender(kind string, debug bool) http.HandlerFunc {
 		}
 		var cap captureOutput
 		if kind == "python" {
-			cap = captureExecutable("/usr/bin/python3", dir, value(req.Stdin), timeoutSec, exe)
+			cap = captureExecutable("/usr/bin/python3", dir, value(req.Stdin), timeoutSec, "/opt/taskforge/python_image_entry.py", exe)
 		} else {
 			cap = captureExecutable(exe, dir, value(req.Stdin), timeoutSec)
 		}

@@ -104,8 +104,8 @@ public static class TaskForgeRequestSecurity
         if (path.StartsWith("/api/profile") || path.StartsWith("/api/me/") || path.StartsWith("/api/integrations/")) return Requirement.Authenticated;
         if (path.StartsWith("/api/notifications")) return Requirement.Authenticated;
         if (path.StartsWith("/api/private-files")) return Requirement.Authenticated;
-        if (path.StartsWith("/api/files/images")) return Requirement.Authenticated;
-        if (path == "/api/files") return Requirement.Authenticated;
+        if (path.StartsWith("/api/files/images")) return Requirement.Editor;
+        if (path == "/api/files") return Requirement.Editor;
         if (path.StartsWith("/api/files/")) return safeMethod ? Requirement.Public : Requirement.Authenticated;
         if (path.StartsWith("/api/support")) return Requirement.Authenticated;
         if (path.StartsWith("/api/agent")) return Requirement.Authenticated;

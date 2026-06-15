@@ -64,6 +64,7 @@ path = Path(sys.argv[1])
 secret_keys = {
     'POSTGRES_PASSWORD': 36,
     'RABBITMQ_DEFAULT_PASS': 36,
+    'REDIS_PASSWORD': 36,
     'MINIO_ROOT_PASSWORD': 36,
     'JWT_SIGNING_KEY': 72,
     'TASKFORGE_INTERNAL_KEY': 48,

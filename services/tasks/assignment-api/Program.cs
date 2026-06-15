@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
@@ -41,16 +43,21 @@ app.MapGet("/health/ready", async (TasksDbContext db) => await db.Database.CanCo
 app.MapGet("/", () => Results.Ok(new { service = "taskforge-tasks-api", database = "taskforge_tasks", status = "tasks microservice active" }));
 app.MapGet("/api/tasks/assignment-api/schema-owner", () => Results.Ok(new { database = "taskforge_tasks", ownedEntities = new[] { "Assignment", "TaskAttempt" } }));
 
-app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
+app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
 {
     var includeHidden = IsEditor(http, cfg);
+    if (!includeHidden && !await CanUserAccessCourseAsync(courseId, http, cfg, clients, ct))
+    {
+        return Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+    }
+
     var query = db.Assignments.AsNoTracking().Where(x => x.CourseId == courseId);
     if (!includeHidden) query = query.Where(x => x.IsVisible);
-    var rows = await query.OrderBy(x => x.Sort).ThenBy(x => x.CreatedAt).ToListAsync();
+    var rows = await query.OrderBy(x => x.Sort).ThenBy(x => x.CreatedAt).ToListAsync(ct);
     return Results.Ok(rows.Select(x => ToDto(x, includeHidden)).ToList());
 });
 
-app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db) =>
+app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
 {
     var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync() ?? -1;
     var assignment = new Assignment
@@ -66,24 +73,28 @@ app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, As
         Rating = Math.Max(0, request.Rating ?? 1),
         StarterCode = request.StarterCode,
         TestsJson = Clean(request.Type, "code-test") == "image-test"
-            ? MergeImageTestPayload(request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases), request).ToJsonString(JsonOptions())
+            ? null
             : request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases),
         CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
         CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
         IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
         Sort = maxSort + 1
     };
+    if (string.Equals(assignment.Type, "image-test", StringComparison.OrdinalIgnoreCase))
+    {
+        assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases), request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
+    }
     db.Assignments.Add(assignment);
     await db.SaveChangesAsync();
     return Results.Ok(ToDto(assignment, includeSensitive: true));
 });
 
-app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
+app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
 {
-    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
     if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var includeSensitive = IsEditor(http, cfg);
-    if (!assignment.IsVisible && !includeSensitive) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     return Results.Ok(ToDto(assignment, includeSensitive));
 });
 
@@ -113,6 +124,25 @@ app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Gu
         tests = ParseJson(assignment.TestsJson),
         testCases = ParseJson(assignment.TestsJson),
         testsJson = assignment.TestsJson
+    });
+});
+
+app.MapGet("/api/internal/assignments/{assignmentId:guid}/access/{userId:guid}", async (Guid assignmentId, Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+{
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+    if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+
+    var courseAccess = await LoadCourseAccessAsync(assignment.CourseId, userId, clients, cfg, ct);
+    var canView = assignment.IsVisible && courseAccess?.CanView == true;
+    return Results.Ok(new
+    {
+        assignmentId,
+        assignment.CourseId,
+        userId,
+        canView,
+        canSubmit = canView,
+        assignment.IsVisible,
+        canEdit = courseAccess?.CanEdit == true
     });
 });
 
@@ -171,7 +201,7 @@ app.MapPost("/api/internal/activity/leaderboard", async (ActivityLeaderboardRequ
     return Results.Ok(joined);
 });
 
-app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, AssignmentRequest request, TasksDbContext db) =>
+app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
 {
     var assignment = await db.Assignments.FindAsync(assignmentId);
     if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
@@ -192,7 +222,7 @@ app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, Ass
         var hasRealSpec = HasMeaningfulJsonText(request.TestsJson) || HasMeaningfulJsonElement(request.Tests) || HasMeaningfulJsonElement(request.TestCases);
         if (hasRealSpec || request.ImageTestReferenceKey != null || request.ImageTestSimilarityThreshold.HasValue)
         {
-            assignment.TestsJson = MergeImageTestPayload(hasRealSpec ? request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases) : assignment.TestsJson, request).ToJsonString(JsonOptions());
+            assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases) : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
         }
     }
     else if (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue) assignment.TestsJson = request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases);
@@ -254,8 +284,12 @@ app.MapGet("/api/task-tests/{assignmentId:guid}/edit", async (Guid assignmentId,
     return Results.Ok(TaskSpecToJsonObject(ReadTaskSpec(assignment)));
 });
 app.MapPut("/api/task-tests/{assignmentId:guid}/edit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db) => IsEditor(http, cfg) ? await SaveSpec(assignmentId, payload, db, kind: "test") : Results.Json(new { message = "Для редактирования теста нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden));
-app.MapPost("/api/task-tests/{assignmentId:guid}/start", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db) => await StartTest(assignmentId, http, cfg, db));
-app.MapPost("/api/task-tests/{assignmentId:guid}/submit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db) => await SubmitTest(assignmentId, payload, http, cfg, db));
+app.MapPost("/api/task-tests/{assignmentId:guid}/start", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) => await StartTest(assignmentId, http, cfg, db, clients, ct));
+app.MapPost("/api/task-tests/{assignmentId:guid}/submit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+{
+    if (CheckUserRateLimit(http, "task-submit") is { } limited) return limited;
+    return await SubmitTest(assignmentId, payload, http, cfg, db, clients, ct);
+});
 
 app.MapGet("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
 {
@@ -265,8 +299,12 @@ app.MapGet("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId,
     return Results.Ok(MathSpecToJsonObject(ReadMathSpec(assignment)));
 });
 app.MapPut("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db) => IsEditor(http, cfg) ? await SaveSpec(assignmentId, payload, db, kind: "math") : Results.Json(new { message = "Для редактирования math-задания нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden));
-app.MapPost("/api/math-tasks/{assignmentId:guid}/start", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db) => await StartMath(assignmentId, http, cfg, db));
-app.MapPost("/api/math-tasks/{assignmentId:guid}/submit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db) => await SubmitMath(assignmentId, payload, http, cfg, db));
+app.MapPost("/api/math-tasks/{assignmentId:guid}/start", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) => await StartMath(assignmentId, http, cfg, db, clients, ct));
+app.MapPost("/api/math-tasks/{assignmentId:guid}/submit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+{
+    if (CheckUserRateLimit(http, "task-submit") is { } limited) return limited;
+    return await SubmitMath(assignmentId, payload, http, cfg, db, clients, ct);
+});
 
 app.MapGet("/api/me/test-attempts", async (HttpContext http, IConfiguration cfg, TasksDbContext db, Guid? courseId, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
     Results.Ok(await ListAttempts("test", TaskForgeRequestSecurity.UserId(http, cfg), courseId, assignmentId, days, skip, take, db)));
@@ -364,46 +402,76 @@ app.MapGet("/api/admin/assignments/{assignmentId:guid}/insights", async (Guid as
         recentActivity = recent
     });
 });
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
+app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
 {
+    if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
     if (!IsEditor(http, cfg)) return Results.Json(new { message = "Для загрузки эталона нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
     var assignment = await db.Assignments.FindAsync(assignmentId);
     if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-    var form = await req.ReadFormAsync();
+    var form = await req.ReadFormAsync(ct);
     var file = form.Files.FirstOrDefault();
     if (file == null || file.Length == 0) return Problem(400, "IMAGE_REFERENCE_REQUIRED", "request.validation", "Выберите эталонную картинку для image-test.");
+    if (file.Length > MaxImageUploadBytes(cfg)) return Problem(413, "IMAGE_REFERENCE_TOO_LARGE", "request.validation", $"Эталонная картинка слишком большая. Максимум: {MaxImageUploadBytes(cfg) / 1024 / 1024} МБ.");
     var threshold = form.TryGetValue("threshold", out var t) && int.TryParse(t, out var tv) ? Math.Clamp(tv, 0, 100) : 90;
     await using var ms = new MemoryStream();
-    await file.CopyToAsync(ms);
-    var bytes = ms.ToArray();
+    await file.CopyToAsync(ms, ct);
+    var uploaded = await UploadImageBytesToFilesApiAsync(clients, cfg, ms.ToArray(), file.FileName, string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType, $"image-tests/reference/{assignmentId:N}", ct);
     var payload = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
-    payload["imageTestReferenceKey"] = $"image-test/reference/{assignmentId}/{Guid.NewGuid():N}{Path.GetExtension(file.FileName)}";
+    payload["imageTestReferenceKey"] = uploaded.Key;
+    payload["imageTestReferenceUrl"] = uploaded.PrivateUrl;
     payload["imageTestSimilarityThreshold"] = threshold;
-    payload["referenceFileName"] = file.FileName;
-    payload["referenceContentType"] = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
-    payload["referenceBase64"] = Convert.ToBase64String(bytes);
+    payload["referenceFileName"] = uploaded.FileName;
+    payload["referenceContentType"] = uploaded.ContentType;
+    payload["referenceSize"] = uploaded.Size;
+    RemoveInlineImageFields(payload);
     assignment.Type = "image-test";
     assignment.TestsJson = payload.ToJsonString(JsonOptions());
     assignment.UpdatedAt = DateTimeOffset.UtcNow;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { assignmentId, key = payload["imageTestReferenceKey"]?.GetValue<string>(), url = (string?)null, threshold });
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { assignmentId, key = uploaded.Key, url = uploaded.PrivateUrl, privateUrl = uploaded.PrivateUrl, threshold, storage = "minio" });
 }).DisableAntiforgery();
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) => await CompareImageUpload(assignmentId, req, http, cfg, db, clients));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/run-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) => await RenderImageCode(assignmentId, request, http, db, clients, cfg));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) => await CompareImageCode(assignmentId, request, db, clients, cfg, submit: false, context: http));
-app.MapPost("/api/assignments/{assignmentId:guid}/image-test/submit-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) => await CompareImageCode(assignmentId, request, db, clients, cfg, submit: true, context: http));
+app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) =>
+{
+    if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+    return await CompareImageUpload(assignmentId, req, http, cfg, db, clients);
+});
+app.MapPost("/api/assignments/{assignmentId:guid}/image-test/run-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) =>
+{
+    if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+    return await RenderImageCode(assignmentId, request, http, db, clients, cfg);
+});
+app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) =>
+{
+    if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+    return await CompareImageCode(assignmentId, request, db, clients, cfg, submit: false, context: http);
+});
+app.MapPost("/api/assignments/{assignmentId:guid}/image-test/submit-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) =>
+{
+    if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+    return await CompareImageCode(assignmentId, request, db, clients, cfg, submit: true, context: http);
+});
 
 app.Run();
+
+static IResult? CheckUserRateLimit(HttpContext http, string bucket)
+{
+    var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
+    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var key = $"{bucket}:{userId}:{ip}";
+    if (TaskForgeApiRateLimiters.Allow(bucket, key)) return null;
+    return Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
+}
+
 
 
 
 static async Task<IResult> RenderImageCode(Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg)
 {
     var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null || (!assignment.IsVisible && !IsEditor(http, cfg))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
     var runner = ImageRunnerService(lang);
-    if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен только для C++ и Pascal.", lang);
+    if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
     var policyProblem = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, "image-test.run-code");
     if (policyProblem != null) return policyProblem;
     try
@@ -423,46 +491,123 @@ static async Task<IResult> RenderImageCode(Guid assignmentId, ImageCodeRequest r
 static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, bool submit, HttpContext? context = null)
 {
     var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null || (context is not null && !assignment.IsVisible && !IsEditor(context, cfg))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, clients, CancellationToken.None))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var currentUserId = submit && context is not null ? RequireUser(context, cfg) : null;
     if (submit && currentUserId == null) return Unauthorized();
+
     var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
-    var referenceBase64 = root["referenceBase64"]?.GetValue<string>();
-    if (string.IsNullOrWhiteSpace(referenceBase64)) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания ещё не загружена эталонная картинка.");
     var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
     var runner = ImageRunnerService(lang);
-    if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.compare-code", "Image-runner доступен только для C++ и Pascal.", lang);
+    if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", submit ? "image-test.submit-code" : "image-test.compare-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
+
+    var cases = ReadImageTestCases(root, request.Input);
+    if (cases.Count == 0) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания не настроены image-тесты: добавьте Input, Expected output и Expected image хотя бы для одного теста.");
+
     var policyProblem = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, submit ? "image-test.submit-code" : "image-test.compare-code");
     if (policyProblem != null) return policyProblem;
+
     try
     {
         var client = clients.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(120);
-        var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true });
-        var renderRaw = await render.Content.ReadAsStringAsync();
-        if (!render.IsSuccessStatusCode) return Results.Content(renderRaw, render.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)render.StatusCode);
-        using var renderDoc = JsonDocument.Parse(renderRaw);
-        var pngBase64 = renderDoc.RootElement.TryGetProperty("pngBase64", out var p) ? p.GetString() : null;
-        if (string.IsNullOrWhiteSpace(pngBase64)) return Problem(503, "IMAGE_RENDER_NO_OUTPUT", "image-test.run-code", "Runner завершился без PNG-изображения.", renderRaw);
-        var expectedBytes = Convert.FromBase64String(referenceBase64);
-        var actualBytes = Convert.FromBase64String(pngBase64);
-        var thresholdPercent = JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90);
-        var threshold = Math.Clamp(thresholdPercent / 100.0, 0.0, 1.0);
-        using var mp = new MultipartFormDataContent();
-        mp.Add(new ByteArrayContent(expectedBytes), "expected", root["referenceFileName"]?.GetValue<string>() ?? "expected.png");
-        mp.Add(new ByteArrayContent(actualBytes), "actual", "actual.png");
-        var compared = await client.PostAsync($"http://image-analyzer:8000/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
-        var compareRaw = await compared.Content.ReadAsStringAsync();
-        if (!compared.IsSuccessStatusCode) return Problem(503, "IMAGE_ANALYZER_FAILED", "image-test.analyzer", "image-analyzer не смог сравнить изображения.", compareRaw);
-        var analyzer = JsonSerializer.Deserialize<JsonElement>(compareRaw);
-        var combined = analyzer.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
-        var passed = analyzer.TryGetProperty("passed", out var pass) && pass.ValueKind == JsonValueKind.True;
-        var similarityPercent = Math.Round(combined * 100, 2);
-        var similarityPercentInt = (int)Math.Round(similarityPercent);
-        var stdout = renderDoc.RootElement.TryGetProperty("stdout", out var so) ? so.GetString() ?? string.Empty : string.Empty;
-        var stderr = renderDoc.RootElement.TryGetProperty("stderr", out var se) ? se.GetString() ?? string.Empty : string.Empty;
-        var referenceUrl = ReferenceUrl(root);
-        var submittedUrl = $"data:image/png;base64,{pngBase64}";
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp((request.TimeoutSeconds ?? 20) * Math.Max(1, cases.Count) + 60, 90, 300));
+        var runnerTimeout = request.TimeoutSeconds ?? 20;
+        var results = new List<ImageCaseResult>();
+        var canViewReferenceImages = context != null && IsEditor(context, cfg);
+
+        for (var i = 0; i < cases.Count; i++)
+        {
+            var test = cases[i];
+            var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true });
+            var renderRaw = await render.Content.ReadAsStringAsync();
+            if (!render.IsSuccessStatusCode)
+            {
+                results.Add(new ImageCaseResult(
+                    Index: i + 1,
+                    Name: test.Name,
+                    Input: test.Input,
+                    ExpectedOutput: test.IsHidden ? null : test.ExpectedOutput,
+                    ActualOutput: null,
+                    StdoutPassed: string.IsNullOrWhiteSpace(test.ExpectedOutput) ? true : false,
+                    ImagePassed: false,
+                    Passed: false,
+                    Similarity: 0,
+                    SimilarityPercent: 0,
+                    Threshold: test.Threshold,
+                    ThresholdPercent: test.Threshold,
+                    IsHidden: test.IsHidden,
+                    ReferenceUrl: canViewReferenceImages ? test.ExpectedImageUrl : null,
+                    SubmittedUrl: null,
+                    Stderr: renderRaw,
+                    Analyzer: null));
+                continue;
+            }
+
+            using var renderDoc = JsonDocument.Parse(renderRaw);
+            var pngBase64 = renderDoc.RootElement.TryGetProperty("pngBase64", out var p) ? p.GetString() : null;
+            var stdout = renderDoc.RootElement.TryGetProperty("stdout", out var so) ? so.GetString() ?? string.Empty : string.Empty;
+            var stderr = renderDoc.RootElement.TryGetProperty("stderr", out var se) ? se.GetString() ?? string.Empty : string.Empty;
+            if (string.IsNullOrWhiteSpace(pngBase64))
+            {
+                results.Add(new ImageCaseResult(i + 1, test.Name, test.Input, test.IsHidden ? null : test.ExpectedOutput, stdout, StdoutMatches(stdout, test.ExpectedOutput), false, false, 0, 0, test.Threshold, test.Threshold, test.IsHidden, canViewReferenceImages ? test.ExpectedImageUrl : null, null, stderr + "\nRunner завершился без PNG-изображения.", null));
+                continue;
+            }
+
+            var expected = await LoadExpectedImageAsync(test, clients, cfg, CancellationToken.None);
+            var expectedBytes = expected.Bytes;
+            var actualBytes = Convert.FromBase64String(pngBase64);
+            var actualUrl = $"data:image/png;base64,{pngBase64}";
+            if (submit && currentUserId.HasValue)
+            {
+                var uploadedActual = await UploadImageBytesToFilesApiAsync(clients, cfg, actualBytes, $"case-{i + 1}-actual.png", "image/png", $"image-tests/submissions/{assignmentId:N}/{currentUserId.Value:N}", CancellationToken.None);
+                actualUrl = uploadedActual.PrivateUrl ?? PrivateFileUrl(uploadedActual.Key);
+            }
+            var threshold = Math.Clamp(test.Threshold / 100.0, 0.0, 1.0);
+            using var mp = new MultipartFormDataContent();
+            var expectedPart = new ByteArrayContent(expectedBytes);
+            if (!string.IsNullOrWhiteSpace(expected.ContentType)) expectedPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(expected.ContentType);
+            mp.Add(expectedPart, "expected", test.ExpectedImageFileName ?? expected.FileName ?? "expected.png");
+            var actualPart = new ByteArrayContent(actualBytes);
+            actualPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            mp.Add(actualPart, "actual", "actual.png");
+            var compared = await client.PostAsync($"http://image-analyzer:8080/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
+            var compareRaw = await compared.Content.ReadAsStringAsync();
+            if (!compared.IsSuccessStatusCode)
+            {
+                results.Add(new ImageCaseResult(i + 1, test.Name, test.Input, test.IsHidden ? null : test.ExpectedOutput, stdout, StdoutMatches(stdout, test.ExpectedOutput), false, false, 0, 0, test.Threshold, test.Threshold, test.IsHidden, canViewReferenceImages ? test.ExpectedImageUrl : null, actualUrl, stderr + "\n" + compareRaw, null));
+                continue;
+            }
+            var analyzer = JsonSerializer.Deserialize<JsonElement>(compareRaw);
+            var combined = analyzer.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
+            var imagePassed = analyzer.TryGetProperty("passed", out var pass) && pass.ValueKind == JsonValueKind.True;
+            var similarityPercent = Math.Round(combined * 100, 2);
+            var stdoutPassed = StdoutMatches(stdout, test.ExpectedOutput);
+            results.Add(new ImageCaseResult(
+                Index: i + 1,
+                Name: test.Name,
+                Input: test.Input,
+                ExpectedOutput: test.IsHidden ? null : test.ExpectedOutput,
+                ActualOutput: stdout,
+                StdoutPassed: stdoutPassed,
+                ImagePassed: imagePassed,
+                Passed: stdoutPassed && imagePassed,
+                Similarity: similarityPercent,
+                SimilarityPercent: similarityPercent,
+                Threshold: test.Threshold,
+                ThresholdPercent: test.Threshold,
+                IsHidden: test.IsHidden,
+                ReferenceUrl: canViewReferenceImages ? test.ExpectedImageUrl : null,
+                SubmittedUrl: actualUrl,
+                Stderr: stderr,
+                Analyzer: analyzer));
+        }
+
+        var passed = results.Count > 0 && results.All(x => x.Passed);
+        var passedCount = results.Count(x => x.Passed);
+        var similarityPercentInt = results.Count == 0 ? 0 : (int)Math.Round(results.Average(x => x.SimilarityPercent));
+        var referenceUrl = canViewReferenceImages ? results.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.ReferenceUrl))?.ReferenceUrl ?? ReferenceUrl(root) : null;
+        var submittedUrl = results.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.SubmittedUrl))?.SubmittedUrl;
+        var stdoutJoined = string.Join("\n---\n", results.Select(x => x.ActualOutput).Where(x => !string.IsNullOrWhiteSpace(x)));
+        var stderrJoined = string.Join("\n---\n", results.Select(x => x.Stderr).Where(x => !string.IsNullOrWhiteSpace(x)));
         var savedSolutionId = (Guid?)null;
 
         var resultPayload = new
@@ -470,15 +615,17 @@ static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest 
             assignmentId,
             submitted = submit,
             passed,
-            similarity = similarityPercent,
-            similarityPercent,
-            threshold = thresholdPercent,
-            thresholdPercent,
-            stdout,
-            stderr,
+            passedCount,
+            total = results.Count,
+            similarity = similarityPercentInt,
+            similarityPercent = similarityPercentInt,
+            threshold = results.Count == 0 ? 90 : results.Min(x => x.ThresholdPercent),
+            thresholdPercent = results.Count == 0 ? 90 : results.Min(x => x.ThresholdPercent),
+            stdout = stdoutJoined,
+            stderr = stderrJoined,
             referenceUrl,
             submittedUrl,
-            analyzer
+            cases = results
         };
 
         if (submit && currentUserId.HasValue)
@@ -502,21 +649,86 @@ static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest 
             assignmentId,
             submitted = submit,
             passed,
-            similarity = similarityPercent,
-            similarityPercent,
-            threshold = thresholdPercent,
-            thresholdPercent,
-            stdout,
-            stderr,
+            passedCount,
+            total = results.Count,
+            similarity = similarityPercentInt,
+            similarityPercent = similarityPercentInt,
+            threshold = results.Count == 0 ? 90 : results.Min(x => x.ThresholdPercent),
+            thresholdPercent = results.Count == 0 ? 90 : results.Min(x => x.ThresholdPercent),
+            stdout = stdoutJoined,
+            stderr = stderrJoined,
             referenceUrl,
             submittedUrl,
-            analyzer
+            cases = results
         });
     }
     catch (Exception ex)
     {
         return Problem(503, "IMAGE_CODE_COMPARE_FAILED", submit ? "image-test.submit-code" : "image-test.compare-code", "Не удалось выполнить image-code pipeline.", ex.Message);
     }
+}
+
+static List<ImageTestCaseSpec> ReadImageTestCases(JsonObject root, string? fallbackInput)
+{
+    var list = new List<ImageTestCaseSpec>();
+    foreach (var prop in new[] { "testCases", "tests", "cases" })
+    {
+        if (root[prop] is not JsonArray arr) continue;
+        var index = 0;
+        foreach (var node in arr)
+        {
+            index++;
+            if (node is not JsonObject o) continue;
+            var key = NodeString(o, "expectedImageKey") ?? NodeString(o, "referenceKey") ?? NodeString(o, "imageKey") ?? NodeString(o, "imageTestReferenceKey");
+            var image = StripDataUrl(NodeString(o, "expectedImageBase64") ?? NodeString(o, "referenceBase64") ?? NodeString(o, "imageBase64"));
+            if (string.IsNullOrWhiteSpace(key) && string.IsNullOrWhiteSpace(image)) continue;
+            var threshold = NodeInt(o, "threshold", NodeInt(o, "thresholdPercent", NodeInt(o, "imageTestSimilarityThreshold", JsonNodeInt(root, "imageTestSimilarityThreshold", 90))));
+            var contentType = NodeString(o, "expectedImageContentType") ?? NodeString(o, "referenceContentType") ?? "image/png";
+            var fileName = NodeString(o, "expectedImageFileName") ?? NodeString(o, "referenceFileName") ?? "expected.png";
+            var name = NodeString(o, "name") ?? NodeString(o, "title") ?? $"Тест {index}";
+            var input = NodeString(o, "input") ?? NodeString(o, "stdin") ?? string.Empty;
+            var expected = NodeString(o, "expectedOutput") ?? NodeString(o, "expected") ?? NodeString(o, "stdout") ?? string.Empty;
+            var hidden = NodeBool(o, "isHidden") || NodeBool(o, "hidden");
+            list.Add(new ImageTestCaseSpec(name, input, expected, image, key, Math.Clamp(threshold, 0, 100), hidden, contentType, fileName));
+        }
+        if (list.Count > 0) return list;
+    }
+
+    var legacyKey = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey") ?? NodeString(root, "imageKey");
+    var legacy = StripDataUrl(NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64"));
+    if (!string.IsNullOrWhiteSpace(legacyKey) || !string.IsNullOrWhiteSpace(legacy))
+    {
+        var threshold = JsonNodeInt(root, "imageTestSimilarityThreshold", JsonNodeInt(root, "threshold", 90));
+        var contentType = NodeString(root, "referenceContentType") ?? NodeString(root, "expectedImageContentType") ?? "image/png";
+        var fileName = NodeString(root, "referenceFileName") ?? NodeString(root, "expectedImageFileName") ?? "expected.png";
+        var expected = NodeString(root, "expectedOutput") ?? string.Empty;
+        list.Add(new ImageTestCaseSpec("Основной тест", fallbackInput ?? string.Empty, expected, legacy, legacyKey, Math.Clamp(threshold, 0, 100), false, contentType, fileName));
+    }
+
+    return list;
+}
+
+static string? NodeString(JsonObject o, string name) => o.TryGetPropertyValue(name, out var n) && n is not null ? n.ToString() : null;
+static int NodeInt(JsonObject o, string name, int fallback) => int.TryParse(NodeString(o, name), out var v) ? v : fallback;
+static bool NodeBool(JsonObject o, string name) => bool.TryParse(NodeString(o, name), out var v) && v;
+static int JsonNodeInt(JsonObject o, string name, int fallback) => int.TryParse(NodeString(o, name), out var v) ? v : fallback;
+static string? StripDataUrl(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value)) return null;
+    var s = value.Trim();
+    if (s.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+    {
+        var comma = s.IndexOf(',');
+        if (comma >= 0) s = s[(comma + 1)..];
+    }
+    return s;
+}
+
+static bool StdoutMatches(string actual, string? expected)
+{
+    if (string.IsNullOrWhiteSpace(expected)) return true;
+    static string Norm(string v) => string.Join("\n", (v ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(x => x.TrimEnd())).Trim();
+    return string.Equals(Norm(actual), Norm(expected), StringComparison.OrdinalIgnoreCase);
 }
 
 
@@ -577,20 +789,27 @@ static bool IsSensitiveAnalyzerPattern(string? patternId)
     return id.StartsWith("py.") || id.StartsWith("js.") || id.StartsWith("c.") || id.StartsWith("cpp.") || id.StartsWith("cs.") || id.StartsWith("java.") || id.StartsWith("pas.");
 }
 
-static string NormalizeImageLanguage(string? lang) => (lang ?? "cpp").Trim().ToLowerInvariant() switch { "c++" or "cpp" => "cpp", "pas" or "pascal" or "pabc" => "pascal", var x => x };
-static string? ImageRunnerService(string lang) => lang switch { "cpp" => "image-cpp-runner", "pascal" => "image-pascal-runner", _ => null };
+static string NormalizeImageLanguage(string? lang) => (lang ?? "cpp").Trim().ToLowerInvariant() switch
+{
+    "c++" or "cpp" or "g++" or "gcc" or "cxx" or "glut" or "cpp-glut" or "c++-glut" or "turtle" or "cpp-turtle" or "c++-turtle" => "cpp",
+    "pas" or "pascal" or "pabc" or "graphabc" or "pascalabc" => "pascal",
+    "py" or "python" or "python3" or "python-turtle" or "turtle-py" or "matplotlib" or "pillow" => "python",
+    var x => x
+};
+static string? ImageRunnerService(string lang) => lang switch { "cpp" => "image-cpp-runner", "pascal" => "image-pascal-runner", "python" => "image-python-runner", _ => null };
 static string? ReferenceUrl(JsonObject root)
 {
-    var base64 = root["referenceBase64"]?.GetValue<string>();
+    var key = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey") ?? NodeString(root, "imageKey");
+    if (!string.IsNullOrWhiteSpace(key)) return PrivateFileUrl(key);
+
+    // Legacy fallback only. New image-test v2 stores expected images in MinIO and keeps only keys in TestsJson.
+    var base64 = NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64");
     if (!string.IsNullOrWhiteSpace(base64))
     {
-        var contentType = root["referenceContentType"]?.GetValue<string>();
-        if (string.IsNullOrWhiteSpace(contentType)) contentType = "image/png";
-        return $"data:{contentType};base64,{base64}";
+        var contentType = NodeString(root, "referenceContentType") ?? NodeString(root, "expectedImageContentType") ?? "image/png";
+        return base64.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ? base64 : $"data:{contentType};base64,{base64}";
     }
-
-    var key = root["imageTestReferenceKey"]?.GetValue<string>();
-    return string.IsNullOrWhiteSpace(key) ? null : $"/api/private-files/{Uri.EscapeDataString(key)}";
+    return null;
 }
 
 static async Task<Guid?> SaveImageSolutionAsync(Guid assignmentId, Guid userId, string language, string code, int similarityPercent, bool passed, JsonElement result, IConfiguration cfg, IHttpClientFactory clients)
@@ -618,6 +837,61 @@ static async Task<Guid?> SaveImageSolutionAsync(Guid assignmentId, Guid userId, 
     }
 }
 
+static async Task<LoadedImageBytes> LoadExpectedImageAsync(ImageTestCaseSpec test, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    if (!string.IsNullOrWhiteSpace(test.ExpectedImageKey))
+    {
+        var client = clients.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(30);
+        var url = $"{ServiceUrl(cfg, "FilesApi", "http://files-api:8080")}/api/internal/files/{EscapeFileKeyForUrl(test.ExpectedImageKey)}";
+        using var msg = new HttpRequestMessage(HttpMethod.Get, url);
+        AddInternalKey(msg, cfg);
+        using var response = await client.SendAsync(msg, ct);
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Не удалось получить эталонную картинку из MinIO/files-api: {(int)response.StatusCode} {System.Text.Encoding.UTF8.GetString(bytes)}");
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? test.ExpectedImageContentType ?? "image/png";
+        return new LoadedImageBytes(bytes, contentType, test.ExpectedImageFileName ?? Path.GetFileName(test.ExpectedImageKey));
+    }
+
+    if (!string.IsNullOrWhiteSpace(test.ExpectedImageBase64))
+    {
+        var decoded = DecodeImageBase64(test.ExpectedImageBase64, test.ExpectedImageContentType ?? "image/png");
+        return new LoadedImageBytes(decoded.Bytes, decoded.ContentType, test.ExpectedImageFileName ?? "expected.png");
+    }
+
+    throw new InvalidOperationException("У image-test кейса нет expectedImageKey и legacy expectedImageBase64.");
+}
+
+static async Task<UploadedFileDto> UploadImageBytesToFilesApiAsync(IHttpClientFactory clients, IConfiguration cfg, byte[] bytes, string? fileName, string contentType, string folder, CancellationToken ct)
+{
+    if (bytes.Length == 0) throw new InvalidOperationException("Нельзя загрузить пустую эталонную картинку.");
+    var safeFileName = string.IsNullOrWhiteSpace(fileName) ? $"image{ExtensionForContentType(contentType)}" : Path.GetFileName(fileName);
+    var client = clients.CreateClient();
+    client.Timeout = TimeSpan.FromSeconds(60);
+    using var mp = new MultipartFormDataContent();
+    var part = new ByteArrayContent(bytes);
+    part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType);
+    mp.Add(part, "file", safeFileName);
+    mp.Add(new StringContent(folder), "folder");
+    using var msg = new HttpRequestMessage(HttpMethod.Post, $"{ServiceUrl(cfg, "FilesApi", "http://files-api:8080")}/api/internal/files/images") { Content = mp };
+    AddInternalKey(msg, cfg);
+    using var response = await client.SendAsync(msg, ct);
+    var raw = await response.Content.ReadAsStringAsync(ct);
+    if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"files-api не сохранил expected image в MinIO: {(int)response.StatusCode} {raw}");
+    using var doc = JsonDocument.Parse(raw);
+    var root = doc.RootElement;
+    var key = root.TryGetProperty("key", out var k) ? k.GetString() : null;
+    if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("files-api не вернул key после загрузки expected image.");
+    var privateUrl = root.TryGetProperty("privateUrl", out var pu) ? pu.GetString() : PrivateFileUrl(key);
+    var returnedContentType = root.TryGetProperty("contentType", out var ctProp) ? ctProp.GetString() : contentType;
+    var returnedFileName = root.TryGetProperty("fileName", out var fn) ? fn.GetString() : safeFileName;
+    var size = root.TryGetProperty("size", out var sz) && sz.TryGetInt64(out var n) ? n : bytes.Length;
+    return new UploadedFileDto(key, privateUrl, returnedContentType ?? contentType, returnedFileName ?? safeFileName, size);
+}
+
+static string PrivateFileUrl(string key) => $"/api/private-files/{Uri.EscapeDataString(key)}";
+static string EscapeFileKeyForUrl(string key) => string.Join("/", (key ?? string.Empty).Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.EscapeDataString));
+
 static string ServiceUrl(IConfiguration cfg, string name, string fallback)
 {
     return (cfg[$"Services:{name}"] ?? cfg[$"ServiceUrls:{name}"] ?? fallback).TrimEnd('/');
@@ -633,16 +907,17 @@ static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
 static async Task<IResult> CompareImageUpload(Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients)
 {
     var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null || (!assignment.IsVisible && !IsEditor(http, cfg))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
-    var referenceBase64 = root["referenceBase64"]?.GetValue<string>();
-    if (string.IsNullOrWhiteSpace(referenceBase64)) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания ещё не загружена эталонная картинка.");
+    var referenceKey = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey") ?? NodeString(root, "imageKey");
+    var referenceBase64 = StripDataUrl(NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64"));
+    if (string.IsNullOrWhiteSpace(referenceKey) && string.IsNullOrWhiteSpace(referenceBase64)) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания ещё не загружена эталонная картинка.");
     var form = await req.ReadFormAsync();
     var actual = form.Files.FirstOrDefault();
     if (actual == null || actual.Length == 0) return Problem(400, "IMAGE_ACTUAL_REQUIRED", "request.validation", "Выберите изображение для сравнения.");
-    byte[] expectedBytes;
-    try { expectedBytes = Convert.FromBase64String(referenceBase64); }
-    catch { return Problem(500, "IMAGE_REFERENCE_CORRUPTED", "image-test.reference", "Эталонная картинка повреждена в БД задания. Загрузите эталон заново."); }
+    if (actual.Length > MaxImageUploadBytes(cfg)) return Problem(413, "IMAGE_ACTUAL_TOO_LARGE", "request.validation", $"Изображение для сравнения слишком большое. Максимум: {MaxImageUploadBytes(cfg) / 1024 / 1024} МБ.");
+    var expectedSpec = new ImageTestCaseSpec("Основной тест", string.Empty, string.Empty, referenceBase64, referenceKey, JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90), false, NodeString(root, "referenceContentType") ?? "image/png", NodeString(root, "referenceFileName") ?? "expected.png");
+    var expected = await LoadExpectedImageAsync(expectedSpec, clients, cfg, CancellationToken.None);
     await using var actualMs = new MemoryStream();
     await actual.CopyToAsync(actualMs);
     var thresholdPercent = JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90);
@@ -652,20 +927,20 @@ static async Task<IResult> CompareImageUpload(Guid assignmentId, HttpRequest req
         var client = clients.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(60);
         using var mp = new MultipartFormDataContent();
-        var expectedPart = new ByteArrayContent(expectedBytes);
-        expectedPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(root["referenceContentType"]?.GetValue<string>() ?? "application/octet-stream");
-        mp.Add(expectedPart, "expected", root["referenceFileName"]?.GetValue<string>() ?? "expected.png");
+        var expectedPart = new ByteArrayContent(expected.Bytes);
+        expectedPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(expected.ContentType ?? "application/octet-stream");
+        mp.Add(expectedPart, "expected", expected.FileName ?? "expected.png");
         var actualPart = new ByteArrayContent(actualMs.ToArray());
         actualPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(string.IsNullOrWhiteSpace(actual.ContentType) ? "application/octet-stream" : actual.ContentType);
         mp.Add(actualPart, "actual", actual.FileName);
-        var response = await client.PostAsync($"http://image-analyzer:8000/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
+        var response = await client.PostAsync($"http://image-analyzer:8080/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
         var raw = await response.Content.ReadAsStringAsync();
         if (!response.IsSuccessStatusCode) return Problem(503, "IMAGE_ANALYZER_FAILED", "image-test.analyzer", "image-analyzer не смог сравнить изображения. Проверьте контейнер image-analyzer и формат файлов.", raw);
         var json = JsonSerializer.Deserialize<JsonElement>(raw);
         var combined = json.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
         var clip = json.TryGetProperty("clip_similarity", out var cl) && cl.TryGetDouble(out var clv) ? clv : combined;
         var passed = json.TryGetProperty("passed", out var p) && p.ValueKind == JsonValueKind.True;
-        return Results.Ok(new { passed, similarity = Math.Round(combined * 100, 2), clipSimilarity = Math.Round(clip * 100, 2), threshold = thresholdPercent, analyzer = json });
+        return Results.Ok(new { passed, similarity = Math.Round(combined * 100, 2), clipSimilarity = Math.Round(clip * 100, 2), threshold = thresholdPercent, analyzer = json, referenceUrl = IsEditor(http, cfg) ? expectedSpec.ExpectedImageUrl : null });
     }
     catch (Exception ex)
     {
@@ -673,12 +948,12 @@ static async Task<IResult> CompareImageUpload(Guid assignmentId, HttpRequest req
     }
 }
 
-static async Task<IResult> StartTest(Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db)
+static async Task<IResult> StartTest(Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
 {
     var userId = RequireUser(http, cfg);
     if (userId == null) return Unauthorized();
-    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null || (!assignment.IsVisible && !IsEditor(http, cfg))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+    if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var spec = ReadTaskSpec(assignment);
     if (spec.Questions.Count == 0) return Problem(400, "TEST_HAS_NO_QUESTIONS", "tasks.test.start", "В тесте пока нет вопросов.");
     var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
@@ -693,7 +968,7 @@ static async Task<IResult> StartTest(Guid assignmentId, HttpContext http, IConfi
     return Results.Ok(TestStartDto(attempt, spec));
 }
 
-static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db)
+static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
 {
     var userId = RequireUser(http, cfg);
     if (userId == null) return Unauthorized();
@@ -702,8 +977,8 @@ static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, Ht
     var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
     if (attempt == null) return Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
     if (attempt.SubmittedAt != null) return Problem(400, "ATTEMPT_ALREADY_SUBMITTED", "tasks.test.submit", "Эта попытка уже была отправлена.");
-    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+    if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var spec = ReadTaskSpec(assignment);
     var answers = AnswersArray(payload, "answers");
     var byAnswer = answers.GroupBy(x => x.QuestionId).ToDictionary(x => x.Key, x => x.First());
@@ -734,12 +1009,12 @@ static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, Ht
     return Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalQuestions = total, correctQuestions = correct, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
 }
 
-static async Task<IResult> StartMath(Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db)
+static async Task<IResult> StartMath(Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
 {
     var userId = RequireUser(http, cfg);
     if (userId == null) return Unauthorized();
-    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null || (!assignment.IsVisible && !IsEditor(http, cfg))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+    if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var spec = ReadMathSpec(assignment);
     if (spec.Blocks.Count == 0) return Problem(400, "MATH_HAS_NO_BLOCKS", "tasks.math.start", "В math-задании пока нет блоков.");
     var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
@@ -754,7 +1029,7 @@ static async Task<IResult> StartMath(Guid assignmentId, HttpContext http, IConfi
     return Results.Ok(MathStartDto(attempt, spec));
 }
 
-static async Task<IResult> SubmitMath(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db)
+static async Task<IResult> SubmitMath(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
 {
     var userId = RequireUser(http, cfg);
     if (userId == null) return Unauthorized();
@@ -763,8 +1038,8 @@ static async Task<IResult> SubmitMath(Guid assignmentId, JsonElement payload, Ht
     var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
     if (attempt == null) return Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
     if (attempt.SubmittedAt != null) return Problem(400, "ATTEMPT_ALREADY_SUBMITTED", "tasks.math.submit", "Эта попытка уже была отправлена.");
-    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-    if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+    var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+    if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
     var spec = ReadMathSpec(assignment);
     var answers = MathAnswersArray(payload, "answers");
     var byAnswer = answers.GroupBy(x => x.BlockId).ToDictionary(x => x.Key, x => x.First());
@@ -922,9 +1197,48 @@ static bool IsTimeExpired(TaskAttempt a) => a.TimeLimitSeconds.HasValue && DateT
 static int? TimeLimitFor(List<int?> limits, int attemptNumber) => attemptNumber >= 1 && attemptNumber <= limits.Count && limits[attemptNumber - 1].GetValueOrDefault() > 0 ? limits[attemptNumber - 1] : null;
 static List<Guid> OrderedIds(IEnumerable<Guid> ids, bool shuffle, Guid seed) { var list = ids.ToList(); if (shuffle) Shuffle(list, seed); return list; }
 static void Shuffle<T>(IList<T> list, Guid seed) { var rnd = new Random(BitConverter.ToInt32(seed.ToByteArray(), 0)); for (var i = list.Count - 1; i > 0; i--) { var j = rnd.Next(i + 1); (list[i], list[j]) = (list[j], list[i]); } }
+static async Task<bool> CanUserAccessAssignmentAsync(Assignment assignment, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
+{
+    if (IsEditor(http, cfg)) return true;
+    if (!assignment.IsVisible) return false;
+    return await CanUserAccessCourseAsync(assignment.CourseId, http, cfg, clients, ct);
+}
+
+static async Task<bool> CanUserAccessCourseAsync(Guid courseId, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
+{
+    if (IsEditor(http, cfg)) return true;
+    var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+    if (!userId.HasValue) return false;
+    var access = await LoadCourseAccessAsync(courseId, userId.Value, clients, cfg, ct);
+    return access?.CanView == true;
+}
+
+static async Task<CourseAccessDto?> LoadCourseAccessAsync(Guid courseId, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    return await GetInternalAsync<CourseAccessDto>(clients, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId:D}/access/{userId:D}", ct);
+}
+
+static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, CancellationToken ct)
+{
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Get, baseUrl.TrimEnd('/') + path);
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return default;
+        return await resp.Content.ReadFromJsonAsync<T>(JsonOptions(), ct);
+    }
+    catch
+    {
+        return default;
+    }
+}
+
 static Guid? RequireUser(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
 static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
+static long MaxImageUploadBytes(IConfiguration cfg) => cfg.GetValue<long?>("Files:MaxUploadBytes") ?? cfg.GetValue<long?>("Files:MaxImageUploadBytes") ?? 10L * 1024 * 1024;
 static object ToDto(Assignment x, bool includeSensitive = false)
 {
     var tests = includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson);
@@ -1021,9 +1335,13 @@ static object SanitizePublicTest(JsonElement t)
 {
     var input = StringProp(t, "input") ?? StringProp(t, "stdin") ?? string.Empty;
     var expected = StringProp(t, "expectedOutput") ?? StringProp(t, "expected") ?? StringProp(t, "stdout") ?? string.Empty;
-    return new { input, expectedOutput = expected, isHidden = false };
+    var threshold = IntProp(t, "threshold") ?? IntProp(t, "thresholdPercent") ?? 90;
+    var hasExpectedImage = !string.IsNullOrWhiteSpace(StringProp(t, "expectedImageKey") ?? StringProp(t, "referenceKey") ?? StringProp(t, "imageKey") ?? StringProp(t, "imageTestReferenceKey") ?? StringProp(t, "expectedImageBase64") ?? StringProp(t, "referenceBase64") ?? StringProp(t, "imageBase64"));
+    // Never expose judge storage keys, private URLs or inline image payloads to the student-facing DTO.
+    return new { input, expectedOutput = expected, threshold, isHidden = false, hasExpectedImage };
 }
 
+static int? IntProp(JsonElement e, string prop) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(prop, out var v) && v.TryGetInt32(out var n) ? n : null;
 static bool BoolProp(JsonElement e, string prop) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(prop, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False && v.GetBoolean();
 static string? StringProp(JsonElement e, string prop) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(prop, out var v) ? v.ToString() : null;
 
@@ -1048,12 +1366,123 @@ static bool HasMeaningfulJsonValue(JsonElement element) => element.ValueKind swi
     _ => true
 };
 
+static async Task<JsonObject> MergeAndMaterializeImageTestPayloadAsync(string? existingJson, AssignmentRequest request, Guid assignmentId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    var node = MergeImageTestPayload(existingJson, request);
+    if (assignmentId != Guid.Empty)
+    {
+        await MaterializeImageTestImagesAsync(node, assignmentId, clients, cfg, ct);
+    }
+    return node;
+}
+
+static async Task MaterializeImageTestImagesAsync(JsonObject root, Guid assignmentId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    foreach (var arrayName in new[] { "testCases", "tests", "cases", "publicTests", "hiddenTests" })
+    {
+        if (root[arrayName] is not JsonArray arr) continue;
+        var index = 0;
+        foreach (var item in arr.OfType<JsonObject>())
+        {
+            index++;
+            await MaterializeImageObjectAsync(item, assignmentId, index, clients, cfg, ct);
+        }
+    }
+
+    var rootKey = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey");
+    var rootBase64 = NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64");
+    if (string.IsNullOrWhiteSpace(rootKey) && !string.IsNullOrWhiteSpace(rootBase64))
+    {
+        var decoded = DecodeImageBase64(rootBase64, NodeString(root, "referenceContentType") ?? NodeString(root, "expectedImageContentType") ?? "image/png");
+        var uploaded = await UploadImageBytesToFilesApiAsync(clients, cfg, decoded.Bytes, NodeString(root, "referenceFileName") ?? NodeString(root, "expectedImageFileName") ?? $"reference-{assignmentId:N}{ExtensionForContentType(decoded.ContentType)}", decoded.ContentType, $"image-tests/reference/{assignmentId:N}", ct);
+        root["imageTestReferenceKey"] = uploaded.Key;
+        root["imageTestReferenceUrl"] = uploaded.PrivateUrl;
+        root["referenceFileName"] = uploaded.FileName;
+        root["referenceContentType"] = uploaded.ContentType;
+        root["referenceSize"] = uploaded.Size;
+    }
+    RemoveInlineImageFields(root);
+}
+
+static async Task MaterializeImageObjectAsync(JsonObject o, Guid assignmentId, int index, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    var key = NodeString(o, "expectedImageKey") ?? NodeString(o, "referenceKey") ?? NodeString(o, "imageKey") ?? NodeString(o, "imageTestReferenceKey");
+    if (!string.IsNullOrWhiteSpace(key))
+    {
+        o["expectedImageKey"] = key;
+        o["expectedImageUrl"] = PrivateFileUrl(key);
+        RemoveInlineImageFields(o);
+        return;
+    }
+
+    var raw = NodeString(o, "expectedImageBase64") ?? NodeString(o, "referenceBase64") ?? NodeString(o, "imageBase64");
+    if (string.IsNullOrWhiteSpace(raw)) return;
+
+    var decoded = DecodeImageBase64(raw, NodeString(o, "expectedImageContentType") ?? NodeString(o, "referenceContentType") ?? "image/png");
+    var uploaded = await UploadImageBytesToFilesApiAsync(clients, cfg, decoded.Bytes, NodeString(o, "expectedImageFileName") ?? NodeString(o, "referenceFileName") ?? $"case-{index}{ExtensionForContentType(decoded.ContentType)}", decoded.ContentType, $"image-tests/reference/{assignmentId:N}", ct);
+    o["expectedImageKey"] = uploaded.Key;
+    o["expectedImageUrl"] = uploaded.PrivateUrl;
+    o["expectedImageContentType"] = uploaded.ContentType;
+    o["expectedImageFileName"] = uploaded.FileName;
+    o["expectedImageSize"] = uploaded.Size;
+    RemoveInlineImageFields(o);
+}
+
+static void RemoveInlineImageFields(JsonObject o)
+{
+    o.Remove("expectedImageBase64");
+    o.Remove("referenceBase64");
+    o.Remove("imageBase64");
+    o.Remove("expectedBase64");
+}
+
+static (byte[] Bytes, string ContentType) DecodeImageBase64(string raw, string fallbackContentType)
+{
+    var text = (raw ?? string.Empty).Trim();
+    var contentType = string.IsNullOrWhiteSpace(fallbackContentType) ? "image/png" : fallbackContentType;
+    if (text.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+    {
+        var comma = text.IndexOf(',');
+        if (comma > 0)
+        {
+            var meta = text[5..comma];
+            var semi = meta.IndexOf(';');
+            if (semi >= 0) meta = meta[..semi];
+            if (!string.IsNullOrWhiteSpace(meta)) contentType = meta;
+            text = text[(comma + 1)..];
+        }
+    }
+    return (Convert.FromBase64String(text), contentType);
+}
+
+static string ExtensionForContentType(string? contentType) => (contentType ?? string.Empty).ToLowerInvariant() switch
+{
+    "image/jpeg" or "image/jpg" => ".jpg",
+    "image/webp" => ".webp",
+    "image/gif" => ".gif",
+    "image/bmp" => ".bmp",
+    "image/svg+xml" => ".svg",
+    _ => ".png"
+};
+
 static JsonObject MergeImageTestPayload(string? existingJson, AssignmentRequest request)
 {
     JsonObject node;
     try
     {
-        node = JsonNode.Parse(string.IsNullOrWhiteSpace(existingJson) ? "{}" : existingJson!) as JsonObject ?? new JsonObject();
+        var parsed = JsonNode.Parse(string.IsNullOrWhiteSpace(existingJson) ? "{}" : existingJson!);
+        if (parsed is JsonObject obj)
+        {
+            node = obj;
+        }
+        else if (parsed is JsonArray arr)
+        {
+            node = new JsonObject { ["testCases"] = arr.DeepClone() };
+        }
+        else
+        {
+            node = new JsonObject();
+        }
     }
     catch
     {
@@ -1333,13 +1762,18 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
 static string UserLabel(UserSummaryDto? user)
 {
     var name = (user?.DisplayName ?? string.Empty).Trim();
-    if (!string.IsNullOrWhiteSpace(name)) return name;
+    if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
-    return string.IsNullOrWhiteSpace(user?.Email) ? "Пользователь" : user!.Email!.Trim();
+    var masked = (user?.MaskedEmail ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(masked)) return masked;
+    return "Пользователь";
 }
+static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
 static double Percent(int num, int den) => den <= 0 ? 0 : Math.Round(num * 100.0 / den, 1);
 
+public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic);
+public sealed record AssignmentAccessDto(Guid AssignmentId, Guid CourseId, Guid UserId, bool CanView, bool CanSubmit, bool IsVisible, bool CanEdit);
 public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
 public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid CourseId, string Title, string AssignmentTitle, string Type, string Language, int Rating, int Difficulty, bool IsVisible, int Sort);
 public sealed record UserIdsRequest(Guid[] UserIds);
@@ -1364,12 +1798,21 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }
 public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
 public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden, string? ImageTestReferenceKey, int? ImageTestSimilarityThreshold);
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);
+public sealed record ImageTestCaseSpec(string Name, string Input, string ExpectedOutput, string? ExpectedImageBase64, string? ExpectedImageKey, int Threshold, bool IsHidden, string ExpectedImageContentType, string ExpectedImageFileName)
+{
+    public string? ExpectedImageUrl => !string.IsNullOrWhiteSpace(ExpectedImageKey)
+        ? $"/api/private-files/{Uri.EscapeDataString(ExpectedImageKey)}"
+        : (!string.IsNullOrWhiteSpace(ExpectedImageBase64) ? $"data:{ExpectedImageContentType};base64,{ExpectedImageBase64}" : null);
+}
+public sealed record UploadedFileDto(string Key, string? PrivateUrl, string ContentType, string FileName, long Size);
+public sealed record LoadedImageBytes(byte[] Bytes, string? ContentType, string? FileName);
+public sealed record ImageCaseResult(int Index, string Name, string Input, string? ExpectedOutput, string? ActualOutput, bool StdoutPassed, bool ImagePassed, bool Passed, double Similarity, double SimilarityPercent, int Threshold, int ThresholdPercent, bool IsHidden, string? ReferenceUrl, string? SubmittedUrl, string? Stderr, JsonElement? Analyzer);
 public sealed record AnalyzerRequest(string Language, string Source, object? ExtraForbidden, string[]? ForbiddenCalls, string[]? RequiredCalls);
 public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);
 public sealed record SortRequest(int Sort);
@@ -1385,3 +1828,37 @@ public sealed record TaskSpec(TestSettings Settings, List<TestQuestion> Question
 public sealed record MathSettings(int MaxAttempts, int PassPercent, bool ShuffleBlocks, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
 public sealed record MathBlock(Guid Id, int Order, string Kind, string Prompt, string? PromptContentJson, int Score, bool IsRequired, List<Option> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool Trim, double? NumericTolerance, List<string> OrderItems, List<Option> MatchLeftItems, List<Option> MatchRightItems, List<MatchPair> MatchPairs);
 public sealed record MathSpec(MathSettings Settings, List<MathBlock> Blocks);
+
+
+internal static class TaskForgeApiRateLimiters
+{
+    private static readonly SlidingWindowRateLimiter Limiter = new();
+    public static bool Allow(string bucket, string key)
+    {
+        var (limit, window) = bucket switch
+        {
+            "task-submit" => (40, TimeSpan.FromMinutes(5)),
+            "image-test" => (20, TimeSpan.FromMinutes(5)),
+            _ => (60, TimeSpan.FromMinutes(1))
+        };
+        return Limiter.Allow(key, limit, window);
+    }
+}
+
+internal sealed class SlidingWindowRateLimiter
+{
+    private readonly ConcurrentDictionary<string, Queue<long>> _hits = new();
+    public bool Allow(string key, int limit, TimeSpan window)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var min = now - (long)window.TotalMilliseconds;
+        var queue = _hits.GetOrAdd(key, _ => new Queue<long>());
+        lock (queue)
+        {
+            while (queue.Count > 0 && queue.Peek() < min) queue.Dequeue();
+            if (queue.Count >= limit) return false;
+            queue.Enqueue(now);
+            return true;
+        }
+    }
+}

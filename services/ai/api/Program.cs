@@ -71,24 +71,30 @@ app.MapGet("/api/ai/api/schema-owner", () => Results.Ok(new
 // They intentionally return an empty queue until real AI run dispatch is wired to task/content services.
 // This prevents noisy 404 polling loops while keeping the worker and ai-api contract stable.
 
-app.MapGet("/api/agent/conversations", async (AiDbContext db) =>
+app.MapGet("/api/agent/conversations", async (HttpContext http, IConfiguration cfg, AiDbContext db) =>
 {
-    var rows = await db.Conversations.AsNoTracking().OrderByDescending(x => x.UpdatedAtUtc).Take(100).ToListAsync();
+    var uid = CurrentUserId(http, cfg);
+    if (uid == null) return Results.Unauthorized();
+    var q = db.Conversations.AsNoTracking();
+    if (!IsEditorOrAdmin(http)) q = q.Where(x => x.UserId == uid.Value);
+    var rows = await q.OrderByDescending(x => x.UpdatedAtUtc).Take(100).ToListAsync();
     return Results.Ok(rows.Select(ToConversationDto).ToList());
 });
 
-app.MapPost("/api/agent/conversations", async (JsonElement payload, AiDbContext db) =>
+app.MapPost("/api/agent/conversations", async (JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db) =>
 {
+    var uid = CurrentUserId(http, cfg);
+    if (uid == null) return Results.Unauthorized();
     var title = payload.TryGetProperty("title", out var t) ? t.GetString() : null;
-    var c = new TaskForge.Ai.Api.Domain.AiConversation { Title = string.IsNullOrWhiteSpace(title) ? "Новый диалог" : title!.Trim() };
+    var c = new TaskForge.Ai.Api.Domain.AiConversation { Title = string.IsNullOrWhiteSpace(title) ? "Новый диалог" : title!.Trim(), UserId = uid.Value };
     db.Conversations.Add(c);
     await db.SaveChangesAsync();
     return Results.Ok(ToConversationDto(c));
 });
 
-app.MapGet("/api/agent/conversations/{conversationId:guid}", async (Guid conversationId, AiDbContext db) =>
+app.MapGet("/api/agent/conversations/{conversationId:guid}", async (Guid conversationId, HttpContext http, IConfiguration cfg, AiDbContext db) =>
 {
-    var c = await db.Conversations.AsNoTracking().FirstOrDefaultAsync(x => x.Id == conversationId);
+    var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: true);
     if (c == null) return Results.NotFound();
     var messageRows = await db.Messages.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAtUtc).ToListAsync();
     var runRows = await db.Runs.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderByDescending(x => x.CreatedAtUtc).ToListAsync();
@@ -98,9 +104,9 @@ app.MapGet("/api/agent/conversations/{conversationId:guid}", async (Guid convers
     return Results.Ok(new { conversation = ToConversationDto(c), messages, runs, artifacts = artifactRows.Select(ToArtifactDto).ToList() });
 });
 
-app.MapPost("/api/agent/conversations/{conversationId:guid}/messages", async (Guid conversationId, JsonElement payload, AiDbContext db) =>
+app.MapPost("/api/agent/conversations/{conversationId:guid}/messages", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db) =>
 {
-    var c = await db.Conversations.FindAsync(conversationId);
+    var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
     if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
     var text = payload.TryGetProperty("content", out var content) ? content.GetString() : payload.TryGetProperty("message", out var message) ? message.GetString() : string.Empty;
     var clientId = payload.TryGetProperty("clientMessageId", out var cmid) ? cmid.GetString() : null;
@@ -119,19 +125,26 @@ app.MapPost("/api/agent/conversations/{conversationId:guid}/messages", async (Gu
     return Results.Ok(new { conversation = ToConversationDto(c), message = ToMessageDto(userMessage), run = ToRunDto(run), queued = true });
 });
 
-app.MapPost("/api/agent/conversations/{conversationId:guid}/attachments", async (Guid conversationId, HttpRequest request, AiDbContext db, CancellationToken ct) => await SaveAttachment(conversationId, request, db, ct)).DisableAntiforgery();
-app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-task", async (Guid conversationId, JsonElement payload, AiDbContext db) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, db));
-app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-tasks", async (Guid conversationId, JsonElement payload, AiDbContext db) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, db));
-app.MapPost("/api/agent/runs/{runId:guid}/cancel", async (Guid runId, AiDbContext db) =>
+app.MapPost("/api/agent/conversations/{conversationId:guid}/attachments", async (Guid conversationId, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct) => await SaveAttachment(conversationId, request, http, cfg, db, ct)).DisableAntiforgery();
+app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-task", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, http, cfg, db));
+app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-tasks", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, http, cfg, db));
+app.MapPost("/api/agent/runs/{runId:guid}/cancel", async (Guid runId, HttpContext http, IConfiguration cfg, AiDbContext db) =>
 {
     var run = await db.Runs.FindAsync(runId);
-    if (run != null) { run.Status = "canceled"; run.UpdatedAtUtc = DateTimeOffset.UtcNow; await db.SaveChangesAsync(); }
+    if (run == null) return Results.NotFound(new { message = "AI run не найден.", code = "AI_RUN_NOT_FOUND" });
+    var c = await GetConversationForUser(run.ConversationId, http, cfg, db, asNoTracking: true);
+    if (c == null) return Results.Json(new { message = "Нет доступа к этому AI run.", code = "AI_RUN_FORBIDDEN" }, statusCode: 403);
+    run.Status = "canceled";
+    run.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync();
     return Results.Ok(new { runId, status = "canceled" });
 });
-app.MapPost("/api/agent/artifacts/{artifactId:guid}/apply", async (Guid artifactId, JsonElement payload, HttpRequest request, AiDbContext db, IHttpClientFactory factory, CancellationToken ct) => await ApplyArtifact(null, artifactId, payload, request, db, factory, ct));
-app.MapPost("/api/agent/runs/{runId:guid}/artifacts/{artifactId:guid}/apply", async (Guid runId, Guid artifactId, JsonElement payload, HttpRequest request, AiDbContext db, IHttpClientFactory factory, CancellationToken ct) => await ApplyArtifact(runId, artifactId, payload, request, db, factory, ct));
-app.MapGet("/api/agent/conversations/{conversationId:guid}/debug-dump", async (Guid conversationId, AiDbContext db) =>
+app.MapPost("/api/agent/artifacts/{artifactId:guid}/apply", async (Guid artifactId, JsonElement payload, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, CancellationToken ct) => await ApplyArtifact(null, artifactId, payload, request, http, cfg, db, factory, ct));
+app.MapPost("/api/agent/runs/{runId:guid}/artifacts/{artifactId:guid}/apply", async (Guid runId, Guid artifactId, JsonElement payload, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, CancellationToken ct) => await ApplyArtifact(runId, artifactId, payload, request, http, cfg, db, factory, ct));
+app.MapGet("/api/agent/conversations/{conversationId:guid}/debug-dump", async (Guid conversationId, HttpContext http, IConfiguration cfg, AiDbContext db) =>
 {
+    var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: true);
+    if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
     var messages = await db.Messages.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAtUtc).ToListAsync();
     return Results.Text(string.Join("\n", messages.Select(x => $"[{x.CreatedAtUtc:O}] {x.Role}: {x.Content}")), "text/plain");
 });
@@ -207,9 +220,34 @@ app.MapPost("/api/internal/agent/runs/{runId:guid}/fail", async (Guid runId, Age
 app.MapPost("/api/internal/agent/tools/run-tests", async (AgentRunTestsRequest request, IHttpClientFactory factory, IConfiguration cfg, CancellationToken ct) => await RunTestsBridge(request, factory, cfg, ct));
 
 
-static async Task<IResult> SaveAttachment(Guid conversationId, HttpRequest request, AiDbContext db, CancellationToken ct)
+static Guid? CurrentUserId(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
+
+static bool IsEditorOrAdmin(HttpContext http)
+    => http.User?.Identity?.IsAuthenticated == true && TaskForgeRequestSecurity.HasAnyRole(http.User, "Admin", "Editor", "LearningEditor");
+
+static async Task<TaskForge.Ai.Api.Domain.AiConversation?> GetConversationForUser(Guid conversationId, HttpContext http, IConfiguration cfg, AiDbContext db, bool asNoTracking)
 {
-    var c = await db.Conversations.FindAsync(new object[] { conversationId }, ct);
+    var uid = CurrentUserId(http, cfg);
+    if (uid == null) return null;
+
+    var q = asNoTracking ? db.Conversations.AsNoTracking() : db.Conversations.AsQueryable();
+    var conversation = await q.FirstOrDefaultAsync(x => x.Id == conversationId);
+    if (conversation == null) return null;
+
+    // Old orphan conversations must not be auto-adopted by the first user who knows the id.
+    // Admin/editor can inspect them; normal users get no access until a migration assigns ownership.
+    if (conversation.UserId == null)
+    {
+        return IsEditorOrAdmin(http) ? conversation : null;
+    }
+
+    if (conversation.UserId == uid.Value || IsEditorOrAdmin(http)) return conversation;
+    return null;
+}
+
+static async Task<IResult> SaveAttachment(Guid conversationId, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct)
+{
+    var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
     if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
     var form = await request.ReadFormAsync(ct);
     var file = form.Files.FirstOrDefault();
@@ -231,9 +269,9 @@ static async Task<IResult> SaveAttachment(Guid conversationId, HttpRequest reque
     return Results.Ok(new { attachment = ToMessageDto(msg), queued = false });
 }
 
-static async Task<IResult> QueueAgentRun(Guid conversationId, string jobType, JsonElement payload, AiDbContext db)
+static async Task<IResult> QueueAgentRun(Guid conversationId, string jobType, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db)
 {
-    var c = await db.Conversations.FindAsync(conversationId);
+    var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
     if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
     var root = JsonNode.Parse(payload.GetRawText()) as JsonObject ?? new JsonObject();
     root["conversationId"] = conversationId.ToString();
@@ -251,10 +289,12 @@ static async Task<IResult> QueueAgentRun(Guid conversationId, string jobType, Js
     return Results.Ok(new { run = ToRunDto(run), queued = true });
 }
 
-static async Task<IResult> ApplyArtifact(Guid? runId, Guid artifactId, JsonElement payload, HttpRequest request, AiDbContext db, IHttpClientFactory factory, CancellationToken ct)
+static async Task<IResult> ApplyArtifact(Guid? runId, Guid artifactId, JsonElement payload, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, CancellationToken ct)
 {
     var artifact = await db.Artifacts.FirstOrDefaultAsync(x => x.Id == artifactId && (!runId.HasValue || x.RunId == runId.Value), ct);
     if (artifact == null) return Results.NotFound(new { message = "AI-артефакт не найден. Обновите диалог и попробуйте снова.", code = "AI_ARTIFACT_NOT_FOUND" });
+    var c = await GetConversationForUser(artifact.ConversationId, http, cfg, db, asNoTracking: true);
+    if (c == null) return Results.Json(new { message = "Нет доступа к этому AI-артефакту.", code = "AI_ARTIFACT_FORBIDDEN" }, statusCode: 403);
     var dryRun = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("dryRun", out var dry) && dry.ValueKind == JsonValueKind.True;
     var data = JsonNode.Parse(artifact.DataJson) as JsonObject ?? new JsonObject();
     if (dryRun) return Results.Ok(new { dryRun = true, artifact = ToArtifactDto(artifact), operations = InferApplyOperations(artifact.Type, data) });

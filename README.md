@@ -172,3 +172,7 @@ TASKFORGE_BUILD_DEBUG_LOGS: "1"
 
 This is build-time only. Deploy `.env` files do not switch debug logs anymore. To build quiet images, change the workflow switch to `"0"` or run `workflow_dispatch` with `debug_logs=0`. Details: `docs/operations/development-logging.md`.
 
+
+## Image-test v2 MinIO
+
+Image-test expected images are stored in MinIO/S3 via files-api. `TestsJson` stores only input/output/threshold/hidden metadata and image keys/URLs. See `IMAGE_TEST_V2_MINIO_UPDATE.md`.

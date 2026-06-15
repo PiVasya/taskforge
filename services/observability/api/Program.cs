@@ -404,11 +404,14 @@ static string ActivityDescription(PageView view, string category, string actionT
 static string UserLabel(UserSummaryDto? user)
 {
     var name = (user?.DisplayName ?? string.Empty).Trim();
-    if (!string.IsNullOrWhiteSpace(name)) return name;
+    if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
-    return string.IsNullOrWhiteSpace(user?.Email) ? "Пользователь" : user!.Email!.Trim();
+    var masked = (user?.MaskedEmail ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(masked)) return masked;
+    return "Пользователь";
 }
+static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
 static string NormalizeSearch(string? value) => string.Join(' ', (value ?? string.Empty).Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 static bool Contains(string? value, string term) => (value ?? string.Empty).Contains(term, StringComparison.OrdinalIgnoreCase);
 static bool IsError(PageView v) => v.StatusCode is >= 400;
@@ -524,6 +527,6 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }

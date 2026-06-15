@@ -170,11 +170,14 @@ static async Task<Dictionary<Guid, UserSummaryDto>> LoadUserSummariesAsync(IEnum
 static string UserLabel(UserSummaryDto? user)
 {
     var name = (user?.DisplayName ?? string.Empty).Trim();
-    if (!string.IsNullOrWhiteSpace(name)) return name;
+    if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
-    return string.IsNullOrWhiteSpace(user?.Email) ? "Пользователь" : user!.Email!.Trim();
+    var masked = (user?.MaskedEmail ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(masked)) return masked;
+    return "Пользователь";
 }
+static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
 
 public sealed record MinecraftConfirmRequest(string? Code, string? PlayerName, string? PlayerUuid);
 public sealed record MinecraftChatRequest(string? Author, string? Text);
@@ -192,7 +195,7 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }
 public sealed class MinecraftChatHub : Hub { }

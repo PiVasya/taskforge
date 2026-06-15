@@ -469,6 +469,16 @@ function buildImageTaskErrorText(err, fallbackMessage) {
 
 function imageReferenceUrlFromAssignment(assignment) {
   const tests = assignment?.tests || assignment?.testCases || {};
+  const arr = Array.isArray(tests) ? tests : Array.isArray(tests?.testCases) ? tests.testCases : Array.isArray(tests?.tests) ? tests.tests : Array.isArray(tests?.cases) ? tests.cases : [];
+  const firstImageCase = arr.find((t) => t && !t.isHidden && !t.hidden && (t.expectedImageUrl || t.referenceUrl || t.expectedImageKey || t.referenceKey || t.imageKey || t.expectedImageBase64 || t.referenceBase64 || t.imageBase64));
+  if (firstImageCase) {
+    const key = firstImageCase.expectedImageKey || firstImageCase.referenceKey || firstImageCase.imageKey || firstImageCase.imageTestReferenceKey;
+    if (firstImageCase.expectedImageUrl || firstImageCase.referenceUrl) return firstImageCase.expectedImageUrl || firstImageCase.referenceUrl;
+    if (key) return `/api/private-files/${encodeURIComponent(key)}`;
+    const base64 = firstImageCase.expectedImageBase64 || firstImageCase.referenceBase64 || firstImageCase.imageBase64;
+    const contentType = firstImageCase.expectedImageContentType || firstImageCase.referenceContentType || 'image/png';
+    return String(base64).startsWith('data:') ? base64 : `data:${contentType};base64,${base64}`;
+  }
   const base64 = tests?.referenceBase64 || assignment?.referenceBase64;
   if (base64) {
     const contentType = tests?.referenceContentType || assignment?.referenceContentType || 'image/png';
@@ -476,6 +486,12 @@ function imageReferenceUrlFromAssignment(assignment) {
   }
   const key = assignment?.imageTestReferenceKey || tests?.imageTestReferenceKey;
   return key ? `/api/private-files/${encodeURIComponent(key)}` : null;
+}
+
+function imageTestCasesFromAssignment(assignment) {
+  const tests = assignment?.tests || assignment?.testCases || {};
+  const arr = Array.isArray(tests) ? tests : Array.isArray(tests?.testCases) ? tests.testCases : Array.isArray(tests?.tests) ? tests.tests : Array.isArray(tests?.cases) ? tests.cases : [];
+  return Array.isArray(arr) ? arr : [];
 }
 
 function buildImageTaskResponseText(resp, fallbackMessage) {
@@ -519,7 +535,8 @@ function hasImageResultPayload(resp) {
       resp.pngBase64 ||
       resp.renderedUrl ||
       resp.submittedUrl ||
-      resp.actualUrl
+      resp.actualUrl ||
+      Array.isArray(resp.cases)
     )
   );
 }
@@ -599,7 +616,7 @@ export default function AssignmentSolvePage() {
 
     
     if (String(a?.type || '').trim() === 'image-test') {
-      return parsed.length > 0 ? parsed : ['pascal', 'cpp'];
+      return parsed.length > 0 ? parsed : ['python', 'pascal', 'cpp'];
     }
 
     return parsed;
@@ -982,6 +999,29 @@ export default function AssignmentSolvePage() {
                     </div>
                   ) : null}
 
+                  {(c.referenceUrl || c.ReferenceUrl || c.expectedUrl || c.submittedUrl || c.SubmittedUrl || c.actualUrl) ? (
+                    <div className="grid sm:grid-cols-2 gap-3 my-3">
+                      {(c.referenceUrl || c.ReferenceUrl || c.expectedUrl) ? (
+                        <div>
+                          <div className="text-xs text-neutral-500 mb-1">Ожидаемая картинка</div>
+                          <img className="max-h-56 rounded-xl border border-white/10 bg-white object-contain" src={c.referenceUrl || c.ReferenceUrl || c.expectedUrl} alt={`expected-${i + 1}`} />
+                        </div>
+                      ) : null}
+                      {(c.submittedUrl || c.SubmittedUrl || c.actualUrl) ? (
+                        <div>
+                          <div className="text-xs text-neutral-500 mb-1">Полученная картинка</div>
+                          <img className="max-h-56 rounded-xl border border-white/10 bg-white object-contain" src={c.submittedUrl || c.SubmittedUrl || c.actualUrl} alt={`actual-${i + 1}`} />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {typeof (c.similarityPercent ?? c.SimilarityPercent ?? c.similarity) === 'number' ? (
+                    <div className="mb-2 text-xs text-neutral-400">
+                      Схожесть: {Math.round(c.similarityPercent ?? c.SimilarityPercent ?? c.similarity)}% · порог: {Math.round(c.thresholdPercent ?? c.ThresholdPercent ?? c.threshold ?? 0)}%
+                    </div>
+                  ) : null}
+
                   {errorText && !casePolicy ? (
                     <div>
                       <div className="text-xs text-neutral-500 mb-1">Ошибки</div>
@@ -1134,8 +1174,10 @@ export default function AssignmentSolvePage() {
   
   if (a.type === 'image-test') {
     const expectedUrl = imageReferenceUrlFromAssignment(a);
+    const configuredImageCases = imageTestCasesFromAssignment(a);
+    const hasConfiguredImageCases = configuredImageCases.some((t) => t?.hasExpectedImage || t?.expectedImageUrl || t?.referenceUrl || t?.expectedImageKey || t?.referenceKey || t?.imageKey || t?.expectedImageBase64 || t?.referenceBase64 || t?.imageBase64);
 
-    const imageLangs = langsForSelect.filter((l) => ['pascal', 'cpp'].includes(l.value));
+    const imageLangs = langsForSelect.filter((l) => ['python', 'pascal', 'cpp'].includes(l.value));
 
     const openImageResultsUrl = (url) => {
       try {
@@ -1183,8 +1225,8 @@ export default function AssignmentSolvePage() {
         notify.warn('Введите код перед отправкой');
         return;
       }
-      if (!expectedUrl) {
-        setImgError('Эталонная картинка не настроена. Загрузите эталон в режиме редактирования задания.');
+      if (!expectedUrl && !hasConfiguredImageCases) {
+        setImgError('Image-тесты не настроены. В режиме редактирования добавьте Input, Expected output и Expected image.');
         return;
       }
 
@@ -1290,6 +1332,10 @@ export default function AssignmentSolvePage() {
                     className="w-full max-h-[70vh] object-contain"
                   />
                 </div>
+              ) : hasConfiguredImageCases ? (
+                <div className="text-neutral-500">
+                  Эталонная картинка настроена, но скрыта от ученика. Проверка всё равно выполнит сравнение по картинке.
+                </div>
               ) : (
                 <div className="text-neutral-500">
                   Эталонная картинка не настроена. Открой «Редактировать» и нажми «Загрузить эталон».
@@ -1315,7 +1361,7 @@ export default function AssignmentSolvePage() {
                     ))}
                   </Select>
                   <div className="text-xs text-neutral-500 mt-1">
-                    Для image-test доступны Pascal и C++. Для C++ runner сам пытается снять скрин окна программы.
+                    Для image-test доступны Python Turtle/matplotlib, Pascal GraphABC, C++ GLUT и C++ Turtle. Runner принимает stdin и сравнивает stdout + картинку.
                   </div>
                 </div>
 
@@ -1339,7 +1385,7 @@ export default function AssignmentSolvePage() {
                     placeholder={language === 'cpp' ? 'Если программа читает stdin, введи данные сюда' : 'Необязательно. Можно оставить пустым.'}
                     className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
                   />
-                  <div className="text-xs text-neutral-500 mt-1">Для C++ можно оставить пустым. Раннер сам пытается снять скрин окна; если программа читает stdin, эти данные будут переданы в неё.</div>
+                  <div className="text-xs text-neutral-500 mt-1">Эти данные передаются в stdin при пробном запуске. При отправке используются input-ы из тестов задания, если они настроены.</div>
                 </div>
 
                 {imgError ? (
@@ -1454,7 +1500,7 @@ export default function AssignmentSolvePage() {
             <Button
               className="w-full"
               onClick={onSubmitImageTest}
-              disabled={imgBusy || !code.trim() || !expectedUrl}
+              disabled={imgBusy || !code.trim() || (!expectedUrl && !hasConfiguredImageCases)}
             >
               {imgBusy ? 'Отправка...' : 'Отправить (сравнение)'}
             </Button>

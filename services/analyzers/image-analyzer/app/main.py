@@ -112,10 +112,10 @@ async def compare(
 
     r = _comparator.compare(exp_b, act_b)
 
-    passed = r.clip_similarity >= threshold
+    passed = r.combined_similarity >= threshold
     if taskforge_debug_logs_enabled():
         logger.info(
-            "[TFDBG IMAGE COMPARE RESULT] service=image-analyzer passed=%s threshold=%.4f clip=%.6f phash=%.6f combined=%.6f model=%s device=%s",
+            "[TFDBG IMAGE COMPARE RESULT] service=image-analyzer passed=%s metric=combined_similarity threshold=%.4f clip=%.6f phash=%.6f combined=%.6f model=%s device=%s",
             passed,
             threshold,
             r.clip_similarity,
@@ -131,6 +131,7 @@ async def compare(
         "clip_similarity": round(r.clip_similarity, 6),
         "phash_similarity": round(r.phash_similarity, 6),
         "combined_similarity": round(r.combined_similarity, 6),
+        "metric_used": "combined_similarity",
         "model": r.model,
         "device": _comparator.device_name,
     }

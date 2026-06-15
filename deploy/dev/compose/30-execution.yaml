@@ -82,6 +82,7 @@ services:
       CodeAnalyzer__FailClosed: ${CODE_ANALYZER_FAIL_CLOSED:-true}
       CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}
       Runners__ImagePascal: http://image-pascal-runner:8000
+      Runners__ImagePython: http://image-python-runner:8000
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Redis__ConnectionString: redis:6379,abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -117,6 +118,8 @@ services:
       image-cpp-runner:
         condition: service_healthy
       image-pascal-runner:
+        condition: service_healthy
+      image-python-runner:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -297,6 +300,27 @@ services:
     networks: *id004
     build:
       context: ../../../services/execution/runners/image-pascal-runner
+      dockerfile: Dockerfile
+    expose:
+    - '8000'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+  image-python-runner:
+    security_opt: *id001
+    cap_drop: *id002
+    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
+    read_only: true
+    tmpfs: *id003
+    networks: *id004
+    build:
+      context: ../../../services/execution/runners/image-python-runner
       dockerfile: Dockerfile
     expose:
     - '8000'

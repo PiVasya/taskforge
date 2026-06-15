@@ -97,6 +97,15 @@ services:
     build:
       context: ../../../services/analyzers/image-analyzer
       dockerfile: Dockerfile
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    read_only: true
+    pids_limit: ${IMAGE_ANALYZER_PIDS_LIMIT:-128}
+    mem_limit: ${IMAGE_ANALYZER_MEM_LIMIT:-3g}
+    tmpfs:
+    - /tmp:size=${IMAGE_ANALYZER_TMPFS_SIZE:-512m},mode=1777,exec
     expose:
     - '8080'
     healthcheck:

@@ -45,8 +45,10 @@ RUN mkdir -p /tmp/mono-registry/LocalMachine
 
 WORKDIR /app
 COPY --from=build /out/image-runner /app/image-runner
+ENV HOME=/tmp
 ENV IMAGE_RUNNER_KIND=pascal PORT=8000
 EXPOSE 8000
 ARG TASKFORGE_DEBUG_LOGS=0
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
+USER 65534:65534
 ENTRYPOINT ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-pascal-runner\"; export TF_LOG_LEVEL=debug; export RUST_LOG=\"${RUST_LOG:-debug}\"; else echo \"[taskforge-debug] logs=off service=image-pascal-runner\"; export TF_LOG_LEVEL=info; export RUST_LOG=\"${RUST_LOG:-info}\"; fi; exec /app/image-runner"]

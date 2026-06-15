@@ -1,39 +1,18 @@
-# TaskForge Files API
+# files-api
 
-Owns `taskforge_files` and stores file bytes in MinIO/S3-compatible object storage.
+MinIO/S3-backed file service.
 
-## Endpoints
+## Security model
 
-- `POST /api/files/images` — upload editor image; JWT required.
-- `GET /api/files/{key}` — public read endpoint for editor images, matching legacy monolith behavior.
-- `GET /api/private-files/{key}` — private read endpoint; JWT required.
-- `GET /api/files` — list recent file metadata; JWT required.
+- `POST /api/files/images` — authenticated image upload. Normal users may upload only to `editor-images/`; editor/admin can upload private image-test references.
+- `POST /api/internal/files/images` — internal upload for services/workers, protected by `X-Internal-Key`.
+- `GET /api/files/{key}` — public read endpoint **only** for public prefixes (`editor-images/`, `public/`). It intentionally returns 404 for judge/private prefixes such as `image-tests/`.
+- `GET /api/private-files/{key}` — authenticated private read endpoint. Editors/admins can read all; normal users can read their own `image-tests/submissions/{assignmentId}/{userId}/...` artifacts. `image-tests/reference/` is editor/admin only.
+- `GET /api/internal/files/{key}` — internal read endpoint for services/workers, protected by `X-Internal-Key`.
+- `GET /api/files` — editor/admin metadata list only.
 
-## Storage
+## Upload validation
 
-Required configuration:
+User-facing image uploads are limited by `Files__MaxUploadBytes` / `FILES_MAX_UPLOAD_BYTES` and default to 10 MB. The service validates raster image magic bytes and intentionally rejects SVG for user uploads.
 
-```text
-S3__Endpoint=http://minio:9000
-S3__AccessKey=taskforge
-S3__SecretKey=...
-S3__Bucket=taskforge-files
-S3__Region=us-east-1
-S3__UsePathStyle=true
-```
-
-The service creates the bucket automatically when possible.
-
-## Error response format
-
-Errors include a stage field to show where the failure happened:
-
-```json
-{
-  "status": 503,
-  "code": "MINIO_PUT_OBJECT_FAILED",
-  "stage": "storage.put_object",
-  "message": "MinIO принял подключение, но не смог сохранить объект.",
-  "detail": "..."
-}
-```
+This is still a hotfix-level ACL model. Full object-level ownership checks for `agent-conversations/` should later be delegated to `ai-api` or backed by shared metadata/ACL records.

@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +44,7 @@ app.MapGet("/api/solutions/api/schema-owner", () => Results.Ok(new { database = 
 
 app.MapPost("/api/assignments/{assignmentId:guid}/submit", async (Guid assignmentId, SubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
 {
+    if (CheckUserRateLimit(http, "solution-submit") is { } limited) return limited;
     var userId = CurrentUserId(http, cfg);
     if (userId == null) return Unauthorized();
     var canRevealHidden = IsEditor(http, cfg);
@@ -51,6 +54,15 @@ app.MapPost("/api/assignments/{assignmentId:guid}/submit", async (Guid assignmen
     if (string.IsNullOrWhiteSpace(code))
     {
         return Problem(400, "SOLUTION_CODE_REQUIRED", "solutions.validation", "Нельзя отправить пустое решение.");
+    }
+
+    if (!canRevealHidden)
+    {
+        var access = await LoadAssignmentAccessAsync(assignmentId, userId.Value, cfg, httpFactory, ct);
+        if (access?.CanSubmit != true)
+        {
+            return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        }
     }
 
     var sub = new SolutionSubmission
@@ -171,8 +183,18 @@ app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid ass
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
 
+    var isEditor = IsEditor(http, cfg);
+    if (!isEditor)
+    {
+        var access = await LoadAssignmentAccessAsync(assignmentId, uid.Value, cfg, httpFactory, ct);
+        if (access?.CanView != true)
+        {
+            return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        }
+    }
+
     var limit = Math.Clamp(top, 1, 100);
-    var canViewCode = IsEditor(http, cfg) || await db.Submissions.AsNoTracking().AnyAsync(x => x.AssignmentId == assignmentId && x.UserId == uid.Value && x.Status == "Accepted", ct);
+    var canViewCode = isEditor || await db.Submissions.AsNoTracking().AnyAsync(x => x.AssignmentId == assignmentId && x.UserId == uid.Value && x.Status == "Accepted", ct);
     var rows = await db.Submissions.AsNoTracking()
         .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted")
         .OrderByDescending(x => x.Score)
@@ -295,6 +317,15 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
 {
     var uid = CurrentUserId(http, cfg);
     if (uid == null) return Unauthorized();
+
+    if (courseId.HasValue && !IsEditor(http, cfg))
+    {
+        var courseAccess = await LoadCourseAccessAsync(courseId.Value, uid.Value, cfg, httpFactory, ct);
+        if (courseAccess?.CanView != true)
+        {
+            return Results.Json(new { message = "Нет доступа к рейтингу этого курса.", code = "COURSE_FORBIDDEN" }, statusCode: 403);
+        }
+    }
 
     Guid[]? groupUserIds = null;
     if (groupId.HasValue)
@@ -524,7 +555,7 @@ app.MapGet("/api/me/image-solutions", async (HttpContext http, IConfiguration cf
         q = q.Where(x => x.CreatedAt >= since);
     }
     var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200)).ToListAsync();
-    return Results.Ok(rows.Select(x => ImageDto(x)).ToList());
+    return Results.Ok(rows.Select(x => ImageDto(x, includeReference: false)).ToList());
 });
 app.MapGet("/api/me/image-solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
 {
@@ -533,9 +564,9 @@ app.MapGet("/api/me/image-solutions/{id:guid}", async (Guid id, HttpContext http
     var row = await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
     if (row == null) return Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" });
     if (row.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "IMAGE_SOLUTION_FORBIDDEN" }, statusCode: 403);
-    return Results.Ok(ImageDto(row));
+    return Results.Ok(ImageDto(row, includeReference: false));
 });
-app.MapGet("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } row ? Results.Ok(ImageDto(row)) : Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" }));
+app.MapGet("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } row ? Results.Ok(ImageDto(row, includeReference: true)) : Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" }));
 app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
 {
     var q = db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId);
@@ -546,7 +577,7 @@ app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId,
         q = q.Where(x => x.CreatedAt >= since);
     }
     var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200)).ToListAsync();
-    return Results.Ok(rows.Select(x => ImageDto(x)).ToList());
+    return Results.Ok(rows.Select(x => ImageDto(x, includeReference: true)).ToList());
 });
 app.MapPost("/api/internal/image-solutions", async (InternalImageSolutionRequest request, SolutionsDbContext db, CancellationToken ct) =>
 {
@@ -569,11 +600,21 @@ app.MapPost("/api/internal/image-solutions", async (InternalImageSolutionRequest
     };
     db.ImageSolutions.Add(row);
     await db.SaveChangesAsync(ct);
-    return Results.Ok(ImageDto(row));
+    return Results.Ok(ImageDto(row, includeReference: false));
 });
 app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var row = await db.ImageSolutions.FindAsync(id); if (row == null) return Results.NotFound(); db.ImageSolutions.Remove(row); await db.SaveChangesAsync(); return Results.NoContent(); });
 
 app.Run();
+
+static IResult? CheckUserRateLimit(HttpContext http, string bucket)
+{
+    var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
+    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var key = $"{bucket}:{userId}:{ip}";
+    if (TaskForgeApiRateLimiters.Allow(bucket, key)) return null;
+    return Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
+}
+
 
 static async Task<JudgeSpec?> LoadJudgeSpecAsync(Guid assignmentId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
 {
@@ -853,6 +894,16 @@ static void AddInternalKey(HttpRequestMessage msg, IConfiguration cfg)
     if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
 }
 
+static async Task<AssignmentAccessDto?> LoadAssignmentAccessAsync(Guid assignmentId, Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    return await GetInternalAsync<AssignmentAccessDto>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), $"/api/internal/assignments/{assignmentId:D}/access/{userId:D}", ct);
+}
+
+static async Task<CourseAccessDto?> LoadCourseAccessAsync(Guid courseId, Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+{
+    return await GetInternalAsync<CourseAccessDto>(httpFactory, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId:D}/access/{userId:D}", ct);
+}
+
 static async Task<Dictionary<Guid, AssignmentMetadata>> LoadAssignmentMetadataAsync(IEnumerable<Guid> assignmentIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
 {
     var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
@@ -957,19 +1008,18 @@ static string NormalizeSearch(string? value) => string.Join(' ', (value ?? strin
 static string UserLabel(UserSummaryDto? user)
 {
     var name = (user?.DisplayName ?? string.Empty).Trim();
-    if (!string.IsNullOrWhiteSpace(name)) return name;
+    if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
-    var email = (user?.Email ?? string.Empty).Trim();
-    if (!string.IsNullOrWhiteSpace(email)) return email;
     var masked = (user?.MaskedEmail ?? string.Empty).Trim();
     if (!string.IsNullOrWhiteSpace(masked)) return masked;
     return "Пользователь";
 }
-static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.Email} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
+static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
+static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
 static int UserSummarySearchScore(UserSummaryDto? user, Guid id, string query)
 {
-    var values = new[] { id.ToString(), user?.Email, user?.MaskedEmail, user?.DisplayName, user?.FirstName, user?.LastName }
+    var values = new[] { id.ToString(), user?.MaskedEmail, user?.DisplayName, user?.FirstName, user?.LastName }
         .Select(NormalizeSearch)
         .Where(x => !string.IsNullOrWhiteSpace(x))
         .ToArray();
@@ -1176,9 +1226,10 @@ static bool JsonBool(JsonObject obj, string name)
 
 static object ToSubmitDto(SolutionSubmission x, bool includeSensitiveResult = false) => ToDto(x, includeSensitiveResult);
 static object BadgeDto(Badge x) => new { x.Id, x.Name, x.Description, x.ImageUrl, x.CreatedAt };
-static object ImageDto(UserImageTaskSolution x)
+static object ImageDto(UserImageTaskSolution x, bool includeReference = false)
 {
     var result = ParseJsonElement(x.ResultJson);
+    if (!includeReference) result = SanitizeImageResult(result);
     var similarity = TryReadNumber(result, "similarityPercent") ?? TryReadNumber(result, "similarity") ?? x.SimilarityPercent;
     var threshold = TryReadNumber(result, "thresholdPercent") ?? TryReadNumber(result, "threshold");
     return new
@@ -1193,7 +1244,7 @@ static object ImageDto(UserImageTaskSolution x)
         thresholdPercent = threshold,
         x.Passed,
         result = result.HasValue ? (object)result.Value : null,
-        referenceUrl = TryReadString(result, "referenceUrl") ?? TryReadString(result, "expectedUrl"),
+        referenceUrl = includeReference ? TryReadString(result, "referenceUrl") ?? TryReadString(result, "expectedUrl") : null,
         submittedUrl = TryReadString(result, "submittedUrl") ?? TryReadString(result, "actualUrl") ?? TryReadString(result, "renderedUrl"),
         stdout = TryReadString(result, "stdout"),
         stderr = TryReadString(result, "stderr"),
@@ -1203,6 +1254,36 @@ static object ImageDto(UserImageTaskSolution x)
         submittedAt = x.CreatedAt
     };
 }
+static JsonElement? SanitizeImageResult(JsonElement? result)
+{
+    if (!result.HasValue) return null;
+    try
+    {
+        var node = JsonNode.Parse(result.Value.GetRawText());
+        RemoveReferenceFields(node);
+        return JsonSerializer.SerializeToElement(node, JsonOptions());
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static void RemoveReferenceFields(JsonNode? node)
+{
+    if (node is JsonArray arr)
+    {
+        foreach (var item in arr) RemoveReferenceFields(item);
+        return;
+    }
+    if (node is not JsonObject obj) return;
+    foreach (var key in new[] { "referenceUrl", "ReferenceUrl", "expectedUrl", "ExpectedUrl", "expectedImageUrl", "expectedImageKey", "referenceKey", "imageTestReferenceKey", "expectedImageBase64", "referenceBase64", "imageBase64" })
+    {
+        obj.Remove(key);
+    }
+    foreach (var item in obj.ToList()) RemoveReferenceFields(item.Value);
+}
+
 static object? ParseJson(string? json) => ParseJsonElement(json);
 static JsonElement? ParseJsonElement(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { using var doc = JsonDocument.Parse(json); return doc.RootElement.Clone(); } catch { return null; } }
 static string? TryReadString(JsonElement? element, string name)
@@ -1246,6 +1327,8 @@ static (int passed, int failed, int total) CountCases(JsonElement? element)
 static JsonSerializerOptions JsonOptions() => new(JsonSerializerDefaults.Web) { WriteIndented = false };
 public sealed record AssignmentMetadata(Guid AssignmentId, Guid CourseId, string Title, string CourseTitle, int Rating);
 public sealed record LeaderboardActivityRow(Guid UserId, Guid AssignmentId, int Rating, DateTimeOffset SubmittedAt, string Kind);
+public sealed record AssignmentAccessDto(Guid AssignmentId, Guid CourseId, Guid UserId, bool CanView, bool CanSubmit, bool IsVisible, bool CanEdit);
+public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic);
 public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
 public sealed record UserIdsRequest(Guid[]? UserIds);
@@ -1285,7 +1368,7 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
-        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Email ?? MaskedEmail;
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }
 public sealed class GroupMembersResponse
@@ -1311,3 +1394,36 @@ public sealed record JudgeRunResult(string Verdict, int Score, bool PassedAllTes
 public sealed record BadgeUserRequest(Guid UserId, Guid BadgeId);
 
 public sealed record QuotaView(string bucket, int remaining, int capacity, int retryAfterSeconds, DateTimeOffset nextRefillAtUtc, bool allowed);
+
+
+internal static class TaskForgeApiRateLimiters
+{
+    private static readonly SlidingWindowRateLimiter Limiter = new();
+    public static bool Allow(string bucket, string key)
+    {
+        var (limit, window) = bucket switch
+        {
+            "solution-submit" => (30, TimeSpan.FromMinutes(5)),
+            _ => (60, TimeSpan.FromMinutes(1))
+        };
+        return Limiter.Allow(key, limit, window);
+    }
+}
+
+internal sealed class SlidingWindowRateLimiter
+{
+    private readonly ConcurrentDictionary<string, Queue<long>> _hits = new();
+    public bool Allow(string key, int limit, TimeSpan window)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var min = now - (long)window.TotalMilliseconds;
+        var queue = _hits.GetOrAdd(key, _ => new Queue<long>());
+        lock (queue)
+        {
+            while (queue.Count > 0 && queue.Peek() < min) queue.Dequeue();
+            if (queue.Count >= limit) return false;
+            queue.Enqueue(now);
+            return true;
+        }
+    }
+}

@@ -197,6 +197,7 @@ static string? RunnerService(string lang, bool image) => (lang, image) switch
     ("pascal", false) => "pascal-runner",
     ("cpp", true) => "image-cpp-runner",
     ("pascal", true) => "image-pascal-runner",
+    ("python", true) => "image-python-runner",
     _ => null
 };
 
