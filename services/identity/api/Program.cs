@@ -200,6 +200,15 @@ app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http
 {
     var user = await FindCurrentUserAsync(http, db, cfg);
     if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
+
+    if (request.Login != null)
+    {
+        var login = NormalizeLogin(request.Login);
+        if (!IsValidLogin(login, out var loginMessage)) return Results.BadRequest(new { message = loginMessage });
+        if (await db.Users.AnyAsync(x => x.Login == login && x.Id != user.Id)) return Results.BadRequest(new { message = "Логин уже занят" });
+        user.Login = login;
+    }
+
     user.FirstName = (request.FirstName ?? user.FirstName).Trim();
     user.LastName = (request.LastName ?? user.LastName).Trim();
     if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
@@ -1161,7 +1170,7 @@ static void ClearAuthCookies(HttpContext http)
 
 public sealed record RegisterRequest(string? Login, string? Email, string? Password, string? FirstName, string? LastName, string? PhoneNumber, string? AdditionalDataJson);
 public sealed record LoginRequest(string? Login, string? Email, string? Password);
-public sealed record ProfileUpdateRequest(string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? AdditionalDataJson);
+public sealed record ProfileUpdateRequest(string? Login, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? AdditionalDataJson);
 public sealed record PublicProfileExtra(
     bool PublicProfileEnabled,
     string? Bio,

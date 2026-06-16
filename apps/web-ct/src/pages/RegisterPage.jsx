@@ -158,6 +158,8 @@ export default function RegisterPage() {
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         autoComplete="new-password"
+                                        minLength={8}
+                                        placeholder="Минимум 8 символов"
                                     />
                                 </Field>
                                 <Field label="Повторите пароль">
@@ -166,32 +168,41 @@ export default function RegisterPage() {
                                         value={password2}
                                         onChange={(e) => setPassword2(e.target.value)}
                                         autoComplete="new-password"
+                                        minLength={8}
+                                        placeholder="Повторите пароль"
                                     />
                                 </Field>
                             </div>
                         </div>
                     </Card>
 
-                    <Card className="p-0 overflow-hidden">
+                    <Card className="p-0 overflow-hidden border border-dashed border-neutral-300 dark:border-neutral-700">
                         <button
                             type="button"
                             className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
                             onClick={() => setShowExtra((v) => !v)}
+                            aria-expanded={showExtra}
                         >
                             <div>
-                                <div className="font-semibold">Дополнительная информация</div>
+                                <div className="font-semibold">{showExtra ? "Скрыть дополнительную информацию" : "Открыть дополнительную информацию"}</div>
                                 <div className="text-sm text-neutral-500 dark:text-neutral-400">
-                                    Не обязательно. Можно сразу указать почту, место учёбы, группу и навыки.
+                                    Отдельное необязательное окно ниже: email, телефон, место учёбы, группа, навыки и короткое описание.
                                 </div>
                             </div>
-                            <ChevronDown
-                                size={18}
-                                className={`shrink-0 transition-transform ${showExtra ? "rotate-180" : ""}`}
-                            />
+                            <div className="flex items-center gap-2 text-sm text-[rgb(var(--accent))]">
+                                <span>{showExtra ? "Свернуть" : "Заполнить позже или сейчас"}</span>
+                                <ChevronDown
+                                    size={18}
+                                    className={`shrink-0 transition-transform ${showExtra ? "rotate-180" : ""}`}
+                                />
+                            </div>
                         </button>
 
                         {showExtra && (
-                            <div className="border-t border-neutral-200 dark:border-neutral-800 px-6 py-5 grid gap-4">
+                            <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 px-6 py-5 grid gap-4 dark:bg-neutral-900/30">
+                                <div className="rounded-2xl border border-neutral-200 bg-white p-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950/40 dark:text-neutral-400">
+                                    Эти поля не блокируют регистрацию. Их можно изменить позже после входа в аккаунт.
+                                </div>
                                 <div className="grid sm:grid-cols-2 gap-4">
                                     <Field label="Email (не обязательно)">
                                         <Input

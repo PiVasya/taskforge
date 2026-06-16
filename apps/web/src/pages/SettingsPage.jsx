@@ -29,6 +29,7 @@ import { parseProfileExtra, buildProfileExtra } from "../utils/profileExtra";
 import PublicProfileCard from "../components/profile/PublicProfileCard";
 
 const LS_KEY = "uiSettings";
+const LOGIN_RE = /^[a-zA-Z0-9_.-]{3,64}$/;
 
 const SECTIONS = [
   { key: "appearance", title: "Внешний вид" },
@@ -124,6 +125,8 @@ function displayName(profile) {
   const last = String(profile?.lastName || "").trim();
   const full = [last, first].filter(Boolean).join(" ");
   if (full) return full;
+  const login = String(profile?.login || "").trim();
+  if (login) return login;
   const email = String(profile?.email || "").trim();
   return email ? maskEmail(email) : "Пользователь";
 }
@@ -133,6 +136,8 @@ function initials(profile) {
   const last = String(profile?.lastName || "").trim();
   const value = `${last ? last[0] : ""}${first ? first[0] : ""}`.trim();
   if (value) return value.toUpperCase();
+  const login = String(profile?.login || "").trim();
+  if (login) return login[0].toUpperCase();
   const email = String(profile?.email || "").trim();
   return email ? email[0].toUpperCase() : "TF";
 }
@@ -313,8 +318,8 @@ function MiniProfilePreview({ profile, extra, compact = false }) {
           >
             {name}
           </div>
-          <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-            Почта скрыта
+          <div className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
+            @{profile?.login || "login"}
           </div>
           <div className="mt-2 inline-flex rounded-full border border-[rgba(var(--border)/0.65)] px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
             {profileRole(profile)}
@@ -445,7 +450,11 @@ export default function SettingsPage() {
   );
 
   const profileId = profile?.id ?? profile?.userId ?? null;
+  const profileLogin = String(profile?.login || "").trim();
+  const profileLoginLooksOk = LOGIN_RE.test(profileLogin);
+  const hasInvalidProfileLogin = !!profile && !profileLoginLooksOk;
   const hasChanges = uiDirty || profileDirty;
+  const canSave = hasChanges && !hasInvalidProfileLogin;
 
   const fxOptions = useMemo(
     () => [
@@ -638,6 +647,10 @@ export default function SettingsPage() {
 
   const save = async () => {
     if (!hasChanges || saving) return;
+    if (hasInvalidProfileLogin) {
+      notify.error("Логин должен быть от 3 до 64 символов: латинские буквы, цифры, точка, дефис или подчёркивание.");
+      return;
+    }
     setSaving(true);
     try {
       if (uiDirty) {
@@ -657,6 +670,7 @@ export default function SettingsPage() {
 
       if (profileDirty && profile) {
         const updated = await updateProfile({
+          login: profileLogin,
           firstName: profile.firstName || "",
           lastName: profile.lastName || "",
           phoneNumber: profile.phoneNumber || "",
@@ -1087,7 +1101,29 @@ export default function SettingsPage() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <Card className="p-4 space-y-5">
+            <div>
+              <div className="font-semibold">Основные данные</div>
+              <div className="text-sm text-neutral-500 dark:text-neutral-400">
+                Логин используется для входа и отображается в админке. После смены можно входить по новому логину или по email.
+              </div>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="text-sm text-neutral-500 dark:text-neutral-400">
+                  Логин
+                </label>
+                <Input
+                  value={profile.login || ""}
+                  onChange={(e) => setProfileField("login", e.target.value)}
+                  autoComplete="username"
+                  placeholder="krytoichel"
+                />
+                <div className={`mt-1 text-xs ${profileLoginLooksOk ? "text-neutral-500 dark:text-neutral-400" : "text-red-500"}`}>
+                  От 3 до 64 символов: латинские буквы, цифры, точка, дефис или подчёркивание.
+                </div>
+              </div>
+
               <div>
                 <label className="text-sm text-neutral-500 dark:text-neutral-400">
                   Имя
@@ -1260,6 +1296,7 @@ export default function SettingsPage() {
             <div className="font-semibold text-neutral-900 dark:text-neutral-100">
               Аккаунт
             </div>
+            <div>Логин: @{profile.login || "—"}</div>
             <div>Создан: {formatDate(profile.createdAt)}</div>
             <div>Последний вход: {formatDate(profile.lastLoginAt)}</div>
             {profileDirty ? (
@@ -1717,7 +1754,7 @@ export default function SettingsPage() {
             <div className="sticky bottom-4 z-10 mt-5 flex justify-end pointer-events-none">
               <Button
                 onClick={save}
-                disabled={saving || !hasChanges}
+                disabled={saving || !canSave}
                 className="pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55"
               >
                 {saving
