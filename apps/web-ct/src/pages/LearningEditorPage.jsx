@@ -411,9 +411,7 @@ export default function LearningEditorPage() {
               <ArrowLeft size={16} /> Открыть {normalizedSectionCode} как ученик
             </Link>
             <h1 className="mt-3 text-3xl font-bold tracking-tight md:text-5xl">Редактор ЦТ/ЦЭ: {normalizedSectionCode}</h1>
-            <p className="mt-2 max-w-3xl text-neutral-600 dark:text-neutral-300">
-              Теперь редактор работает как ученическая страница: выбираешь номер, редактор ищет конспект по subjectCode, examCode и sectionCode, а не открывает случайный корень дерева.
-            </p>
+
           </div>
           <div className="rounded-3xl border border-neutral-200 bg-white p-4 text-sm shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
             <div className="mb-1 font-semibold">Что редактируется</div>
@@ -472,9 +470,7 @@ export default function LearningEditorPage() {
                     <FileText size={16} /> {normalizedSectionCode} · HTML-конспект
                   </div>
                   <h2 className="mt-1 text-2xl font-bold tracking-tight">Конспект номера</h2>
-                  <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-                    Список ниже загружен тем же способом, что и страница ученика: по sectionCode {normalizedSectionCode}.
-                  </p>
+
                 </div>
                 <button type="button" onClick={() => startNewConspect(sectionCourse)} className="btn-outline inline-flex items-center gap-2">
                   <Plus size={16} /> Новый конспект
@@ -511,39 +507,39 @@ export default function LearningEditorPage() {
               ) : null}
 
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Название конспекта" required hint="Именно этот заголовок увидит ученик.">
+                <Field label="Название конспекта" required>
                   <Input value={conspectForm.title} onChange={(e) => setConspect('title', e.target.value)} />
                 </Field>
-                <Field label="Slug" required hint="Адрес конспекта внутри БД. Страница ученика всё равно открывается по /a1, /a2 и т.п.">
+                <Field label="Slug" required>
                   <Input value={conspectForm.slug} onChange={(e) => setConspect('slug', e.target.value)} />
                 </Field>
-                <Field label="Подзаголовок" hint="Например: Конспект, Алгоритм, Словарь.">
+                <Field label="Подзаголовок">
                   <Input value={conspectForm.subtitle} onChange={(e) => setConspect('subtitle', e.target.value)} />
                 </Field>
-                <Field label="Минуты" hint="Примерное время чтения.">
+                <Field label="Минуты">
                   <Input type="number" value={conspectForm.estimatedMinutes} onChange={(e) => setConspect('estimatedMinutes', e.target.value)} />
                 </Field>
-                <Field label="Код предмета" hint="Должен совпадать с просмотром.">
+                <Field label="Код предмета">
                   <Input value={conspectForm.subjectCode} onChange={(e) => setConspect('subjectCode', e.target.value)} />
                 </Field>
-                <Field label="Код экзамена" hint="Должен совпадать с просмотром.">
+                <Field label="Код экзамена">
                   <Input value={conspectForm.examCode} onChange={(e) => setConspect('examCode', e.target.value)} />
                 </Field>
-                <Field label="Код раздела" required hint="Главная связь со страницей ученика. Для A1 должно быть A1.">
+                <Field label="Код раздела" required>
                   <Input value={conspectForm.sectionCode} onChange={(e) => setConspect('sectionCode', normalizeSectionCode(e.target.value) || e.target.value)} />
                 </Field>
                 <label className="flex items-center gap-2 pt-7">
                   <input type="checkbox" checked={conspectForm.isPublished} onChange={(e) => setConspect('isPublished', e.target.checked)} />
                   <span className="text-sm font-semibold">Опубликован</span>
-                  <span className="text-xs text-neutral-500">виден ученику</span>
+
                 </label>
                 <div className="md:col-span-2">
-                  <Field label="Краткое описание" hint="Покажется над HTML-конспектом.">
+                  <Field label="Краткое описание">
                     <Textarea rows={3} value={conspectForm.lead} onChange={(e) => setConspect('lead', e.target.value)} />
                   </Field>
                 </div>
                 <div className="md:col-span-2">
-                  <Field label="Бейджи" hint="Через запятую: A1, орфография, ЦТ/ЦЭ. Это не JSON.">
+                  <Field label="Бейджи">
                     <Input value={conspectForm.badgesText} onChange={(e) => setConspect('badgesText', e.target.value)} />
                   </Field>
                 </div>
@@ -553,19 +549,14 @@ export default function LearningEditorPage() {
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2 font-semibold"><Code2 size={18} /> HTML конспекта</div>
-                    <div className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                      Это поле сохраняется в LearningConspect.ContentJson как mode=html. Именно его читает /{normalizedSectionCode.toLowerCase()}.
-                    </div>
+
                   </div>
                   <button type="button" onClick={() => setShowPreview((v) => !v)} className="btn-outline inline-flex items-center gap-2">
                     <Eye size={16} /> {showPreview ? 'Скрыть предпросмотр' : 'Предпросмотр'}
                   </button>
                 </div>
                 <Textarea rows={26} spellCheck={false} value={html} onChange={(e) => setHtml(e.target.value)} className="font-mono text-sm" />
-                <div className="mt-3 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-                  Не надо выбирать корень ЦТ/ЦЭ. Для редактирования A1 открывай /editor/a1, для B10 — /editor/b10. Сохранение останется привязанным к sectionCode.
-                </div>
+
                 {showPreview ? <div className="mt-4"><HtmlPreview html={html} /></div> : null}
               </div>
 

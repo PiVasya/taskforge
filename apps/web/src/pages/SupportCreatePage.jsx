@@ -68,7 +68,7 @@ export default function SupportCreatePage() {
               </Select>
             </Field>
 
-            <Field label="Сообщение" hint="Опишите проблему, вопрос или предложение максимально подробно.">
+            <Field label="Сообщение">
               <Textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}

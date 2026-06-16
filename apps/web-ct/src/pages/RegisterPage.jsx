@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
 import { Card, Field, Input, Button, Textarea } from "../components/ui";
@@ -63,13 +63,6 @@ export default function RegisterPage() {
         firstName.trim() &&
         acceptedPolicy;
 
-    const passwordHint = useMemo(() => {
-        if (!password) return "Минимум 8 символов.";
-        if (password.length < 8) return "Сейчас меньше 8 символов.";
-        if (password2 && password !== password2) return "Пароли не совпадают.";
-        return "Пароль подходит.";
-    }, [password, password2]);
-
     const onSubmit = async (e) => {
         e.preventDefault();
         if (!canSubmit) return;
@@ -117,10 +110,7 @@ export default function RegisterPage() {
                         {err && <div className="text-red-500 mb-3">{err}</div>}
 
                         <div className="grid gap-4">
-                            <Field
-                                label="Логин"
-                                hint="Он используется для входа. Почта больше не обязательна. Разрешены латинские буквы, цифры, точка, дефис и подчёркивание."
-                            >
+                            <Field label="Логин">
                                 <Input
                                     value={login}
                                     onChange={(e) => setLogin(e.target.value)}
@@ -152,7 +142,7 @@ export default function RegisterPage() {
                             </div>
 
                             <div className="grid sm:grid-cols-2 gap-4">
-                                <Field label="Пароль" hint={passwordHint}>
+                                <Field label="Пароль">
                                     <Input
                                         type="password"
                                         value={password}
@@ -161,6 +151,9 @@ export default function RegisterPage() {
                                         minLength={8}
                                         placeholder="Минимум 8 символов"
                                     />
+                                    {password && password.length < 8 && (
+                                        <div className="mt-1 text-xs text-red-500">Минимум 8 символов.</div>
+                                    )}
                                 </Field>
                                 <Field label="Повторите пароль">
                                     <Input
@@ -171,40 +164,36 @@ export default function RegisterPage() {
                                         minLength={8}
                                         placeholder="Повторите пароль"
                                     />
+                                    {password2 && password !== password2 && (
+                                        <div className="mt-1 text-xs text-red-500">Пароли не совпадают.</div>
+                                    )}
                                 </Field>
                             </div>
                         </div>
                     </Card>
 
-                    <Card className="p-0 overflow-hidden border border-dashed border-neutral-300 dark:border-neutral-700">
+                    <Card className="p-0 overflow-hidden">
                         <button
                             type="button"
-                            className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
+                            className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
                             onClick={() => setShowExtra((v) => !v)}
                             aria-expanded={showExtra}
                         >
-                            <div>
-                                <div className="font-semibold">{showExtra ? "Скрыть дополнительную информацию" : "Открыть дополнительную информацию"}</div>
-                                <div className="text-sm text-neutral-500 dark:text-neutral-400">
-                                    Отдельное необязательное окно ниже: email, телефон, место учёбы, группа, навыки и короткое описание.
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-[rgb(var(--accent))]">
-                                <span>{showExtra ? "Свернуть" : "Заполнить позже или сейчас"}</span>
-                                <ChevronDown
-                                    size={18}
-                                    className={`shrink-0 transition-transform ${showExtra ? "rotate-180" : ""}`}
-                                />
-                            </div>
+                            <div className="font-semibold">Дополнительная информация</div>
+                            <ChevronDown
+                                size={20}
+                                className={`shrink-0 text-[rgb(var(--accent))] transition-transform duration-300 ${showExtra ? "rotate-180" : ""}`}
+                            />
                         </button>
 
-                        {showExtra && (
-                            <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 px-6 py-5 grid gap-4 dark:bg-neutral-900/30">
-                                <div className="rounded-2xl border border-neutral-200 bg-white p-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950/40 dark:text-neutral-400">
-                                    Эти поля не блокируют регистрацию. Их можно изменить позже после входа в аккаунт.
-                                </div>
+                        <div
+                            className={`overflow-hidden transition-all duration-300 ease-out ${
+                                showExtra ? "max-h-[720px] opacity-100" : "max-h-0 opacity-0"
+                            }`}
+                        >
+                            <div className="border-t border-neutral-200 px-6 py-5 grid gap-4 dark:border-neutral-800">
                                 <div className="grid sm:grid-cols-2 gap-4">
-                                    <Field label="Email (не обязательно)">
+                                    <Field label="Email">
                                         <Input
                                             type="email"
                                             value={email}
@@ -213,7 +202,7 @@ export default function RegisterPage() {
                                             placeholder="you@example.com"
                                         />
                                     </Field>
-                                    <Field label="Телефон (не обязательно)">
+                                    <Field label="Телефон">
                                         <Input
                                             value={phoneNumber}
                                             onChange={(e) => setPhoneNumber(e.target.value)}
@@ -224,18 +213,18 @@ export default function RegisterPage() {
                                 </div>
 
                                 <div className="grid sm:grid-cols-2 gap-4">
-                                    <Field label="Город / место учёбы">
+                                    <Field label="Место учёбы">
                                         <Input
                                             value={studyPlace}
                                             onChange={(e) => setStudyPlace(e.target.value)}
-                                            placeholder="Минск, БГУИР"
+                                            placeholder="БГУИР"
                                         />
                                     </Field>
-                                    <Field label="Образование / группа">
+                                    <Field label="Группа / образование">
                                         <Input
                                             value={education}
                                             onChange={(e) => setEducation(e.target.value)}
-                                            placeholder="Факультет АИС, ITD-21"
+                                            placeholder="ITD-21"
                                         />
                                     </Field>
                                 </div>
@@ -244,7 +233,7 @@ export default function RegisterPage() {
                                     <Input
                                         value={skillsText}
                                         onChange={(e) => setSkillsText(e.target.value)}
-                                        placeholder="C#, C++, SQL, React"
+                                        placeholder="C++, C#, SQL"
                                     />
                                 </Field>
 
@@ -253,11 +242,11 @@ export default function RegisterPage() {
                                         rows={3}
                                         value={bio}
                                         onChange={(e) => setBio(e.target.value)}
-                                        placeholder="Коротко о себе, если нужно показать это в профиле."
+                                        placeholder="Коротко о себе"
                                     />
                                 </Field>
                             </div>
-                        )}
+                        </div>
                     </Card>
 
                     <Card className="p-6">

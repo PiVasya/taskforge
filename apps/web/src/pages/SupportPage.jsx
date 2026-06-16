@@ -65,7 +65,7 @@ export default function SupportPage() {
               <option value="other">Другое</option>
             </Select>
           </Field>
-          <Field label="Сообщение" hint="Опишите проблему, вопрос или предложение максимально подробно.">
+          <Field label="Сообщение">
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}

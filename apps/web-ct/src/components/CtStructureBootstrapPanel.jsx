@@ -76,7 +76,7 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
         else created += 1;
       }
       if (created || fixed) setMessage(`Основа готова: создано ${created}, обновлено ${fixed}.`);
-      else setMessage('Стартовая основа уже есть: все A1-A30 и B1-B10 найдены. Дополнительные A/B можно добавить вручную ниже.');
+      else setMessage('Стартовая основа уже есть.');
       if (onDone) await onDone(parent.slug);
     } catch (e) {
       setError(e?.userMessage || e?.message || 'Не удалось создать основу ЦТ.');
@@ -88,7 +88,7 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
   async function createCustom() {
     const normalized = normalizeSectionCode(customSection);
     if (!normalized) {
-      setError('Введи номер в формате A31, A32, B11, B12 и т.п. Разрешены только части A и B.');
+      setError('Номер должен быть в формате A31 или B11.');
       return;
     }
     setBusy('custom');
@@ -97,7 +97,7 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
     try {
       const parent = await ensureRoot();
       const result = await createSection(normalized, parent);
-      setMessage(result === 'updated' ? `Раздел ${normalized} найден и обновлён.` : `Раздел ${normalized} создан. Теперь для него можно делать конспект и задания.`);
+      setMessage(result === 'updated' ? `Раздел ${normalized} обновлён.` : `Раздел ${normalized} создан.`);
       setCustomSection('');
       if (onDone) await onDone(parent.slug);
     } catch (e) {
@@ -113,7 +113,7 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
         <Layers3 size={18} /> Основа ЦТ
       </div>
       <p className="text-sm leading-6 text-brand-900/80 dark:text-brand-100/80">
-        Стартовая кнопка создаёт A1-A30 и B1-B10. Это больше не жёсткий лимит: ниже можно вручную добавить любой новый номер части A или B, например A31 или B11.
+        Создание стартовой структуры и ручное добавление новых номеров.
       </p>
       <div className="mt-3 text-xs font-semibold text-brand-900/70 dark:text-brand-100/70">
         Не хватает стартовых разделов: {missingSections.length}

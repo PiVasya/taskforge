@@ -598,8 +598,8 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Название" required hint="Короткое понятное название карточки."><Input value={form.title} onChange={(e) => setField('title', e.target.value)} /></Field>
-            <Field label="Тип задания" hint={isBSection(sectionCode) ? 'Для B-части всегда используется текстовое поле: ответ словом или буквами.' : ''}>
+            <Field label="Название" required><Input value={form.title} onChange={(e) => setField('title', e.target.value)} /></Field>
+            <Field label="Тип задания">
               {isBSection(sectionCode) ? (
                 <div className="w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 font-semibold text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
                   Краткий текстовый ответ
@@ -621,16 +621,16 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
             </Field>
             <div className="md:col-span-2"><Field label="Текст задания" required><Textarea rows={5} value={form.prompt} onChange={(e) => setField('prompt', e.target.value)} /></Field></div>
             {isChoice ? (
-              <div className="md:col-span-2"><Field label="Варианты ответа" required hint={`Каждый вариант с новой строки или через запятую. Сейчас вариантов: ${options.length}.`}><Textarea rows={5} value={form.optionsText} onChange={(e) => setField('optionsText', e.target.value)} /></Field></div>
+              <div className="md:col-span-2"><Field label="Варианты ответа" required><Textarea rows={5} value={form.optionsText} onChange={(e) => setField('optionsText', e.target.value)} /></Field></div>
             ) : null}
-            <Field label="Правильный ответ" required hint={isChoice ? 'Должен совпадать с одним из вариантов.' : 'Для B-части и кратких ответов вводится обычный текст. При проверке не важен регистр, лишние пробелы по краям и ё/е.'}><Input value={form.correctAnswer} onChange={(e) => setField('correctAnswer', e.target.value)} /></Field>
+            <Field label="Правильный ответ" required><Input value={form.correctAnswer} onChange={(e) => setField('correctAnswer', e.target.value)} /></Field>
             <Field label="Сложность"><Input type="number" min="1" max="5" value={form.difficulty} onChange={(e) => setField('difficulty', e.target.value)} /></Field>
-            <div className="md:col-span-2"><Field label="Объяснение после проверки" required hint="Показывается ученику только после проверки ответа."><Textarea rows={3} value={form.explanation} onChange={(e) => setField('explanation', e.target.value)} /></Field></div>
-            <Field label="Теги" hint="Через запятую: A1, орфография, ЦТ."><Input value={form.tagsText} onChange={(e) => setField('tagsText', e.target.value)} /></Field>
-            <Field label="Slug" hint="Можно оставить пустым — сгенерируется автоматически."><Input value={form.slug} onChange={(e) => setField('slug', e.target.value)} /></Field>
+            <div className="md:col-span-2"><Field label="Объяснение после проверки" required><Textarea rows={3} value={form.explanation} onChange={(e) => setField('explanation', e.target.value)} /></Field></div>
+            <Field label="Теги"><Input value={form.tagsText} onChange={(e) => setField('tagsText', e.target.value)} /></Field>
+            <Field label="Slug"><Input value={form.slug} onChange={(e) => setField('slug', e.target.value)} /></Field>
             <Field label="Источник"><Input value={form.sourceName} onChange={(e) => setField('sourceName', e.target.value)} placeholder="например: авторское / ЦТ 2023" /></Field>
             <Field label="Год источника"><Input type="number" value={form.sourceYear} onChange={(e) => setField('sourceYear', e.target.value)} /></Field>
-            <label className="flex items-center gap-2 pt-2 md:col-span-2"><input type="checkbox" checked={form.isPublished} onChange={(e) => setField('isPublished', e.target.checked)} /><span className="text-sm font-semibold">Опубликовано</span><span className="text-xs text-neutral-500">если выключить, обычный пользователь это задание не увидит</span></label>
+            <label className="flex items-center gap-2 pt-2 md:col-span-2"><input type="checkbox" checked={form.isPublished} onChange={(e) => setField('isPublished', e.target.checked)} /><span className="text-sm font-semibold">Опубликовано</span></label>
           </div>
 
           <button type="button" onClick={saveTask} disabled={busy === 'save'} className="btn-primary mt-5 inline-flex items-center gap-2 disabled:opacity-60">
@@ -659,7 +659,7 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
             </label>
           </div>
           <div>
-            <Field label="JSON заданий" hint="Поддерживается массив или объект { tasks: [...] }. Для безопасности импорт идёт только через защищённый admin endpoint.">
+            <Field label="JSON заданий">
               <Textarea rows={18} value={jsonText} onChange={(e) => setJsonText(e.target.value)} spellCheck={false} className="font-mono text-xs" />
             </Field>
             <button type="button" onClick={importTasks} disabled={busy === 'import'} className="btn-primary mt-3 inline-flex items-center gap-2 disabled:opacity-60">

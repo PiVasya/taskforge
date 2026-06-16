@@ -224,7 +224,7 @@ function EmailRevealControl({
           <div className="mt-3 rounded-2xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--card)/0.55)] p-3">
             <div className="mb-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <LockKeyhole size={14} />
-              <span>Введи текущий пароль, чтобы раскрыть полный email.</span>
+              <span>Текущий пароль</span>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
@@ -259,9 +259,7 @@ function EmailRevealControl({
           </div>
         ) : null}
       </div>
-      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-        Полный адрес скрыт. Его можно раскрыть только после ввода пароля.
-      </div>
+
     </div>
   );
 }
@@ -1101,12 +1099,7 @@ export default function SettingsPage() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <Card className="p-4 space-y-5">
-            <div>
-              <div className="font-semibold">Основные данные</div>
-              <div className="text-sm text-neutral-500 dark:text-neutral-400">
-                Логин используется для входа и отображается в админке. После смены можно входить по новому логину или по email.
-              </div>
-            </div>
+            <div className="font-semibold">Основные данные</div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
@@ -1119,9 +1112,11 @@ export default function SettingsPage() {
                   autoComplete="username"
                   placeholder="krytoichel"
                 />
-                <div className={`mt-1 text-xs ${profileLoginLooksOk ? "text-neutral-500 dark:text-neutral-400" : "text-red-500"}`}>
-                  От 3 до 64 символов: латинские буквы, цифры, точка, дефис или подчёркивание.
-                </div>
+                {!profileLoginLooksOk && (
+                  <div className="mt-1 text-xs text-red-500">
+                    От 3 до 64 символов: латинские буквы, цифры, точка, дефис или подчёркивание.
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1181,7 +1176,6 @@ export default function SettingsPage() {
               <ReadOnlyValue
                 label="Доступ"
                 value={profileRole(profile)}
-                hint="Роли выдаются администратором."
               />
             </div>
           </Card>
@@ -1230,9 +1224,7 @@ export default function SettingsPage() {
                 value={extra.skillsText}
                 onChange={(e) => setExtraField("skillsText", e.target.value)}
               />
-              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                Через запятую. Они появятся в публичном профиле.
-              </p>
+
             </div>
           </Card>
 
@@ -1274,10 +1266,7 @@ export default function SettingsPage() {
 
           <Card className="p-4 flex items-center justify-between gap-4">
             <div>
-              <div className="font-semibold">Показывать меня в топе</div>
-              <div className="text-sm text-neutral-500 dark:text-neutral-400">
-                Если выключить, профиль не будет отображаться в общем рейтинге.
-              </div>
+              <div className="font-semibold">Участие в рейтинге</div>
             </div>
             <Button
               variant={extra.showInLeaderboard ? "primary" : "outline"}
@@ -1338,10 +1327,7 @@ export default function SettingsPage() {
         <Card className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="font-semibold">Предпросмотр публичной страницы</div>
-            <div className="text-sm text-neutral-500 dark:text-neutral-400">
-              Так профиль выглядит для других пользователей. Email, телефон и
-              роли здесь не показываются.
-            </div>
+
           </div>
           <Button
             type="button"

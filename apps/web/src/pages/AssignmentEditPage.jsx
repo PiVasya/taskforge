@@ -681,9 +681,6 @@ export default function AssignmentEditPage() {
                             : "using System;\n\nclass Program\n{\n    static void Main()\n    {\n        // Ваш код здесь\n    }\n}"
                         }
                       />
-                      <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-                        Это не правильное решение, а стартовый шаблон, который ученик увидит в редакторе перед отправкой. Поле можно оставить пустым.
-                      </div>
                     </Field>
 
                     <div className="grid md:grid-cols-2 gap-4">
@@ -866,9 +863,6 @@ export default function AssignmentEditPage() {
                 Этот тип задания проверяется сравнением картинки. Эталон хранится приватно.
               </p>
 
-              <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
-                Image-test теперь устроен как code-test: для каждого теста указываются Input, Expected output и Expected image. Для старых заданий одиночный эталон ниже продолжит работать как legacy-режим.
-              </p>
 
               <div className="mb-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">

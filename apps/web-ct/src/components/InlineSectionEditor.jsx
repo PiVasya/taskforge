@@ -456,7 +456,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
       setContentWarning("");
       await loadSection();
       setSuccess(
-        "Сохранено. Это тот же конспект, который ученик увидит на этой странице.",
+        "Сохранено.",
       );
       onConspectSaved?.();
     } catch (e) {
@@ -585,11 +585,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
               <h3 className="mt-1 text-2xl font-black tracking-tight">
                 Создать полноценный раздел {normalizedSectionCode}
               </h3>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-amber-900/80 dark:text-amber-100/80">
-                Это не временная ссылка: будет создан нормальный LearningCourse
-                для {normalizedSectionCode}. После этого можно сохранять
-                конспект и сколько угодно заданий.
-              </p>
+
             </div>
             <button
               type="button"
@@ -617,9 +613,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
                 Удалить полностью {normalizedSectionCode}
               </h3>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-red-800 dark:text-red-100/80">
-                Удалит раздел, конспекты, связи и все quiz-задания этого номера
-                вместе с попытками и прогрессом. Кнопка специально большая и
-                заметная.
+                Удалит раздел, конспекты, связи, задания и прогресс.
               </p>
             </div>
             <button
@@ -645,9 +639,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
               <FileText size={16} /> HTML-конспект
             </div>
-            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-              Основные поля сверху, служебные спрятаны ниже, чтобы не мешали.
-            </p>
+
           </div>
           <button
             type="button"
@@ -689,17 +681,13 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
         )}
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Название"
-            required
-            hint="Заголовок конспекта, который относится к текущему номеру."
-          >
+          <Field label="Название" required>
             <Input
               value={conspectForm.title}
               onChange={(e) => setConspect("title", e.target.value)}
             />
           </Field>
-          <Field label="Время чтения" hint="Примерное время в минутах.">
+          <Field label="Время чтения">
             <Input
               type="number"
               min="1"
@@ -708,10 +696,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
             />
           </Field>
           <div className="md:col-span-2">
-            <Field
-              label="Краткое описание"
-              hint="Небольшой текст над конспектом."
-            >
+            <Field label="Краткое описание">
               <Textarea
                 rows={2}
                 value={conspectForm.lead}
@@ -726,9 +711,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
               onChange={(e) => setConspect("isPublished", e.target.checked)}
             />
             <span className="text-sm font-semibold">Опубликован</span>
-            <span className="text-xs text-neutral-500">
-              если выключить, ученик его не увидит
-            </span>
+
           </label>
         </div>
 
@@ -738,20 +721,13 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
             Служебные поля
           </summary>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <Field
-              label="Slug"
-              required
-              hint="Технический адрес конспекта в базе."
-            >
+            <Field label="Slug" required>
               <Input
                 value={conspectForm.slug}
                 onChange={(e) => setConspect("slug", e.target.value)}
               />
             </Field>
-            <Field
-              label="Порядок"
-              hint="Если конспектов несколько, меньший порядок выбирается первым."
-            >
+            <Field label="Порядок">
               <Input
                 type="number"
                 value={conspectForm.sortOrder}
@@ -770,11 +746,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
                 onChange={(e) => setConspect("examCode", e.target.value)}
               />
             </Field>
-            <Field
-              label="Код раздела"
-              required
-              hint="Главная связь: для страницы /a1 здесь должно быть A1."
-            >
+            <Field label="Код раздела" required>
               <Input
                 value={conspectForm.sectionCode}
                 onChange={(e) =>
@@ -785,7 +757,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
                 }
               />
             </Field>
-            <Field label="Бейджи" hint="Через запятую.">
+            <Field label="Бейджи">
               <Input
                 value={conspectForm.badgesText}
                 onChange={(e) => setConspect("badgesText", e.target.value)}
@@ -800,10 +772,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
               <div className="flex items-center gap-2 font-semibold">
                 <Code2 size={18} /> HTML
               </div>
-              <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                Просто вставь готовый HTML. Он сохраняется в ContentJson как
-                mode=html.
-              </p>
+
             </div>
             <button
               type="button"
