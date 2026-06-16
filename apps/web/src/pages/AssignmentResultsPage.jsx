@@ -13,6 +13,15 @@ function displayClean(s) {
   return String(s);
 }
 
+function InputTextPreview({ value }) {
+  const text = displayClean(value);
+  if (text === '') {
+    return <pre className="whitespace-pre-wrap text-sm text-neutral-500 italic">Входные данные отсутствуют</pre>;
+  }
+
+  return <pre className="whitespace-pre-wrap text-sm">{text}</pre>;
+}
+
 function displayRunnerClean(s) {
   return sanitizeRunnerText(s);
 }
@@ -450,7 +459,7 @@ export default function AssignmentResultsPage() {
                   {'input' in c || 'Input' in c ? (
                     <>
                       <div className="text-xs text-neutral-500 mb-1">Ввод</div>
-                      <pre className="whitespace-pre-wrap text-sm">{displayClean(c.input ?? c.Input)}</pre>
+                      <InputTextPreview value={c.input ?? c.Input} />
                     </>
                   ) : null}
 

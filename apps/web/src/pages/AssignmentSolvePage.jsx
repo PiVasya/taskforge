@@ -454,6 +454,15 @@ function displayText(value) {
   return String(value);
 }
 
+function InputTextPreview({ value }) {
+  const text = displayText(value);
+  if (text === '') {
+    return <pre className="whitespace-pre-wrap text-sm text-neutral-500 italic">Входные данные отсутствуют</pre>;
+  }
+
+  return <pre className="whitespace-pre-wrap text-sm">{text}</pre>;
+}
+
 function displayRunnerText(value) {
   return sanitizeRunnerText(value);
 }
@@ -1011,7 +1020,8 @@ export default function AssignmentSolvePage() {
               const passed = isCasePassed(c);
               const expectedText = c.expected ?? c.expectedOutput ?? c.ExpectedOutput ?? '';
               const actualText = c.actual ?? c.actualOutput ?? c.ActualOutput ?? '';
-              const inputText = c.input ?? c.Input ?? '';
+              const hasInputText = c.input != null || c.Input != null;
+              const inputText = hasInputText ? (c.input ?? c.Input) : '';
               const errorText = c.compileStderr || c.stderr || c.error || '';
               const casePolicy = parsePolicyText(errorText);
               return (
@@ -1026,10 +1036,10 @@ export default function AssignmentSolvePage() {
                     </span>
                   </div>
 
-                  {inputText !== '' ? (
+                  {hasInputText ? (
                     <div className="mb-2">
                       <div className="text-xs text-neutral-500 mb-1">Ввод</div>
-                      <pre className="whitespace-pre-wrap text-sm">{displayText(inputText)}</pre>
+                      <InputTextPreview value={inputText} />
                     </div>
                   ) : null}
 
@@ -1651,7 +1661,7 @@ export default function AssignmentSolvePage() {
                           <div className="text-xs text-neutral-500">Ввод</div>
                           {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
                         </div>
-                        <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
+                        <InputTextPreview value={t.input ?? t.Input ?? ''} />
 
                         {(expectedText ?? '') !== '' && (
                           <>
@@ -1884,7 +1894,7 @@ export default function AssignmentSolvePage() {
                         <div className="text-xs text-neutral-500">Ввод</div>
                         {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
                       </div>
-                      <pre className="whitespace-pre-wrap text-sm">{t.input ?? t.Input ?? ''}</pre>
+                      <InputTextPreview value={t.input ?? t.Input ?? ''} />
 
                       {(expectedText ?? '') !== '' && (
                         <>
