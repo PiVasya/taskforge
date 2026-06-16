@@ -6,17 +6,14 @@ import {
   CheckCircle2,
   ChevronDown,
   Code2,
-  FileJson2,
   GraduationCap,
   Layers3,
   ListChecks,
-  LockKeyhole,
   PlayCircle,
   Rocket,
   Sparkles,
+  Target,
   Trophy,
-  Users,
-  Wand2,
   Zap,
 } from "lucide-react";
 import Layout from "../components/Layout";
@@ -26,90 +23,90 @@ const featureTabs = [
   {
     id: "courses",
     icon: GraduationCap,
-    title: "Курсы и задания",
-    short: "Собирай обучение в понятные маршруты.",
+    title: "Курсы по шагам",
+    short: "Понятный маршрут от темы к практике.",
     text:
-      "Курс выглядит как единая траектория: теория, практические задачи, тесты и прогресс ученика находятся рядом, без ощущения хаоса.",
+      "Курс помогает двигаться последовательно: сначала тема, затем задания, проверки и сохранённый прогресс. Всегда видно, что уже сделано и куда идти дальше.",
     previewTitle: "Основы программирования",
-    previewSubtitle: "8 заданий • 3 теста • прогресс сохраняется",
+    previewSubtitle: "Теория • практика • прогресс",
     previewLines: ["Ввод и вывод", "Условия", "Циклы", "Массивы"],
     stat: "7 / 12",
   },
   {
     id: "judge",
     icon: Code2,
-    title: "Проверка кода",
-    short: "Отправил решение — получил результат.",
+    title: "Проверка решений",
+    short: "Отправил код — получил результат.",
     text:
-      "Платформа подходит для задач с кодом: ученик пишет решение, система запускает проверки и возвращает понятный статус.",
+      "После отправки решения TaskForge показывает статус проверки, результат тестов и помогает быстрее понять, где возникла ошибка.",
     previewTitle: "Задача: сумма элементов",
-    previewSubtitle: "C# • Python • C++ • Java • Pascal • JS",
-    previewLines: ["Компиляция", "Тест 1 принят", "Тест 2 принят", "Вердикт: Accepted"],
+    previewSubtitle: "Решение отправлено на проверку",
+    previewLines: ["Компиляция выполнена", "Тест 1 принят", "Тест 2 принят", "Вердикт: Accepted"],
     stat: "AC",
   },
   {
     id: "tests",
     icon: ListChecks,
-    title: "Тесты и ответы",
-    short: "Не только кодовые задачи.",
+    title: "Тесты и короткие ответы",
+    short: "Не каждая задача требует кода.",
     text:
-      "Можно давать задания с вариантами ответа, текстовым ответом, разными типами проверок и обучающими пояснениями.",
+      "Для теории и закрепления можно использовать задания с выбором ответа или коротким текстовым ответом. Это удобно для быстрых проверок понимания темы.",
     previewTitle: "Тест: логические операции",
-    previewSubtitle: "A/B/C + текстовый ответ для B-части",
-    previewLines: ["Вопрос 1: выбран B", "Вопрос 2: ответ: цикл", "Регистр не учитывается", "Результат: 9 / 10"],
+    previewSubtitle: "Выбор ответа и короткие ответы",
+    previewLines: ["Вопрос 1: выбран ответ B", "Вопрос 2: введён короткий ответ", "Ответ принят", "Результат: 9 / 10"],
     stat: "90%",
   },
   {
-    id: "editor",
-    icon: Wand2,
-    title: "Редактор контента",
-    short: "Создание материалов без ручного ада.",
+    id: "progress",
+    icon: Trophy,
+    title: "Прогресс и мотивация",
+    short: "Видно, что решено и что осталось.",
     text:
-      "Редактор помогает собирать курсы, конспекты, задания и импортировать наборы задач из JSON, когда нужно быстро наполнить платформу.",
-    previewTitle: "Редактор курса",
-    previewSubtitle: "Задания • конспекты • JSON-импорт",
-    previewLines: ["Добавлен конспект", "Загружено 5 задач", "Проверены тесты", "Готово к публикации"],
-    stat: "+5",
+      "Решённые задания отмечаются в курсе, прогресс собирается в понятную шкалу, а рейтинг добавляет лёгкую соревновательность без перегруза интерфейса.",
+    previewTitle: "Личный прогресс",
+    previewSubtitle: "Курс продолжается с нужного места",
+    previewLines: ["7 заданий решено", "5 заданий осталось", "Последнее решение принято", "Рейтинг обновлён"],
+    stat: "+15",
   },
 ];
 
-const audienceCards = [
+const journeyCards = [
   {
     icon: BookOpen,
-    title: "Ученику",
-    text: "Видно, что решено, что осталось и где именно ошибка в решении.",
+    title: "Начать без путаницы",
+    text: "Сразу видно, где начать: выбрать курс, открыть задание и продолжить с нужного места.",
   },
   {
-    icon: Users,
-    title: "Преподавателю",
-    text: "Курсы, задания, группы, проверка решений и понятная структура обучения.",
+    icon: Target,
+    title: "Решать в своём темпе",
+    text: "Курсы и задания разбиты на шаги, поэтому проще возвращаться к обучению после паузы.",
   },
   {
-    icon: LockKeyhole,
-    title: "Администратору",
-    text: "Роли, пользователи, аналитика, системный статус и контроль платформы.",
+    icon: Zap,
+    title: "Сразу видеть результат",
+    text: "После отправки решения появляется статус проверки и становится понятно, что делать дальше.",
   },
 ];
 
 const metrics = [
-  { value: "Код", label: "практические задания" },
-  { value: "Тесты", label: "варианты и текстовые ответы" },
-  { value: "JSON", label: "быстрый импорт задач" },
-  { value: "Рейтинг", label: "мотивация и прогресс" },
+  { value: "Курсы", label: "структурированное обучение" },
+  { value: "Задачи", label: "практика по программированию" },
+  { value: "Проверка", label: "понятные статусы решений" },
+  { value: "Рейтинг", label: "прогресс и мотивация" },
 ];
 
 const faqItems = [
   {
-    q: "Почему не сразу логин?",
-    a: "Новый пользователь сначала должен понять, что перед ним: учебная платформа, курсы, задачи, проверка кода и прогресс. После этого вход и регистрация выглядят логично.",
+    q: "Что такое TaskForge?",
+    a: "Это учебная платформа для практики программирования: здесь можно проходить курсы, решать задачи, отправлять решения на проверку и следить за прогрессом.",
   },
   {
-    q: "Нужны ли картинки для красивого первого экрана?",
-    a: "Нет. Здесь используются карточки, сетки, градиенты, анимации и псевдо-интерфейс. Никакие изображения, баннеры или внешние ассеты не нужны.",
+    q: "Что я увижу после регистрации?",
+    a: "После входа откроются курсы, задания, личный профиль, история решений, рейтинг и остальные учебные разделы платформы.",
   },
   {
-    q: "Страница будет мешать авторизованным пользователям?",
-    a: "Нет. Для авторизованного пользователя кнопки меняются на переход в ленту, курсы и личный прогресс. Защищённые страницы остаются защищёнными.",
+    q: "Можно ли отслеживать свой прогресс?",
+    a: "Да. В курсах видно количество решённых заданий, а уже выполненные задачи визуально отличаются от тех, которые ещё нужно пройти.",
   },
 ];
 
@@ -124,7 +121,7 @@ function FeaturePreview({ feature }) {
 
       <div className="landing-preview-header">
         <div>
-          <div className="landing-preview-kicker">TaskForge workspace</div>
+          <div className="landing-preview-kicker">TaskForge</div>
           <h3>{feature.previewTitle}</h3>
           <p>{feature.previewSubtitle}</p>
         </div>
@@ -145,9 +142,9 @@ function FeaturePreview({ feature }) {
       </div>
 
       <div className="landing-code-window">
-        <div className="landing-code-line"><span>const</span> progress = course.solve();</div>
-        <div className="landing-code-line"><span>if</span> (progress.accepted) rating.add(15);</div>
-        <div className="landing-code-line muted">// Всё это нарисовано CSS, без картинок</div>
+        <div className="landing-code-line"><span>course</span>.openNextTask();</div>
+        <div className="landing-code-line"><span>solution</span>.submit();</div>
+        <div className="landing-code-line muted">status: accepted • progress: updated</div>
       </div>
     </div>
   );
@@ -195,15 +192,15 @@ export default function LandingPage() {
           <div className="landing-hero-content">
             <div className="landing-pill">
               <Sparkles size={16} />
-              <span>Без баннеров и картинок — интерфейс говорит сам за себя</span>
+              <span>Учиться проще, когда сразу виден следующий шаг</span>
             </div>
 
             <h1>
-              TaskForge — платформа, где учебные задачи реально проверяются
+              TaskForge — платформа для практики программирования
             </h1>
 
             <p className="landing-lead">
-              Курсы, кодовые задания, тесты, JSON-импорт, прогресс, рейтинг и редактор материалов в одном аккуратном рабочем пространстве.
+              Выбирай курс, решай задания, отправляй решения на проверку и отслеживай прогресс в одном понятном рабочем пространстве.
             </p>
 
             <div className="landing-hero-actions">
@@ -218,9 +215,9 @@ export default function LandingPage() {
             </div>
 
             <div className="landing-hero-points" aria-label="Ключевые преимущества">
-              <span><Zap size={15} /> Автопроверка</span>
-              <span><FileJson2 size={15} /> JSON-импорт</span>
-              <span><Trophy size={15} /> Рейтинг</span>
+              <span><GraduationCap size={15} /> Курсы</span>
+              <span><Code2 size={15} /> Автопроверка</span>
+              <span><Trophy size={15} /> Прогресс</span>
             </div>
           </div>
 
@@ -241,9 +238,9 @@ export default function LandingPage() {
         <section className="landing-section" id="features">
           <div className="landing-section-head">
             <div className="landing-section-kicker">Возможности</div>
-            <h2>Не просто красивая обложка, а интерактивная витрина продукта</h2>
+            <h2>Всё, что нужно для понятного старта</h2>
             <p>
-              Нажимай на карточки — справа меняется демонстрация. Так пользователь сразу понимает, что находится внутри платформы.
+              Выбери карточку — справа изменится пример экрана. Так сразу видно, как проходит обучение внутри TaskForge.
             </p>
           </div>
 
@@ -272,7 +269,7 @@ export default function LandingPage() {
             </div>
 
             <div className="landing-feature-panel" role="tabpanel">
-              <div className="landing-panel-label"><Layers3 size={16} /> Активный сценарий</div>
+              <div className="landing-panel-label"><Layers3 size={16} /> Сценарий обучения</div>
               <h3>{activeFeature.title}</h3>
               <p>{activeFeature.text}</p>
               <FeaturePreview feature={activeFeature} />
@@ -280,14 +277,14 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="landing-section landing-audience-section" id="for-whom">
+        <section className="landing-section landing-audience-section" id="journey">
           <div className="landing-section-head compact">
-            <div className="landing-section-kicker">Для кого</div>
-            <h2>Одна платформа для ученика, преподавателя и администратора</h2>
+            <div className="landing-section-kicker">Маршрут</div>
+            <h2>От первого задания до уверенного результата</h2>
           </div>
 
           <div className="landing-audience-grid">
-            {audienceCards.map((card) => {
+            {journeyCards.map((card) => {
               const Icon = card.icon;
               return (
                 <article key={card.title} className="landing-audience-card">
@@ -302,14 +299,14 @@ export default function LandingPage() {
 
         <section className="landing-flow-section" id="flow">
           <div className="landing-flow-card">
-            <div className="landing-section-kicker">Сценарий</div>
-            <h2>Путь пользователя становится понятным до регистрации</h2>
+            <div className="landing-section-kicker">Как это работает</div>
+            <h2>Обучение разбито на простые действия</h2>
             <div className="landing-flow-line">
               {[
-                "Открывает сайт",
-                "Понимает возможности",
-                "Создаёт аккаунт",
-                "Решает задачи",
+                "Выбираешь курс",
+                "Открываешь задание",
+                "Отправляешь решение",
+                "Видишь прогресс",
               ].map((step, index) => (
                 <div key={step} className="landing-flow-step">
                   <span>{index + 1}</span>
@@ -323,7 +320,7 @@ export default function LandingPage() {
         <section className="landing-section" id="faq">
           <div className="landing-section-head compact">
             <div className="landing-section-kicker">Вопросы</div>
-            <h2>Почему такой формат лучше голого логина</h2>
+            <h2>Ответы на частые вопросы</h2>
           </div>
 
           <div className="landing-faq-list">
@@ -340,9 +337,9 @@ export default function LandingPage() {
 
         <section className="landing-final-cta">
           <div>
-            <div className="landing-section-kicker">Готово к старту</div>
-            <h2>Сначала показываем ценность, потом просим войти</h2>
-            <p>Так главная страница превращает TaskForge из «формы авторизации» в понятный учебный продукт.</p>
+            <div className="landing-section-kicker">Старт</div>
+            <h2>Готов начать обучение?</h2>
+            <p>Создай аккаунт, выбери курс и переходи к первому заданию.</p>
           </div>
           <div className="landing-final-actions">
             <Link to={primaryHref} className="landing-btn landing-btn-primary">
@@ -357,7 +354,7 @@ export default function LandingPage() {
 
         <footer className="landing-footer">
           <span>© {new Date().getFullYear()} TaskForge</span>
-          <span>Сделано без изображений: только разметка, CSS и существующие иконки.</span>
+          <span>Учебная платформа для практики программирования.</span>
         </footer>
       </div>
     </Layout>

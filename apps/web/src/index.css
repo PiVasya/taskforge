@@ -1447,7 +1447,7 @@ html.dark .bg-fx__blob {
   }
 }
 
-/* Public landing page. No raster images are used: the visual part is built with CSS, gradients and inline SVG icons. */
+/* Public landing page. */
 .landing-page {
   --landing-radius: 30px;
   color: rgb(var(--text));
@@ -1724,7 +1724,7 @@ html.dark .bg-fx__blob {
 
 .landing-progress-fill--judge { width: 100%; }
 .landing-progress-fill--tests { width: 90%; }
-.landing-progress-fill--editor { width: 76%; }
+.landing-progress-fill--progress { width: 76%; }
 
 @keyframes landing-progress {
   from { transform: translateX(-24%); opacity: .55; }
