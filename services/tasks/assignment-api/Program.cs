@@ -54,7 +54,13 @@ app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, Htt
     var query = db.Assignments.AsNoTracking().Where(x => x.CourseId == courseId);
     if (!includeHidden) query = query.Where(x => x.IsVisible);
     var rows = await query.OrderBy(x => x.Sort).ThenBy(x => x.CreatedAt).ToListAsync(ct);
-    return Results.Ok(rows.Select(x => ToDto(x, includeHidden)).ToList());
+
+    var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+    var solvedIds = userId.HasValue
+        ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
+        : new HashSet<Guid>();
+
+    return Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
 });
 
 app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
@@ -1251,6 +1257,39 @@ static async Task<bool> CanUserAccessCourseAsync(Guid courseId, HttpContext http
     return access?.CanView == true;
 }
 
+
+static async Task<HashSet<Guid>> LoadSolvedAssignmentIdsAsync(Guid userId, IEnumerable<Guid> assignmentIds, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+    var solved = new HashSet<Guid>();
+    if (ids.Length == 0) return solved;
+
+    var taskSolved = await db.Attempts.AsNoTracking()
+        .Where(x => x.UserId == userId && ids.Contains(x.TaskAssignmentId) && x.Passed)
+        .Select(x => x.TaskAssignmentId)
+        .Distinct()
+        .ToListAsync(ct);
+    foreach (var id in taskSolved) solved.Add(id);
+
+    var response = await PostInternalAsync<SolvedAssignmentsResponse>(
+        clients,
+        cfg,
+        ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"),
+        $"/api/internal/users/{userId:D}/solved-assignments",
+        new SolvedAssignmentsRequest(ids),
+        ct);
+
+    if (response?.SolvedAssignmentIds != null)
+    {
+        foreach (var id in response.SolvedAssignmentIds)
+        {
+            if (id != Guid.Empty) solved.Add(id);
+        }
+    }
+
+    return solved;
+}
+
 static async Task<CourseAccessDto?> LoadCourseAccessAsync(Guid courseId, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
 {
     return await GetInternalAsync<CourseAccessDto>(clients, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId:D}/access/{userId:D}", ct);
@@ -1273,11 +1312,32 @@ static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfi
     }
 }
 
+
+static async Task<T?> PostInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, object payload, CancellationToken ct)
+{
+    try
+    {
+        var client = httpFactory.CreateClient();
+        using var msg = new HttpRequestMessage(HttpMethod.Post, baseUrl.TrimEnd('/') + path)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions())
+        };
+        AddInternalKey(msg, cfg);
+        using var resp = await client.SendAsync(msg, ct);
+        if (!resp.IsSuccessStatusCode) return default;
+        return await resp.Content.ReadFromJsonAsync<T>(JsonOptions(), ct);
+    }
+    catch
+    {
+        return default;
+    }
+}
+
 static Guid? RequireUser(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
 static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
 static long MaxImageUploadBytes(IConfiguration cfg) => cfg.GetValue<long?>("Files:MaxUploadBytes") ?? cfg.GetValue<long?>("Files:MaxImageUploadBytes") ?? 10L * 1024 * 1024;
-static object ToDto(Assignment x, bool includeSensitive = false)
+static object ToDto(Assignment x, bool includeSensitive = false, bool isSolved = false)
 {
     var tests = includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson);
     return new
@@ -1306,7 +1366,9 @@ static object ToDto(Assignment x, bool includeSensitive = false)
         x.IsVisible,
         x.Sort,
         canEdit = includeSensitive,
-        isSolved = false,
+        isSolved,
+        solvedByCurrentUser = isSolved,
+        progressStatus = isSolved ? "solved" : "not-started",
         x.CreatedAt,
         x.UpdatedAt
     };
@@ -2092,6 +2154,8 @@ static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contain
 static double Percent(int num, int den) => den <= 0 ? 0 : Math.Round(num * 100.0 / den, 1);
 
 public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic);
+public sealed record SolvedAssignmentsRequest(Guid[]? AssignmentIds);
+public sealed record SolvedAssignmentsResponse(Guid UserId, Guid[]? SolvedAssignmentIds);
 public sealed record AssignmentAccessDto(Guid AssignmentId, Guid CourseId, Guid UserId, bool CanView, bool CanSubmit, bool IsVisible, bool CanEdit);
 public sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
 public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid CourseId, string Title, string AssignmentTitle, string Type, string Language, int Rating, int Difficulty, bool IsVisible, int Sort);

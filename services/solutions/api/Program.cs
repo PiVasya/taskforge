@@ -178,6 +178,34 @@ app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", a
     return Results.Ok(ToDto(sub, includeSensitiveResult: true));
 });
 
+
+app.MapPost("/api/internal/users/{userId:guid}/solved-assignments", async (Guid userId, SolvedAssignmentsRequest request, SolutionsDbContext db, CancellationToken ct) =>
+{
+    var ids = (request.AssignmentIds ?? Array.Empty<Guid>())
+        .Where(x => x != Guid.Empty)
+        .Distinct()
+        .Take(2000)
+        .ToArray();
+
+    if (ids.Length == 0)
+    {
+        return Results.Ok(new SolvedAssignmentsResponse(userId, Array.Empty<Guid>()));
+    }
+
+    var codeSolved = await db.Submissions.AsNoTracking()
+        .Where(x => x.UserId == userId && ids.Contains(x.AssignmentId) && x.Status == "Accepted")
+        .Select(x => x.AssignmentId)
+        .ToListAsync(ct);
+
+    var imageSolved = await db.ImageSolutions.AsNoTracking()
+        .Where(x => x.UserId == userId && ids.Contains(x.AssignmentId) && x.Passed)
+        .Select(x => x.AssignmentId)
+        .ToListAsync(ct);
+
+    var solved = codeSolved.Concat(imageSolved).Distinct().ToArray();
+    return Results.Ok(new SolvedAssignmentsResponse(userId, solved));
+});
+
 app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, int top = 20, CancellationToken ct = default) =>
 {
     var uid = CurrentUserId(http, cfg);
@@ -1391,6 +1419,8 @@ public sealed class TaskActivityRowDto
     public DateTimeOffset SubmittedAt { get; set; }
     public string? Kind { get; set; }
 }
+public sealed record SolvedAssignmentsRequest(Guid[]? AssignmentIds);
+public sealed record SolvedAssignmentsResponse(Guid UserId, Guid[] SolvedAssignmentIds);
 public sealed record SubmitRequest(string? Language, string? Code, string? Input, JsonElement? Tests);
 public sealed record SolutionVerdictRequest(string? Verdict, int Score, string? Message, JsonElement? Result);
 public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);

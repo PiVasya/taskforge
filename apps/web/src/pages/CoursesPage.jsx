@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { Card, Button, Input, Badge } from "../components/ui";
+import { Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse } from "../api/courses";
+import { getAssignmentsByCourse } from "../api/assignments";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
@@ -21,6 +22,18 @@ function normalizePagedCourses(payload) {
   };
 }
 
+function isAssignmentSolved(item) {
+  return Boolean(item?.solvedByCurrentUser || item?.isSolved || item?.progressStatus === "solved");
+}
+
+function buildCourseProgress(assignments) {
+  const list = Array.isArray(assignments) ? assignments : [];
+  const total = list.length;
+  const solved = list.filter(isAssignmentSolved).length;
+  const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
+  return { total, solved, percent, isComplete: total > 0 && solved === total };
+}
+
 export default function CoursesPage() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
@@ -30,6 +43,7 @@ export default function CoursesPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [progressByCourseId, setProgressByCourseId] = useState({});
 
   const nav = useNavigate();
   const notify = useNotify();
@@ -62,6 +76,47 @@ export default function CoursesPage() {
     }, 250);
     return () => clearTimeout(timer);
   }, [q]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const visibleCourses = (items || []).filter((course) => course?.id);
+    if (visibleCourses.length === 0) {
+      setProgressByCourseId({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setProgressByCourseId((prev) => {
+      const next = { ...prev };
+      for (const course of visibleCourses) {
+        if (!next[course.id]) next[course.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
+      }
+      return next;
+    });
+
+    Promise.all(
+      visibleCourses.map(async (course) => {
+        try {
+          const assignments = await getAssignmentsByCourse(course.id);
+          return [course.id, { ...buildCourseProgress(assignments), loading: false }];
+        } catch {
+          return [course.id, { total: 0, solved: 0, percent: 0, isComplete: false, loading: false, failed: true }];
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setProgressByCourseId((prev) => {
+        const next = { ...prev };
+        for (const [id, progress] of entries) next[id] = progress;
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
 
   const handleCreate = async () => {
     try {
@@ -132,6 +187,10 @@ export default function CoursesPage() {
           const href = editorTools && c.canEdit ? `/courses/${c.id}/edit` : `/course/${c.id}`;
           const unavailable = c.canAccess === false || c.isAccessible === false || c.isAvailable === false;
           const foreignInEditor = editorTools && c.canEdit === false;
+          const progress = progressByCourseId[c.id];
+          const progressText = progress?.loading
+            ? "—/—"
+            : `${progress?.solved ?? 0}/${progress?.total ?? 0}`;
 
           return (
             <Link
@@ -142,8 +201,8 @@ export default function CoursesPage() {
             >
               <Card
                 className={
-                  "p-5 transition hover:shadow-lg cursor-pointer min-h-[150px] " +
-                  (c.isCompletedForCurrentUser
+                  "p-5 transition hover:shadow-lg cursor-pointer min-h-[190px] " +
+                  (progress?.isComplete || c.isCompletedForCurrentUser
                     ? "border-emerald-400/40 bg-emerald-500/5 "
                     : foreignInEditor || unavailable
                       ? "border-neutral-300/60 bg-neutral-500/5 opacity-70 grayscale-[0.25] "
@@ -152,15 +211,22 @@ export default function CoursesPage() {
               >
                 <div className="flex h-full flex-col justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-lg font-semibold leading-7 truncate">{c.title}</div>
-                      {c.isCompletedForCurrentUser ? <Badge intent="success">Пройден</Badge> : null}
-                    </div>
+                    <div className="text-lg font-semibold leading-7 truncate">{c.title}</div>
                     {c.description ? (
                       <p className="text-sm text-neutral-500 mt-2 line-clamp-3">{c.description}</p>
                     ) : (
                       <p className="text-sm text-neutral-400 mt-2">Описание пока не добавлено.</p>
                     )}
+                  </div>
+
+                  <div className="mt-auto space-y-2">
+                    <div className="text-xs font-medium text-neutral-500">{progressText}</div>
+                    <div className="h-2 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-[rgb(var(--accent))] transition-all duration-500"
+                        style={{ width: `${progress?.total > 0 ? progress.percent : 0}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
               </Card>

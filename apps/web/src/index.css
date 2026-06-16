@@ -1223,6 +1223,19 @@ html.dark .bg-fx__blob {
   min-width: 0;
 }
 
+.assignment-card--solved {
+  border-color: rgba(var(--border) / 0.65);
+  background: rgba(var(--muted) / 0.28);
+  opacity: 0.74;
+  filter: saturate(0.82);
+}
+
+.assignment-card--solved:hover,
+.assignment-card--solved:focus-within {
+  opacity: 0.92;
+  filter: saturate(0.95);
+}
+
 .assignment-card-heading {
   display: flex;
   align-items: center;

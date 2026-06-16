@@ -54,6 +54,10 @@ function previewAssignmentDescription(value) {
   }
 }
 
+function isAssignmentSolved(item) {
+  return Boolean(item?.solvedByCurrentUser || item?.isSolved || item?.progressStatus === "solved");
+}
+
 const SORT_OPTIONS = [
   { v: "default", label: "Стандартный" },
   { v: "title_asc", label: "A → Я" },
@@ -388,6 +392,7 @@ export default function CourseAssignmentsPage() {
   const { isAdmin } = useRoleFlags();
 
   const [items, setItems] = useState([]);
+  const [course, setCourse] = useState(null);
   const [courseCanEdit, setCourseCanEdit] = useState(true);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -433,6 +438,7 @@ export default function CourseAssignmentsPage() {
     (async () => {
       try {
         const c = await getCourse(courseId);
+        setCourse(c || null);
         if (typeof c?.canEdit === 'boolean') setCourseCanEdit(!!c.canEdit);
       } catch {
         
@@ -490,6 +496,13 @@ export default function CourseAssignmentsPage() {
     if (!items || items.length === 0) return true;
     const any = items.find((x) => typeof x?.canEdit === "boolean");
     return any ? !!any.canEdit : true;
+  }, [items]);
+
+  const courseProgress = useMemo(() => {
+    const total = (items || []).length;
+    const solved = (items || []).filter(isAssignmentSolved).length;
+    const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
+    return { total, solved, percent, isComplete: total > 0 && solved === total };
   }, [items]);
 
   const setSortMode = (mode) => {
@@ -703,8 +716,22 @@ export default function CourseAssignmentsPage() {
             ← Курсы
           </Button>
           <h1 className="min-w-0 text-xl font-semibold leading-tight sm:text-2xl flex items-center gap-2 flex-wrap">
-            <Layers size={22} className="shrink-0" /> <span className="break-words">Задания курса</span>
+            <Layers size={22} className="shrink-0" /> <span className="break-words">{course?.title || "Задания курса"}</span>
           </h1>
+          </div>
+          <div className="mt-4 max-w-xl">
+            {course?.description ? (
+              <p className="text-sm leading-6 text-neutral-500">{course.description}</p>
+            ) : null}
+            <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.18)] p-4">
+              <div className="mb-3 text-xs font-medium text-neutral-500">{courseProgress.solved}/{courseProgress.total}</div>
+              <div className="h-2 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-white/10">
+                <div
+                  className="h-full rounded-full bg-[rgb(var(--accent))] transition-all duration-500"
+                  style={{ width: `${courseProgress.total > 0 ? courseProgress.percent : 0}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -871,7 +898,7 @@ export default function CourseAssignmentsPage() {
 
       <div className="auto-fill-grid auto-fill-grid--dense">
         {filtered.map((a, idx) => {
-          const solved = !!a.solvedByCurrentUser;
+          const solved = isAssignmentSolved(a);
           const title = previewAssignmentTitle(a.title, `Задание ${idx + 1}`);
           const assignmentCanEdit = canEdit && a.canEdit !== false;
 
@@ -922,7 +949,7 @@ export default function CourseAssignmentsPage() {
 
           const baseCardClass =
             "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
-            (solved ? "opacity-60 hover:opacity-90 " : "") +
+            (solved ? "assignment-card--solved " : "") +
             (draggedAssignmentId === a.id ? "assignment-card--dragging " : "") +
             (dragOverAssignmentId === a.id ? "assignment-card--drop-target " : "");
 
