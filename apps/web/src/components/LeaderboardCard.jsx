@@ -3,12 +3,13 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, MapPin, BookOpen, Clock } from 'lucide-react';
+import { Trophy, MapPin, BookOpen, Clock, AtSign } from 'lucide-react';
 
 export default function LeaderboardCard({ entry }) {
   const nav = useNavigate();
   const solved = entry.solvedAssignments ?? entry.solvedCount ?? entry.solved ?? 0;
-  const name = entry.displayName || entry.userName || entry.fullName || entry.maskedEmail || entry.email || 'Пользователь';
+  const login = String(entry.login || entry.userLogin || entry.username || '').trim();
+  const name = entry.displayName || entry.userName || entry.fullName || login || entry.maskedEmail || entry.email || 'Пользователь';
   const handleOpenProfile = () => {
     nav(`/users/${entry.userId}`);
   };
@@ -88,6 +89,12 @@ export default function LeaderboardCard({ entry }) {
         </div>
 
         
+        {login && String(name).trim().toLowerCase() !== login.toLowerCase() && (
+          <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+            <AtSign size={12} />
+            <span className="truncate">{login}</span>
+          </div>
+        )}
         {entry.location && (
           <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             <MapPin size={12} />

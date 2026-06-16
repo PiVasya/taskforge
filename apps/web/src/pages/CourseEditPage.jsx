@@ -58,7 +58,7 @@ export default function CourseEditPage() {
 
   const ownerLabel = (id) => {
     const u = ownerProfiles[String(id).toLowerCase()];
-    return u?.displayName || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.email || 'Пользователь';
+    return u?.displayName || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.login || u?.email || 'Пользователь';
   };
 
   const ownerEmail = (id) => ownerProfiles[String(id).toLowerCase()]?.email || '';
@@ -333,7 +333,7 @@ export default function CourseEditPage() {
                         onClick={() => addOwnerId(u.id || u.userId, u)}
                       >
                         <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{u.displayName || u.fullName || u.email || 'Пользователь'}</div>
+                          <div className="text-sm font-medium truncate">{u.displayName || u.fullName || u.login || u.email || 'Пользователь'}</div>
                           <div className="text-xs text-neutral-500 truncate">{u.email || 'email не указан'}</div>
                         </div>
                         {ownerIdSet.has(String(u.id).toLowerCase()) ? <Badge intent="secondary">уже</Badge> : <Badge intent="success">Добавить</Badge>}

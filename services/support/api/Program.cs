@@ -173,6 +173,7 @@ static object ToTicketDto(SupportTicket x, TicketExtra? extra, UserSummaryDto? u
     {
         id = user.UserId,
         userId = user.UserId,
+        login = user.Login,
         user.Email,
         user.MaskedEmail,
         user.FirstName,
@@ -226,6 +227,8 @@ static string UserLabel(UserSummaryDto? user)
     if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
+    var login = (user?.Login ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(login)) return login;
     var masked = (user?.MaskedEmail ?? string.Empty).Trim();
     if (!string.IsNullOrWhiteSpace(masked)) return masked;
     return "Пользователь";
@@ -239,6 +242,7 @@ public sealed class UserSummaryDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
+    public string? Login { get; set; }
     public string? Email { get; set; }
     public string? MaskedEmail { get; set; }
     public string? FirstName { get; set; }
@@ -248,6 +252,7 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Login;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }

@@ -297,6 +297,7 @@ app.MapGet("/api/users/{userId:guid}/public-profile", async (Guid userId, Identi
     return Results.Ok(new
     {
         user.Id,
+        login = UserLoginOrFallback(user),
         user.FirstName,
         user.LastName,
         avatarUrl = user.ProfilePictureUrl,
@@ -691,6 +692,7 @@ static UserSummaryDto ToUserSummaryDto(IdentityUser user)
     return new UserSummaryDto(
         user.Id,
         user.Id,
+        UserLoginOrFallback(user),
         user.Email ?? string.Empty,
         MaskEmail(user.Email),
         user.FirstName,
@@ -1008,6 +1010,7 @@ static string DisplayName(IdentityUser user)
 {
     var full = string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
+    if (!string.IsNullOrWhiteSpace(user.Login)) return user.Login!;
     return "Пользователь";
 }
 static object ToProfile(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
@@ -1209,6 +1212,7 @@ public sealed record ActivitySummaryDto(int SolvedAssignments, int TotalAttempts
 public sealed record UserSummaryDto(
     Guid Id,
     Guid UserId,
+    string Login,
     string Email,
     string MaskedEmail,
     string FirstName,

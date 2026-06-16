@@ -80,7 +80,7 @@ export default function AssignmentTopSolutionsPage() {
                 {solutions.map((sol, i) => {
                   const counts = getSolutionCounts(sol);
                   const code = getSolutionCode(sol);
-                  const userLabel = sol.userName || sol.displayName || sol.fullName || sol.email || sol.maskedEmail || 'Пользователь';
+                  const userLabel = sol.userName || sol.displayName || sol.fullName || sol.login || sol.email || sol.maskedEmail || 'Пользователь';
                   return (
                     <tr key={sol.id || sol.Id || i}>
                       <td className="px-3 py-2">{i + 1}</td>

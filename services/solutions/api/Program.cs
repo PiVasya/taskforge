@@ -300,6 +300,7 @@ app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfigura
         {
             id = x.Id,
             userId = x.Id,
+            login = x.User?.Login,
             email = x.User?.Email ?? x.User?.MaskedEmail,
             maskedEmail = x.User?.MaskedEmail,
             displayName = UserLabel(x.User),
@@ -425,6 +426,7 @@ app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, Solu
         {
             rank = offset + i + 1,
             userId = x.Row.UserId,
+            login = x.User?.Login,
             userName = UserLabel(x.User),
             displayName = UserLabel(x.User),
             email = x.User?.MaskedEmail,
@@ -1011,15 +1013,17 @@ static string UserLabel(UserSummaryDto? user)
     if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
+    var login = (user?.Login ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(login)) return login;
     var masked = (user?.MaskedEmail ?? string.Empty).Trim();
     if (!string.IsNullOrWhiteSpace(masked)) return masked;
     return "Пользователь";
 }
 static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
-static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
+static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.Login} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
 static int UserSummarySearchScore(UserSummaryDto? user, Guid id, string query)
 {
-    var values = new[] { id.ToString(), user?.MaskedEmail, user?.DisplayName, user?.FirstName, user?.LastName }
+    var values = new[] { id.ToString(), user?.Login, user?.MaskedEmail, user?.DisplayName, user?.FirstName, user?.LastName }
         .Select(NormalizeSearch)
         .Where(x => !string.IsNullOrWhiteSpace(x))
         .ToArray();
@@ -1160,6 +1164,7 @@ static object ToTopSolutionDto(SolutionSubmission x, bool includeCode, Assignmen
         courseId = metadata?.CourseId,
         courseTitle = metadata?.CourseTitle,
         x.UserId,
+        login = user?.Login,
         userName = UserLabel(user),
         displayName = UserLabel(user),
         email = user?.MaskedEmail,
@@ -1355,6 +1360,7 @@ public sealed class UserSummaryDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
+    public string? Login { get; set; }
     public string? Email { get; set; }
     public string? MaskedEmail { get; set; }
     public string? FirstName { get; set; }
@@ -1368,6 +1374,7 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Login;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }

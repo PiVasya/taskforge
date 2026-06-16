@@ -156,6 +156,7 @@ app.MapGet("/api/admin/analytics/overview", async (ObservabilityDbContext db, IC
         return new
         {
             userId = g.Key,
+            login = u?.Login,
             fullName = UserLabel(u),
             displayName = UserLabel(u),
             email = u?.Email ?? u?.MaskedEmail,
@@ -269,7 +270,7 @@ app.MapGet("/api/admin/analytics/users/search", async (ObservabilityDbContext db
     var result = rows.Select(x =>
     {
         var u = users.GetValueOrDefault(x.userId);
-        return new { userId = x.userId, fullName = UserLabel(u), displayName = UserLabel(u), email = u?.Email ?? u?.MaskedEmail, role = u?.Role ?? "User", value = x.requests, requests = x.requests, lastSeenAt = x.lastSeenAt, lastLoginAt = x.lastLoginAt ?? x.lastSeenAt };
+        return new { userId = x.userId, login = u?.Login, fullName = UserLabel(u), displayName = UserLabel(u), email = u?.Email ?? u?.MaskedEmail, role = u?.Role ?? "User", value = x.requests, requests = x.requests, lastSeenAt = x.lastSeenAt, lastLoginAt = x.lastLoginAt ?? x.lastSeenAt };
     }).Where(x => string.IsNullOrWhiteSpace(query) || NormalizeSearch($"{x.fullName} {x.email} {x.role}").Contains(query)).Take(Math.Clamp(take, 1, 100)).ToList();
     return Results.Ok(result);
 });
@@ -285,7 +286,7 @@ app.MapGet("/api/admin/analytics/users/{userId:guid}", async (Guid userId, Obser
     {
         userId,
         periodDays = days,
-        profile = new { userId, fullName = UserLabel(u), displayName = UserLabel(u), email = u?.Email ?? u?.MaskedEmail, role = u?.Role ?? "User", lastLoginAt = rows.Where(IsLogin).Select(x => x.CreatedAt).DefaultIfEmpty(rows.FirstOrDefault()?.CreatedAt ?? DateTimeOffset.MinValue).Max() },
+        profile = new { userId, login = u?.Login, fullName = UserLabel(u), displayName = UserLabel(u), email = u?.Email ?? u?.MaskedEmail, role = u?.Role ?? "User", lastLoginAt = rows.Where(IsLogin).Select(x => x.CreatedAt).DefaultIfEmpty(rows.FirstOrDefault()?.CreatedAt ?? DateTimeOffset.MinValue).Max() },
         activity = new { requests = rows.Count, errors = rows.Count(IsError), avgLatencyMs = AvgDuration(rows), submissions = rows.Count(IsAssignmentActivity), ticketsCreated = rows.Count(x => Contains(x.Path, "/support")) },
         charts = new { loginsByDay = DayPoints(rows.Where(IsLogin), days, g => g.Count()), requestsByDay = DayPoints(rows, days, g => g.Count()), requestsByHour = HourPoints(rows) },
         topPaths = rows.GroupBy(x => NormalizeEndpoint(x.Path)).Select(g => new { label = g.Key, value = g.Count(), avgLatencyMs = AvgDuration(g), errorRate = Percent(g.Count(IsError), g.Count()) }).OrderByDescending(x => x.value).Take(20).ToList(),
@@ -407,6 +408,8 @@ static string UserLabel(UserSummaryDto? user)
     if (!string.IsNullOrWhiteSpace(name) && !LooksLikeEmail(name)) return name;
     var full = string.Join(' ', new[] { user?.FirstName, user?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
     if (!string.IsNullOrWhiteSpace(full)) return full;
+    var login = (user?.Login ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(login)) return login;
     var masked = (user?.MaskedEmail ?? string.Empty).Trim();
     if (!string.IsNullOrWhiteSpace(masked)) return masked;
     return "Пользователь";
@@ -517,6 +520,7 @@ public sealed class UserSummaryDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
+    public string? Login { get; set; }
     public string? Email { get; set; }
     public string? MaskedEmail { get; set; }
     public string? FirstName { get; set; }
@@ -527,6 +531,7 @@ public sealed class UserSummaryDto
     {
         if (UserId == Guid.Empty) UserId = Id;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = string.Join(' ', new[] { FirstName, LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Login;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
 }

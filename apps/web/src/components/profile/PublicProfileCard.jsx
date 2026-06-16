@@ -1,6 +1,6 @@
 import React from "react";
 import { Card, Badge } from "../ui";
-import { Github, Send, Globe2, MapPin, BookOpen, Trophy } from "lucide-react";
+import { Github, Send, Globe2, MapPin, BookOpen, Trophy, AtSign } from "lucide-react";
 
 function safeLink(value) {
   const raw = String(value || "").trim();
@@ -16,10 +16,15 @@ function telegramLink(value) {
   return `https://t.me/${raw.replace(/^@/, "")}`;
 }
 
+function profileLogin(profile) {
+  return String(profile?.login || profile?.username || "").trim();
+}
+
 function initials(profile) {
   const name = String(
     profile?.displayName ||
       `${profile?.lastName || ""} ${profile?.firstName || ""}` ||
+      profileLogin(profile) ||
       "",
   ).trim();
   if (!name) return "TF";
@@ -34,10 +39,9 @@ export default function PublicProfileCard({
   badgesLoading = false,
   embedded = false,
 }) {
-  const displayName =
-    profile?.displayName ||
-    [profile?.lastName, profile?.firstName].filter(Boolean).join(" ") ||
-    "Пользователь";
+  const login = profileLogin(profile);
+  const fullName = [profile?.lastName, profile?.firstName].filter(Boolean).join(" ").trim();
+  const displayName = profile?.displayName || fullName || login || "Пользователь";
   const avatarUrl = profile?.avatarUrl || profile?.profilePictureUrl || "";
   const github = safeLink(profile?.github);
   const telegram = telegramLink(profile?.telegram);
@@ -65,7 +69,15 @@ export default function PublicProfileCard({
 
         <div className="flex-1 space-y-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold truncate">{displayName}</h1>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold truncate">{displayName}</h1>
+              {login ? (
+                <div className="mt-1 inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400">
+                  <AtSign size={14} />
+                  <span className="truncate">{login}</span>
+                </div>
+              ) : null}
+            </div>
             {typeof profile?.rank === "number" && (
               <div className="inline-flex items-center gap-1 rounded-full border border-[rgba(var(--border)/0.65)] px-3 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 <Trophy size={14} />

@@ -76,7 +76,7 @@ export default function NewsPage() {
 
   
   const fio = `${profile?.lastName || ''} ${profile?.firstName || ''}`.trim();
-  const displayName = fio || profile?.displayName || profile?.username || profile?.email || '';
+  const displayName = fio || profile?.displayName || profile?.login || profile?.username || profile?.email || '';
 
   return (
     <Layout>

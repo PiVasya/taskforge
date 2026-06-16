@@ -101,12 +101,22 @@ async function waitForSolutionVerdict(solutionId, options = {}) {
   return { solution: latest, timedOut: true };
 }
 
+function sameAssignmentId(left, right) {
+  return String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
+}
+
+function getSolveDraftKey(assignmentId) {
+  return `solve-draft:v2:${assignmentId}`;
+}
+
 function readSolveDraft(assignmentId) {
+  if (!assignmentId) return null;
   try {
-    const raw = localStorage.getItem(`solve-draft:${assignmentId}`);
+    const raw = localStorage.getItem(getSolveDraftKey(assignmentId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
+    if (!sameAssignmentId(parsed.assignmentId, assignmentId)) return null;
     return parsed;
   } catch {
     return null;
@@ -116,7 +126,11 @@ function readSolveDraft(assignmentId) {
 function saveSolveDraft(assignmentId, draft) {
   if (!assignmentId) return;
   try {
-    localStorage.setItem(`solve-draft:${assignmentId}`, JSON.stringify(draft));
+    localStorage.setItem(getSolveDraftKey(assignmentId), JSON.stringify({
+      ...draft,
+      assignmentId,
+      version: 2,
+    }));
   } catch {}
 }
 
@@ -594,6 +608,7 @@ export default function AssignmentSolvePage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [checkedDraftKey, setCheckedDraftKey] = useState('');
+  const [hydratedAssignmentId, setHydratedAssignmentId] = useState('');
 
   
   const [imgBusy, setImgBusy] = useState(false);
@@ -636,11 +651,19 @@ export default function AssignmentSolvePage() {
     (async () => {
       setLoading(true);
       setError('');
+      setA(null);
+      setNextA(null);
+      setHydratedAssignmentId('');
+      setCode('');
+      setResult(null);
+      setCheckedDraftKey('');
+      setSubmitPhase('idle');
+      setImgError('');
+      setImgCompare(null);
+      setImageInput('');
       try {
         const data = await getAssignment(assignmentId);
         if (!alive) return;
-
-        setA(data);
 
         const defaultLangFromApi = normalizeLang(data?.language || data?.defaultLanguage) || 'cpp';
 
@@ -667,10 +690,14 @@ export default function AssignmentSolvePage() {
           nextLang = draftLang;
         }
 
-        setLanguage(nextLang);
+        const nextCode = typeof draft?.code === 'string'
+          ? draft.code
+          : (typeof data?.starterCode === 'string' ? data.starterCode : '');
 
-        if (typeof draft?.code === 'string') setCode(draft.code);
-        else if (data?.starterCode) setCode(data.starterCode);
+        setLanguage(nextLang);
+        setCode(nextCode);
+        setA(data);
+        setHydratedAssignmentId(String(data?.id || assignmentId));
       } catch (e) {
         const msg = getApiErrorMessage(e, 'Не удалось загрузить задание');
         if (alive) {
@@ -693,8 +720,10 @@ export default function AssignmentSolvePage() {
 
   useEffect(() => {
     if (!a?.id) return;
+    if (!sameAssignmentId(a.id, assignmentId)) return;
+    if (!sameAssignmentId(hydratedAssignmentId, assignmentId)) return;
     saveSolveDraft(assignmentId, { code, language, updatedAt: new Date().toISOString() });
-  }, [a?.id, assignmentId, code, language]);
+  }, [a?.id, assignmentId, code, hydratedAssignmentId, language]);
 
   useEffect(() => {
     if (!result || !checkedDraftKey) return;
@@ -738,6 +767,25 @@ export default function AssignmentSolvePage() {
     })();
     return () => { alive = false; };
   }, [a?.courseId, a?.id]);
+
+  const resetCodeToStarter = React.useCallback(() => {
+    const starter = typeof a?.starterCode === 'string' ? a.starterCode : '';
+    if (code !== starter && code.trim()) {
+      const ok = window.confirm('Заменить текущий код заготовкой задания?');
+      if (!ok) return;
+    }
+
+    setCode(starter);
+    setResult(null);
+    setCheckedDraftKey('');
+    setSubmitPhase('idle');
+    setError('');
+    setImgError('');
+    setImgCompare(null);
+  }, [a?.starterCode, code]);
+
+  const hasStarterCode = typeof a?.starterCode === 'string' && a.starterCode.length > 0;
+  const canResetCodeToStarter = hasStarterCode && code !== a.starterCode;
 
   const goNextAssignment = React.useCallback(() => {
     if (!nextA?.id) return;
@@ -1366,9 +1414,23 @@ export default function AssignmentSolvePage() {
                 </div>
 
                 <div>
-                  <label className="label">Код</label>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <label className="label mb-0">Код</label>
+                    {hasStarterCode ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-2 py-1 text-xs"
+                        onClick={resetCodeToStarter}
+                        disabled={!canResetCodeToStarter}
+                      >
+                        Вернуть заготовку
+                      </Button>
+                    ) : null}
+                  </div>
                   <div className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700">
                     <CodeEditor
+                      key={`image-code-${assignmentId}-${hydratedAssignmentId}-${language}`}
                       value={code}
                       onChange={setCode}
                       language={language}
@@ -1639,11 +1701,30 @@ export default function AssignmentSolvePage() {
                 </div>
 
                 <div>
-                  <label className="label">Ваш код</label>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <label className="label mb-0">Ваш код</label>
+                    {hasStarterCode ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-2 py-1 text-xs"
+                        onClick={resetCodeToStarter}
+                        disabled={!canResetCodeToStarter}
+                      >
+                        Вернуть заготовку
+                      </Button>
+                    ) : null}
+                  </div>
                   {plainMode ? (
                     <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={16} />
                   ) : (
-                    <CodeEditor language={language} value={code} onChange={setCode} height={380} />
+                    <CodeEditor
+                      key={`code-editor-${assignmentId}-${hydratedAssignmentId}-${language}`}
+                      language={language}
+                      value={code}
+                      onChange={setCode}
+                      height={380}
+                    />
                   )}
                 </div>
 
@@ -1750,11 +1831,30 @@ export default function AssignmentSolvePage() {
                   </div>
                 )}
 
-                <label className="label">Ваш код</label>
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <label className="label mb-0">Ваш код</label>
+                  {hasStarterCode ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-2 py-1 text-xs"
+                      onClick={resetCodeToStarter}
+                      disabled={!canResetCodeToStarter}
+                    >
+                      Вернуть заготовку
+                    </Button>
+                  ) : null}
+                </div>
                 {plainMode ? (
                   <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={18} />
                 ) : (
-                  <CodeEditor language={language} value={code} onChange={setCode} height={460} />
+                  <CodeEditor
+                    key={`code-editor-wide-${assignmentId}-${hydratedAssignmentId}-${language}`}
+                    language={language}
+                    value={code}
+                    onChange={setCode}
+                    height={460}
+                  />
                 )}
               </div>
 
