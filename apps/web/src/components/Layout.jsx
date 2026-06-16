@@ -460,6 +460,7 @@ export default function Layout({
     if (currentPath.startsWith("/settings")) return "Настройки";
     if (currentPath.startsWith("/profile")) return "Профиль";
     if (currentPath.startsWith("/my/solutions")) return "Мои решения";
+    if (currentPath === "/") return "Главная";
     return "Лента";
   })();
 
@@ -477,6 +478,7 @@ export default function Layout({
     });
   };
 
+  const brandHref = access ? "/news" : "/";
   const displayName = getDisplayName(user);
   const displaySubline = isAdmin
     ? "Администратор"
@@ -540,7 +542,7 @@ export default function Layout({
                     )}
                   </button>
                   <Link
-                    to="/news"
+                    to={brandHref}
                     className="xl:hidden h-11 w-11 shrink-0 rounded-2xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100"
                     title="TaskForge"
                   >
@@ -549,14 +551,14 @@ export default function Layout({
                 </>
               ) : (
                 <Link
-                  to="/news"
+                  to={brandHref}
                   className="h-11 w-11 shrink-0 rounded-2xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100"
                   title="TaskForge"
                 >
                   <PanelsTopLeft size={18} />
                 </Link>
               )}
-              <Link to="/news" className="min-w-0">
+              <Link to={brandHref} className="min-w-0">
                 <div className="font-semibold truncate text-base">
                   TaskForge
                 </div>
