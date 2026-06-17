@@ -24,19 +24,52 @@ public sealed class CourseAuditWorkflow : ITaskForgeWorkflow
 
     public bool CanHandle(ClaimedAgentJob job)
     {
+        var intent = AgentIntentClassifier.Select(job);
+        if (intent.IsCourseAuditScenario)
+            return true;
+
         var text = job.UserText.ToLowerInvariant();
-        return text.Contains("аудит") || text.Contains("пробел") || text.Contains("дыр") || text.Contains("анализ курса") || text.Contains("gap") || text.Contains("улучшить курс");
+        return text.Contains("аудит")
+               || text.Contains("пробел")
+               || text.Contains("скач")
+               || text.Contains("не хватает")
+               || text.Contains("слаб")
+               || text.Contains("застр")
+               || text.Contains("анализ курса")
+               || text.Contains("изучи курс")
+               || text.Contains("разбери курс")
+               || text.Contains("посмотри курс")
+               || text.Contains("пойми курс")
+               || text.Contains("проверь курс")
+               || text.Contains("структур")
+               || text.Contains("карта курса")
+               || text.Contains("gap")
+               || text.Contains("улучшить курс");
     }
 
     public async Task<AgentResultEnvelope> RunAsync(ClaimedAgentJob job, CancellationToken cancellationToken)
     {
-        var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = "course_gap_audit" };
+        var intent = AgentIntentClassifier.Select(job);
+        var scenarioId = intent.IsCourseAuditScenario ? intent.ScenarioId : "course_gap_audit";
+        var artifactType = scenarioId == "course_analysis" ? "course_analysis_report" : "course_gap_audit";
+        var artifactTitle = scenarioId == "course_analysis" ? "Анализ курса" : "Аудит курса";
+
+        var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = scenarioId };
+        state.Data["agentIntent"] = intent.ToJsonObject();
         var context = await _loadContext.ExecuteAsync(state);
         await _planner.ExecuteAsync(state, context, cancellationToken);
         var audit = await _auditor.ExecuteAsync(state, context, cancellationToken);
 
-        state.Artifacts.Add(new AgentArtifact("course_gap_audit", "Аудит курса", audit));
-        state.AssistantMessage = audit["summary"]?.ToString() ?? "Я подготовил аудит курса и вынес findings в artifact.";
+        audit["scenarioId"] = scenarioId;
+        if (intent.SecondaryScenarioId is not null)
+            audit["secondaryScenarioId"] = intent.SecondaryScenarioId;
+        if (intent.TargetConcept is not null)
+            audit["targetConcept"] = intent.TargetConcept;
+
+        state.Artifacts.Add(new AgentArtifact(artifactType, artifactTitle, audit));
+        state.AssistantMessage = audit["summary"]?.ToString() ?? (scenarioId == "course_analysis"
+            ? "Я подготовил анализ курса и вынес выводы в отдельный материал."
+            : "Я подготовил аудит курса и вынес найденные проблемы в отдельный материал.");
         return _envelopes.FromWorkflowState(state);
     }
 }

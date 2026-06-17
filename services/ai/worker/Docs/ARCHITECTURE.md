@@ -1,59 +1,60 @@
-# Architecture
+# AI worker architecture
 
-## Target shape
+Текущая AI-часть состоит из двух уровней.
+
+## 1. Управляющий уровень
+
+`AdaptiveAgentLoopWorkflow` управляет run-ом. Он не генерирует задания напрямую, а выбирает безопасный маршрут.
+
+Простой разговор может пройти так:
 
 ```text
-TaskForge UI
-  -> ASP.NET Core backend
-  -> /api/internal/agent queue API
-  -> taskforge-ai-agent-dotnet
-  -> Microsoft Agent Framework ChatClientAgent
-  -> OpenRouter/OpenAI-compatible IChatClient
+inspect_context -> classify_request -> answer_directly -> finish
 ```
 
-## Layers
+Работа с курсом обычно проходит богаче:
 
-### Runtime
+```text
+inspect_context
+-> classify_request
+-> map_course_structure
+-> extract_course_style
+-> find_learning_gaps
+-> plan_course_enrichment
+-> delegate_assignment_draft / delegate_course_audit / delegate_course_edit
+-> review_delegated_result
+-> finish
+```
 
-`TaskForgeAgentWorker` polls existing backend API. It keeps heartbeat leases and passes jobs to `TaskForgeAgentRuntime`.
+Модель выбирает следующий шаг, но backend проверяет действие, сохраняет `AgentLoopState` и не даёт потерять накопленную память.
 
-### Workflow Router
+## 2. Рабочие workflow
 
-`TaskForgeWorkflowRouter` selects a coarse safety workflow. This is not the old Python scenario-router: it does not decide every LLM action. It chooses the safe orchestration boundary, then agents and tools operate inside it.
+Специализированные workflow делают конкретную работу:
 
-### Agent
+- `AssignmentDraftWorkflow` — создаёт задания и прогоняет validation/critic/repair;
+- `CourseAuditWorkflow` — анализирует курс и ищет пробелы;
+- `CourseEditWorkflow` — готовит patch без авто-применения;
+- `PolishAssignmentDraftWorkflow` — дорабатывает выбранное задание;
+- `OpenChatWorkflow` — отвечает в чат без записи в курс.
 
-`TaskForgeAgentFactory` creates `ChatClientAgent` with a `ChatClientBuilder(...).UseFunctionInvocation()` pipeline. Tools are C# methods with `[Description]`.
+## 3. Course-aware инструменты
 
-### Tools
+Перед генерацией заданий agent loop может подготовить:
 
-- `CourseContextTools`: read current run/course context and assignment search.
-- `AssignmentDraftTools`: build/normalize typed TaskForge draft objects.
-- `ValidationTools`: deterministic draft validation and backend compiler test execution.
-- `ApprovalTools`: produce human approval request payloads.
-- `PersistenceTools`: direct writes are intentionally disabled by default.
+- `courseMap` — карта курса, типов заданий, языков, сложности и timeline понятий;
+- `courseStyleProfile` — стиль существующих заданий, тестов, описаний и названий;
+- `courseGapReport` — список слабых мест и предложений для bridge tasks;
+- `courseEnrichmentBrief` — единый brief, который передаётся в downstream workflow.
 
-### Context and memory
+Это помогает модели не генерировать из воздуха и не забывать, что она уже увидела в курсе.
 
-`PromptContextComposer` replaces a single huge prompt pack with a bounded contextual prompt. `AgentMemoryStore` stores lightweight in-memory memory patches per conversation. For production, replace it with DB persistence around `AgentConversation.MemoryJson` or a dedicated table.
+## Принцип качества
 
-### Write boundary
+AI может предложить результат, но результат не считается готовым без проверок. Для заданий это значит:
 
-Worker can emit artifacts:
+```text
+черновик -> проверка структуры -> проверка тестов -> критика -> исправление -> скрытый материал -> review_delegated_result
+```
 
-- `assignment_draft_ready`
-- `polished_assignment_draft`
-- `course_gap_audit`
-- `course_edit_proposal`
-- `approval_request`
-
-Backend remains the owner of writes. Existing `InternalAgentController.Complete` can create hidden drafts from `assignment_draft_ready` / `polished_assignment_draft` artifacts. Course edit proposals stay as `course_edit_proposal` and must not be auto-applied by worker completion; they require a separate user-approved action.
-
-## Why this is stronger than the first prototype
-
-- Real workflow layer, not one generic agent call.
-- Bounded draft repair loop.
-- Deterministic validators and backend compiler test tool.
-- Explicit write guard.
-- Existing backend result envelope preserved.
-- OpenRouter is swappable through `ITaskForgeChatClientFactory`.
+Система сохраняет только те черновики, которые прошли проверки.

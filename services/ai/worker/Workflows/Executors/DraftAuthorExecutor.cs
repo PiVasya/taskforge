@@ -44,6 +44,7 @@ public sealed class DraftAuthorExecutor
         var beforeAssignmentId = bridge.BeforeAssignmentId;
         var bridgeJson = bridge.ToJsonObject().ToJsonString();
         var teacherPreferences = state.TeacherPreferences.ToJsonString();
+        var agentLoopMemory = ExtractPayloadProperty(state.Job.Payload, "agentLoopMemory");
         var generationContext = state.Data["skillMapInput"]?.ToJsonString()
             ?? CourseSkillAnalyzer.BuildSkillMapInput(state.Job.Payload, state.UserText).ToJsonString();
         var prompt = $$"""
@@ -61,6 +62,9 @@ public sealed class DraftAuthorExecutor
 
 Педагогические предпочтения преподавателя / память агента:
 {{teacherPreferences}}
+
+Накопленная память adaptive agent loop перед генерацией. Здесь могут быть карта курса, стиль существующих заданий, найденные пробелы и courseEnrichmentBrief. Используй это как важный контекст качества, но не выводи служебные поля ученику:
+{{agentLoopMemory}}
 
 Правила генерации по COURSE_SKILL_MAP:
 0. COURSE_SKILL_MAP — источник истины. Не выбирай anchor самостоятельно по ключевым словам и не переоценивай курс заново. Не используй заранее зашитую предметную лестницу; следуй только bridgePlan.
@@ -91,13 +95,15 @@ public sealed class DraftAuthorExecutor
       "assignmentType": "code-test|test|math",
       "title": "...",
       "description": "...",
-      "language": "cpp|csharp|java|javascript|pascal",
+      "language": "cpp|csharp|java|javascript|pascal|python",
       "referenceSolution": "...",
       "difficulty": 1,
       "rating": 10,
       "sourceTaskIndex": 0,
       "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
       "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
+      "testSpec": {"settings": {}, "questions": [{"type":"single-choice|multi-choice|fill|text", "prompt":"...", "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"], "acceptedAnswers":["..."]}]},
+      "mathSpec": {"settings": {}, "blocks": [{"kind":"info|number|expression|set|single-choice|multi-choice|order|match", "prompt":"...", "score":1, "acceptedAnswers":["..."], "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"]}]},
       "tags": ["AI", "черновик"],
       "extra": {
         "bridgeSkillId": "same value as bridgePlan step.skillId",
@@ -112,7 +118,7 @@ public sealed class DraftAuthorExecutor
 }
 """;
 
-        var fallbackPrompt = BuildCompactDraftPrompt(state, bridgeJson, teacherPreferences, count);
+        var fallbackPrompt = BuildCompactDraftPrompt(state, bridgeJson, teacherPreferences, agentLoopMemory, count);
         var responseText = await TryRunAuthorPromptAsync(state, prompt, fallbackPrompt, attempt, cancellationToken);
         if (string.IsNullOrWhiteSpace(responseText))
         {
@@ -192,13 +198,15 @@ Critique:
   "assignmentType": "code-test|test|math",
   "title": "...",
   "description": "...",
-  "language": "cpp|csharp|java|javascript|pascal",
+  "language": "cpp|csharp|java|javascript|pascal|python",
   "referenceSolution": "...",
   "difficulty": 1,
   "rating": 10,
   "sourceTaskIndex": {{original.SourceTaskIndex ?? 0}},
   "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
   "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
+  "testSpec": {"settings": {}, "questions": [{"type":"single-choice|multi-choice|fill|text", "prompt":"...", "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"], "acceptedAnswers":["..."]}]},
+  "mathSpec": {"settings": {}, "blocks": [{"kind":"info|number|expression|set|single-choice|multi-choice|order|match", "prompt":"...", "score":1, "acceptedAnswers":["..."], "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"]}]},
   "tags": ["AI", "черновик"],
   "extra": {
     "bridgeSkillId": "{{original.Extra["bridgeSkillId"]?.ToString() ?? string.Empty}}",
@@ -246,11 +254,30 @@ Critique:
         }
     }
 
-    private static int ResolveDraftCount(int requestedCount, CourseSkillBridgeContext bridge)
+    private static string ExtractPayloadProperty(JsonElement payload, string name)
     {
-        var requested = Math.Clamp(requestedCount, 1, 6);
+        try
+        {
+            if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(name, out var value))
+            {
+                var raw = value.GetRawText();
+                return raw.Length <= 30000 ? raw : raw[..30000] + "...";
+            }
+        }
+        catch
+        {
+            // Agent-loop memory is an optional quality context. Broken payload must not break draft generation.
+        }
+
+        return "{}";
+    }
+
+    private int ResolveDraftCount(int requestedCount, CourseSkillBridgeContext bridge)
+    {
+        var maxDrafts = Math.Clamp(_options.MaxDraftsPerRun, 1, 50);
+        var requested = Math.Clamp(requestedCount, 1, maxDrafts);
         var planned = bridge.BridgePlan?.Count ?? 0;
-        if (planned > 0) return Math.Clamp(planned, 1, Math.Min(6, requested));
+        if (planned > 0) return Math.Clamp(planned, 1, Math.Min(maxDrafts, requested));
         return requested;
     }
 
@@ -312,7 +339,7 @@ Critique:
         return null;
     }
 
-    private static string BuildCompactDraftPrompt(WorkflowState state, string bridgeJson, string teacherPreferences, int count)
+    private static string BuildCompactDraftPrompt(WorkflowState state, string bridgeJson, string teacherPreferences, string agentLoopMemory, int count)
     {
         return $$"""
 Ты — TaskForge draft author. Сгенерируй до {{count}} учебных draft-ов строго по COURSE_SKILL_MAP.bridgePlan.
@@ -328,6 +355,9 @@ COURSE_SKILL_MAP:
 Педагогические правила:
 {{teacherPreferences}}
 
+Память adaptive agent loop:
+{{agentLoopMemory}}
+
 Требования:
 - Один draft на один bridgePlan step, в том же порядке.
 - Один главный новый навык на draft.
@@ -339,23 +369,27 @@ COURSE_SKILL_MAP:
 - Не пиши "самый короткий" и не поощряй code golf; проси понятное минимально необходимое решение.
 - Делай обучалку максимально простой: если можно одной строкой кода — используй одну строку. Не добавляй проверки ошибок, условия, префиксы вывода или будущие темы без необходимости текущего step.
 - Если это code-test, дай referenceSolution, 2 publicTests и 2 hiddenTests, которые проходят решение.
-- Если для какого-то step невозможно дать корректный draft с тестами, просто пропусти этот step, не выдумывай fallback.
+- Если это test, дай testSpec.questions с валидными вопросами, вариантами/ответами и понятными формулировками для ученика.
+- Если это math, дай mathSpec.blocks с валидными блоками, ответами и пояснениями.
+- Если для какого-то step невозможно дать корректный draft с данными проверки, просто пропусти этот step, не выдумывай fallback.
 - language выбирай из языка соседних/целевых заданий или allowedLanguages из COURSE_SKILL_MAP. Не подставляй конкретный язык, если он не следует из курса.
 
 Верни только валидный JSON без markdown:
 {
   "drafts": [
     {
-      "assignmentType": "code-test",
+      "assignmentType": "code-test|test|math",
       "title": "...",
       "description": "...",
-      "language": "cpp|csharp|java|javascript|pascal",
+      "language": "cpp|csharp|java|javascript|pascal|python",
       "referenceSolution": "...",
       "difficulty": 1,
       "rating": 10,
       "sourceTaskIndex": 0,
       "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
       "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
+      "testSpec": {"settings": {}, "questions": [{"type":"single-choice|multi-choice|fill|text", "prompt":"...", "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"], "acceptedAnswers":["..."]}]},
+      "mathSpec": {"settings": {}, "blocks": [{"kind":"info|number|expression|set|single-choice|multi-choice|order|match", "prompt":"...", "score":1, "acceptedAnswers":["..."], "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"]}]},
       "tags": ["AI", "черновик"],
       "extra": {
         "bridgeSkillId": "same as bridgePlan step.skillId",
@@ -410,7 +444,7 @@ COURSE_SKILL_MAP:
         return new DraftSpec
         {
             AssignmentType = node["assignmentType"]?.ToString() ?? node["assignment_type"]?.ToString() ?? "code-test",
-            Title = node["title"]?.ToString() ?? "AI-задание",
+            Title = node["title"]?.ToString() ?? "Черновик задания",
             Description = node["description"]?.ToString() ?? node["condition"]?.ToString() ?? "Описание задания не было заполнено моделью.",
             Language = NormalizeLanguage(node["language"]?.ToString() ?? _options.DefaultLanguage),
             ReferenceSolution = node["referenceSolution"]?.ToString() ?? node["solution"]?.ToString() ?? string.Empty,
@@ -421,8 +455,48 @@ COURSE_SKILL_MAP:
             Tags = ReadStringArray(node["tags"]).DefaultIfEmpty("AI").ToList(),
             PublicTests = ReadTests(node["publicTests"] ?? node["tests"], false),
             HiddenTests = ReadTests(node["hiddenTests"], true),
+            TestSpec = ReadTestSpec(node),
+            MathSpec = ReadMathSpec(node),
             Extra = extra
         };
+    }
+
+    private static JsonObject? ReadTestSpec(JsonObject node)
+    {
+        if (node["testSpec"] is JsonObject spec)
+            return spec.DeepClone() as JsonObject;
+        if (node["test"] is JsonObject test)
+            return test.DeepClone() as JsonObject;
+        if (node["taskTest"] is JsonObject taskTest)
+            return taskTest.DeepClone() as JsonObject;
+        if (node["questions"] is JsonArray questions)
+        {
+            return new JsonObject
+            {
+                ["settings"] = new JsonObject(),
+                ["questions"] = questions.DeepClone()
+            };
+        }
+        return null;
+    }
+
+    private static JsonObject? ReadMathSpec(JsonObject node)
+    {
+        if (node["mathSpec"] is JsonObject spec)
+            return spec.DeepClone() as JsonObject;
+        if (node["math"] is JsonObject math)
+            return math.DeepClone() as JsonObject;
+        if (node["taskMath"] is JsonObject taskMath)
+            return taskMath.DeepClone() as JsonObject;
+        if (node["blocks"] is JsonArray blocks)
+        {
+            return new JsonObject
+            {
+                ["settings"] = new JsonObject(),
+                ["blocks"] = blocks.DeepClone()
+            };
+        }
+        return null;
     }
 
     private static JsonObject BuildDraftExtra(JsonObject node, string rawText)
@@ -443,7 +517,7 @@ COURSE_SKILL_MAP:
             extra["skillBridgeReason"] = node["skillBridgeReason"]!.ToString();
 
         // Keep raw LLM text out of draft metadata. It is noisy, can leak internal
-        // prompt/repair text into debug artifacts, and may confuse the model critic
+        // prompt/repair text into служебные материалы, and may confuse the model critic
         // into critiquing stale rawModelDraft content instead of the normalized
         // student-facing assignment.
         return extra;
@@ -894,7 +968,7 @@ COURSE_SKILL_MAP:
         clean = Regex.Replace(clean, @"^\s*Подготовка\s+к\s+заданию\s+\d+\s*[\.:\-–—]?\s*\d+[\.:\-–—]?\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         clean = Regex.Replace(clean, @"^\s*Задание\s+\d+(?:\.\d+)?[\.:\-–—]?\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         clean = Regex.Replace(clean, @"\s+", " ").Trim();
-        return string.IsNullOrWhiteSpace(clean) ? "AI-черновик задания" : clean;
+        return string.IsNullOrWhiteSpace(clean) ? "Черновик задания" : clean;
     }
 
     private static string SanitizeStudentFacingDescription(string? description)
@@ -1309,6 +1383,7 @@ COURSE_SKILL_MAP:
             
             "js" or "node" or "nodejs" or "javascript" => "javascript",
             "pas" or "pascal" => "pascal",
+            "py" or "python" => "python",
             "java" => "java",
             "ru" => "cpp",
             _ => string.IsNullOrWhiteSpace(text) ? "cpp" : text

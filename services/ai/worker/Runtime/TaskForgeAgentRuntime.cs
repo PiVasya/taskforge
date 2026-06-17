@@ -47,9 +47,9 @@ public sealed class TaskForgeAgentRuntime
 
         try
         {
-            await _steps.TryReportAsync("runtime", "running", "Запущен .NET Agent Runtime", "Python scenario-engine заменён на TaskForge hybrid workflow runtime.");
+            await _steps.TryReportAsync("runtime", "running", "Ассистент начал обработку", "Готовлю безопасный сценарий работы с курсом.");
             var workflow = _router.Resolve(job);
-            await _steps.TryReportAsync("workflow", "running", $"Выбран workflow: {workflow.Name}", "Workflow выбран не как Python-сценарий, а как безопасная оркестрация agent/tools/HITL.");
+            await _steps.TryReportAsync("workflow", "running", "Выбран сценарий обработки", "Ассистент будет работать через проверяемые шаги и не внесёт изменения без подтверждения.");
             var result = await workflow.RunAsync(job, timeoutCts.Token);
             result.Debug["provider"] = _options.Provider;
             result.Debug["model"] = _options.Model;

@@ -287,7 +287,7 @@ Static critique:
             // A bridge step named "read one value from console" is a composite
             // micro-skill: the visible task may use the concrete C# operations below
             // without introducing a future topic. This is intentionally generic at
-            // the skill-taxonomy level, not hardcoded to a particular assignment.
+            // the skill-taxonomy level, not заранее зашитый to a particular assignment.
             yield return "console-input-line";
             yield return "parse-int";
             yield return "variables";

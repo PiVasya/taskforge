@@ -56,7 +56,7 @@ public sealed class CourseSkillMapExecutor
             // Stage 1: build a neutral semantic map of the course. This stage is
             // deliberately NOT allowed to pick an insertion point. It only studies
             // the actual assignments, examples and tests so the next stage is not
-            // tempted to anchor on a tag, a single keyword, or a hardcoded topic.
+            // tempted to anchor on a tag, a single keyword, or a заранее зашитый topic.
             var semanticPrompt = $$"""
 {{TaskForgeAgentPrompts.Coordinator}}
 
@@ -115,7 +115,7 @@ TASKS_ONLY_CONTEXT:
 {{TaskForgeAgentPrompts.Coordinator}}
 
 Теперь выбери точку вставки и bridgePlan для запроса пользователя.
-Ты получаешь нейтральную карту курса из stage 1 и исходные задания. Не используй hardcoded предметную лестницу и не выбирай первую задачу по тегу/слову.
+Ты получаешь нейтральную карту курса из stage 1 и исходные задания. Не используй заранее зашитый предметную лестницу и не выбирай первую задачу по тегу/слову.
 
 Запрос пользователя:
 {{state.UserText}}

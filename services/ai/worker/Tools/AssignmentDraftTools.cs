@@ -15,7 +15,7 @@ public sealed class AssignmentDraftTools
     public Task<JsonObject> BuildCodeAssignmentDraftAsync(
         [Description("Short assignment title.")] string title,
         [Description("Clear assignment statement in Russian.")] string description,
-        [Description("Programming language: cpp, csharp, java, javascript, pascal.")] string language,
+        [Description("Programming language: cpp, csharp, java, javascript, pascal, python.")] string language,
         [Description("Reference solution code that should pass all tests.")] string referenceSolution,
         [Description("Difficulty 1..3.")] int difficulty = 1)
     {
@@ -92,10 +92,11 @@ public sealed class AssignmentDraftTools
             "c++" or "cpp" => "cpp",
             "c#" or "cs" or "csharp" => "csharp",
             "js" or "javascript" => "javascript",
-            
+            "py" or "python" => "python",
             "java" => "java",
             "pascal" => "pascal",
-            _ => value
+            "ru" => "cpp",
+            _ => string.IsNullOrWhiteSpace(value) ? "cpp" : value
         };
     }
 }

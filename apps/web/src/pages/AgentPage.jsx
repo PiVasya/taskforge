@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileJson,
+  GitCompare,
   Loader2,
   PanelRightOpen,
   Paperclip,
@@ -44,6 +45,7 @@ import { joinAgentConversation, leaveAgentConversation } from '../realtime/agent
 
 const RUNNING_STATUSES = new Set(['queued', 'running', 'planning', 'sleeping', 'waiting_approval']);
 const FINAL_STATUSES = new Set(['completed', 'completed_with_warnings', 'failed', 'canceled']);
+const AI_DIAGNOSTICS_ENABLED = true;
 
 function nowIso() {
   return new Date().toISOString();
@@ -134,15 +136,64 @@ function getMessageAttachments(message) {
 }
 
 function pickReadableArtifactTitle(artifact) {
-  return artifact?.title || artifact?.data?.title || artifact?.type || 'AI artifact';
+  return artifact?.title || artifact?.data?.title || getArtifactTypeLabel(artifact?.type);
+}
+
+
+function getArtifactTypeLabel(type) {
+  const value = String(type || '').toLowerCase();
+  if (value === 'assignment_draft_ready') return 'Черновик задания';
+  if (value === 'polished_assignment_draft') return 'Доработанный черновик';
+  if (value === 'course_gap_audit') return 'Анализ курса';
+  if (value === 'course_edit_proposal') return 'Предложение правок';
+  if (value === 'approval_request') return 'Ожидает подтверждения';
+  if (value === 'agent_plan') return 'План действий';
+  if (value === 'course_skill_map_ready') return 'Карта навыков курса';
+  return 'Материал от ассистента';
 }
 
 function isApplyableArtifact(artifact) {
   const type = String(artifact?.type || '').toLowerCase();
-  if (['course_edit_proposal', 'assignment_update_batch', 'course_style_update'].includes(type)) return true;
+  if (['course_edit_proposal', 'assignment_update_batch', 'course_style_update', 'course_patch_set'].includes(type)) return true;
   if (type !== 'approval_request') return false;
   const operation = String(artifact?.data?.operation || artifact?.operation || '').toLowerCase();
   return ['apply_course_edit', 'apply_assignment_update_batch', 'save_hidden_draft'].includes(operation);
+}
+
+
+function isPatchSetArtifact(artifact) {
+  const type = String(artifact?.type || artifact?.Type || artifact?.data?.type || '').toLowerCase();
+  const data = artifact?.data || artifact?.Data || artifact;
+  return type === 'course_patch_set' || type.includes('patch_set') || Array.isArray(data?.patches);
+}
+
+function getPatchSetData(artifact) {
+  const data = artifact?.data || artifact?.Data || artifact || {};
+  return data?.patches ? data : data?.data?.patches ? data.data : data;
+}
+
+function collectPatchSets(messages, runs) {
+  const result = [];
+  const push = (artifact, source) => {
+    if (!artifact || !isPatchSetArtifact(artifact)) return;
+    const data = getPatchSetData(artifact);
+    result.push({ artifact, data, source, key: normalizeId(artifact.id || artifact.artifactId || `${source}-${result.length}`) || `${source}-${result.length}` });
+  };
+  (messages || []).forEach((message) => getArtifactData(message).forEach((artifact, idx) => push(artifact, `message-${message?.id || idx}`)));
+  (runs || []).forEach((run) => (Array.isArray(run?.artifacts) ? run.artifacts : []).forEach((artifact, idx) => push(artifact, `run-${run?.id || idx}`)));
+  const seen = new Set();
+  return result.filter((item) => {
+    const key = item.key;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function formatDiffValue(value) {
+  if (value == null) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
 }
 
 function getArtifactStableKey({ persistedArtifact, message, artifactIndex, artifact }) {
@@ -190,6 +241,16 @@ function getLatestRun(runs) {
   return ordered[0] || null;
 }
 
+
+function getRunTypeLabel(run) {
+  const value = String(run?.scenarioId || run?.jobType || '').toLowerCase();
+  if (value.includes('polish')) return 'Доработка задания';
+  if (value.includes('draft')) return 'Черновик задания';
+  if (value.includes('audit') || value.includes('gap')) return 'Анализ курса';
+  if (value.includes('edit')) return 'Правки курса';
+  return 'Ответ ассистента';
+}
+
 function ThinkingDots() {
   return (
     <span className="inline-flex items-center gap-1 pl-1 align-middle" aria-hidden="true">
@@ -200,7 +261,7 @@ function ThinkingDots() {
   );
 }
 
-function MessageBubble({ message, runs, onPolishTask, onPolishSelectedTasks, onApplyArtifact, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, applyingArtifacts, artifactApplyResults, currentCourseId }) {
+function MessageBubble({ message, runs, onPolishTask, onPolishSelectedTasks, onApplyArtifact, onOpenPatchSet, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, applyingArtifacts, artifactApplyResults, currentCourseId }) {
   const role = String(message?.role || '').toLowerCase();
   const isUser = role === 'user';
   const artifacts = getArtifactData(message);
@@ -254,6 +315,7 @@ function MessageBubble({ message, runs, onPolishTask, onPolishSelectedTasks, onA
                 runs={runs}
                 onPolishSelectedTasks={onPolishSelectedTasks}
                 onApplyArtifact={onApplyArtifact}
+                onOpenPatchSet={onOpenPatchSet}
                 selectedDraftTasks={selectedDraftTasks}
                 onToggleDraftTask={onToggleDraftTask}
                 onSetDraftTasks={onSetDraftTasks}
@@ -279,7 +341,7 @@ function MessageBubble({ message, runs, onPolishTask, onPolishSelectedTasks, onA
   );
 }
 
-function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask, onPolishSelectedTasks, onApplyArtifact, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, applyingArtifacts, artifactApplyResults, currentCourseId }) {
+function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask, onPolishSelectedTasks, onApplyArtifact, onOpenPatchSet, selectedDraftTasks, onToggleDraftTask, onSetDraftTasks, polishingTasks, applyingArtifacts, artifactApplyResults, currentCourseId }) {
   const persistedArtifact = findPersistedArtifactForMessage(runs, message, artifact, artifactIndex);
   const artifactKey = getArtifactStableKey({ persistedArtifact, message, artifactIndex, artifact });
   const data = artifact?.data || persistedArtifact?.data || {};
@@ -302,6 +364,7 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
   const selectedInArtifact = taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]).length;
   const allSelected = taskItems.length > 0 && selectedInArtifact === taskItems.length;
   const anyPolishing = taskItems.some((item) => polishingTasks?.[item.taskKey]);
+  const isPatchSet = isPatchSetArtifact(artifact) || isPatchSetArtifact(persistedArtifact);
   const canApply = isApplyableArtifact(artifact);
   const applyingMode = applyingArtifacts?.[artifactKey];
   const applyResult = artifactApplyResults?.[artifactKey];
@@ -319,6 +382,16 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
           <span>{title}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {isPatchSet && (
+            <button
+              type="button"
+              onClick={() => onOpenPatchSet?.(artifactKey)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-900 dark:bg-neutral-950/50 dark:text-brand-300"
+            >
+              <GitCompare size={14} />
+              открыть патчи
+            </button>
+          )}
           {tasks.length > 0 && (
             <>
               <button
@@ -333,21 +406,21 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                 disabled={!selectedInArtifact || anyPolishing || !hasPersistTarget}
                 onClick={() => onPolishSelectedTasks?.(taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]))}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60 dark:border-brand-900"
-                title={hasPersistTarget ? 'Отправить выбранные задания пачкой. Каждое задание станет отдельным AI-run и может обрабатываться параллельно.' : 'Нельзя создать скрытые черновики: AI не определил курс или позицию вставки.'}
+                title={hasPersistTarget ? 'Отправить выбранные задания пачкой. Каждое задание будет обработано отдельно.' : 'Нельзя создать скрытые черновики: ассистент не определил курс или место вставки.'}
               >
                 {anyPolishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                 {hasPersistTarget ? `в черновики${selectedInArtifact ? `: ${selectedInArtifact}` : ''}` : 'нужен курс'}
               </button>
             </>
           )}
-          <span className="text-xs text-neutral-500">{artifact?.type || 'artifact'}</span>
+          <span className="text-xs text-neutral-500">{getArtifactTypeLabel(artifact?.type)}</span>
         </div>
       </div>
 
       {data?.summary && <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{data.summary}</div>}
       {tasks.length > 0 && !hasPersistTarget && (
         <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50/80 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-          AI не указал курс/позицию для сохранения. Такие задачи можно смотреть как blueprint, но кнопки создания скрытых черновиков заблокированы, чтобы они не “терялись”.
+          Ассистент не определил курс или место вставки. Можно просмотреть предложения, но сохранить их как черновики пока нельзя.
         </div>
       )}
 
@@ -355,7 +428,7 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
         <div className="mt-3 space-y-2">
           {findings.slice(0, 2).map((f, i) => (
             <div key={`finding-${i}`} className="rounded-xl bg-white/60 dark:bg-neutral-950/30 p-3 text-sm">
-              <div className="font-semibold">{f.concept || f.kind || `Дыра ${i + 1}`}</div>
+              <div className="font-semibold">{f.concept || f.kind || `Сложное место ${i + 1}`}</div>
               <div className="mt-1 text-neutral-600 dark:text-neutral-300">{f.reason || f.summary || 'Найдено слабое место в курсе.'}</div>
             </div>
           ))}
@@ -366,8 +439,8 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
         <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-100">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="font-semibold">Proposal можно применить к курсу</div>
-              <div className="text-xs opacity-80">Сначала можно сделать dry-run: backend проверит права, форму patch и runner-тесты без записи в БД.</div>
+              <div className="font-semibold">Предложение можно применить к курсу</div>
+              <div className="text-xs opacity-80">Сначала можно выполнить безопасную проверку: система проверит права, структуру изменений и тесты без сохранения.</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -375,9 +448,9 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                 disabled={!persistedArtifact?.id || !!applyingMode}
                 onClick={() => onApplyArtifact?.({ message, artifact, persistedArtifact, artifactIndex, dryRun: true })}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900 dark:bg-neutral-950/50 dark:text-emerald-200"
-                title={persistedArtifact?.id ? 'Проверить proposal без записи в БД' : 'Artifact ещё не синхронизирован из run. Обновите чат после завершения AI-run.'}
+                title={persistedArtifact?.id ? 'Проверить изменения без сохранения' : 'Материал ещё не готов к применению. Обновите чат после завершения обработки.'}
               >
-                {applyingMode === 'dry-run' ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
+                {applyingMode === 'check' ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
                 проверить
               </button>
               <button
@@ -385,7 +458,7 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                 disabled={!persistedArtifact?.id || !!applyingMode}
                 onClick={() => onApplyArtifact?.({ message, artifact, persistedArtifact, artifactIndex, dryRun: false })}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600 bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                title={persistedArtifact?.id ? 'Применить proposal после backend-валидации' : 'Artifact ещё не синхронизирован из run. Обновите чат после завершения AI-run.'}
+                title={persistedArtifact?.id ? 'Применить изменения после проверки' : 'Материал ещё не готов к применению. Обновите чат после завершения обработки.'}
               >
                 {applyingMode === 'apply' ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                 применить
@@ -394,7 +467,7 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
           </div>
           {!persistedArtifact?.id && (
             <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-              Для применения нужен сохранённый artifact id. Нажмите обновить чат, если AI-run уже завершился.
+              Для применения нужно дождаться сохранения результата. Нажмите обновить чат, если обработка уже завершилась.
             </div>
           )}
           {applyResult && (
@@ -421,7 +494,7 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                       checked={selected}
                       onChange={() => onToggleDraftTask?.(item)}
                       className="mt-1 h-4 w-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500"
-                      title="Выбрать задание для пакетного вылизывания"
+                      title="Выбрать задание для доработки"
                     />
                     <div className="min-w-0">
                       <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
@@ -437,10 +510,10 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                       disabled={polishing || !hasPersistTarget}
                       onClick={() => onPolishTask(item)}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-60 dark:border-brand-900 dark:bg-neutral-950/50 dark:text-brand-300"
-                      title={hasPersistTarget ? 'Выбрать только это задание: AI вылижет его, прогонит решение на раннерах и создаст скрытый черновик' : 'Нельзя создать скрытый черновик: AI не определил курс или позицию вставки.'}
+                      title={hasPersistTarget ? 'Выбрать только это задание: ассистент доработает его, проверит решение и создаст скрытый черновик' : 'Нельзя создать скрытый черновик: ассистент не определил курс или место вставки.'}
                     >
                       {polishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                      {polishing ? 'вылизываю' : hasPersistTarget ? 'одно в черновик' : 'нужен курс'}
+                      {polishing ? 'дорабатываю' : hasPersistTarget ? 'одно в черновик' : 'нужен курс'}
                     </button>
                   )}
                 </div>
@@ -479,10 +552,10 @@ function ThinkingPanel({ run }) {
           </div>
           <div>
             <div className="font-semibold">AI сейчас {statusLabel}<ThinkingDots /></div>
-            <div className="text-sm text-neutral-600 dark:text-neutral-300">Подтягивает контекст курса, выбирает сценарий и собирает ответ.</div>
+            <div className="text-sm text-neutral-600 dark:text-neutral-300">Подтягивает контекст курса, проверяет данные и собирает ответ.</div>
           </div>
         </div>
-        <Badge variant="outline">{run.scenarioId || 'assistant_chat_turn'}</Badge>
+        <Badge variant="outline">{getRunTypeLabel(run)}</Badge>
       </div>
 
       {steps.length > 0 && (
@@ -556,6 +629,180 @@ function ConversationList({ conversations, selectedId, onSelect, onCreate, loadi
   );
 }
 
+
+function PatchSetDrawer({ open, onClose, patchSets, onApplyPatchSet, applyingArtifacts, artifactApplyResults }) {
+  const [selectedKey, setSelectedKey] = useState(null);
+  const selected = useMemo(() => {
+    if (!patchSets.length) return null;
+    return patchSets.find((x) => x.key === selectedKey) || patchSets[0];
+  }, [patchSets, selectedKey]);
+
+  useEffect(() => {
+    if (open && patchSets.length && !patchSets.some((x) => x.key === selectedKey)) setSelectedKey(patchSets[0].key);
+  }, [open, patchSets, selectedKey]);
+
+  if (!open) return null;
+  const data = selected?.data || {};
+  const patches = Array.isArray(data.patches) ? data.patches : [];
+  const artifact = selected?.artifact || {};
+  const artifactKey = normalizeId(artifact.id || artifact.artifactId || selected?.key);
+  const applyingMode = applyingArtifacts?.[artifactKey];
+  const applyResult = artifactApplyResults?.[artifactKey];
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/25 backdrop-blur-sm">
+      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Закрыть меню патчей" />
+      <aside className="relative h-full w-[min(76rem,98vw)] border-l border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft flex flex-col">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 dark:border-neutral-800/70 p-4">
+          <div>
+            <div className="flex items-center gap-2 font-semibold"><GitCompare size={18} /> Патчи курса</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">Диффы перед применением: как в GitHub, но для заданий курса. Сначала проверь изменения, потом применяй.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            {selected && (
+              <>
+                <button
+                  type="button"
+                  className="btn-outline !min-w-0"
+                  disabled={!artifact?.id || !!applyingMode}
+                  onClick={() => onApplyPatchSet?.({ artifact, persistedArtifact: artifact, dryRun: true })}
+                  title={artifact?.id ? 'Проверить patch set без сохранения' : 'Патч ещё не сохранён как материал run-а'}
+                >
+                  {applyingMode === 'check' ? <Loader2 size={16} className="animate-spin" /> : <Activity size={16} />}
+                  <span className="hidden sm:inline">Проверить</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-outline !min-w-0 border-emerald-500 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/20"
+                  disabled={!artifact?.id || !!applyingMode}
+                  onClick={() => onApplyPatchSet?.({ artifact, persistedArtifact: artifact, dryRun: false })}
+                  title={artifact?.id ? 'Применить patch set к заданиям' : 'Патч ещё не сохранён как материал run-а'}
+                >
+                  {applyingMode === 'apply' ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                  <span className="hidden sm:inline">Применить</span>
+                </button>
+              </>
+            )}
+            <button type="button" className="btn-outline !min-w-0 !px-3" onClick={onClose} title="Закрыть">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 grid md:grid-cols-[20rem,1fr]">
+          <div className="min-h-0 overflow-auto border-r border-neutral-200/70 dark:border-neutral-800/70 p-3 space-y-2">
+            {patchSets.length === 0 && <div className="rounded-2xl border border-dashed border-neutral-300 p-4 text-sm text-neutral-500">Патчей пока нет.</div>}
+            {patchSets.map((item) => {
+              const itemData = item.data || {};
+              const active = item.key === selected?.key;
+              const count = Array.isArray(itemData.patches) ? itemData.patches.length : 0;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setSelectedKey(item.key)}
+                  className={`w-full rounded-2xl border p-3 text-left transition ${active ? 'border-brand-400 bg-brand-50/80 dark:bg-brand-950/30' : 'border-neutral-200/70 dark:border-neutral-800/70 hover:border-brand-300'}`}
+                >
+                  <div className="font-semibold text-sm">{itemData.title || item.artifact?.title || item.artifact?.Title || 'Патч курса'}</div>
+                  <div className="mt-1 text-xs text-neutral-500">{count} изменений · {itemData.field || itemData.operation || 'patch set'}</div>
+                  {itemData.summary && <div className="mt-2 text-xs text-neutral-600 dark:text-neutral-300 line-clamp-3">{itemData.summary}</div>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="min-h-0 overflow-auto p-4">
+            {!selected ? (
+              <div className="text-sm text-neutral-500">Выбери patch set слева.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-semibold">{data.title || artifact.title || artifact.Title || 'Патч курса'}</div>
+                      {data.summary && <div className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">{data.summary}</div>}
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="secondary">изменений: {patches.length}</Badge>
+                      {data.field && <Badge variant="outline">поле: {data.field}</Badge>}
+                    </div>
+                  </div>
+                  {applyResult && (
+                    <div className={`mt-3 rounded-xl px-3 py-2 text-sm ${applyResult.ok ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200' : 'bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200'}`}>
+                      {summarizeApplyResult(applyResult) || applyResult.message}
+                      {applyResult.message && <div className="mt-1 opacity-80">{applyResult.message}</div>}
+                    </div>
+                  )}
+                </div>
+
+                {patches.map((patch, idx) => <PatchDiffCard key={`${patch.assignmentId || patch.title}-${idx}`} patch={patch} index={idx} />)}
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function PatchDiffCard({ patch, index }) {
+  const changes = Array.isArray(patch?.changes) ? patch.changes : [];
+  const diff = patch?.diff || {};
+  const hunks = Array.isArray(diff.hunks) && diff.hunks.length
+    ? diff.hunks
+    : changes.map((change) => ({
+        header: `@@ assignment.${change.field || 'field'} @@`,
+        lines: [
+          { type: 'context', text: `// ${patch?.title || `Задание ${index + 1}`}` },
+          { type: 'removed', text: `"${change.field}": ${formatDiffValue(change.oldValue)}` },
+          { type: 'added', text: `"${change.field}": ${formatDiffValue(change.newValue)}` },
+        ],
+      }));
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white/70 dark:bg-neutral-950/30">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200/70 dark:border-neutral-800/70 bg-neutral-50/80 dark:bg-neutral-900/60 px-4 py-3">
+        <div className="min-w-0">
+          <div className="font-semibold truncate">{patch?.title || `Задание ${index + 1}`}</div>
+          <div className="mt-1 text-xs text-neutral-500 truncate">{diff.filePath || patch?.assignmentId || 'assignment.json'}</div>
+        </div>
+        <Badge variant="outline">{changes.length} изм.</Badge>
+      </div>
+      {changes.length > 0 && (
+        <div className="border-b border-neutral-200/70 dark:border-neutral-800/70 px-4 py-3 text-sm">
+          {changes.map((change, i) => (
+            <div key={`${change.field}-${i}`} className="mb-2 last:mb-0">
+              <span className="font-medium">{change.field}</span>
+              {change.reason && <span className="text-neutral-500"> — {change.reason}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="font-mono text-xs">
+        {hunks.map((hunk, hunkIndex) => (
+          <div key={`hunk-${hunkIndex}`}>
+            <div className="bg-brand-50 px-4 py-2 text-brand-800 dark:bg-brand-950/30 dark:text-brand-200">{hunk.header || '@@ patch @@'}</div>
+            {(Array.isArray(hunk.lines) ? hunk.lines : []).map((line, lineIndex) => {
+              const type = String(line.type || 'context').toLowerCase();
+              const isAdd = type === 'added' || type === 'add';
+              const isRemove = type === 'removed' || type === 'remove';
+              return (
+                <div
+                  key={`line-${lineIndex}`}
+                  className={`grid grid-cols-[2.5rem,1fr] border-t border-neutral-100 dark:border-neutral-900 ${isAdd ? 'bg-emerald-50/90 text-emerald-950 dark:bg-emerald-950/25 dark:text-emerald-100' : isRemove ? 'bg-red-50/90 text-red-950 dark:bg-red-950/25 dark:text-red-100' : 'bg-white/60 dark:bg-neutral-950/20'}`}
+                >
+                  <div className="select-none border-r border-current/10 px-3 py-1.5 text-right opacity-60">{isAdd ? '+' : isRemove ? '-' : ' '}</div>
+                  <pre className="overflow-x-auto px-3 py-1.5 whitespace-pre-wrap">{line.text || ''}</pre>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents, onCopyDebugDump, copyingDebugDump }) {
   if (!open) return null;
   const payload = {
@@ -572,12 +819,12 @@ function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents
         <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 dark:border-neutral-800/70 p-4">
           <div>
             <div className="flex items-center gap-2 font-semibold"><TerminalSquare size={18} /> Журнал AI</div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">События, шаги выполнения, артефакты и служебные данные AI.</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">Подробная трасса: сообщения, решения агента, шаги, результаты проверок, артефакты и realtime-события.</div>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-outline !min-w-0" onClick={onCopyDebugDump} disabled={!conversation?.id || copyingDebugDump} title="Скопировать диагностику AI">
+            <button type="button" className="btn-outline !min-w-0" onClick={onCopyDebugDump} disabled={!conversation?.id || copyingDebugDump} title="Скопировать полный AI-отчёт">
               {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
-              <span className="hidden sm:inline">Скопировать всё</span>
+              <span className="hidden sm:inline">Скопировать отчёт</span>
             </button>
             <button type="button" className="btn-outline !min-w-0 !px-3" onClick={onClose} title="Закрыть">
               <X size={16} />
@@ -600,6 +847,7 @@ function EmptyChat({ onTemplate }) {
     'Найди сложные места в курсе и предложи задания для плавного перехода.',
     'Создай 5 маленьких C++ задач в стиле курса: дружелюбно, пошагово, с публичными тестами.',
     'Сделай задачи проще: одна новая идея на одно задание, без олимпиадного стиля.',
+    'Пересчитай рейтинги всех заданий курса по сложности и покажи патчи с диффами.',
   ];
 
   return (
@@ -646,6 +894,8 @@ export default function AgentPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [patchesOpen, setPatchesOpen] = useState(false);
+  const [selectedPatchKey, setSelectedPatchKey] = useState(null);
   const [copyingDebugDump, setCopyingDebugDump] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [realtimeEvents, setRealtimeEvents] = useState([]);
@@ -663,6 +913,7 @@ export default function AgentPage() {
 
   const activeRun = useMemo(() => getLatestActiveRun(runs), [runs]);
   const latestRun = useMemo(() => getLatestRun(runs), [runs]);
+  const patchSets = useMemo(() => collectPatchSets(messages, runs), [messages, runs]);
   const selectedDraftCount = useMemo(() => Object.keys(selectedDraftTasks).length, [selectedDraftTasks]);
 
   const scrollToBottom = useCallback((behavior = 'smooth') => {
@@ -781,11 +1032,14 @@ export default function AgentPage() {
           }
 
           if ((type === 'run.completed' || type === 'run.failed') && payload.runId) {
-            setRuns((prev) => prev.map((run) => (
-              normalizeId(run.id) === normalizeId(payload.runId)
-                ? { ...run, status: payload.status || (type === 'run.failed' ? 'failed' : 'completed'), result: payload.result || run.result, error: payload.error || run.error, finishedAtUtc: nowIso() }
-                : run
-            )));
+            setRuns((prev) => {
+              if (payload.run) return sortRunsDesc(upsertById(prev, payload.run));
+              return prev.map((run) => (
+                normalizeId(run.id) === normalizeId(payload.runId)
+                  ? { ...run, status: payload.status || (type === 'run.failed' ? 'failed' : 'completed'), result: payload.result || run.result, error: payload.error || run.error, finishedAtUtc: nowIso() }
+                  : run
+              ));
+            });
             refreshConversations({ silent: true });
             if (selectedIdRef.current) loadConversation(selectedIdRef.current, { silent: true });
           }
@@ -848,7 +1102,7 @@ export default function AgentPage() {
           mode: 'course-assistant',
         });
         const conv = created?.conversation;
-        if (!conv?.id) throw new Error('Backend не вернул id AI-чата.');
+        if (!conv?.id) throw new Error('Сервис AI не вернул id чата.');
         targetId = conv.id;
         setSelectedId(targetId);
         setConversation(conv);
@@ -898,9 +1152,9 @@ export default function AgentPage() {
     try {
       await cancelAgentRun(activeRun.id, 'user_requested');
       await loadConversation(selectedId, { silent: true });
-      notify.info('AI-run остановлен');
+      notify.info('Обработка остановлена');
     } catch (err) {
-      handleApiError(err, notify, 'Не удалось остановить AI-run');
+      handleApiError(err, notify, 'Не удалось остановить обработку');
     }
   };
 
@@ -909,27 +1163,27 @@ export default function AgentPage() {
     const artifactId = persistedArtifact?.id;
     const runId = persistedArtifact?.runId || message?.runId;
     if (!artifactId || !runId) {
-      notify.warn('Artifact ещё не готов к применению. Обнови чат после завершения AI-run.');
+      notify.warn('Материал ещё не готов к применению. Обнови чат после завершения обработки.');
       return;
     }
 
     const key = getArtifactStableKey({ persistedArtifact, message, artifactIndex });
-    setApplyingArtifacts((prev) => ({ ...prev, [key]: dryRun ? 'dry-run' : 'apply' }));
+    setApplyingArtifacts((prev) => ({ ...prev, [key]: dryRun ? 'check' : 'apply' }));
     try {
       const result = await applyAgentRunArtifact(runId, artifactId, {
         dryRun: !!dryRun,
-        note: dryRun ? 'Пользователь запустил dry-run AI proposal из интерфейса.' : 'Пользователь подтвердил применение AI proposal из интерфейса.',
+        note: dryRun ? 'Пользователь запустил безопасную проверку предложения из интерфейса.' : 'Пользователь подтвердил применение предложения из интерфейса.',
       });
       setArtifactApplyResults((prev) => ({ ...prev, [key]: result }));
       if (result?.ok) {
-        notify.success(dryRun ? 'AI proposal проверен без записи' : 'AI proposal применён');
+        notify.success(dryRun ? 'Предложение проверено без сохранения' : 'Предложение применено');
         if (!dryRun && selectedId) await loadConversation(selectedId, { silent: true });
       } else {
-        notify.warn(result?.message || 'AI proposal не прошёл проверку');
+        notify.warn(result?.message || 'Предложение не прошло проверку');
       }
     } catch (err) {
-      const parsed = handleApiError(err, notify, dryRun ? 'Dry-run AI proposal не прошёл' : 'Не удалось применить AI proposal');
-      setArtifactApplyResults((prev) => ({ ...prev, [key]: { ok: false, message: parsed?.message || 'Ошибка применения AI proposal' } }));
+      const parsed = handleApiError(err, notify, dryRun ? 'Проверка предложения не прошла' : 'Не удалось применить предложение');
+      setArtifactApplyResults((prev) => ({ ...prev, [key]: { ok: false, message: parsed?.message || 'Ошибка применения предложения' } }));
     } finally {
       setApplyingArtifacts((prev) => {
         const next = { ...prev };
@@ -953,14 +1207,14 @@ export default function AgentPage() {
         beforeAssignmentId: placement.beforeAssignmentId || task.beforeAssignmentId || null,
         afterAssignmentId: placement.afterAssignmentId || task.afterAssignmentId || null,
         task,
-        note: 'Пользователь выбрал это AI-задание галочкой для вылизывания и создания скрытого черновика.',
+        note: 'Пользователь выбрал это задание для доработки и создания скрытого черновика.',
       });
       if (res?.message) setMessages((prev) => sortByTimeAsc(upsertMessage(prev, res.message)));
       if (res?.run) setRuns((prev) => sortRunsDesc(upsertById(prev, res.run)));
-      notify.success('AI начал вылизывать задание и готовить скрытый черновик');
+      notify.success('Ассистент начал дорабатывать задание и готовить скрытый черновик');
       setTimeout(() => scrollToBottom(), 0);
     } catch (err) {
-      handleApiError(err, notify, 'Не удалось отправить задание на вылизывание');
+      handleApiError(err, notify, 'Не удалось отправить задание на доработку');
     } finally {
       setPolishingTasks((prev) => ({ ...prev, [taskKey]: false }));
     }
@@ -977,7 +1231,7 @@ export default function AgentPage() {
       beforeAssignmentId: placement.beforeAssignmentId || task?.beforeAssignmentId || null,
       afterAssignmentId: placement.afterAssignmentId || task?.afterAssignmentId || null,
       task,
-      note: 'Пользователь выбрал это AI-задание галочкой для вылизывания и создания скрытого черновика.',
+      note: 'Пользователь выбрал это задание для доработки и создания скрытого черновика.',
     };
   };
 
@@ -1012,7 +1266,7 @@ export default function AgentPage() {
     try {
       const res = await polishAgentGeneratedTasks(selectedId, {
         parallelize: true,
-        note: `Пакетное вылизывание ${chosen.length} AI-заданий и создание скрытых черновиков.`,
+        note: `Пакетная доработка ${chosen.length} заданий и создание скрытых черновиков.`,
         tasks: chosen.map(buildPolishPayload),
       });
       if (res?.message) setMessages((prev) => sortByTimeAsc(upsertMessage(prev, res.message)));
@@ -1022,10 +1276,10 @@ export default function AgentPage() {
         keys.forEach((key) => delete next[key]);
         return next;
       });
-      notify.success(`AI поставил в очередь ${res?.count || chosen.length} черновиков`);
+      notify.success(`Ассистент поставил в очередь ${res?.count || chosen.length} черновиков`);
       setTimeout(() => scrollToBottom(), 0);
     } catch (err) {
-      handleApiError(err, notify, 'Не удалось отправить выбранные задания на вылизывание');
+      handleApiError(err, notify, 'Не удалось отправить выбранные задания на доработку');
     } finally {
       setPolishingTasks((prev) => {
         const next = { ...prev };
@@ -1073,6 +1327,7 @@ export default function AgentPage() {
     const buildClientDump = (backendDumpError = null) => ({
       generatedAtUtc: nowIso(),
       page: 'AgentPage',
+      note: 'Этот отчёт можно целиком отправить разработчику/ассистенту для разбора поведения AI. Он содержит чат, run-ы, шаги, артефакты и события интерфейса.',
       selectedId,
       conversation,
       messages,
@@ -1093,15 +1348,15 @@ export default function AgentPage() {
     try {
       const backendDump = await getAgentConversationDebugDump(selectedId, { format: 'text' });
       const textDump = [
-        backendDump || 'BACKEND DEBUG DUMP EMPTY',
+        backendDump || 'BACKEND AI TRACE EMPTY',
         '',
-        'CLIENT SIDE AI DEBUG SNAPSHOT',
+        'CLIENT SIDE AI TRACE SNAPSHOT',
         '='.repeat(96),
         JSON.stringify(buildClientDump(), null, 2),
       ].join('\n');
 
       await writeClipboard(textDump);
-      notify.success(`Диагностика AI скопирована (${Math.round(textDump.length / 1024)} KB).`);
+      notify.success(`AI-отчёт скопирован (${Math.round(textDump.length / 1024)} KB).`);
     } catch (err) {
       const backendDumpError = {
         message: err?.message,
@@ -1109,18 +1364,18 @@ export default function AgentPage() {
         data: err?.response?.data,
       };
       const textDump = [
-        'BACKEND DEBUG DUMP FAILED',
+        'BACKEND AI TRACE FAILED',
         '='.repeat(96),
         JSON.stringify(backendDumpError, null, 2),
         '',
-        'CLIENT SIDE AI DEBUG SNAPSHOT',
+        'CLIENT SIDE AI TRACE SNAPSHOT',
         '='.repeat(96),
         JSON.stringify(buildClientDump(backendDumpError), null, 2),
       ].join('\n');
 
       try {
         await writeClipboard(textDump);
-        notify.warn(`Служебный отчёт не собрался, но локальная диагностика AI скопирована (${Math.round(textDump.length / 1024)} KB).`);
+        notify.warn(`Backend-отчёт не собрался, но локальный AI-отчёт скопирован (${Math.round(textDump.length / 1024)} KB).`);
       } catch {
         handleApiError(err, notify, 'Не удалось скопировать диагностику AI');
       }
@@ -1180,14 +1435,25 @@ export default function AgentPage() {
               <button type="button" className="btn-outline !min-w-0 !px-3" onClick={() => loadConversation(selectedId, { silent: true })} disabled={!selectedId} title="Обновить">
                 <RefreshCw size={16} />
               </button>
-              <button type="button" className="btn-outline !min-w-0" onClick={copyAiDebugDump} disabled={!selectedId || copyingDebugDump} title="Скопировать диагностику AI">
-                {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
-                <span className="hidden sm:inline">Диагностика</span>
-              </button>
-              <button type="button" className="btn-outline !min-w-0" onClick={() => setLogsOpen(true)} title="Открыть журнал AI">
-                <PanelRightOpen size={16} />
-                <span className="hidden sm:inline">Журнал</span>
-              </button>
+              {AI_DIAGNOSTICS_ENABLED && (
+                <>
+                  {patchSets.length > 0 && (
+                    <button type="button" className="btn-outline !min-w-0" onClick={() => setPatchesOpen(true)} title="Открыть меню патчей курса">
+                      <GitCompare size={16} />
+                      <span className="hidden sm:inline">Патчи</span>
+                      <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] text-white">{patchSets.length}</span>
+                    </button>
+                  )}
+                  <button type="button" className="btn-outline !min-w-0" onClick={copyAiDebugDump} disabled={!selectedId || copyingDebugDump} title="Скопировать полный AI-отчёт">
+                    {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
+                    <span className="hidden sm:inline">AI-отчёт</span>
+                  </button>
+                  <button type="button" className="btn-outline !min-w-0" onClick={() => setLogsOpen(true)} title="Открыть подробный журнал AI">
+                    <PanelRightOpen size={16} />
+                    <span className="hidden sm:inline">Логи</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -1209,6 +1475,7 @@ export default function AgentPage() {
                     onPolishTask={handlePolishGeneratedTask}
                     onPolishSelectedTasks={handlePolishSelectedTasks}
                     onApplyArtifact={handleApplyArtifact}
+                    onOpenPatchSet={(key) => { setSelectedPatchKey(key); setPatchesOpen(true); }}
                     selectedDraftTasks={selectedDraftTasks}
                     onToggleDraftTask={toggleDraftTask}
                     onSetDraftTasks={setDraftTaskSelection}
@@ -1259,7 +1526,7 @@ export default function AgentPage() {
                     }
                   }}
                   rows={1}
-                  placeholder="Напиши запрос: проанализируй курс, найди сложные места, предложи задания..."
+                  placeholder="Напиши запрос: проанализируй курс, найди сложные места, поменяй рейтинги через патчи..."
                   className="!min-h-[2.5rem] !max-h-28 !border-0 !bg-transparent !p-0 !shadow-none resize-none text-sm"
                 />
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -1269,6 +1536,8 @@ export default function AgentPage() {
                   <button type="button" className="hover:text-brand-600" onClick={() => setText('Сделай пошаговые задания: дружелюбно, с одной новой идеей на шаг.')}>пошаговые задания</button>
                   <span>·</span>
                   <button type="button" className="hover:text-brand-600" onClick={() => setText('Создай задачи в стиле курса без резкого скачка сложности.')}>в стиле курса</button>
+                  <span>·</span>
+                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Пересчитай рейтинги всех заданий курса по сложности и покажи патчи с диффами.')}>рейтинги</button>
                 </div>
               </div>
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
@@ -1289,16 +1558,27 @@ export default function AgentPage() {
         </section>
       </div>
 
-      <LogDrawer
-        open={logsOpen}
-        onClose={() => setLogsOpen(false)}
-        conversation={conversation}
-        messages={messages}
-        runs={runs}
-        realtimeEvents={realtimeEvents}
-        onCopyDebugDump={copyAiDebugDump}
-        copyingDebugDump={copyingDebugDump}
+      <PatchSetDrawer
+        open={patchesOpen}
+        onClose={() => setPatchesOpen(false)}
+        patchSets={selectedPatchKey ? [...patchSets].sort((a, b) => (a.key === selectedPatchKey ? -1 : b.key === selectedPatchKey ? 1 : 0)) : patchSets}
+        onApplyPatchSet={({ artifact, persistedArtifact, dryRun }) => handleApplyArtifact({ message: { runId: artifact?.runId || artifact?.RunId }, artifact, persistedArtifact, artifactIndex: 0, dryRun })}
+        applyingArtifacts={applyingArtifacts}
+        artifactApplyResults={artifactApplyResults}
       />
+
+      {AI_DIAGNOSTICS_ENABLED && (
+        <LogDrawer
+          open={logsOpen}
+          onClose={() => setLogsOpen(false)}
+          conversation={conversation}
+          messages={messages}
+          runs={runs}
+          realtimeEvents={realtimeEvents}
+          onCopyDebugDump={copyAiDebugDump}
+          copyingDebugDump={copyingDebugDump}
+        />
+      )}
     </Layout>
   );
 }

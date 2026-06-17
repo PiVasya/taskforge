@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TaskForge.Ai.Api.Data;
@@ -11,7 +12,8 @@ using TaskForge.Ai.Api.Data;
 namespace TaskForge.Ai.Api.Migrations
 {
     [DbContext(typeof(AiDbContext))]
-    partial class AiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260617120000_AgentContextAndSteps")]
+    partial class AgentContextAndSteps
     {
         protected override void BuildModel(ModelBuilder modelBuilder)
         {

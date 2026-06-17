@@ -66,6 +66,13 @@ services:
       TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
       TaskForgeAgent__ApiKey: ${TASKFORGE_EXTERNAL_AI_API_KEY:-}
       TaskForgeAgent__Model: ${TASKFORGE_EXTERNAL_AI_MODEL:-openai/gpt-4o-mini}
+      TaskForgeAgent__OpenAiCompatibleBaseUrl: ${TASKFORGE_EXTERNAL_AI_BASE_URL:-https://openrouter.ai/api/v1}
+      TaskForgeAgent__EnableAdaptiveAgentLoop: ${TASKFORGE_AI_ADAPTIVE_LOOP:-true}
+      TaskForgeAgent__MaxAgentLoopSteps: ${TASKFORGE_AI_MAX_LOOP_STEPS:-12}
+      TaskForgeAgent__MaxDraftsPerRun: ${TASKFORGE_AI_MAX_DRAFTS_PER_RUN:-50}
+      TaskForgeAgent__MaxAgentStateCharacters: ${TASKFORGE_AI_MAX_STATE_CHARS:-64000}
+      TaskForgeAgent__MaxAgentActionsPerStep: ${TASKFORGE_AI_MAX_ACTIONS_PER_STEP:-8}
+      TaskForgeAgent__MaxPatchOperationsPerRun: ${TASKFORGE_AI_MAX_PATCH_OPERATIONS:-200}
       RabbitMq__Host: rabbitmq
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}

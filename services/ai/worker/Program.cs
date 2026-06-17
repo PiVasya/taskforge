@@ -10,6 +10,7 @@ using TaskForge.AiAgent.Runtime;
 using TaskForge.AiAgent.Safety;
 using TaskForge.AiAgent.Tools;
 using TaskForge.AiAgent.Workflows;
+using TaskForge.AiAgent.Workflows.AgentLoop;
 using TaskForge.AiAgent.Workflows.Executors;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -60,12 +61,14 @@ builder.Services.AddTransient<DraftCriticExecutor>();
 builder.Services.AddTransient<DraftValidationExecutor>();
 builder.Services.AddTransient<ApprovalGateExecutor>();
 builder.Services.AddTransient<CourseAuditExecutor>();
+builder.Services.AddTransient<AgentLoopDecisionClient>();
 
 builder.Services.AddTransient<OpenChatWorkflow>();
 builder.Services.AddTransient<CourseAuditWorkflow>();
 builder.Services.AddTransient<AssignmentDraftWorkflow>();
 builder.Services.AddTransient<PolishAssignmentDraftWorkflow>();
 builder.Services.AddTransient<CourseEditWorkflow>();
+builder.Services.AddTransient<AdaptiveAgentLoopWorkflow>();
 builder.Services.AddSingleton<TaskForgeWorkflowRouter>();
 
 builder.Services.AddSingleton<TaskForgeAgentRuntime>();

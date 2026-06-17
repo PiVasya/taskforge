@@ -24,6 +24,9 @@ public sealed class TaskForgeAgentOptions
     [Range(0, 5)]
     public int MaxDraftRepairAttempts { get; set; } = 2;
 
+    [Range(1, 50)]
+    public int MaxDraftsPerRun { get; set; } = 50;
+
     [Range(4000, 200000)]
     public int MaxContextCharacters { get; set; } = 36000;
 
@@ -31,7 +34,21 @@ public sealed class TaskForgeAgentOptions
 
     public bool EnableDangerousWriteTools { get; set; }
 
-    public string DefaultLanguage { get; set; } = "ru";
+    public string DefaultLanguage { get; set; } = "cpp";
+
+    public bool EnableAdaptiveAgentLoop { get; set; } = true;
+
+    [Range(3, 24)]
+    public int MaxAgentLoopSteps { get; set; } = 12;
+
+    [Range(1, 12)]
+    public int MaxAgentActionsPerStep { get; set; } = 8;
+
+    [Range(1, 500)]
+    public int MaxPatchOperationsPerRun { get; set; } = 200;
+
+    [Range(8000, 200000)]
+    public int MaxAgentStateCharacters { get; set; } = 64000;
 
 }
 

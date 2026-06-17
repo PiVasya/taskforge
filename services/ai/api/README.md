@@ -1,15 +1,12 @@
-# taskforge-ai/api-api
+# TaskForge AI API
 
-Настоящая граница микросервиса для домена `ai/api`.
+Сервис хранит AI-диалоги, сообщения, run-ы, шаги и материалы ассистента.
 
-В папке `extracted/` лежат исходные контроллеры/сервисы/модели, вырезанные из старого `taskforge` API. Они оставлены не как legacy-runtime, а как исходник для переноса логики в этот сервис без потерь.
+Что здесь важно:
 
-БД сервиса: `taskforge_ai`.
+- API не генерирует ответы сам, а ставит run в очередь для `services/ai/worker`.
+- Все шаги AI сохраняются в БД и доступны фронту как журнал run-а.
+- Материалы ассистента сохраняются отдельно от сообщений, чтобы их можно было проверить, применить или экспортировать.
+- EF Core migrations хранятся в этой папке и применяются владельцем сервиса.
 
-EF Core migrations хранятся в этой папке и применяются владельцем сервиса.
-
-## Internal worker compatibility endpoints
-
-The API exposes `/api/internal/agent/*` endpoints expected by the extracted `.NET` AI worker.
-At this stage `claim-next` returns an empty queue (`job: null`) so the worker stays healthy without spamming 404 logs.
-Real AI job dispatch should be implemented inside this service later, with `taskforge_ai` as the owner database.
+Сервис должен оставаться чистым boundary для AI-диалогов и не хранить архивные копии старого кода.

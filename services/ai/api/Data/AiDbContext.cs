@@ -9,6 +9,7 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
     public DbSet<AiConversation> Conversations => Set<AiConversation>();
     public DbSet<AiMessage> Messages => Set<AiMessage>();
     public DbSet<AiRun> Runs => Set<AiRun>();
+    public DbSet<AiStep> Steps => Set<AiStep>();
     public DbSet<AiArtifact> Artifacts => Set<AiArtifact>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -27,6 +28,8 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Title).HasMaxLength(300).IsRequired();
             entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.CourseId);
+            entity.HasIndex(x => x.AssignmentId);
         });
 
         modelBuilder.Entity<AiMessage>(entity =>
@@ -34,6 +37,7 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
             entity.ToTable("AiMessages");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
+            entity.HasIndex(x => x.RunId);
             entity.Property(x => x.Role).HasMaxLength(40).IsRequired();
             entity.Property(x => x.ClientMessageId).HasMaxLength(120);
         });
@@ -49,6 +53,21 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
             entity.Property(x => x.WorkerId).HasMaxLength(120);
             entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
             entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
+        });
+
+
+
+        modelBuilder.Entity<AiStep>(entity =>
+        {
+            entity.ToTable("AiSteps");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RunId, x.Seq });
+            entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
+            entity.Property(x => x.Kind).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ActionName).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.DataJson).HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<AiArtifact>(entity =>

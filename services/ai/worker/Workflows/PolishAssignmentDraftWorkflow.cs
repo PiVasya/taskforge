@@ -110,7 +110,7 @@ public sealed class PolishAssignmentDraftWorkflow : ITaskForgeWorkflow
 
         if (acceptedDraft == null)
         {
-            state.Artifacts.Add(new AgentArtifact("draft_validation_failed", "AI не смог подготовить валидный скрытый черновик", new JsonObject
+            state.Artifacts.Add(new AgentArtifact("draft_validation_failed", "Ассистент не смог подготовить валидный скрытый черновик", new JsonObject
             {
                 ["reason"] = "Draft was rejected by validation/critic after repair attempts. Hidden draft was not created.",
                 ["selectedTask"] = TryParseNode(selectedTaskJson),
@@ -118,12 +118,12 @@ public sealed class PolishAssignmentDraftWorkflow : ITaskForgeWorkflow
                 ["lastTestRun"] = state.Data.TryGetPropertyValue("testRun", out var testRun) ? testRun?.DeepClone() : null,
                 ["lastCritique"] = state.Data.TryGetPropertyValue("critique", out var critique) ? critique?.DeepClone() : null
             }));
-            state.AssistantMessage = "Я попытался вылизать задание и прогнать решение, но черновик не прошёл проверки. Скрытый draft не создан.";
+            state.AssistantMessage = "Я попытался доработать задание и прогнать решение, но черновик не прошёл проверки. Скрытый черновик не создан.";
             return _envelopes.FromWorkflowState(state);
         }
 
         await _approval.ExecuteForPolishedDraftAsync(state, acceptedDraft);
-        state.AssistantMessage = "Я вылизал выбранное AI-задание, проверил структуру и тесты, затем создал artifact для скрытого черновика. Черновик остаётся скрытым до ручной публикации.";
+        state.AssistantMessage = "Я доработал выбранное задание, проверил структуру и тесты, затем подготовил материал для скрытого черновика. Черновик остаётся скрытым до ручной публикации.";
         return _envelopes.FromWorkflowState(state);
     }
 
@@ -141,13 +141,13 @@ public sealed class PolishAssignmentDraftWorkflow : ITaskForgeWorkflow
         CancellationToken cancellationToken)
     {
         _agent ??= _agentFactory.CreateCoordinatorAgent();
-        await _steps.TryReportAsync("polish_draft", "running", attempt == 0 ? "Вылизываю выбранное AI-задание" : $"Исправляю вылизанный draft, попытка {attempt + 1}", note);
+        await _steps.TryReportAsync("polish_draft", "running", attempt == 0 ? "Дорабатываю выбранное задание" : $"Исправляю доработанный черновик, попытка {attempt + 1}", note);
 
         var session = await _sessionStore.LoadAsync(_agent, state.Job.ConversationId, cancellationToken);
         var prompt = $$"""
 {{TaskForgeAgentPrompts.DraftAuthor}}
 
-Пользователь выбрал уже сгенерированное AI-задание и просит вылизать его до состояния скрытого draft в TaskForge.
+Пользователь выбрал уже сгенерированное задание и просит доработать его до состояния скрытого черновика в TaskForge.
 Не создавай новую тему с нуля: сохрани смысл selectedTask, улучши формулировку, тесты, эталонное решение и метаданные.
 
 selectedTask JSON:
@@ -176,12 +176,14 @@ selectedTask JSON:
   "assignmentType": "code-test|test|math",
   "title": "короткое понятное название",
   "description": "полное условие на русском",
-  "language": "cpp|csharp|java|javascript|pascal",
+  "language": "cpp|csharp|java|javascript|pascal|python",
   "referenceSolution": "код эталонного решения для code-test",
   "difficulty": 1,
   "rating": 10,
   "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],
   "hiddenTests": [{"input":"...","expectedOutput":"...","isHidden":true}],
+  "testSpec": {"settings": {}, "questions": [{"type":"single-choice|multi-choice|fill|text", "prompt":"...", "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"], "acceptedAnswers":["..."]}]},
+  "mathSpec": {"settings": {}, "blocks": [{"kind":"info|number|expression|set|single-choice|multi-choice|order|match", "prompt":"...", "score":1, "acceptedAnswers":["..."], "options":[{"key":"a", "text":"..."}], "correctOptionKeys":["a"]}]},
   "tags": ["AI", "черновик"]
 }
 """;
@@ -190,7 +192,7 @@ selectedTask JSON:
 
         var draft = ParseDraft(response.Text ?? string.Empty, state.Job, selectedTaskJson, sourceTaskIndex, beforeAssignmentId, afterAssignmentId);
         state.Draft = draft;
-        await _steps.TryReportAsync("polish_draft", "completed", "Вылизанный черновик подготовлен", draft.Title, draft.ToArtifactData());
+        await _steps.TryReportAsync("polish_draft", "completed", "Доработанный черновик подготовлен", draft.Title, draft.ToArtifactData());
         return draft;
     }
 
@@ -204,7 +206,7 @@ selectedTask JSON:
                 var draft = new DraftSpec
                 {
                     AssignmentType = node["assignmentType"]?.ToString() ?? node["taskType"]?.ToString() ?? "code-test",
-                    Title = node["title"]?.ToString() ?? "Вылизанное AI-задание",
+                    Title = node["title"]?.ToString() ?? "Доработанное задание",
                     Description = node["description"]?.ToString() ?? node["condition"]?.ToString() ?? "Описание задания не было заполнено моделью.",
                     Language = NormalizeLanguage(node["language"]?.ToString() ?? "cpp"),
                     ReferenceSolution = node["referenceSolution"]?.ToString() ?? node["solution"]?.ToString() ?? string.Empty,
@@ -217,6 +219,8 @@ selectedTask JSON:
                     Tags = ReadStringArray(node["tags"]).DefaultIfEmpty("AI").ToList(),
                     PublicTests = ReadTests(node["publicTests"], false),
                     HiddenTests = ReadTests(node["hiddenTests"], true),
+                    TestSpec = ReadTestSpec(node),
+                    MathSpec = ReadMathSpec(node),
                     Extra = new JsonObject
                     {
                         ["rawModelDraft"] = text.Length > 6000 ? text[..6000] : text,
@@ -246,8 +250,8 @@ selectedTask JSON:
         var draft = new DraftSpec
         {
             AssignmentType = selectedTask.GetStringOrNull("assignmentType", "taskType", "type") ?? "code-test",
-            Title = selectedTask.GetStringOrNull("title", "name") ?? "Вылизанное AI-задание",
-            Description = selectedTask.GetStringOrNull("description", "condition", "body") ?? $"Доработать выбранное AI-задание по запросу: {job.UserText}",
+            Title = selectedTask.GetStringOrNull("title", "name") ?? "Доработанное задание",
+            Description = selectedTask.GetStringOrNull("description", "condition", "body") ?? $"Доработать выбранное задание по запросу: {job.UserText}",
             Language = NormalizeLanguage(selectedTask.GetStringOrNull("language", "lang") ?? "cpp"),
             ReferenceSolution = selectedTask.GetStringOrNull("referenceSolution", "solution", "answer") ?? string.Empty,
             Difficulty = Math.Clamp(selectedTask.GetIntOrNull("difficulty") ?? 1, 1, 3),
@@ -256,7 +260,7 @@ selectedTask JSON:
             BeforeAssignmentId = beforeAssignmentId,
             AfterAssignmentId = afterAssignmentId,
             SourceTaskIndex = sourceTaskIndex,
-            Tags = new List<string> { "AI", "черновик", "полировка", "needs-review" },
+            Tags = new List<string> { "черновик", "доработка", "needs-review" },
             Extra = new JsonObject { ["parseFallback"] = true, ["selectedTask"] = TryParseNode(GetRawTextOrEmptyObject(selectedTask)) }
         };
 
@@ -281,6 +285,44 @@ selectedTask JSON:
         }
     }
 
+    private static JsonObject? ReadTestSpec(JsonObject node)
+    {
+        if (node["testSpec"] is JsonObject spec)
+            return spec.DeepClone() as JsonObject;
+        if (node["test"] is JsonObject test)
+            return test.DeepClone() as JsonObject;
+        if (node["taskTest"] is JsonObject taskTest)
+            return taskTest.DeepClone() as JsonObject;
+        if (node["questions"] is JsonArray questions)
+        {
+            return new JsonObject
+            {
+                ["settings"] = new JsonObject(),
+                ["questions"] = questions.DeepClone()
+            };
+        }
+        return null;
+    }
+
+    private static JsonObject? ReadMathSpec(JsonObject node)
+    {
+        if (node["mathSpec"] is JsonObject spec)
+            return spec.DeepClone() as JsonObject;
+        if (node["math"] is JsonObject math)
+            return math.DeepClone() as JsonObject;
+        if (node["taskMath"] is JsonObject taskMath)
+            return taskMath.DeepClone() as JsonObject;
+        if (node["blocks"] is JsonArray blocks)
+        {
+            return new JsonObject
+            {
+                ["settings"] = new JsonObject(),
+                ["blocks"] = blocks.DeepClone()
+            };
+        }
+        return null;
+    }
+
     private static void AddTestsFromSelectedTask(DraftSpec draft, string selectedTaskJson)
     {
         var selected = TryParseNode(selectedTaskJson) as JsonObject;
@@ -288,6 +330,8 @@ selectedTask JSON:
 
         draft.PublicTests.AddRange(ReadTests(selected["publicTests"], false));
         draft.HiddenTests.AddRange(ReadTests(selected["hiddenTests"], true));
+        draft.TestSpec ??= ReadTestSpec(selected);
+        draft.MathSpec ??= ReadMathSpec(selected);
 
         foreach (var test in ReadTests(selected["testCases"] ?? selected["tests"], false))
         {
@@ -357,10 +401,11 @@ selectedTask JSON:
             "c++" or "cpp" => "cpp",
             "c#" or "cs" or "csharp" => "csharp",
             "js" or "javascript" => "javascript",
-            
+            "py" or "python" => "python",
             "java" => "java",
             "pascal" => "pascal",
-            _ => value
+            "ru" => "cpp",
+            _ => string.IsNullOrWhiteSpace(value) ? "cpp" : value
         };
     }
 }

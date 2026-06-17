@@ -22,11 +22,11 @@ public sealed class PlanRequestExecutor
     public async Task<string> ExecuteAsync(WorkflowState state, string contextPrompt, CancellationToken cancellationToken)
     {
         _agent ??= _agentFactory.CreateCoordinatorAgent();
-        await _steps.TryReportAsync("planning", "running", "Планирую действия агента", "Агент выберет tools/workflow strategy, а не один жёсткий Python-сценарий.");
+        await _steps.TryReportAsync("planning", "running", "Планирую действия ассистента", "Ассистент выберет безопасный сценарий и проверяемые шаги.");
 
         if (string.Equals(state.WorkflowName, "assignment_draft_workflow", StringComparison.OrdinalIgnoreCase))
         {
-            var deterministicPlan = "Сначала обнови teacherPreferences, затем построй LLM COURSE_SKILL_MAP: что студент умеет до точки вставки, что требует anchor-задание и какие missing bridge skills нужны. Генерируй черновики только по bridgePlan, без зашитых предметных лестниц и без keyword/regex anchor. Затем нормализуй тесты, прогони runner и статическую/модельную критику. Не пиши служебные фразы в условие; связь с курсом храни в metadata.";
+            var deterministicPlan = "Сначала уточни предпочтения преподавателя, затем построй карту навыков курса: что студент уже умеет, какой новый навык нужен и где лучше вставить переходное задание. Генерируй черновики только по этому плану, без заранее зашитых предметных шаблонов. Затем нормализуй тесты, проверь эталонное решение и качество формулировки. Не пиши служебные фразы в условие; связь с курсом храни в метаданных.";
             state.Data["plan"] = deterministicPlan;
             state.Notes.Add("Plan generated deterministically for assignment draft workflow.");
             await _steps.TryReportAsync("planning", "completed", "План готов", deterministicPlan);

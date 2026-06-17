@@ -133,7 +133,7 @@ class Program
 
         var state = new WorkflowState
         {
-            Job = new ClaimedAgentJob(Guid.Empty, Guid.Empty, "test", JsonDocument.Parse("{}").RootElement.Clone(), "Сгенерируй обучалку", Guid.Empty, "Основы C#"),
+            Job = new ClaimedAgentJob(Guid.Empty, Guid.Empty, "test", JsonDocument.Parse("{}").RootElement.Clone(), "Сгенерируй обучалку", Guid.Empty, null, "Основы C#"),
             CourseSkillBridge = bridge,
             Draft = new DraftSpec
             {
@@ -194,7 +194,7 @@ class Program
 
         return new WorkflowState
         {
-            Job = new ClaimedAgentJob(Guid.Empty, Guid.Empty, "test", payload, "Сгенерируй обучалку перед задачей на ввод", Guid.Empty, "Основы C#"),
+            Job = new ClaimedAgentJob(Guid.Empty, Guid.Empty, "test", payload, "Сгенерируй обучалку перед задачей на ввод", Guid.Empty, null, "Основы C#"),
             Draft = draft,
             CourseSkillBridge = bridge
         };

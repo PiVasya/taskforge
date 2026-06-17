@@ -16,7 +16,7 @@ public sealed class ValidationTools
     public Task<JsonObject> ValidateDraftShapeAsync([Description("Draft JSON object.")] JsonObject draft)
     {
         var issues = new JsonArray();
-        var assignmentType = draft["assignmentType"]?.ToString() ?? draft["type"]?.ToString() ?? "code-test";
+        var assignmentType = (draft["assignmentType"]?.ToString() ?? draft["type"]?.ToString() ?? "code-test").Trim().ToLowerInvariant();
         var title = draft["title"]?.ToString();
         var description = draft["description"]?.ToString() ?? draft["condition"]?.ToString() ?? draft["body"]?.ToString();
 
@@ -60,12 +60,89 @@ public sealed class ValidationTools
             }
         }
 
+        if (assignmentType == "test")
+            AddTestSpecIssues(draft, issues);
+
+        if (assignmentType == "math")
+            AddMathSpecIssues(draft, issues);
+
         return Task.FromResult(new JsonObject
         {
             ["ok"] = issues.Count == 0,
             ["assignmentType"] = assignmentType,
             ["issues"] = issues
         });
+    }
+
+    private static void AddTestSpecIssues(JsonObject draft, JsonArray issues)
+    {
+        var spec = FirstObject(draft, "testSpec", "test", "taskTest");
+        var questions = spec?["questions"] as JsonArray ?? draft["questions"] as JsonArray;
+        if (questions == null || questions.Count == 0)
+        {
+            issues.Add("test assignment requires testSpec.questions");
+            return;
+        }
+
+        for (var i = 0; i < questions.Count; i++)
+        {
+            if (questions[i] is not JsonObject q)
+            {
+                issues.Add($"testSpec.questions[{i}] must be an object");
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(q["prompt"]?.ToString()))
+                issues.Add($"testSpec.questions[{i}].prompt is required");
+
+            var type = (q["type"]?.ToString() ?? "single-choice").Trim().ToLowerInvariant();
+            var options = q["options"] as JsonArray;
+            var correct = q["correctOptionKeys"] as JsonArray;
+            var accepted = q["acceptedAnswers"] as JsonArray;
+            if ((type.Contains("choice") || type is "single" or "multi") && (options == null || options.Count == 0 || correct == null || correct.Count == 0))
+                issues.Add($"testSpec.questions[{i}] choice question requires options and correctOptionKeys");
+            if ((type == "fill" || type == "text") && (accepted == null || accepted.Count == 0) && string.IsNullOrWhiteSpace(q["answer"]?.ToString()))
+                issues.Add($"testSpec.questions[{i}] text/fill question requires acceptedAnswers");
+        }
+    }
+
+    private static void AddMathSpecIssues(JsonObject draft, JsonArray issues)
+    {
+        var spec = FirstObject(draft, "mathSpec", "math", "taskMath");
+        var blocks = spec?["blocks"] as JsonArray ?? draft["blocks"] as JsonArray;
+        if (blocks == null || blocks.Count == 0)
+        {
+            issues.Add("math assignment requires mathSpec.blocks");
+            return;
+        }
+
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            if (blocks[i] is not JsonObject block)
+            {
+                issues.Add($"mathSpec.blocks[{i}] must be an object");
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(block["prompt"]?.ToString()))
+                issues.Add($"mathSpec.blocks[{i}].prompt is required");
+
+            var kind = (block["kind"]?.ToString() ?? "number").Trim().ToLowerInvariant();
+            var accepted = block["acceptedAnswers"] as JsonArray;
+            var correct = block["correctOptionKeys"] as JsonArray;
+            if (kind != "info" && accepted is not { Count: > 0 } && correct is not { Count: > 0 } && string.IsNullOrWhiteSpace(block["answer"]?.ToString()))
+                issues.Add($"mathSpec.blocks[{i}] requires acceptedAnswers, correctOptionKeys or answer");
+        }
+    }
+
+    private static JsonObject? FirstObject(JsonObject root, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (root[name] is JsonObject obj)
+                return obj;
+        }
+        return null;
     }
 
 
@@ -96,7 +173,7 @@ public sealed class ValidationTools
 
     [Description("Run code tests through TaskForge backend compiler service. Use it for code-test draft validation, not for theoretical reasoning.")]
     public async Task<JsonObject> RunCodeTestsAsync(
-        [Description("Programming language: cpp, csharp, java, javascript, pascal.")] string language,
+        [Description("Programming language: cpp, csharp, java, javascript, pascal, python.")] string language,
         [Description("Code to execute.")] string code,
         [Description("Test cases with input and expected output.")] List<TestCaseSpec> tests)
     {
@@ -164,7 +241,7 @@ public sealed class ValidationTools
                 blocking.Add("learning-bridge tutorial must ask for a clear minimal solution, not the shortest/code-golf solution");
         }
 
-        if ((draft["assignmentType"]?.ToString() ?? "") == "code-test")
+        if (string.Equals(draft["assignmentType"]?.ToString(), "code-test", StringComparison.OrdinalIgnoreCase))
         {
             if (!ContainsAny(description, "ввод", "вход", "input", "stdin", "формат ввода"))
                 advisory.Add("code-test description should explain input format");

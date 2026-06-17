@@ -11,6 +11,7 @@ public sealed record ClaimedAgentJob(
     JsonElement Payload,
     string UserText,
     Guid? CourseId,
+    Guid? AssignmentId,
     string? CourseTitle)
 {
     public static ClaimedAgentJob FromJobElement(JsonElement job)
@@ -33,9 +34,12 @@ public sealed record ClaimedAgentJob(
         var courseId = payload.GetGuidOrNull("courseId")
             ?? payload.GetPropertyOrDefault("course").GetGuidOrNull("id");
 
+        var assignmentId = payload.GetGuidOrNull("assignmentId")
+            ?? payload.GetPropertyOrDefault("assignment").GetGuidOrNull("id");
+
         var courseTitle = payload.GetPropertyOrDefault("course").GetStringOrNull("title");
 
-        return new ClaimedAgentJob(id, conversationId, type, payload.CloneElement(), userText, courseId, courseTitle);
+        return new ClaimedAgentJob(id, conversationId, type, payload.CloneElement(), userText, courseId, assignmentId, courseTitle);
     }
 }
 
@@ -64,7 +68,7 @@ public sealed class AgentResultEnvelope
             ["artifacts"] = new JsonArray(Artifacts.Select(a => new JsonObject
             {
                 ["type"] = Limit(a.Type, 80, "artifact"),
-                ["title"] = Limit(a.Title, 220, "AI artifact"),
+                ["title"] = Limit(a.Title, 220, "Материал ассистента"),
                 ["data"] = a.Data.DeepClone()
             }).ToArray<JsonNode?>())
         };
@@ -87,7 +91,7 @@ public sealed class AgentStepPayload
     public string Kind { get; set; } = "worker";
     public string Status { get; set; } = "completed";
     public string ActionName { get; set; } = "dotnet_agent";
-    public string Title { get; set; } = "AI step";
+    public string Title { get; set; } = "Шаг ассистента";
     public string? Summary { get; set; }
     public JsonNode? Data { get; set; }
 }
@@ -124,11 +128,13 @@ public sealed class DraftSpec
     public List<TestCaseSpec> PublicTests { get; set; } = new();
     public List<TestCaseSpec> HiddenTests { get; set; } = new();
     public List<string> Tags { get; set; } = new();
+    public JsonObject? TestSpec { get; set; }
+    public JsonObject? MathSpec { get; set; }
     public JsonObject Extra { get; set; } = new();
 
     public JsonObject ToArtifactData()
     {
-        return new JsonObject
+        var data = new JsonObject
         {
             ["assignmentType"] = AssignmentType,
             ["title"] = Title,
@@ -146,6 +152,13 @@ public sealed class DraftSpec
             ["hiddenTests"] = ToJsonArray(HiddenTests),
             ["extra"] = Extra.DeepClone()
         };
+
+        if (TestSpec is not null)
+            data["testSpec"] = TestSpec.DeepClone();
+        if (MathSpec is not null)
+            data["mathSpec"] = MathSpec.DeepClone();
+
+        return data;
     }
 
     private static JsonArray ToJsonArray(IEnumerable<TestCaseSpec> tests)

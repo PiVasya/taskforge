@@ -49,18 +49,40 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
 
     public bool CanHandle(ClaimedAgentJob job)
     {
+        var intent = AgentIntentClassifier.Select(job);
+        if (intent.IsDraftScenario)
+            return true;
+
         var text = job.UserText.ToLowerInvariant();
         return text.Contains("создай") && (text.Contains("задание") || text.Contains("задач"))
                || text.Contains("сгенерируй") && (text.Contains("задание") || text.Contains("задач"))
+               || text.Contains("придумай") && (text.Contains("задание") || text.Contains("задач"))
+               || text.Contains("подготовь") && (text.Contains("задание") || text.Contains("задач") || text.Contains("черновик"))
+               || text.Contains("накидай") && (text.Contains("задание") || text.Contains("задач"))
                || text.Contains("черновик")
+               || text.Contains("лесен")
                || text.Contains("лестниц")
+               || text.Contains("пошаг")
+               || text.Contains("микро")
+               || text.Contains("ступен")
+               || text.Contains("обучал")
+               || text.Contains("в стиле курса")
+               || text.Contains("как в курсе")
+               || text.Contains("похож")
+               || text.Contains("как текущ")
+               || text.Contains("мостик")
+               || text.Contains("между заданиями")
+               || text.Contains("между темами")
                || text.Contains("bridge task")
                || text.Contains("guided ladder");
     }
 
     public async Task<AgentResultEnvelope> RunAsync(ClaimedAgentJob job, CancellationToken cancellationToken)
     {
-        var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = "assignment_draft_workflow" };
+        var intent = AgentIntentClassifier.Select(job);
+        var scenarioId = intent.IsDraftScenario ? intent.ScenarioId : "style_matched_tasks";
+        var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = scenarioId };
+        state.Data["agentIntent"] = intent.ToJsonObject();
         var context = await _loadContext.ExecuteAsync(state);
         await _preferences.ExecuteAsync(state, context, cancellationToken);
         var plan = await _planner.ExecuteAsync(state, context, cancellationToken);
@@ -68,14 +90,19 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
 
         if (NeedsCourseSkillMapBeforeDrafting(state))
         {
-            state.AssistantMessage = "Я не стал сохранять AI-черновики: агент не смог достаточно уверенно построить карту навыков курса и точку вставки. Это лучше, чем снова сгенерировать задания не туда. Подробности есть в артефакте карты навыков и AI dump/logs.";
+            state.AssistantMessage = "Я не стал сохранять черновики: ассистент не смог достаточно уверенно построить карту навыков курса и точку вставки. Лучше остановиться, чем создать задания не в то место.";
             state.RequiresApproval = false;
             return _envelopes.FromWorkflowState(state);
         }
 
-        if (DraftAuthorExecutor.LooksLikeMultipleDraftRequest(job.UserText))
+        var requestedCount = ResolveRequestedDraftCount(intent, job.UserText);
+        var shouldRunMany = requestedCount > 1
+                            || DraftAuthorExecutor.LooksLikeMultipleDraftRequest(job.UserText)
+                            || scenarioId is "guided_ladder" or "style_matched_tasks" or "bridge_tasks" or "draft_revision";
+
+        if (shouldRunMany)
         {
-            await RunMultiDraftAsync(state, context, plan, cancellationToken);
+            await RunMultiDraftAsync(state, context, plan, requestedCount, cancellationToken);
         }
         else
         {
@@ -85,15 +112,15 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         var draftCount = state.Artifacts.Count(a => string.Equals(a.Type, "assignment_draft_ready", StringComparison.OrdinalIgnoreCase));
         if (draftCount == 0 && state.Data["draftGenerationError"] is JsonObject generationError)
         {
-            state.AssistantMessage = $"Я не сохранил AI-черновики: генератор черновиков не получил пригодный ответ от LLM ({generationError["type"]?.ToString() ?? "DraftGenerationError"}). Невалидный fallback больше не сохраняю; подробности есть в AI dump/logs.";
+            state.AssistantMessage = $"Я не сохранил черновики: генератор не получил пригодный ответ от модели ({generationError["type"]?.ToString() ?? "DraftGenerationError"}). Невалидный fallback не сохраняю.";
         }
         else
         {
             state.AssistantMessage = draftCount == 0
-                ? "Я не сохранил AI-черновики: все подготовленные варианты были отклонены проверками качества. Подробности есть в AI dump/logs."
+                ? "Я не сохранил черновики: все подготовленные варианты были отклонены проверками качества."
                 : draftCount == 1
-                    ? "Я подготовил скрытый AI-черновик задания и прогнал проверки качества. Он появится в курсе как скрытый черновик; перед публикацией его нужно вручную проверить."
-                    : $"Я подготовил {draftCount} скрытых AI-черновиков заданий, расставил их по порядку и прогнал проверки качества. Они появятся в курсе как скрытые черновики; перед публикацией их нужно вручную проверить.";
+                    ? "Я подготовил скрытый черновик задания и прогнал проверки качества. Он появится в курсе как скрытый черновик; перед публикацией его нужно вручную проверить."
+                    : $"Я подготовил {draftCount} скрытых черновиков заданий, расставил их по порядку и прогнал проверки качества. Они появятся в курсе как скрытые черновики; перед публикацией их нужно вручную проверить.";
         }
         state.RequiresApproval = false;
         return _envelopes.FromWorkflowState(state);
@@ -109,6 +136,24 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         var hasBridgePlan = bridge.BridgePlan is { Count: > 0 };
         var hasAnchor = bridge.BeforeAssignmentId.HasValue;
         return !hasLlmMap || !hasBridgePlan || !hasAnchor;
+    }
+
+    private int ResolveRequestedDraftCount(AgentIntent intent, string userText)
+    {
+        if (intent.RequestedCount is { } explicitCount)
+            return Math.Clamp(explicitCount, 1, _options.MaxDraftsPerRun);
+
+        if (DraftAuthorExecutor.LooksLikeMultipleDraftRequest(userText))
+            return 5;
+
+        return intent.ScenarioId switch
+        {
+            "guided_ladder" => Math.Min(5, _options.MaxDraftsPerRun),
+            "bridge_tasks" => Math.Min(4, _options.MaxDraftsPerRun),
+            "style_matched_tasks" => Math.Min(3, _options.MaxDraftsPerRun),
+            "draft_revision" => Math.Min(3, _options.MaxDraftsPerRun),
+            _ => 1
+        };
     }
 
     private async Task RunSingleDraftAsync(WorkflowState state, string context, string plan, CancellationToken cancellationToken)
@@ -149,12 +194,12 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
         await _approval.ExecuteHiddenDraftArtifactAsync(state, acceptedDraft);
     }
 
-    private async Task RunMultiDraftAsync(WorkflowState state, string context, string plan, CancellationToken cancellationToken)
+    private async Task RunMultiDraftAsync(WorkflowState state, string context, string plan, int requestedCount, CancellationToken cancellationToken)
     {
         List<DraftSpec> drafts;
         try
         {
-            drafts = await _author.ExecuteManyAsync(state, context, plan, 0, 5, cancellationToken);
+            drafts = await _author.ExecuteManyAsync(state, context, plan, 0, requestedCount, cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

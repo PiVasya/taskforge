@@ -42,6 +42,10 @@ public sealed class CourseEditWorkflow : ITaskForgeWorkflow
 
     public bool CanHandle(ClaimedAgentJob job)
     {
+        var intent = AgentIntentClassifier.Select(job);
+        if (intent.IsCourseEditScenario)
+            return true;
+
         var text = job.UserText.ToLowerInvariant();
         return text.Contains("измени курс")
                || text.Contains("измени задани")
@@ -53,18 +57,25 @@ public sealed class CourseEditWorkflow : ITaskForgeWorkflow
                || text.Contains("добавь тест")
                || text.Contains("измени тест")
                || text.Contains("переставь")
-               || text.Contains("удали задание")
-               || text.Contains("переименуй");
+               || text.Contains("переименуй")
+               || text.Contains("подгони")
+               || text.Contains("единый стиль")
+               || text.Contains("один стиль")
+               || text.Contains("нормализуй")
+               || text.Contains("выровняй")
+               || text.Contains("удали задание");
     }
 
     public async Task<AgentResultEnvelope> RunAsync(ClaimedAgentJob job, CancellationToken cancellationToken)
     {
-        var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = "course_edit_workflow" };
+        var intent = AgentIntentClassifier.Select(job);
+        var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = "course_edit" };
+        state.Data["agentIntent"] = intent.ToJsonObject();
         var context = await _loadContext.ExecuteAsync(state);
         var plan = await _planner.ExecuteAsync(state, context, cancellationToken);
 
         _agent ??= _agentFactory.CreateCoordinatorAgent();
-        await _steps.TryReportAsync("course_edit", "running", "Готовлю безопасный patch правок", "Write-действие будет вынесено в approval artifact.");
+        await _steps.TryReportAsync("course_edit", "running", "Готовлю безопасный пакет правок", "Изменения будут вынесены на подтверждение и не применятся автоматически.");
         var session = await _sessionStore.LoadAsync(_agent, job.ConversationId, cancellationToken);
         var prompt = $$"""
 {{TaskForgeAgentPrompts.Coordinator}}
@@ -86,7 +97,7 @@ Patch должен соответствовать proposal artifact course_edit_
         await _sessionStore.SaveAsync(_agent, session, job.ConversationId, cancellationToken);
         var patch = ParsePatch(response.Text ?? string.Empty, job);
         await _approval.ExecuteForCourseEditAsync(state, patch);
-        state.AssistantMessage = "Я подготовил пакет правок курса, но не применял их автоматически. Проверь artifact и подтверди изменения.";
+        state.AssistantMessage = "Я подготовил пакет правок курса, но не применял их автоматически. Проверь предложение и подтверди изменения.";
         return _envelopes.FromWorkflowState(state);
     }
 

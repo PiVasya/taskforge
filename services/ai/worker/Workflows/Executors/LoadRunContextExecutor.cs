@@ -17,11 +17,11 @@ public sealed class LoadRunContextExecutor
 
     public async Task<string> ExecuteAsync(WorkflowState state)
     {
-        await _steps.TryReportAsync("context", "running", "Собираю контекст TaskForge", $"Workflow: {state.WorkflowName}");
+        await _steps.TryReportAsync("context", "running", "Собираю контекст TaskForge", "Получаю данные курса, задания и последних сообщений.");
         var prompt = _composer.ComposeRunPrompt(state.Job, state.WorkflowName);
         state.Data["contextPromptLength"] = prompt.Length;
         state.Notes.Add($"Context prompt length: {prompt.Length}");
-        await _steps.TryReportAsync("context", "completed", "Контекст загружен", $"Сжатый контекст: {prompt.Length} символов.", new JsonObject { ["length"] = prompt.Length });
+        await _steps.TryReportAsync("context", "completed", "Контекст загружен", $"Получены данные для ответа: {prompt.Length} символов.", new JsonObject { ["length"] = prompt.Length });
         return prompt;
     }
 }

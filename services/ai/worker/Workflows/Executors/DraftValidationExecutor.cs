@@ -23,7 +23,7 @@ public sealed class DraftValidationExecutor
         var shape = await _validationTools.ValidateDraftShapeAsync(draft.ToArtifactData());
         state.Data["draftShapeValidation"] = shape.DeepClone();
 
-        if (draft.AssignmentType == "code-test" && !string.IsNullOrWhiteSpace(draft.ReferenceSolution) && draft.PublicTests.Concat(draft.HiddenTests).Any())
+        if (string.Equals(draft.AssignmentType, "code-test", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(draft.ReferenceSolution) && draft.PublicTests.Concat(draft.HiddenTests).Any())
         {
             var tests = draft.PublicTests.Concat(draft.HiddenTests).ToList();
             var run = await _validationTools.RunCodeTestsAsync(draft.Language, draft.ReferenceSolution, tests);

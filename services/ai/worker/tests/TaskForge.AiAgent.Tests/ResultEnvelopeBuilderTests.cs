@@ -12,7 +12,7 @@ public sealed class ResultEnvelopeBuilderTests
     public void RawAgentJsonIsParsedIntoEnvelope()
     {
         var payload = JsonDocument.Parse("{}").RootElement.Clone();
-        var job = new ClaimedAgentJob(Guid.NewGuid(), Guid.NewGuid(), "assistant_chat_turn", payload, "hello", null, null);
+        var job = new ClaimedAgentJob(Guid.NewGuid(), Guid.NewGuid(), "assistant_chat_turn", payload, "hello", null, null, null);
         var envelope = ResultEnvelopeBuilder.FromRawAgentText("{\"assistantMessage\":\"ok\",\"artifacts\":[]}", job, "test");
         Assert.Equal("ok", envelope.AssistantMessage);
         Assert.Equal("test", envelope.ScenarioId);

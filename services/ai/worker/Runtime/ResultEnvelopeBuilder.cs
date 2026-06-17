@@ -24,6 +24,7 @@ public sealed class ResultEnvelopeBuilder
             {
                 ["lastIntent"] = state.WorkflowName,
                 ["activeCourseId"] = state.Job.CourseId?.ToString(),
+                ["activeAssignmentId"] = state.Job.AssignmentId?.ToString(),
                 ["lastRunId"] = state.Job.RunId.ToString(),
                 ["updatedAtUtc"] = DateTime.UtcNow.ToString("O")
             }
@@ -67,6 +68,7 @@ public sealed class ResultEnvelopeBuilder
             {
                 ["lastIntent"] = scenarioId,
                 ["activeCourseId"] = job.CourseId?.ToString(),
+                ["activeAssignmentId"] = job.AssignmentId?.ToString(),
                 ["lastRunId"] = job.RunId.ToString()
             }
         };
@@ -84,7 +86,8 @@ public sealed class ResultEnvelopeBuilder
                 : new JsonObject
                 {
                     ["lastIntent"] = fallbackScenarioId,
-                    ["activeCourseId"] = job.CourseId?.ToString()
+                    ["activeCourseId"] = job.CourseId?.ToString(),
+                    ["activeAssignmentId"] = job.AssignmentId?.ToString()
                 }
         };
 

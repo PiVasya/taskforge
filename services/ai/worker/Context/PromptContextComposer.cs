@@ -30,13 +30,14 @@ runId: {{job.RunId}}
 conversationId: {{job.ConversationId}}
 jobType: {{job.JobType}}
 courseId: {{job.CourseId?.ToString() ?? "null"}}
+assignmentId: {{job.AssignmentId?.ToString() ?? "null"}}
 courseTitle: {{job.CourseTitle ?? "null"}}
 userText: {{job.UserText}}
 
 ConversationMemory:
 {{memory}}
 
-BackendPayload:
+TaskForgeContext:
 {{payload}}
 """;
     }

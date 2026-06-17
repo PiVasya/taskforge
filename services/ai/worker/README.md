@@ -1,46 +1,99 @@
-# TaskForge .NET AI Agent Runtime v2
+# TaskForge AI Worker
 
-Новая AI-папка заменяет deprecated `taskforge-ai-worker-external` не как буквальный порт Python-сценариев, а как нормальный .NET agent runtime:
+Актуальный AI-worker для TaskForge. Он работает не как один прямой prompt, а как управляемый agent loop:
 
-- Microsoft Agent Framework `AIAgent` / `ChatClientAgent` поверх `IChatClient`.
-- OpenRouter оставлен как OpenAI-compatible провайдер.
-- Доменные возможности вынесены в C# function tools.
-- Сложные операции идут через workflows: контекст -> план -> draft/audit/edit -> validation -> critique -> repair -> approval artifact.
-- Реальные write-действия не выполняются напрямую из worker. Backend остаётся владельцем БД и применяет artifacts/approval.
+1. модель выбирает следующий шаг из безопасного списка действий;
+2. backend выполняет выбранный шаг;
+3. результат шага сохраняется в общий `AgentLoopState`;
+4. следующий шаг получает уже накопленную память run-а;
+5. итоговые задания проходят validation/critic/repair перед сохранением как скрытые черновики.
+
+## Зачем так сделано
+
+Главная цель — качество заданий и непрерывная память внутри AI-run. Модель не должна забывать, что увидела в курсе, какие ограничения дал пользователь, какие ошибки нашёл валидатор и что уже было сделано на прошлых шагах.
+
+Поэтому рабочая память хранится не только в prompt-е модели, а в структуре `AgentLoopState` и прокидывается в специализированные workflow через payload/memory.
 
 ## Запуск
 
 ```bash
 export TaskForgeAgent__ApiKey="OPENROUTER_KEY"
-export TaskForgeAgent__Model="openai/gpt-4o-mini"
+export TaskForgeAgent__Model="<openrouter-qwen-model-id>" # например Qwen/OpenRouter; точный id модели задаётся в .env
+export TaskForgeAgent__OpenAiCompatibleBaseUrl="https://openrouter.ai/api/v1"
+export TaskForgeAgent__EnableAdaptiveAgentLoop="true"
+export TaskForgeAgent__MaxAgentLoopSteps="12"
+export TaskForgeAgent__MaxAgentStateCharacters="64000"
 export TaskForgeInternalApi__BaseUrl="http://ai-api:8080"
 export TaskForgeInternalApi__ApiKey="INTERNAL_AGENT_KEY"
-dotnet run --project taskforge-ai-agent-dotnet/TaskForge.AiAgent.csproj
+
+dotnet run --project services/ai/worker/TaskForge.AiAgent.csproj
 ```
 
-## Почему это не Python scenario-engine
+## Основная архитектура
 
-Старый Python worker выбирал `scenario_id` через rule-router, затем просил LLM вернуть JSON. Новый runtime делает иначе:
+| Компонент | Назначение |
+|---|---|
+| `AdaptiveAgentLoopWorkflow` | общий цикл: решение модели -> действие -> наблюдение -> новое решение |
+| `AgentLoopDecisionClient` | просит модель выбрать один следующий шаг в строгом JSON |
+| `AgentLoopState` | память run-а: запрос, контекст, intent, шаги, наблюдения, материалы |
+| `AgentIntentClassifier` | быстрый детерминированный классификатор запроса и fallback, если модель ошиблась |
+| `AssignmentDraftWorkflow` | генерация заданий с планом, картой навыков, валидацией, критикой и repair |
+| `CourseAuditWorkflow` | анализ курса, поиск пробелов и скачков сложности |
+| `CourseEditWorkflow` | подготовка безопасного пакета правок без авто-применения |
+| `PolishAssignmentDraftWorkflow` | доработка выбранного задания до скрытого черновика |
+| `OpenChatWorkflow` | обычный ответ ассистента, когда не нужна генерация/аудит/правки |
 
-1. Backend выдаёт run через существующий `/api/internal/agent/claim-next`.
-2. .NET worker выбирает безопасный workflow.
-3. Workflow запускает агента с tools и контекстом.
-4. Для draft-flow включены validation, test run, critic loop и bounded retry.
-5. Для write-действий формируются `approval_request` и/или artifacts, а не прямые записи в БД.
-6. Backend получает тот же envelope (`assistantMessage`, `scenarioId`, `artifacts`, `memoryPatch`) и может использовать текущий UI.
+## Разрешённые действия agent loop
 
-## Основные workflow
+Модель может выбрать только одно действие за шаг:
 
-| Workflow | Когда используется | Что делает |
-|---|---|---|
-| `open_chat` | обычный диалог | агент отвечает и вызывает read-only tools при необходимости |
-| `course_audit` | анализ курса, пробелы, gap audit | делает план, аудит, artifact `course_gap_audit` |
-| `assignment_draft_workflow` | создать/сгенерировать задание | draft -> validation -> tests -> critic -> repair -> approval artifact |
-| `polish_assignment_draft` | вылизать выбранное AI-задание | сохраняет selectedTask, позицию before/after, прогоняет validation/critic и готовит `polished_assignment_draft` |
-| `course_edit_workflow` | изменить курс/задания | готовит `course_edit_proposal` + `approval_request`, без авто-применения |
+- `inspect_context` — сохранить доступный контекст чата, курса, заданий и вложений в общую память;
+- `classify_request` — определить intent, ограничения и нужный сценарий;
+- `map_course_structure` — построить карту курса: порядок, типы, языки, сложность, rating и timeline понятий;
+- `extract_course_style` — извлечь стиль существующих заданий: названия, описания, тесты, теги, язык;
+- `find_learning_gaps` — найти пробелы, скачки сложности, слабые тесты и места для bridge tasks;
+- `plan_course_enrichment` — собрать единый brief для генерации/правок курса;
+- `search_course` — найти релевантные задания в уже загруженном контексте курса;
+- `delegate_assignment_draft` — перейти в генератор заданий;
+- `delegate_course_audit` — перейти в анализ курса;
+- `delegate_course_edit` — подготовить правки курса;
+- `delegate_polish_assignment` — доработать выбранное задание;
+- `review_delegated_result` — проверить результат рабочего workflow перед завершением;
+- `answer_directly` — ответить обычным сообщением;
+- `finish` — завершить run, если результат уже получен и проверен.
+
+Модель выбирает маршрут, но код держит ограничения: лимит шагов, запрет повторной делегации после результата, обязательный контекст перед рабочими workflow и финальные проверки качества.
+
+## Качество заданий
+
+Генерация заданий не сохраняет первый попавшийся ответ модели. Для draft-flow используется цепочка:
+
+```text
+контекст -> план -> карта навыков -> черновик -> validation -> critic -> repair -> скрытый draft artifact
+```
+
+Если черновик не проходит проверки, он не сохраняется как задание. Лучше вернуть понятную ошибку, чем положить в курс мусор.
+
+## Логи и экспорт
+
+Каждый шаг сохраняется как `AiStep`. На фронте журнал AI должен показывать:
+
+- выбранное действие;
+- краткую причину выбора;
+- входные аргументы;
+- наблюдение после выполнения;
+- состояние run-а после шага;
+- материалы, созданные ассистентом.
+
+Это нужно, чтобы быстро скинуть полный AI-отчёт в чат и понять, где агент потерял качество.
 
 ## Важные ограничения
 
-- В этом репозитории worker не пишет напрямую в БД. Это сделано специально.
-- OpenRouter должен использовать модель с нормальной поддержкой tools/function calling.
-- Для production желательно прогнать `dotnet build`, unit/integration tests и проверить реальные OpenRouter tool calls.
+- Worker не пишет напрямую в основную БД курсов.
+- Все опасные изменения идут через artifacts/approval.
+- Модель OpenRouter можно менять без изменения кода через `TaskForgeAgent__Model`.
+- Слабые/дешёвые модели могут хуже выбирать маршрут, поэтому fallback и валидаторы обязательны.
+
+## Batch agent actions and patch sets
+
+AI worker supports adaptive batch decisions: a model can return several safe actions in `actions[]`, and the backend executes them sequentially with persistent logs. Course-wide edits are produced as `course_patch_set` artifacts, not silent writes. The frontend renders them in a dedicated patch menu with GitHub-like diffs and dry-run/apply controls.

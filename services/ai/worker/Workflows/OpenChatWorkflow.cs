@@ -42,10 +42,12 @@ public sealed class OpenChatWorkflow : ITaskForgeWorkflow
 
     public async Task<AgentResultEnvelope> RunAsync(ClaimedAgentJob job, CancellationToken cancellationToken)
     {
+        var intent = AgentIntentClassifier.Select(job);
         var state = new WorkflowState { Job = job, WorkflowName = Name, ScenarioId = "open_chat" };
+        state.Data["agentIntent"] = intent.ToJsonObject();
         var context = await _loadContext.ExecuteAsync(state);
         _agent ??= _agentFactory.CreateCoordinatorAgent();
-        await _steps.TryReportAsync("agent", "running", "Запускаю TaskForgeCoordinator", "Open-chat workflow с доступом к C# tools.");
+        await _steps.TryReportAsync("agent", "running", "Готовлю ответ", "Ассистент учитывает доступный контекст курса и задания.");
 
         var session = await _sessionStore.LoadAsync(_agent, job.ConversationId, cancellationToken);
         var prompt = $$"""
