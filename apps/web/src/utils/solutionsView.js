@@ -106,9 +106,6 @@ export function isResultCasePassed(c) {
   if (typeof c.passed === 'boolean') return c.passed;
   if (typeof c.Passed === 'boolean') return c.Passed;
   const status = normalizeStatus(c.status ?? c.Status);
-  // Runner status "ok" only means the process exited normally. It must not
-  // override passed:false for wrong answers. Use status only for legacy payloads
-  // that do not contain an explicit passed flag.
   return status === 'accepted' || status === 'passed' || status === 'success';
 }
 

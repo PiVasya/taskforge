@@ -266,7 +266,6 @@ export default function AssignmentResultsPage() {
           try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: dto })); } catch {}
           return;
         } catch {
-          // Fallback to the last local submit result below.
         }
       }
 

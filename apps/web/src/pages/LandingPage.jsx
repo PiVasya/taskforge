@@ -7,9 +7,9 @@ import {
   ChevronDown,
   Code2,
   GraduationCap,
-  Layers3,
   ListChecks,
   PlayCircle,
+  RefreshCw,
   Rocket,
   Sparkles,
   Target,
@@ -26,11 +26,13 @@ const featureTabs = [
     title: "Курсы по шагам",
     short: "Понятный маршрут от темы к практике.",
     text:
-      "Курс помогает двигаться последовательно: сначала тема, затем задания, проверки и сохранённый прогресс. Всегда видно, что уже сделано и куда идти дальше.",
-    previewTitle: "Основы программирования",
-    previewSubtitle: "Теория • практика • прогресс",
-    previewLines: ["Ввод и вывод", "Условия", "Циклы", "Массивы"],
-    stat: "7 / 12",
+      "Курс ведёт по темам последовательно: открыл материал, перешёл к заданию, решил, увидел прогресс и продолжил дальше.",
+    exampleTitle: "Что видит ученик",
+    exampleLines: [
+      "список доступных курсов",
+      "прогресс внутри выбранного курса",
+      "следующее задание без лишних поисков",
+    ],
   },
   {
     id: "judge",
@@ -38,61 +40,67 @@ const featureTabs = [
     title: "Проверка решений",
     short: "Отправил код — получил результат.",
     text:
-      "После отправки решения TaskForge показывает статус проверки, результат тестов и помогает быстрее понять, где возникла ошибка.",
-    previewTitle: "Задача: сумма элементов",
-    previewSubtitle: "Решение отправлено на проверку",
-    previewLines: ["Компиляция выполнена", "Тест 1 принят", "Тест 2 принят", "Вердикт: Accepted"],
-    stat: "AC",
+      "После отправки решения платформа показывает статус проверки, результат тестов и понятный вердикт: принято или нужно исправить.",
+    exampleTitle: "Сценарий проверки",
+    exampleLines: [
+      "код отправляется на выполнение",
+      "тесты проходят один за другим",
+      "после успешной проверки задание отмечается решённым",
+    ],
   },
   {
     id: "tests",
     icon: ListChecks,
     title: "Тесты и короткие ответы",
-    short: "Не каждая задача требует кода.",
+    short: "Не каждая проверка должна быть кодом.",
     text:
-      "Для теории и закрепления можно использовать задания с выбором ответа или коротким текстовым ответом. Это удобно для быстрых проверок понимания темы.",
-    previewTitle: "Тест: логические операции",
-    previewSubtitle: "Выбор ответа и короткие ответы",
-    previewLines: ["Вопрос 1: выбран ответ B", "Вопрос 2: введён короткий ответ", "Ответ принят", "Результат: 9 / 10"],
-    stat: "90%",
+      "Для теории и закрепления можно использовать обычные тесты и задания с коротким текстовым ответом — быстро, понятно и без перегруза.",
+    exampleTitle: "Когда это полезно",
+    exampleLines: [
+      "проверить знание терминов",
+      "закрепить тему после конспекта",
+      "дать короткий ответ без запуска кода",
+    ],
   },
   {
     id: "progress",
     icon: Trophy,
     title: "Прогресс и мотивация",
-    short: "Видно, что решено и что осталось.",
+    short: "Видно, что уже сделано и что осталось.",
     text:
-      "Решённые задания отмечаются в курсе, прогресс собирается в понятную шкалу, а рейтинг добавляет лёгкую соревновательность без перегруза интерфейса.",
-    previewTitle: "Личный прогресс",
-    previewSubtitle: "Курс продолжается с нужного места",
-    previewLines: ["7 заданий решено", "5 заданий осталось", "Последнее решение принято", "Рейтинг обновлён"],
-    stat: "+15",
+      "Решённые задания отмечаются в курсе, общий прогресс остаётся перед глазами, а рейтинг добавляет лёгкую соревновательность.",
+    exampleTitle: "После решения",
+    exampleLines: [
+      "задание становится решённым",
+      "счётчик курса обновляется",
+      "результат сохраняется в истории решений",
+    ],
   },
 ];
 
 const journeyCards = [
   {
     icon: BookOpen,
-    title: "Начать без путаницы",
-    text: "Сразу видно, где начать: выбрать курс, открыть задание и продолжить с нужного места.",
+    title: "Открыл курс",
+    text: "Сразу понятно, с какой темы начать и какие задания уже выполнены.",
   },
   {
     icon: Target,
-    title: "Решать в своём темпе",
-    text: "Курсы и задания разбиты на шаги, поэтому проще возвращаться к обучению после паузы.",
+    title: "Решил задачу",
+    text: "Читаешь условие, пишешь решение и отправляешь его на проверку.",
   },
   {
     icon: Zap,
-    title: "Сразу видеть результат",
-    text: "После отправки решения появляется статус проверки и становится понятно, что делать дальше.",
+    title: "Получил результат",
+    text: "Видишь вердикт, пройденные тесты и обновлённый прогресс.",
   },
 ];
 
 const metrics = [
-  { value: "Курсы", label: "структурированное обучение" },
-  { value: "Задачи", label: "практика по программированию" },
-  { value: "Проверка", label: "понятные статусы решений" },
-  { value: "Рейтинг", label: "прогресс и мотивация" },
+  { value: "Курсы", label: "обучение по темам" },
+  { value: "Задачи", label: "практика на коде" },
+  { value: "Проверка", label: "вердикт после отправки" },
+  { value: "Прогресс", label: "видно движение вперёд" },
 ];
 
 const faqItems = [
@@ -110,41 +118,114 @@ const faqItems = [
   },
 ];
 
-function FeaturePreview({ feature }) {
+const checkSteps = [
+  "Код получен",
+  "Запуск проверки",
+  "Тест 1: пройден",
+  "Тест 2: пройден",
+  "Задание решено",
+];
+
+function SolutionCheckDemo() {
+  const [runKey, setRunKey] = useState(0);
+
   return (
-    <div className="landing-preview-card" aria-label="Демонстрация возможностей TaskForge">
-      <div className="landing-preview-topbar">
-        <span />
-        <span />
-        <span />
+    <div key={runKey} className="landing-check-demo" aria-label="Пример проверки решения в TaskForge">
+      <div className="landing-check-toolbar">
+        <div className="landing-preview-topbar" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="landing-check-badge">пример задания</div>
       </div>
 
-      <div className="landing-preview-header">
+      <div className="landing-check-task">
         <div>
           <div className="landing-preview-kicker">TaskForge</div>
-          <h3>{feature.previewTitle}</h3>
-          <p>{feature.previewSubtitle}</p>
+          <h3>Сумма двух чисел</h3>
+          <p>Прочитай два числа и выведи их сумму.</p>
         </div>
-        <div className="landing-preview-score">{feature.stat}</div>
+        <div className="landing-check-result-badge">
+          <CheckCircle2 size={18} />
+          <span>Решено</span>
+        </div>
       </div>
 
-      <div className="landing-progress-shell">
-        <div className={`landing-progress-fill landing-progress-fill--${feature.id}`} />
+      <div className="landing-check-io" aria-label="Пример входных и выходных данных">
+        <div>
+          <span>Ввод</span>
+          <strong>2 3</strong>
+        </div>
+        <div>
+          <span>Вывод</span>
+          <strong>5</strong>
+        </div>
       </div>
 
-      <div className="landing-preview-list">
-        {feature.previewLines.map((line, index) => (
-          <div key={line} className="landing-preview-row" style={{ "--delay": `${index * 80}ms` }}>
+      <div className="landing-demo-code" aria-label="Пример решения">
+        <div className="landing-demo-code-head">
+          <Code2 size={16} />
+          <span>Решение</span>
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 34, "--delay": "0.25s" }}>
+          a, b = map(int, input().split())
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 12, "--delay": "1.55s" }}>
+          print(a + b)
+        </div>
+      </div>
+
+      <div className="landing-submit-row">
+        <button type="button" className="landing-demo-submit" onClick={() => setRunKey((value) => value + 1)}>
+          <PlayCircle size={17} />
+          <span>Отправить решение</span>
+        </button>
+        <div className="landing-submit-track" aria-hidden="true">
+          <span />
+        </div>
+      </div>
+
+      <div className="landing-check-steps">
+        {checkSteps.map((step, index) => (
+          <div key={step} className="landing-check-step" style={{ "--delay": `${2.85 + index * 0.38}s` }}>
             <CheckCircle2 size={16} />
-            <span>{line}</span>
+            <span>{step}</span>
           </div>
         ))}
       </div>
 
-      <div className="landing-code-window">
-        <div className="landing-code-line"><span>course</span>.openNextTask();</div>
-        <div className="landing-code-line"><span>solution</span>.submit();</div>
-        <div className="landing-code-line muted">status: accepted • progress: updated</div>
+      <div className="landing-check-final">
+        <CheckCircle2 size={20} />
+        <div>
+          <strong>Accepted</strong>
+          <span>Все тесты пройдены, прогресс обновлён.</span>
+        </div>
+        <button type="button" onClick={() => setRunKey((value) => value + 1)} aria-label="Повторить анимацию проверки">
+          <RefreshCw size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FeaturePanel({ feature }) {
+  return (
+    <div className="landing-feature-panel" role="tabpanel">
+      <div className="landing-panel-label"><Sparkles size={16} /> Польза для ученика</div>
+      <h3>{feature.title}</h3>
+      <p>{feature.text}</p>
+
+      <div className="landing-feature-example">
+        <h4>{feature.exampleTitle}</h4>
+        <div className="landing-feature-example-list">
+          {feature.exampleLines.map((line) => (
+            <div key={line} className="landing-feature-example-row">
+              <CheckCircle2 size={16} />
+              <span>{line}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -166,7 +247,7 @@ function FaqItem({ item, open, onToggle }) {
 
 export default function LandingPage() {
   const { access, ready } = useAuth();
-  const [activeFeatureId, setActiveFeatureId] = useState(featureTabs[0].id);
+  const [activeFeatureId, setActiveFeatureId] = useState(featureTabs[1].id);
   const [openFaq, setOpenFaq] = useState(0);
 
   const activeFeature = useMemo(
@@ -192,15 +273,15 @@ export default function LandingPage() {
           <div className="landing-hero-content">
             <div className="landing-pill">
               <Sparkles size={16} />
-              <span>Учиться проще, когда сразу виден следующий шаг</span>
+              <span>Код → проверка → результат</span>
             </div>
 
             <h1>
-              TaskForge — платформа для практики программирования
+              Учись программировать на задачах, которые сразу проверяются
             </h1>
 
             <p className="landing-lead">
-              Выбирай курс, решай задания, отправляй решения на проверку и отслеживай прогресс в одном понятном рабочем пространстве.
+              Выбирай курс, решай задания, отправляй решения и сразу понимай результат: прошло, не прошло, что уже сделано и куда двигаться дальше.
             </p>
 
             <div className="landing-hero-actions">
@@ -216,13 +297,13 @@ export default function LandingPage() {
 
             <div className="landing-hero-points" aria-label="Ключевые преимущества">
               <span><GraduationCap size={15} /> Курсы</span>
-              <span><Code2 size={15} /> Автопроверка</span>
+              <span><Code2 size={15} /> Проверка кода</span>
               <span><Trophy size={15} /> Прогресс</span>
             </div>
           </div>
 
           <div className="landing-hero-preview">
-            <FeaturePreview feature={activeFeature} />
+            <SolutionCheckDemo />
           </div>
         </section>
 
@@ -238,9 +319,9 @@ export default function LandingPage() {
         <section className="landing-section" id="features">
           <div className="landing-section-head">
             <div className="landing-section-kicker">Возможности</div>
-            <h2>Всё, что нужно для понятного старта</h2>
+            <h2>Всё построено вокруг решения задач</h2>
             <p>
-              Выбери карточку — справа изменится пример экрана. Так сразу видно, как проходит обучение внутри TaskForge.
+              Курс ведёт по темам, задание даёт практику, проверка сразу показывает результат, а прогресс помогает видеть движение вперёд.
             </p>
           </div>
 
@@ -268,19 +349,14 @@ export default function LandingPage() {
               })}
             </div>
 
-            <div className="landing-feature-panel" role="tabpanel">
-              <div className="landing-panel-label"><Layers3 size={16} /> Сценарий обучения</div>
-              <h3>{activeFeature.title}</h3>
-              <p>{activeFeature.text}</p>
-              <FeaturePreview feature={activeFeature} />
-            </div>
+            <FeaturePanel feature={activeFeature} />
           </div>
         </section>
 
         <section className="landing-section landing-audience-section" id="journey">
           <div className="landing-section-head compact">
             <div className="landing-section-kicker">Маршрут</div>
-            <h2>От первого задания до уверенного результата</h2>
+            <h2>Один понятный путь вместо лишнего шума</h2>
           </div>
 
           <div className="landing-audience-grid">
@@ -300,13 +376,13 @@ export default function LandingPage() {
         <section className="landing-flow-section" id="flow">
           <div className="landing-flow-card">
             <div className="landing-section-kicker">Как это работает</div>
-            <h2>Обучение разбито на простые действия</h2>
+            <h2>От курса до принятого решения</h2>
             <div className="landing-flow-line">
               {[
-                "Выбираешь курс",
-                "Открываешь задание",
-                "Отправляешь решение",
-                "Видишь прогресс",
+                "Выбрал курс",
+                "Открыл задание",
+                "Отправил код",
+                "Получил вердикт",
               ].map((step, index) => (
                 <div key={step} className="landing-flow-step">
                   <span>{index + 1}</span>

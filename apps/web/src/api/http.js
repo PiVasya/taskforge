@@ -36,7 +36,6 @@ function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
       })
     );
   } catch {
-    // quota UI must never break the request itself
   }
 }
 

@@ -142,23 +142,19 @@ function initials(profile) {
   return email ? email[0].toUpperCase() : "TF";
 }
 
-function externalHref(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw)) return raw;
-  return `https://${raw}`;
-}
-
-function ChoiceButton({ active, title, desc, onClick }) {
+function ChoiceButton({ active, title, desc, onClick, disabled = false }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      disabled={disabled}
+      onClick={disabled ? undefined : onClick}
       className={
         `rounded-2xl border px-4 py-3 text-left transition ` +
-        (active
-          ? "border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)] shadow-[0_0_0_1px_rgba(var(--accent)/0.18)]"
-          : "border-[rgba(var(--border)/0.72)] bg-[rgba(var(--card)/0.58)] hover:bg-[rgba(var(--card)/0.86)]")
+        (disabled
+          ? "cursor-not-allowed border-[rgba(var(--border)/0.42)] bg-[rgba(var(--card)/0.32)] opacity-50"
+          : active
+            ? "border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)] shadow-[0_0_0_1px_rgba(var(--accent)/0.18)]"
+            : "border-[rgba(var(--border)/0.72)] bg-[rgba(var(--card)/0.58)] hover:bg-[rgba(var(--card)/0.86)]")
       }
     >
       <div className="font-semibold leading-snug">{title}</div>
@@ -1044,7 +1040,7 @@ export default function SettingsPage() {
         <div>
           <div className="font-semibold">Фоновые эффекты</div>
           <div className="text-sm text-neutral-500 dark:text-neutral-400">
-            Включает или выключает живой фон.
+            Включает или выключает живой фон. Выбор варианта доступен только после включения эффектов.
           </div>
         </div>
         <Button
@@ -1054,6 +1050,12 @@ export default function SettingsPage() {
           {form.bgFx ? "Включено" : "Выключено"}
         </Button>
       </Card>
+
+      {!form.bgFx ? (
+        <Card className="p-3 text-sm text-neutral-500 dark:text-neutral-400">
+          Сначала включи фоновые эффекты. После этого можно будет выбрать случайный режим или конкретный вариант.
+        </Card>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">
         {fxOptions.map((o) => {
@@ -1065,6 +1067,7 @@ export default function SettingsPage() {
             <ChoiceButton
               key={o.key}
               active={selected}
+              disabled={!form.bgFx}
               title={o.title}
               desc={o.desc}
               onClick={() => {

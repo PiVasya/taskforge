@@ -510,7 +510,7 @@ function ConversationList({ conversations, selectedId, onSelect, onCreate, loadi
       <div className="flex items-center justify-between gap-2 px-1">
         <div>
           <div className="text-sm font-semibold">AI-чаты</div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">курс, задания, аудит, лесенки</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">курсы, задания, улучшения</div>
         </div>
         <button type="button" className="btn-outline !min-w-0 !px-3" onClick={onCreate} title="Новый чат">
           <Plus size={16} />
@@ -567,15 +567,15 @@ function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/25 backdrop-blur-sm">
-      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Закрыть AI logs" />
+      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Закрыть журнал AI" />
       <aside className="relative h-full w-[min(52rem,96vw)] border-l border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft flex flex-col">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 dark:border-neutral-800/70 p-4">
           <div>
-            <div className="flex items-center gap-2 font-semibold"><TerminalSquare size={18} /> AI logs</div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Всё, что связано с AI: события SignalR, runs, steps, artifacts, raw JSON.</div>
+            <div className="flex items-center gap-2 font-semibold"><TerminalSquare size={18} /> Журнал AI</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">События, шаги выполнения, артефакты и служебные данные AI.</div>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-outline !min-w-0" onClick={onCopyDebugDump} disabled={!conversation?.id || copyingDebugDump} title="Скопировать полный AI debug dump">
+            <button type="button" className="btn-outline !min-w-0" onClick={onCopyDebugDump} disabled={!conversation?.id || copyingDebugDump} title="Скопировать диагностику AI">
               {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
               <span className="hidden sm:inline">Скопировать всё</span>
             </button>
@@ -597,7 +597,7 @@ function LogDrawer({ open, onClose, conversation, messages, runs, realtimeEvents
 function EmptyChat({ onTemplate }) {
   const templates = [
     'Проанализируй курс и найди самые резкие скачки сложности.',
-    'Найди дырки перед if и сделай лесенку как на скрине 1.',
+    'Найди сложные места в курсе и предложи задания для плавного перехода.',
     'Создай 5 маленьких C++ задач в стиле курса: дружелюбно, пошагово, с публичными тестами.',
     'Сделай задачи проще: одна новая идея на одно задание, без олимпиадного стиля.',
   ];
@@ -609,7 +609,7 @@ function EmptyChat({ onTemplate }) {
       </div>
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">Живой AI-ассистент TaskForge</h1>
       <p className="mx-auto mt-3 max-w-2xl text-neutral-600 dark:text-neutral-300">
-        Пиши как в GPT: можно просить анализ курса, поиск дыр, задачки-лесенки, мостики между темами и черновики в стиле курса.
+        Пиши как в обычном чате: можно просить анализ курса, поиск сложных мест, пошаговые задания и черновики в стиле выбранной темы.
       </p>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         {templates.map((text) => (
@@ -1101,7 +1101,7 @@ export default function AgentPage() {
       ].join('\n');
 
       await writeClipboard(textDump);
-      notify.success(`AI debug dump скопирован (${Math.round(textDump.length / 1024)} KB).`);
+      notify.success(`Диагностика AI скопирована (${Math.round(textDump.length / 1024)} KB).`);
     } catch (err) {
       const backendDumpError = {
         message: err?.message,
@@ -1120,9 +1120,9 @@ export default function AgentPage() {
 
       try {
         await writeClipboard(textDump);
-        notify.warn(`Backend dump не собрался, но клиентский AI snapshot скопирован (${Math.round(textDump.length / 1024)} KB).`);
+        notify.warn(`Служебный отчёт не собрался, но локальная диагностика AI скопирована (${Math.round(textDump.length / 1024)} KB).`);
       } catch {
-        handleApiError(err, notify, 'Не удалось скопировать AI debug dump');
+        handleApiError(err, notify, 'Не удалось скопировать диагностику AI');
       }
     } finally {
       setCopyingDebugDump(false);
@@ -1180,13 +1180,13 @@ export default function AgentPage() {
               <button type="button" className="btn-outline !min-w-0 !px-3" onClick={() => loadConversation(selectedId, { silent: true })} disabled={!selectedId} title="Обновить">
                 <RefreshCw size={16} />
               </button>
-              <button type="button" className="btn-outline !min-w-0" onClick={copyAiDebugDump} disabled={!selectedId || copyingDebugDump} title="Скопировать полный AI debug dump">
+              <button type="button" className="btn-outline !min-w-0" onClick={copyAiDebugDump} disabled={!selectedId || copyingDebugDump} title="Скопировать диагностику AI">
                 {copyingDebugDump ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCopy size={16} />}
-                <span className="hidden sm:inline">Copy AI dump</span>
+                <span className="hidden sm:inline">Диагностика</span>
               </button>
-              <button type="button" className="btn-outline !min-w-0" onClick={() => setLogsOpen(true)} title="Открыть AI logs">
+              <button type="button" className="btn-outline !min-w-0" onClick={() => setLogsOpen(true)} title="Открыть журнал AI">
                 <PanelRightOpen size={16} />
-                <span className="hidden sm:inline">AI logs</span>
+                <span className="hidden sm:inline">Журнал</span>
               </button>
             </div>
           </div>
@@ -1259,14 +1259,14 @@ export default function AgentPage() {
                     }
                   }}
                   rows={1}
-                  placeholder="Напиши запрос: проанализируй курс, найди дырки, сделай лесенку..."
+                  placeholder="Напиши запрос: проанализируй курс, найди сложные места, предложи задания..."
                   className="!min-h-[2.5rem] !max-h-28 !border-0 !bg-transparent !p-0 !shadow-none resize-none text-sm"
                 />
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
                   <span>Enter — отправить, Shift+Enter — новая строка</span>
-                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Найди дырки в курсе и предложи задачи-мостики.')}>поиск дыр</button>
+                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Найди сложные места в курсе и предложи задания для плавного перехода.')}>сложные места</button>
                   <span>·</span>
-                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Сделай задачки-лесенки: дружелюбно, пошагово, одна микроидея на шаг.')}>лесенка</button>
+                  <button type="button" className="hover:text-brand-600" onClick={() => setText('Сделай пошаговые задания: дружелюбно, с одной новой идеей на шаг.')}>пошаговые задания</button>
                   <span>·</span>
                   <button type="button" className="hover:text-brand-600" onClick={() => setText('Создай задачи в стиле курса без резкого скачка сложности.')}>в стиле курса</button>
                 </div>
