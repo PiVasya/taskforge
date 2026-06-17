@@ -47,8 +47,8 @@ public static class CourseAgentTools
             ["languages"] = ToCountObject(byLanguage),
             ["difficulty"] = BuildNumberStats(difficultyValues),
             ["rating"] = BuildNumberStats(ratingValues),
-            ["firstAssignments"] = new JsonArray(assignments.Take(8).Select(ToSnapshotJson).ToArray<JsonNode?>()),
-            ["lastAssignments"] = new JsonArray(assignments.TakeLast(8).Select(ToSnapshotJson).ToArray<JsonNode?>()),
+            ["firstAssignments"] = new JsonArray(assignments.Take(8).Select(x => ToSnapshotJson(x)).ToArray<JsonNode?>()),
+            ["lastAssignments"] = new JsonArray(assignments.TakeLast(8).Select(x => ToSnapshotJson(x)).ToArray<JsonNode?>()),
             ["conceptTimeline"] = concepts,
             ["courseShape"] = BuildCourseShape(assignments),
             ["summary"] = BuildCourseMapSummary(assignments, byType, concepts.Count)
@@ -475,7 +475,7 @@ public static class CourseAgentTools
                 "starterCode не должен содержать готовое решение.",
                 "Для code-test нужны рабочий referenceSolution, public tests и hidden tests.",
                 "Если курс уже имеет близкий стиль, новые задачи должны выглядеть как естественное продолжение, а не как отдельный AI-блок."),
-            ["recommendedContextAnchors"] = new JsonArray(assignments.TakeLast(6).Select(ToSnapshotJson).ToArray<JsonNode?>()),
+            ["recommendedContextAnchors"] = new JsonArray(assignments.TakeLast(6).Select(x => ToSnapshotJson(x)).ToArray<JsonNode?>()),
             ["nextBestWorkflow"] = ResolveNextWorkflow(state),
             ["summary"] = "Подготовлен единый brief для следующего workflow: запрос, память чата, карта курса, стиль, пробелы и правила качества."
         };
