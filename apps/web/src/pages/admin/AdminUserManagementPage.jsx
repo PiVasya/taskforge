@@ -235,6 +235,7 @@ export default function AdminUserManagementPage() {
   const solved = numeric(rating?.solved ?? rating?.solvedCount);
   const attempts = numeric(rating?.totalAttempts);
   const totalRecent = codeSolutions.length + imageSolutions.length + testAttempts.length + mathAttempts.length;
+  const attemptsShown = attempts > 0 ? attempts : totalRecent;
 
   return (
     <Layout>
@@ -259,7 +260,7 @@ export default function AdminUserManagementPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
           <MetricCard label="Рейтинг" value={score} hint="По текущему rating решённых заданий" />
           <MetricCard label="Решено" value={solved} hint="Уникальные зачтённые задания" />
-          <MetricCard label="Попыток" value={attempts || totalRecent} hint="По данным рейтинга и последним активностям" />
+          <MetricCard label="Попыток" value={attemptsShown} hint="Все отправки пользователя, включая отклонённые" />
           <MetricCard label="Групп" value={groupIds.size} hint="Текущие учебные группы" />
         </div>
 

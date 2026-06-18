@@ -245,15 +245,24 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, string? q, int take = 200, CancellationToken ct = default) =>
         {
-            var codeRows = await db.Submissions.AsNoTracking()
-                .Where(x => x.UserId.HasValue && x.Status == "Accepted")
-                .Select(x => new { UserId = x.UserId!.Value, x.AssignmentId, x.CreatedAt })
+            var allCodeRows = await db.Submissions.AsNoTracking()
+                .Where(x => x.UserId.HasValue)
+                .Select(x => new { UserId = x.UserId!.Value, x.AssignmentId, x.CreatedAt, x.Status })
                 .ToListAsync(ct);
 
-            var imageRows = await db.ImageSolutions.AsNoTracking()
+            var codeRows = allCodeRows
+                .Where(x => string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase))
+                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
+                .ToList();
+
+            var allImageRows = await db.ImageSolutions.AsNoTracking()
+                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt, x.Passed })
+                .ToListAsync(ct);
+
+            var imageRows = allImageRows
                 .Where(x => x.Passed)
                 .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
-                .ToListAsync(ct);
+                .ToList();
 
             var assignmentIds = codeRows.Select(x => x.AssignmentId)
                 .Concat(imageRows.Select(x => x.AssignmentId))
@@ -262,10 +271,15 @@ internal static partial class SolutionsApiEndpoints
                 .ToArray();
             var metadata = await LoadAssignmentMetadataAsync(assignmentIds, cfg, httpFactory, ct);
 
+            var taskRows = await LoadTaskLeaderboardRowsAsync(null, null, null, cfg, httpFactory, ct);
+            var codeAttemptCounts = allCodeRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
+            var imageAttemptCounts = allImageRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
+            var taskAttemptCounts = taskRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
+
             var activityRows = new List<LeaderboardActivityRow>();
             activityRows.AddRange(codeRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
             activityRows.AddRange(imageRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "image")));
-            activityRows.AddRange(await LoadTaskLeaderboardRowsAsync(null, null, null, cfg, httpFactory, ct));
+            activityRows.AddRange(taskRows);
 
             var aggregated = activityRows
                 .Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
@@ -275,12 +289,13 @@ internal static partial class SolutionsApiEndpoints
                     var distinct = g.GroupBy(x => x.AssignmentId)
                         .Select(a => new { Rating = a.Max(z => z.Rating), Last = a.Max(z => z.SubmittedAt) })
                         .ToList();
+                    var attempts = codeAttemptCounts.GetValueOrDefault(g.Key) + imageAttemptCounts.GetValueOrDefault(g.Key) + taskAttemptCounts.GetValueOrDefault(g.Key);
                     return new
                     {
                         UserId = g.Key,
                         SolvedAssignments = distinct.Count,
                         Score = distinct.Sum(x => x.Rating),
-                        TotalAttempts = g.Count(),
+                        TotalAttempts = attempts,
                         LastSubmitAt = distinct.Count == 0 ? (DateTimeOffset?)null : distinct.Max(x => x.Last)
                     };
                 })
