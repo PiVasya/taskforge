@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 
 import Layout from "../components/Layout";
-import QuotaPill from "../components/QuotaPill";
 import { Card, Button, Input, Textarea, Badge } from "../components/ui";
 
 import { getCourse } from "../api/courses";
@@ -16,12 +15,11 @@ import {
   updateAssignmentSort,
   moveAssignmentAfter,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, Bot, FileJson, Upload, X, Copy, Sparkles, Download } from "lucide-react";
+import { Plus, Layers, CheckCircle2, FileJson, Upload, X, Copy, Sparkles, Download } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { notifyOnce } from "../utils/notifyOnce";
-import { useRoleFlags } from "../contexts/EditorModeContext";
 
 function previewAssignmentTitle(value, fallback = 'Без названия') {
   const text = String(value || '')
@@ -391,8 +389,6 @@ export default function CourseAssignmentsPage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const notify = useNotify();
-  const { isAdmin } = useRoleFlags();
-
   const [items, setItems] = useState([]);
   const [course, setCourse] = useState(null);
   const [courseCanEdit, setCourseCanEdit] = useState(true);
@@ -743,21 +739,18 @@ export default function CourseAssignmentsPage() {
     <Layout>
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <Button variant="outline" title="Вернуться к курсам" className="shrink-0" onClick={() => nav("/courses")}>
-            ← Курсы
-          </Button>
-          <h1 className="min-w-0 text-xl font-semibold leading-tight sm:text-2xl flex items-center gap-2 flex-wrap">
-            <Layers size={22} className="shrink-0" /> <span className="break-words">{course?.title || "Задания курса"}</span>
-          </h1>
-          </div>
-          <div className="mt-4 max-w-xl">
-            {course?.description ? (
-              <p className="text-sm leading-6 text-neutral-500">{course.description}</p>
-            ) : null}
-            <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.18)] p-4">
-              <div className="mb-3 text-xs font-medium text-neutral-500">{courseProgress.solved}/{courseProgress.total}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <Button variant="outline" title="Вернуться к курсам" className="shrink-0" onClick={() => nav("/courses")}>
+                ← Курсы
+              </Button>
+              <h1 className="min-w-0 text-xl font-semibold leading-tight sm:text-2xl flex items-center gap-2 flex-wrap">
+                <Layers size={22} className="shrink-0" /> <span className="break-words">{course?.title || "Задания курса"}</span>
+              </h1>
+            </div>
+            <div className="w-full max-w-[420px] rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.18)] px-4 py-3 lg:ml-2 lg:max-w-[360px]">
+              <div className="mb-2 text-xs font-medium text-neutral-500">{courseProgress.solved}/{courseProgress.total}</div>
               <div className="h-2 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-white/10">
                 <div
                   className="h-full rounded-full bg-[rgb(var(--accent))] transition-all duration-500"
@@ -766,15 +759,12 @@ export default function CourseAssignmentsPage() {
               </div>
             </div>
           </div>
+          {course?.description ? (
+            <p className="mt-4 max-w-3xl text-sm leading-6 text-neutral-500">{course.description}</p>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">
-          {isAdmin && (
-            <Button variant="outline" className="w-full sm:w-auto" title="Открыть AI-ассистент курса" onClick={() => nav(`/admin/ai?courseId=${courseId}`)}>
-              <Bot size={16} /> AI
-            </Button>
-          )}
-          <div className="min-w-0 xl:min-w-[170px]"><QuotaPill bucket="tasks" /></div>
           <div className="min-w-0 xl:min-w-[190px]">
             <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input w-full" title="Сортировка">
               {SORT_OPTIONS.map((o) => (
