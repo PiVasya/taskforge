@@ -92,19 +92,25 @@ const CREATE_OPTIONS = [
   },
 ];
 
-const JSON_IMPORT_EXAMPLE_OBJECT = {
-  schemaVersion: 1,
-  format: "taskforge-course-assignment-import",
-  authoringNotes: [
-    "Корневой объект может содержать assignments/items/tasks или быть обычным массивом заданий.",
-    "Каждый элемент массива станет отдельным заданием курса.",
-    "Типы можно смешивать в одном файле: code-test, test, image-test, math.",
-    "Для image-test вместо expectedImageKey можно передать expectedImageBase64 с data:image/png;base64,...; сервер переложит картинку в файловое хранилище.",
-    "Описание можно передавать plain text или HTML; потом его можно красиво отредактировать в визуальном редакторе.",
-    "Заготовку кода для ученика можно передавать через starterCode, templateCode или initialCode; поле также редактируется в обычном редакторе задания.",
-    "Если передать id существующего задания из этого курса, импорт обновит это задание вместо создания нового."
-  ],
-  assignments: [
+const ZERO_GUID = "00000000-0000-0000-0000-000000000000";
+
+function makeImportExamplePayload(assignments, authoringNotes = []) {
+  return {
+    schemaVersion: 1,
+    format: "taskforge-course-assignment-import",
+    authoringNotes: [
+      "Корневой объект может содержать assignments/items/tasks или быть обычным массивом заданий.",
+      "Каждый элемент массива станет отдельным заданием курса.",
+      "Если передать id существующего задания из этого курса, импорт обновит это задание вместо создания нового.",
+      "Описание можно передавать plain text или HTML; потом его можно отредактировать в визуальном редакторе.",
+      ...authoringNotes,
+    ],
+    assignments,
+  };
+}
+
+const CODE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
+  [
     {
       type: "code-test",
       title: "Сумма двух чисел",
@@ -113,39 +119,41 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
       allowedLanguages: ["cpp", "python", "csharp", "javascript", "pascal", "java"],
       difficulty: 1,
       rating: 1,
-      tags: ["ОАИП", "ввод-вывод", "арифметика"],
-      starterCode: "#include <iostream>\nusing namespace std;\n\nint main() {\n    long long a, b;\n    cin >> a >> b;\n    cout << a + b;\n    return 0;\n}\n",
+      sort: 0,
+      tags: ["ОАИП", "код", "ввод-вывод", "арифметика"],
+      starterCode: "#include <iostream>\nusing namespace std;\n\nint main()\n{\n    // Ваш код здесь\n\n    return 0;\n}\n",
       codeForbiddenCalls: ["system", "exec", "fork"],
-      codeRequiredCalls: [],
+      codeRequiredCalls: ["cin", "cout"],
       testCases: [
         { input: "2 4", expectedOutput: "6", isHidden: false },
         { input: "-5 12", expectedOutput: "7", isHidden: false },
-        { input: "1000000000 1000000000", expectedOutput: "2000000000", isHidden: true }
-      ]
+        { input: "1000000000 1000000000", expectedOutput: "2000000000", isHidden: true },
+      ],
+      isVisible: true,
+      isHidden: false,
     },
-    {
-      type: "code-test",
-      title: "Количество слов в строке",
-      description: "Считайте строку и выведите количество слов. Словом считается непустая последовательность символов, отделённая пробелами.",
-      language: "python",
-      allowedLanguages: ["python", "cpp", "csharp", "javascript"],
-      difficulty: 1,
-      rating: 2,
-      tags: "строки, split, базовый ввод",
-      starterCode: "s = input()\nprint(len(s.split()))\n",
-      testCases: [
-        { input: "hello world", expectedOutput: "2", isHidden: false },
-        { input: "  one   two three  ", expectedOutput: "3", isHidden: false },
-        { input: "     ", expectedOutput: "0", isHidden: true }
-      ]
-    },
+  ],
+  [
+    "code-test — один тип задания для любых языков программирования.",
+    "Язык меняется полем language: cpp, python, csharp, javascript, pascal или java.",
+    "allowedLanguages задаёт языки, доступные ученику в редакторе.",
+    "starterCode меняется под выбранный язык. Для Python это может быть '# Ваш код здесь\n'.",
+    "codeRequiredCalls и codeForbiddenCalls опциональны: они нужны только если надо проверить наличие/запрет конкретных вызовов.",
+    "testCases можно также назвать tests, но для code-test понятнее использовать testCases.",
+    "isHidden=true скрывает тест от ученика.",
+  ],
+);
+
+const TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
+  [
     {
       type: "test",
-      title: "Мини-тест по JSON и типам данных",
-      description: "Ответьте на вопросы. В текстовых ответах лишние пробелы можно не учитывать.",
+      title: "Мини-тест по JSON",
+      description: "Ответьте на вопросы. Есть один выбор, несколько вариантов и краткий текстовый ответ.",
       difficulty: 1,
       rating: 3,
-      tags: ["теория", "json", "форматы данных"],
+      sort: 0,
+      tags: ["теория", "json", "тест"],
       tests: {
         settings: {
           maxAttempts: 2,
@@ -153,11 +161,11 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
           shuffleQuestions: true,
           shuffleAnswers: true,
           allowReview: true,
-          attemptTimeLimitsSeconds: [null, 600]
+          attemptTimeLimitsSeconds: [null, 600],
         },
         questions: [
           {
-            id: "00000000-0000-0000-0000-000000000000",
+            id: ZERO_GUID,
             order: 0,
             type: "single-choice",
             prompt: "Какой тип данных JSON используется для true/false?",
@@ -165,15 +173,15 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
               { key: "a", text: "string" },
               { key: "b", text: "boolean" },
               { key: "c", text: "array" },
-              { key: "d", text: "number" }
+              { key: "d", text: "number" },
             ],
             correctOptionKeys: ["b"],
             acceptedAnswers: [],
             caseSensitive: false,
-            trim: true
+            trim: true,
           },
           {
-            id: "00000000-0000-0000-0000-000000000000",
+            id: ZERO_GUID,
             order: 1,
             type: "multi-choice",
             prompt: "Какие структуры верхнего уровня допустимы в JSON?",
@@ -181,15 +189,15 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
               { key: "a", text: "object" },
               { key: "b", text: "array" },
               { key: "c", text: "function" },
-              { key: "d", text: "class" }
+              { key: "d", text: "class" },
             ],
             correctOptionKeys: ["a", "b"],
             acceptedAnswers: [],
             caseSensitive: false,
-            trim: true
+            trim: true,
           },
           {
-            id: "00000000-0000-0000-0000-000000000000",
+            id: ZERO_GUID,
             order: 2,
             type: "text",
             prompt: "Напишите расширение файла JSON без точки.",
@@ -197,29 +205,42 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
             correctOptionKeys: [],
             acceptedAnswers: ["json", "JSON"],
             caseSensitive: false,
-            trim: true
-          }
-        ]
-      }
+            trim: true,
+          },
+        ],
+      },
+      isVisible: true,
+      isHidden: false,
     },
+  ],
+  [
+    "test хранит вопросы в tests.questions.",
+    "type вопроса: single-choice, multi-choice или text.",
+    "Для text-вопроса варианты не нужны: правильные ответы лежат в acceptedAnswers.",
+  ],
+);
+
+const MATH_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
+  [
     {
       type: "math",
       title: "Линейное уравнение и соответствия",
       description: "Решите несколько коротких математических блоков.",
       difficulty: 2,
       rating: 4,
-      tags: "математика, уравнения, соответствия",
+      sort: 0,
+      tags: ["математика", "уравнения", "соответствия"],
       tests: {
         settings: {
           maxAttempts: 2,
           passPercent: 75,
           shuffleBlocks: false,
           allowReview: true,
-          attemptTimeLimitsSeconds: [null]
+          attemptTimeLimitsSeconds: [null],
         },
         blocks: [
           {
-            id: "00000000-0000-0000-0000-000000000000",
+            id: ZERO_GUID,
             order: 0,
             kind: "info",
             prompt: "Дано уравнение 2x + 6 = 14. Найдите x.",
@@ -235,10 +256,10 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
             orderItems: [],
             matchLeftItems: [],
             matchRightItems: [],
-            matchPairs: []
+            matchPairs: [],
           },
           {
-            id: "00000000-0000-0000-0000-000000000000",
+            id: ZERO_GUID,
             order: 1,
             kind: "number",
             prompt: "Введите значение x.",
@@ -254,10 +275,10 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
             orderItems: [],
             matchLeftItems: [],
             matchRightItems: [],
-            matchPairs: []
+            matchPairs: [],
           },
           {
-            id: "00000000-0000-0000-0000-000000000000",
+            id: ZERO_GUID,
             order: 2,
             kind: "match",
             prompt: "Сопоставьте выражение и значение.",
@@ -274,30 +295,43 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
             matchLeftItems: [
               { key: "l1", text: "2 + 3" },
               { key: "l2", text: "3 * 4" },
-              { key: "l3", text: "10 - 7" }
+              { key: "l3", text: "10 - 7" },
             ],
             matchRightItems: [
               { key: "r1", text: "5" },
               { key: "r2", text: "12" },
-              { key: "r3", text: "3" }
+              { key: "r3", text: "3" },
             ],
             matchPairs: [
               { leftKey: "l1", rightKey: "r1" },
               { leftKey: "l2", rightKey: "r2" },
-              { leftKey: "l3", rightKey: "r3" }
-            ]
-          }
-        ]
-      }
+              { leftKey: "l3", rightKey: "r3" },
+            ],
+          },
+        ],
+      },
+      isVisible: true,
+      isHidden: false,
     },
+  ],
+  [
+    "math хранит блоки в tests.blocks.",
+    "kind может быть info, number, text, single-choice, multi-choice, order или match.",
+    "Для match используются matchLeftItems, matchRightItems и matchPairs.",
+  ],
+);
+
+const IMAGE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
+  [
     {
       type: "image-test",
-      title: "Нарисовать красную диагональ",
-      description: "Программа должна построить изображение 200x200 и провести диагональ из левого верхнего угла в правый нижний. Для реального задания добавьте expectedImageBase64 или загрузите эталон в редакторе после импорта.",
+      title: "Нарисовать диагональ",
+      description: "Программа должна построить изображение 200x200 и провести диагональ из левого верхнего угла в правый нижний. После импорта можно загрузить эталон в редакторе задания.",
       language: "python",
       allowedLanguages: ["python", "pascal", "cpp"],
       difficulty: 2,
       rating: 5,
+      sort: 0,
       tags: ["графика", "image-test", "turtle"],
       starterCode: "import turtle\n\nt = turtle.Turtle()\nt.color('red')\nt.goto(100, -100)\nturtle.done()\n",
       imageTestSimilarityThreshold: 90,
@@ -310,14 +344,71 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
           expectedImageBase64: "",
           expectedImageContentType: "image/png",
           expectedImageFileName: "diagonal-reference.png",
-          authoringHint: "Замените expectedImageBase64 на data:image/png;base64,... или загрузите эталон в редакторе."
-        }
-      ]
-    }
-  ]
-};
+          authoringHint: "Замените expectedImageBase64 на data:image/png;base64,... или загрузите эталон в редакторе после импорта.",
+        },
+      ],
+      isVisible: true,
+      isHidden: false,
+    },
+  ],
+  [
+    "image-test использует те же testCases, но дополнительно нужен эталон изображения.",
+    "expectedImageBase64 можно оставить пустым и загрузить эталон через редактор после импорта.",
+  ],
+);
 
-const JSON_IMPORT_EXAMPLE = JSON.stringify(JSON_IMPORT_EXAMPLE_OBJECT, null, 2);
+const MIXED_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
+  [
+    CODE_TEST_ASSIGNMENT_EXAMPLE.assignments[0],
+    TEST_ASSIGNMENT_EXAMPLE.assignments[0],
+    MATH_ASSIGNMENT_EXAMPLE.assignments[0],
+    IMAGE_TEST_ASSIGNMENT_EXAMPLE.assignments[0],
+  ],
+  [
+    "Это смешанный пример: сразу code-test, test, math и image-test в одном файле.",
+    "Можно удалить лишние элементы из assignments и оставить только нужные задания.",
+  ],
+);
+
+const JSON_IMPORT_EXAMPLES = [
+  {
+    key: "code-test",
+    title: "Код-тест",
+    type: "code-test",
+    description: "Один пример для любого языка: меняются language, allowedLanguages, starterCode и testCases.",
+    payload: CODE_TEST_ASSIGNMENT_EXAMPLE,
+  },
+  {
+    key: "test",
+    title: "Тест",
+    type: "test",
+    description: "single-choice, multi-choice и текстовый ответ внутри одного теста.",
+    payload: TEST_ASSIGNMENT_EXAMPLE,
+  },
+  {
+    key: "math",
+    title: "Math",
+    type: "math",
+    description: "Информационный блок, числовой ответ и сопоставление.",
+    payload: MATH_ASSIGNMENT_EXAMPLE,
+  },
+  {
+    key: "image-test",
+    title: "Image-test",
+    type: "image-test",
+    description: "Графическая задача с порогом похожести и местом для эталона.",
+    payload: IMAGE_TEST_ASSIGNMENT_EXAMPLE,
+  },
+  {
+    key: "mixed",
+    title: "Смешанный файл",
+    type: "mixed",
+    description: "Все основные виды заданий сразу, как большой пример для нейронки.",
+    payload: MIXED_ASSIGNMENT_EXAMPLE,
+  },
+];
+
+const JSON_IMPORT_EXAMPLE = JSON.stringify(MIXED_ASSIGNMENT_EXAMPLE, null, 2);
 
 function buildDefaultAssignmentPayload(type, sort) {
   const normalized = type || "code-test";
@@ -667,6 +758,22 @@ export default function CourseAssignmentsPage() {
     }
   };
 
+  const exampleToText = (example) => JSON.stringify(example.payload, null, 2);
+
+  const handleUseJsonExample = (example) => {
+    handleJsonImportTextChange(exampleToText(example));
+    notify.info(`В редактор вставлен пример: ${example.title}`);
+  };
+
+  const handleCopyJsonExample = async (example) => {
+    try {
+      await navigator.clipboard.writeText(exampleToText(example));
+      notify.success(`Скопирован пример: ${example.title}`);
+    } catch {
+      notify.warn("Браузер не дал скопировать автоматически");
+    }
+  };
+
   const handleJsonFile = async (file) => {
     if (!file) return;
     try {
@@ -886,8 +993,40 @@ export default function CourseAssignmentsPage() {
                       Форматировать
                     </Button>
                     <Button variant="outline" onClick={() => handleJsonImportTextChange(JSON_IMPORT_EXAMPLE)}>
-                      Вернуть пример
+                      Смешанный пример
                     </Button>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-dashed border-[rgba(var(--border)/0.85)] bg-[rgb(var(--card))]/70 p-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold">Готовые примеры под каждый вид задания</div>
+                      <div className="text-xs leading-5 text-neutral-500">
+                        Кнопка «Копировать» сразу кладёт нужный шаблон в буфер обмена. Кнопка «В редактор» вставляет его в поле импорта ниже.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {JSON_IMPORT_EXAMPLES.map((example) => (
+                      <div key={example.key} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/25 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold">{example.title}</div>
+                            <div className="mt-1 text-xs leading-5 text-neutral-500">{example.description}</div>
+                          </div>
+                          <Badge variant="outline" className="shrink-0">{example.type}</Badge>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button variant="outline" onClick={() => handleCopyJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
+                            <Copy size={14} /> Копировать
+                          </Button>
+                          <Button variant="outline" onClick={() => handleUseJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
+                            В редактор
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
